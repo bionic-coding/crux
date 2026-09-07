@@ -1,7 +1,9 @@
 <!-- generated-from: README.md@sha256:8e7157fd9f9ae3834169c6209dac18cb98ecef9617f6e0908a6d3dd4e0f687be; model: claude-fable-5.1; date: 2026-09-07 -->
-# crux
+# Crux
 
-A Claude Code plugin that maintains a `./bionic/` tree inside any software project — so that Claude can navigate, query, and update project knowledge without anyone having to remember where things go. Everything runs locally — no server, no accounts, no background service: just skills, scripts, and your repo.
+An Agentic Harness plugin that maintains a `./bionic/` tree inside any software project — so that Claude can navigate, query, and update project knowledge without anyone having to remember where things go. Everything runs locally — no server, no accounts, no background service: just skills, scripts, and your repo.
+
+[https://bionic-coding.com/crux/](https://bionic-coding.com/crux/)
 
 ## Install
 
