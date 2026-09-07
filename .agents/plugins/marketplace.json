@@ -1,0 +1,20 @@
+{
+  "name": "crux",
+  "interface": {
+    "displayName": "Crux"
+  },
+  "plugins": [
+    {
+      "name": "crux",
+      "source": {
+        "source": "local",
+        "path": "./crux"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

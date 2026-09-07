@@ -1,0 +1,753 @@
+{
+  "version": "2.1.0",
+  "updated": "2026-09-04",
+  "providers": {
+    "openrouter": {
+      "base_url": "https://openrouter.ai/api/v1",
+      "auth_header": "Authorization",
+      "auth_prefix": "Bearer "
+    }
+  },
+  "models": {
+    "gpt-6-astra": {
+      "provider": "openrouter",
+      "api_string": "openai/gpt-6-astra",
+      "serving_providers": [
+        "openai"
+      ],
+      "display_name": "GPT-6 Astra",
+      "_note": "OpenRouter model and endpoint catalogs verified 2026-09-04: https://openrouter.ai/api/v1/models/openai/gpt-6-astra/endpoints. Replaces Sol in the async text and visual council OpenAI seat through openai_top. No effort pin: the gateway default is medium. The separate Codex apex tier pins high effort.",
+      "supports_temperature": false,
+      "type": "text",
+      "tier": "frontier_max",
+      "context_window": 1050000,
+      "max_output_tokens": 128000,
+      "cost": {
+        "input_per_1m": 10.0,
+        "output_per_1m": 50.0,
+        "cached_input_per_1m": 1.0
+      },
+      "_pricing_note": "Above 272000 input tokens, input is $20, output is $75, and cached input is $2 per 1M tokens. Verified 2026-09-04 against the OpenRouter model catalog.",
+      "judge_eligible": true,
+      "judge_tier": 0,
+      "can_judge": [
+        "*"
+      ]
+    },
+    "gpt-5.6-sol": {
+      "provider": "openrouter",
+      "api_string": "openai/gpt-5.6-sol",
+      "serving_providers": [
+        "openai"
+      ],
+      "display_name": "GPT-5.6 Sol",
+      "_note": "Alias `gpt-5.6` resolves to Sol. Frontier flagship for complex reasoning + coding; replaces gpt-5.2-pro AND o3. Reached over OpenRouter chat-completions (PB-0077); the /v1/responses path is retired. Reasoning effort is request-controlled (none/low/medium/high/xhigh/max) and rides the gateway's top-level reasoning_effort field; this entry pins no effort, so the model's own default applies — gpt-5.6-sol-low is the pinned-LOW alias. Rejects non-default temperature. Tools: functions, web_search, file_search, computer_use. Knowledge cutoff 2026-02-16. Pricing VERIFIED against the OpenRouter catalog 2026-08-26: $2 per 1M input / $10 per 1M output (correcting the earlier unverified $5/$30); cached-input pricing omitted pending verification.",
+      "supports_temperature": false,
+      "type": "text",
+      "tier": "frontier_max",
+      "capabilities": {
+        "reasoning": 0.99,
+        "coding": 0.98,
+        "creative": 0.92,
+        "math": 0.98,
+        "vision": true,
+        "function_calling": true,
+        "structured_output": true,
+        "extended_thinking": true,
+        "agentic": true,
+        "computer_use": true,
+        "web_search": true
+      },
+      "context_window": 1050000,
+      "max_output_tokens": 128000,
+      "cost": {
+        "input_per_1m": 2.0,
+        "output_per_1m": 10.0
+      },
+      "latency_profile": "slow",
+      "judge_eligible": true,
+      "judge_tier": 0,
+      "can_judge": [
+        "*"
+      ],
+      "routing_hints": {
+        "use_for": [
+          "complex_reasoning",
+          "agentic_coding",
+          "architecture_decisions",
+          "final_review",
+          "supreme_arbiter"
+        ],
+        "avoid_for": [
+          "simple_queries",
+          "high_volume",
+          "latency_sensitive"
+        ]
+      }
+    },
+    "gpt-5.6-sol-low": {
+      "provider": "openrouter",
+      "api_string": "openai/gpt-5.6-sol",
+      "display_name": "GPT-5.6 Sol (low effort)",
+      "_note": "Same SKU as gpt-5.6-sol, pinned to LOW reasoning effort, for a fast lane where a flagship judgment at reduced latency and cost beats a full-effort deliberation. Mirrors the claude-fable-5.1 / claude-fable-5.1-medium effort-alias pattern. No model_roles entry resolves here today — the fast_council role this note once named does not exist — so the pin is reachable only by naming this key directly. The caller emits the pin as the top-level reasoning_effort field on OpenRouter chat-completions (PB-0077), so the LOW pin is live. Rejects non-default temperature. Pricing VERIFIED against the OpenRouter catalog 2026-08-26: $2 per 1M input / $10 per 1M output (correcting the earlier unverified $5/$30); cached-input pricing omitted pending verification.",
+      "effort": "low",
+      "supports_temperature": false,
+      "type": "text",
+      "tier": "frontier_max",
+      "capabilities": {
+        "reasoning": 0.99,
+        "coding": 0.98,
+        "creative": 0.92,
+        "math": 0.98,
+        "vision": true,
+        "function_calling": true,
+        "structured_output": true,
+        "extended_thinking": true,
+        "agentic": true,
+        "computer_use": true,
+        "web_search": true
+      },
+      "context_window": 1050000,
+      "max_output_tokens": 128000,
+      "cost": {
+        "input_per_1m": 2.0,
+        "output_per_1m": 10.0
+      },
+      "latency_profile": "medium",
+      "judge_eligible": true,
+      "judge_tier": 0,
+      "can_judge": [
+        "*"
+      ],
+      "routing_hints": {
+        "use_for": [
+          "fast_arbiter",
+          "quick_adjudication"
+        ],
+        "avoid_for": [
+          "deep_reasoning"
+        ]
+      }
+    },
+    "gpt-5.6-terra": {
+      "provider": "openrouter",
+      "api_string": "openai/gpt-5.6-terra",
+      "display_name": "GPT-5.6 Terra",
+      "_note": "Balances intelligence and cost; replaces the retired 5.5-generation mid-tier model, gpt-5.2, gpt-5.2-chat-latest. Reached over OpenRouter chat-completions (PB-0077); the /v1/responses path is retired. Rejects non-default temperature. Effort request-controlled; the caller emits it as the top-level reasoning_effort field, and this entry pins no effort. Tools: functions, web_search, file_search, computer_use. Knowledge cutoff 2026-02-16. Pricing UNVERIFIED — no authoritative local source; cached-input pricing omitted pending verification.",
+      "supports_temperature": false,
+      "type": "text",
+      "tier": "frontier",
+      "capabilities": {
+        "reasoning": 0.93,
+        "coding": 0.95,
+        "creative": 0.9,
+        "math": 0.92,
+        "vision": true,
+        "function_calling": true,
+        "structured_output": true,
+        "extended_thinking": true,
+        "agentic": true,
+        "computer_use": true,
+        "web_search": true
+      },
+      "context_window": 1050000,
+      "max_output_tokens": 128000,
+      "cost": {
+        "input_per_1m": 2.5,
+        "output_per_1m": 15.0
+      },
+      "latency_profile": "fast",
+      "judge_eligible": true,
+      "judge_tier": 1,
+      "can_judge": [
+        "tier_2",
+        "tier_3",
+        "tier_4",
+        "worker"
+      ],
+      "routing_hints": {
+        "use_for": [
+          "balanced_tasks",
+          "coding",
+          "agentic_workflows",
+          "general_purpose",
+          "standard_judge"
+        ],
+        "avoid_for": [
+          "extreme_reasoning"
+        ]
+      }
+    },
+    "gpt-5.6-luna": {
+      "provider": "openrouter",
+      "api_string": "openai/gpt-5.6-luna",
+      "display_name": "GPT-5.6 Luna",
+      "_note": "Cost-sensitive / high-volume. Replaces o4-mini. Reached over OpenRouter chat-completions (PB-0077); the /v1/responses path is retired. Rejects non-default temperature. Effort request-controlled; the caller emits it as the top-level reasoning_effort field, and this entry pins no effort. Tools: functions, web_search, file_search, computer_use. Knowledge cutoff 2026-02-16. Pricing UNVERIFIED — no authoritative local source; cached-input pricing omitted pending verification.",
+      "supports_temperature": false,
+      "type": "text",
+      "tier": "fast",
+      "capabilities": {
+        "reasoning": 0.85,
+        "coding": 0.86,
+        "creative": 0.8,
+        "math": 0.85,
+        "vision": true,
+        "function_calling": true,
+        "structured_output": true,
+        "extended_thinking": true,
+        "agentic": true,
+        "computer_use": true,
+        "web_search": true
+      },
+      "context_window": 1050000,
+      "max_output_tokens": 128000,
+      "cost": {
+        "input_per_1m": 1.0,
+        "output_per_1m": 6.0
+      },
+      "latency_profile": "very_fast",
+      "judge_eligible": true,
+      "judge_tier": 3,
+      "can_judge": [
+        "tier_4",
+        "worker"
+      ],
+      "routing_hints": {
+        "use_for": [
+          "cost_effective",
+          "high_volume",
+          "batch_processing",
+          "quick_tasks"
+        ],
+        "avoid_for": [
+          "frontier_quality",
+          "complex_reasoning"
+        ]
+      }
+    },
+    "gpt-image-2": {
+      "provider": "openrouter",
+      "api_string": "openai/gpt-5.4-image-2",
+      "display_name": "GPT Image 2",
+      "_note": "Re-pointed at the fused OpenRouter SKU openai/gpt-5.4-image-2 — GPT-5.4 with GPT Image 2 generation fused into one chat-completions model; OpenRouter serves no standalone gpt-image-2 slug (PB-0077, verified against openrouter.ai/api/v1/models 2026-08-26). Snapshot lineage: gpt-image-2-2026-04-21, replacing gpt-image-1 (GPT Image 1.5).",
+      "type": "image_generation",
+      "tier": "image_gen",
+      "capabilities": {
+        "text_rendering": 0.95,
+        "photorealism": 0.92,
+        "artistic_styles": 0.9,
+        "inpainting": true,
+        "outpainting": true,
+        "variations": true
+      },
+      "output_formats": [
+        "png",
+        "webp"
+      ],
+      "max_resolution": "4096x4096",
+      "cost": {
+        "standard_per_image": 0.04,
+        "hd_per_image": 0.08
+      },
+      "latency_profile": "medium",
+      "judge_eligible": false,
+      "routing_hints": {
+        "use_for": [
+          "image_generation",
+          "text_in_images",
+          "photorealistic"
+        ]
+      }
+    },
+    "claude-fable-5.1": {
+      "provider": "openrouter",
+      "api_string": "anthropic/claude-fable-5.1",
+      "serving_providers": [
+        "anthropic"
+      ],
+      "display_name": "Claude Fable 5.1",
+      "_note": "Fable 5.1 replaces Fable 5. OpenRouter id, context, output limit, pricing, reasoning efforts, and temperature omission verified 2026-09-03 against https://openrouter.ai/api/v1/models. Capability scores are inherited estimates, not Fable 5.1 measurements. Pins HIGH effort for anthropic_top, council_arbiter, and think_deep. The async text and visual councils and the sync arbiter resolve here.",
+      "effort": "high",
+      "supports_temperature": false,
+      "type": "text",
+      "tier": "frontier_max",
+      "capabilities": {
+        "reasoning": 0.995,
+        "coding": 0.99,
+        "creative": 0.99,
+        "math": 0.98,
+        "vision": true,
+        "function_calling": true,
+        "structured_output": true,
+        "extended_thinking": true,
+        "extended_thinking_mode": "adaptive_only",
+        "agentic": true,
+        "computer_use": true,
+        "web_search": true
+      },
+      "context_window": 1000000,
+      "max_output_tokens": 128000,
+      "cost": {
+        "input_per_1m": 10.0,
+        "output_per_1m": 50.0,
+        "cached_input_per_1m": 0.25
+      },
+      "latency_profile": "slow",
+      "judge_eligible": true,
+      "judge_tier": 0,
+      "can_judge": [
+        "*"
+      ],
+      "routing_hints": {
+        "use_for": [
+          "nuanced_analysis",
+          "complex_reasoning",
+          "architecture",
+          "council_arbiter",
+          "deep_thinking"
+        ],
+        "avoid_for": [
+          "simple_tasks",
+          "high_volume"
+        ]
+      }
+    },
+    "claude-fable-5.1-medium": {
+      "provider": "openrouter",
+      "api_string": "anthropic/claude-fable-5.1",
+      "display_name": "Claude Fable 5.1 (medium effort)",
+      "_note": "Fable 5.1 replaces Fable 5. OpenRouter id, context, output limit, pricing, reasoning efforts, and temperature omission verified 2026-09-03 against https://openrouter.ai/api/v1/models. Capability scores are inherited estimates, not Fable 5.1 measurements. Same API model as claude-fable-5.1, pinned to MEDIUM effort for the synchronous council_default seat.",
+      "effort": "medium",
+      "supports_temperature": false,
+      "type": "text",
+      "tier": "frontier_max",
+      "capabilities": {
+        "reasoning": 0.99,
+        "coding": 0.99,
+        "creative": 0.99,
+        "math": 0.97,
+        "vision": true,
+        "function_calling": true,
+        "structured_output": true,
+        "extended_thinking": true,
+        "extended_thinking_mode": "adaptive_only",
+        "agentic": true,
+        "computer_use": true,
+        "web_search": true
+      },
+      "context_window": 1000000,
+      "max_output_tokens": 128000,
+      "cost": {
+        "input_per_1m": 10.0,
+        "output_per_1m": 50.0,
+        "cached_input_per_1m": 0.25
+      },
+      "latency_profile": "medium",
+      "judge_eligible": true,
+      "judge_tier": 0,
+      "can_judge": [
+        "*"
+      ],
+      "routing_hints": {
+        "use_for": [
+          "council_member",
+          "balanced_reasoning"
+        ],
+        "avoid_for": [
+          "simple_tasks",
+          "high_volume"
+        ]
+      }
+    },
+    "claude-opus-5": {
+      "provider": "openrouter",
+      "api_string": "anthropic/claude-opus-5",
+      "display_name": "Claude Opus 5",
+      "_note": "Successor to claude-opus-4-8; drop-in at identical economics ($5/$25 per 1M, cached $0.50), 1M context, 128K max output. Thinking is adaptive-only AND on by default (omitting `thinking` runs adaptive; disabling thinking is capped at effort<=high). Rejects the temperature param. Separate rate-limit bucket from the Opus 4.x pool. SPECS TO RE-VERIFY against a fresh anthropic-models-overview capture (pricing/context reused from Opus 4.8, which Opus 5 matches; release date intentionally omitted pending a dated source).",
+      "supports_temperature": false,
+      "type": "text",
+      "tier": "frontier_max",
+      "capabilities": {
+        "reasoning": 0.99,
+        "coding": 0.98,
+        "creative": 0.99,
+        "math": 0.97,
+        "vision": true,
+        "function_calling": true,
+        "structured_output": true,
+        "extended_thinking": true,
+        "extended_thinking_mode": "adaptive_only",
+        "agentic": true,
+        "computer_use": true,
+        "web_search": true
+      },
+      "context_window": 1000000,
+      "max_output_tokens": 128000,
+      "cost": {
+        "input_per_1m": 5.0,
+        "output_per_1m": 25.0,
+        "cached_input_per_1m": 0.5
+      },
+      "latency_profile": "slow",
+      "judge_eligible": true,
+      "judge_tier": 0,
+      "can_judge": [
+        "*"
+      ],
+      "routing_hints": {
+        "use_for": [
+          "nuanced_analysis",
+          "creative_excellence",
+          "ethical_reasoning",
+          "complex_writing",
+          "council_arbiter"
+        ],
+        "avoid_for": [
+          "simple_tasks",
+          "high_volume"
+        ]
+      }
+    },
+    "claude-sonnet-5": {
+      "provider": "openrouter",
+      "api_string": "anthropic/claude-sonnet-5",
+      "display_name": "Claude Sonnet 5",
+      "_note": "Replaces claude-sonnet-4-6. Effort-controlled (adaptive thinking; effort defaults to high on the Claude API + Claude Code) and REJECTS the temperature param — a behavior change from Sonnet 4.6, which accepted it (verified via platform docs 2026-07-09). $3/$15 base; introductory $2/$10 through 2026-08-31. max_output_tokens corrected to 64000 per research/sources/anthropic-models-overview (2026-06-12) verification.",
+      "supports_temperature": false,
+      "type": "text",
+      "tier": "frontier",
+      "capabilities": {
+        "reasoning": 0.95,
+        "coding": 0.96,
+        "creative": 0.94,
+        "math": 0.92,
+        "vision": true,
+        "function_calling": true,
+        "structured_output": true,
+        "extended_thinking": true,
+        "agentic": true,
+        "computer_use": true,
+        "web_search": true,
+        "extended_thinking_mode": "adaptive_only"
+      },
+      "context_window": 1000000,
+      "max_output_tokens": 64000,
+      "cost": {
+        "input_per_1m": 3.0,
+        "output_per_1m": 15.0,
+        "cached_input_per_1m": 0.3
+      },
+      "latency_profile": "medium",
+      "judge_eligible": true,
+      "judge_tier": 2,
+      "can_judge": [
+        "tier_3",
+        "tier_4",
+        "worker"
+      ],
+      "routing_hints": {
+        "use_for": [
+          "balanced_tasks",
+          "coding",
+          "agentic_workflows",
+          "general_purpose"
+        ],
+        "avoid_for": [
+          "extreme_reasoning"
+        ]
+      }
+    },
+    "claude-haiku-4-5-20251001": {
+      "provider": "openrouter",
+      "api_string": "anthropic/claude-haiku-4.5",
+      "display_name": "Claude Haiku 4.5",
+      "type": "text",
+      "tier": "fast",
+      "capabilities": {
+        "reasoning": 0.82,
+        "coding": 0.85,
+        "creative": 0.8,
+        "math": 0.78,
+        "vision": true,
+        "function_calling": true,
+        "structured_output": true,
+        "extended_thinking": false,
+        "agentic": true,
+        "computer_use": true,
+        "web_search": false
+      },
+      "context_window": 200000,
+      "max_output_tokens": 8000,
+      "cost": {
+        "input_per_1m": 1.0,
+        "output_per_1m": 5.0,
+        "cached_input_per_1m": 0.1
+      },
+      "latency_profile": "very_fast",
+      "judge_eligible": false,
+      "judge_tier": 4,
+      "can_judge": [],
+      "routing_hints": {
+        "use_for": [
+          "high_volume",
+          "simple_tasks",
+          "classification",
+          "extraction",
+          "worker_tasks"
+        ],
+        "avoid_for": [
+          "complex_reasoning",
+          "judging"
+        ]
+      }
+    },
+    "gemini-3.1-pro-preview": {
+      "provider": "openrouter",
+      "api_string": "google/gemini-3.1-pro-preview",
+      "serving_providers": [
+        "google-ai-studio"
+      ],
+      "display_name": "Gemini 3.1 Pro (Preview)",
+      "type": "text",
+      "tier": "frontier",
+      "capabilities": {
+        "reasoning": 0.94,
+        "coding": 0.93,
+        "creative": 0.9,
+        "math": 0.92,
+        "vision": true,
+        "function_calling": true,
+        "structured_output": true,
+        "extended_thinking": true,
+        "agentic": true,
+        "grounding": true,
+        "web_search": true
+      },
+      "context_window": 1048576,
+      "max_output_tokens": 65536,
+      "cost": {
+        "input_per_1m": 2.0,
+        "output_per_1m": 12.0,
+        "cached_input_per_1m": 0.2
+      },
+      "latency_profile": "medium",
+      "judge_eligible": true,
+      "judge_tier": 1,
+      "can_judge": [
+        "tier_2",
+        "tier_3",
+        "tier_4",
+        "worker"
+      ],
+      "routing_hints": {
+        "use_for": [
+          "massive_context",
+          "long_document_analysis",
+          "multimodal",
+          "grounded_responses"
+        ],
+        "avoid_for": []
+      },
+      "_pricing_note": "TIERED: prompts >200k tokens are $4 in / $18 out. Base (<=200k) shown. -customtools endpoint variant available. Source: research/sources/gemini-api-pricing + gemini-3-1-pro-preview."
+    },
+    "gemini-3-pro-image-preview": {
+      "provider": "openrouter",
+      "api_string": "google/gemini-3-pro-image-preview",
+      "display_name": "Nano Banana Pro",
+      "type": "image_generation_and_editing",
+      "tier": "image_gen",
+      "capabilities": {
+        "text_rendering": 0.9,
+        "photorealism": 0.88,
+        "artistic_styles": 0.92,
+        "native_multimodal": true,
+        "interleaved_generation": true,
+        "inpainting": true,
+        "outpainting": true,
+        "style_transfer": true,
+        "object_removal": true,
+        "image_to_image": true
+      },
+      "output_formats": [
+        "png"
+      ],
+      "cost": {
+        "per_image": 0.03,
+        "per_edit": 0.04
+      },
+      "latency_profile": "medium",
+      "judge_eligible": false,
+      "routing_hints": {
+        "use_for": [
+          "artistic_images",
+          "multimodal_generation",
+          "image_editing",
+          "inpainting",
+          "modifications"
+        ]
+      },
+      "_note": "OpenRouter serves one Nano Banana Pro slug (google/gemini-3-pro-image-preview) for both generation and editing, so the former gemini-3-pro-image-preview-edit entry is folded in here (PB-0077). Its editing capabilities and per_edit cost are carried over verbatim."
+    },
+    "gemini-3.1-flash-image-preview": {
+      "provider": "openrouter",
+      "api_string": "google/gemini-3.1-flash-image-preview",
+      "display_name": "Nano Banana 2",
+      "type": "image_generation",
+      "tier": "image_gen_fast",
+      "capabilities": {
+        "text_rendering": 0.88,
+        "photorealism": 0.85,
+        "artistic_styles": 0.9,
+        "native_multimodal": true,
+        "interleaved_generation": true
+      },
+      "output_formats": [
+        "png"
+      ],
+      "cost": {
+        "per_image": 0.02
+      },
+      "latency_profile": "fast",
+      "judge_eligible": false,
+      "routing_hints": {
+        "use_for": [
+          "quick_images",
+          "high_volume_images",
+          "drafts",
+          "batch_image_generation"
+        ]
+      }
+    },
+    "gemini-2.5-flash-image": {
+      "provider": "openrouter",
+      "api_string": "google/gemini-2.5-flash-image",
+      "display_name": "Nano Banana (Legacy)",
+      "type": "image_generation",
+      "tier": "image_gen_legacy",
+      "capabilities": {
+        "text_rendering": 0.82,
+        "photorealism": 0.8,
+        "artistic_styles": 0.85,
+        "native_multimodal": true
+      },
+      "output_formats": [
+        "png"
+      ],
+      "cost": {
+        "per_image": 0.01
+      },
+      "latency_profile": "fast",
+      "judge_eligible": false,
+      "routing_hints": {
+        "use_for": [
+          "legacy_fallback"
+        ]
+      }
+    },
+    "gemini-3.5-flash": {
+      "provider": "openrouter",
+      "api_string": "google/gemini-3.5-flash",
+      "display_name": "Gemini 3.5 Flash",
+      "type": "text",
+      "tier": "frontier",
+      "capabilities": {
+        "reasoning": 0.94,
+        "coding": 0.93,
+        "creative": 0.9,
+        "math": 0.92,
+        "vision": true,
+        "function_calling": true,
+        "structured_output": true,
+        "extended_thinking": true,
+        "agentic": true,
+        "grounding": true,
+        "web_search": true
+      },
+      "context_window": 1048576,
+      "max_output_tokens": 65536,
+      "cost": {
+        "input_per_1m": 1.5,
+        "output_per_1m": 9.0,
+        "cached_input_per_1m": 0.15
+      },
+      "latency_profile": "fast",
+      "judge_eligible": true,
+      "judge_tier": 2,
+      "can_judge": [
+        "tier_2",
+        "tier_3",
+        "tier_4",
+        "worker"
+      ],
+      "routing_hints": {
+        "use_for": [
+          "massive_context",
+          "long_document_analysis",
+          "multimodal",
+          "grounded_responses"
+        ],
+        "avoid_for": []
+      },
+      "_note": "Frontier-class fast model; sub-agent/agentic-loop workhorse. Source: research/sources/gemini-3-5-flash + gemini-api-pricing."
+    }
+  },
+  "performance_tracking": {
+    "_comment": "IMPROVEMENT 1: Dynamic adaptation based on actual performance, not static scores",
+    "enabled": true,
+    "storage": "telemetry_db",
+    "metrics_tracked": {
+      "success_rate": "Per model, per task type success/failure",
+      "latency_p50": "Median response time",
+      "latency_p99": "Tail latency for reliability",
+      "judge_agreement_rate": "How often judges agree with human feedback",
+      "task_type_performance": "Model performance breakdown by task classification"
+    },
+    "adaptation_rules": {
+      "reweight_after_n_calls": 100,
+      "decay_factor": 0.95,
+      "promote_threshold": 0.1,
+      "demote_threshold": -0.1,
+      "min_calls_for_routing": 10
+    },
+    "alerts": {
+      "success_rate_below": 0.7,
+      "latency_spike_multiplier": 3.0,
+      "judge_disagreement_rate": 0.3
+    }
+  },
+  "model_roles": {
+    "_comment": "Single source of truth for default model selection. String roles return one model, list roles return a council.",
+    "google_top": "gemini-3.1-pro-preview",
+    "google_fast": "gemini-3.5-flash",
+    "anthropic_top": "claude-fable-5.1",
+    "anthropic_balanced": "claude-opus-5",
+    "anthropic_fast": "claude-sonnet-5",
+    "anthropic_council": "claude-opus-5",
+    "openai_top": "gpt-6-astra",
+    "openai_chat": "gpt-5.6-terra",
+    "council_default": [
+      "gpt-5.6-terra",
+      "gemini-3.1-pro-preview",
+      "claude-fable-5.1-medium"
+    ],
+    "council_code": [
+      "gpt-5.6-terra",
+      "claude-sonnet-5",
+      "gemini-3.1-pro-preview"
+    ],
+    "council_arbiter": "claude-fable-5.1",
+    "code_review": "claude-opus-5",
+    "vision": "gpt-5.6-sol",
+    "think_shallow": "gemini-3.5-flash",
+    "think_medium": "gpt-5.6-terra",
+    "think_deep": "claude-fable-5.1",
+    "plan": "gemini-3.1-pro-preview",
+    "reflect": "claude-opus-5",
+    "recursive_improve": [
+      "gpt-5.6-sol",
+      "claude-opus-5",
+      "gemini-3.1-pro-preview"
+    ]
+  },
+  "_changelog": "2026-09-04: Register openai/gpt-6-astra from the live OpenRouter catalog and move openai_top to Astra for async text and visual councils. Preserve the synchronous Terra seat and the separate Sol/low-effort entries. | 2.1.0 (2026-09-03): Upgrade the Fable council seats and shared Fable roles to claude-fable-5.1. Preserve high/medium effort pins. Verify model metadata against the live OpenRouter catalog; cached input is $0.25 per 1M tokens. | 2.0.0 (2026-08-26): OpenRouter is the single inference gateway (PB-0077). providers collapses to one openrouter entry (https://openrouter.ai/api/v1, Authorization: Bearer). Every model's provider is openrouter and its api_string is the verbatim OpenRouter id, pinned as-is and never normalized; the bare registry keys are UNCHANGED, so model_roles and every downstream reference need no edit. gpt-5.6-sol / gpt-5.6-sol-low pricing corrected to $2/$10 per 1M against the OpenRouter catalog. gemini-3-pro-image-preview-edit is FOLDED INTO gemini-3-pro-image-preview (OpenRouter serves one Nano Banana Pro slug for generation and editing) and gpt-image-2 is re-pointed at the fused SKU openai/gpt-5.4-image-2 (no standalone gpt-image-2 slug exists). claude-haiku-4-5-20251001 keeps its bare key but addresses anthropic/claude-haiku-4.5. The three council seats (gpt-5.6-sol, claude-fable-5, gemini-3.1-pro-preview) carry serving_providers, the provider.only allowlist that keeps the seats on three distinct serving hosts. openai_endpoint is DELETED from every entry — the gateway is OpenAI-compatible chat-completions only, and reasoning effort now rides the top-level reasoning_effort field. The eight reader-less blocks (judge_hierarchy, council_configurations, fallback_chains, routing_rules, pipelines, playbook_model_affinity, quality_metrics, recursive_improvement) are DELETED: nothing read them, and re-pinning them under renamed ids would be silent drift. performance_tracking is retained. | 1.5.0 (2026-07-24): Renamed the Anthropic Opus seat claude-opus-4-8 -> claude-opus-5 (Opus 5 released as the drop-in successor; identical $5/$25 per 1M pricing, cached $0.50, 1M context, 128K output, adaptive-only thinking that is now on by default). Every Opus routing seat now points at claude-opus-5: model_roles anthropic_balanced/anthropic_council/code_review/reflect/recursive_improve, judge_hierarchy, council_configurations, routing_rules, fallback chains, and pipelines (complex_refactor/documentation/architecture_decision/creative_generation reviewers). claude-fable-5 remains the flagship tier above Opus, and the sonnet/haiku cost tiers are unchanged. Pricing/context were carried over from Opus 4.8 (which Opus 5 matches) and are flagged for re-verification against a fresh anthropic-models-overview capture. Flagship hierarchy UNCHANGED: claude-fable-5 stays anthropic_top/council_arbiter/think_deep (Opus 5 kept in-place at the balanced/council/review seats). claude-opus-4-8 is REMOVED from the registry entirely — a fallback-only entry plus a `refusal_fallback` mapping were prototyped and then deliberately dropped before release because NO code read them: shipping a declarative-only mapping would have read as a live safety net that did not exist. Anthropic's server-side `fallbacks: \"default\"` beta is the real mechanism; wiring it is tracked as a follow-on. | 1.4.0 (2026-07-09): GPT-5.6 Sol/Sol-low/Terra/Luna is now the active OpenAI baseline (per PB-0037/PB-0038). GPT-5.5 and GPT-5.5-pro active identifiers were INTENTIONALLY REMOVED as part of this baseline switch — a deliberate compatibility break; they are NEVER aliased to any GPT-5.6 SKU. Imported Gemini 3.5 Flash (new model) and corrected Gemini 3.1 Pro (Preview) metadata/pricing (context_window, max_output_tokens, tiered cost, _pricing_note) from the production line's research-verified corrections (research/sources/gemini-api-pricing, gemini-3-1-pro-preview, gemini-3-5-flash); gemini-2.5-pro and gemini-2.5-flash (text) are retired in favor of these two across judge_hierarchy, council_configurations, routing_rules, and fallback_chains. claude-opus-4-8 and claude-sonnet-5 cross-verified against research/sources/anthropic-models-overview (2026-06-12); claude-sonnet-5 max_output_tokens corrected to 64000. GPT-5.6 SKU (Sol/Sol-low/Terra/Luna) cached_input_per_1m pricing was OMITTED — no authoritative local source exists for GPT-5.6 cache pricing — and each carries a Pricing UNVERIFIED note pending confirmation. claude-fable-5 and claude-fable-5-medium remain ACTIVE (not disabled) as the Anthropic flagship tier above Opus 4.8. Image models untouched."
+}

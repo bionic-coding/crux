@@ -1,0 +1,96 @@
+#!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.13"
+# dependencies = ["pyyaml>=6.0"]
+# ///
+"""check-governs-coverage.py — the governs-coverage GATE.
+
+Per ADR-0085 (governs block) and its `adr.governs_from` cohort boundary: an
+ADR numbered >= `governs_from` is COVERED iff it carries a non-empty `governs`
+list OR is listed in the optional `adr.governs_exempt` manifest key. An ADR
+numbered below `governs_from`, or every ADR when `governs_from` is
+absent/null, is out of scope.
+
+This is a thin CLI wrapper over the coverage logic in `summaries_projection.py`
+(the frozen shared core) — a coverage GATE, not a regenerator. It writes
+nothing, so it carries no row in the repo-root CLAUDE.md regenerative-outputs
+roster and is deliberately NOT named generate-*.py.
+
+This script does not import `yaml` itself, but `summaries_projection.py` does
+(to parse ADR frontmatter and run snapshots) — and PEP 723 inline metadata
+applies only to the script `uv run` is invoked on, never to a module that
+script imports. Without this block, `uv run` would resolve no dependency for
+this script and `summaries_projection`'s `import yaml` would fail in any clean
+downstream environment lacking a PyYAML install of its own. The PEP 723
+block below matches `summarize-adrs.py` / `summaries_projection.py`'s exact
+form so all four summaries scripts stay in lock-step.
+
+Usage:
+  check-governs-coverage.py [--repo-root DIR]
+
+On the clean path it prints a JSON summary — `{"uncovered": [],
+"cohort_size": N}` — to stdout, matching the sibling summaries drivers
+(summarize-adrs.py, lint-governs-references.py), which emit JSON on their
+clean paths too.
+
+Exit: 0 every in-cohort ADR covered (or cohort empty -> vacuous pass) ·
+      1 one or more uncovered ADRs, a governs-block validation error
+      (malformed entry / out-of-enum provenance — `sp.GovernsValidationError`;
+      JSON on stdout, key `validation_errors`), OR one or more ADR-0088
+      backfill-contract problems (key `backfill_errors`; note these can fire
+      with `uncovered` empty) · 2 crash (stderr). The clean-path JSON may also
+      carry an optional `backfill` counts block (backfilled / no_rule / pending).
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import summaries_projection as sp
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(
+        description="Gate: every ADR >= adr.governs_from carries a governs "
+        "block or a recorded exemption."
+    )
+    ap.add_argument("--repo-root", default=".")
+    args = ap.parse_args(argv)
+    root = Path(args.repo_root).resolve()
+    try:
+        manifest = sp.read_manifest(root)
+        adrs = sp.adrs_dir(root)
+        report = sp.coverage(adrs, manifest)
+        # ADR-0088: the backfill contract (at-most-once ledger, frozen cohort,
+        # completion marker, receipts x log x journal cross-validation).
+        # Inert — ([], None) — until the tree snapshots its cohort.
+        backfill_errors, backfill_info = sp.backfill_problems(root, adrs, manifest)
+    except sp.GovernsValidationError as exc:
+        print(json.dumps({"validation_errors": exc.problems}, sort_keys=True))
+        return 1
+    except Exception as exc:
+        sys.stderr.write(f"check-governs-coverage: {type(exc).__name__}: {exc}\n")
+        return 2
+    if report["uncovered"] or backfill_errors:
+        payload = dict(report)
+        if backfill_errors:
+            payload["backfill_errors"] = backfill_errors
+        if backfill_info is not None:
+            payload["backfill"] = backfill_info
+        print(json.dumps(payload, sort_keys=True))
+        return 1
+    clean = {"uncovered": [], "cohort_size": len(report["cohort"])}
+    if backfill_info is not None:
+        # The completion marker absent: the block is informational; contract
+        # violations above still fail.
+        clean["backfill"] = backfill_info
+    print(json.dumps(clean, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

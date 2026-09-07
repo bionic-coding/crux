@@ -1,0 +1,26 @@
+# Published to the public repo root by sync.sh (see tools/sync_stage.py
+# ALLOWLIST_FILES). This file exists for people who CLONE the public repo and
+# follow the OpenCode setup in the README — that flow generates a tree here.
+
+# OpenCode agent projection: regenerated on demand by
+# `crux/scripts/generate-opencode-agents.py`, never shipped in a release.
+# Re-run the generator after every pull; see README § OpenCode.
+/opencode/
+
+# The arch stack-pack corpus: ten third-party repositories fetched on demand
+# by `crux/scripts/tests/arch-corpus/fetch.py`. The script, its `corpus.yml`
+# manifest and the documented fetch command all ship publicly, so a clone of
+# the public repo that runs the fetch lands ~79 MB of other people's source —
+# their `.git` directories included — inside this working tree. Without this
+# rule a `git add -A` stages all of it under this repo's licence. The clones
+# are reproducible from the pinned SHAs in `corpus.yml`; nothing here is
+# authored content.
+.cache/
+
+# Local plugin/session state and Python cruft.
+.claude/
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+.DS_Store

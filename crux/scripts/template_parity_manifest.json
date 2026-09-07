@@ -1,0 +1,245 @@
+{
+  "_doc": "Designated parity-bearing clauses between dogfood docs and their distributed template twins. Each clause stores ONLY markers (anchor + optional pattern), never the clause text — the compared value is read live from the canonical file, so this manifest cannot silently become a stale parallel copy of the clauses it guards (ADR-0050 §1 markers-only discipline). Keep it small and curated: add an entry only for a clause that MUST stay identical across the twin pair. `pattern` (a Python regex) extracts the discriminating value(s) from the canonical section; every captured value must also appear in the twin section. Omit `pattern` to compare the whole normalized section body. Curated §-content clauses (per ADR-0056: the template twin is a derived artifact whose §-content mirror must not silently drift — the class that recurred across PB-0048/0049/0051). Add a clause here whenever a bionic/CLAUDE.md §-edit MUST reach the CLAUDE.md.tmpl twin; a naive full-section diff is deliberately avoided because the twin diverges by design (ADR tokens stripped, downstream-shaped).",
+  "clauses": [
+    {
+      "id": "log-op-heading-prefix",
+      "section": "§6 docs/log.md format",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "## 6. `docs/log.md` format",
+      "pattern": "YYYY-MM-DD"
+    },
+    {
+      "id": "log-op-enum-invariant",
+      "section": "§6 op-enum carries the `invariant` op",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "## 6. `docs/log.md` format",
+      "pattern": "\\| invariant \\|"
+    },
+    {
+      "id": "log-op-enum-observation",
+      "section": "§6 op-enum carries the `observation` op",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "## 6. `docs/log.md` format",
+      "pattern": "\\| observation \\|"
+    },
+    {
+      "id": "log-op-enum-observation-regex",
+      "section": "§6 both op-enum regexes carry the `observation` op, and keep the `| ` subject separator",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "#### Op-enum regex",
+      "pattern": "invariant\\|observation"
+    },
+    {
+      "id": "adrs-append-only-freeze",
+      "section": "§4 adrs write rules",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "### adrs (append-only history)",
+      "pattern": "append-only|frozen"
+    },
+    {
+      "id": "wikilink-promptbook-lifecycle-neutral",
+      "section": "§9 promptbook citation is lifecycle-neutral",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "Slug, date, and wiki-link rules",
+      "pattern": "lifecycle-neutrally"
+    },
+    {
+      "id": "rule-citation-form",
+      "section": "§9 the rule citation form `rule:<slug>`, the slug grammar, and the three token classes",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "## 9. Slug, date, and wiki-link rules",
+      "pattern": "\\*\\*Rule citations\\*\\*:[^\\n]*"
+    },
+    {
+      "id": "promptbook-book-link-resolver",
+      "section": "§11 promptbook book-link resolution (SSOT)",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "Promptbook book-link resolution",
+      "pattern": "non-authoritative hint"
+    },
+    {
+      "id": "related-research-any-page",
+      "section": "§11.A related_research resolves to any research page",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "Canonical ADR frontmatter schema",
+      "pattern": "research page references"
+    },
+    {
+      "id": "schema-history-current-row",
+      "section": "§7 schema_version history marks \"5\" current",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "schema version history",
+      "pattern": "`\"5\"` — \\*\\*current"
+    },
+    {
+      "id": "bionic-yml-default-docs-dir",
+      "section": "§14 .bionic.yml default docs_dir",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "## 14.",
+      "pattern": "docs_dir: bionic"
+    },
+    {
+      "id": "config-source-enum",
+      "section": "§14.2 config source enum",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "How skills resolve it",
+      "pattern": "discovery:<dir>"
+    },
+    {
+      "id": "bundles-yml-shape-keyed-by-id",
+      "section": "§7.A catalog/bundles.yml shape",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "### `catalog/bundles.yml` shape",
+      "pattern": "keyed by bundle id"
+    },
+    {
+      "id": "blast-radius-evidence-no-renames",
+      "section": "§11.C the patch blast radius draws its evidence with --no-renames",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+    "anchor": "### The blast radius",
+    "pattern": "--no-renames"
+  },
+  {
+    "id": "blast-radius-base-commit-pin-both-ends",
+    "section": "§11.C the base_commit pin binds at the writer AND the gate",
+    "canonical": "bionic/CLAUDE.md",
+    "twin": "crux/templates/CLAUDE.md.tmpl",
+    "anchor": "### The blast radius",
+    "pattern": "base_commit_pin.divergence"
+  },
+    {
+      "id": "adr-body-budget-value",
+      "section": "§11.D the ADR body budget value",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "## 11.D.",
+      "pattern": "120-line budget"
+    },
+    {
+      "id": "log-op-enum-backfill",
+      "section": "§6 op-enum carries the `backfill` op",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "## 6. `docs/log.md` format",
+      "pattern": "\\| backfill"
+    },
+    {
+      "id": "log-op-enum-backfill-regex",
+      "section": "§6 both op-enum regexes end the op group with `backfill`, so an op appended after it would fail this clause",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "#### Op-enum regex",
+      "pattern": "\\|backfill\\)"
+    },
+    {
+      "id": "governs-subfields-anchor",
+      "section": "§11.A the governs entry's seven sub-fields (incl. `anchor` and `retires`)",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "Canonical ADR frontmatter schema",
+      "pattern": "seven sub-fields[^\\n]*"
+    },
+    {
+      "id": "observations-surveys-not-a-concern-surface",
+      "section": "§17 the `_surveys/` batch holding area is no concern surface",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "## 17. The observations concern",
+      "pattern": "_surveys"
+    },
+    {
+      "id": "observations-batch-completion-precedes-visibility",
+      "section": "§17 the batch publish order: completion precedes visibility",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "## 17. The observations concern",
+      "pattern": "completion precedes visibility"
+    },
+    {
+      "id": "observations-batch-signoff-only-batch-route",
+      "section": "§17 the survey sign-off is the only batch route past `observed`",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "## 17. The observations concern",
+      "pattern": "the only batch route"
+    },
+    {
+      "id": "observations-defer-is-re-scaffoldable",
+      "section": "§17 `defer` writes nothing, so a deferred candidate stays re-scaffoldable",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "## 17. The observations concern",
+      "pattern": "defer"
+    },
+    {
+      "id": "log-op-observation-survey-batch-subject",
+      "section": "§6 the `observation` op's batch sign-off subject grammar",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "#### Op-enum regex",
+      "pattern": "survey batch"
+    },
+    {
+      "id": "manifest-observation-survey-stub-days",
+      "section": "§7 the `observation.survey_stub_days` manifest key",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "## 7. `manifest.yml` schema",
+      "pattern": "survey_stub_days"
+    },
+    {
+      "id": "observations-single-record-route",
+      "section": "\u00a74 observations write rules: `transition-observation` is the only SINGLE-RECORD route past `observed`",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "### observations (human-invoked commands write; humans ratify)",
+      "pattern": "single-record route"
+    },
+    {
+      "id": "log-op-enum-adr-review",
+      "section": "§6 op-enum carries the `adr-review` op",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "## 6. `docs/log.md` format",
+      "pattern": "\\| adr-review \\|"
+    },
+    {
+      "id": "log-op-enum-adr-review-regex",
+      "section": "§6 both op-enum regexes carry the `adr-review` op, inserted immediately before `backfill`",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "#### Op-enum regex",
+      "pattern": "adr-review\\|backfill"
+    },
+    {
+      "id": "objectives-frontmatter-keyset",
+      "section": "§5.B the objectives frontmatter is a locked six-key schema",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "## 5.B. `docs/objectives.md` format",
+      "pattern": "exactly these six keys"
+    },
+    {
+      "id": "manifest-adr-review-due-days",
+      "section": "§7 the `adr_review_due_days` manifest key",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "## 7. `manifest.yml` schema",
+      "pattern": "adr_review_due_days"
+    }
+  ]
+}

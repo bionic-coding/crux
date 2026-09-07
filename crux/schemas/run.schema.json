@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "crux run snapshot (format_version 1)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format_version",
+    "run_id",
+    "book_id",
+    "book_content_hash",
+    "started_at",
+    "completed_at",
+    "status",
+    "current_prompt",
+    "prompts"
+  ],
+  "properties": {
+    "format_version": { "const": "1" },
+    "run_id": { "type": "string", "pattern": "^RUN-\\d{3}$" },
+    "book_id": { "type": "string", "pattern": "^(?:(?!(?:PB|ADR|RUN|BRIEF)-)[A-Z][A-Z0-9]{1,9}-)?PB-\\d{4}$" },
+    "book_content_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "started_at": { "type": "string", "minLength": 1 },
+    "completed_at": { "type": ["string", "null"] },
+    "status": { "type": "string", "enum": ["in_progress", "completed", "abandoned"] },
+    "current_prompt": { "type": ["integer", "null"], "minimum": 1 },
+    "base_commit": { "type": ["string", "null"], "pattern": "^[0-9a-f]{40}$" },
+    "abandonment": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["kind", "at", "reason"],
+      "properties": {
+        "kind": { "type": "string", "enum": ["deliberate", "superseded"] },
+        "at": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string" }
+      }
+    },
+    "prompts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["n", "title", "state", "started", "completed", "result", "artifacts"],
+        "properties": {
+          "n": { "type": "integer", "minimum": 1 },
+          "title": { "type": "string", "minLength": 1 },
+          "state": {
+            "type": "string",
+            "enum": ["pending", "running", "done", "skipped", "blocked"]
+          },
+          "started": { "type": ["string", "null"] },
+          "completed": { "type": ["string", "null"] },
+          "result": { "type": "string" },
+          "artifacts": { "type": "array", "items": { "type": "string" } },
+          "blocked_confirmed": {
+            "const": true,
+            "$comment": "RETIRED AND IGNORED — readmitted, and pinned to the one value any writer ever produced. The per-prompt archive-eligibility flag is gone: eligibility is a run-level property (see the run status enum and the abandonment record). Nothing reads or writes this key. It stays listed because `additionalProperties: false` would otherwise REJECT a .yaml snapshot written before the retirement, and such snapshots are reachable in trees that ran an earlier crux. That is the same call already made on the legacy .md read path, where the retired field is ignored rather than reported: those bodies are frozen and cannot be cleanly retro-fixed, so a finding nobody may act on is worse than silence. `const: true` scopes the readmission to that reachable history and no wider: a retired field admitted at any value is an escape hatch, not a compatibility lane. Do not widen it, and do not read the key."
+          }
+        }
+      }
+    },
+    "notes": { "type": "string" },
+    "pr_draft": { "type": "string" },
+    "summary": { "type": "string" }
+  }
+}

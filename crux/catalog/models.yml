@@ -1,0 +1,136 @@
+# crux/catalog/models.yml — the single resolution table for agent models.
+# Hand-authored. Validated by validate-catalog.py. NEVER regenerated.
+# schema_version is read by models_catalog.load(), which refuses any value it
+# does not recognize (rule V0). It is not decoration.
+schema_version: "2"
+
+# Table 1 — providers: the allowlist for the provider half of an alias value.
+# Adding a provider is a deliberate one-line edit, reviewed like any other.
+providers:
+  - openrouter
+
+# Table 2 — aliases: short name -> provider/model-id. THE ONLY PLACE in this
+# file where an OpenCode model id appears. An alias that no cell references is
+# a PARKED ALTERNATE: legal, silent, and deliberate. Do not add a reachability
+# check — alternating between two models in one cell is why this table exists.
+#
+# Every value has the form `openrouter/<vendor>/<upstream-slug>`. The providers
+# table above holds one entry, so the provider half is always `openrouter`, and
+# the part AFTER it is the upstream slug pinned VERBATIM — never normalized,
+# never a redirect. Distinctness between two values reads the vendor namespace
+# (the first segment after `openrouter/`), not the shared provider half.
+#
+# PROVENANCE. The eight slugs below were read 2026-08-26 from the OpenRouter
+# models endpoint, https://openrouter.ai/api/v1/models, and are spelled as that
+# response spells them. Two spellings a reader would otherwise guess wrong:
+# Haiku is served as `claude-haiku-4.5`, NOT the dated
+# `claude-haiku-4-5-20251001` this table carried before, and Anthropic point
+# releases use a DOT (`claude-opus-4.8`) where the previous provider used a
+# hyphen. Never derive one row's slug from a neighbouring row's shape — read
+# the endpoint. See ADR-0072 §3 for why the alias table is the only place a
+# model id may appear.
+aliases:
+  opus-latest: openrouter/anthropic/claude-opus-5
+  opus-stable: openrouter/anthropic/claude-opus-4.8
+  sonnet-latest: openrouter/anthropic/claude-sonnet-5
+  haiku-latest: openrouter/anthropic/claude-haiku-4.5
+  kimi-latest: openrouter/moonshotai/kimi-k3
+  qwen-max: openrouter/qwen/qwen3.8-2.4t-a95b
+
+  # The separator asymmetry in the GLM pair is UPSTREAM'S and not a typo here:
+  # the base SKU is `glm-5.3` (dot) and the fast SKU is `glm-5.3-flash` (hyphen
+  # before `flash`). Verbatim upstream slugs, as the header requires — never
+  # "fix" a perceived typo against the gateway's own spelling, and never derive
+  # one row's shape from a neighbouring row. The flash SKU is live, not parked:
+  # it resolves the developer agent's OpenCode cell.
+  glm-latest: openrouter/z-ai/glm-5.3
+  glm-flash: openrouter/z-ai/glm-5.3-flash
+
+# Table 3 — roster: agent role -> level. A value is either a level name or a
+# mapping {level, opencode}, where `opencode` overrides the OpenCode column
+# only. The KEY SET is in bijection with the stems of crux/agents/*.md.
+agents:
+  architect: flagship
+  brainstormer: flagship
+  commander:
+    level: apex
+    opencode: qwen-max
+  dev-lead:
+    level: flagship
+    opencode: glm-latest
+  developer:
+    level: standard
+    opencode: glm-flash
+  historian: standard
+  librarian: standard
+  night-gardener: flagship
+  reviewer:
+    level: apex
+    opencode: kimi-latest
+  wayfinder: standard
+
+# Table 4 — level -> per-harness resolution. `opencode` is optional; a level
+# that omits it forces every agent at that level to name its own (rule V2).
+#
+# Apex selects Astra on Codex; flagship selects Sol. Both use high effort.
+# Their Claude values match. Apex omits an OpenCode default, so each apex
+# agent must name its own alias.
+#
+# `source` records where a Codex pair was READ FROM. `verified` records the
+# date the pair was last checked against that source — rule V4 warns past 180
+# days — so the two fields answer different questions and neither is decoration.
+#
+# Astra and its high effort setting were verified 2026-09-03 against the local
+# Codex 0.153.0 models_cache.json, fetched that day. The exact slug is
+# `gpt-6-astra`. Codex availability does not establish OpenRouter availability.
+#
+# PROVENANCE for Sol and Terra, carried forward. Both slugs are an external
+# contract owned by OpenAI. They were verified 2026-07-09 against two sources.
+# (1) The official Codex custom-agents documentation:
+#   https://developers.openai.com/codex/
+# (2) The local codex-cli 0.144.0 catalog, whose shipped binary enumerates
+# `gpt-5.6-sol`, `gpt-5.6-terra` and `gpt-5.6-luna`. Bare `gpt-5.6` does not
+# resolve as a Codex catalog slug, so the concrete slugs are pinned here.
+#
+# `verified: "2026-08-21"` is the ADOPTION date — the day these rows moved into
+# this file — and NOT a re-verification against OpenAI. The real last check is
+# 2026-07-09, above. Rule V4's 180-day clock therefore runs ~6 weeks later than
+# the evidence warrants; the next re-verification should reset both the date
+# and this paragraph together. Earlier revisions of this file cited
+# "codex_agents.py RUNTIME" as the source, which had become circular — that
+# module no longer holds the slugs, it reads them from here.
+levels:
+  apex:
+    claude: opus
+    codex:
+      model: gpt-6-astra
+      reasoning_effort: high
+      verified: "2026-09-03"
+      source: "Codex 0.153.0 models_cache.json fetched 2026-09-03"
+  flagship:
+    claude: opus
+    opencode: kimi-latest
+    codex:
+      model: gpt-5.6-sol
+      reasoning_effort: high
+      verified: "2026-08-21"
+      source: "developers.openai.com/codex/ + codex-cli 0.144.0 catalog"
+  standard:
+    claude: sonnet
+    opencode: qwen-max
+    codex:
+      model: gpt-5.6-terra
+      reasoning_effort: medium
+      verified: "2026-08-21"
+      source: "developers.openai.com/codex/ + codex-cli 0.144.0 catalog"
+
+# Table 5 — legal values for the `model:` key in crux/agents/*.md frontmatter.
+# An ENUM, not a mapping: membership is the repo's accepted set, pinned by rule
+# V0. Reachability does not apply — `haiku` and `inherit` are permitted values
+# no level row names, and that is what a permitted value is.
+claude_aliases:
+  - fable
+  - opus
+  - sonnet
+  - haiku
+  - inherit
