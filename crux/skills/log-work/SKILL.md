@@ -49,6 +49,8 @@ The journal exists so future-you doesn't repeat past mistakes and can see WHY th
 
 A success summary with no failure mode named is a signal that the entry skipped the reflection. Push back on yourself: name at least one thing that didn't work or surprised you, even on smooth runs.
 
+The four bands above are what a human reads. The friction line is separate: a countable marker for band 2, "what didn't work the first time," present only when the unit of work had friction. It does not replace the prose in that band — it flags, for a machine, that this entry has friction worth counting.
+
 What makes work worth journaling (vs. just logging): a decision was made; a non-obvious bug was diagnosed; a meaningful refactor was completed; a learning emerged that future-you will forget; a blocker was hit or cleared; a meeting produced a commitment. What is NOT worth journaling: routine file moves; tool invocations whose output is already captured elsewhere; ingests with no surprising content; index rebuilds.
 
 ## When to use
@@ -68,7 +70,7 @@ Do **not** use this skill for:
 
 - Flags:
   - `--silent` — invoked by another skill. Skips user prompts ONLY; it does NOT by itself change journaling behavior (see `--journal`). Uses the passed `--category` / `--subject` / `--body`.
-  - `--journal` — controls whether this invocation writes a **journal entry**. The default is **mode-dependent BY DESIGN**: `false` in `--silent` mode (the dominant caller — e.g. `run-promptbook` per-advance — is log-only), `true` in interactive mode. When set, `log-work` writes BOTH `docs/journal/YYYY-MM.md` AND the `docs/journal/index.md` rollup row. When NOT set (log-only), it writes neither — only the `docs/log.md` entry (see `--log-op`).
+  - `--journal` — controls whether this invocation writes a **journal entry**. The default is **mode-dependent BY DESIGN**: `false` in `--silent` mode (a log-only caller owns its op and passes it via `--log-op`; `run-promptbook` once took this branch per advance and no longer logs an advance at all), `true` in interactive mode. When set, `log-work` writes BOTH `docs/journal/YYYY-MM.md` AND the `docs/journal/index.md` rollup row. When NOT set (log-only), it writes neither — only the `docs/log.md` entry (see `--log-op`).
   - `--log-op <op>` — the `docs/log.md` op for this invocation. **Required in log-only `--silent` mode** (i.e. `--silent` without `--journal`): the entry is written under the caller's own op (e.g. `promptbook`), NOT a misleading `journal |` entry. When `--journal` IS set, this is ignored and the op is `journal`. **Must be a valid op from the `docs/CLAUDE.md` §6 canonical enum** (e.g. `adr`, `promptbook`, `skill` — see §6 for the exhaustive list; `docs/CLAUDE.md` §6 is the single source of truth). **STOP on an invalid `--log-op` — do NOT fall back to a default.** A misspelled or out-of-enum op would write a BROKEN `docs/log.md` entry that `audit-docs` CHK-LOG-4 then flags. So if `--log-op` is not in the §6 enum: (1) emit an error to the caller naming the bad op and the allowed enum, (2) write **nothing** to `docs/log.md` (and nothing to the journal), and (3) return a non-zero exit. The caller (e.g. `run-promptbook`) surfaces the failure rather than silently committing a corrupt log line. This STOP is **distinct** from the `--category` fallback (step 1) — `--category` falls back to `misc` with a WARN; `--log-op` never falls back.
   - `--category <enum>` — required in silent mode. One of: `decision | implementation | bug | learning | blocker | refactor | meeting | review | misc`.
   - `--subject "<one-line>"` — required in silent mode.
@@ -118,6 +120,8 @@ Entry block, exact format:
 
 <body, 1–10 lines — see body-content rules below>
 
+Friction: <one line naming a specific friction in this unit of work — omit if none>
+
 Refs: <wiki-links and rule:<slug> citations, space-delimited, omit line if no refs>
 ```
 
@@ -125,6 +129,8 @@ Rules:
 - The heading is greppable: prefix `## [`, date+time in brackets, single space, category from enum, ` | `, subject, no trailing punctuation.
 - Body is 1–10 lines. Strip trailing whitespace. No trailing blank line inside the entry; a single blank line separates entries.
 - **Body lines must not begin with `## [`** — the heading prefix is reserved for entry headings. Content that would start a body line with `## [` is rewritten or dropped; a line beginning with that prefix is regex-indistinguishable from a real heading and would corrupt the window-detection anchor used by `retrospective` and `cleanup-campsite`.
+- The friction line is a single line beginning `Friction:` that names one specific friction in this unit of work. An entry carries at most one friction line. It is a body line and counts toward the 1–10 line budget. When both are present, it sits before the `Refs:` line.
+- A `Friction:` line whose remainder is empty violates this rule. The way to record no friction is to omit the line; a bare `Friction: none` is the same violation, not a valid way to state there was none.
 - `Refs:` line is omitted if no refs. If present, it's a space-delimited list of refs, each either a wiki-link `[[<path>]]` or a `rule:<slug>` citation. The journal is a dated record: cite `rule:<slug>` where a rule exists, and the ADR page (`ADR-NNNN`) only where the ADR carries no `governs` block.
 
 **Body content — what to write (see the Overview §"A journal entry must include reflection"):**
@@ -142,6 +148,8 @@ Avoid:
 - Marketing language. The journal is for honesty, not optics.
 
 When the body is genuinely short (a small bug fix, a 5-minute decision), one well-chosen reflective sentence beats five lines of recap. Optimize for "future-you reads this in 6 months and says *oh right, that's what tripped us up*."
+
+Add the friction line only when the work had friction; name the specific friction (see §4's grammar rule). Omit the line entirely when there was none — it is a marker for a machine to count, not a mandatory field, and it never substitutes for the prose above.
 
 ### 5. Prepend the entry to the monthly file
 
@@ -193,6 +201,7 @@ If any item fails, the entry was not written cleanly — roll back the journal w
 - [ ] The entry heading matches the regex `^## \[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\] (decision|implementation|bug|learning|blocker|refactor|meeting|review|misc) \| .+$`.
 - [ ] Body is 1–10 lines, no trailing blank line inside the block.
 - [ ] **Body contains at least one reflective sentence** — a named failure, surprise, or "would do differently." **In interactive mode this is a hard gate:** a pure-summary body fails this check; loop back to §4's body-content rules and rewrite before committing. **In `--silent` mode this is informational (WARN), not blocking:** the caller pre-filled `--body` and there is no interactive loop to rewrite it, so surface a WARNING that the auto-logged entry reads as a summary (for the caller / a later human pass to improve) but still write the entry — do NOT STOP the caller's run on a thin reflective body. (Applies only when this `--silent` invocation actually journaled, i.e. `--journal` was set; a log-only `--silent` call writes no journal body and this check does not apply at all.)
+- [ ] If a `Friction:` line is present, it is a single line, its remainder is non-empty, and it sits before the `Refs:` line when one is present.
 - [ ] If `Refs:` is present, every ref is either a `[[...]]` wiki-link or a `rule:<slug>` citation — no bare path, no `ADR-NNNN/slug` ledger handle.
 - [ ] `docs/journal/index.md` row for `${MONTH}` reflects the new entry (incremented count, updated last-entry date, recomputed top categories).
 - [ ] `docs/journal/index.md` `_Last updated:_` is `${TODAY}`.

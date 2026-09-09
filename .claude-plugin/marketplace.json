@@ -3,7 +3,7 @@
   "name": "crux",
   "description": "Project marketplace for the crux plugin in this repo.",
   "owner": {
-    "name": "Bionic Coding"
+    "name": "Idyll"
   },
   "plugins": [
     {

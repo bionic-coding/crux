@@ -525,14 +525,14 @@ class CatalogResolutionTests(unittest.TestCase):
         expected = {
             "architect":      ("opus",   "kimi-latest",   "gpt-5.6-sol",   "high"),
             "brainstormer":   ("opus",   "kimi-latest",   "gpt-5.6-sol",   "high"),
-            "commander":      ("opus",   "qwen-max",      "gpt-6-astra",   "high"),
+            "commander":      ("fable",   "qwen-max",      "gpt-6-astra",   "high"),
             "dev-lead":       ("opus",   "glm-latest",    "gpt-5.6-sol",   "high"),
-            "developer":      ("sonnet", "glm-flash",     "gpt-5.6-terra", "medium"),
-            "historian":      ("sonnet", "qwen-max",      "gpt-5.6-terra", "medium"),
-            "librarian":      ("sonnet", "qwen-max",      "gpt-5.6-terra", "medium"),
-            "night-gardener": ("opus",   "kimi-latest",   "gpt-5.6-sol",   "high"),
-            "reviewer":       ("opus",   "kimi-latest",   "gpt-6-astra",   "high"),
-            "wayfinder":      ("sonnet", "qwen-max",      "gpt-5.6-terra", "medium"),
+            "developer":      ("sonnet", "glm-flash",     "gpt-5.6-terra", "high"),
+            "historian":      ("sonnet", "qwen-max",      "gpt-5.6-terra", "high"),
+            "librarian":      ("sonnet", "qwen-max",      "gpt-5.6-terra", "high"),
+            "night-gardener": ("fable",  "kimi-latest",   "gpt-6-astra",   "high"),
+            "reviewer":       ("fable",   "kimi-latest",   "gpt-6-astra",   "high"),
+            "wayfinder":      ("sonnet", "qwen-max",      "gpt-5.6-terra", "high"),
         }
         self.assertEqual(set(expected), EXPECTED_AGENTS)
         for name, (claude, alias, codex_model, effort) in sorted(expected.items()):

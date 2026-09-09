@@ -265,7 +265,11 @@ class LogWorkTests(unittest.TestCase):
         checklist = _section(t, "## Verification checklist", "## Red flags")
         self.assertNotIn("every link uses `[[...]]` syntax", checklist)
         # Positive control: the checklist still has a Refs item, and it admits the citation.
-        refs_items = [ln for ln in checklist.splitlines() if "Refs:" in ln and ln.startswith("- [ ]")]
+        # Anchored on the item's opening clause, not a bare `Refs:` substring: other
+        # checklist items (the `Friction:` placement item) legitimately name `Refs:`.
+        refs_items = [
+            ln for ln in checklist.splitlines() if ln.startswith("- [ ] If `Refs:` is present")
+        ]
         self.assertEqual(len(refs_items), 1)
         self.assertIn("rule:<slug>", refs_items[0])
 

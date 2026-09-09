@@ -53,6 +53,15 @@ import re
 import sys
 from pathlib import Path
 
+# The CommonMark fenced-code-block subset is imported, never re-copied.
+# `__file__`-derived and resolved, matching the insert `adr-signals.py`
+# already uses for `untrusted`; no environment variable participates.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from md_fences import closes_fence as _closes_fence, \
+    fence_marker as _fence_marker, \
+    split_lines as _lines  # noqa: E402
+
 DEFAULT_MANIFEST = Path(__file__).with_name("template_parity_manifest.json")
 
 # Template placeholder tokens that are EXPECTED to differ between a dogfood
@@ -85,37 +94,79 @@ def _findall_strings(pattern: str, text: str) -> list[str]:
     return out
 
 
+# `_fence_marker` and `_closes_fence` are imported from `md_fences` at the
+# head of this file. They USED to be a hand-copy of the pair in
+# `crux/scripts/adr-signals.py`, and both copies carried the same defect —
+# the indent bound measured on spaces, the run matched after stripping ALL
+# Unicode whitespace — which a differential test between the two could not
+# see. The subset now lives in one module with one conformance suite.
+#
+# `_lines` comes from the same module, for the same reason. This file held
+# the TENTH copy of the line split — nine were converted in `adr-signals.py`
+# and this one was missed — and its failure mode was the quietest of the
+# ten: a forged line boundary before an anchor makes `_section_after`
+# return None, which reports P3 STALE, and P3 does not flip the exit code.
+# Measured on a pair whose twin had genuinely dropped the governed value,
+# the control exited 1 with a P2 DRIFT and one U+000B exited 0 with a P3
+# stale.
+
+
 def _section_after(text: str, anchor: str) -> str | None:
     """Return the section body from the line containing `anchor` up to the next
     Markdown heading, or None if the anchor is absent. Fence-aware on BOTH the
-    anchor search and the heading-termination scan: lines inside a ``` code
-    fence are content, never the real anchor heading and never a terminating
-    heading (avoids the PB-0017 MF-1 fence-blindness class, where a fenced
+    anchor search and the heading-termination scan: lines inside a fence are
+    content, never the real anchor heading and never a terminating heading
+    (avoids the PB-0017 MF-1 fence-blindness class, where a fenced
     '## [YYYY-MM-DD] ...' example was mis-read as a heading and truncated the
     section — and the symmetric hazard where a fenced example that merely quotes
-    the anchor text would be mistaken for the real heading)."""
-    lines = text.splitlines()
+    the anchor text would be mistaken for the real heading). Tracked by fence
+    character and run length, so a `~~~` fence, four backticks wrapping
+    three-backtick content, an indented fence, and an unclosed fence are all
+    read correctly — not just ``` alone.
+
+    TWO LINE-SHAPE DECISIONS, BOTH BOUNDED TO SPACES AND TABS. `_lines`
+    decides where a line ENDS and refuses the nine extra terminators
+    `splitlines()` admits; the heading test below strips `" \t"` and refuses
+    the same class before a `#`. Both were bare, and both produced the SAME
+    quiet failure — a section that does not resolve reports P3 STALE, and P3
+    does not flip the exit code, so the guarded clause is disabled and the
+    drift ships green. Measured against a twin that had genuinely dropped the
+    governed value: the control exits 1 with a P2 DRIFT; a U+000B before a
+    fence run exited 0 through the split, and a U+00A0 before a `#` exited 0
+    through this test. U+00A0 is NOT a `splitlines()` terminator, so the
+    heading test was a second, independent way in rather than a second
+    symptom of the first."""
+    lines = _lines(text)
     start = None
-    in_fence = False
+    fence: tuple[str, int] | None = None
     for i, line in enumerate(lines):
-        stripped = line.lstrip()
-        if stripped.startswith("```"):
-            in_fence = not in_fence
+        marker = _fence_marker(line)
+        if fence is not None:
+            if _closes_fence(marker, fence):
+                fence = None
             continue
-        if not in_fence and anchor in line:
+        if marker is not None:
+            fence = (marker[0], marker[1])
+            continue
+        if anchor in line:
             start = i
             break
     if start is None:
         return None
     body = [lines[start]]
-    in_fence = False
+    fence = None
     for line in lines[start + 1 :]:
-        stripped = line.lstrip()
-        if stripped.startswith("```"):
-            in_fence = not in_fence
+        marker = _fence_marker(line)
+        if fence is not None:
+            if _closes_fence(marker, fence):
+                fence = None
             body.append(line)
             continue
-        if not in_fence and stripped.startswith("#"):
+        if marker is not None:
+            fence = (marker[0], marker[1])
+            body.append(line)
+            continue
+        if line.lstrip(" \t").startswith("#"):
             break
         body.append(line)
     return "\n".join(body)
@@ -169,8 +220,24 @@ def _check_entry(entry: dict, root: Path) -> dict | None:
             ),
         }
 
-    canon_text = canonical_path.read_text(encoding="utf-8")
-    twin_text = twin_path.read_text(encoding="utf-8")
+    # Both files are read with universal-newline translation DISABLED. In
+    # text mode Python rewrites a lone `\r` to `\n` before this function
+    # sees the text, so a `\r` spelled mid-sentence became a real line
+    # boundary that `_lines` could not refuse — it was already gone.
+    # Measured: a `\r` before a fence run turned a live clause into an
+    # exit-0 P3 stale, exactly as U+000B did through `splitlines()`.
+    # `_lines` strips the one trailing `\r` a CRLF document leaves, so
+    # CRLF still reads correctly — and that strip is only reachable at
+    # all because of this argument.
+    #
+    # `open(newline="")` rather than `read_text(newline="")`: the latter
+    # needs 3.13 and this script declares `requires-python = ">=3.9"`.
+    # A non-UTF-8 file still raises UnicodeDecodeError here, which
+    # `main` maps to the documented exit 2.
+    with canonical_path.open(encoding="utf-8", newline="") as handle:
+        canon_text = handle.read()
+    with twin_path.open(encoding="utf-8", newline="") as handle:
+        twin_text = handle.read()
 
     canon_sec = _section_after(canon_text, anchor)
 

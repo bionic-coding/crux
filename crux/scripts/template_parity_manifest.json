@@ -240,6 +240,46 @@
       "twin": "crux/templates/CLAUDE.md.tmpl",
       "anchor": "## 7. `manifest.yml` schema",
       "pattern": "adr_review_due_days"
+    },
+    {
+      "id": "manifest-journal-friction-line-from",
+      "section": "§7 the `journal.friction_line_from` manifest key",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "## 7. `manifest.yml` schema",
+      "pattern": "friction_line_from"
+    },
+    {
+      "id": "journal-friction-line-grammar",
+      "section": "§4 journal write rules: the optional `Friction:` line grammar",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "### journal (append-only narrative)",
+      "pattern": "(?m)^- [^\\n]*`Friction:`[^\\n]*$"
+    },
+    {
+      "id": "reviews-surface-report-shape",
+      "section": "§4 adrs write rules: the Reviews-surface report shape — six H2 sections in order, the summary table's place, the one data-framing note, and the grandfather date",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "### adrs (append-only history)",
+      "pattern": "exactly six H2 sections[^.]*"
+    },
+    {
+      "id": "log-op-adr-review-body-grammar",
+      "section": "§6 the `adr-review` op body: the four finding sections in order, and that Keep and Coverage carry no count",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "#### Op-enum regex",
+      "pattern": "finding counts across the four finding sections[^.]*"
+    },
+    {
+      "id": "manifest-journal-friction-line-from-semantics",
+      "section": "§7 the `journal.friction_line_from` boundary semantics: what an ISO date marks, what a reader counts, and what `basis` says",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "## 7. `manifest.yml` schema",
+      "pattern": "(?m)Set to an ISO date, it marks the boundary[^\\n]*$"
     }
   ]
 }

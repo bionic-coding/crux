@@ -30,6 +30,7 @@ providers:
 # the endpoint. See ADR-0072 §3 for why the alias table is the only place a
 # model id may appear.
 aliases:
+  fable-latest: openrouter/anthropic/claude-fable-5.1
   opus-latest: openrouter/anthropic/claude-opus-5
   opus-stable: openrouter/anthropic/claude-opus-4.8
   sonnet-latest: openrouter/anthropic/claude-sonnet-5
@@ -63,7 +64,9 @@ agents:
     opencode: glm-flash
   historian: standard
   librarian: standard
-  night-gardener: flagship
+  night-gardener:
+    level: apex
+    opencode: kimi-latest
   reviewer:
     level: apex
     opencode: kimi-latest
@@ -101,7 +104,7 @@ agents:
 # module no longer holds the slugs, it reads them from here.
 levels:
   apex:
-    claude: opus
+    claude: fable
     codex:
       model: gpt-6-astra
       reasoning_effort: high
@@ -120,7 +123,7 @@ levels:
     opencode: qwen-max
     codex:
       model: gpt-5.6-terra
-      reasoning_effort: medium
+      reasoning_effort: high
       verified: "2026-08-21"
       source: "developers.openai.com/codex/ + codex-cli 0.144.0 catalog"
 

@@ -136,14 +136,14 @@ class ShippedCatalogTests(unittest.TestCase):
         expected = {
             "architect":      ("opus",   "kimi-latest",   "gpt-5.6-sol",   "high"),
             "brainstormer":   ("opus",   "kimi-latest",   "gpt-5.6-sol",   "high"),
-            "commander":      ("opus",   "qwen-max",      "gpt-6-astra",   "high"),
+            "commander":      ("fable",   "qwen-max",      "gpt-6-astra",   "high"),
             "dev-lead":       ("opus",   "glm-latest",    "gpt-5.6-sol",   "high"),
-            "developer":      ("sonnet", "glm-flash",     "gpt-5.6-terra", "medium"),
-            "historian":      ("sonnet", "qwen-max",      "gpt-5.6-terra", "medium"),
-            "librarian":      ("sonnet", "qwen-max",      "gpt-5.6-terra", "medium"),
-            "night-gardener": ("opus",   "kimi-latest",   "gpt-5.6-sol",   "high"),
-            "reviewer":       ("opus",   "kimi-latest",   "gpt-6-astra",   "high"),
-            "wayfinder":      ("sonnet", "qwen-max",      "gpt-5.6-terra", "medium"),
+            "developer":      ("sonnet", "glm-flash",     "gpt-5.6-terra", "high"),
+            "historian":      ("sonnet", "qwen-max",      "gpt-5.6-terra", "high"),
+            "librarian":      ("sonnet", "qwen-max",      "gpt-5.6-terra", "high"),
+            "night-gardener": ("fable",  "kimi-latest",   "gpt-6-astra",   "high"),
+            "reviewer":       ("fable",   "kimi-latest",   "gpt-6-astra",   "high"),
+            "wayfinder":      ("sonnet", "qwen-max",      "gpt-5.6-terra", "high"),
         }
         catalog = MC.load()
         self.assertEqual(set(expected), EXPECTED_AGENTS)
@@ -159,7 +159,10 @@ class ShippedCatalogTests(unittest.TestCase):
     def test_apex_uses_astra_while_flagship_keeps_sol_at_high_effort(self):
         catalog = MC.load()
         apex, flagship = catalog.levels["apex"], catalog.levels["flagship"]
-        self.assertEqual(apex.claude, flagship.claude)
+        # Apex runs Fable on Claude; flagship keeps Opus. The two tiers differ
+        # on every provider now, which is the point of having two.
+        self.assertEqual(apex.claude, "fable")
+        self.assertEqual(flagship.claude, "opus")
         self.assertEqual(apex.codex.model, "gpt-6-astra")
         self.assertEqual(flagship.codex.model, "gpt-5.6-sol")
         self.assertEqual(apex.codex.reasoning_effort, "high")
@@ -256,6 +259,7 @@ class RuleFindingTests(unittest.TestCase):
         raw = MC.load_raw()
         raw["agents"]["commander"] = {"level": "flagship", "opencode": "kimi-latest"}
         raw["agents"]["reviewer"] = "flagship"
+        raw["agents"]["night-gardener"] = "flagship"
         self.assertTrue(any("apex" in f for f in MC.check_reference_graph(raw)))
 
     def test_reference_graph_rejects_an_apex_agent_with_no_override(self):

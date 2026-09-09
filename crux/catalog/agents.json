@@ -80,7 +80,7 @@
       "Skill",
       "TodoWrite"
     ],
-    "model": "opus",
+    "model": "fable",
     "tags": [
       "agents",
       "orchestration",
@@ -235,7 +235,7 @@
       "WebSearch",
       "WebFetch"
     ],
-    "model": "opus",
+    "model": "fable",
     "tags": [
       "agents",
       "garden",
@@ -247,7 +247,7 @@
       "crux-agents"
     ],
     "risk_level": "high",
-    "maxTurns": 75,
+    "maxTurns": 100,
     "memory": "project"
   },
   {
@@ -261,7 +261,7 @@
       "Bash",
       "Skill"
     ],
-    "model": "opus",
+    "model": "fable",
     "tags": [
       "agents",
       "review",
@@ -272,7 +272,7 @@
       "crux-agents"
     ],
     "risk_level": "low",
-    "maxTurns": 75,
+    "maxTurns": 150,
     "effort": "high",
     "skills": [
       "prose-review"

@@ -48,12 +48,12 @@ EXPECTED_RUNTIME = {
     "brainstormer": ("gpt-5.6-sol", "high"),
     "commander": ("gpt-6-astra", "high"),
     "dev-lead": ("gpt-5.6-sol", "high"),
-    "developer": ("gpt-5.6-terra", "medium"),
-    "historian": ("gpt-5.6-terra", "medium"),
-    "librarian": ("gpt-5.6-terra", "medium"),
-    "night-gardener": ("gpt-5.6-sol", "high"),
+    "developer": ("gpt-5.6-terra", "high"),
+    "historian": ("gpt-5.6-terra", "high"),
+    "librarian": ("gpt-5.6-terra", "high"),
+    "night-gardener": ("gpt-6-astra", "high"),
     "reviewer": ("gpt-6-astra", "high"),
-    "wayfinder": ("gpt-5.6-terra", "medium"),
+    "wayfinder": ("gpt-5.6-terra", "high"),
 }
 
 

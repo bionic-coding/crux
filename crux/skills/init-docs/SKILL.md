@@ -105,6 +105,7 @@ bionic/
   research/ideas/
   research/meetings/
   adrs/
+  adrs/reviews/               # the decision-review surface (docs/CLAUDE.md §4 adrs); empty at init, `.gitkeep`
   briefs/
   journal/
   promptbooks/active/
@@ -118,7 +119,7 @@ bionic/
     index.md
 ```
 
-Add a `.gitkeep` file to each leaf directory that will otherwise be empty: `inbox/`, `research/raw/`, `research/sources/`, every `research/<category>/`, `briefs/`, `promptbooks/active/`, `promptbooks/runs/`, `promptbooks/archive/`, `code/_meta/`, `invariants/checks/`. (In schema_version 3, the unified top-level `inbox/` replaced the old research-local `research/new/`.)
+Add a `.gitkeep` file to each leaf directory that will otherwise be empty: `inbox/`, `research/raw/`, `research/sources/`, every `research/<category>/`, `adrs/reviews/`, `briefs/`, `promptbooks/active/`, `promptbooks/runs/`, `promptbooks/archive/`, `code/_meta/`, `invariants/checks/`. (In schema_version 3, the unified top-level `inbox/` replaced the old research-local `research/new/`.)
 
 **Invariants concern (enabled by default for new repos at `schema_version: "5"`; see docs/CLAUDE.md §15).** Eagerly create the concern's surfaces — do NOT defer them:
 - `${DOCS_DIR}/invariants/index.md` — the ledger rollup (see step 8; a `Pins (0)` header that visibly marks non-ratified pins).
@@ -435,7 +436,7 @@ See below. If any item fails, roll back per the rollback contract (remove only t
 - [ ] `${DOCS_DIR}/journal/${MONTH}.md` exists with header only.
 - [ ] `${DOCS_DIR}/journal/index.md` exists with the current-month row.
 - [ ] `${DOCS_DIR}/promptbooks/index.md` exists with empty Active and Archived tables.
-- [ ] `${DOCS_DIR}/promptbooks/{active,runs,archive}/` and `${DOCS_DIR}/invariants/checks/` each contain a `.gitkeep`.
+- [ ] `${DOCS_DIR}/promptbooks/{active,runs,archive}/`, `${DOCS_DIR}/adrs/reviews/`, and `${DOCS_DIR}/invariants/checks/` each contain a `.gitkeep` — the reviews surface exists before the first decision review, so the cadence nudge never points at a directory that is not there.
 - [ ] No remaining `{{...}}` placeholders anywhere under `${DOCS_DIR}/`.
 - [ ] Repo-root `CLAUDE.md` either already references the tree's `CLAUDE.md` or a WARNING was surfaced.
 - [ ] `${CRUX_PLUGIN_ROOT}/catalog/skills.json` and `${CRUX_PLUGIN_ROOT}/catalog/bundles.yml` both exist; `${CRUX_PLUGIN_ROOT}/scripts/validate-catalog.py` exits 0 against them.

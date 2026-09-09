@@ -617,7 +617,9 @@ class ModelsCatalogNegativeTests(unittest.TestCase):
             "  commander:\n    level: apex\n    opencode: qwen-max",
             "  commander:\n    level: flagship\n    opencode: qwen-max").replace(
             "  reviewer:\n    level: apex\n    opencode: kimi-latest",
-            "  reviewer:\n    level: flagship\n    opencode: kimi-latest"))
+            "  reviewer:\n    level: flagship\n    opencode: kimi-latest").replace(
+            "  night-gardener:\n    level: apex\n    opencode: kimi-latest",
+            "  night-gardener:\n    level: flagship\n    opencode: kimi-latest"))
 
     def test_v2c_apex_agent_with_no_override(self):
         self._assert_rule("V2", lambda t: t.replace(
@@ -640,7 +642,7 @@ class ModelsCatalogNegativeTests(unittest.TestCase):
             '      verified: "2026-08-21"', '      verified: "2026-99-99"', 1))
 
     def test_v4_effort_outside_the_enum(self):
-        self._assert_rule("V4", lambda t: t.replace("reasoning_effort: medium", "reasoning_effort: extreme", 1))
+        self._assert_rule("V4", lambda t: t.replace("reasoning_effort: high", "reasoning_effort: extreme", 1))
 
     def test_v4_stale_verified_date_warns_without_failing(self):
         with tempfile.TemporaryDirectory() as td:

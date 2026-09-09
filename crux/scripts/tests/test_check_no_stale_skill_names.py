@@ -9,6 +9,7 @@ file never contains a banned literal (the checker's own self-allowlist rule).
 from __future__ import annotations
 
 import importlib.util
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -115,6 +116,34 @@ class AllowlistScopeTests(unittest.TestCase):
 
     def test_seed_line_on_a_live_agent_surface_is_red(self) -> None:
         self._assert_red("crux/agents/some-agent.md")
+
+    # ── the decision-review size vocabulary: `cycle` as a size token ──
+    def _scan_with_line(self, rel: str, line: str) -> list[str]:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / ".bionic.yml").write_text(
+                'config_version: "1"\ndocs_dir: bionic\n', encoding="utf-8")
+            target = root / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(line + "\n", encoding="utf-8")
+            return checker.scan(root)
+
+    def test_size_vocabulary_prose_form_is_allowlisted_on_a_live_skill(self) -> None:
+        line = "Size is one of `direct-fix`, `patch`, `cycle` or `ADR`, where `ADR` is any act whose write reaches an ADR file."
+        self.assertEqual([], self._scan_with_line("crux/skills/review-decisions/SKILL.md", line))
+
+    def test_size_vocabulary_table_form_is_allowlisted_on_the_template(self) -> None:
+        line = "| <id> | Propose \\| Amend | OBJ-N | <act> | direct-fix \\| patch \\| cycle \\| ADR |"
+        self.assertEqual([], self._scan_with_line("crux/templates/adr-review-template.md", line))
+
+    def test_a_bare_cycle_reference_beside_the_vocabulary_is_still_red(self) -> None:
+        # Positive control: the allowlist admits the vocabulary phrase only,
+        # never the file. A stale reference on another line stays a hit.
+        line = ("Size is one of `direct-fix`, `patch`, `cycle` or `ADR`.\n"
+                "Then run the `cycle` skill to build it.")
+        hits = self._scan_with_line("crux/skills/review-decisions/SKILL.md", line)
+        self.assertEqual(1, len(hits), hits)
+        self.assertIn(":2:", hits[0])
 
     # ── garden/**: allowlisted; its non-allowlisted sibling is not ──
     def test_garden_note_is_allowlisted(self) -> None:

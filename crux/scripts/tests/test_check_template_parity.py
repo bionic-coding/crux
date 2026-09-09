@@ -721,5 +721,243 @@ class ShippedManifestLivenessTests(unittest.TestCase):
         self.assertEqual(stale, [], f"dead parity clauses: {[r['id'] for r in stale]}")
 
 
+# ─────────── the CommonMark indent bound on the fence marker (A1) ────────────
+
+
+class TestFenceIndentBound(ParityTestCase):
+    """A fence opener and closer are bounded at THREE leading columns.
+
+    CommonMark reads four or more leading spaces as an indented code block, so
+    an indented run is not a fence marker at all. Without the bound a
+    four-space-indented run OPENED a phantom fence here, and every later line
+    read as fenced content — which swallowed the real anchor heading and turned
+    a live clause into a silent STALE. There is no longer a twin of this bound
+    to keep in step: the subset lives in `crux/scripts/md_fences.py`, both
+    this checker and `adr-signals.py` import it, and its enumerated contract
+    is pinned by `crux/scripts/tests/test_md_fences.py`. The cases below stay
+    here because they drive the bound THROUGH this checker's own fence
+    tracking, which the shared suite does not exercise.
+    """
+
+    def test_a_four_space_indented_run_opens_no_phantom_fence(self):
+        # The indented run is an indented code block, never a fence opener, so
+        # the REAL anchor below it is still found and the clause resolves.
+        # Fence-blind, the run opens a fence that never closes, the anchor is
+        # swallowed as content, and the clause reports STALE instead.
+        body = (
+            "# Doc\n\n"
+            "    ```\n"
+            "\n## Test Heading\n"
+            "\nSome text with SENTINEL-VALUE embedded here.\n"
+            "\n## Next Heading\n"
+        )
+        _make_canonical(self.root, body)
+        _make_twin(self.root, body)
+        manifest = _make_manifest(self.root, [_CLAUSE_TEMPLATE])
+
+        results = ctp.check_parity(manifest, self.root)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(
+            results[0]["status"], "OK",
+            f"indented run was read as a fence: {results}")
+
+    def test_the_bound_is_three_columns_and_a_tab_counts_as_four(self):
+        # PAIRED POSITIVE CONTROL first: at three columns the identical run IS
+        # a marker, so the refusals below are the indent and not the shape.
+        self.assertIsNotNone(ctp._fence_marker("```"))
+        self.assertIsNotNone(ctp._fence_marker("   ```"))
+        # Refused: four spaces, and a tab, which expands to four columns.
+        self.assertIsNone(ctp._fence_marker("    ```"))
+        self.assertIsNone(ctp._fence_marker("\t```"))
+        # The tilde spelling takes the same bound.
+        self.assertIsNotNone(ctp._fence_marker("   ~~~"))
+        self.assertIsNone(ctp._fence_marker("    ~~~"))
+
+    def test_a_non_space_prefix_does_not_zero_the_indent_for_this_checker(self):
+        """The defect the extraction closed, driven through this file's own
+        binding: the indent was measured on SPACES while the run was matched
+        after stripping ALL Unicode whitespace, so one U+00A0 or U+2028 in
+        front of a four-space indent made it measure as zero."""
+        for prefix in ("\xa0", "\u2028", "\x0b", "\r"):
+            with self.subTest(prefix=repr(prefix)):
+                self.assertIsNone(ctp._fence_marker(prefix + "```"))
+                self.assertIsNone(ctp._fence_marker(prefix + "    ```"))
+        # PAIRED POSITIVE CONTROL: the same run with nothing in front of it
+        # is still a marker, so the refusals above are the prefix and not a
+        # marker that stopped recognizing anything.
+        self.assertIsNotNone(ctp._fence_marker("```"))
+
+
+class TestForgedLineBoundaries(ParityTestCase):
+    """A hostile character MUST NOT be able to disable a live clause.
+
+    THE FAILURE MODE IS A GREEN RUN, WHICH IS WHY THIS CLASS EXISTS. When
+    `_section_after` cannot resolve a section it reports P3 STALE, and P3 does
+    NOT flip the exit code — by design, because stale is a maintenance signal
+    about the manifest rather than evidence of shipped-template drift. So a
+    character that makes the canonical section unresolvable does not merely
+    degrade the check: it turns a real P2 DRIFT into an exit-0 run, and the
+    drifted clause ships. No attacker is needed for either vector; a stray
+    U+00A0 pasted into either CLAUDE.md twin is enough.
+
+    TWO INDEPENDENT VECTORS, both closed, both pinned here:
+
+      * THE LINE SPLIT. `str.splitlines()` ends a line on nine terminators no
+        Markdown reader ends a line on, so a fence run spelled mid-sentence
+        after one of them became a real fence and swallowed the anchor. Closed
+        by `_lines`, the shared splitter in `md_fences`.
+      * THE HEADING TEST. A bare `str.lstrip()` before `startswith("#")`
+        strips the same over-wide class, so a `#` spelled after U+00A0 became
+        a real heading and terminated the section early. Closed by
+        `lstrip(" \\t")`. U+00A0 is NOT a `splitlines()` terminator, which is
+        how these two are known to be independent rather than one defect seen
+        twice.
+
+    EVERY CASE CARRIES A POSITIVE CONTROL. The twin in these fixtures has
+    genuinely dropped the governed value, so the honest reading of every
+    document below is a P2 DRIFT at exit 1. A checker that reported STALE for
+    everything, or OK for everything, fails `test_the_control_pair_really_drifts`
+    below and then fails every row here.
+    """
+
+    #: Every character `str.splitlines()` treats as a line terminator and no
+    #: Markdown reader does, plus U+00A0, which `splitlines()` does NOT split
+    #: on and `str.lstrip()` DOES strip.
+    HOSTILE = (
+        ("U+000B", "\v"), ("U+000C", "\f"), ("U+000D", "\r"),
+        ("U+001C", "\x1c"), ("U+001D", "\x1d"), ("U+001E", "\x1e"),
+        ("U+0085", "\x85"), ("U+2028", "\u2028"), ("U+2029", "\u2029"),
+        ("U+00A0", "\xa0"),
+    )
+
+    def _check(self, canonical: str):
+        _make_canonical(self.root, canonical)
+        _make_twin(self.root, _TWIN_WITHOUT_VALUE)
+        manifest = _make_manifest(self.root, [_CLAUSE_TEMPLATE])
+        results = ctp.check_parity(manifest, self.root)
+        self.assertEqual(len(results), 1, results)
+        return results[0]
+
+    def _assert_real_drift(self, result, note: str):
+        """DRIFT at P2, naming the value — not merely 'not STALE'.
+
+        Asserting the absence of STALE would pass on a checker that returned
+        nothing at all, which is the vacuous shape this round is closing.
+        """
+        self.assertEqual(result["status"], "DRIFT", f"{note}: {result}")
+        self.assertEqual(result["severity"], "P2", f"{note}: {result}")
+        self.assertIn("SENTINEL-VALUE", result["detail"], f"{note}: {result}")
+
+    def test_the_control_pair_really_drifts(self):
+        """The positive control for every row below.
+
+        Without it, a checker that reported DRIFT unconditionally would pass
+        the whole class, and so would one whose fixtures never triggered the
+        drift in the first place.
+        """
+        self._assert_real_drift(self._check(_CANONICAL_WITH_VALUE), "control")
+
+    def test_a_forged_fence_run_before_the_anchor_does_not_hide_the_drift(self):
+        for name, ch in self.HOSTILE:
+            with self.subTest(character=name):
+                canonical = ("# Doc\n\nordinary prose" + ch + "```\n\n"
+                             + _CANONICAL_WITH_VALUE)
+                self._assert_real_drift(self._check(canonical), name)
+
+    def test_a_forged_heading_inside_the_section_does_not_hide_the_drift(self):
+        for name, ch in self.HOSTILE:
+            with self.subTest(character=name):
+                canonical = ("## Test Heading\n\n"
+                             + ch + "# not really a heading\n"
+                             "\nSome text with SENTINEL-VALUE embedded here.\n"
+                             "\n## Next Heading\n")
+                self._assert_real_drift(self._check(canonical), name)
+
+    def test_a_forged_heading_before_the_anchor_does_not_hide_the_drift(self):
+        for name, ch in self.HOSTILE:
+            with self.subTest(character=name):
+                canonical = ("# Doc\n\n" + ch + "# not really a heading\n\n"
+                             + _CANONICAL_WITH_VALUE)
+                self._assert_real_drift(self._check(canonical), name)
+
+    def test_a_real_fence_and_a_real_heading_still_do_their_jobs(self):
+        """The anti-vacuity pair. `lstrip(" \\t")` and `_lines` must still
+        SEE the constructs they bound — a guard that stopped recognizing
+        fences and headings would pass every row above."""
+        # A real fenced block still hides an anchor look-alike inside it, so
+        # the REAL anchor further down is the one that resolves.
+        fenced = ("# Doc\n\n```\n## Test Heading\nSENTINEL-VALUE\n```\n\n"
+                  + _CANONICAL_WITH_VALUE)
+        self._assert_real_drift(self._check(fenced), "real fence")
+        # A real heading, indented up to three spaces, still terminates the
+        # section — so the value below it is NOT part of the canonical section
+        # and the clause reads STALE rather than DRIFT.
+        truncated = ("## Test Heading\n\n   # a real heading\n"
+                     "\nSome text with SENTINEL-VALUE embedded here.\n")
+        result = self._check(truncated)
+        self.assertEqual(result["status"], "STALE", result)
+
+    def test_a_crlf_document_reads_exactly_as_its_lf_twin_does(self):
+        """The paired control for reading untranslated.
+
+        Disabling universal-newline translation is only safe if CRLF still
+        reads correctly, and it does because `_lines` strips the one trailing
+        `\\r` each CRLF line leaves. That strip was UNREACHABLE while the files
+        were read through `read_text()` — translation removed every `\\r`
+        before it ran — so this is the row that makes it live. Byte-for-byte
+        the same document in both line endings must produce the same verdict.
+        """
+        lf = _CANONICAL_WITH_VALUE
+        crlf = lf.replace("\n", "\r\n")
+        self.assertNotEqual(lf, crlf)          # the fixture really differs
+
+        _make_canonical(self.root, lf)
+        _make_twin(self.root, _TWIN_WITHOUT_VALUE)
+        manifest = _make_manifest(self.root, [_CLAUSE_TEMPLATE])
+        lf_result = ctp.check_parity(manifest, self.root)[0]
+
+        _make_canonical(self.root, crlf)
+        crlf_result = ctp.check_parity(manifest, self.root)[0]
+
+        self._assert_real_drift(lf_result, "LF")
+        self._assert_real_drift(crlf_result, "CRLF")
+        self.assertEqual(lf_result, crlf_result)
+
+    def test_a_crlf_document_in_sync_with_its_twin_is_still_clean(self):
+        """The other sign of the CRLF control: an in-sync CRLF pair is OK, not
+        drift. Without it, a checker that reported DRIFT for every CRLF file
+        would pass the row above."""
+        crlf = _CANONICAL_WITH_VALUE.replace("\n", "\r\n")
+        _make_canonical(self.root, crlf)
+        _make_twin(self.root, _TWIN_WITH_VALUE.replace("\n", "\r\n"))
+        manifest = _make_manifest(self.root, [_CLAUSE_TEMPLATE])
+        result = ctp.check_parity(manifest, self.root)[0]
+        self.assertEqual(result["status"], "OK", result)
+
+    def test_the_exit_code_survives_the_forgery_end_to_end(self):
+        """The findings above are asserted through `check_parity`; the thing
+        that actually ships is the EXIT CODE, and the whole point of the
+        defect is that it reached 0. Driven through the CLI so the P3-does-
+        not-flip-the-exit rule is exercised rather than assumed."""
+        for name, ch in (("U+000B", "\v"), ("U+2028", "\u2028"), ("U+00A0", "\xa0")):
+            for label, canonical in (
+                ("fence", "# Doc\n\nprose" + ch + "```\n\n" + _CANONICAL_WITH_VALUE),
+                ("heading", "## Test Heading\n\n" + ch + "# forged\n"
+                            "\nSome text with SENTINEL-VALUE embedded here.\n"
+                            "\n## Next Heading\n"),
+            ):
+                with self.subTest(character=name, vector=label):
+                    _make_canonical(self.root, canonical)
+                    _make_twin(self.root, _TWIN_WITHOUT_VALUE)
+                    manifest = _make_manifest(self.root, [_CLAUSE_TEMPLATE])
+                    proc = subprocess.run(
+                        [sys.executable, str(CLI),
+                         "--manifest", str(manifest), "--root", str(self.root)],
+                        capture_output=True, text=True, cwd=str(self.root), timeout=60,
+                    )
+                    self.assertEqual(proc.returncode, 1,
+                                     f"{name}/{label}: {proc.stdout}{proc.stderr}")
+                    self.assertIn("DRIFT", proc.stdout)
+
 if __name__ == "__main__":
     unittest.main()

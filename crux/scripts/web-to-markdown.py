@@ -7,7 +7,7 @@
 #     "html2text>=2024.2",
 # ]
 # ///
-"""Convert a web page to clean Markdown for the Bionic Coding vault.
+"""Convert a web page to clean Markdown for the Idyll vault.
 
 Usage:
     web-to-markdown.py <url> [--output-dir DIR] [--no-images] [--allow-private]
@@ -374,7 +374,7 @@ def html_to_markdown(
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Convert a web page to Markdown for the Bionic Coding vault."
+        description="Convert a web page to Markdown for the Idyll vault."
     )
     parser.add_argument("url", help="URL to fetch (http/https only)")
     parser.add_argument(

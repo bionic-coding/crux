@@ -96,6 +96,27 @@ class ReviewsIndexTestCase(unittest.TestCase):
         self.assertIn("| 2026-09-07 | 0 | 3 |",
                       (self.reviews / "index.md").read_text(encoding="utf-8"))
 
+    def test_a_finding_id_only_under_the_repair_heading_still_counts(self):
+        # The `## Repair` section is one of the six a report carries. The
+        # regenerator parses no section heading at any point, so an id under
+        # Repair counts exactly like one under Propose. This pins that reading:
+        # `adr-review-repair-only` occurs NOWHERE but under `## Repair`, so a
+        # future change that started parsing named sections and missed Repair
+        # would render 1 here instead of 2 and redden this test rather than
+        # silently dropping the finding from the count.
+        self.write("2026-09-07.md",
+                   "---\ntype: adr-review\ndate: 2026-09-07\ndismissed: []\n---\n\n"
+                   "# Review 2026-09-07\n\n"
+                   "## Propose\n\n"
+                   "### Finding `adr-review-missing-rule`\n\n"
+                   "Something about a decision.\n\n"
+                   "## Repair\n\n"
+                   "### Finding `adr-review-repair-only`\n\n"
+                   "A prose edit whose enacting act writes no ADR file.\n")
+        self.assertEqual(self.run_cli().returncode, 0)
+        self.assertIn("| 2026-09-07 | 2 | 0 | [2026-09-07.md](./2026-09-07.md) |",
+                      (self.reviews / "index.md").read_text(encoding="utf-8"))
+
     def test_a_stale_index_is_drift_in_dry_run_and_rebuilt_in_write_mode(self):
         self.write("2026-09-07.md", _report("2026-09-07", ["adr-review-x"], []))
         self.write("index.md", EMPTY_INDEX)

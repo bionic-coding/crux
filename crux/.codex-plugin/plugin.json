@@ -1,12 +1,12 @@
 {
   "name": "crux",
-  "version": "3.9.0",
+  "version": "3.10.0",
   "description": "Maintains a docs/ tree across seven concerns (code docs, research wiki, ADRs, briefs, work journal, promptbooks, invariants) for Codex and Claude Code.",
   "author": {
-    "name": "Mark Madsen",
+    "name": "Idyll",
     "url": "https://github.com/idyll"
   },
-  "homepage": "https://github.com/bionic-coding/crux",
+  "homepage": "https://bionic-coding.com/crux/",
   "repository": "https://github.com/bionic-coding/crux",
   "license": "MIT",
   "keywords": [
@@ -19,13 +19,13 @@
     "displayName": "crux",
     "shortDescription": "Project knowledge and delivery workflows",
     "longDescription": "Maintain a docs/ tree across seven concerns \u2014 code docs, research wiki, ADRs, briefs, work journal, promptbooks, and invariants \u2014 with governed delivery workflows.",
-    "developerName": "Bionic Coding",
+    "developerName": "Idyll",
     "category": "Productivity",
     "capabilities": [
       "Read",
       "Write"
     ],
-    "websiteURL": "https://github.com/bionic-coding/crux",
+    "websiteURL": "https://bionic-coding.com/crux/",
     "defaultPrompt": [
       "Initialize crux documentation for this project.",
       "Start a governed development cycle for this feature.",

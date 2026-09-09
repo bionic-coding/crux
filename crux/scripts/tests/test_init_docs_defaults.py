@@ -446,5 +446,24 @@ class UserGuideSchemaLiteralTests(unittest.TestCase):
                           f"{f.name} does not name schema_version {v}")
 
 
+class ReviewsSurfaceAtInitTests(unittest.TestCase):
+    """`init-docs` creates the decision-review surface before the first review.
+
+    Without it a fresh tree reaches the CLN-ADR-5 cadence nudge with nowhere
+    to write (review finding `adr-review-init-docs-omits-reviews`).
+    """
+
+    def setUp(self) -> None:
+        self.text = (REPO_ROOT / "crux" / "skills" / "init-docs" / "SKILL.md").read_text(encoding="utf-8")
+
+    def test_the_directory_tree_names_adrs_reviews(self):
+        self.assertIn("adrs/reviews/", self.text)
+
+    def test_the_gitkeep_list_and_the_checklist_carry_it(self):
+        keep = self.text[self.text.index("Add a `.gitkeep` file to each leaf directory"):]
+        self.assertIn("`adrs/reviews/`", keep.split("\n", 1)[0])
+        self.assertIn("`${DOCS_DIR}/adrs/reviews/`", self.text[self.text.index("## Verification checklist"):])
+
+
 if __name__ == "__main__":
     unittest.main()

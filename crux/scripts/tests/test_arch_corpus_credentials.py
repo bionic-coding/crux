@@ -144,14 +144,17 @@ class ArchCorpusCredentialScanTests(unittest.TestCase):
         # modeled on each vendor's well-known public "this is a fake key"
         # example format (e.g. AWS's own docs use AKIAIOSFODNN7EXAMPLE).
         synthetic = {
-            "openai-sk.md": "key = sk-0000...\n",
+            "openai-sk.md": "key = sk-000000000000000000000000example\n",
             "aws-akia.md": "id = AKIAIOSFODNN7EXAMPLE\n",
-            "github-pat.md": "token = ghp_....\n",
-            "slack-token.md": "slack = xoxb-0000...\n",
-            "google-api-key.md": "key = xxx\n",
+            "github-pat.md": "token = ghp_000000000000000000000000000000000000\n",
+            # Vendor-prefix plus a same-length run of "x": fires each PATTERNS
+            # entry above without matching GitHub's push-protection detectors,
+            # which refused a push carrying a digit-shaped Slack value.
+            "slack-token.md": "slack = xoxb-xxxxxxxxxxxxxxxxxxxxxxxxxxx\n",
+            "google-api-key.md": "key = AIzaxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n",
             "jwt.md": (
-                "jwt = eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0."
-                "dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U\n"
+                "jwt = eyJxxxxxxxxxxxxxxxxx.xxxxxxxxxxxxxxxxxxxxxxxxxxx."
+                "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n"
             ),
             "pem-block.md": "-----BEGIN RSA PRIVATE KEY-----\nMIIExample\n",
             "assignment-secret.md": "API_KEY = abcdef1234567890\n",
