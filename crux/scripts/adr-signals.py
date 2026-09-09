@@ -780,6 +780,13 @@ def _dated_entries(root: Path,
             return path.name
 
     def _split(path: Path, label: str) -> None:
+        # A symlink at a surface path is REFUSED AND NAMED whether or not it
+        # resolves. `is_file()`/`is_dir()` follow the link, so a dangling one
+        # used to read as "absent" and drop the surface from the narrowing
+        # silently — a null that then claimed "no dated mention exists".
+        if path.is_symlink():
+            refused.append(_rel(path))
+            return
         text = _read_contained(root, path)
         if text is None:
             refused.append(_rel(path))
@@ -791,16 +798,23 @@ def _dated_entries(root: Path,
                 entries.append((label, m.group(1), set(ADR_ID.findall(body))))
 
     log = docs / "log.md"
-    if log.is_file():
+    if log.is_symlink() or log.is_file():
         _split(log, "log.md")
     journal = docs / "journal"
-    if journal.is_dir():
+    if journal.is_symlink():
+        refused.append(_rel(journal))
+    elif journal.is_dir():
         for path in sorted(journal.glob("*.md")):
             if path.name != "index.md":
                 _split(path, "journal")
     runs = docs / "promptbooks" / "runs"
-    if runs.is_dir():
+    if runs.is_symlink():
+        refused.append(_rel(runs))
+    elif runs.is_dir():
         for path in sorted(runs.glob("**/*.yaml")):
+            if path.is_symlink():
+                refused.append(_rel(path))
+                continue
             text = _read_contained(root, path)
             if text is None:
                 refused.append(_rel(path))

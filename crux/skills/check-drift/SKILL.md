@@ -71,12 +71,13 @@ Run each command below from the repo root. **Parse each command's stdout as JSON
 | runtime-compatibility block (56 skills) | `generate-runtime-compat.py --dry-run` | `generate-runtime-compat.py` |
 | `<tree>/CLAUDE.md` §10 routing-table region | `generate-routing-table.py --dry-run` | `generate-routing-table.py` |
 | `<docs_dir>/adrs/reviews/index.md` | `generate-reviews-index.py --dry-run` | `generate-reviews-index.py` |
+| `<docs_dir>/journal/index.md` | `generate-journal-index.py --dry-run` | `generate-journal-index.py` |
 
 Invoke each via `uv run "${CRUX_PLUGIN_ROOT}/scripts/<name>" ...` from the repo root. This roster is the source of truth for what a derived artifact owes; if the repo-root `CLAUDE.md` roster grows a row, add its gate here.
 
 ### 1.A. Run the validation checks
 
-A validation check is not a drift gate. It regenerates nothing, so it owns no row in the repo-root `CLAUDE.md` "regenerative outputs" roster, and enrolling it there would break the derived-artifact rule rather than keep it — a roster row promises a regenerator, and a validation check has none to promise. The roster count is unchanged by this section, and `audit-docs`'s CHK-DRIFT-1 still covers twelve outputs.
+A validation check is not a drift gate. It regenerates nothing, so it owns no row in the repo-root `CLAUDE.md` "regenerative outputs" roster, and enrolling it there would break the derived-artifact rule rather than keep it — a roster row promises a regenerator, and a validation check has none to promise. The roster count is unchanged by this section, and `audit-docs`'s CHK-DRIFT-1 still covers thirteen outputs.
 
 Run each check below from the repo root, after the drift gates and before the report.
 
@@ -96,11 +97,11 @@ Invoke it as `uv run "${CRUX_PLUGIN_ROOT}/scripts/lint-governs-references.py"` w
 
 Shared exit-code semantics (the same contract `verify-code-docs`, CHK-CODE-4, CHK-CAT-3, and CHK-ARCH-1 use): `0` clean, `1` drift or a validation error with valid JSON on stdout, any other non-zero with empty or unparseable stdout = crash (surface stderr, never a document finding). Map each gate to one verdict:
 
-- **clean** — exit 0, JSON says no drift (`{"drift": false}` / `{"clean": true}` / `added=changed=removed=0` / empty diff), no `validation_errors`.
+- **clean** — exit 0, JSON says no drift (`{"drift": false}` / `{"clean": true}` / `added=changed=removed=0` / empty diff), no `validation_errors`, **and no `surface_absent` key**. That last clause is part of the definition, not a later correction: a `surface_absent` payload carries `{"drift": false}` at exit 0 and matches every other clause here, so a reader matching these bullets top-down would call it clean four bullets before reaching N/A. It is N/A.
 - **DRIFT** — exit 1 with a JSON drift payload (`{"drift": true, "paths": [...]}`, non-empty `added/changed/removed`, or a section diff). Capture the drifted paths. The fix is the regenerator in the table's third column.
 - **BROKEN** — the JSON carries a non-empty `validation_errors` key (a malformed `governs` entry, a malformed reconciliation ledger, a schema error). Regenerating does NOT fix a validation error; the named input must be repaired first. Report the problems.
 - **CRASH** — non-zero exit with empty or unparseable stdout (a missing dependency, an unhandled exception). Surface stderr; this is an environment problem, never a document finding.
-- **N/A** — exit 0 with `"surface_absent": true` on the JSON. `generate-reviews-index.py` emits this when the tree carries no `<docs_dir>/adrs/reviews/` at all, which is every project that has not yet run a decision review. There is no derived artifact, so nothing can have drifted, and nothing was measured either. **Report it as N/A, never as clean** — a gate that scanned an absent surface has verified nothing, and recording it green is the vacuous-green shape this skill exists to prevent. The fix is not the regenerator: run `review-decisions` when a review is due.
+- **N/A** — exit 0 with `"surface_absent": true` on the JSON. The verdict keys on that payload key, not on which gate printed it. Two gates emit it: `generate-reviews-index.py` when the tree carries no `<docs_dir>/adrs/reviews/`, which is every project that has not yet run a decision review, and `generate-journal-index.py` when the tree carries no `<docs_dir>/journal/` at all. There is no derived artifact, so nothing can have drifted, and nothing was measured either. **Report it as N/A, never as clean** — a gate that scanned an absent surface has verified nothing, and recording it green is the vacuous-green shape this skill exists to prevent. **The fix is never the regenerator, and it differs by surface:** run `review-decisions` when a review is due, and `init-docs` when the journal surface was never created.
 
 **Warnings ride alongside, never change the verdict.** Read any top-level `warnings` key (`validate-catalog.py` emits one — the `models.yml` `verified:` staleness clock; `check-doctrine-reconciliation.py`'s S1 warn lane is similar). Surface it as WARNING beside the gate's verdict. A gate at exit 0 with a non-empty `warnings` list is a **clean pass worth reporting with its warning**, not a failure.
 

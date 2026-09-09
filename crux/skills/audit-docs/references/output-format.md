@@ -6,7 +6,7 @@ the DRIFT / BROKEN / WARNINGS layout the hand-off (pipeline step 6) produces.
 ## Output format example
 
 ```
-Audit complete: 3 broken, 8 drift, 5 warnings. 8 auto-fixes applied. 3 pending your decision.
+Audit complete: 3 broken, 8 drift, 5 warnings. 7 auto-fixes applied, 1 recommended. 3 pending your decision.
 
 DRIFT (auto-fixed):
 - docs/index.md: research count was 24, actual 26 → updated.
@@ -15,8 +15,10 @@ DRIFT (auto-fixed):
 - docs/adrs/index.md: regenerated from frontmatter (1 missing row added).
 - docs/promptbooks/index.md: regenerated; PB-0003 progress was 3/12, actual 4/12.
 - docs/promptbooks/active/PB-0003-...md: total_prompts was missing → set to 12 (counted from body).
-- docs/journal/index.md: rebuilt; 2026-05 had 8 entries reported, actual 11.
 - docs/research/sources.md: 2 rows had `last_source_check` drift → synced from frontmatter.
+
+DRIFT (recommend, not auto-fixed):
+- docs/journal/index.md: `generate-journal-index.py --dry-run` reports drift (2026-05 row stale) → recommend `generate-journal-index.py`.
 
 BROKEN (need your decision):
 1. docs/adrs/ADR-NNNN: superseded_by: ADR-MMMM, but ADR-MMMM.supersedes does not list ADR-NNNN.

@@ -18,6 +18,12 @@ sys.path.insert(0, str(SCRIPTS))
 import importlib  # noqa: E402
 D = importlib.import_module("crux.arch.derive")  # the module, not the re-exported fn
 
+try:  # package-relative when run as a module, flat when run by discovery
+    from ._dev_surface import IS_STAGED_ARTIFACT, require_dev_surface
+except ImportError:  # pragma: no cover
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from _dev_surface import IS_STAGED_ARTIFACT, require_dev_surface
+
 # ADR-0078 clause 1 — THE PINNED SPINE HASH IS GONE, AND SO IS ITS TEST.
 #
 # `COMMITTED_SPINE_HASH` held a copy of the spine-hash string stamped into this
@@ -69,19 +75,86 @@ D = importlib.import_module("crux.arch.derive")  # the module, not the re-export
 # directory level. That is wider than the one corpus directory, and deliberately
 # so: any `.cache` in this repo is regenerable and none of it is a derive input.
 #
-# `.crux-arch-scratch` is excluded for a different reason: it is not cost, it is
-# a race. The corpus's `source: self` entry derives this repo in place, creating
-# and removing that directory AT THE REPO ROOT for about 1.4 seconds. Within one
-# pytest process the copy and the self-derive are sequential and cannot collide,
-# but a second runner mid-self-derive makes `copytree` stat a directory that is
-# gone by the time it descends — `shutil.Error: ... No such file or directory:
-# '.../.crux-arch-scratch'`. Ignoring the name means copytree never descends and
-# the window closes. The directory is gitignored scratch and never a derive input.
+# `.crux-arch-scratch` and `.crux-selftest-scratch` are excluded for a different
+# reason: they are not cost, they are a race. The corpus's `source: self` entry
+# derives this repo in place, creating and removing `.crux-arch-scratch` AT THE
+# REPO ROOT for about 1.4 seconds; the vacuous-gate-guard selftest does the same
+# with `.crux-selftest-scratch` while it seeds and removes a control violation
+# for its citation-linter gate. Within one pytest process the copy and either
+# scratch-directory user are sequential and cannot collide, but a second runner
+# mid-scratch-write makes `copytree` stat a directory that is gone by the time
+# it descends — `shutil.Error: ... No such file or directory:
+# '.../.crux-arch-scratch'`. Ignoring the names means copytree never descends and
+# the window closes. Both directories are gitignored scratch and never a derive
+# input.
 _SCRATCH_IGNORE = shutil.ignore_patterns(
     ".git", "__pycache__", "*.pyc", "node_modules",
     ".venv", ".cache", "logs", ".pytest_cache", ".ruff_cache",
-    ".crux-arch-scratch",
+    ".crux-arch-scratch", ".crux-selftest-scratch",
 )
+
+
+class ScratchNameEnrollmentTests(unittest.TestCase):
+    """The two scratch directory names, pinned at every half that must agree.
+
+    Each name is written in three places that only work together: the writer
+    that creates the directory, `_SCRATCH_IGNORE` above (so a concurrent
+    runner's `copytree` never descends into a directory mid-write), and
+    `.gitignore` (so a crash mid-run leaves no untracked debris). Deleting any
+    one half silently reopens the live-tree fixture race with this suite green,
+    which is what happened when `.crux-selftest-scratch` was introduced. The
+    writers are `crux/arch/derive.py` for `.crux-arch-scratch` and the
+    `vacuous-gate-guard` selftest for `.crux-selftest-scratch`.
+    """
+
+    NAMES = (".crux-arch-scratch", ".crux-selftest-scratch")
+
+    #: A dev-only file: `.claude/` never crosses the sync boundary.
+    SELFTEST_WRITER = (
+        REPO / ".claude" / "skills" / "vacuous-gate-guard" / "selftest"
+        / "build_rows.py")
+
+    def test_the_copy_filter_ignores_both_names(self):
+        # `shutil.ignore_patterns` returns a callable, so membership is asked
+        # of it the way `copytree` asks: hand it a directory listing.
+        listing = [*self.NAMES, "crux", "bionic", "tools"]
+        ignored = _SCRATCH_IGNORE(str(REPO), listing)
+        for name in self.NAMES:
+            with self.subTest(name=name):
+                self.assertIn(name, ignored)
+        # PAIRED POSITIVE CONTROL: the filter is selective, not blanket — a
+        # filter that ignored everything would satisfy the loop above and make
+        # every scratch-copy test copy an empty tree.
+        for kept in ("crux", "bionic", "tools"):
+            with self.subTest(kept=kept):
+                self.assertNotIn(kept, ignored)
+
+    def test_gitignore_carries_both_names(self):
+        gitignore = REPO / ".gitignore"
+        if IS_STAGED_ARTIFACT:
+            self.skipTest(
+                "the staged artifact's root .gitignore is public/.gitignore, a "
+                "different file (ADR-0036 boundary)")
+        require_dev_surface(self, gitignore, ".gitignore")
+        entries = {line.strip() for line
+                   in gitignore.read_text(encoding="utf-8").splitlines()}
+        for name in self.NAMES:
+            with self.subTest(name=name):
+                self.assertIn(name + "/", entries)
+        # PAIRED POSITIVE CONTROL: the parse produced real entries rather than
+        # an accidentally-permissive set.
+        self.assertNotIn("crux/", entries)
+
+    def test_the_selftest_writer_still_uses_the_enrolled_name(self):
+        """The rename that motivated the two halves above."""
+        require_dev_surface(self, self.SELFTEST_WRITER,
+                            ".claude/skills/vacuous-gate-guard/selftest/build_rows.py")
+        text = self.SELFTEST_WRITER.read_text(encoding="utf-8")
+        self.assertIn('SEED_DIR = ROOT / ".crux-selftest-scratch"', text)
+        # The pre-rename location seeded a control file INSIDE the live docs
+        # tree, where the arch derive and the audit both read. It must not
+        # come back.
+        self.assertNotIn("bionic/.seed-control", text)
 
 
 def _copy_repo(scratch: Path) -> None:

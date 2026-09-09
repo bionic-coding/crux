@@ -427,7 +427,7 @@
   {
     "id": "log-work",
     "name": "log-work",
-    "description": "Use when finishing a unit of work, when the user says \"log work\", \"journal this\", \"record progress\", \"log this\", at end-of-day, or after any other crux skill completes a non-trivial side effect that warrants narrative context. Owns the append to `docs/journal/YYYY-MM.md`, the `journal` op entry in `docs/log.md`, and the rollup row in `docs/journal/index.md`. Supports a `--silent` mode for other skills to auto-log.",
+    "description": "Use when finishing a unit of work, when the user says \"log work\", \"journal this\", \"record progress\", \"log this\", at end-of-day, or after any other crux skill completes a non-trivial side effect that warrants narrative context. Owns the append to `docs/journal/YYYY-MM.md`, the `journal` op entry in `docs/log.md`, and the regenerator run that derives the `docs/journal/index.md` row. Supports a `--silent` mode for other skills to auto-log.",
     "tags": [
       "journal",
       "work-log",

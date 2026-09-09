@@ -1,4 +1,4 @@
-<!-- generated-from: README.md@sha256:84ac6231d3bcaa1401b6d7fd79b99b506ae68fa0a1a7f4935dc31a7ac2dc0ed9; model: claude-fable-5.1; date: 2026-09-09 -->
+<!-- generated-from: README.md@sha256:65b95df380e24ef0a6f95b0a1bb73ec824d010fedb4d786d9f1dc398d811744f; model: claude-fable-5.1; date: 2026-09-09 -->
 # Crux
 
 An Agentic Harness plugin that maintains a `./bionic/` tree inside any software project — so that Claude can navigate, query, and update project knowledge without anyone having to remember where things go. Everything runs locally — no server, no accounts, no background service: just skills, scripts, and your repo.
@@ -22,17 +22,15 @@ That's the whole flow — the second command installs the plugin named `crux` fr
 
 That bootstraps the seven-concern `bionic/` tree plus the default-on arch spine, seeds `bionic/CLAUDE.md` (the operational schema Claude reads on every session), `bionic/manifest.yml`, and the meta-ADR `ADR-0000`.
 
-Codex and OpenCode setup is covered further down under [Other hosts](#other-hosts).
-
 ## About this repository
 
-This repository is **generated** from a private development repo on every release (see `.generated`). Each release lands here as **one squash commit**. Please **file issues** — they are read and acted on — but do not open pull requests: the next release overwrites the tree, so a PR here cannot be merged.
+This repository is **generated** from a private development repo on every release (see `.generated` for the provenance stamp). Each release lands here as a single squash commit. Please file **issues** — they are read and acted on — but don't open pull requests: the next release regenerates the tree and would overwrite them.
 
 ---
 
-## What crux manages
+## What's inside
 
-**60 skills** across seven concerns — plus a default-on, derived **arch** surface (the current-state architecture map, built on demand by `derive-arch`) and the default-on **observations** concern (what the code already does, evidenced and ratified rather than decided) — plus a **10-agent operator layer** (see **Agents** below), under a single naming convention — no `crux-` prefix.
+**60 skills** across seven concerns — plus a default-on, derived **arch** surface (the current-state architecture map, built on demand by `derive-arch`) and the default-on **observations** concern (what the code already does, evidenced and ratified rather than decided) — plus a **10-agent operator layer** (see **Agents** below), under a single naming convention with no `crux-` prefix. Skills are organized into four bundles: docs suite, core agent-team, verification, infrastructure.
 
 | Concern | What lives there | Who writes it |
 |---|---|---|
@@ -52,7 +50,7 @@ To learn how a project is shaped *right now*, start with `bionic/arch/` — the 
 
 To learn what a project currently holds to be true — and whether that belief is live or only on paper — start with `bionic/adrs/doctrine/` instead: a derived, per-domain, plain-language view compiled from the ADR summaries and reconciled against ratified invariants. Doctrine holds zero authority; when it disagrees with an ADR body, the ADR body is the record and wins. This is a different question from the shape question `bionic/arch/` answers — arch says what exists, doctrine says what's currently believed.
 
-The full mental model and conventions live in the [Crux guide](https://bionic-coding.com/crux/) and [USER_GUIDE.md](./USER_GUIDE.md). The operational schema Claude follows lives in `bionic/CLAUDE.md` (created on first run). The tree's location is recorded in `.bionic.yml`; an existing `docs/` tree keeps working unchanged.
+The full mental model and conventions live in the [Crux guide](https://bionic-coding.com/crux/). The operational schema Claude follows lives in `bionic/CLAUDE.md` (created on first run). The tree's location is recorded in `.bionic.yml`; an existing `docs/` tree keeps working unchanged.
 
 ---
 
@@ -62,7 +60,7 @@ A **cycle** is one trip around crux's development loop for a single feature or c
 
 > **"Start a cycle for &lt;feature&gt;. The goal is &lt;one paragraph&gt;."**
 
-Claude allocates the next `PB-NNNN`, assembles a promptbook from modular building blocks, and you drive it forward with **"advance"** / **"next"**. A cycle is composed of three module types — each can appear once or many times depending on the work — plus a fixed prep + summary at the end:
+Claude allocates the next promptbook number, assembles a promptbook from modular building blocks, and you drive it forward with **"advance"** / **"next"**. A cycle is composed of three module types — each can appear once or many times depending on the work — plus a fixed prep + summary at the end:
 
 | Module | Prompts per instance | What it does |
 |---|---|---|
@@ -108,7 +106,7 @@ crux bundles a **role-based agent layer**: **ten** Claude Code subagents that *o
 | **night-gardener** | Overnight visionary/coach/co-CTO — reviews recent work, writes a morning note under `docs/garden/` (ideas, gaps, research, news) | push/merge, send externally, or self-install the routine |
 | **wayfinder** | Read-only reconnaissance — reads large/uncertain or external data ahead of the caller, judges fitness, returns a verdict + condensed digest so the primary spends its context only on proven-fit content | write, execute, delegate, or relay local content outbound |
 
-Two choices make the layer portable and safe. Agents are **self-contained** — the craft disciplines (TDD with its proof-mechanism, verification-before-completion, systematic debugging, two-stage review) are embedded in each agent's prompt rather than depending on separately-installed skills. And they're **first-class catalog citizens** — agent frontmatter is regenerated into the plugin's agents catalog exactly like skills. The agents register once the plugin is installed/upgraded and the session is restarted.
+Two choices make the layer portable and safe. Agents are **self-contained** — the craft disciplines (TDD with its proof-mechanism, verification-before-completion, systematic debugging, two-stage review) are embedded in each agent's prompt rather than depending on separately-installed skills. And they're **first-class catalog citizens** — agent frontmatter is regenerated into `catalog/agents.json` exactly like skills, with an `agents:` array in `plugin.json`. The agents register once the plugin is installed and the session is restarted.
 
 ---
 
@@ -336,7 +334,7 @@ See the [Crux guide](https://bionic-coding.com/crux/) for the full surface.
 
 ### Optional: per-project configuration
 
-A repo can commit an optional `.bionic.yml` file at its root (distinct from the `~/.crux/` secrets directory — never put secrets in it) to relocate the tree (`docs_dir`) or brand artifact ids with a prefix (`artifact_prefix: "CRX"` → `CRX-PB-0040`). It supersedes the legacy `.crux` file, which is still read for back-compat. Copy `crux/templates/bionic-yml.tmpl` to get started; the [Crux guide](https://bionic-coding.com/crux/) covers the full option set.
+A repo can commit an optional `.bionic.yml` file at its root (distinct from the `~/.crux/` secrets directory — never put secrets in it) to relocate the tree (`docs_dir`) or brand artifact ids with a prefix (`artifact_prefix: "CRX"` → `CRX-PB-0040`). It supersedes the legacy `.crux` file, which is still read for back-compat. Copy `crux/templates/bionic-yml.tmpl` to get started; see the [Crux guide](https://bionic-coding.com/crux/) for the details.
 
 ---
 
@@ -344,25 +342,11 @@ A repo can commit an optional `.bionic.yml` file at its root (distinct from the 
 
 ### 1. It's all natural language — no slash commands
 
-Skills are triggered by phrases routed through each skill's description. Say what you mean; Claude picks the right skill.
-
-| Say this | …and Claude will |
-|---|---|
-| **"start a cycle for X"** | **Assemble the modular feature-delivery promptbook (≥13 prompts, see above). This is the main entry point.** |
-| "advance" / "next prompt" | Move the active cycle (or any running promptbook) forward one prompt |
-| "propose an ADR for X" | Allocate the next ADR number, draft a `Proposed` decision record |
-| "accept ADR-0007" | Flip status to `Accepted` — body is now frozen forever |
-| "process inbox" (after dropping anything in `docs/inbox/`) | Classify each dropped item + confirm + dispatch to the right skill (research → ingest, decision → ADR, exploration → brief, note → journal) |
-| "log work — fixed the X bug" | Append a categorized entry to `docs/journal/YYYY-MM.md` |
-| "new promptbook for X" | Scaffold a plan-of-prompts artifact you'll co-author (use this for non-cycle plans) |
-| "run promptbook PB-0003" | Start an immutable run snapshot of that book |
-| "extract code docs" | Regenerate `docs/code/` from your source's docstrings |
-| "audit docs" | Run integrity checks across every enabled concern and auto-fix safe drift; `audit docs --migrate` upgrades an older docs tree |
-| "what does X do?" / "why did we choose Y?" | Search `docs/`, return answers with citations |
+Skills are triggered by phrases routed through each skill's description. Say what you mean; Claude picks the right skill. **"start a cycle for X"** is the main entry point; "advance" / "next prompt" moves it forward.
 
 ### 2. Run `audit docs` regularly
 
-Especially after large batches of writes, after a research refresh, or before a release. It catches dangling links, supersession asymmetries, missing index rows, and stale counters — and fixes the safe ones automatically. The `## ADRs (N)` rollup in `docs/index.md` is a pure function of your ADR frontmatter and has its own regenerator — prefer regenerating over hand-fixing that section.
+Especially after large batches of writes, after a research refresh, or before a release. It catches dangling links, supersession asymmetries, missing index rows, and stale counters — and fixes the safe ones automatically. `audit docs --migrate` upgrades an older docs tree.
 
 ### 3. The append-only stuff really is append-only
 
@@ -373,28 +357,19 @@ Especially after large batches of writes, after a research refresh, or before a 
 
 ### 4. Capture anything by dropping it in the inbox
 
-The fastest path to building a useful docs tree:
-
 1. Drop a PDF, screenshot, markdown file, a stray decision note, or a half-formed idea into `docs/inbox/`.
 2. Or paste URLs — one per line — into `docs/inbox/urls.md`.
 3. Say **"process inbox"** — `process-inbox` classifies each item, shows you a confirmation batch, and dispatches it to the right skill (research → `ingest-research` → immutable `raw/` capture; decision → `propose-adr`; exploration → `propose-brief`; note → `log-work`).
-
-Claude fetches, captures a dated raw copy, writes an audited source page in `bionic/research/sources/`, and offers to update synthesis pages where the content is relevant.
 
 Later, say **"refresh sources"** to re-fetch URLs and mark synthesis pages affected by upstream changes.
 
 ### 5. Promptbooks are for multi-step work you'll repeat
 
-Anything you'd otherwise paste into Claude as a long prompt-by-prompt sequence belongs in a promptbook. Each book has:
-
-- A **mutable plan** (`active/PB-NNNN-<slug>.md`) you co-author.
-- **Immutable run snapshots** (`runs/PB-NNNN-<slug>/run-RUN-NNN.md`) — one per execution.
-
-Editing the plan mid-run isn't allowed: abandon the run, then author a successor book with a fresh `PB-NNNN`. Numbers never get reused.
+Each book has a **mutable plan** you co-author and **immutable run snapshots** — one per execution. Editing the plan mid-run isn't allowed: abandon the run, then author a successor book with a fresh number. Numbers never get reused.
 
 ### 6. Read the schema before deep work
 
-`bionic/CLAUDE.md` (created by `init-docs`) is what Claude reads on every session to know how to operate under the tree. If you find yourself wondering "wait, should Claude be writing here?" — that file has the answer. Skim §1–§7 once.
+`bionic/CLAUDE.md` (created by `init-docs`) is what Claude reads on every session to know how to operate under the tree. If you find yourself wondering "wait, should Claude be writing here?" — that file has the answer.
 
 ### 7. Don't hand-edit; ask Claude to fix it
 
@@ -404,11 +379,10 @@ If you spot something wrong — a stale page, a contradiction, a broken link —
 
 ## Where to go next
 
-- **[Crux guide](https://bionic-coding.com/crux/)** — the public documentation site: mental model, phrase reference, secrets, troubleshooting.
-- **[USER_GUIDE.md](./USER_GUIDE.md)** — the deep human-facing guide shipped with the plugin.
+- **[Crux guide](https://bionic-coding.com/crux/)** — the deep human-facing guide. Mental model, phrase reference, secrets, troubleshooting.
 - **`bionic/CLAUDE.md`** (after `init docs`) — the operational schema Claude reads. Authoritative.
-- **`bionic/adrs/`** in your own project — start at `ADR-0000`, walk forward in number order. The "why" of every architectural commitment you make.
+- **`bionic/adrs/`** in your own project — start at `ADR-0000`, walk forward in number order. The "why" of every architectural commitment.
 
 ## License & status
 
-MIT licensed (see [LICENSE](./LICENSE)). v3.10.1 — see [CHANGELOG.md](./CHANGELOG.md) for the per-release breakdown. Issues welcome; the public repo is regenerated on every release, so pull requests there cannot be merged.
+MIT licensed (see [LICENSE](./LICENSE)). v3.11.0 — see [CHANGELOG.md](./CHANGELOG.md) for the per-release breakdown. Issues welcome; the public repo is regenerated on every release, so pull requests there cannot be merged.

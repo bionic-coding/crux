@@ -45,11 +45,13 @@ It asks one question: do the accepted decisions, taken together, still serve the
 objectives in `docs/objectives.md`. Run `review-decisions` when the user asks for
 it, and when the cadence nudge `CLN-ADR-5` stands open in `docs/whats_next.md`.
 
-The review proposes findings and transitions nothing.[^review-boundary] Its write
-set is four paths: the dated report under `docs/adrs/reviews/`, the reviews index,
-one `adr-review` op in `docs/log.md`, and one journal entry. Enact a finding
-afterwards, as a separate act, through `propose-adr` and `transition-adr`.
-The rule forbids enacting one inside the review.
+The review proposes findings and enacts nothing.[^review-boundary] Its write
+set is five paths: the dated report under `docs/adrs/reviews/`, the reviews index,
+`docs/log.md`, the current month's journal file, and the journal index. Two ops
+land in the log: the review writes one `adr-review` op itself, and `log-work`
+writes one `journal` op beside the journal entry and the index row.[^write-set]
+Enact a finding afterwards, as a separate act, through `propose-adr` and
+`transition-adr`. The rule forbids enacting one inside the review.
 
 Read `docs/objectives.md` through its populate gate before you measure anything
 against it. A missing file, or one at `maturity: placeholder`, stops the step
@@ -75,6 +77,7 @@ these are properties the plan has to have, not a separate review pass to perform
 Every ADR has Context, Decision, Alternatives Considered (≥2), Consequences,
 References. The body freezes at acceptance — get it right while Proposed.
 
-[^review-boundary]: `rule:review-proposes-never-transitions` — the review's write
+[^review-boundary]: `rule:review-proposes-and-enacts-nothing` — the review's write
+[^write-set]: `rule:review-write-set-five-paths` — the five paths, and the two log ops a completing pass leaves in one of them.
     set is closed, and it invokes no transition, sign-off, or skill-authoring
     command.

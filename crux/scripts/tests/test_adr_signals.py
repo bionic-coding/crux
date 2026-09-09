@@ -2907,6 +2907,37 @@ class RefusedSurfaceIsNamedTests(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         return Path(tmp.name)
 
+    def test_a_dangling_symlink_at_a_surface_is_refused_and_named(self):
+        # `is_file()`/`is_dir()` follow the link, so a dangling one read as
+        # "absent" and the surface vanished from the narrowing with no name —
+        # the exact false null `_dated_entries` promises never to produce.
+        # A dangling link survives commit and clone, so this is reachable
+        # from repository content alone.
+        root, outside = self._root(), self._outside()
+        docs = root / "bionic"
+        docs.mkdir(parents=True)
+        (docs / "log.md").symlink_to(outside / "nowhere-log.md")
+        (docs / "journal").symlink_to(outside / "nowhere-journal")
+        (docs / "promptbooks").mkdir()
+        (docs / "promptbooks" / "runs").symlink_to(outside / "nowhere-runs")
+        entries, refused = sig._dated_entries(root, docs)
+        self.assertEqual(entries, [])
+        self.assertEqual(sorted(refused),
+                         ["bionic/journal", "bionic/log.md", "bionic/promptbooks/runs"])
+        rec = sig.signal_dormancy_days({"ADR-0001": {}}, entries, TODAY, "bionic", refused)
+        self.assertIn("3 named surface(s) were refused", rec["filter"])
+
+    def test_a_symlinked_run_snapshot_is_refused_and_named(self):
+        root, outside = self._root(), self._outside()
+        runs = root / "bionic" / "promptbooks" / "runs" / "PB-0001-x"
+        runs.mkdir(parents=True)
+        planted = outside / "run-RUN-001.yaml"
+        planted.write_text("started_at: '2026-02-01T00:00:00Z'\nnotes: ADR-0001\n", encoding="utf-8")
+        (runs / "run-RUN-001.yaml").symlink_to(planted)
+        entries, refused = sig._dated_entries(root, root / "bionic")
+        self.assertEqual(entries, [])
+        self.assertEqual(refused, ["bionic/promptbooks/runs/PB-0001-x/run-RUN-001.yaml"])
+
     def test_a_symlinked_log_md_is_named_in_the_dormancy_filter(self):
         root, outside = self._root(), self._outside()
         docs = root / "bionic"

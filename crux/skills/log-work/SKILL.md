@@ -1,6 +1,6 @@
 ---
 name: log-work
-description: "Use when finishing a unit of work, when the user says \"log work\", \"journal this\", \"record progress\", \"log this\", at end-of-day, or after any other crux skill completes a non-trivial side effect that warrants narrative context. Owns the append to `docs/journal/YYYY-MM.md`, the `journal` op entry in `docs/log.md`, and the rollup row in `docs/journal/index.md`. Supports a `--silent` mode for other skills to auto-log."
+description: "Use when finishing a unit of work, when the user says \"log work\", \"journal this\", \"record progress\", \"log this\", at end-of-day, or after any other crux skill completes a non-trivial side effect that warrants narrative context. Owns the append to `docs/journal/YYYY-MM.md`, the `journal` op entry in `docs/log.md`, and the regenerator run that derives the `docs/journal/index.md` row. Supports a `--silent` mode for other skills to auto-log."
 metadata:
   tags: "journal, work-log, narrative"
   bundles: "crux-docs"
@@ -70,7 +70,7 @@ Do **not** use this skill for:
 
 - Flags:
   - `--silent` — invoked by another skill. Skips user prompts ONLY; it does NOT by itself change journaling behavior (see `--journal`). Uses the passed `--category` / `--subject` / `--body`.
-  - `--journal` — controls whether this invocation writes a **journal entry**. The default is **mode-dependent BY DESIGN**: `false` in `--silent` mode (a log-only caller owns its op and passes it via `--log-op`; `run-promptbook` once took this branch per advance and no longer logs an advance at all), `true` in interactive mode. When set, `log-work` writes BOTH `docs/journal/YYYY-MM.md` AND the `docs/journal/index.md` rollup row. When NOT set (log-only), it writes neither — only the `docs/log.md` entry (see `--log-op`).
+  - `--journal` — controls whether this invocation writes a **journal entry**. The default is **mode-dependent BY DESIGN**: `false` in `--silent` mode (a log-only caller owns its op and passes it via `--log-op`; `run-promptbook` once took this branch per advance and no longer logs an advance at all), `true` in interactive mode. When set, `log-work` writes `docs/journal/YYYY-MM.md` and then runs the regenerator that derives the `docs/journal/index.md` row (step 6). When NOT set (log-only), it does neither — the only write is the `docs/log.md` entry (see `--log-op`).
   - `--log-op <op>` — the `docs/log.md` op for this invocation. **Required in log-only `--silent` mode** (i.e. `--silent` without `--journal`): the entry is written under the caller's own op (e.g. `promptbook`), NOT a misleading `journal |` entry. When `--journal` IS set, this is ignored and the op is `journal`. **Must be a valid op from the `docs/CLAUDE.md` §6 canonical enum** (e.g. `adr`, `promptbook`, `skill` — see §6 for the exhaustive list; `docs/CLAUDE.md` §6 is the single source of truth). **STOP on an invalid `--log-op` — do NOT fall back to a default.** A misspelled or out-of-enum op would write a BROKEN `docs/log.md` entry that `audit-docs` CHK-LOG-4 then flags. So if `--log-op` is not in the §6 enum: (1) emit an error to the caller naming the bad op and the allowed enum, (2) write **nothing** to `docs/log.md` (and nothing to the journal), and (3) return a non-zero exit. The caller (e.g. `run-promptbook`) surfaces the failure rather than silently committing a corrupt log line. This STOP is **distinct** from the `--category` fallback (step 1) — `--category` falls back to `misc` with a WARN; `--log-op` never falls back.
   - `--category <enum>` — required in silent mode. One of: `decision | implementation | bug | learning | blocker | refactor | meeting | review | misc`.
   - `--subject "<one-line>"` — required in silent mode.
@@ -99,6 +99,8 @@ Execute in order. Never reorder, never skip.
 - `${MONTH}` = `YYYY-MM` portion of `${TODAY}`.
 
 ### 3. Ensure the monthly file exists
+
+**Journaling invocations only** — `--journal` set, or interactive. In the log-only branch (`--silent` without `--journal`) this step does not run, and no month file is created; see step 6's guard and the step-8 checklist.
 
 - Path: `docs/journal/${MONTH}.md`.
 - If missing, create it with this header (and ONLY this header):
@@ -129,6 +131,21 @@ Rules:
 - The heading is greppable: prefix `## [`, date+time in brackets, single space, category from enum, ` | `, subject, no trailing punctuation.
 - Body is 1–10 lines. Strip trailing whitespace. No trailing blank line inside the entry; a single blank line separates entries.
 - **Body lines must not begin with `## [`** — the heading prefix is reserved for entry headings. Content that would start a body line with `## [` is rewritten or dropped; a line beginning with that prefix is regex-indistinguishable from a real heading and would corrupt the window-detection anchor used by `retrospective` and `cleanup-campsite`.
+- **A composed body never leaves a fence open** — judged by the shared fence subset in `crux/scripts/md_fences.py` over the composed body alone, not the body concatenated with existing file content. A fence line counts toward the 1–10 body budget, the same treatment the `Friction:` line already gets.
+- The fence check is mechanical, not a reading. `crux/scripts/journal_index.py` is an importable module with no CLI and no entry point, so the check is a snippet that imports it, never a command that runs it. Pipe the composed body on stdin to:
+
+  ```bash
+  PYTHONPATH="${CRUX_PLUGIN_ROOT}/scripts" uv run python3 -c '
+  import sys
+  from journal_index import find_unclosed_fence
+  n = find_unclosed_fence(sys.stdin.read())
+  print("ok" if n is None else f"unclosed fence opened on line {n}")
+  '
+  ```
+
+  The plugin root travels in the environment and the program string is single-quoted, so no shell placeholder ever sits inside the text the interpreter parses. `find_unclosed_fence` is built on `fence_marker` and `closes_fence` from the shared subset in `crux/scripts/md_fences.py`, so this is the same fence subset the regenerator applies. A line number means a fence is still open: reject the body, re-compose it, and run the check again. Nothing is written until it prints `ok`.
+- This check and the regenerator's refusal lane fire on different inputs. This one rejects a body composed just now, before it reaches any file. The regenerator refuses a month file already on disk, whose unclosed opener makes the entry headings below it unreadable. Different acts, different actors.
+- This check does not replace step 5's preflight. The preflight is authoritative, because it is the only check that sees the prospective file whole. It also validates the index path step 6 will write, so an admitted preflight is a promise about step 6 and not only about the body.
 - The friction line is a single line beginning `Friction:` that names one specific friction in this unit of work. An entry carries at most one friction line. It is a body line and counts toward the 1–10 line budget. When both are present, it sits before the `Refs:` line.
 - A `Friction:` line whose remainder is empty violates this rule. The way to record no friction is to omit the line; a bare `Friction: none` is the same violation, not a valid way to state there was none.
 - `Refs:` line is omitted if no refs. If present, it's a space-delimited list of refs, each either a wiki-link `[[<path>]]` or a `rule:<slug>` citation. The journal is a dated record: cite `rule:<slug>` where a rule exists, and the ADR page (`ADR-NNNN`) only where the ADR carries no `governs` block.
@@ -151,22 +168,43 @@ When the body is genuinely short (a small bug fix, a 5-minute decision), one wel
 
 Add the friction line only when the work had friction; name the specific friction (see §4's grammar rule). Omit the line entirely when there was none — it is a marker for a machine to count, not a mandatory field, and it never substitutes for the prose above.
 
-### 5. Prepend the entry to the monthly file
+### 5. Preflight the prospective file, then prepend the entry
+
+**Preflight, before this step writes anything.** Compose the prospective post-write bytes: the month file's existing bytes with the newly composed entry spliced in at the top, exactly as the write below leaves them. Pipe those bytes to the regenerator's check channel:
+
+```bash
+uv run "${CRUX_PLUGIN_ROOT}/scripts/generate-journal-index.py" --check-stdin --month ${MONTH} --repo-root <repo-root>
+```
+
+Branch on the exit code alone:
+
+- **Exit 0** — proceed to the write below.
+- **Exit 1** — HALT: write neither the entry nor the row. Surface the finding the check printed.
+- **Exit 2** — surface an environment failure, and write nothing.
+
+In check mode `log-work` reads the exit code and nothing else. The rule that a caller branches on the JSON payload belongs to `--dry-run` callers; check mode reports admissibility rather than drift.
+
+One value is composed once, piped, then written. Never compose it twice: a second composition is a second value, and the check would then vouch for bytes the write never lands.
+
+If the step 6 run refuses at exit 1 a file this preflight admitted, that is an internal-invariant violation. Surface it as BROKEN. Say explicitly that the entry was written and the row was not. Exit 2 from step 6 is not that violation: the write-time guards the preflight cannot reach — a leftover temporary file, a directory it cannot write — are environment failures, and the preflight never claimed to cover them.
+
+**The write.**
 
 - The file's first ## heading is the newest entry. Insert the new block immediately after the header section (after the italicized append-only line and its trailing blank line) and before any existing entry.
 - Never insert at the bottom.
 - Never modify any pre-existing entry's content.
 
-### 6. Update `docs/journal/index.md`
+### 6. Regenerate `docs/journal/index.md`
 
-- Read the existing index. It is a table with columns `month | first entry | last entry | entries | top categories`.
-- If a row for `${MONTH}` already exists:
-  - `last entry`: set to `${TODAY}`.
-  - `entries`: increment by 1.
-  - `first entry`: leave unchanged unless missing/`—`, in which case set to `${TODAY}`.
-  - `top categories`: recompute by scanning the monthly file (top 3 by count, comma-separated).
-- If no row exists for `${MONTH}`: insert a new row in reverse-chronological position (newer months at the top) with `first entry = last entry = ${TODAY}`, `entries = 1`, `top categories = <category>`.
-- Bump the `_Last updated:_` line to `${TODAY}`.
+The row is derived on every write, never incremented.[^derived-row] After the month-file write, invoke the regenerator:
+
+```bash
+uv run "${CRUX_PLUGIN_ROOT}/scripts/generate-journal-index.py" --repo-root <repo-root>
+```
+
+It rewrites every row, and the `_Last updated:_` line, from the month files themselves. `log-work` computes no cell, increments no count, and edits no row by hand.
+
+**The guard.** Run the regenerator in write mode only under the condition step 7(a) already names — **`--journal` set, or interactive**. The two are one condition under one wording, so they cannot drift apart. In the log-only branch (`--silent` without `--journal`) steps 3, 4, 5 and 6 are all skipped: step 3 creates no month file, step 4 composes no entry, and the regenerator is invoked in no mode at all. The only write is the `docs/log.md` entry under `--log-op`, which is what the step-8 checklist asks you to confirm. Three other skills invoke the regenerator, and none is this branch: `init-docs` writes the first index when it creates the tree, and every drift gate — `audit-docs` CHK-JR-3, `check-drift` — runs `--dry-run`.
 
 ### 7. Append to `docs/log.md`
 
@@ -203,8 +241,7 @@ If any item fails, the entry was not written cleanly — roll back the journal w
 - [ ] **Body contains at least one reflective sentence** — a named failure, surprise, or "would do differently." **In interactive mode this is a hard gate:** a pure-summary body fails this check; loop back to §4's body-content rules and rewrite before committing. **In `--silent` mode this is informational (WARN), not blocking:** the caller pre-filled `--body` and there is no interactive loop to rewrite it, so surface a WARNING that the auto-logged entry reads as a summary (for the caller / a later human pass to improve) but still write the entry — do NOT STOP the caller's run on a thin reflective body. (Applies only when this `--silent` invocation actually journaled, i.e. `--journal` was set; a log-only `--silent` call writes no journal body and this check does not apply at all.)
 - [ ] If a `Friction:` line is present, it is a single line, its remainder is non-empty, and it sits before the `Refs:` line when one is present.
 - [ ] If `Refs:` is present, every ref is either a `[[...]]` wiki-link or a `rule:<slug>` citation — no bare path, no `ADR-NNNN/slug` ledger handle.
-- [ ] `docs/journal/index.md` row for `${MONTH}` reflects the new entry (incremented count, updated last-entry date, recomputed top categories).
-- [ ] `docs/journal/index.md` `_Last updated:_` is `${TODAY}`.
+- [ ] `docs/journal/index.md`'s row for `${MONTH}` agrees with the month file: the regenerator ran in write mode, and a following `--dry-run` reports `drift: false`.
 - [ ] `docs/log.md` has a new entry at the top. If this invocation journaled (`--journal` set, or interactive), the op is `journal`. If it was log-only (`--silent` without `--journal`), the op is the caller's `--log-op` value (e.g. `promptbook`) — NOT `journal`.
 - [ ] No prior entry in any file was modified.
 
@@ -233,7 +270,7 @@ If any item fails, the entry was not written cleanly — roll back the journal w
 | "The subject is long — I'll squeeze it onto two lines." | The heading is greppable on one line. Truncate to ≤80 chars and move the rest to the body. |
 | "I'll edit yesterday's entry to add today's follow-up." | Append-only. Write a new entry. Reference the old one in `Refs:`. |
 | "The category enum doesn't fit — I'll add `planning`." | Pick the closest existing category. The enum is locked; expansion is an ADR-worthy decision. |
-| "I'll skip the rollup update — `audit-docs` will fix it." | Audit catches drift; it shouldn't be the primary maintainer. Update the rollup on every write. |
+| "I'll skip the rollup update — `audit-docs` will fix it." | Audit catches drift; it shouldn't be the primary maintainer. Run the regenerator after every journal write; it derives the row. |
 | "The user said 'log this' — I'll write to `log.md` directly." | "Log this" maps to journal + log pointer. The user means human-readable; the op log is downstream. |
 | "I'll auto-journal every skill operation." | Most operations don't warrant a journal entry. Only call `--silent` from a caller skill when the work is user-meaningful (ADR proposed, promptbook completed, large refactor closed). |
 | "The work went smoothly — there's nothing to reflect on." | If you genuinely can't name a single failed first attempt, surprise, or thing you'd do differently, the work was either trivial (skip the journal entry) or you're not looking hard enough (there's always *something* — the prompt you initially mis-scoped, the wrong directory you started in, the dependency you assumed was there). Make the reflection specific. |
@@ -246,7 +283,8 @@ If any item fails, the entry was not written cleanly — roll back the journal w
 - **Empty `Refs:` line**: omit the line entirely when there are no refs. Don't write `Refs:` with nothing after.
 - **Citing a rule by its ledger handle or by number**: the citation form is `rule:<slug>`. The `ADR-NNNN/slug` handle belongs to the projections, and a bare ADR page ref is right only when the ADR carries no `governs` block.
 - **Sorting entries by category**: the file is chronological, not categorized. Top categories live only in the rollup.
-- **Forgetting `top categories` in the rollup**: it's recomputed every write — don't carry stale values forward.
 - **Writing two log entries (one `journal`, one `lint`) when category is `misc`**: there's no lint case here. One `journal` entry only.
-- **Creating `journal/index.md` if it's missing**: don't auto-create — that's `init-docs`'s job. If missing, surface as a BROKEN finding for `audit-docs`.
+- **Hand-writing `journal/index.md` when it's missing**: `log-work` creates no index by hand and delegates the row to the regenerator, which owns creating that file whenever the journal surface exists. The month file of step 3 is the only file `log-work` creates under `journal/` itself. An absent journal *surface* — no `journal/` directory at all — is the regenerator's `surface_absent` lane, not a BROKEN finding.
 - **Writing a journal entry without a body**: the heading alone is too thin. Require at least one body line; if interactive, prompt the user.
+
+[^derived-row]: rule:journal-index-row-is-derived-on-every-write

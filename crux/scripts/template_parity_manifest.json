@@ -110,17 +110,17 @@
       "section": "§11.C the patch blast radius draws its evidence with --no-renames",
       "canonical": "bionic/CLAUDE.md",
       "twin": "crux/templates/CLAUDE.md.tmpl",
-    "anchor": "### The blast radius",
-    "pattern": "--no-renames"
-  },
-  {
-    "id": "blast-radius-base-commit-pin-both-ends",
-    "section": "§11.C the base_commit pin binds at the writer AND the gate",
-    "canonical": "bionic/CLAUDE.md",
-    "twin": "crux/templates/CLAUDE.md.tmpl",
-    "anchor": "### The blast radius",
-    "pattern": "base_commit_pin.divergence"
-  },
+      "anchor": "### The blast radius",
+      "pattern": "--no-renames"
+    },
+    {
+      "id": "blast-radius-base-commit-pin-both-ends",
+      "section": "§11.C the base_commit pin binds at the writer AND the gate",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "### The blast radius",
+      "pattern": "base_commit_pin.divergence"
+    },
     {
       "id": "adr-body-budget-value",
       "section": "§11.D the ADR body budget value",
@@ -203,7 +203,7 @@
     },
     {
       "id": "observations-single-record-route",
-      "section": "\u00a74 observations write rules: `transition-observation` is the only SINGLE-RECORD route past `observed`",
+      "section": "§4 observations write rules: `transition-observation` is the only SINGLE-RECORD route past `observed`",
       "canonical": "bionic/CLAUDE.md",
       "twin": "crux/templates/CLAUDE.md.tmpl",
       "anchor": "### observations (human-invoked commands write; humans ratify)",
@@ -263,7 +263,7 @@
       "canonical": "bionic/CLAUDE.md",
       "twin": "crux/templates/CLAUDE.md.tmpl",
       "anchor": "### adrs (append-only history)",
-      "pattern": "exactly six H2 sections[^.]*"
+      "pattern": "exactly six H2 sections in the order Propose, Amend, Repair, Revoke, Keep, Coverage|one summary table between its title and|and exactly one data-framing note|a report dated on or before that date keeps the sections and the notes it was written with|The five-finding per-pass cap counts across Propose, Amend, Repair and Revoke combined|Keep, Coverage, the summary table and the Revoke dispositions count against no cap|Keep, Coverage and the Revoke dispositions define no finding|the summary table defines none, carrying in each row an id one of the four finding sections already defines|Keep and the Revoke dispositions carry no finding id at all|Coverage carries a finding id only where a lifecycle record references one|so the no-definition clause governs Coverage unchanged|that row id set equals the set of ids the four finding sections define|equal counts alone do not satisfy it|A disagreement between the two sets is refused rather than counted around"
     },
     {
       "id": "log-op-adr-review-body-grammar",
@@ -271,7 +271,7 @@
       "canonical": "bionic/CLAUDE.md",
       "twin": "crux/templates/CLAUDE.md.tmpl",
       "anchor": "#### Op-enum regex",
-      "pattern": "finding counts across the four finding sections[^.]*"
+      "pattern": "the finding definition counts across the four finding sections|\\(Propose, Amend, Repair, Revoke\\); Keep and Coverage define no finding, so neither carries a count"
     },
     {
       "id": "manifest-journal-friction-line-from-semantics",
@@ -280,6 +280,38 @@
       "twin": "crux/templates/CLAUDE.md.tmpl",
       "anchor": "## 7. `manifest.yml` schema",
       "pattern": "(?m)Set to an ISO date, it marks the boundary[^\\n]*$"
+    },
+    {
+      "id": "reviews-surface-write-set-five-paths",
+      "section": "§4 adrs write rules: the Reviews-surface write set — five paths, six writes, the two op kinds, and both rule handles",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "### adrs (append-only history)",
+      "pattern": "Its write set is closed and holds exactly five paths|the dated report under the reviews directory, the derived reviews index, the operational log, the current month's journal file, and the journal index|writes six times across those five, because the log takes two ops|one `adr-review` op written by the review itself|one `journal` op written by `log-work`|beside the journal entry and the journal index row|rule:review-write-set-five-paths|rule:review-proposes-and-enacts-nothing"
+    },
+    {
+      "id": "reviews-surface-lifecycle-table-and-grammar-discriminator",
+      "section": "§4 adrs write rules: the Reviews-surface lifecycle-record table under `## Coverage`, the `report_grammar` frontmatter discriminator, and the filename-date binding the regenerator checks against frontmatter `date`",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "### adrs (append-only history)",
+      "pattern": "Lifecycle records live in a five-column table under `## Coverage`|source report date, finding id, pass, event, locator|identified by its own header row rather than by its position|so it never merges with the per-goal coverage matrix|A report declares its grammar through the frontmatter key `report_grammar`|whose one recognised value is `lifecycle`|A report carrying no key reads under the frozen legacy counting rule|a report dated after 2026-09-08 carrying no key is refused|an unrecognised value is refused; neither is defaulted|That date is the report's filename date, which the regenerator checks against the frontmatter"
+    },
+    {
+      "id": "reviews-surface-legacy-row-standing-unknown",
+      "section": "§4 adrs write rules: the reviews index splits raised from standing, and a legacy row carries the literal `unknown`",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "### adrs (append-only history)",
+      "pattern": "The generated reviews index distinguishes findings raised from current standing|a legacy row carries the literal `unknown` as a positive value|never blank, never omitted, never `0`, and never recomputed from later records|A legacy row that raised nothing renders the bare literal `unknown` with no count|its `raised` cell reads `0 \\(legacy\\)`"
+    },
+    {
+      "id": "journal-composed-body-never-leaves-a-fence-open",
+      "section": "§4 journal write rules: a composed body never leaves a fence open",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "### journal (append-only narrative)",
+      "pattern": "(?m)^- \\*\\*A composed body never leaves a fence open\\*\\*[^\\n]*$"
     }
   ]
 }

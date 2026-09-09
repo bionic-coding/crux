@@ -73,7 +73,7 @@ Then dive into the per-concern index for each candidate:
 - `docs/adrs/index.md` — for "why did we choose Y?" / decision-history questions.
 - `docs/promptbooks/index.md` — for "what's our plan for Z?" / in-flight-work questions.
 - `docs/research/index.md` — for "what do we know about W?" / external-knowledge questions.
-- `docs/journal/index.md` — for "what was figured out recently?" / "what's the timeline of X?" questions.
+- `docs/journal/index.md` — for "what was figured out recently?" / "what's the timeline of X?" questions. Derived by `generate-journal-index.py`; read it as-is.
 - `docs/log.md` (no index — it IS the index) — for "when did skill X run?" / operational-history questions.
 
 When per-concern indexes are insufficient (vague topic, large tree), fall back to a Bash grep over `docs/` for the topic keywords.

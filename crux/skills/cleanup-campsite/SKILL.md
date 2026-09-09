@@ -254,7 +254,7 @@ The id is not reused. This stub exists so a future reader finds the reasoning in
 
 #### CLN-JR-2 — thin months
 
-- **Reads:** `docs/journal/index.md` (entry counts) AND `docs/log.md` (op count per closed month).
+- **Reads:** `docs/journal/index.md` (entry counts) AND `docs/log.md` (op count per closed month). `journal/index.md` is derived — read it as-is; do not recompute the counts yourself. `generate-journal-index.py` regenerates it.
 - **Looks for:** closed months (i.e., month earlier than `${TODAY}.month`) where `journal entries < 2` AND `log ops >= 10`. Closed-month means the calendar month is in the past — never flag the current month.
 - **Stable id:** `cleanup-CLN-JR-2-<YYYY-MM>`.
 - **Category:** `journal-gap`. **Severity:** P3.
