@@ -101,7 +101,7 @@ Shared exit-code semantics (the same contract `verify-code-docs`, CHK-CODE-4, CH
 - **DRIFT** — exit 1 with a JSON drift payload (`{"drift": true, "paths": [...]}`, non-empty `added/changed/removed`, or a section diff). Capture the drifted paths. The fix is the regenerator in the table's third column.
 - **BROKEN** — the JSON carries a non-empty `validation_errors` key (a malformed `governs` entry, a malformed reconciliation ledger, a schema error). Regenerating does NOT fix a validation error; the named input must be repaired first. Report the problems.
 - **CRASH** — non-zero exit with empty or unparseable stdout (a missing dependency, an unhandled exception). Surface stderr; this is an environment problem, never a document finding.
-- **N/A** — exit 0 with `"surface_absent": true` on the JSON. The verdict keys on that payload key, not on which gate printed it. Two gates emit it: `generate-reviews-index.py` when the tree carries no `<docs_dir>/adrs/reviews/`, which is every project that has not yet run a decision review, and `generate-journal-index.py` when the tree carries no `<docs_dir>/journal/` at all. There is no derived artifact, so nothing can have drifted, and nothing was measured either. **Report it as N/A, never as clean** — a gate that scanned an absent surface has verified nothing, and recording it green is the vacuous-green shape this skill exists to prevent. **The fix is never the regenerator, and it differs by surface:** run `review-decisions` when a review is due, and `init-docs` when the journal surface was never created.
+- **N/A** — exit 0 with `"surface_absent": true` on the JSON. The verdict keys on that payload key, not on which gate printed it. Three gates emit it: `generate-reviews-index.py` when the tree carries no `<docs_dir>/adrs/reviews/`, which is every project that has not yet run a decision review; `generate-journal-index.py` when the tree carries no `<docs_dir>/journal/` at all; and `extract-code-docs.py` when `code.extractors` is empty, which is every project that has configured no extractor. That third one used to exit 0 with EMPTY stdout and one line on stderr, so a reader aggregating exit codes counted it as a clean gate and a tree that had scanned nothing reported its code docs verified. There is no derived artifact, so nothing can have drifted, and nothing was measured either. **Report it as N/A, never as clean** — a gate that scanned an absent surface has verified nothing, and recording it green is the vacuous-green shape this skill exists to prevent. **The fix is never the regenerator, and it differs by surface:** run `review-decisions` when a review is due, `init-docs` when the journal surface was never created, and configure `code.extractors` in `<docs_dir>/manifest.yml` when no extractor is declared.
 
 **Warnings ride alongside, never change the verdict.** Read any top-level `warnings` key (`validate-catalog.py` emits one — the `models.yml` `verified:` staleness clock; `check-doctrine-reconciliation.py`'s S1 warn lane is similar). Surface it as WARNING beside the gate's verdict. A gate at exit 0 with a non-empty `warnings` list is a **clean pass worth reporting with its warning**, not a failure.
 
@@ -114,7 +114,27 @@ Shared exit-code semantics (the same contract `verify-code-docs`, CHK-CODE-4, CH
 
 ### 4. Report one table
 
-Print a single table with one row per gate and one row per validation check: **name · verdict (clean / DRIFT / BROKEN / CRASH / REFUSAL) · drifted paths (or the problem / stderr summary) · the command that fixes it**. Then a one-line summary: `N gates + M checks: C clean, D drift, B broken, X crash/refusal, W with warnings.`
+Print a single table with one row per gate and one row per validation check: **name · verdict (clean / DRIFT / BROKEN / CRASH / REFUSAL / N/A) · drifted paths (or the problem / stderr summary) · the command that fixes it**. Then the **roster accounting**, which keeps membership separate from execution result. Report all five counts, every time, even when some are zero:
+
+```
+enrolled            <N>   ROSTER ROWS -- membership, not a result
+executed passing    <C>   rows whose gate ran and inspected >=1 configured input, no drift
+failed              <D>   rows whose gate reported DRIFT / BROKEN / CRASH / REFUSAL
+skipped/inapplicable <X>  rows whose gate reported N/A: nothing configured, or no surface
+no evidence         <E>   rows whose gate exited 0 having inspected ZERO configured inputs
+```
+
+**Count ROWS, not commands.** The unit is the repo-root roster row, because that is what
+membership means; one command may cover several rows (`validate-catalog.py` covers both
+`skills.json` and `agents.json`, so the step-1 table runs sixteen commands over seventeen
+rows). Attribute a command's verdict to every row it covers, or the identity below fails
+for a reason that has nothing to do with drift.
+
+`enrolled == executed passing + failed + skipped/inapplicable`. The `no evidence` count is not a fourth disjoint bucket — it re-counts the rows that measured nothing, and every N/A row is one of them. It is reported separately because it is the number a reader needs and the other four hide: **a clean process exit that inspected no configured inputs never establishes that those inputs were checked.**
+
+Never write "all gates clean" while `skipped/inapplicable` or `no evidence` is above zero. Say how many measured nothing, and name them.
+
+**A measured zero is not no evidence.** A gate with extractors configured that finds zero drift inspected its inputs and found them in sync; that is a real pass and belongs in `executed passing`. Only a gate that inspected nothing belongs in `no evidence`. Do not collapse the two, and never drop a row from the roster to improve the pass count -- membership is fixed by the repo-root `CLAUDE.md` roster, not by how a run turned out.
 
 For DRIFT rows, the recommended fix is the third-column regenerator. For BROKEN rows, the fix is repairing the named input, then re-running its regenerator — except a validation-check row, whose fix is editing the authored text the finding names, with no regenerator involved. For CRASH rows, the fix is the environment. For a REFUSAL row, the fix is the named upstream input's regenerator, then a re-derive.
 

@@ -38,6 +38,37 @@ class ManifestTemplateTests(unittest.TestCase):
         self.assertEqual(m["schema_version"], "5")
         self.assertEqual(set(m["concerns_enabled"]), SEVEN | {"arch", "observations"})
 
+    def test_manifest_tmpl_seeds_the_friction_adoption_boundary(self):
+        """A fresh tree measures friction from its first conforming entry.
+
+        The template shipped no `journal:` block at all, so every new tree
+        recorded no adoption date and every friction reader returned
+        `unmeasurable` — a tree using the conforming journal writer from day
+        one could not measure the thing that writer records. init-docs step 6
+        substitutes `{{today}}`; the placeholder is QUOTED so this file stays
+        YAML-parseable, which is what lets this test read it at all.
+        """
+        text = (TEMPLATES / "manifest.yml.tmpl").read_text()
+        m = yaml.safe_load(text)
+        self.assertEqual(m["journal"], {"friction_line_from": "{{today}}"})
+        self.assertIn('friction_line_from: "{{today}}"', text)
+        self.assertNotIn("friction_line_from: null", text)
+
+    def test_init_docs_substitutes_the_friction_placeholder(self):
+        """The instruction that fills the placeholder, and the rerun rule.
+
+        Positive control on the first assertion: the placeholder token must
+        appear in the skill text, so a renamed placeholder cannot make the
+        substitution instruction silently absent.
+        """
+        skill = (REPO_ROOT / "crux" / "skills" / "init-docs" / "SKILL.md").read_text()
+        self.assertIn("{{today}}", skill)
+        self.assertIn("friction_line_from", skill)
+        self.assertIn("PRIOR_FRICTION_FROM", skill)
+        # The substituted template must parse, with a real date in the key.
+        written = (TEMPLATES / "manifest.yml.tmpl").read_text().replace("{{today}}", "2026-09-10")
+        self.assertEqual(yaml.safe_load(written)["journal"]["friction_line_from"], "2026-09-10")
+
     def test_manifest_tmpl_carries_observation_counter_without_schema_bump(self):
         # Additive enablement on the arch precedent: the counters arrive with
         # NO schema_version bump (docs/CLAUDE.md §17, §17.5). init-docs step 6

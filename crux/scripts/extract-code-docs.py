@@ -106,13 +106,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         type=Path,
         help="Path to the docs manifest (default: <docs_dir>/manifest.yml, "
-             "with docs_dir from the repo-root .crux per ADR-0032).",
+             "with docs_dir from the repo-root .crux per ADR-0032). An explicit "
+             "path also supplies the default --output-dir, so one manifest owns "
+             "both the sources scanned and the pages written.",
     )
     parser.add_argument(
         "--output-dir",
         default=None,
         type=Path,
-        help="Output directory (default: <docs_dir>/code per the repo-root .crux).",
+        help="Output directory (default: the code/ dir of the tree that owns "
+             "--config -- i.e. <docs_dir>/code from the repo-root .crux when "
+             "--config is not given, and <config's own dir>/code when it is).",
     )
     parser.add_argument(
         "--lang",
@@ -505,19 +509,40 @@ def main(argv: list[str] | None = None) -> int:
 
     # Derived defaults come from the repo-root .crux (ADR-0032); an explicitly
     # passed flag wins unconditionally and is never recomputed.
+    #
+    # OWNERSHIP RULE. One manifest owns BOTH the sources and the generated
+    # pages of one tree. The two defaults are therefore derived from ONE
+    # config, never from two — a `--config` naming another repository's
+    # manifest must take its output default from THAT manifest's tree, not
+    # from the tree the command happened to run in.
+    #
+    # THE DEFECT THIS CLOSES. `--config ../foreign/bionic/manifest.yml` with
+    # no `--output-dir` used to resolve sources from the foreign repo and the
+    # output default from the CWD's own `.bionic.yml`. `write_pages` then
+    # pruned every page the current repository legitimately owned (they are
+    # absent from the foreign page set) and wrote the foreign repository's
+    # pages in their place — at exit 0, reporting the deletions as an ordinary
+    # `removed` count. Source ownership and output ownership are now resolved
+    # together, before anything is written or pruned.
     config_was_explicit = args.config is not None
+    output_was_explicit = args.output_dir is not None
     crux_repo_root = None
-    if args.config is None or args.output_dir is None:
+    if not config_was_explicit:
         try:
             _cfg = _load_crux_config()
         except CruxConfigError as exc:
             print(f"extract-code-docs: .crux configuration error: {exc}", file=sys.stderr)
             return 1
         crux_repo_root = _cfg.repo_root
-        if args.config is None:
-            args.config = _cfg.docs_root / "manifest.yml"
-        if args.output_dir is None:
+        args.config = _cfg.docs_root / "manifest.yml"
+        if not output_was_explicit:
             args.output_dir = _cfg.docs_root / "code"
+    elif not output_was_explicit:
+        # The explicit config's own docs root — `parent`, not `parent.parent /
+        # docs_dir`, because the manifest LIVES at the docs root whatever its
+        # depth. Resolved, so a relative and an absolute spelling of the same
+        # config, and a symlinked config path, all land on one output tree.
+        args.output_dir = args.config.resolve().parent / "code"
 
     if not args.config.is_file():
         print(f"extract-code-docs: config not found: {args.config}", file=sys.stderr)
@@ -532,8 +557,85 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
+
+    # THE CHECK ABOVE VALIDATES THE CONFIG'S TREE. VALIDATE THE ONE THAT GETS
+    # PRUNED. When the output dir was derived, the config IS that tree's
+    # manifest by construction and the check above already covered it. An
+    # explicit `--output-dir` can name a different tree, and that tree — the
+    # actual destructive target — has to carry the marker on its own account.
+    # Explicit output locations stay supported; they are validated, not
+    # prohibited.
+    resolved_config = args.config.resolve()
+    resolved_output = args.output_dir.resolve()
+    output_manifest = resolved_output.parent / "manifest.yml"
+    if output_manifest != resolved_config:
+        try:
+            output_marker = load_yaml(output_manifest).get("schema_version")
+        except OSError:
+            output_marker = None
+        except Exception as exc:  # malformed YAML in the destructive target
+            print(
+                f"extract-code-docs: {output_manifest} could not be read ({exc}); "
+                f"refusing to prune under {resolved_output}",
+                file=sys.stderr,
+            )
+            return 1
+        if not isinstance(output_marker, (str, int)):
+            # The diagnostic has to name what the operator actually did. The
+            # default output dir reaches this branch too — a `code/` symlinked
+            # out of its own tree resolves to a parent that governs nothing —
+            # and blaming a flag that was never passed would send the reader
+            # looking for an argument that is not in their command line.
+            if output_was_explicit:
+                remedy = (
+                    f"Pass an --output-dir whose parent holds a manifest.yml, or drop "
+                    f"--output-dir to use {resolved_config.parent / 'code'}."
+                )
+                subject = f"--output-dir {resolved_output}"
+            else:
+                remedy = (
+                    f"The default output dir {args.output_dir} resolves there, so it is "
+                    f"most likely a symlink out of its own tree; point it back inside "
+                    f"{resolved_config.parent} or pass an explicit --output-dir."
+                )
+                subject = f"the resolved output dir {resolved_output}"
+            print(
+                f"extract-code-docs: {subject} is not inside a crux tree "
+                f"({output_manifest} is missing or carries no readable schema_version); "
+                f"refusing to write and prune there. {remedy}",
+                file=sys.stderr,
+            )
+            return 1
+        # Two crux trees, deliberately combined. Permitted, but never silent:
+        # the sources come from one and the prune lands in the other.
+        print(
+            f"extract-code-docs: sources from {resolved_config.parent}, "
+            f"writing and pruning under {resolved_output} (different tree).",
+            file=sys.stderr,
+        )
     code_cfg = (manifest.get("code") or {}).get("extractors") or {}
     if not isinstance(code_cfg, dict) or not code_cfg:
+        # NOTHING WAS MEASURED, AND THE PAYLOAD MUST SAY SO ON STDOUT.
+        # This used to exit 0 with EMPTY stdout and one line on stderr. A
+        # roster aggregator reading exit codes counted that as a clean gate,
+        # so a tree with no extractors configured reported its code docs
+        # verified when nothing had been scanned. Zero work performed and a
+        # measured zero are different outcomes, and only one of them is
+        # evidence.
+        #
+        # `surface_absent` is the discriminator `check-drift` already keys its
+        # N/A verdict on, emitted by `generate-reviews-index.py` and
+        # `generate-journal-index.py` for the same reason. Reusing it keeps one
+        # vocabulary instead of inventing a parallel one; `reason` distinguishes
+        # WHICH absence this is, because the remedy differs per gate — here it
+        # is configuring `code.extractors`, not running a regenerator.
+        payload = {
+            "surface_absent": True,
+            "drift": False,
+            "reason": "no extractors configured under code.extractors",
+            "added": 0, "changed": 0, "removed": 0, "pages_total": 0,
+        }
+        print(json.dumps(payload, indent=2, sort_keys=True))
         print("extract-code-docs: no extractors configured under code.extractors.", file=sys.stderr)
         return 0
 
@@ -547,7 +649,10 @@ def main(argv: list[str] | None = None) -> int:
     else:
         repo_root = crux_repo_root
     if args.verbose:
-        print(f"extract-code-docs: repo_root={repo_root}", file=sys.stderr)
+        print(
+            f"extract-code-docs: repo_root={repo_root} output_dir={resolved_output}",
+            file=sys.stderr,
+        )
 
     selected = sorted(code_cfg.items())
     if args.lang:

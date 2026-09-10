@@ -1,6 +1,6 @@
 ---
 name: install-runtime
-description: "Run the crux Spawner (`Spawner`/`RepoAnalyzer`, `spawn_crux()`) to deploy the crux Python runtime into a target repo: analyzes the repo, copies the runtime under `.crux-runtime/`, generates a customized `AGENTS.md`, and writes the prime directive. Use when bootstrapping crux capabilities or agent teams in another codebase. Distinct from `install-docs-skills` (the marketplace plugin install) and `init-docs` (creates the `docs/` tree) — this skill deploys the agent-team runtime under `.crux-runtime/` (distinct from the repo-root `.crux` config FILE). API-key bootstrap is delegated to the `crux-env` CLI, not the spawner."
+description: "Use when the user says \"install the crux runtime\", \"deploy the crux runtime\", \"spawn crux into this repo\", or \"bootstrap the agent team\". Run the crux Spawner (`Spawner`/`RepoAnalyzer`, `spawn_crux()`) to deploy the crux Python runtime into a target repo: analyzes the repo, copies the runtime under `.crux-runtime/`, generates a customized `AGENTS.md`, and writes the prime directive. Use when bootstrapping crux capabilities or agent teams in another codebase. Distinct from `install-docs-skills` (the marketplace plugin install) and `init-docs` (creates the `docs/` tree) — this skill deploys the agent-team runtime under `.crux-runtime/` (distinct from the repo-root `.crux` config FILE). API-key bootstrap is delegated to the `crux-env` CLI, not the spawner."
 disable-model-invocation: true
 metadata:
   tags: "spawner, deployment, infrastructure, lifecycle"

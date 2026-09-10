@@ -1,6 +1,6 @@
 ---
 name: council
-description: "Multi-model council deliberation (Claude + Gemini + GPT) for architectural decisions, approach selection, or any choice where multiple perspectives matter. ALWAYS prefer async via crux/scripts/crux/council/async_council.py. Use when choosing between approaches, evaluating tradeoffs, or when you need multi-LLM consensus."
+description: "Use when the user says \"run the council\", \"convene the council\", \"ask the council\", or \"get a multi-model opinion\". Multi-model council deliberation (Claude + Gemini + GPT) for architectural decisions, approach selection, or any choice where multiple perspectives matter. ALWAYS prefer async via crux/scripts/crux/council/async_council.py. Use when choosing between approaches, evaluating tradeoffs, or when you need multi-LLM consensus."
 context: fork
 model: opus
 metadata:

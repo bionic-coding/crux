@@ -282,6 +282,14 @@
       "pattern": "(?m)Set to an ISO date, it marks the boundary[^\\n]*$"
     },
     {
+      "id": "manifest-journal-friction-line-from-init-writes-the-date",
+      "section": "§7 the `journal.friction_line_from` key is written by `init-docs` as the initialization date, and a `--force` re-bootstrap carries the recorded date forward",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "## 7. `manifest.yml` schema",
+      "pattern": "records the initialization date here rather than `null`|carries the existing tree's recorded date forward rather than resetting it forward|init-docs writes the initialization date here, never null"
+    },
+    {
       "id": "reviews-surface-write-set-five-paths",
       "section": "§4 adrs write rules: the Reviews-surface write set — five paths, six writes, the two op kinds, and both rule handles",
       "canonical": "bionic/CLAUDE.md",
@@ -304,6 +312,14 @@
       "twin": "crux/templates/CLAUDE.md.tmpl",
       "anchor": "### adrs (append-only history)",
       "pattern": "The generated reviews index distinguishes findings raised from current standing|a legacy row carries the literal `unknown` as a positive value|never blank, never omitted, never `0`, and never recomputed from later records|A legacy row that raised nothing renders the bare literal `unknown` with no count|its `raised` cell reads `0 \\(legacy\\)`"
+    },
+    {
+      "id": "reviews-surface-assessment-table",
+      "section": "§4 adrs write rules: the Reviews-surface assessment table under Coverage — seven columns, availability/alignment as two fields, the per-goal alignment rollup, and the measured_objectives measurement outcome",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "### adrs (append-only history)",
+      "pattern": "The Coverage section additionally carries a seven-column assessment table|one row per measure part, identified by its own header row and never by its position|seven columns keeps it disjoint from the five-column summary table and the five-column lifecycle record table|so no two of the three tables are confusable and a mistyped header cannot silently reassign rows|are two fields, never one|six of the sixteen pairs are legal and the rest are refused|The per-goal matrix survives beside the assessment table and carries the derived alignment rollup|a goal no part attempted, including one that yields no parts, is `not-assessed`|The frontmatter `measured_objectives` key carries one entry per goal|`measured` and `attempted` both discharge the three-report rotation|`not-assessed` and `unknown` discharge nothing|A report carrying no `measured_objectives` key reads as the literal `unknown` for every goal|A report carrying a flat list of bare ids demotes to `attempted` and is never promoted|a finding whose confidence is `unresolved` is never routed to Revoke|Revocation requires positive evidence that continued observance produces a named cost against a named objective|dormancy, a missing run binding and unavailable evidence are absences and establish none|The regenerator still does not read `measured_objectives`, so it adds no row to the regenerative-outputs roster|the objective itself initiates a bounded investigation|every surface a pass read beyond its signal-flagged set is covered by a slip naming it|at most three investigations per pass and five surfaces counted once each per investigation|On the third consecutive `attempted` outcome recorded under this grammar|a demoted entry starts no strike and a `measured` outcome resets the count|carries one entry per COUNTED THING|every entry carries an identifier of the measure version it concerns|The strongest outcome wins within one counted thing and never across two|a part's count resets only when THAT part discriminates"
     },
     {
       "id": "journal-composed-body-never-leaves-a-fence-open",

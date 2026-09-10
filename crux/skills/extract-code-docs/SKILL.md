@@ -76,8 +76,18 @@ uv run "${CRUX_PLUGIN_ROOT}/scripts/extract-code-docs.py"
 ```
 
 Useful flags:
-- `--config PATH` — override manifest path (default `docs/manifest.yml`).
-- `--output-dir PATH` — override output directory (default `docs/code`).
+- `--config PATH` — override manifest path (default `docs/manifest.yml`). One manifest owns
+  both the sources scanned and the pages written, so an explicit path also supplies the
+  default output directory: `<the config's own dir>/code`, never the current repo's.
+  This relies on the convention every crux tree follows — the manifest lives AT the docs
+  root — under which `<the config's own dir>` and the `.bionic.yml` `docs_dir` name the same
+  directory, so the two default paths agree. A manifest kept somewhere other than its docs
+  root is the one case where they diverge; pass `--output-dir` explicitly there.
+- `--output-dir PATH` — override output directory (default: the `code/` dir of the tree that
+  owns `--config`). This script prunes the named directory, so the directory's parent must
+  hold a `manifest.yml` carrying a readable `schema_version`. When that manifest is missing
+  or carries no `schema_version`, the run refuses before writing anything. Combining one
+  tree's config with another tree's output dir is allowed and reported on stderr.
 - `--lang KEY` — run only one extractor by language key.
 - `--dry-run` — discover and extract but don't write; emits a diff summary and exits 1 if drift detected.
 - `--verbose` — log per-extractor and per-file progress to stderr.

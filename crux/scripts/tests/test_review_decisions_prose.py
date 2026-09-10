@@ -342,7 +342,17 @@ class ReviewDecisionsUnfencedCellAndSnippetTests(unittest.TestCase):
             for line in self.template.splitlines()
             if line.startswith("| OBJ-")
         ]
-        self.assertEqual(["| OBJ-N | <signal names, or —> | <domain names, or —> |"], rows)
+        self.assertEqual(
+            [
+                "| OBJ-N | OBJ-N.k — <the part's label, in your own words> | resolved \\| partial "
+                "\\| unavailable \\| not-attempted | <path, command, or evidence "
+                "position> | <domain names, or —> | serves \\| gap \\| inconclusive "
+                "\\| not-assessed | <finding ids bearing on this part, or —> |",
+                "| OBJ-N | serves \\| gap \\| inconclusive \\| not-assessed | "
+                "<signal names, or —> | <domain names, or —> |",
+            ],
+            rows,
+        )
 
     def test_the_template_tells_the_writer_to_expand_the_matrix(self):
         self.assertIn(
@@ -487,7 +497,7 @@ class ReviewDecisionsWriteSetTests(unittest.TestCase):
         hits = [
             line
             for line in self.text.splitlines()
-            if re.search(r"four paths|exactly four|the four", line)
+            if re.search(r"four paths|exactly four|the four(?!-)", line)
         ]
         self.assertEqual(1, len(hits), hits)
         # The twins say "finding DEFINITION counts" — outcome 1 makes that
@@ -682,11 +692,24 @@ class ReviewTemplateLifecycleTests(unittest.TestCase):
 
     def test_the_lifecycle_table_sits_beside_the_per_goal_matrix(self):
         coverage = self.template[self.template.index("## Coverage") :]
-        matrix = "| objective | signals that measured it | domains that measured it |"
+        matrix = ("| objective | alignment rollup | signals that measured it "
+                  "| domains that measured it |")
+        assessment = ("| objective | measure | evidence | locator | domains "
+                      "| conclusion | findings |")
         self.assertIn(matrix, coverage)
-        self.assertNotEqual(
-            coverage.index(self.HEADER_ROW), coverage.index(matrix)
-        )
+        self.assertIn(assessment, coverage)
+        # Three tables under one heading, each found by its own header row.
+        # Their arities are 5, 4 and 7, so no two can be confused even if a
+        # header is mistyped into another's column count.
+        positions = {
+            coverage.index(self.HEADER_ROW),
+            coverage.index(matrix),
+            coverage.index(assessment),
+        }
+        self.assertEqual(3, len(positions))
+        self.assertEqual(5, self.HEADER_ROW.count("|") - 1)
+        self.assertEqual(4, matrix.count("|") - 1)
+        self.assertEqual(7, assessment.count("|") - 1)
 
     def test_the_cap_comment_narrows_to_defining_no_finding(self):
         self.assertIn(

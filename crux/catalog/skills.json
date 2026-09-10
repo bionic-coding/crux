@@ -68,7 +68,7 @@
   {
     "id": "author-runbook",
     "name": "author-runbook",
-    "description": "Generate a crux-aware autonomous prompt runbook (50-100 prompts) from a single GOAL string. Embeds the 3-testable-hypotheses discipline (hypothesis \u2192 test \u2192 reflect, with confidence gates), confidence thresholds, and crux review cycles so an AI agent can execute hands-off for 2-4 hours. Use when you want to walk away and have an agent grind through a multi-phase feature, refactor, or research task without prompting after every step. Do NOT use for one-shot questions or single-file edits.",
+    "description": "Use when the user says \"author a runbook\", \"generate a runbook\", \"build me a runbook\", or \"write an autonomous prompt runbook\". Generate a crux-aware autonomous prompt runbook (50-100 prompts) from a single GOAL string. Embeds the 3-testable-hypotheses discipline (hypothesis \u2192 test \u2192 reflect, with confidence gates), confidence thresholds, and crux review cycles so an AI agent can execute hands-off for 2-4 hours. Use when you want to walk away and have an agent grind through a multi-phase feature, refactor, or research task without prompting after every step. Do NOT use for one-shot questions or single-file edits.",
     "tags": [
       "planning",
       "runbook",
@@ -171,7 +171,7 @@
   {
     "id": "council",
     "name": "council",
-    "description": "Multi-model council deliberation (Claude + Gemini + GPT) for architectural decisions, approach selection, or any choice where multiple perspectives matter. ALWAYS prefer async via crux/scripts/crux/council/async_council.py. Use when choosing between approaches, evaluating tradeoffs, or when you need multi-LLM consensus.",
+    "description": "Use when the user says \"run the council\", \"convene the council\", \"ask the council\", or \"get a multi-model opinion\". Multi-model council deliberation (Claude + Gemini + GPT) for architectural decisions, approach selection, or any choice where multiple perspectives matter. ALWAYS prefer async via crux/scripts/crux/council/async_council.py. Use when choosing between approaches, evaluating tradeoffs, or when you need multi-LLM consensus.",
     "tags": [
       "verification",
       "multi-model",
@@ -326,7 +326,7 @@
   {
     "id": "install-codex-agents",
     "name": "install-codex-agents",
-    "description": "Install or refresh Crux's ten Codex-native role agents in a target project's .codex/agents directory. Use when a Codex user asks to install Crux agents, enable the Crux architect/developer/reviewer roles, or refresh generated Codex role definitions after a plugin upgrade. Does not overwrite a conflicting role without --force.",
+    "description": "Use when the user says \"install codex agents\", \"install crux agents for codex\", or \"refresh the codex agents\". Install or refresh Crux's ten Codex-native role agents in a target project's .codex/agents directory. Use when a Codex user asks to install Crux agents, enable the Crux architect/developer/reviewer roles, or refresh generated Codex role definitions after a plugin upgrade. Does not overwrite a conflicting role without --force.",
     "tags": [
       "codex",
       "agents",
@@ -343,7 +343,7 @@
   {
     "id": "install-docs-skills",
     "name": "install-docs-skills",
-    "description": "Install or upgrade the Crux plugin in Codex or Claude Code. Use when the user says \"install docs skills\", \"add this plugin\", \"set up crux\", or \"upgrade docs suite\", asks about the installed version, or the Crux plugin is not loaded. In Codex, provide `codex plugin marketplace add bionic-coding/crux` then `codex plugin add crux@crux`; in Claude Code, provide its marketplace slash commands. Report the installed manifest before guiding a schema migration. Distinct from `init-docs`, which bootstraps the target repository's docs tree.",
+    "description": "Use when the user says \"install docs skills\", \"add this plugin\", \"set up crux\", or \"upgrade docs suite\", asks about the installed version, or the Crux plugin is not loaded. Install or upgrade the Crux plugin in Codex or Claude Code. In Codex, provide `codex plugin marketplace add bionic-coding/crux` then `codex plugin add crux@crux`; in Claude Code, provide its marketplace slash commands. Report the installed manifest before guiding a schema migration. Distinct from `init-docs`, which bootstraps the target repository's docs tree.",
     "tags": [
       "installation",
       "plugin",
@@ -359,7 +359,7 @@
   {
     "id": "install-opencode-agents",
     "name": "install-opencode-agents",
-    "description": "Install or refresh Crux's ten OpenCode role agents in a target project's .opencode/agents directory. Use when an OpenCode user asks to install Crux agents, enable the Crux architect/developer/reviewer roles, or refresh generated OpenCode role definitions after a plugin upgrade. Does not overwrite a conflicting role without --force.",
+    "description": "Use when the user says \"install opencode agents\", \"install crux agents for opencode\", or \"refresh the opencode agents\". Install or refresh Crux's ten OpenCode role agents in a target project's .opencode/agents directory. Use when an OpenCode user asks to install Crux agents, enable the Crux architect/developer/reviewer roles, or refresh generated OpenCode role definitions after a plugin upgrade. Does not overwrite a conflicting role without --force.",
     "tags": [
       "opencode",
       "agents",
@@ -376,7 +376,7 @@
   {
     "id": "install-runtime",
     "name": "install-runtime",
-    "description": "Run the crux Spawner (`Spawner`/`RepoAnalyzer`, `spawn_crux()`) to deploy the crux Python runtime into a target repo: analyzes the repo, copies the runtime under `.crux-runtime/`, generates a customized `AGENTS.md`, and writes the prime directive. Use when bootstrapping crux capabilities or agent teams in another codebase. Distinct from `install-docs-skills` (the marketplace plugin install) and `init-docs` (creates the `docs/` tree) \u2014 this skill deploys the agent-team runtime under `.crux-runtime/` (distinct from the repo-root `.crux` config FILE). API-key bootstrap is delegated to the `crux-env` CLI, not the spawner.",
+    "description": "Use when the user says \"install the crux runtime\", \"deploy the crux runtime\", \"spawn crux into this repo\", or \"bootstrap the agent team\". Run the crux Spawner (`Spawner`/`RepoAnalyzer`, `spawn_crux()`) to deploy the crux Python runtime into a target repo: analyzes the repo, copies the runtime under `.crux-runtime/`, generates a customized `AGENTS.md`, and writes the prime directive. Use when bootstrapping crux capabilities or agent teams in another codebase. Distinct from `install-docs-skills` (the marketplace plugin install) and `init-docs` (creates the `docs/` tree) \u2014 this skill deploys the agent-team runtime under `.crux-runtime/` (distinct from the repo-root `.crux` config FILE). API-key bootstrap is delegated to the `crux-env` CLI, not the spawner.",
     "tags": [
       "spawner",
       "deployment",
@@ -538,7 +538,7 @@
   {
     "id": "prose-review",
     "name": "prose-review",
-    "description": "Review prose against seven writing rules \u2014 one name per concept, no unjustified hedging, no frozen verbs (nominalizations), no uncheckable adjectives, one idea per sentence, single-word verbs over phrasal verbs, ADRs cited as footnotes not inline \u2014 and return concrete rewrites for every violation. Use this whenever the user asks to review, edit, tighten, clean up, or check writing; whenever they ask whether text follows the project writing rules or CLAUDE.md style; and before finalizing any README, doc page, release note, PR description, or design doc. Also use it when the user says text feels vague, wordy, salesy, hedgy, or repetitive, even if they don't name a rule.",
+    "description": "Use when the user says \"review this prose\", \"prose review\", \"tighten this writing\", \"check the writing rules\", or \"edit this text\". Review prose against seven writing rules \u2014 one name per concept, no unjustified hedging, no frozen verbs (nominalizations), no uncheckable adjectives, one idea per sentence, single-word verbs over phrasal verbs, ADRs cited as footnotes not inline \u2014 and return concrete rewrites for every violation. Use this whenever the user asks to review, edit, tighten, clean up, or check writing; whenever they ask whether text follows the project writing rules or CLAUDE.md style; and before finalizing any README, doc page, release note, PR description, or design doc. Also use it when the user says text feels vague, wordy, salesy, hedgy, or repetitive, even if they don't name a rule.",
     "tags": [
       "writing",
       "prose",
@@ -704,7 +704,7 @@
   {
     "id": "run-adr-council",
     "name": "run-adr-council",
-    "description": "Run the council on ADR-NNNN. Phrases: 'run the council on ADR-NNNN', 'council review ADR-NNNN', 'run-adr-council ADR-NNNN', 'council-check this ADR', or a cycle's ADR module needing its council gate. Reads the ADR, assembles a structured council prompt with the ADR body as delimited data, invokes async_council.py via a PEP 723 temp driver, and returns a structured verdict. Replaces ad-hoc copy-paste-adapted council driver scripts.",
+    "description": "Use when the user says 'run the council on ADR-NNNN', 'council review ADR-NNNN', 'run-adr-council ADR-NNNN', or 'council-check this ADR', or a cycle's ADR module needs its council gate. Runs the council on ADR-NNNN. Reads the ADR, assembles a structured council prompt with the ADR body as delimited data, invokes async_council.py via a PEP 723 temp driver, and returns a structured verdict. Replaces ad-hoc copy-paste-adapted council driver scripts.",
     "tags": [
       "council",
       "adr",
@@ -760,7 +760,7 @@
   {
     "id": "serve-llm",
     "name": "serve-llm",
-    "description": "FastAPI HTTP wrapper around the crux LLM caller and tracer. Exposes /health, /models, and /chat endpoints so non-Python clients (web UIs, curl, agent frameworks) can call the crux single-gateway LLM caller (OpenRouter). Use when you need programmatic HTTP access to crux. Not for interactive Python sessions \u2014 import `crux.core.llm_caller` directly instead.",
+    "description": "Use when the user says \"serve the llm\", \"start the crux http server\", or \"expose crux over http\". FastAPI HTTP wrapper around the crux LLM caller and tracer. Exposes /health, /models, and /chat endpoints so non-Python clients (web UIs, curl, agent frameworks) can call the crux single-gateway LLM caller (OpenRouter). Use when you need programmatic HTTP access to crux. Not for interactive Python sessions \u2014 import `crux.core.llm_caller` directly instead.",
     "tags": [
       "server",
       "fastapi",
@@ -779,7 +779,7 @@
   {
     "id": "srde",
     "name": "srde",
-    "description": "Self-Resolving Dissent Engine \u2014 automatically resolves disagreements from council votes without human intervention. Uses context-aware resolution (MentalModel), cross-references existing probes via Semantic Bridge, and pattern matching. Use after any council deliberation that surfaces dissenting votes.",
+    "description": "Use when the user says \"resolve the dissent\", \"run srde\", or \"resolve the council disagreement\". Self-Resolving Dissent Engine \u2014 automatically resolves disagreements from council votes without human intervention. Uses context-aware resolution (MentalModel), cross-references existing probes via Semantic Bridge, and pattern matching. Use after any council deliberation that surfaces dissenting votes.",
     "tags": [
       "reasoning",
       "dissent-resolution",
@@ -830,7 +830,7 @@
   {
     "id": "task-planner",
     "name": "task-planner",
-    "description": "Task decomposition. Breaks complex goals into structured subtasks with dependencies, priorities, and acceptance criteria. Use before starting large features to plan the work. Complements author-runbook (which independently calls Gemini for autonomous prompt runbooks) \u2014 the two do NOT chain; a TaskPlan is not an input to the runbook generator.",
+    "description": "Use when the user says \"plan this task\", \"break this down\", \"decompose this goal\", or \"make a task plan\". Task decomposition. Breaks complex goals into structured subtasks with dependencies, priorities, and acceptance criteria. Use before starting large features to plan the work. Complements author-runbook (which independently calls Gemini for autonomous prompt runbooks) \u2014 the two do NOT chain; a TaskPlan is not an input to the runbook generator.",
     "tags": [
       "planning",
       "task-decomposition",

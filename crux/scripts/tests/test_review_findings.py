@@ -26,6 +26,16 @@ import unittest
 from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parents[1]
+REPO = SCRIPTS.parents[1]
+
+# `_dev_surface` is a sibling test-dir helper, not a `crux.scripts` module —
+# ADR-0108's preservation test reads two dated reports under `bionic/adrs/
+# reviews/`, a dev-only surface that does not exist in the crux-only staged
+# artifact `sync.sh` runs this suite against. `require_dev_surface` is the
+# sanctioned guard (see `test_arch_verdicts.py`): skip in a staged artifact,
+# fail loudly in dev if the surface is unexpectedly missing.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _dev_surface import require_dev_surface  # noqa: E402
 
 
 def _load(name: str, filename: str):
@@ -65,6 +75,17 @@ def record_table(rows) -> str:
     """`rows` is a sequence of `(source date, id, pass, event, locator)`."""
     out = ["| source report date | finding id | pass | event | locator |",
            "|---|---|---|---|---|"]
+    for row in rows:
+        out.append("| " + " | ".join(str(cell) for cell in row) + " |")
+    return "\n".join(out)
+
+
+def assessment_table(rows) -> str:
+    """`rows` is `(objective, measure, evidence, locator, domains,
+    conclusion, findings)` tuples — the ADR-0108 seven-column table."""
+    out = ["| objective | measure | evidence | locator | domains | "
+           "conclusion | findings |",
+           "|---|---|---|---|---|---|---|"]
     for row in rows:
         out.append("| " + " | ".join(str(cell) for cell in row) + " |")
     return "\n".join(out)
@@ -1558,6 +1579,1662 @@ class ProbeRefusalContextTests(ReviewFindingsTestCase):
         self.assertIn("2026-09-11", problem)
         self.assertIn(str(line_of(body, "ADR-9999-nothing.md")), problem)
         self.assertIn("the locator names no surface", problem)
+
+# ── ADR-0108: the assessment table, its vocabulary, and the derivations ───
+
+class AssessmentParseTests(ReviewFindingsTestCase):
+    """WU1: assessment-row parsing under the seven-column table."""
+
+    def assessment_body(self, rows, *, date="2026-09-10"):
+        return "\n".join([
+            f"# Decision review — {date}", "",
+            "## Coverage", "",
+            assessment_table(rows),
+        ])
+
+    def test_a_well_formed_row_parses_into_its_fields(self):
+        body = self.assessment_body([
+            ("OBJ-1", "OBJ-1.1 — the rule holds under real runs", "resolved",
+             "crux/scripts/review_findings.py", "decision-review", "serves",
+             "")])
+        report = self.parse(date="2026-09-10", body=body)
+        self.assertEqual(len(report.assessments), 1)
+        a = report.assessments[0]
+        self.assertEqual(a.objective, "OBJ-1")
+        self.assertEqual(a.part, "OBJ-1.1")
+        self.assertEqual(a.label, "the rule holds under real runs")
+        self.assertEqual(a.evidence, "resolved")
+        self.assertEqual(a.locator, "crux/scripts/review_findings.py")
+        self.assertEqual(a.domains, ("decision-review",))
+        self.assertEqual(a.conclusion, "serves")
+        self.assertEqual(a.findings, ())
+        self.assertIsNone(rf.validate_structure(report))
+
+    def test_backticked_objective_evidence_and_conclusion_parse(self):
+        """The objective, evidence and conclusion cells MAY be backticked."""
+        body = self.assessment_body([
+            ("`OBJ-1`", "OBJ-1.1 — the rule holds", "`resolved`",
+             "crux/scripts/review_findings.py", "decision-review",
+             "`serves`", "")])
+        a = self.parse(date="2026-09-10", body=body).assessments[0]
+        self.assertEqual((a.objective, a.evidence, a.conclusion),
+                         ("OBJ-1", "resolved", "serves"))
+
+    def test_a_backticked_locator_is_still_refused(self):
+        """The locator cell is NEVER backticked, exactly like the record one."""
+        body = self.assessment_body([
+            ("OBJ-1", "OBJ-1.1 — the rule holds", "resolved",
+             "`crux/scripts/review_findings.py`", "decision-review",
+             "serves", "")])
+        problem = self.refusal(self.parse, date="2026-09-10", body=body)
+        self.assertIn("locator", problem)
+
+    def test_a_second_assessment_table_is_refused(self):
+        table = assessment_table([("OBJ-1", "OBJ-1.1 — a", "resolved",
+                                   "a/path.md", "decision-review", "serves",
+                                   "")])
+        body = "\n".join([
+            "# Decision review — 2026-09-10", "",
+            "## Coverage", "", table, "", table,
+        ])
+        problem = self.refusal(self.parse, date="2026-09-10", body=body)
+        self.assertIn("second assessment table", problem)
+
+    def test_one_assessment_table_is_the_control(self):
+        body = self.assessment_body([
+            ("OBJ-1", "OBJ-1.1 — a", "resolved", "a/path.md",
+             "decision-review", "serves", "")])
+        self.assertEqual(len(self.parse(date="2026-09-10", body=body)
+                            .assessments), 1)
+
+    def test_an_assessment_table_outside_coverage_is_refused(self):
+        body = "\n".join([
+            "# Decision review — 2026-09-10", "",
+            assessment_table([("OBJ-1", "OBJ-1.1 — a", "resolved",
+                              "a/path.md", "decision-review", "serves", "")]),
+        ])
+        problem = self.refusal(self.parse, date="2026-09-10", body=body)
+        self.assertIn("Coverage", problem)
+
+    def test_the_measure_cell_grammar_is_enforced(self):
+        body = self.assessment_body([
+            ("OBJ-1", "not a measure part at all", "resolved", "a/path.md",
+             "decision-review", "serves", "")])
+        problem = self.refusal(self.parse, date="2026-09-10", body=body)
+        self.assertIn("measure", problem)
+
+    def test_a_finding_in_the_findings_cell_matches_the_id_grammar(self):
+        body = self.assessment_body([
+            ("OBJ-1", "OBJ-1.1 — a", "resolved", "a/path.md",
+             "decision-review", "serves", "not-a-full-form-id")])
+        problem = self.refusal(self.parse, date="2026-09-10", body=body)
+        self.assertIn("not-a-full-form-id", problem)
+        self.assertIn("full form", problem)
+
+
+class OrphanAssessmentRowTests(ReviewFindingsTestCase):
+    """WU1: the seven-cell OBJ-headed orphan-row trap, mirroring the ISO one.
+
+    A mistyped assessment-table header must REFUSE the row beneath it rather
+    than silently drop it — exactly the hazard the existing ISO-dated,
+    five-cell record trap exists to catch, at the assessment table's own
+    arity and first-cell shape.
+    """
+
+    ROW = ("| OBJ-1 | OBJ-1.1 — the rule holds | resolved | a/path.md | "
+           "decision-review | serves | |")
+
+    def body(self, header):
+        return "\n".join([
+            "# Decision review — 2026-09-10", "",
+            "## Coverage", "", header, "|---|---|---|---|---|---|---|",
+            self.ROW,
+        ])
+
+    def test_an_unowned_obj_headed_seven_cell_row_is_refused_naming_its_line(self):
+        mistyped = ("| objective | measure | evidence | locator | domains | "
+                    "verdict | findings |")
+        body = self.body(mistyped)
+        problem = self.refusal(self.parse, date="2026-09-10", body=body)
+        self.assertIn(str(line_of(body, self.ROW)), problem)
+        self.assertIn("header row", problem)
+
+    def test_the_same_row_under_the_real_header_is_the_positive_control(self):
+        """Same row, correctly-spelled header: it parses as one assessment.
+
+        Without this control, the refusal above could pass on a parser that
+        refuses every seven-cell row under Coverage regardless of header.
+        """
+        correct = ("| objective | measure | evidence | locator | domains | "
+                   "conclusion | findings |")
+        body = self.body(correct)
+        report = self.parse(date="2026-09-10", body=body)
+        self.assertEqual(len(report.assessments), 1)
+        self.assertEqual(report.assessments[0].conclusion, "serves")
+
+
+class VocabularyAndPairTests(ReviewFindingsTestCase):
+    """WU2: the six legal pairs, named refusals, and the two total functions."""
+
+    def assessment_body_of(self, evidence, conclusion, *, date="2026-09-10"):
+        return "\n".join([
+            f"# Decision review — {date}", "",
+            "## Coverage", "",
+            assessment_table([("OBJ-1", "OBJ-1.1 — a claim", evidence,
+                              "a/path.md", "decision-review", conclusion,
+                              "")]),
+        ])
+
+    def test_resolved_with_inconclusive_is_refused_by_name(self):
+        body = self.assessment_body_of("resolved", "inconclusive")
+        problem = self.refusal(self.parse, date="2026-09-10", body=body)
+        self.assertIn("resolved", problem)
+        self.assertIn("inconclusive", problem)
+
+    def test_unavailable_with_gap_is_refused_by_name(self):
+        body = self.assessment_body_of("unavailable", "gap")
+        problem = self.refusal(self.parse, date="2026-09-10", body=body)
+        self.assertIn("unavailable", problem)
+        self.assertIn("gap", problem)
+
+    def test_every_legal_pair_is_the_control(self):
+        """Positive control for the two refusals above: EVERY legal pair parses."""
+        for evidence, conclusion in rf.LEGAL_PAIRS:
+            with self.subTest(evidence=evidence, conclusion=conclusion):
+                body = self.assessment_body_of(evidence, conclusion)
+                a = self.parse(date="2026-09-10", body=body).assessments[0]
+                self.assertEqual((a.evidence, a.conclusion),
+                                 (evidence, conclusion))
+
+    def test_legal_pairs_is_exactly_six(self):
+        self.assertEqual(len(rf.LEGAL_PAIRS), 6)
+
+    def test_discriminating_pairs_is_exactly_three(self):
+        self.assertEqual(len(rf.DISCRIMINATING_PAIRS), 3)
+        self.assertEqual(
+            rf.DISCRIMINATING_PAIRS,
+            {("resolved", "serves"), ("resolved", "gap"),
+             ("partial", "gap")})
+        # Every discriminating pair is itself legal — a pair that discriminates
+        # but that the vocabulary refuses would be unreachable.
+        self.assertTrue(rf.DISCRIMINATING_PAIRS <= rf.LEGAL_PAIRS)
+
+    # ── the two derived, total functions ──
+
+    def test_a_partial_component_beside_a_full_check_stays_partial_not_serves(self):
+        """A multi-part measure with one component checked never rolls up to
+        `serves` — the rollup is `inconclusive` here, distinctly not `serves`."""
+        rollup = rf.alignment_rollup(["serves", "not-assessed"])
+        self.assertEqual(rollup, "inconclusive")
+        self.assertNotEqual(rollup, "serves")
+
+    def test_a_null_baseline_pair_yields_attempted_not_measured(self):
+        """`unavailable`+`inconclusive`: attempted, never measured."""
+        self.assertEqual(
+            rf.measurement_outcome([("unavailable", "inconclusive")]),
+            "attempted")
+
+    def test_resolved_gap_discriminates_to_measured(self):
+        """A rule exists but observed runs violate it: `resolved`+`gap`."""
+        self.assertEqual(rf.measurement_outcome([("resolved", "gap")]),
+                         "measured")
+
+    def test_one_serves_and_one_gap_in_one_goal_rolls_up_to_gap(self):
+        """`gap` outranks `serves` in the same goal's rollup."""
+        self.assertEqual(rf.alignment_rollup(["serves", "gap"]), "gap")
+
+    def test_partial_inconclusive_is_attempted_never_measured(self):
+        """The case the council specifically flagged."""
+        outcome = rf.measurement_outcome([("partial", "inconclusive")])
+        self.assertEqual(outcome, "attempted")
+        self.assertNotEqual(outcome, "measured")
+
+    def test_the_zero_part_rollup_and_outcome_are_both_not_assessed(self):
+        """A goal whose declared measure is the recorded absence of one."""
+        self.assertEqual(rf.alignment_rollup([]), "not-assessed")
+        self.assertEqual(rf.measurement_outcome([]), "not-assessed")
+
+
+class ObjectiveOrderingTests(ReviewFindingsTestCase):
+    """WU2: assessment rows list objectives in NUMERIC, not lexicographic, order."""
+
+    def body_for(self, objectives):
+        rows = [(obj, f"{obj}.1 — a claim", "resolved", "a/path.md",
+                 "decision-review", "serves", "") for obj in objectives]
+        return "\n".join([
+            "# Decision review — 2026-09-10", "",
+            "## Coverage", "", assessment_table(rows),
+        ])
+
+    def test_obj_2_then_obj_10_passes(self):
+        report = self.parse(date="2026-09-10",
+                            body=self.body_for(["OBJ-2", "OBJ-10"]))
+        self.assertIsNone(rf.validate_structure(report))
+
+    def test_obj_10_then_obj_2_is_refused(self):
+        """The bug a lexicographic comparison would miss: 'OBJ-10' < 'OBJ-2'
+        as strings, so only an integer comparison catches this ordering."""
+        report = self.parse(date="2026-09-10",
+                            body=self.body_for(["OBJ-10", "OBJ-2"]))
+        problem = self.refusal(rf.validate_structure, report)
+        self.assertIn("numeric order", problem)
+
+
+class FindingReferenceTests(ReviewFindingsTestCase):
+    """WU2: a finding id in a findings cell is a REFERENCE, never a definition."""
+
+    def test_a_findings_cell_id_defines_nothing(self):
+        """The id is a REFERENCE: it enters neither definitions nor the
+        summary-table row set, even though the report defines it elsewhere."""
+        body = "\n".join([
+            "# Decision review — 2026-09-10", "",
+            summary_table([("adr-review-some-gap", "Repair")]), "",
+            "## Repair", "", entry("adr-review-some-gap"), "",
+            "## Coverage", "",
+            assessment_table([("OBJ-1", "OBJ-1.1 — a claim", "resolved",
+                              "a/path.md", "decision-review", "gap",
+                              "adr-review-some-gap")]),
+        ])
+        report = self.parse(date="2026-09-10", body=body)
+        self.assertEqual(report.assessments[0].findings,
+                         ("adr-review-some-gap",))
+        # ONE definition — the `### ` heading — and the findings cell added
+        # none. That is the whole claim.
+        self.assertEqual(1, len(report.definitions))
+        self.assertEqual(1, report.raised)
+        self.assertIsNone(rf.validate_structure(report))
+
+    def test_a_findings_cell_id_the_report_never_defines_is_refused(self):
+        """A dangling reference points at a gap nobody can read."""
+        body = "\n".join([
+            "# Decision review — 2026-09-10", "",
+            "## Coverage", "",
+            assessment_table([("OBJ-1", "OBJ-1.1 — a claim", "resolved",
+                              "a/path.md", "decision-review", "gap",
+                              "adr-review-defined-nowhere")]),
+        ])
+        report = self.parse(date="2026-09-10", body=body)
+        with self.assertRaises(rf.ReviewFindingsError) as caught:
+            rf.validate_structure(report)
+        self.assertIn("neither defines nor records", str(caught.exception))
+
+    def test_a_findings_cell_may_name_a_finding_a_record_carries(self):
+        """Positive control: a cross-date reference resolves through a record.
+
+        An earlier date's finding is named in THIS report by a lifecycle
+        record, so the reference resolves without a definition here.
+        """
+        body = "\n".join([
+            "# Decision review — 2026-09-10", "",
+            "## Coverage", "",
+            assessment_table([("OBJ-1", "OBJ-1.1 — a claim", "resolved",
+                              "a/path.md", "decision-review", "gap",
+                              "adr-review-raised-earlier")]), "",
+            record_table([("2026-09-09", "`adr-review-raised-earlier`", 1,
+                           "re-verified", "crux/scripts/review_findings.py")]),
+        ])
+        report = self.parse(date="2026-09-10", body=body)
+        self.assertIsNone(rf.validate_structure(report))
+
+
+class MeasuredObjectivesShapeTests(ReviewFindingsTestCase):
+    """WU3: the three `measured_objectives` shapes, plus empty-is-zero."""
+
+    def test_an_absent_key_is_unknown_shape_absent(self):
+        outcomes, shape = rf.measured_objectives(
+            "type: adr-review\ndate: 2026-09-10\ndismissed: []")
+        self.assertEqual(shape, "absent")
+        self.assertEqual(outcomes, {})
+
+    def test_an_empty_bracket_list_is_the_positive_zero_record(self):
+        outcomes, shape = rf.measured_objectives(
+            "type: adr-review\nmeasured_objectives: []\ndismissed: []")
+        self.assertEqual(shape, "empty")
+        self.assertEqual(outcomes, {})
+
+    def test_a_flat_list_of_bare_ids_demotes_every_id_to_attempted(self):
+        outcomes, shape = rf.measured_objectives(
+            "measured_objectives: [OBJ-1, OBJ-2, OBJ-3]")
+        self.assertEqual(shape, "flat")
+        self.assertEqual({goal: fields["outcome"]
+                          for goal, fields in outcomes.items()},
+                         {"OBJ-1": "attempted", "OBJ-2": "attempted",
+                          "OBJ-3": "attempted"})
+
+    def test_a_structured_block_reads_outcomes_as_recorded(self):
+        frontmatter = "\n".join([
+            "type: adr-review",
+            "measured_objectives:",
+            "  - objective: OBJ-1",
+            "    outcome: measured",
+            "    pass: 3",
+            "    measure_digest: sha256:fixture-1",
+            "    evidence: crux/scripts/review_findings.py:1-2",
+            "  - objective: OBJ-2",
+            "    outcome: attempted",
+            "    pass: 3",
+            "    measure_digest: sha256:fixture-2",
+            "    blocker: the baseline is null",
+            "dismissed: []",
+        ])
+        outcomes, shape = rf.measured_objectives(frontmatter)
+        self.assertEqual(shape, "structured")
+        self.assertEqual(outcomes["OBJ-1"]["outcome"], "measured")
+        self.assertEqual(outcomes["OBJ-2"]["outcome"], "attempted")
+        self.assertEqual(outcomes["OBJ-2"]["blocker"], "the baseline is null")
+
+    def test_a_present_but_empty_structured_key_is_the_control_for_absent(self):
+        """Present-and-empty and absent are different shapes over the same {}."""
+        empty_outcomes, empty_shape = rf.measured_objectives(
+            "measured_objectives:\ndismissed: []")
+        absent_outcomes, absent_shape = rf.measured_objectives(
+            "dismissed: []")
+        self.assertEqual((empty_outcomes, absent_outcomes), ({}, {}))
+        self.assertNotEqual(empty_shape, absent_shape)
+        self.assertEqual(empty_shape, "empty")
+        self.assertEqual(absent_shape, "absent")
+
+    # ── ADR-0109: the counted-thing key, and `measure_digest` ─────────────
+
+    def test_a_part_field_keys_the_entry_on_the_part_id_not_the_objective(self):
+        frontmatter = "\n".join([
+            "measured_objectives:",
+            "  - objective: OBJ-1",
+            "    part: OBJ-1.2",
+            "    outcome: attempted",
+            "    measure_digest: sha256:abc",
+            "    blocker: no baseline",
+        ])
+        outcomes, shape = rf.measured_objectives(frontmatter)
+        self.assertEqual(shape, "structured")
+        self.assertNotIn("OBJ-1", outcomes)
+        self.assertEqual(outcomes["OBJ-1.2"]["outcome"], "attempted")
+        self.assertEqual(outcomes["OBJ-1.2"]["measure_digest"], "sha256:abc")
+
+    def test_a_part_less_and_a_part_level_entry_are_two_counted_things(self):
+        """A goal's own entry and one of its part's entries never merge."""
+        frontmatter = "\n".join([
+            "measured_objectives:",
+            "  - objective: OBJ-1",
+            "    outcome: measured",
+            "    measure_digest: sha256:goal",
+            "    evidence: a/p.md",
+            "  - objective: OBJ-1",
+            "    part: OBJ-1.2",
+            "    outcome: attempted",
+            "    measure_digest: sha256:part",
+            "    blocker: no baseline",
+        ])
+        outcomes, _ = rf.measured_objectives(frontmatter)
+        self.assertEqual(set(outcomes), {"OBJ-1", "OBJ-1.2"})
+        self.assertEqual(outcomes["OBJ-1"]["outcome"], "measured")
+        self.assertEqual(outcomes["OBJ-1.2"]["outcome"], "attempted")
+
+    def test_the_strongest_outcome_wins_within_one_part_and_never_across_two(self):
+        """A part's `attempted` must never be buried under, nor bury, a
+        sibling part's `measured` — regression for the rule this key change
+        exists to satisfy."""
+        frontmatter = "\n".join([
+            "measured_objectives:",
+            "  - objective: OBJ-1",
+            "    part: OBJ-1.1",
+            "    outcome: measured",
+            "    measure_digest: sha256:p1",
+            "    evidence: a/p.md",
+            "  - objective: OBJ-1",
+            "    part: OBJ-1.2",
+            "    outcome: attempted",
+            "    measure_digest: sha256:p2",
+            "    blocker: no baseline",
+        ])
+        outcomes, _ = rf.measured_objectives(frontmatter)
+        self.assertEqual(outcomes["OBJ-1.1"]["outcome"], "measured")
+        self.assertEqual(outcomes["OBJ-1.2"]["outcome"], "attempted")
+
+    def test_a_malformed_part_id_is_refused(self):
+        with self.assertRaises(rf.ReviewFindingsError) as caught:
+            rf.measured_objectives(
+                "measured_objectives:\n  - objective: OBJ-1\n"
+                "    part: OBJ-1\n    outcome: attempted\n")
+        self.assertIn("OBJ-N.k", str(caught.exception))
+
+    def test_a_part_naming_a_different_goal_than_its_objective_is_refused(self):
+        with self.assertRaises(rf.ReviewFindingsError) as caught:
+            rf.measured_objectives(
+                "measured_objectives:\n  - objective: OBJ-1\n"
+                "    part: OBJ-2.1\n    outcome: attempted\n")
+        self.assertIn("goal numbers disagree", str(caught.exception))
+
+    def test_a_structured_entry_missing_measure_digest_is_refused(self):
+        """ADR-0110 `rotation-discharges-on-attempt-or-measurement`: `measure_digest`
+        is REQUIRED on every structured entry, goal-level and part-level
+        alike — a correctness requirement, not a convenience."""
+        with self.assertRaises(rf.ReviewFindingsError) as caught:
+            rf.measured_objectives(
+                "measured_objectives:\n  - objective: OBJ-1\n"
+                "    outcome: measured\n    evidence: a/p.md\n")
+        self.assertIn("measure_digest", str(caught.exception))
+
+    def test_the_same_entry_carrying_measure_digest_is_the_control(self):
+        outcomes, shape = rf.measured_objectives(
+            "measured_objectives:\n  - objective: OBJ-1\n"
+            "    outcome: measured\n    measure_digest: sha256:x\n"
+            "    evidence: a/p.md\n")
+        self.assertEqual(shape, "structured")
+        self.assertEqual(outcomes["OBJ-1"]["measure_digest"], "sha256:x")
+
+    def test_a_part_level_entry_missing_measure_digest_is_also_refused(self):
+        with self.assertRaises(rf.ReviewFindingsError) as caught:
+            rf.measured_objectives(
+                "measured_objectives:\n  - objective: OBJ-1\n"
+                "    part: OBJ-1.1\n    outcome: attempted\n"
+                "    blocker: no baseline\n")
+        self.assertIn("measure_digest", str(caught.exception))
+
+
+class RotationAndEscalationTests(ReviewFindingsTestCase):
+    """ADR-0109: the coverage window and the escalation history are two
+    spans, and never one variable."""
+
+    def _fm(self, outcome, *, part=None, digest="sha256:fixture"):
+        lines = ["type: adr-review", "measured_objectives:",
+                "  - objective: OBJ-1"]
+        if part:
+            lines.append(f"    part: {part}")
+        lines.append(f"    outcome: {outcome}")
+        lines.append(f"    measure_digest: {digest}")
+        if outcome == "attempted":
+            lines.append("    blocker: no baseline")
+        else:
+            lines.append("    evidence: a/path.md:1-2")
+        return "\n".join(lines)
+
+    STRUCTURED = None   # set below; kept as an attribute for readability
+    MEASURED = None
+    FLAT_ATTEMPTED = "type: adr-review\nmeasured_objectives: [OBJ-1]\n"
+    SILENT = "type: adr-review\ndismissed: []\n"
+
+    def setUp(self):
+        super().setUp()
+        self.STRUCTURED = self._fm("attempted")
+        self.MEASURED = self._fm("measured")
+
+    def test_two_consecutive_structured_attempts_carry_two_strikes(self):
+        state = rf.rotation_state(
+            [("2026-09-08", self.STRUCTURED), ("2026-09-09", self.STRUCTURED)],
+            ["OBJ-1"])
+        self.assertEqual(state["OBJ-1"]["escalation"]["strikes"], 2)
+        self.assertTrue(state["OBJ-1"]["discharged"])
+
+    def test_a_measured_outcome_resets_the_strike_count_to_zero(self):
+        state = rf.rotation_state(
+            [("2026-09-07", self.STRUCTURED), ("2026-09-08", self.STRUCTURED),
+             ("2026-09-09", self.MEASURED)],
+            ["OBJ-1"])
+        self.assertEqual(state["OBJ-1"]["escalation"]["strikes"], 0)
+        self.assertFalse(state["OBJ-1"]["escalation"]["owed"])
+        self.assertTrue(state["OBJ-1"]["discharged"])
+
+    def test_a_demoted_flat_attempted_entry_discharges_and_starts_no_strike(self):
+        """A demoted (flat-list) entry discharges the rotation but is not a
+        strike — it resets the count same as a `measured` outcome would."""
+        state = rf.rotation_state(
+            [("2026-09-08", self.STRUCTURED),
+             ("2026-09-09", self.FLAT_ATTEMPTED)],
+            ["OBJ-1"])
+        self.assertEqual(state["OBJ-1"]["escalation"]["strikes"], 0)
+        self.assertTrue(state["OBJ-1"]["discharged"])
+        self.assertEqual(state["OBJ-1"]["coverage"]["2026-09-09"],
+                         ("attempted", "flat"))
+
+    def test_a_silent_date_steps_over_without_resetting_or_advancing(self):
+        """A date recording neither outcome (`unknown`) is stepped over: the
+        strike run continues across it rather than resetting at it."""
+        state = rf.rotation_state(
+            [("2026-09-07", self.STRUCTURED), ("2026-09-08", self.SILENT),
+             ("2026-09-09", self.STRUCTURED)],
+            ["OBJ-1"])
+        self.assertEqual(state["OBJ-1"]["coverage"]["2026-09-08"],
+                         ("unknown", "absent"))
+        self.assertEqual(state["OBJ-1"]["escalation"]["strikes"], 2)
+
+    def test_fewer_than_three_dates_spans_only_what_exists(self):
+        state = rf.rotation_state([("2026-09-09", self.STRUCTURED)], ["OBJ-1"])
+        self.assertEqual(len(state["OBJ-1"]["coverage"]), 1)
+        self.assertEqual(state["OBJ-1"]["escalation"]["strikes"], 1)
+
+    def test_the_coverage_window_still_reads_only_the_three_newest_dates(self):
+        """The COVERAGE span stays three dates even though the escalation
+        span (below) now reads further back — the two are separate
+        variables."""
+        state = rf.rotation_state(
+            [("2026-09-01", self.MEASURED), ("2026-09-05", self.STRUCTURED),
+             ("2026-09-06", self.STRUCTURED), ("2026-09-07", self.STRUCTURED)],
+            ["OBJ-1"])
+        self.assertEqual(set(state["OBJ-1"]["coverage"]),
+                         {"2026-09-05", "2026-09-06", "2026-09-07"})
+
+    def test_rotation_state_hands_escalation_the_full_history(self):
+        """`rotation_state` passes the FULL dated history to
+        `escalation_state`, never its own three-date coverage window. Narrow
+        it to the window and this run reads two strikes, not three — the D4
+        defect, reintroduced at the one site that composes the two spans.
+        """
+        dated = [("2026-09-05", self.STRUCTURED), ("2026-09-06", self.SILENT),
+                 ("2026-09-07", self.STRUCTURED), ("2026-09-08", self.SILENT),
+                 ("2026-09-09", self.STRUCTURED)]
+        state = rf.rotation_state(dated, ["OBJ-1"])
+        self.assertEqual(state["OBJ-1"]["escalation"]["strikes"], 3)
+        self.assertTrue(state["OBJ-1"]["escalation"]["owed"])
+        # PAIRED CONTROL: the coverage window is STILL three dates wide, so
+        # the assertion above reads a wider escalation span rather than a
+        # widened coverage window.
+        self.assertEqual(set(state["OBJ-1"]["coverage"]),
+                         {"2026-09-07", "2026-09-08", "2026-09-09"})
+
+    # ── D4: the defect this decision fixes ─────────────────────────────────
+
+    def test_five_dates_attempted_silent_attempted_silent_attempted_give_three(self):
+        """The escalation span reads the FULL history and steps over silent
+        dates, so this run gives three strikes — never the two a
+        three-date coverage window would see (the D4 defect)."""
+        state = rf.escalation_state(
+            [("2026-09-05", self.STRUCTURED), ("2026-09-06", self.SILENT),
+             ("2026-09-07", self.STRUCTURED), ("2026-09-08", self.SILENT),
+             ("2026-09-09", self.STRUCTURED)],
+            ["OBJ-1"])
+        self.assertEqual(state["OBJ-1"]["strikes"], 3)
+        self.assertTrue(state["OBJ-1"]["owed"])
+        # None of these five entries carries a `escalation_strikes` claim, so
+        # this is the RECONSTRUCTION path — `owed_since` is always `None`
+        # there, because reconstruction cannot recover the true first-owed
+        # date (it may lie outside the bounded window, or an obligation
+        # inside it may already have been spent in a way outcomes alone
+        # cannot show).
+        self.assertIsNone(state["OBJ-1"]["owed_since"])
+        self.assertFalse(state["OBJ-1"]["verified"])
+
+    def test_attempts_separated_by_more_than_three_dates_still_accumulate(self):
+        state = rf.escalation_state(
+            [("2026-09-01", self.STRUCTURED), ("2026-09-02", self.SILENT),
+             ("2026-09-03", self.SILENT), ("2026-09-04", self.SILENT),
+             ("2026-09-05", self.SILENT), ("2026-09-06", self.STRUCTURED)],
+            ["OBJ-1"])
+        self.assertEqual(state["OBJ-1"]["strikes"], 2)
+
+    # ── rewritten-measure reset ─────────────────────────────────────────────
+
+    def test_a_changed_measure_digest_resets_the_count(self):
+        old = self._fm("attempted", digest="sha256:old")
+        new = self._fm("attempted", digest="sha256:new")
+        state = rf.escalation_state(
+            [("2026-09-07", old), ("2026-09-08", old), ("2026-09-09", new)],
+            ["OBJ-1"])
+        # The rewrite clears the two prior strikes, and the rewriting date's
+        # own attempted outcome starts the count fresh at one.
+        self.assertEqual(state["OBJ-1"]["strikes"], 1)
+        self.assertFalse(state["OBJ-1"]["owed"])
+
+    def test_an_unchanged_digest_is_the_control_for_the_reset(self):
+        same = self._fm("attempted", digest="sha256:same")
+        state = rf.escalation_state(
+            [("2026-09-07", same), ("2026-09-08", same), ("2026-09-09", same)],
+            ["OBJ-1"])
+        self.assertEqual(state["OBJ-1"]["strikes"], 3)
+
+    # ── the per-pass finding cap ────────────────────────────────────────────
+
+    def test_an_escalation_deferred_by_the_finding_cap_remains_owed(self):
+        state = {"OBJ-1": {"strikes": 3, "owed": True,
+                           "owed_since": "2026-09-01", "verified": True},
+                "OBJ-2": {"strikes": 3, "owed": True,
+                         "owed_since": "2026-09-02", "verified": True}}
+        spend, deferred = rf.spend_escalations(state, cap_remaining=1)
+        self.assertEqual(spend, ["OBJ-1"])
+        self.assertEqual(deferred, ["OBJ-2"])
+        # OBJ-2's obligation is still `owed` in the state itself — spending
+        # is a scheduling decision over the state, never a mutation of it.
+        self.assertTrue(state["OBJ-2"]["owed"])
+
+    def test_zero_cap_remaining_defers_every_owed_escalation(self):
+        """Positive control: nothing is spent when the cap is exhausted."""
+        state = {"OBJ-1": {"strikes": 3, "owed": True,
+                           "owed_since": "2026-09-01", "verified": True}}
+        spend, deferred = rf.spend_escalations(state, cap_remaining=0)
+        self.assertEqual(spend, [])
+        self.assertEqual(deferred, ["OBJ-1"])
+
+    def test_an_unverified_obligation_orders_ahead_of_every_dated_one(self):
+        state = {
+            "OBJ-1": {"strikes": 3, "owed": True,
+                     "owed_since": "2020-01-01", "verified": True},
+            "OBJ-2": {"strikes": 3, "owed": True,
+                     "owed_since": None, "verified": False},
+        }
+        self.assertEqual(rf.owed_escalations(state), ["OBJ-2", "OBJ-1"])
+
+    def test_a_part_less_obligation_orders_before_a_part_of_the_same_goal(self):
+        state = {
+            "OBJ-1.1": {"strikes": 3, "owed": True,
+                       "owed_since": "2026-09-01", "verified": True},
+            "OBJ-1": {"strikes": 3, "owed": True,
+                     "owed_since": "2026-09-01", "verified": True},
+        }
+        self.assertEqual(rf.owed_escalations(state), ["OBJ-1", "OBJ-1.1"])
+
+    # ── carried escalation state: verify, contradiction-refuse, reconstruct ─
+
+    def test_a_cap_deferred_escalation_is_not_re_owed_next_pass(self):
+        """The case deviation-2 would have broken: pass N reaches three
+        strikes and carries `owed: true` because the five-finding cap was
+        already spent on OTHER findings this pass — the obligation itself is
+        NOT about to be written twice. Pass N+1 stays blocked; the carried
+        state must NOT re-owe a second obligation nor move `owed_since`."""
+        digest = "sha256:blocked"
+        pass1 = ("measured_objectives:\n  - objective: OBJ-1\n"
+                "    outcome: attempted\n    blocker: no baseline\n"
+                f"    measure_digest: {digest}\n"
+                "    escalation_strikes: 3\n    escalation_owed: true\n"
+                "    escalation_owed_since: 2026-09-09\n")
+        pass2 = ("measured_objectives:\n  - objective: OBJ-1\n"
+                "    outcome: attempted\n    blocker: no baseline\n"
+                f"    measure_digest: {digest}\n"
+                "    escalation_strikes: 4\n    escalation_owed: true\n"
+                "    escalation_owed_since: 2026-09-09\n")
+        state = rf.escalation_state(
+            [("2026-09-09", pass1), ("2026-09-10", pass2)], ["OBJ-1"])
+        self.assertEqual(state["OBJ-1"]["strikes"], 4)
+        self.assertTrue(state["OBJ-1"]["owed"])
+        # Still the ORIGINAL first-owed date — not advanced to pass 2's date,
+        # which would be the duplicate-obligation shape deviation-2 produced.
+        self.assertEqual(state["OBJ-1"]["owed_since"], "2026-09-09")
+        self.assertTrue(state["OBJ-1"]["verified"])
+
+    def test_a_carried_count_that_contradicts_the_stepped_value_is_refused(self):
+        digest = "sha256:x"
+        prev = ("measured_objectives:\n  - objective: OBJ-1\n"
+               "    outcome: attempted\n    blocker: no baseline\n"
+               f"    measure_digest: {digest}\n"
+               "    escalation_strikes: 1\n    escalation_owed: false\n")
+        # One `attempted` step from strikes=1 must yield strikes=2. Claiming
+        # 5 is a contradiction — refused, never silently corrected.
+        newest = ("measured_objectives:\n  - objective: OBJ-1\n"
+                 "    outcome: attempted\n    blocker: no baseline\n"
+                 f"    measure_digest: {digest}\n"
+                 "    escalation_strikes: 5\n    escalation_owed: false\n")
+        with self.assertRaises(rf.ReviewFindingsError) as caught:
+            rf.escalation_state(
+                [("2026-09-09", prev), ("2026-09-10", newest)], ["OBJ-1"])
+        self.assertIn("contradicts", str(caught.exception))
+
+    def test_the_correctly_stepped_count_is_the_control(self):
+        """Positive control for the refusal above: strikes=1 -> `attempted`
+        -> strikes=2 is the correct single step, and is accepted."""
+        digest = "sha256:x"
+        prev = ("measured_objectives:\n  - objective: OBJ-1\n"
+               "    outcome: attempted\n    blocker: no baseline\n"
+               f"    measure_digest: {digest}\n"
+               "    escalation_strikes: 1\n    escalation_owed: false\n")
+        newest = ("measured_objectives:\n  - objective: OBJ-1\n"
+                 "    outcome: attempted\n    blocker: no baseline\n"
+                 f"    measure_digest: {digest}\n"
+                 "    escalation_strikes: 2\n    escalation_owed: false\n")
+        state = rf.escalation_state(
+            [("2026-09-09", prev), ("2026-09-10", newest)], ["OBJ-1"])
+        self.assertEqual(state["OBJ-1"]["strikes"], 2)
+        self.assertTrue(state["OBJ-1"]["verified"])
+
+    def test_a_broken_chain_reconstructs_and_orders_ahead_of_a_dated_one(self):
+        """No report here carries an `escalation_strikes` claim at all, so
+        the chain is broken from the start: reconstruction recovers the
+        count, marks `unverified`, and — ordered beside a normal dated
+        obligation — comes first."""
+        attempted = ("measured_objectives:\n  - objective: OBJ-1\n"
+                    "    outcome: attempted\n    blocker: no baseline\n"
+                    "    measure_digest: sha256:x\n")
+        broken = rf.escalation_state(
+            [("2026-09-07", attempted), ("2026-09-08", attempted),
+             ("2026-09-09", attempted)], ["OBJ-1"])
+        self.assertFalse(broken["OBJ-1"]["verified"])
+        self.assertTrue(broken["OBJ-1"]["owed"])
+        self.assertIsNone(broken["OBJ-1"]["owed_since"])
+
+        combined = {
+            "OBJ-1": broken["OBJ-1"],
+            "OBJ-2": {"strikes": 3, "owed": True,
+                     "owed_since": "2026-09-01", "verified": True},
+        }
+        self.assertEqual(rf.owed_escalations(combined), ["OBJ-1", "OBJ-2"])
+
+    # ── per-part escalation beside a measured sibling ───────────────────────
+
+    def test_a_measured_part_coexists_with_a_siblings_unresolved_blocker(self):
+        """OBJ-1.1 is measured on every date; OBJ-1.2 is attempted every
+        date. The sibling's `measured` outcome must never reset OBJ-1.2's
+        count — the defect ADR-0109 rule 6 fixes."""
+        def fm(date_index):
+            return "\n".join([
+                "measured_objectives:",
+                "  - objective: OBJ-1", "    part: OBJ-1.1",
+                "    outcome: measured", "    measure_digest: sha256:p1",
+                "    evidence: a/p.md",
+                "  - objective: OBJ-1", "    part: OBJ-1.2",
+                "    outcome: attempted", "    measure_digest: sha256:p2",
+                "    blocker: no baseline",
+            ])
+        dates = ["2026-09-07", "2026-09-08", "2026-09-09"]
+        state = rf.escalation_state([(d, fm(i)) for i, d in enumerate(dates)],
+                                    ["OBJ-1.1", "OBJ-1.2"])
+        self.assertEqual(state["OBJ-1.1"]["strikes"], 0)
+        self.assertFalse(state["OBJ-1.1"]["owed"])
+        self.assertEqual(state["OBJ-1.2"]["strikes"], 3)
+        self.assertTrue(state["OBJ-1.2"]["owed"])
+
+    def test_a_part_blocked_three_dates_then_discriminating_clears_cleanly(self):
+        """A part blocked on three dates then discriminating on the fourth:
+        the live pass and a later reconstruction over the same corpus must
+        AGREE that no obligation remains."""
+        blocked = "\n".join([
+            "measured_objectives:",
+            "  - objective: OBJ-1", "    part: OBJ-1.1",
+            "    outcome: attempted", "    measure_digest: sha256:same",
+            "    blocker: no baseline",
+        ])
+        discriminated = "\n".join([
+            "measured_objectives:",
+            "  - objective: OBJ-1", "    part: OBJ-1.1",
+            "    outcome: measured", "    measure_digest: sha256:same",
+            "    evidence: a/p.md",
+        ])
+        # The VERIFY leg: each blocked entry carries the count that date's own
+        # pass computed. Without the claims both legs would reconstruct, and
+        # the agreement below would hold by construction rather than by test.
+        carried = [blocked + f"\n    escalation_strikes: {n}"
+                            + f"\n    escalation_owed: {str(n >= 3).lower()}"
+                            + ("\n    escalation_owed_since: 2026-09-08"
+                               if n >= 3 else "")
+                   for n in (1, 2, 3)]
+        dates = ["2026-09-06", "2026-09-07", "2026-09-08"]
+        claimed = list(zip(dates, carried))
+        stripped = [(date, blocked) for date in dates]
+
+        # At the third date the two legs are DISTINGUISHABLE: the carried
+        # claim is verified and recovers the true first-owed date, which a
+        # reconstruction cannot know.
+        live_third = rf.escalation_state(claimed, ["OBJ-1.1"])["OBJ-1.1"]
+        rebuilt_third = rf.escalation_state(stripped, ["OBJ-1.1"])["OBJ-1.1"]
+        self.assertTrue(live_third["verified"])
+        self.assertFalse(rebuilt_third["verified"])
+        self.assertEqual(live_third["owed_since"], "2026-09-08")
+        self.assertIsNone(rebuilt_third["owed_since"])
+        self.assertEqual(live_third["strikes"], rebuilt_third["strikes"])
+        self.assertTrue(live_third["owed"])
+        self.assertTrue(rebuilt_third["owed"])
+
+        # On the fourth date the part discriminates, and both legs agree that
+        # nothing remains owed.
+        fourth = ("2026-09-09", discriminated)
+        live_pass = rf.escalation_state(claimed + [fourth], ["OBJ-1.1"])
+        reconstruction = rf.escalation_state(stripped + [fourth], ["OBJ-1.1"])
+
+        self.assertEqual(live_pass, reconstruction)
+        self.assertEqual(live_pass["OBJ-1.1"]["strikes"], 0)
+        self.assertFalse(live_pass["OBJ-1.1"]["owed"])
+
+
+class EscalationClearingLeavesStandingUntouchedTests(ReviewFindingsTestCase):
+    """`escalation_state`'s docstring (WU-ADR-0109) asserts clearing an
+    obligation is NOT a finding event: "that ledger is `standing_by_finding`'s,
+    untouched here." Nothing before this drove both functions over ONE corpus
+    and compared — the property held by construction (`escalation_state` and
+    `standing_by_finding` walk disjoint call graphs), not by test. A future
+    refactor that coupled the two ledgers — say, one that treated a cleared
+    obligation as an implicit `resolved` record — would ship silently.
+
+    Reuses the exact escalation corpus from
+    `test_a_part_blocked_three_dates_then_discriminating_clears_cleanly`
+    (blocked on three dates, discriminating on the fourth) and layers two
+    real findings on top: one that stays `open` throughout and one the third
+    date's report `resolved`. Both ledgers are read over the SAME reports.
+    """
+
+    def _corpus(self):
+        # ── the escalation half — verbatim shape from the reused test ──────
+        blocked = "\n".join([
+            "measured_objectives:",
+            "  - objective: OBJ-1", "    part: OBJ-1.1",
+            "    outcome: attempted", "    measure_digest: sha256:same",
+            "    blocker: no baseline",
+        ])
+        discriminated = "\n".join([
+            "measured_objectives:",
+            "  - objective: OBJ-1", "    part: OBJ-1.1",
+            "    outcome: measured", "    measure_digest: sha256:same",
+            "    evidence: a/p.md",
+        ])
+        carried = [blocked + f"\n    escalation_strikes: {n}"
+                            + f"\n    escalation_owed: {str(n >= 3).lower()}"
+                            + ("\n    escalation_owed_since: 2026-09-08"
+                               if n >= 3 else "")
+                   for n in (1, 2, 3)]
+        dates = ["2026-09-06", "2026-09-07", "2026-09-08"]
+        claimed = list(zip(dates, carried))
+        fourth = ("2026-09-09", discriminated)
+
+        # ── the standing half — two findings riding the same four dates ────
+        definitions_body = "\n".join([
+            "# Decision review — 2026-09-06", "",
+            summary_table([("adr-review-escalation-open", "Repair"),
+                           ("adr-review-escalation-resolved", "Repair")]), "",
+            "## Repair", "",
+            entry("adr-review-escalation-open"), "",
+            entry("adr-review-escalation-resolved"),
+        ])
+        resolution_body = "\n".join([
+            "# Decision review — 2026-09-08", "",
+            "## Coverage", "",
+            record_table([("2026-09-06", "`adr-review-escalation-resolved`",
+                           1, "resolved",
+                           "crux/scripts/review_findings.py")]),
+        ])
+
+        frontmatters = {date: LIFECYCLE_FM.format(date=date) + "\n" + text
+                        for date, text in claimed + [fourth]}
+
+        report1 = self.parse(date="2026-09-06",
+                             frontmatter=frontmatters["2026-09-06"],
+                             body=definitions_body)
+        report2 = self.parse(date="2026-09-07",
+                             frontmatter=frontmatters["2026-09-07"], body="")
+        report3 = self.parse(date="2026-09-08",
+                             frontmatter=frontmatters["2026-09-08"],
+                             body=resolution_body)
+        report4 = self.parse(date="2026-09-09",
+                             frontmatter=frontmatters["2026-09-09"], body="")
+
+        return claimed, fourth, [report1, report2, report3, report4]
+
+    def test_clearing_the_obligation_moves_no_finding(self):
+        claimed, fourth, reports = self._corpus()
+        before_reports, clearing_report = reports[:3], reports[3]
+
+        # POSITIVE CONTROL, leg 1: the obligation is genuinely OWED before
+        # the fourth date and genuinely CLEARS on it — otherwise the
+        # equality below would be a comparison of two computations of
+        # "nothing happened" and would prove nothing about clearing.
+        owed_before = rf.escalation_state(claimed, ["OBJ-1.1"])["OBJ-1.1"]
+        cleared_after = rf.escalation_state(claimed + [fourth],
+                                            ["OBJ-1.1"])["OBJ-1.1"]
+        self.assertTrue(owed_before["owed"])
+        self.assertEqual(owed_before["strikes"], 3)
+        self.assertFalse(cleared_after["owed"])
+        self.assertEqual(cleared_after["strikes"], 0)
+
+        # POSITIVE CONTROL, leg 2: the standing map is non-empty and holds
+        # real, distinguishable standings — not the vacuous `{}` an
+        # empty-corpus bug would also pass under.
+        standing_before = rf.standing_by_finding(before_reports)
+        expected = {"adr-review-escalation-open": "open",
+                    "adr-review-escalation-resolved": "resolved"}
+        self.assertEqual(standing_before, expected)
+
+        # THE ASSERTION: adding the clearing report changes NOTHING about
+        # standing, even though it just cleared a real obligation.
+        standing_after = rf.standing_by_finding(reports)
+        self.assertEqual(standing_before, standing_after)
+        self.assertEqual(standing_after, expected)
+
+
+class CommentsInTheKeyTests(ReviewFindingsTestCase):
+    """`#` opens a comment in YAML, so a comment line never ends a block
+    sequence. The SHIPPED TEMPLATE puts `##` guidance between the key and the
+    entries it tells the writer to uncomment, and breaking there read the
+    whole report as `empty` — a positive record of zero measurements, with no
+    refusal — from a writer who only left the instructions in place.
+    """
+
+    ENTRIES = ("  - objective: OBJ-1\n    outcome: measured\n"
+               "    measure_digest: sha256:x\n    evidence: a/p.md\n")
+
+    def test_the_templates_own_guidance_lines_do_not_void_the_entries(self):
+        with_prose = ("type: adr-review\nmeasured_objectives:\n"
+                      "## Replace the [] above with one entry per counted thing.\n"
+                      "## PROSE LINES START WITH ## AND ARE DELETED.\n"
+                      + self.ENTRIES)
+        outcomes, shape = rf.measured_objectives(with_prose)
+        self.assertEqual(shape, "structured")
+        self.assertIn("OBJ-1", outcomes)
+        # PAIRED CONTROL: the same entries with the guidance deleted read the
+        # same way, so the prose changes nothing rather than being tolerated
+        # into a different answer.
+        without = ("type: adr-review\nmeasured_objectives:\n" + self.ENTRIES)
+        self.assertEqual(rf.measured_objectives(without),
+                         (outcomes, shape))
+
+    def test_a_comment_between_two_entries_drops_neither(self):
+        text = ("type: adr-review\nmeasured_objectives:\n" + self.ENTRIES
+                + "  # why OBJ-2 is still blocked\n"
+                "  - objective: OBJ-2\n    outcome: attempted\n"
+                "    measure_digest: sha256:y\n    blocker: no baseline\n")
+        outcomes, shape = rf.measured_objectives(text)
+        self.assertEqual(shape, "structured")
+        self.assertEqual(sorted(outcomes), ["OBJ-1", "OBJ-2"])
+
+    def test_a_real_key_after_the_sequence_still_ends_it(self):
+        """The control on the control: a NON-comment line at or below the
+        list indent is still a terminator, so making comments transparent
+        did not make the reader run past the key's own value."""
+        text = ("type: adr-review\nmeasured_objectives:\n" + self.ENTRIES
+                + "reviewer: architect\ndismissed: []\n")
+        outcomes, shape = rf.measured_objectives(text)
+        self.assertEqual(sorted(outcomes), ["OBJ-1"])
+        self.assertEqual(shape, "structured")
+
+class EmptyMappingShapeTests(ReviewFindingsTestCase):
+    """`{}` is an explicit empty mapping. Alone it is a positive record of
+    zero; with a block sequence beneath it, the two halves contradict and
+    reading either one discards the other."""
+
+    def test_an_explicit_empty_mapping_alone_is_a_positive_zero(self):
+        outcomes, shape = rf.measured_objectives(
+            "type: adr-review\nmeasured_objectives: {}\n")
+        self.assertEqual(outcomes, {})
+        self.assertEqual(shape, "empty")
+
+    def test_an_empty_mapping_over_a_block_sequence_is_refused(self):
+        with self.assertRaises(rf.ReviewFindingsError) as caught:
+            rf.measured_objectives(
+                "type: adr-review\nmeasured_objectives: {}\n"
+                "  - objective: OBJ-1\n    outcome: measured\n"
+                "    measure_digest: sha256:x\n    evidence: a/p.md\n")
+        self.assertIn("explicit empty mapping", str(caught.exception))
+        # PAIRED CONTROL: the same sequence under a BARE key reads
+        # structured, so the refusal is the `{}` and not the sequence.
+        outcomes, shape = rf.measured_objectives(
+            "type: adr-review\nmeasured_objectives:\n"
+            "  - objective: OBJ-1\n    outcome: measured\n"
+            "    measure_digest: sha256:x\n    evidence: a/p.md\n")
+        self.assertEqual(shape, "structured")
+        self.assertIn("OBJ-1", outcomes)
+
+class SpentEscalationTests(ReviewFindingsTestCase):
+    """ADR-0109 `escalation-history-is-carried-and-bounded`: reconstruction
+    "cannot recover … whether one was already spent", so spent-ness is state
+    the CARRIED chain holds. Without it a pass that raises the strike-three
+    finding either records a contradiction or re-owes the same obligation on
+    every later attempted date.
+    """
+
+    def entry(self, outcome="attempted", **carried):
+        lines = ["measured_objectives:", "  - objective: OBJ-1",
+                 f"    outcome: {outcome}", "    measure_digest: sha256:same"]
+        lines.append("    blocker: no baseline" if outcome == "attempted"
+                     else "    evidence: a/p.md")
+        lines += [f"    {k}: {v}" for k, v in carried.items()]
+        return "\n".join(lines)
+
+    def owed_corpus(self):
+        """Three consecutive attempts, the third owing the escalation."""
+        return [
+            ("2026-01-01", self.entry(escalation_strikes=1,
+                                      escalation_owed="false")),
+            ("2026-01-02", self.entry(escalation_strikes=2,
+                                      escalation_owed="false")),
+            ("2026-01-03", self.entry(escalation_strikes=3,
+                                      escalation_owed="true",
+                                      escalation_owed_since="2026-01-03")),
+        ]
+
+    def test_the_third_strike_owes_the_escalation(self):
+        """PAIRED CONTROL for every test below: the obligation IS owed."""
+        state = rf.escalation_state(self.owed_corpus(), ["OBJ-1"])["OBJ-1"]
+        self.assertEqual(state["strikes"], 3)
+        self.assertTrue(state["owed"])
+        self.assertFalse(state["spent"])
+        self.assertEqual(state["owed_since"], "2026-01-03")
+
+    def test_recording_the_spend_discharges_the_obligation(self):
+        corpus = self.owed_corpus() + [
+            ("2026-01-04", self.entry(escalation_strikes=4,
+                                      escalation_owed="false",
+                                      escalation_spent_on="2026-01-04"))]
+        state = rf.escalation_state(corpus, ["OBJ-1"])
+        self.assertTrue(state["OBJ-1"]["spent"])
+        self.assertFalse(state["OBJ-1"]["owed"])
+        self.assertEqual(state["OBJ-1"]["strikes"], 4)
+        self.assertEqual(rf.owed_escalations(state), [])
+
+    def test_a_spent_obligation_is_never_re_owed_on_a_later_attempt(self):
+        """One obligation per RUN of consecutive attempts, not one per
+        attempt past three."""
+        corpus = self.owed_corpus() + [
+            ("2026-01-04", self.entry(escalation_strikes=4,
+                                      escalation_owed="false",
+                                      escalation_spent_on="2026-01-04")),
+            ("2026-01-05", self.entry(escalation_strikes=5,
+                                      escalation_owed="false",
+                                      escalation_spent_on="2026-01-04"))]
+        state = rf.escalation_state(corpus, ["OBJ-1"])
+        self.assertEqual(state["OBJ-1"]["strikes"], 5)
+        self.assertFalse(state["OBJ-1"]["owed"])
+        self.assertEqual(rf.owed_escalations(state), [])
+
+    def test_a_measured_outcome_clears_the_spend_so_a_fresh_run_can_owe(self):
+        corpus = self.owed_corpus() + [
+            ("2026-01-04", self.entry(escalation_strikes=4,
+                                      escalation_owed="false",
+                                      escalation_spent_on="2026-01-04")),
+            ("2026-01-05", self.entry("measured", escalation_strikes=0,
+                                      escalation_owed="false"))]
+        state = rf.escalation_state(corpus, ["OBJ-1"])["OBJ-1"]
+        self.assertEqual(state["strikes"], 0)
+        self.assertFalse(state["spent"])
+        self.assertFalse(state["owed"])
+
+    def test_a_cap_deferred_obligation_can_be_spent_on_a_later_date(self):
+        """The spend need not land on the first-owed date: an obligation the
+        five-finding cap deferred keeps its `owed_since` until spent."""
+        corpus = self.owed_corpus() + [
+            ("2026-01-04", self.entry(escalation_strikes=4,
+                                      escalation_owed="true",
+                                      escalation_owed_since="2026-01-03")),
+            ("2026-01-05", self.entry(escalation_strikes=5,
+                                      escalation_owed="false",
+                                      escalation_spent_on="2026-01-05"))]
+        deferred = rf.escalation_state(corpus[:-1], ["OBJ-1"])["OBJ-1"]
+        self.assertEqual(deferred["owed_since"], "2026-01-03")
+        spent = rf.escalation_state(corpus, ["OBJ-1"])["OBJ-1"]
+        self.assertTrue(spent["spent"])
+        self.assertIsNone(spent["owed_since"])
+
+    def test_owed_and_spent_at_once_is_refused(self):
+        corpus = self.owed_corpus() + [
+            ("2026-01-04", self.entry(escalation_strikes=4,
+                                      escalation_owed="true",
+                                      escalation_owed_since="2026-01-03",
+                                      escalation_spent_on="2026-01-04"))]
+        with self.assertRaises(rf.ReviewFindingsError) as caught:
+            rf.escalation_state(corpus, ["OBJ-1"])
+        self.assertIn("owed or spent and never both", str(caught.exception))
+
+    def test_a_spend_claim_that_moves_the_count_is_still_a_contradiction(self):
+        """The spend admits ONE divergence — the discharge — and no other. A
+        claim that also rewrites `strikes` is refused as before.
+        """
+        corpus = self.owed_corpus() + [
+            ("2026-01-04", self.entry(escalation_strikes=1,
+                                      escalation_owed="false",
+                                      escalation_spent_on="2026-01-04"))]
+        with self.assertRaises(rf.ReviewFindingsError) as caught:
+            rf.escalation_state(corpus, ["OBJ-1"])
+        self.assertIn("contradicts", str(caught.exception))
+
+    def test_reconstruction_never_recovers_the_spend(self):
+        """The rule says outright that it cannot, and over-owing is the
+        deliberate direction: deferring an obligation already met costs one
+        finding, dropping one that was not met loses it silently."""
+        plain = [(date, self.entry()) for date in
+                 ("2026-01-01", "2026-01-02", "2026-01-03", "2026-01-04")]
+        state = rf.escalation_state(plain, ["OBJ-1"])["OBJ-1"]
+        self.assertFalse(state["verified"])
+        self.assertFalse(state["spent"])
+        self.assertTrue(state["owed"])
+
+class EscalationEdgeTests(ReviewFindingsTestCase):
+    """The branches a mutation pass found unconstrained: the window edges,
+    the two silent-date SHAPES, the spend order, the negative cap, the
+    declared state, and the broken-link repair path. Each test states the
+    value a mutant of the named branch would produce instead.
+    """
+
+    def fm(self, outcome="attempted", *, thing="OBJ-1",
+           digest="sha256:same", **carried):
+        objective = thing.split(".")[0]
+        lines = ["type: adr-review", "measured_objectives:",
+                 f"  - objective: {objective}"]
+        if "." in thing:
+            lines.append(f"    part: {thing}")
+        lines += [f"    outcome: {outcome}", f"    measure_digest: {digest}"]
+        lines.append("    blocker: no baseline" if outcome == "attempted"
+                     else "    evidence: a/p.md")
+        lines += [f"    {k}: {v}" for k, v in carried.items()]
+        return "\n".join(lines)
+
+    # ── the two shapes of a silent date ────────────────────────────────────
+
+    def test_an_explicit_not_assessed_entry_steps_over_the_count(self):
+        """A silent date is one recording NEITHER measured nor attempted, so
+        an explicit `not-assessed` entry steps over rather than resetting. A
+        mutant that resets there reads 1 strike."""
+        state = rf.escalation_state(
+            [("2026-01-01", self.fm()),
+             ("2026-01-02", self.fm("not-assessed")),
+             ("2026-01-03", self.fm())], ["OBJ-1"])["OBJ-1"]
+        self.assertEqual(state["strikes"], 2)
+        # PAIRED CONTROL: a `measured` entry on that same date DOES reset.
+        reset = rf.escalation_state(
+            [("2026-01-01", self.fm()),
+             ("2026-01-02", self.fm("measured")),
+             ("2026-01-03", self.fm())], ["OBJ-1"])["OBJ-1"]
+        self.assertEqual(reset["strikes"], 1)
+
+    def test_a_structured_report_silent_about_this_thing_steps_over(self):
+        """The OTHER silent shape: a structured report whose key names a
+        different counted thing. The absent-key shape is covered elsewhere;
+        a mutant that resets on this one reads 1 strike."""
+        state = rf.escalation_state(
+            [("2026-01-01", self.fm()),
+             ("2026-01-02", self.fm(thing="OBJ-2")),
+             ("2026-01-03", self.fm())], ["OBJ-1"])["OBJ-1"]
+        self.assertEqual(state["strikes"], 2)
+
+    # ── the bounded reconstruction window, at both edges ───────────────────
+
+    def test_twelve_consecutive_attempts_all_fit_the_window(self):
+        dated = [(f"2026-01-{n:02d}", self.fm()) for n in range(1, 13)]
+        self.assertEqual(len(dated), rf.ESCALATION_WINDOW)
+        state = rf.escalation_state(dated, ["OBJ-1"])["OBJ-1"]
+        self.assertEqual(state["strikes"], rf.ESCALATION_WINDOW)
+
+    def test_a_thirteenth_date_truncates_rather_than_widening(self):
+        """A run longer than the window truncates, which DEFERS an
+        obligation and never invents one — so the count stops at the window
+        width rather than growing with the history."""
+        dated = [(f"2026-01-{n:02d}", self.fm()) for n in range(1, 14)]
+        state = rf.escalation_state(dated, ["OBJ-1"])["OBJ-1"]
+        self.assertEqual(state["strikes"], rf.ESCALATION_WINDOW)
+        self.assertLess(state["strikes"], len(dated))
+
+    # ── spend order ────────────────────────────────────────────────────────
+
+    def owed(self, thing, since, *, verified=True):
+        return {"strikes": 3, "owed": True, "owed_since": since,
+                "spent": False, "verified": verified}
+
+    def test_owed_escalations_order_oldest_first_not_by_id(self):
+        """The two orderings disagree here on purpose: `OBJ-2` was owed
+        first. A mutant ordering by id alone returns them reversed."""
+        state = {"OBJ-1": self.owed("OBJ-1", "2026-09-02"),
+                 "OBJ-2": self.owed("OBJ-2", "2026-09-01")}
+        self.assertEqual(rf.owed_escalations(state), ["OBJ-2", "OBJ-1"])
+
+    def test_a_tie_on_the_owed_date_breaks_by_part_number(self):
+        """Same date, both parts of one objective, the higher part inserted
+        first — the order is by part NUMBER, not by insertion or by string.
+        """
+        state = {"OBJ-1.2": self.owed("OBJ-1.2", "2026-09-01"),
+                 "OBJ-1.1": self.owed("OBJ-1.1", "2026-09-01")}
+        self.assertEqual(rf.owed_escalations(state), ["OBJ-1.1", "OBJ-1.2"])
+
+    def test_a_negative_budget_spends_nothing_and_defers_everything(self):
+        """`spend_escalations` documents a cap that "may be zero or
+        negative". A mutant taking `cap_remaining` directly spends one
+        obligation on a budget of -1."""
+        state = {"OBJ-1": self.owed("OBJ-1", "2026-09-02"),
+                 "OBJ-2": self.owed("OBJ-2", "2026-09-01")}
+        self.assertEqual(rf.spend_escalations(state, -1),
+                         ([], ["OBJ-2", "OBJ-1"]))
+        # PAIRED CONTROL: a budget of one spends the oldest.
+        self.assertEqual(rf.spend_escalations(state, 1),
+                         (["OBJ-2"], ["OBJ-1"]))
+
+    # ── the writer's own claims about the chain ────────────────────────────
+
+    def test_a_declared_unverified_state_is_honoured_over_the_one_step_check(self):
+        """The writer may know the chain is broken further back than one
+        step, so a declared `unverified` stands even where the mechanical
+        check passes."""
+        chain = [("2026-01-01", self.fm(escalation_strikes=1,
+                                        escalation_owed="false"))]
+        declared = chain + [("2026-01-02", self.fm(
+            escalation_strikes=2, escalation_owed="false",
+            escalation_state="unverified"))]
+        control = chain + [("2026-01-02", self.fm(
+            escalation_strikes=2, escalation_owed="false"))]
+        self.assertFalse(rf.escalation_state(declared, ["OBJ-1"])["OBJ-1"]["verified"])
+        self.assertTrue(rf.escalation_state(control, ["OBJ-1"])["OBJ-1"]["verified"])
+
+    def test_a_predecessor_that_named_the_thing_but_carried_no_claim_reconstructs(self):
+        """The broken-link repair path: the predecessor NAMED this thing and
+        carried no claim, so it supplies no baseline to verify against and
+        the walk reconstructs. Stepping it from zero instead would refuse
+        this corpus as a contradiction.
+        """
+        corpus = [("2026-01-01", self.fm()), ("2026-01-02", self.fm()),
+                  ("2026-01-03", self.fm(escalation_strikes=3,
+                                         escalation_owed="true",
+                                         escalation_owed_since="2026-01-03"))]
+        state = rf.escalation_state(corpus, ["OBJ-1"])["OBJ-1"]
+        self.assertEqual(state["strikes"], 3)
+        self.assertTrue(state["owed"])
+        self.assertFalse(state["verified"])
+        # Reconstruction never keeps a claimed `owed_since`: it cannot know
+        # the true first-owed date.
+        self.assertIsNone(state["owed_since"])
+
+class CarriedClaimRefusalTests(ReviewFindingsTestCase):
+    """`_carried_claim` refuses a claim that is PRESENT but malformed —
+    only true ABSENCE falls through to reconstruction. Every refusal here
+    survived mutation to `if False:` before these tests existed.
+    """
+
+    def entry(self, **carried):
+        lines = ["measured_objectives:", "  - objective: OBJ-1",
+                 "    outcome: attempted", "    measure_digest: sha256:same",
+                 "    blocker: no baseline"]
+        lines += [f"    {k}: {v}" for k, v in carried.items()]
+        return "\n".join(lines)
+
+    def corpus(self, **carried):
+        return [("2026-01-01", self.entry(escalation_strikes=1,
+                                          escalation_owed="false")),
+                ("2026-01-02", self.entry(**carried))]
+
+    def refusal(self, **carried):
+        with self.assertRaises(rf.ReviewFindingsError) as caught:
+            rf.escalation_state(self.corpus(**carried), ["OBJ-1"])
+        return str(caught.exception)
+
+    def test_a_non_integer_strike_count_is_refused(self):
+        self.assertIn("not a non-negative integer",
+                      self.refusal(escalation_strikes=-1,
+                                   escalation_owed="false"))
+
+    def test_an_owed_outside_the_closed_set_is_refused(self):
+        self.assertIn("outside the closed set true | false",
+                      self.refusal(escalation_strikes=2,
+                                   escalation_owed="maybe"))
+
+    def test_owed_with_no_owed_since_is_refused(self):
+        self.assertIn("carries the date it was first owed",
+                      self.refusal(escalation_strikes=2,
+                                   escalation_owed="true"))
+
+    def test_not_owed_alongside_an_owed_since_is_refused(self):
+        self.assertIn("discharged obligation carries no owed-since date",
+                      self.refusal(escalation_strikes=2,
+                                   escalation_owed="false",
+                                   escalation_owed_since="2026-01-02"))
+
+    def test_an_escalation_state_outside_the_closed_set_is_refused(self):
+        """`unverfied` read as VERIFIED under a permissive check, silently
+        demoting an unverified obligation out of its ahead-of-everything
+        spend slot."""
+        self.assertIn("outside the closed set verified | unverified",
+                      self.refusal(escalation_strikes=2,
+                                   escalation_owed="false",
+                                   escalation_state="unverfied"))
+
+    def test_the_same_corpus_without_the_defect_is_the_control(self):
+        """PAIRED POSITIVE CONTROL for all five: the claim shape is otherwise
+        exactly the one above, and it is accepted."""
+        state = rf.escalation_state(
+            self.corpus(escalation_strikes=2, escalation_owed="false",
+                        escalation_state="verified"), ["OBJ-1"])["OBJ-1"]
+        self.assertEqual(state["strikes"], 2)
+        self.assertTrue(state["verified"])
+
+    def test_an_unknown_entry_field_is_refused_never_silently_kept(self):
+        """A typo'd carried field was retained verbatim and the entry fell
+        through to reconstruction — the chain broke and nothing said why."""
+        with self.assertRaises(rf.ReviewFindingsError) as caught:
+            rf.measured_objectives(
+                "type: adr-review\n"
+                + self.entry(eskalation_strikes=3, escalation_owed="false"))
+        self.assertIn("this reader does not know", str(caught.exception))
+
+
+class SpendDateGrammarTests(ReviewFindingsTestCase):
+    """`escalation_spent_on` is a DATE, and it is checked like every other
+    date-shaped value here. Unchecked, the spend was unfalsifiable: any
+    non-empty string cleared the obligation, because the predicate reads
+    only whether the field is present.
+    """
+
+    def entry(self, outcome="attempted", **carried):
+        lines = ["measured_objectives:", "  - objective: OBJ-1",
+                 f"    outcome: {outcome}", "    measure_digest: sha256:same"]
+        lines.append("    blocker: no baseline" if outcome == "attempted"
+                     else "    evidence: a/p.md")
+        lines += [f"    {k}: {v}" for k, v in carried.items()]
+        return "\n".join(lines)
+
+    def corpus(self, spent_on):
+        return [
+            ("2026-01-01", self.entry(escalation_strikes=1,
+                                      escalation_owed="false")),
+            ("2026-01-02", self.entry(escalation_strikes=2,
+                                      escalation_owed="false")),
+            ("2026-01-03", self.entry(escalation_strikes=3,
+                                      escalation_owed="true",
+                                      escalation_owed_since="2026-01-03")),
+            ("2026-01-04", self.entry(escalation_strikes=4,
+                                      escalation_owed="false",
+                                      escalation_spent_on=spent_on)),
+        ]
+
+    def test_a_spend_date_that_is_not_a_date_is_refused(self):
+        with self.assertRaises(rf.ReviewFindingsError) as caught:
+            rf.escalation_state(self.corpus("banana"), ["OBJ-1"])
+        self.assertIn("not an ISO calendar date", str(caught.exception))
+
+    def test_a_spend_before_the_obligation_existed_is_refused(self):
+        with self.assertRaises(rf.ReviewFindingsError) as caught:
+            rf.escalation_state(self.corpus("1999-01-01"), ["OBJ-1"])
+        self.assertIn("the date the obligation was first owed",
+                      str(caught.exception))
+
+    def test_a_spend_after_the_report_recording_it_is_refused(self):
+        """A pass records a finding it raised, never one it intends to."""
+        with self.assertRaises(rf.ReviewFindingsError) as caught:
+            rf.escalation_state(self.corpus("2027-01-01"), ["OBJ-1"])
+        self.assertIn("a date AFTER the report recording it",
+                      str(caught.exception))
+
+    def test_a_real_spend_date_is_the_control(self):
+        state = rf.escalation_state(self.corpus("2026-01-04"),
+                                    ["OBJ-1"])["OBJ-1"]
+        self.assertTrue(state["spent"])
+        self.assertFalse(state["owed"])
+        self.assertEqual(state["strikes"], 4)
+
+    def test_a_spend_claimed_before_the_third_strike_is_a_contradiction(self):
+        """The one conjunct of `_is_spend_of` that is load-bearing rather
+        than redundant: `expected.owed`. Drop it and a claim spending an
+        obligation that was never owed is accepted.
+        """
+        early = [("2026-01-01", self.entry(escalation_strikes=1,
+                                           escalation_owed="false")),
+                 ("2026-01-02", self.entry(escalation_strikes=2,
+                                           escalation_owed="false",
+                                           escalation_spent_on="2026-01-02"))]
+        with self.assertRaises(rf.ReviewFindingsError) as caught:
+            rf.escalation_state(early, ["OBJ-1"])
+        self.assertIn("contradicts", str(caught.exception))
+
+
+class ChainBrokenAtPredecessorTests(ReviewFindingsTestCase):
+    """The ADR's own literal trigger — "Where that chain is broken by a
+    legacy or absent-key report, the count is reconstructed". Reached when
+    the NEWEST report carries a claim and the PREVIOUS report's shape is
+    `absent` or `flat`, which is a different path from the newest report
+    carrying no claim at all.
+    """
+
+    STRUCTURED = ("measured_objectives:\n  - objective: OBJ-1\n"
+                  "    outcome: attempted\n    measure_digest: sha256:same\n"
+                  "    blocker: no baseline\n    escalation_strikes: 1\n"
+                  "    escalation_owed: false")
+    FLAT = "measured_objectives: [OBJ-1]"
+    ABSENT = "dismissed: []"
+
+    def state(self, first):
+        return rf.escalation_state(
+            [("2026-01-01", "type: adr-review\n" + first),
+             ("2026-01-02", "type: adr-review\n" + self.STRUCTURED)],
+            ["OBJ-1"])["OBJ-1"]
+
+    def test_a_flat_predecessor_forces_reconstruction(self):
+        self.assertFalse(self.state(self.FLAT)["verified"])
+
+    def test_an_absent_key_predecessor_forces_reconstruction(self):
+        self.assertFalse(self.state(self.ABSENT)["verified"])
+
+    def test_a_structured_predecessor_is_the_control(self):
+        """PAIRED CONTROL: the same newest report against a predecessor that
+        DOES carry a claim verifies rather than reconstructing."""
+        prior = ("measured_objectives:\n  - objective: OBJ-1\n"
+                 "    outcome: not-assessed\n    measure_digest: sha256:same\n"
+                 "    escalation_strikes: 0\n    escalation_owed: false")
+        self.assertTrue(self.state(prior)["verified"])
+
+    def test_a_single_report_corpus_steps_from_zero(self):
+        """First appearance: no earlier report names this thing at all, so
+        it steps from a zero baseline rather than reconstructing."""
+        state = rf.escalation_state(
+            [("2026-01-01", "type: adr-review\n" + self.STRUCTURED)],
+            ["OBJ-1"])["OBJ-1"]
+        self.assertEqual(state["strikes"], 1)
+        self.assertTrue(state["verified"])
+
+    def test_an_empty_corpus_reports_a_zero_state(self):
+        state = rf.escalation_state([], ["OBJ-1"])["OBJ-1"]
+        self.assertEqual(state["strikes"], 0)
+        self.assertFalse(state["owed"])
+
+class RowRefusalAndCellShapeTests(ReviewFindingsTestCase):
+    """`_assessment_from_row`'s own refusals, and the em-dash cell the
+    shipped template documents. Both derived values state that this function
+    "has already refused anything else" — a stated precondition whose
+    enforcement was untested.
+    """
+
+    def parse_row(self, row):
+        body = "\n".join(["# R", "", "## Coverage", "", assessment_table([row])])
+        return self.parse(date="2026-09-10", body=body,
+                          frontmatter=LIFECYCLE_FM.format(date="2026-09-10"))
+
+    def refusal(self, row):
+        with self.assertRaises(rf.ReviewFindingsError) as caught:
+            self.parse_row(row)
+        return str(caught.exception)
+
+    def test_a_measure_cell_with_no_label_after_the_part_is_refused(self):
+        """The one refusal here with NO backstop: the two vocabulary checks
+        below are caught again by the legal-pairs check, this one is not."""
+        self.assertIn("label", self.refusal(
+            ("OBJ-1", "OBJ-1.1 —   ", "resolved", "a/p.md", "d", "serves", "—")))
+
+    def test_an_evidence_value_outside_the_vocabulary_is_refused(self):
+        self.assertIn("maybe", self.refusal(
+            ("OBJ-1", "OBJ-1.1 — a claim", "maybe", "a/p.md", "d", "serves", "—")))
+
+    def test_a_conclusion_value_outside_the_vocabulary_is_refused(self):
+        self.assertIn("maybe", self.refusal(
+            ("OBJ-1", "OBJ-1.1 — a claim", "resolved", "a/p.md", "d", "maybe", "—")))
+
+    def test_the_same_row_with_legal_values_is_the_control(self):
+        report = self.parse_row(
+            ("OBJ-1", "OBJ-1.1 — a claim", "resolved", "a/p.md", "d", "serves", "—"))
+        self.assertEqual(len(report.assessments), 1)
+
+    def test_an_em_dash_cell_reads_as_no_entries_not_as_one_named_dash(self):
+        """`—` is the SHIPPED TEMPLATE's own documented value for the domains
+        and findings cells, and every other fixture in this file fills them.
+        """
+        report = self.parse_row(
+            ("OBJ-1", "OBJ-1.1 — a claim", "resolved", "a/p.md", "—", "serves", "—"))
+        assessment = report.assessments[0]
+        self.assertEqual(assessment.findings, ())
+        self.assertEqual(assessment.domains, ())
+        # PAIRED CONTROL: a filled cell yields the entries it names, so the
+        # empty read above is the dash's doing and not a dead parser.
+        filled = self.parse_row(
+            ("OBJ-1", "OBJ-1.1 — a claim", "resolved", "a/p.md", "d",
+             "serves", "`adr-review-a-finding`"))
+        self.assertEqual(filled.assessments[0].findings,
+                         ("adr-review-a-finding",))
+
+
+class NestedSequenceShapeTests(ReviewFindingsTestCase):
+    """`_read_block_sequence`'s two remaining branches. Its blank-line and
+    comment-line siblings are both pinned; these two were not, and the code
+    comment on the deeper-`- ` branch records that an earlier version
+    "dropped every entry below it in silence".
+
+    Exercised against the reader DIRECTLY rather than through
+    `measured_objectives`, because no field in `ENTRY_FIELDS` takes a list —
+    the entry-shape refusal above would reject the fixture before this
+    branch ran. The branch is the sequence reader's own robustness, so this
+    is the level it is testable at.
+    """
+
+    def test_a_nested_sub_list_does_not_end_the_sequence(self):
+        entries = rf._read_block_sequence(
+            "\n  - objective: OBJ-1\n    outcome: measured\n"
+            "    detail:\n      - one\n      - two\n"
+            "  - objective: OBJ-2\n    outcome: attempted\n")
+        self.assertEqual(len(entries), 2,
+                         "the entry BELOW the nested list was dropped")
+        self.assertEqual(entries[1][0], "objective: OBJ-2")
+        # The nested items stay with the entry that owns them.
+        self.assertIn("- one", entries[0])
+
+    def test_a_shallower_dash_item_ends_the_sequence(self):
+        """A `- ` at a SHALLOWER indent than the list belongs to something
+        else, so the sequence stops there rather than absorbing it."""
+        entries = rf._read_block_sequence(
+            "\n  - objective: OBJ-1\n    outcome: measured\n"
+            "- something: else\n")
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0][0], "objective: OBJ-1")
+
+
+
+class BlockedPartVisibilityTests(ReviewFindingsTestCase):
+    """ADR-0109 `a-blocked-part-is-counted-in-its-own-right`: a blocked
+    part's obligation must stay visible, in this report and across dates."""
+
+    BLOCKED_ROW = ("OBJ-1", "OBJ-1.1 — a claim", "unavailable", "a/p.md",
+                  "d", "inconclusive", "—")
+
+    def test_a_blocked_part_omitted_from_measured_objectives_is_refused(self):
+        body = "\n".join(["# R", "", "## Coverage", "",
+                          assessment_table([self.BLOCKED_ROW])])
+        report = self.parse(date="2026-09-10", body=body,
+                            frontmatter=LIFECYCLE_FM.format(date="2026-09-10"))
+        with self.assertRaises(rf.ReviewFindingsError) as caught:
+            rf.validate_structure(report)
+        self.assertIn("blocked part is counted in its own right",
+                      str(caught.exception))
+
+    def test_the_same_blocked_row_with_a_part_level_entry_is_the_control(self):
+        body = "\n".join(["# R", "", "## Coverage", "",
+                          assessment_table([self.BLOCKED_ROW])])
+        frontmatter = LIFECYCLE_FM.format(date="2026-09-10") + "\n" + "\n".join([
+            "measured_objectives:",
+            "  - objective: OBJ-1", "    part: OBJ-1.1",
+            "    outcome: attempted", "    measure_digest: sha256:same",
+            "    blocker: no baseline",
+        ])
+        report = self.parse(date="2026-09-10", body=body,
+                            frontmatter=frontmatter)
+        self.assertIsNone(rf.validate_structure(report))
+
+    def test_a_part_dropped_from_a_later_reports_key_is_refused(self):
+        """The cross-date half: a part that carried a part-level entry on an
+        earlier date and is still assessed must keep carrying one."""
+        row = ("OBJ-1", "OBJ-1.1 — a claim", "resolved", "a/p.md", "d",
+              "gap", "—")
+        body = "\n".join(["# R", "", "## Coverage", "",
+                          assessment_table([row])])
+        first_fm = LIFECYCLE_FM.format(date="2026-09-09") + "\n" + "\n".join([
+            "measured_objectives:",
+            "  - objective: OBJ-1", "    part: OBJ-1.1",
+            "    outcome: attempted", "    measure_digest: sha256:same",
+            "    blocker: no baseline",
+        ])
+        first = self.parse(date="2026-09-09", body=body, frontmatter=first_fm)
+        second_fm = LIFECYCLE_FM.format(date="2026-09-10")
+        second = self.parse(date="2026-09-10", body=body,
+                            frontmatter=second_fm)
+        with self.assertRaises(rf.ReviewFindingsError) as caught:
+            rf.check_part_carryover([first, second])
+        self.assertIn("carried a part-level", str(caught.exception))
+
+    def test_carrying_the_entry_forward_is_the_control(self):
+        """Positive control: the same two dates, with the second report
+        keeping the part-level entry — no refusal."""
+        row = ("OBJ-1", "OBJ-1.1 — a claim", "resolved", "a/p.md", "d",
+              "gap", "—")
+        body = "\n".join(["# R", "", "## Coverage", "",
+                          assessment_table([row])])
+        first_fm = LIFECYCLE_FM.format(date="2026-09-09") + "\n" + "\n".join([
+            "measured_objectives:",
+            "  - objective: OBJ-1", "    part: OBJ-1.1",
+            "    outcome: attempted", "    measure_digest: sha256:same",
+            "    blocker: no baseline",
+        ])
+        first = self.parse(date="2026-09-09", body=body, frontmatter=first_fm)
+        second_fm = LIFECYCLE_FM.format(date="2026-09-10") + "\n" + "\n".join([
+            "measured_objectives:",
+            "  - objective: OBJ-1", "    part: OBJ-1.1",
+            "    outcome: measured", "    measure_digest: sha256:same",
+            "    evidence: a/p.md",
+        ])
+        second = self.parse(date="2026-09-10", body=body,
+                            frontmatter=second_fm)
+        self.assertIsNone(rf.check_part_carryover([first, second]))
+
+
+class HistoricalReportPreservationTests(ReviewFindingsTestCase):
+    """PRESERVATION: the two historical reports still parse under ADR-0108.
+
+    Both reports predate `report_grammar` and read under the frozen legacy
+    counting rule; neither carries an assessment table. No rule this module
+    gained for ADR-0108 may refuse either one — a legacy report returns early
+    from `validate_structure`, and the new assessment-table rules apply only
+    to rows that exist.
+
+    Reads a dev-only surface (`bionic/adrs/reviews/`), guarded by
+    `require_dev_surface` so this test skips against the crux-only staged
+    artifact rather than false-failing it.
+    """
+
+    def _read(self, name: str) -> tuple[str, str, str]:
+        path = REPO / "bionic" / "adrs" / "reviews" / name
+        require_dev_surface(self, path, f"bionic/adrs/reviews/{name}")
+        text = path.read_text(encoding="utf-8")
+        match = re.match(r"\A---\n(.*?\n)---\n", text, re.DOTALL)
+        self.assertIsNotNone(match, f"{name} carries no frontmatter block")
+        frontmatter = match.group(1)
+        body = text[match.end():]
+        date = name.removesuffix(".md")
+        return frontmatter, body, date
+
+    def test_the_2026_09_07_report_still_parses_as_legacy_six(self):
+        frontmatter, body, date = self._read("2026-09-07.md")
+        report = rf.parse_report(date=date, frontmatter=frontmatter, body=body)
+        self.assertTrue(report.is_legacy)
+        self.assertEqual(report.raised, 6)
+        self.assertEqual(report.assessments, ())
+        self.assertIsNone(rf.validate_structure(report))
+        outcomes, shape = rf.measured_objectives(frontmatter)
+        self.assertEqual((outcomes, shape), ({}, "absent"))
+
+    def test_the_2026_09_08_report_still_parses_as_legacy_five(self):
+        frontmatter, body, date = self._read("2026-09-08.md")
+        report = rf.parse_report(date=date, frontmatter=frontmatter, body=body)
+        self.assertTrue(report.is_legacy)
+        self.assertEqual(report.raised, 5)
+        self.assertEqual(report.assessments, ())
+        self.assertIsNone(rf.validate_structure(report))
+        outcomes, shape = rf.measured_objectives(frontmatter)
+        self.assertEqual(shape, "flat")
+        self.assertEqual(len(outcomes), 10)
+        self.assertTrue(all(fields["outcome"] == "attempted"
+                            for fields in outcomes.values()))
+
+    #: Pinned SHA-256 of each historical report's exact bytes. ADR-0109 must
+    #: not touch either file; this is the mechanical guard for "unmodified"
+    #: beyond the parse-shape assertions above.
+    _PINNED_SHA256 = {
+        "2026-09-07.md":
+            "f584c6fd7f464b0fdcbc1a8ddb9919289dbfcfe2fa628a55eaa149078085ef32",
+        "2026-09-08.md":
+            "1598435b6be18b63f0c47be06f541fc365dbd23ca106e8001aa116a7b57719eb",
+    }
+
+    def test_both_historical_reports_are_byte_identical_and_unmodified(self):
+        import hashlib
+        for name, pinned in self._PINNED_SHA256.items():
+            path = REPO / "bionic" / "adrs" / "reviews" / name
+            require_dev_surface(self, path, f"bionic/adrs/reviews/{name}")
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            self.assertEqual(pinned, digest,
+                             f"{name} changed bytes; ADR-0109 must not touch "
+                             "the two historical reports")
+
 
 if __name__ == "__main__":
     unittest.main()

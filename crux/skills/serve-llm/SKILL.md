@@ -1,6 +1,6 @@
 ---
 name: serve-llm
-description: "FastAPI HTTP wrapper around the crux LLM caller and tracer. Exposes /health, /models, and /chat endpoints so non-Python clients (web UIs, curl, agent frameworks) can call the crux single-gateway LLM caller (OpenRouter). Use when you need programmatic HTTP access to crux. Not for interactive Python sessions — import `crux.core.llm_caller` directly instead."
+description: "Use when the user says \"serve the llm\", \"start the crux http server\", or \"expose crux over http\". FastAPI HTTP wrapper around the crux LLM caller and tracer. Exposes /health, /models, and /chat endpoints so non-Python clients (web UIs, curl, agent frameworks) can call the crux single-gateway LLM caller (OpenRouter). Use when you need programmatic HTTP access to crux. Not for interactive Python sessions — import `crux.core.llm_caller` directly instead."
 disable-model-invocation: true
 metadata:
   tags: "server, fastapi, http, infrastructure"

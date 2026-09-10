@@ -78,9 +78,12 @@ repo-supplied value must match before it reaches an argument after
 `--end-of-options`, and the leg-scoped failure verdict. That last one decides
 by LEG rather than by signal: a signal whose measurability rests on an affected
 leg reports `unmeasurable` and never a zero, and every other signal keeps its
-`computed` verdict and nulls only the members that leg fills — see
-rule:delivery-signals for which of the three delivery signals sits in which
-class.
+`computed` verdict and nulls only the members that leg fills. Which of the three
+delivery signals sits in which class is now stated per signal — see
+rule:span-and-prep-are-different-counts for release_cadence, whose git
+dependence is per MEMBER; rule:baseline-is-a-release-mark-and-unavailable-is-named
+for schema_growth, whose measurability rests on the git session; and
+rule:gate-count-reads-the-roster-header-row for gate_count, which reads no git.
 
 NOT A REGENERATOR, AND THE NAME IS PART OF THAT. This script derives no
 artifact: it writes no file, and its output is an envelope on stdout that
@@ -536,7 +539,11 @@ def read_governs_exempt(text: str) -> list[str]:
 
     The key admits two member shapes (`docs/CLAUDE.md` §7): a bare `ADR-NNNN`
     string and a mapping `{adr: ADR-NNNN, reason: "..."}`, in flow or block
-    form. This reader returns the ids only, in order, deduplicated — the
+    form. The block key admits a trailing `#` comment, for the same reason
+    `read_journal_friction_from`'s does: the shipped template comments every
+    column-0 block key, and a commented `adr:` never opened the block, so a
+    recorded exemption read as absent and the carve-out count silently fell to
+    zero. This reader returns the ids only, in order, deduplicated — the
     carve-out signal counts exemptions and never reads a reason. A member
     carrying no ADR id is dropped rather than returned as a fragment: a
     comma-split flow mapping would otherwise yield `reason: "..."}` as an
@@ -546,7 +553,7 @@ def read_governs_exempt(text: str) -> list[str]:
     in_adr = False
     raw: list[str] = []
     for i, line in enumerate(lines):
-        if re.match(r"^adr\s*:\s*$", line):
+        if re.match(r"^adr\s*:\s*(#.*)?$", line):
             in_adr = True
             continue
         if in_adr and line[:1].strip():
@@ -600,7 +607,11 @@ def read_journal_friction_from(text: str) -> str | None:
 
     Walks to the column-0 `journal:` block, stops at the next column-0
     non-blank line, and matches the indented `friction_line_from` scalar
-    within it. Strips a trailing `#` comment and surrounding quotes. Returns
+    within it. The block key admits a trailing `#` comment, because the
+    shipped template comments every block key and a commented `journal:`
+    otherwise never opened the block — the adoption date then read as absent
+    and every friction reader went `unmeasurable` against a manifest that
+    records one. Strips a trailing `#` comment and surrounding quotes. Returns
     the value only when it matches `^\\d{4}-\\d{2}-\\d{2}$`; an absent key, an
     absent block, `null`/`~`, or any non-ISO value all return `None` — the
     friction-citations signal reads that as "no adoption date recorded", not
@@ -609,7 +620,7 @@ def read_journal_friction_from(text: str) -> str | None:
     lines = _lines(text)
     in_journal = False
     for line in lines:
-        if re.match(r"^journal\s*:\s*$", line):
+        if re.match(r"^journal\s*:\s*(#.*)?$", line):
             in_journal = True
             continue
         if in_journal and line[:1].strip():
@@ -1106,33 +1117,6 @@ def _dated_release_headings(text: str) -> list[tuple[str, str]]:
     return out
 
 
-def _subject_names_version(subject: str, version: str) -> bool:
-    """True when `subject` carries `version`, bare or with one leading `v`.
-
-    `version` IS MINED CONTENT and is interpolated into a regex, so
-    `re.escape` is load-bearing on two separate lanes and its deletion breaks
-    both:
-
-      * SEMANTICS. Unescaped, a version's `.` separators become wildcards, so
-        the heading `1.0.0` matches the subject `release prep v1x0y0` and one
-        release's prep count is attributed to another.
-      * CRASH. A heading such as `## [(] — 2026-02-01` yields the version `(`,
-        which is not a pattern. `re.error` subclasses `ValueError` rather than
-        `OSError`, so it escaped `build`'s callers exactly as
-        `UnicodeDecodeError` did before the `errors="replace"` fix, and
-        collapsed all eight signals into the exit-2 environment lane.
-
-    The escape closes both. `re.error` is caught by the caller anyway rather
-    than trusted away — a pattern this function did not author is the one
-    thing an escape cannot promise about a future edit.
-    """
-    return bool(re.search(r"(?<![\w.])v?" + re.escape(version) + r"(?![\w.])", subject))
-
-
-def _line_count(lines: list[str] | None) -> int | None:
-    return None if lines is None else len(lines)
-
-
 def _skill_count(lines: list[str] | None) -> int | None:
     """The catalogued skill count, or None when the catalog was not read."""
     if lines is None:
@@ -1222,88 +1206,210 @@ def _prep_key(version: str) -> str:
             f"[sha256:{digest[:_PREP_KEY_DIGEST_CHARS]}]")
 
 
-def _partition_release_prep(subjects: list[str],
-                            versions: list[str]) -> tuple[dict[str, int], int]:
-    """Per-version first-parent commit counts, partitioned HERE and not by git.
+#: Bounds the release-mark walk over CHANGELOG.md's touching commits (per
+#: the `release-mark-is-the-boundary` rule). The walk reads one or
+#: two blobs per touching first-parent commit — the commit's own
+#: CHANGELOG.md and, where one exists, its first-parent parent's — because
+#: the predicate is a blob comparison and not a subject scan. Measured on
+#: this repository: 94 blob reads, 0.87s, all 47 dated versions resolve. A
+#: version whose introducing commit lies past the cap is treated exactly as
+#: one no commit satisfies the predicate for: null, never a guess.
+RELEASE_MARK_WALK_CAP = 2000
 
-    `subjects` is the first-parent subject history of a literal HEAD, newest
-    first. The count recorded against a version is the number of commits
-    strictly between that version's release-prep subject and the next OLDER
-    release-prep subject; the oldest matched prep subject has no older
-    neighbour, so its span runs to the end of the read history.
 
-    A version no prep subject names reports 0 — the leg ran and matched
-    nothing, and a leg that ran and counted nothing reports zero rather than
-    null. No subject text reaches the returned mapping: its keys are the
-    version strings lifted from the changelog headings and its values are
-    counts.
+def _mark_blob_headings(legs: "_GitLegs", sha: str,
+                        cache: dict[str, set[str]]) -> set[str]:
+    """The dated-heading version strings CHANGELOG.md carries at `sha`.
 
-    `versions` carries the RAW captures. The KEY is `redact(version,
-    quoted=True)`, which bounds the value, replaces its unprintable characters
-    and delimits the result — and puts any redaction note OUTSIDE the quotes.
-    A bare `repr()` over a value redacted at entry pulled that note INSIDE
-    them, so a heading spelling the note verbatim keyed the same mapping slot
-    as the hostile heading the note described, and one release's count
-    overwrote the other's. The value used to MATCH against a commit subject,
-    two lines below, is the RAW version and must be: `_subject_names_version`
-    `re.escape`s it, and a rendered form matches no real changelog's plain
-    `1.2.3` spelling.
-
-    A VERSION WHOSE MATCH WILL NOT RUN COUNTS `null`, AND ITS KEY COMES BACK
-    IN THE THIRD RETURN VALUE. `_subject_names_version` compiles a pattern
-    around mined content; `re.escape` is what keeps that pattern valid, and
-    `re.error` subclasses `ValueError`, so an uncaught one reached `build`'s
-    `except Exception` and turned every signal in the envelope into exit 2.
-    Containing it here keeps the failure PROPORTIONATE: the other versions
-    still count, the other seven signals still compute, and the condition
-    reaches the reader as a finding on the exit-1 lane rather than as an
-    environment error that names no version. `null` is this file's settled
-    spelling for "no successful measurement" and is never a count of zero.
-
-    Returns the mapping, the number of versions a prep subject named — which
-    is the rejected marker's measured coverage — and the keys of the versions
-    whose match could not run.
+    An absent path or a failed single read is the empty set. This is called
+    only once the git SESSION is already known usable, so a miss here means
+    the path did not exist yet at that commit — a legitimate state for any
+    commit before CHANGELOG.md was created, and the empty set is exactly
+    what "no heading is present" should read as, root commit included.
     """
-    prep_idx = [i for i, s in enumerate(subjects) if RELEASE_PREP_SUBJECT.match(s)]
-    counts: dict[str, int | None] = {}
-    unmatchable: list[str] = []
-    matched = 0
-    for version in versions:
-        key = _prep_key(version)
-        try:
-            idx = next((i for i in prep_idx
-                        if _subject_names_version(subjects[i], version)), None)
-        except re.error:
-            counts[key] = None
-            unmatchable.append(key)
+    if sha in cache:
+        return cache[sha]
+    blob = legs.blob(sha, "CHANGELOG.md")
+    headings = ({v for v, _d in _dated_release_headings("\n".join(blob))}
+                if blob is not None else set())
+    cache[sha] = headings
+    return headings
+
+
+def resolve_release_marks(
+        legs: "_GitLegs") -> tuple[dict[str, str], dict[str, str], bool] | None:
+    """version -> its release mark commit, and version -> why it has none.
+
+    A RELEASE MARK is the first-parent commit whose CHANGELOG.md blob carries
+    that version's dated heading and whose first-parent parent's blob does
+    not. A commit with no first-parent parent — the repository root —
+    satisfies the second half VACUOUSLY, because nothing precedes it: a
+    heading present there was introduced there.
+
+    Returns `(marks, conditions)`, two mappings with disjoint keysets. A
+    version with a usable mark is a key of `marks` alone, valued with the
+    resolving commit sha. A version with no usable mark is a key of
+    `conditions` alone, naming one of two reasons: `"baseline-ref-unresolved"`
+    (no commit satisfies the predicate for it — including a version this walk
+    never reaches within `RELEASE_MARK_WALK_CAP`) or `"baseline-ref-ambiguous"`
+    (the mark is shared with one or more other versions, or more than one
+    commit satisfies the predicate for this one version — a heading removed
+    and later restored produces the latter). Marks order releases whose marks
+    are DISTINCT; a shared mark separates none of the versions sharing it, so
+    every one of them reads `"baseline-ref-ambiguous"` rather than one winning
+    an arbitrary tie-break.
+
+    The third return value says whether the walk was TRUNCATED by
+    `RELEASE_MARK_WALK_CAP`. It matters to the caller's prose: a version past
+    the cap reads `baseline-ref-unresolved`, and glossing that as "no commit
+    satisfies the predicate" would be false when a commit does and the walk
+    simply stopped short of it.
+
+    Returns `None` when the touching-commit walk itself could not run — the
+    git leg failed outright, distinct from a version this walk ran but could
+    not resolve.
+    """
+    touch = legs.lines("log", "--first-parent", "--format=%H %P",
+                       "HEAD", "--", "CHANGELOG.md")
+    if touch is None:
+        return None
+    capped = len(touch) > RELEASE_MARK_WALK_CAP
+    touch = touch[:RELEASE_MARK_WALK_CAP]
+    # The DECLARED versions: the dated headings at HEAD, the same release record
+    # the signal reads. A version declared here but marked by no commit is what
+    # `baseline-ref-unresolved` names, and it cannot be seen from the walk alone.
+    declared_versions = set(_mark_blob_headings(legs, "HEAD", {}))
+    cache: dict[str, set[str]] = {}
+    candidates: dict[str, list[str]] = {}
+    for line in touch:
+        parts = line.split()
+        if not parts:
             continue
-        if idx is None:
-            counts[key] = 0
+        sha = parts[0]
+        parent = parts[1] if len(parts) > 1 else None
+        own = _mark_blob_headings(legs, sha, cache)
+        # No first-parent parent (the root commit) satisfies the predicate's
+        # second half vacuously: treat it as carrying no heading at all.
+        parent_headings = _mark_blob_headings(legs, parent, cache) if parent else set()
+        for version in own - parent_headings:
+            candidates.setdefault(version, []).append(sha)
+
+    marks: dict[str, str] = {}
+    conditions: dict[str, str] = {}
+    # Seed from every DECLARED version, not from `candidates`: a version no
+    # commit marks has no entry in `candidates` at all, so building the mapping
+    # from that dict alone could never emit `baseline-ref-unresolved` and left
+    # the caller with a bare `no-baseline` — an unnamed null, which is the one
+    # thing the closed condition set exists to remove.
+    for version in declared_versions:
+        shas = candidates.get(version, [])
+        if not shas:
+            conditions[version] = "baseline-ref-unresolved"
+        elif len(shas) > 1:
+            conditions[version] = "baseline-ref-ambiguous"
+        else:
+            marks[version] = shas[0]
+
+    # A mark shared by two or more versions separates none of them.
+    by_commit: dict[str, list[str]] = {}
+    for version, sha in marks.items():
+        by_commit.setdefault(sha, []).append(version)
+    for sha, versions in by_commit.items():
+        if len(versions) > 1:
+            for version in versions:
+                del marks[version]
+                conditions[version] = "baseline-ref-ambiguous"
+    return marks, conditions, capped
+
+
+def _first_parent_commits(legs: "_GitLegs") -> list[tuple[str, str]] | None:
+    """(sha, subject) for every first-parent commit from HEAD, newest first."""
+    lines = legs.lines("log", "--first-parent", "--format=%H%x09%s", "HEAD")
+    if lines is None:
+        return None
+    out: list[tuple[str, str]] = []
+    for line in lines:
+        sha, _tab, subject = line.partition("\t")
+        out.append((sha, subject))
+    return out
+
+
+def _release_span_and_prep(ordered_versions: list[str],
+                           marks: dict[str, str],
+                           full_commits: list[tuple[str, str]] | None,
+                           ) -> tuple[dict[str, int | None], dict[str, int | None]]:
+    """Per-release `span_commits` and `prep_commits` over the mark interval.
+
+    `ordered_versions` is every dated version, oldest first. `marks` carries
+    ONLY the versions whose own release mark is a single, unshared, resolved
+    commit (`resolve_release_marks`'s first return value) — a version absent
+    from it has no usable mark of its own. `full_commits` is every
+    first-parent commit from HEAD, newest first, as (sha, subject) pairs, or
+    `None` when that git leg did not run.
+
+    Per `span-and-prep-are-different-counts`, a release's
+    interval EXCLUDES the previous release's mark and INCLUDES its own, so
+    consecutive intervals partition history without overlap. `span_commits`
+    counts every first-parent commit in that interval and establishes nothing
+    about whether any of them was preparation. `prep_commits` counts, in that
+    same interval, the commits whose subject matches the declared preparation
+    prefix — a count of declarations, never of the span.
+
+    Both mappings are keyed by the RAW version string; the caller applies
+    `_prep_key`. A release's interval is undefined — both members `null`,
+    never `0` — whenever any of these hold: this is the oldest release (no
+    previous release exists at all, so the older bound is missing); this
+    release's own mark is unusable; the previous release's mark is unusable;
+    the two marks do not order as older-then-newer in `full_commits`; or
+    `full_commits` itself is unavailable. `0` on either member means the leg
+    ran, the interval is bounded, and nothing of that kind fell inside it —
+    `prep_commits: 0` says nobody declared preparation, not that the release
+    had none.
+    """
+    if full_commits is None:
+        return ({v: None for v in ordered_versions},
+                {v: None for v in ordered_versions})
+    index = {sha: i for i, (sha, _s) in enumerate(full_commits)}
+    span: dict[str, int | None] = {}
+    prep: dict[str, int | None] = {}
+    for i, version in enumerate(ordered_versions):
+        own = marks.get(version)
+        prev_version = ordered_versions[i - 1] if i > 0 else None
+        prev = marks.get(prev_version) if prev_version is not None else None
+        own_idx = index.get(own) if own is not None else None
+        prev_idx = index.get(prev) if prev is not None else None
+        if own_idx is None or prev_idx is None or own_idx >= prev_idx:
+            span[version] = None
+            prep[version] = None
             continue
-        matched += 1
-        older = [i for i in prep_idx if i > idx]
-        end = older[0] if older else len(subjects)
-        counts[key] = end - idx - 1
-    return counts, matched, unmatchable
+        window = full_commits[own_idx:prev_idx]
+        span[version] = len(window)
+        prep[version] = sum(1 for _sha, subject in window
+                            if RELEASE_PREP_SUBJECT.match(subject))
+    return span, prep
 
 
 def signal_release_cadence(root: Path, tree: str,
                            errors: list[dict] | None = None) -> dict:
-    """Days between consecutive releases, read from the changelog.
+    """Release cadence and, per release, its span and its declared preparation.
 
-    `errors` is `build`'s findings list. It is optional so a caller that only
-    wants the record need not manufacture one, and exactly one condition
-    reaches it: a mined version string that `_subject_names_version` could not
-    compile a pattern around. That condition used to escape as `re.error` and
-    collapse all eight signals into exit 2; on the findings lane it costs the
-    envelope its exit code and nothing else.
+    `errors` is `build`'s findings list; accepted for call-site symmetry with
+    the other signal functions. Nothing currently reaches it — the mined
+    version string no longer drives a regex match against a commit subject,
+    so the `re.error` lane the previous shape guarded against is gone.
 
-    Measurability rests on the CHANGELOG, never on git: the verdict is
+    Measurability rests on the CHANGELOG alone, never on git: the verdict is
     `unmeasurable` when the file is absent or carries fewer than two dated
-    headings, and only then. The optional git leg fills `prep_commits`; when it
-    does not run, or runs and fails, that member is null and the verdict stays
-    `computed`. Null there means one thing — no successful measurement — and a
-    leg that ran and matched nothing reports 0.
+    headings, and only then. `releases`, `intervals_days`,
+    `mean_interval_days` and `median_interval_days` compute from the
+    changelog with no git leg at all. GIT-DEPENDENCE IS PER MEMBER: only
+    `span_commits` and `prep_commits` rest on the release-mark predicate
+    (`resolve_release_marks`, a first-parent commit test) and therefore need a
+    contained git session. Where that session cannot be established, those
+    two members are `null` for every release and the four changelog-only
+    members still compute — the verdict stays `computed`, because an absent
+    git session is an absent input for two members rather than for the
+    signal.
     """
     changelog = root / "CHANGELOG.md"
     surface = "the dated version headings of CHANGELOG.md at the repository root"
@@ -1341,29 +1447,67 @@ def signal_release_cadence(root: Path, tree: str,
     mid = len(ranked) // 2
     median = float(ranked[mid]) if len(ranked) % 2 else (ranked[mid - 1] + ranked[mid]) / 2
 
+    # A SEPARATE ordering, for span_commits/prep_commits adjacency ONLY.
+    # `ordered` above breaks a same-date tie by PRESERVING the raw file
+    # order, which is newest-first — so two headings dated on the same
+    # calendar day sort with the file's LATER (older, by convention) one
+    # FIRST in `versions`, backwards from the oldest-first order the day
+    # count alone cannot express. That is harmless for `intervals_days` (a
+    # same-day pair's interval is 0 either way), but a wrong "previous
+    # release" identity is not harmless here: it would bound one release's
+    # interval against a mark that is not actually its predecessor.
+    # Reversing the raw (newest-first) file order to oldest-first BEFORE the
+    # same stable sort breaks a same-date tie by file position instead,
+    # which is how this project's own changelog convention orders same-day
+    # releases relative to each other.
+    mark_order = [v for v, _d in sorted(reversed(headings), key=lambda h: h[1])]
+
     legs = _GitLegs(root)
-    # ONE fixed argument list carrying no repo-derived value: HEAD is a
-    # literal, and no date, ref or subject from the changelog reaches git.
-    subjects = legs.lines("log", "--first-parent", "--format=%s", "HEAD")
-    prep_commits: dict[str, int] | None = None
-    prep_note = (f"coverage not measured, because the history leg did not run "
-                 f"({legs.reason or 'the leg failed'})")
-    if subjects is not None:
-        prep_commits, prep_matched, unmatchable = _partition_release_prep(
-            subjects, versions)
-        prep_note = (f"{prep_matched} of {len(versions)} dated headings are named by a "
-                     f"first-parent commit subject carrying the declared prefix")
-        if unmatchable:
-            prep_note += (f"; {len(unmatchable)} heading(s) count null because no "
-                          f"pattern could be built around the version they carry")
-            if errors is not None:
-                errors.append({
-                    "input": "CHANGELOG.md",
-                    "problem": f"{len(unmatchable)} dated version heading(s) carry a "
-                               f"version no regular expression could be built around, "
-                               f"so their prep_commits count is null rather than a "
-                               f"number: {', '.join(unmatchable)}",
-                })
+    span_by_key: dict[str, int | None] = {_prep_key(v): None for v in versions}
+    prep_by_key: dict[str, int | None] = {_prep_key(v): None for v in versions}
+    if not legs.usable:
+        mark_note = (f"coverage not measured, because the contained git session could "
+                     f"not be established ({legs.reason})")
+    else:
+        marks_result = resolve_release_marks(legs)
+        if marks_result is None:
+            mark_note = ("coverage not measured, because the release-mark walk over "
+                        "CHANGELOG.md's touching commits did not run")
+        else:
+            marks, conditions, capped = marks_result
+            full_commits = _first_parent_commits(legs)
+            span, prep = _release_span_and_prep(mark_order, marks, full_commits)
+            span_by_key = {_prep_key(v): span[v] for v in versions}
+            prep_by_key = {_prep_key(v): prep[v] for v in versions}
+            resolved = sum(1 for v in versions if v in marks)
+            # Every version DECLARED at HEAD is seeded into one of the two
+            # mappings, including one past the walk cap, which
+            # `resolve_release_marks` seeds as `baseline-ref-unresolved`.
+            ambiguous = sum(1 for v in versions if v not in marks
+                            and conditions.get(v) == "baseline-ref-ambiguous")
+            unresolved = len(versions) - resolved - ambiguous
+            bounded = sum(1 for v in versions if span[v] is not None)
+            # The gloss on `unresolved` is only true while the walk read the
+            # whole history. Past the cap a commit MAY satisfy the predicate
+            # and the walk simply stopped short of it, so the note says that
+            # instead of asserting an absence it did not establish.
+            cap_note = (f"the walk stopped at the cap of {RELEASE_MARK_WALK_CAP} "
+                        f"touching commits, so an unresolved version may be marked "
+                        f"by a commit beyond it"
+                        if capped else
+                        f"the walk read every touching commit, under the cap of "
+                        f"{RELEASE_MARK_WALK_CAP}")
+            unresolved_gloss = ("no commit the walk read satisfies the mark predicate"
+                                if capped else
+                                "no commit satisfies the mark predicate")
+            mark_note = (f"{resolved} of {len(versions)} dated headings resolve to a "
+                        f"single, unshared release mark ({cap_note}); "
+                        f"{unresolved} unresolved ({unresolved_gloss}), "
+                        f"{ambiguous} ambiguous (a shared mark, or more "
+                        f"than one commit satisfying the predicate for one version); "
+                        f"{bounded} of {len(versions)} releases have a bounded interval "
+                        f"(both their own mark and their immediate predecessor's are "
+                        f"resolved and unshared)")
 
     tags = legs.lines("for-each-ref", "--format=%(refname:short)", "refs/tags/")
     if tags is None:
@@ -1380,129 +1524,268 @@ def signal_release_cadence(root: Path, tree: str,
         "intervals_days": intervals,
         "mean_interval_days": round(sum(intervals) / len(intervals), 1),
         "median_interval_days": median,
-        "prep_commits": prep_commits,
+        "span_commits": span_by_key,
+        "prep_commits": prep_by_key,
     }
-    basis = (f"{surface}, plus the first-parent subject history of HEAD read through a "
-             f"contained git work tree; the partition of that history into releases "
-             f"happens in this script, over the subjects it read")
+    basis = (f"{surface}, plus — for span_commits and prep_commits only — the "
+             f"release-mark walk and the first-parent commit history of HEAD, both "
+             f"read through a contained git work tree; the partition of that history "
+             f"into per-release intervals happens in this script, over the marks and "
+             f"commits it read")
     filt = (f"chosen marker: the dated version headings of CHANGELOG.md — "
             f"{len(versions)} dated headings. Each heading yields its version string, "
-            f"which keys prep_commits after the redaction bound is applied to it; the "
-            f"heading grammar does not check that the captured text looks like a "
-            f"version, so a prose-shaped bracketed run is mined exactly as a real "
-            f"version would be, and nothing else in the heading or file is mined. "
-            f"Rejected marker, git tags: {tag_note}. "
-            f"Rejected marker, the release-prep commit-subject prefix: {prep_note}. "
-            f"A null prep_commits member means no successful measurement, whether the "
-            f"leg did not run, ran and failed, or ran and could not build a pattern "
-            f"around that one version; a leg that ran and matched no subject reports 0.")
+            f"which keys span_commits and prep_commits after the redaction bound is "
+            f"applied to it; the heading grammar does not check that the captured text "
+            f"looks like a version, so a prose-shaped bracketed run is mined exactly as "
+            f"a real version would be, and nothing else in the heading or file is "
+            f"mined. Rejected marker, git tags: {tag_note}. "
+            f"Rejected marker, the release-prep commit-subject prefix as a BOUNDARY "
+            f"(it is still read, inside a resolved interval, to count prep_commits "
+            f"declarations): {mark_note}. "
+            f"span_commits establishes only that its commits lie between two release "
+            f"marks; it says nothing about whether any of them was preparation. "
+            f"A null on either member means the interval is not bounded — the release "
+            f"has no previous release, either mark is unresolved or ambiguous, or the "
+            f"contained git session could not be established; a null is never rendered "
+            f"as a 0. A 0 means the leg ran, the interval is bounded, and nothing of "
+            f"that kind fell inside it.")
     return _record("release_cadence", "computed", value, basis, filt)
 
 
-def signal_schema_growth(root: Path, docs: Path, tree: str) -> dict:
-    """The docs-tree CLAUDE.md line count and the catalogued skill count at HEAD.
+def _schema_growth_is_dev_repo(root: Path) -> bool:
+    """True when this checkout is (or resembles) the crux development repo.
 
-    THE ONE DELIVERY SIGNAL WHOSE MEASURABILITY RESTS ON GIT, and on the git
-    SESSION rather than on any one read. What forces `unmeasurable` is the
+    `crux/catalog/skills.json` is a concept that exists only in THAT
+    repository; a downstream target repo never carries it, at any commit,
+    which is exactly what `surface-not-comparable` means. Detected by a
+    structural marker on the CURRENT working tree — the `crux/scripts`
+    directory this very script ships under — rather than by asking whether
+    the catalog file happens to be present at one ref, which would conflate
+    "not yet added" (a real `surface-absent`) with "never a concept here".
+    """
+    return (root / "crux" / "scripts").is_dir()
+
+
+def signal_schema_growth(root: Path, docs: Path, tree: str) -> dict:
+    """The docs-tree CLAUDE.md line count and the catalogued skill count,
+    compared between HEAD and the RELEASE MARK of the second-newest dated
+    changelog version — rule:baseline-is-a-release-mark-and-unavailable-is-named.
+
+    THE ONE DELIVERY SIGNAL WHOSE MEASURABILITY RESTS ON THE GIT SESSION
+    rather than on any one read. What forces `unmeasurable` is the
     `_GitLegs` precondition failing — git absent, the work tree not resolving,
-    containment refused, or the `--end-of-options` probe refused — reported
-    with a `basis` naming the condition, and never as a zero. A HEAD BLOB read
-    that fails is a different case: that member is null and the verdict stays
-    `computed`, exactly as a baseline that does not resolve leaves `baseline`
-    null at `computed`.
+    containment refused, or the `--end-of-options` probe refused — reported as
+    `history-unavailable`, which takes precedence over every other condition.
+    A read failing at one end is a different case: that member is null with
+    its condition named in `value["conditions"]`, and the verdict stays
+    `computed`.
+
+    The baseline's locator is a COMMIT (40 lowercase hex), never a tag: the
+    release act does not tag this repository (the release script mints the
+    tag inside a clone of the TARGET repository), so a tag-based locator
+    resolves for one release in forty-seven and none other. It never slides
+    to a neighbouring version when the intended one has no single mark —
+    sliding would substitute one release's boundary for another's.
     """
     claude_rel = f"{tree}/CLAUDE.md"
     catalog_rel = "crux/catalog/skills.json"
-    surface = (f"{claude_rel} and {catalog_rel}, read at HEAD and at the previous "
-               f"release ref through a contained git work tree")
+    surface = (f"{claude_rel} and {catalog_rel}, read at HEAD and at the release mark "
+               f"of the second-newest dated changelog version, through a contained git "
+               f"work tree")
 
     legs = _GitLegs(root)
     if not legs.usable:
         return _record(
             "schema_growth", "unmeasurable", None,
-            f"{surface}; the HEAD leg did not run: {legs.reason}",
-            f"the HEAD leg could not run ({legs.reason}), and this is the one delivery "
-            f"signal whose measurability rests on it; a zero here would read as an "
-            f"empty schema rather than as an unread one",
+            f"{surface}; history-unavailable: the HEAD leg did not run: {legs.reason}",
+            f"history-unavailable: the contained git session could not be established "
+            f"({legs.reason}), which forces this record's verdict to unmeasurable rather "
+            f"than leaving one surface null, and takes precedence over every other "
+            f"condition this signal recognizes",
         )
 
-    baseline = None
-    baseline_note = ("no baseline ref was sought: CHANGELOG.md carries fewer than two "
-                     "dated version headings")
-    changelog = root / "CHANGELOG.md"
-    headings = []
-    if changelog.is_file():
-        changelog_text = _read_contained(root, changelog)
-        if changelog_text is not None:
-            headings = _dated_release_headings(changelog_text)
-        else:
-            baseline_note = ("no baseline ref was sought: CHANGELOG.md at the repository "
-                             "root was not read as a contained artifact — the name did "
-                             "not resolve, or resolves outside that root, or the "
-                             "resolved name is a symlink O_NOFOLLOW refused, or the "
-                             "open failed for another reason")
-    newest_first = sorted(headings, key=lambda h: h[1], reverse=True)
-    if len(newest_first) >= 2:
-        version = newest_first[1][0]
-        resolved = {}
-        for spelling in (version, f"v{version}"):
-            commit = legs.tag_commit(spelling)
-            if commit:
-                resolved[spelling] = commit
-        distinct = set(resolved.values())
-        if len(distinct) == 1:
-            ref = sorted(resolved)[0]
-            commit = distinct.pop()
-            baseline = {
-                "ref": ref,
-                "claude_md_lines": _line_count(legs.blob(commit, claude_rel)),
-                "skills": _skill_count(legs.blob(commit, catalog_rel)),
-            }
-            # `version` is rendered with `redact(..., quoted=True)` here,
-            # mid-sentence, because it is RAW mined content and nothing else
-            # in this sentence marks where it ends: a 100-character printable
-            # payload would otherwise pass through byte-for-byte and read as
-            # part of the script's own prose. `refs/tags/{ref}` a few words
-            # earlier stays bare and stays RAW, and its bound is a DIFFERENT
-            # one: `ref` is a spelling `_valid_git_arg` admitted, so it is at
-            # most 256 characters drawn from `[A-Za-z0-9._/-]` opening on an
-            # alphanumeric and carrying no `..`, and it resolved a tag.
-            # `baseline["ref"]` carries that same value, bounded by the
-            # ARGUMENT GRAMMAR rather than by `redact`.
-            baseline_note = (f"the baseline ref is refs/tags/{ref}, named for the "
-                             f"second-newest dated version heading "
-                             f"{redact(version, quoted=True)}")
-        elif len(distinct) > 1:
-            baseline_note = (f"both admitted spellings of "
-                             f"{redact(version, quoted=True)} resolve, to two "
-                             f"different commits, so no baseline is reported")
-        else:
-            # Rendered with `redact(..., quoted=True)`, and interpolated ONCE.
-            # The bare form read `refs/tags/{version} nor refs/tags/v{version}`:
-            # two unrendered copies of mined content, with nothing in the
-            # sentence showing where either ended. This branch is the one that
-            # fires when no tag resolves, so it is the branch a hostile heading
-            # reaches.
-            baseline_note = (f"neither admitted spelling of "
-                             f"{redact(version, quoted=True)} resolves under "
-                             f"refs/tags/ — neither the bare string nor the same string "
-                             f"with one leading v — so no baseline is reported; no "
-                             f"nearer or older tag substitutes")
+    conditions: list[dict] = []
+    notes: list[str] = []
+    surface_notes: dict[str, dict[str, str]] = {}
 
-    value = {
-        "claude_md_lines": _line_count(legs.blob("HEAD", claude_rel)),
-        "skills": _skill_count(legs.blob("HEAD", catalog_rel)),
-        "baseline": baseline,
+    def _add(condition: str, *, surface_name: str | None = None, detail: str | None = None) -> None:
+        entry: dict = {"condition": condition}
+        if surface_name is not None:
+            entry["surface"] = surface_name
+        conditions.append(entry)
+        if detail:
+            notes.append(detail)
+
+    def _note_surface(condition: str, endpoint: str, surface_name: str) -> None:
+        surface_notes.setdefault(surface_name, {})[endpoint] = condition
+
+    dev_repo = _schema_growth_is_dev_repo(root)
+    not_comparable = {"claude_md_lines": False, "skills": not dev_repo}
+    if not dev_repo:
+        _add("surface-not-comparable", surface_name="skills")
+
+    def _read_surface(rev: str, path: str, surface_name: str, endpoint: str, parse):
+        if not_comparable[surface_name]:
+            return None
+        listing = legs.lines("ls-tree", "--name-only", rev, "--", path)
+        if listing is None:
+            _note_surface("surface-unreadable", endpoint, surface_name)
+            return None
+        if not listing:
+            _note_surface("surface-absent", endpoint, surface_name)
+            return None
+        lines = legs.blob(rev, path)
+        if lines is None:
+            _note_surface("surface-unreadable", endpoint, surface_name)
+            return None
+        parsed = parse(lines)
+        if parsed is None:
+            _note_surface("surface-malformed", endpoint, surface_name)
+            return None
+        return parsed
+
+    current = {
+        "claude_md_lines": _read_surface("HEAD", claude_rel, "claude_md_lines",
+                                         "current", lambda lines: len(lines)),
+        "skills": _read_surface("HEAD", catalog_rel, "skills", "current", _skill_count),
     }
-    filt = (f"the baseline ref is the tag named for the changelog's SECOND-NEWEST dated "
-            f"version heading and no other heading, admitted in exactly two spellings — "
-            f"the bare string and the same string with one leading v — and resolved in "
-            f"the refs/tags/ namespace alone, so a same-named branch is never read in "
-            f"its place; {baseline_note}. A null count member — at HEAD or under "
-            f"baseline — means the path was not read there: absent at that ref, or "
-            f"present and not a JSON list. It is never a count of zero. "
-            f"{catalog_rel} exists only in the crux development repository, so skills "
-            f"is null in a downstream target repository.")
+
+    changelog = root / "CHANGELOG.md"
+    no_release_record: str | None = None
+    headings: list[tuple[str, str]] = []
+    if not changelog.is_file():
+        no_release_record = "CHANGELOG.md is absent from the repository root"
+    else:
+        changelog_text = _read_contained(root, changelog)
+        if changelog_text is None:
+            no_release_record = (
+                "CHANGELOG.md at the repository root was not read as a contained "
+                "artifact — the name did not resolve, or resolves outside that root, "
+                "or the resolved name is a symlink O_NOFOLLOW refused, or the open "
+                "failed for another reason")
+        else:
+            headings = _dated_release_headings(changelog_text)
+            if len(headings) < 2:
+                no_release_record = (f"CHANGELOG.md carries fewer than two dated "
+                                     f"version headings ({len(headings)} read)")
+
+    baseline_commit: str | None = None
+    baseline_version: str | None = None
+    if no_release_record is not None:
+        _add("no-release-record", detail=f"no-release-record: {no_release_record}")
+    else:
+        newest_first = sorted(headings, key=lambda h: h[1], reverse=True)
+        newest_version = newest_first[0][0]
+        baseline_version = newest_first[1][0]
+        # ONE mark predicate for both delivery signals. ADR-0109 makes the mark
+        # "the single boundary used by the two signals that take one", so a
+        # second implementation here could drift from release_cadence's and
+        # give two answers for one repository.
+        marks_result = resolve_release_marks(legs)
+        if marks_result is None:
+            _add("baseline-ref-unresolved",
+                detail="baseline-ref-unresolved: the changelog's touch-commit history leg "
+                       "did not run, so no commit could be checked against the mark "
+                       "predicate")
+        else:
+            marks, mark_conditions, _capped = marks_result
+            candidate_commit = marks.get(baseline_version)
+
+            def _problem(version: str) -> str | None:
+                """The resolution condition for one declared version, or None.
+
+                `resolve_release_marks` seeds its conditions from the versions
+                HEAD's CHANGELOG.md blob declares; this signal reads the
+                headings from the WORK TREE. A version declared in the work
+                tree and absent from HEAD is therefore in neither mapping, and
+                reading that absence as "resolved" would hand the caller a
+                bare `no-baseline` — the unnamed null ADR-0109 refuses. It is
+                unresolved: no commit satisfies the mark predicate for it.
+                """
+                if version in mark_conditions:
+                    return mark_conditions[version]
+                if version in marks:
+                    return None
+                return "baseline-ref-unresolved"
+
+            newest_problem = _problem(newest_version)
+            baseline_problem = _problem(baseline_version)
+            if newest_problem is not None:
+                _add(newest_problem,
+                    detail=f"{newest_problem}: the newest dated version heading "
+                           f"{redact(newest_version, quoted=True)} does not yield a single "
+                           f"release mark")
+            elif baseline_problem is not None:
+                _add(baseline_problem,
+                    detail=f"{baseline_problem}: the second-newest dated version heading "
+                           f"{redact(baseline_version, quoted=True)} does not yield a "
+                           f"single release mark")
+            else:
+                baseline_commit = candidate_commit
+
+    if baseline_commit is None:
+        for surface_name in ("claude_md_lines", "skills"):
+            if not not_comparable[surface_name]:
+                _add("no-baseline", surface_name=surface_name)
+        baseline = {"ref": None, "release": None, "claude_md_lines": None, "skills": None}
+    else:
+        baseline = {
+            "ref": baseline_commit,
+            "release": redact(baseline_version, quoted=True),
+            "claude_md_lines": _read_surface(baseline_commit, claude_rel, "claude_md_lines",
+                                             "baseline", lambda lines: len(lines)),
+            "skills": _read_surface(baseline_commit, catalog_rel, "skills",
+                                    "baseline", _skill_count),
+        }
+
+    # ONE condition per member, so a surface failing at BOTH ends has to pick
+    # an endpoint — and it picks `baseline`: that is the end a reader can
+    # change, and substituting it is what would make the comparison possible.
+    # Naming both is not admitted. The five resolution conditions above carry
+    # no endpoint at all, because they describe resolving the baseline or the
+    # session rather than a read at one end; `surface-not-comparable` carries
+    # none either, being a relation between the two ends rather than a failure
+    # at one.
+    for surface_name, by_endpoint in surface_notes.items():
+        if len(by_endpoint) == 2:
+            conditions.append({"condition": by_endpoint["baseline"],
+                               "endpoint": "baseline", "surface": surface_name})
+        else:
+            ((endpoint, condition),) = by_endpoint.items()
+            conditions.append({"condition": condition, "endpoint": endpoint,
+                               "surface": surface_name})
+
+    value = {"current": current, "baseline": baseline, "conditions": conditions}
+
+    if not conditions:
+        condition_note = "no condition fired: both surfaces compared cleanly at both ends"
+    else:
+        rendered = []
+        for entry in conditions:
+            bits = [entry["condition"]]
+            if "surface" in entry:
+                bits.append(f"surface={entry['surface']}")
+            if "endpoint" in entry:
+                bits.append(f"endpoint={entry['endpoint']}")
+            rendered.append(" ".join(bits))
+        condition_note = "conditions: " + "; ".join(rendered)
+    baseline_note = (f"baseline ref {baseline['ref']}, the release mark of "
+                     f"{baseline['release']}" if baseline_commit is not None
+                     else "no baseline ref resolved")
+    notes_note = (" " + " ".join(notes)) if notes else ""
+    filt = (f"the baseline locator is the release mark (a first-parent commit, never a "
+            f"tag) of the changelog's SECOND-NEWEST dated version heading; {baseline_note}."
+            f"{notes_note} "
+            f"A closed set of nine conditions replaces a bare null — five resolution "
+            f"conditions with no endpoint (no-release-record, baseline-ref-unresolved, "
+            f"baseline-ref-ambiguous, history-unavailable, no-baseline) and four surface "
+            f"conditions (surface-absent, surface-unreadable, surface-malformed, each "
+            f"named with the endpoint it occurred at except surface-not-comparable, a "
+            f"relation between the two endpoints) — never a bare zero for a member no "
+            f"successful measurement was made for. {condition_note}. {catalog_rel} exists "
+            f"only in the crux development repository, so its surface is "
+            f"surface-not-comparable rather than surface-absent in a downstream target "
+            f"repository.")
     return _record("schema_growth", "computed", value, surface, filt)
 
 

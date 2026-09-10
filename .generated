@@ -1,5 +1,5 @@
 {
   "generated_by": "sync.sh (ADR: split-repo publication)",
   "note": "This repository is generated from a private development repo. PRs against it will be overwritten on the next release \u2014 please file issues.",
-  "version": "3.11.0"
+  "version": "3.11.1"
 }

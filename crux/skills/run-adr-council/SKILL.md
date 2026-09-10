@@ -1,6 +1,6 @@
 ---
 name: run-adr-council
-description: "Run the council on ADR-NNNN. Phrases: 'run the council on ADR-NNNN', 'council review ADR-NNNN', 'run-adr-council ADR-NNNN', 'council-check this ADR', or a cycle's ADR module needing its council gate. Reads the ADR, assembles a structured council prompt with the ADR body as delimited data, invokes async_council.py via a PEP 723 temp driver, and returns a structured verdict. Replaces ad-hoc copy-paste-adapted council driver scripts."
+description: "Use when the user says 'run the council on ADR-NNNN', 'council review ADR-NNNN', 'run-adr-council ADR-NNNN', or 'council-check this ADR', or a cycle's ADR module needs its council gate. Runs the council on ADR-NNNN. Reads the ADR, assembles a structured council prompt with the ADR body as delimited data, invokes async_council.py via a PEP 723 temp driver, and returns a structured verdict. Replaces ad-hoc copy-paste-adapted council driver scripts."
 arguments: [adr]
 metadata:
   tags: "council, adr, verification, multi-model"

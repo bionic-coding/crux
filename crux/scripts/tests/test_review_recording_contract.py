@@ -79,6 +79,7 @@ from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent.parent
 SCRIPT = SCRIPTS / "generate-reviews-index.py"
+JOURNAL_INDEX_SCRIPT = SCRIPTS / "generate-journal-index.py"
 
 sys.path.insert(0, str(SCRIPTS))
 
@@ -361,6 +362,146 @@ class FenceAwareCountTests(RecordingTreeTestCase):
             derive_row(self.MONTH, path.read_text(encoding="utf-8"))["entries"], 2)
         with self.assertRaises(AssertionError):
             self.assert_journal_index_consistent(self.MONTH)
+
+
+class MonthRolloverTests(RecordingTreeTestCase):
+    """No lane before this drove a review pass landing on the FIRST of a new
+    month — the case where `generate-journal-index.py` must both CREATE a new
+    `journal/YYYY-MM.md` row and leave the PREVIOUS month's row untouched.
+
+    `record_a_pass`'s own `write_journal_index` helper only ever regenerates
+    the ONE month it is handed (see its call in `record_a_pass`, `[month]`),
+    so a rollover this suite drove through that helper alone would silently
+    drop the previous month's row rather than proving it survives — this
+    lane instead drives the SHIPPED regenerator, which walks every month file
+    under `journal/` on every run, and checks both rows it writes.
+    """
+
+    PREV_MONTH = "2026-08"
+    NEW_DATE = "2026-09-01"
+
+    def setUp(self) -> None:
+        super().setUp()
+        # `generate-journal-index.py` (unlike `generate-reviews-index.py`,
+        # which the base fixture already satisfies) refuses to operate on a
+        # tree with no `manifest.yml` carrying `schema_version` and
+        # `concerns_enabled` — this is the one path in this file that drives
+        # it, so this is the one fixture that needs the manifest.
+        (self.docs / "manifest.yml").write_text(
+            'schema_version: "5"\nconcerns_enabled: [journal]\n',
+            encoding="utf-8")
+
+    def run_journal_index_cli(self, *args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [sys.executable, str(JOURNAL_INDEX_SCRIPT),
+             "--repo-root", str(self.root), *args],
+            capture_output=True, text=True, timeout=60)
+
+    def regenerate_journal_index(self) -> None:
+        result = self.run_journal_index_cli()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_pass_on_the_first_of_a_new_month_creates_the_month_and_keeps_the_prior_row(self):
+        # Seed a populated previous month: three entries, three dates, three
+        # distinct categories, then regenerate with the SHIPPED script — not
+        # the fixture's own single-month helper — so the seeded row is one
+        # the production regenerator itself wrote.
+        self.append_journal_entry(self.PREV_MONTH, "2026-08-05", "09:00",
+                                  "decision", "a")
+        self.append_journal_entry(self.PREV_MONTH, "2026-08-12", "10:00",
+                                  "bug", "b")
+        self.append_journal_entry(self.PREV_MONTH, "2026-08-20", "11:00",
+                                  "learning", "c")
+        self.regenerate_journal_index()
+
+        index_before = (self.journal / "index.md").read_text(encoding="utf-8")
+        prev_row_before = parse_index_row(index_before, self.PREV_MONTH)
+
+        # POSITIVE CONTROL: the seeded row is really there, non-trivial, and
+        # matches the month file it was derived from — an empty or absent
+        # row here would make the "unchanged" assertion below vacuous.
+        self.assertIsNotNone(prev_row_before)
+        self.assertEqual(prev_row_before["entries"], 3)
+        self.assertEqual(prev_row_before["first"], "2026-08-05")
+        self.assertEqual(prev_row_before["last"], "2026-08-20")
+        self.assertEqual(prev_row_before["categories"], "bug, decision, learning")
+        self.assertEqual(
+            prev_row_before,
+            derive_row(self.PREV_MONTH,
+                      (self.journal / f"{self.PREV_MONTH}.md")
+                      .read_text(encoding="utf-8")))
+
+        # A review pass lands on the 1st of the NEXT month: no
+        # `journal/2026-09.md` exists yet, so recording it must create one.
+        new_month = self.NEW_DATE[:7]
+        self.assertFalse((self.journal / f"{new_month}.md").exists())
+        self.write_report(self.NEW_DATE, ["adr-review-rollover-one"])
+        self.append_op(self.NEW_DATE, "adr-review",
+                       f"decision review {self.NEW_DATE}")
+        self.append_journal_entry(new_month, self.NEW_DATE, "09:15", "review",
+                                  f"decision review {self.NEW_DATE}")
+        self.append_op(self.NEW_DATE, "journal",
+                       f"decision review {self.NEW_DATE}")
+        self.assertTrue((self.journal / f"{new_month}.md").is_file())
+
+        self.regenerate_journal_index()
+        index_after = (self.journal / "index.md").read_text(encoding="utf-8")
+
+        # THE NEW MONTH'S ROW is present and correct.
+        new_row = parse_index_row(index_after, new_month)
+        self.assertIsNotNone(new_row, f"no row for the new month {new_month}")
+        self.assertEqual(new_row["entries"], 1)
+        self.assertEqual(new_row["first"], self.NEW_DATE)
+        self.assertEqual(new_row["last"], self.NEW_DATE)
+        self.assertEqual(new_row["categories"], "review")
+
+        # THE PREVIOUS MONTH'S ROW is unchanged: same counts, same dates.
+        prev_row_after = parse_index_row(index_after, self.PREV_MONTH)
+        self.assertIsNotNone(prev_row_after)
+        self.assertEqual(prev_row_before, prev_row_after)
+
+        self.assert_journal_index_consistent(self.PREV_MONTH)
+        self.assert_journal_index_consistent(new_month)
+
+    def test_negative_control_a_corrupted_previous_month_row_fails_consistency(self):
+        """The check above has teeth: a wrong previous-month row is caught.
+
+        Follows `ConsistencyNegativeControlTests`'s pattern — same
+        `assert_journal_index_consistent` helper, one seeded corruption.
+        """
+        self.append_journal_entry(self.PREV_MONTH, "2026-08-05", "09:00",
+                                  "decision", "a")
+        self.append_journal_entry(self.PREV_MONTH, "2026-08-12", "10:00",
+                                  "bug", "b")
+        self.append_journal_entry(self.PREV_MONTH, "2026-08-20", "11:00",
+                                  "learning", "c")
+        self.regenerate_journal_index()
+
+        new_month = self.NEW_DATE[:7]
+        self.append_journal_entry(new_month, self.NEW_DATE, "09:15", "review",
+                                  f"decision review {self.NEW_DATE}")
+        self.regenerate_journal_index()
+
+        # PAIRED POSITIVE CONTROL: before any corruption, both rows check out.
+        self.assert_journal_index_consistent(self.PREV_MONTH)
+        self.assert_journal_index_consistent(new_month)
+
+        # Corrupt the previous month's row in place: a fourth entry the row
+        # never counted. The month file itself is untouched, so only the
+        # index row is now wrong.
+        index_text = (self.journal / "index.md").read_text(encoding="utf-8")
+        corrupted = index_text.replace(
+            "| 2026-08 | 2026-08-05 | 2026-08-20 | 3 | bug, decision, learning |",
+            "| 2026-08 | 2026-08-05 | 2026-08-20 | 4 | bug, decision, learning |")
+        self.assertNotEqual(corrupted, index_text,
+                            "fixture did not locate the row to corrupt")
+        (self.journal / "index.md").write_text(corrupted, encoding="utf-8")
+
+        with self.assertRaises(AssertionError):
+            self.assert_journal_index_consistent(self.PREV_MONTH)
+        # The untouched new-month row is still consistent — the corruption is
+        # scoped to the row it targeted.
+        self.assert_journal_index_consistent(new_month)
 
 
 if __name__ == "__main__":

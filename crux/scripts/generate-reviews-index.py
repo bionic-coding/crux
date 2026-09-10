@@ -369,10 +369,34 @@ def _contained(child: Path, parent: Path, subject: str) -> Path:
     return child
 
 
-#: The resolver read's size bound. The `bionic_config.py:372` precedent, for
-#: its reason: past 64 KiB the file is not a plausible rule resolver, and a
-#: bound refused before the read is cheaper than a bound discovered after it.
-RESOLVER_LIMIT = 65536
+#: The resolver read's size bound. It matches `lint-governs-references.py`'s
+#: `MAX_FILE_BYTES`, which is this repository's bound for a MACHINE-GENERATED
+#: file a crux script reads.
+#:
+#: It used to be 64 KiB, taken from the `bionic_config.py` precedent. That was
+#: a category error, and it shipped a false premise in its own refusal text.
+#: The 64 KiB precedents bound HAND-AUTHORED documents — a `.bionic.yml`
+#: config, a catalog document — where "past 64 KiB this is not a plausible
+#: <thing>" is true. `resolver.json` is neither hand-authored nor bounded by
+#: what a person will type: it is the summaries projection, carrying one
+#: record per rule handle, and its size scales with the ADR corpus. Measured
+#: on this repository at 169 handles: 125,665 bytes, about 700 bytes per
+#: handle, the bulk of it rule text. So the artifact crossed the bound in the
+#: ordinary course of the corpus growing, and the refusal then called a
+#: correct, freshly regenerated projection "not a plausible rule resolver".
+#:
+#: The bound is NOT set to "bigger than today's file". 4 MiB is the constant
+#: this repository already uses for this class of read, and at the measured
+#: ~700 bytes per handle it admits roughly 5,900 handles — about 35x the
+#: present corpus — while still refusing a file no projection would produce.
+#:
+#: Everything the bound protects is unchanged: the read is still bounded
+#: (`RESOLVER_LIMIT + 1` through one open handle, so memory is capped and the
+#: check-then-read race stays closed), the surface is still containment- and
+#: symlink-checked by `_surface`, and every other refusal below — non-regular
+#: file, unreadable, non-JSON, non-object, non-map `slugs`/`retired_slugs` —
+#: still fires. Only the threshold moved, and only onto a defensible basis.
+RESOLVER_LIMIT = 4 * 1024 * 1024
 
 
 def _surface(tree: Path, rel: str, subject: str) -> Path:
@@ -472,7 +496,13 @@ def _resolver_slugs(resolver: Path) -> dict | None:
     if len(raw) > RESOLVER_LIMIT:
         raise OSError(
             f"refusing to read {resolver}: resolver.json exceeds "
-            f"{RESOLVER_LIMIT} bytes (64 KiB); not a plausible rule resolver")
+            f"{RESOLVER_LIMIT} bytes ({RESOLVER_LIMIT // (1024 * 1024)} MiB); no "
+            "summaries projection is that large, so this is not a rule resolver "
+            "this reader will read")
+        # The unit is DERIVED from the constant, never spelled beside it. The
+        # message this replaced read "(64 KiB)" and stayed literally correct
+        # while the sentence around it had become false; a hand-written unit is
+        # one more thing that can drift away from the number it describes.
     try:
         data = json.loads(raw.decode("utf-8"))
     except (ValueError, UnicodeDecodeError, RecursionError) as exc:
@@ -930,6 +960,11 @@ def build(root: Path, today: datetime.date | None = None) -> tuple[Path | None, 
     # no corpus that later refuses can leave a partial index behind.
     parsed = [row["parsed"] for row in reports]
     try:
+        # The cross-date half of `a-blocked-part-is-counted-in-its-own-right`.
+        # `validate_structure` already checked the single-report half as each
+        # report was read; this one needs the whole corpus in date order, so it
+        # cannot run until every report is parsed.
+        review_findings.check_part_carryover(parsed)
         standing = review_findings.standing_by_finding(
             parsed, locator_exists=_locator_probe(root, str(tree_rel), tree))
         for row in reports:

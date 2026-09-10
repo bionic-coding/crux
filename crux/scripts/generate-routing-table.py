@@ -14,8 +14,10 @@ invocation table" of `<tree>/CLAUDE.md`, between the markers:
     <!-- END GENERATED: routing-table -->
 
 Three columns, sorted by skill name:
-  - User phrase — every quoted phrase in the `description` that precedes the
-    first period (that is where each description puts its triggers).
+  - User phrase — every quoted phrase in the `description`'s first SENTENCE
+    (that is where each description puts its triggers). The sentence ends at a
+    period followed by whitespace or end-of-text, so a dotted identifier such
+    as `research.refresh_interval_days` does not end it.
   - Skill — the name.
   - Notes — the optional `metadata.routing_note`.
 
@@ -49,6 +51,11 @@ END = "<!-- END GENERATED: routing-table -->"
 # whose quotes are not adjacent to a letter (so a contraction apostrophe such as
 # the one in "what's" is not read as an opening quote).
 _PHRASE_RE = re.compile(r'"([^"]+)"' + r"|(?<![A-Za-z])'([^']+?)'(?![A-Za-z])")
+
+# The end of the first SENTENCE: a period followed by whitespace or end-of-text.
+# Splitting on any period cut `research.refresh_interval_days` in half and threw
+# away the triggers that followed it in the same sentence.
+_SENTENCE_END_RE = re.compile(r"\.(?=\s|$)")
 
 
 class RegenError(Exception):
@@ -124,8 +131,17 @@ def find_region(text: str, label: str) -> tuple[int, int]:
 
 
 def extract_phrases(description: str) -> list[str]:
-    """Ordered, de-duplicated quoted trigger phrases before the first period."""
-    head = description.split(".", 1)[0]
+    """Ordered, de-duplicated quoted trigger phrases in the first sentence.
+
+    "First sentence" ends at a period followed by whitespace or end-of-text.
+    A dotted identifier — `research.refresh_interval_days`, `plugin.json` —
+    carries a period followed by a letter, so it no longer ends the sentence;
+    splitting on any period truncated such a description mid-token and dropped
+    every trigger phrase that came after it, leaving an empty routing cell
+    while this regenerator's drift gate stayed clean.
+    """
+    m = _SENTENCE_END_RE.search(description)
+    head = description[:m.start()] if m else description
     seen: set[str] = set()
     out: list[str] = []
     for m in _PHRASE_RE.finditer(head):

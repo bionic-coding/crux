@@ -1,6 +1,6 @@
 ---
 name: task-planner
-description: "Task decomposition. Breaks complex goals into structured subtasks with dependencies, priorities, and acceptance criteria. Use before starting large features to plan the work. Complements author-runbook (which independently calls Gemini for autonomous prompt runbooks) — the two do NOT chain; a TaskPlan is not an input to the runbook generator."
+description: "Use when the user says \"plan this task\", \"break this down\", \"decompose this goal\", or \"make a task plan\". Task decomposition. Breaks complex goals into structured subtasks with dependencies, priorities, and acceptance criteria. Use before starting large features to plan the work. Complements author-runbook (which independently calls Gemini for autonomous prompt runbooks) — the two do NOT chain; a TaskPlan is not an input to the runbook generator."
 metadata:
   tags: "planning, task-decomposition, gemini"
   bundles: "crux-core"

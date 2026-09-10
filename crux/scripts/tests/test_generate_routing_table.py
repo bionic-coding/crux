@@ -116,13 +116,46 @@ class BuildRegionTestCase(unittest.TestCase):
 
 
 class ExtractPhrasesCurrentBehaviorTestCase(unittest.TestCase):
-    """Current, documented behavior — the F1 post-period drop is DEFERRED, not fixed."""
+    """The contract: triggers come from the description's FIRST SENTENCE.
 
-    def test_only_phrases_before_the_first_period_are_taken(self):
-        # This IS the F1 defect, asserted as the status quo: a trigger placed
-        # after the first period is dropped. Do not "fix" this here.
+    A phrase after the first sentence is dropped BY DESIGN — that is what keeps
+    a quoted example elsewhere in a description out of the routing table. The
+    former defect was not the drop; it was where the sentence was judged to
+    end. Splitting on any period ended the sentence inside a dotted identifier
+    and discarded the triggers that followed it in the SAME sentence.
+    """
+
+    def test_only_phrases_in_the_first_sentence_are_taken(self):
+        # The drop is the contract, not a defect: a phrase after the first
+        # sentence is not a trigger. Do not "fix" this here.
         phrases = grt.extract_phrases('Use "keep me". Then "drop me" later.')
         self.assertEqual(phrases, ["keep me"])
+
+    def test_a_quoted_example_after_the_first_sentence_is_not_a_trigger(self):
+        """An arbitrary quoted example must never become an invocation phrase."""
+        phrases = grt.extract_phrases(
+            'Use when the user says "audit docs". Reports a row such as '
+            '"BROKEN: dangling wiki-link" for each finding.')
+        self.assertEqual(phrases, ["audit docs"])
+
+    def test_a_dotted_identifier_does_not_end_the_first_sentence(self):
+        """The repaired split: a period followed by a letter is not a sentence end.
+
+        `refresh-research-synthesis` put every trigger after
+        `research.refresh_interval_days` in its opening sentence and rendered
+        an EMPTY routing cell while the drift gate stayed clean.
+        """
+        phrases = grt.extract_phrases(
+            'Use when a page has aged past `research.refresh_interval_days` '
+            '(default 90), or the user asks to "refresh synthesis" or '
+            '"clear flags". Later "not a trigger" text.')
+        self.assertEqual(phrases, ["refresh synthesis", "clear flags"])
+
+    def test_a_period_at_end_of_text_still_ends_the_sentence(self):
+        self.assertEqual(grt.extract_phrases('Say "only me".'), ["only me"])
+
+    def test_a_sentence_end_before_a_newline_is_a_sentence_end(self):
+        self.assertEqual(grt.extract_phrases('Say "only me".\nThen "no".'), ["only me"])
 
     def test_duplicates_are_collapsed_in_order(self):
         phrases = grt.extract_phrases('"a" / "b" / "a"')
@@ -131,6 +164,55 @@ class ExtractPhrasesCurrentBehaviorTestCase(unittest.TestCase):
     def test_single_quoted_triggers_are_recognized(self):
         phrases = grt.extract_phrases("Use when 'start a cycle' happens")
         self.assertEqual(phrases, ["start a cycle"])
+
+
+class EveryUserFacingRowHasPhrasesTestCase(unittest.TestCase):
+    """The shipped catalog yields a usable phrase for every user-facing skill.
+
+    `build_region` has always REPORTED `no_trigger_skills`, but nothing failed
+    on a non-empty report: twelve skills rendered an empty routing cell while
+    `generate-routing-table.py --dry-run` exited 0 and reported no drift. A
+    reported-but-unenforced signal is not a gate; this is the gate.
+
+    A skill with no user phrase is exempt only by declaring
+    `user-invocable: false`, which routes it to the Claude-only table. Adding a
+    name to an allowlist here is NOT the way to satisfy this test.
+    """
+
+    def _skills(self) -> list[dict]:
+        path = REPO_ROOT / "crux" / "catalog" / "skills.json"
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def test_no_user_invocable_skill_renders_an_empty_phrase_cell(self):
+        skills = self._skills()
+        # Positive control: the catalog must actually carry user-invocable
+        # skills, so an empty catalog cannot pass this vacuously.
+        user_facing = [s for s in skills if s.get("user-invocable", True) is not False]
+        self.assertGreater(len(user_facing), 40)
+        _, no_triggers = grt.build_region(skills)
+        self.assertEqual(no_triggers, [], f"user-facing skills with no trigger phrase: {no_triggers}")
+
+    def test_negative_control_a_stripped_description_is_caught(self):
+        """The original failure, reintroduced: the gate must go red on it."""
+        skills = self._skills()
+        victim = next(s for s in skills if s.get("user-invocable", True) is not False)
+        mutated = [dict(s, description="No quoted phrase anywhere at all.")
+                   if s["id"] == victim["id"] else s for s in skills]
+        _, no_triggers = grt.build_region(mutated)
+        self.assertEqual(no_triggers, [victim["id"]])
+
+    def test_internal_only_skills_are_exempt_via_the_declared_mechanism(self):
+        """The four `user-invocable: false` skills are routed, never counted here."""
+        skills = self._skills()
+        internal = sorted(s["id"] for s in skills if s.get("user-invocable") is False)
+        self.assertEqual(internal, ["agent-identity", "call-llm", "semantic-bridge",
+                                    "trace-runtime-ops"])
+        region, no_triggers = grt.build_region(skills)
+        for sid in internal:
+            # Present in the Claude-only table, and never reported as missing.
+            self.assertIn(f"| `{sid}` |", region)
+            self.assertNotIn(sid, no_triggers)
+        self.assertIn("### Claude-only (no user phrase)", region)
 
 
 class RunEndToEndTestCase(unittest.TestCase):

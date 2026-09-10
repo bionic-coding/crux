@@ -1116,6 +1116,138 @@ class RaisedAndStandingTestCase(_Harness):
         self.assertEqual((self.reviews / "index.md").read_bytes(), first)
 
 
+class ResolverSizeBoundTestCase(_Harness):
+    """`RESOLVER_LIMIT` admits a real-corpus resolver and still refuses an absurd one.
+
+    THE DEFECT THIS PINS. The bound was 64 KiB, copied from the precedent that
+    bounds a HAND-AUTHORED `.bionic.yml`. `resolver.json` is the machine
+    generated summaries projection: one record per rule handle, its size
+    scaling with the ADR corpus. Measured on this repository at 169 handles it
+    is 125,665 bytes -- so the artifact crossed the bound in the ordinary
+    course of the corpus growing, and the reader then refused a correct,
+    freshly regenerated projection as "not a plausible rule resolver".
+
+    WHY IT HID. The resolver is read ONLY to probe a `rule:<slug>` handle on a
+    `resolved` record. Every report predating this pin was legacy-grammar and
+    carried no such locator, so the read never happened and every gate run was
+    green. The first report to cite the repository's own preferred citation
+    form was the first report that could not be indexed.
+
+    The bound is not removed and not merely enlarged past today's file: it is
+    `lint-governs-references.MAX_FILE_BYTES`, this repository's existing bound
+    for a machine-generated file a crux script reads.
+    """
+
+    LIVE = "rule:live-slug"
+    RETIRED = "rule:retired-slug"
+
+    def _resolver(self, *, pad_to: int | None = None, body=None) -> None:
+        d = self.root / "bionic" / "adrs" / "summaries"
+        d.mkdir(parents=True, exist_ok=True)
+        if body is not None:
+            (d / "resolver.json").write_text(body, encoding="utf-8")
+            return
+        doc = {"slugs": {"live-slug": "ADR-0001/live-slug"},
+               "retired_slugs": {"retired-slug": ["ADR-0002/successor"]}}
+        if pad_to is not None:
+            doc["_pad"] = ""
+            doc["_pad"] = "x" * (pad_to - len(json.dumps(doc).encode()))
+        text = json.dumps(doc)
+        if pad_to is not None:
+            self.assertEqual(len(text.encode()), pad_to, "fixture must hit the exact size")
+        (d / "resolver.json").write_text(text, encoding="utf-8")
+
+    def _report_citing(self, locator: str) -> None:
+        self.write("2026-09-07.md", _lifecycle("2026-09-07", findings=["adr-review-alpha"]))
+        self.write("2026-09-08.md", _lifecycle(
+            "2026-09-08", records=[("2026-09-07", "adr-review-alpha", 1, "resolved", locator)]))
+
+    def assert_resolved(self) -> None:
+        """The probe READ the resolver and the locator resolved.
+
+        Write mode, not `--dry-run`: with no index on disk yet a dry run exits
+        1 for drift, which says nothing about the resolver read. Exit 0 in
+        write mode is the discriminator, and exit 2 is the refusal lane this
+        whole class exists to keep away from a legitimate corpus.
+        """
+        r = self.run_cli()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("refusing to read", r.stderr)
+
+    def test_the_bound_is_the_machine_generated_file_constant(self):
+        self.assertEqual(_load_script().RESOLVER_LIMIT, 4 * 1024 * 1024)
+
+    def test_a_resolver_the_size_of_a_real_corpus_resolves_a_live_slug(self):
+        """The original failing case. 125,665 bytes was the measured real size."""
+        self._resolver(pad_to=125_665)
+        self._report_citing(self.LIVE)
+        self.assert_resolved()
+
+    def test_negative_control_the_old_bound_would_have_refused_that_case(self):
+        """Proves the case above is a real regression test and not vacuous.
+
+        Same fixture, the retired 64 KiB threshold applied by hand: the file is
+        125,665 bytes, so the old bound refuses what the new one admits. If a
+        future edit shrank the fixture below 64 KiB this control fails and the
+        test above stops being evidence.
+        """
+        self._resolver(pad_to=125_665)
+        size = (self.root / "bionic/adrs/summaries/resolver.json").stat().st_size
+        self.assertGreater(size, 65536,
+                           "the fixture must exceed the OLD bound or it tests nothing")
+        self.assertLessEqual(size, _load_script().RESOLVER_LIMIT)
+
+    def test_exactly_at_the_bound_is_admitted(self):
+        self._resolver(pad_to=_load_script().RESOLVER_LIMIT)
+        self._report_citing(self.LIVE)
+        self.assert_resolved()
+
+    def test_one_byte_over_the_bound_is_refused_by_name(self):
+        self._resolver(pad_to=_load_script().RESOLVER_LIMIT + 1)
+        self._report_citing(self.LIVE)
+        r = self.run_cli()
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("exceeds", r.stderr)
+        self.assertIn(str(_load_script().RESOLVER_LIMIT), r.stderr)
+        # The unit too, derived the way the message derives it -- so moving the
+        # constant cannot leave a correct number beside a stale unit.
+        self.assertIn(f"{_load_script().RESOLVER_LIMIT // (1024 * 1024)} MiB", r.stderr)
+
+    def test_an_oversized_resolver_leaves_the_index_bytes_untouched(self):
+        self._resolver(pad_to=1000)
+        self._report_citing(self.LIVE)
+        self.assertEqual(self.run_cli().returncode, 0)
+        before = (self.reviews / "index.md").read_bytes()
+        self._resolver(pad_to=_load_script().RESOLVER_LIMIT + 1)
+        self.assertEqual(self.run_cli().returncode, 2)
+        self.assertEqual((self.reviews / "index.md").read_bytes(), before)
+
+    def test_a_retired_slug_still_counts_as_existing(self):
+        self._resolver(pad_to=125_665)
+        self._report_citing(self.RETIRED)
+        self.assert_resolved()
+
+    def test_an_unknown_slug_is_refused_as_naming_nothing(self):
+        self._resolver(pad_to=125_665)
+        self._report_citing("rule:no-such-slug")
+        r = self.run_cli()
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("no surface in the tree", r.stdout + r.stderr)
+
+    def test_malformed_resolvers_are_refused_by_name_at_the_new_bound(self):
+        """Raising the threshold weakened no other refusal."""
+        self._report_citing(self.LIVE)
+        for body, needle in (('{"slugs":', "does not parse as JSON"),
+                             ('["a"]', "at its top level"),
+                             ('{"slugs":[],"retired_slugs":{}}', "is a map keyed by rule slug"),
+                             ('', "does not parse as JSON")):
+            with self.subTest(body=body[:20]):
+                self._resolver(body=body)
+                r = self.run_cli()
+                self.assertEqual(r.returncode, 2)
+                self.assertIn(needle, r.stderr)
+
+
 class LocatorProbeTestCase(_Harness):
     """The `resolved` locator's existence probe, bounded to the repo root.
 
@@ -1441,10 +1573,25 @@ class HandleSurfaceTestCase(_Harness):
                                 "not a regular file")
 
     def test_an_oversize_resolver_is_an_environment_error(self):
-        (self.resolver_dir() / "resolver.json").write_text(
-            '{"slugs": {"a": "' + "x" * 70000 + '"}}', encoding="utf-8")
+        """Oversize is still an environment error; the threshold moved, not the lane.
+
+        The fixture is sized from `RESOLVER_LIMIT` rather than from a literal,
+        so it tracks the bound instead of pinning a number that a justified
+        change to the bound would falsify. It used to write 70,000 bytes
+        against a 64 KiB threshold; 70,000 bytes is now a perfectly ordinary
+        resolver, and asserting a refusal on it would pin the very defect this
+        file's `ResolverSizeBoundTestCase` exists to keep out — a correct,
+        corpus-sized projection refused as implausible.
+        """
+        limit = _load_script().RESOLVER_LIMIT
+        filler = "x" * (limit + 1 - len('{"slugs": {"a": ""}}'))
+        path = self.resolver_dir() / "resolver.json"
+        path.write_text('{"slugs": {"a": "' + filler + '"}}', encoding="utf-8")
+        self.assertGreater(path.stat().st_size, limit,
+                           "the fixture must exceed the bound or it tests nothing")
         self.record("rule:some-slug")
-        self.assert_environment(self.run_probe(), "resolver.json", "64 KiB")
+        self.assert_environment(self.run_probe(), "resolver.json",
+                                f"{limit // (1024 * 1024)} MiB")
 
     def test_a_resolver_whose_top_level_is_a_list_is_an_environment_error(self):
         (self.resolver_dir() / "resolver.json").write_text(
@@ -1879,6 +2026,71 @@ class CarriageReturnLaneTestCase(_Harness):
         self.assertEqual(result.returncode, 0, (result.stdout, result.stderr))
         self.assertEqual(self.index.read_bytes(), lf_index)
 
+
+def _assessed(date: str, *, row: tuple, entry: str) -> str:
+    """A lifecycle report assessing one part of OBJ-1.
+
+    `row` is the seven-column assessment row; `entry` is the part's
+    `measured_objectives` body, or `""` for a report carrying no key. No
+    findings and no lifecycle records — the corpus exercises the cross-date
+    carryover check, not the standing arc.
+    """
+    key = f"measured_objectives:\n{entry}" if entry else ""
+    return (
+        f"---\ntype: adr-review\ndate: {date}\nreport_grammar: lifecycle\n"
+        f"dismissed: []\n{key}---\n\n"
+        f"# Decision review \u2014 {date}\n\n"
+        "| finding id | section | objective | proposed act | size |\n"
+        "|---|---|---|---|---|\n\n"
+        "## Propose\n\n## Amend\n\n## Repair\n\n## Revoke\n\n"
+        "## Keep\n\n## Coverage\n\n"
+        "| objective | measure | evidence | locator | domains | "
+        "conclusion | findings |\n"
+        "|---|---|---|---|---|---|---|\n"
+        "| " + " | ".join(str(c) for c in row) + " |\n")
+
+
+# The part is blocked on the first date, so it MUST carry an entry there; it
+# discriminates on the second, so `validate_structure` alone accepts the
+# second report with the entry dropped. Only the cross-date check refuses it.
+_BLOCKED = ("OBJ-1", "OBJ-1.1 \u2014 a claim", "unavailable", "a/p.md", "d",
+            "inconclusive", "\u2014")
+_MEASURED = ("OBJ-1", "OBJ-1.1 \u2014 a claim", "resolved", "a/p.md", "d",
+             "gap", "\u2014")
+_BLOCKED_ENTRY = ("  - objective: OBJ-1\n    part: OBJ-1.1\n"
+                  "    outcome: attempted\n    measure_digest: sha256:same\n"
+                  "    blocker: no baseline\n")
+_MEASURED_ENTRY = ("  - objective: OBJ-1\n    part: OBJ-1.1\n"
+                   "    outcome: measured\n    measure_digest: sha256:same\n"
+                   "    evidence: a/p.md\n")
+
+
+class PartCarryoverLaneTestCase(_Harness):
+    """The corpus pass runs `check_part_carryover`, not just `validate_structure`.
+
+    The module's own tests pin the check's behavior; these pin that the
+    regenerator CALLS it. Remove the call and the first test exits 0.
+    """
+
+    def test_dropping_a_carried_part_entry_refuses_through_the_cli(self):
+        self.write("2026-09-09.md",
+                   _assessed("2026-09-09", row=_BLOCKED, entry=_BLOCKED_ENTRY))
+        self.write("2026-09-10.md",
+                   _assessed("2026-09-10", row=_MEASURED, entry=""))
+        proc = self.run_cli("--dry-run")
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn("carried a part-level", proc.stdout)
+
+    def test_carrying_it_forward_is_the_control(self):
+        self.write("2026-09-09.md",
+                   _assessed("2026-09-09", row=_BLOCKED, entry=_BLOCKED_ENTRY))
+        self.write("2026-09-10.md",
+                   _assessed("2026-09-10", row=_MEASURED, entry=_MEASURED_ENTRY))
+        proc = self.run_cli("--dry-run")
+        # `--dry-run` exits 1 on DRIFT here (the fixture repo has no index
+        # yet), so the control reads the validation lane, not the exit code.
+        self.assertNotIn("validation_errors", proc.stdout)
+        self.assertNotIn("carried a part-level", proc.stdout)
 
 class WriterLaneTestCase(_Harness):
     """The WRITE side's environment lane: the index cannot be created."""

@@ -1,15 +1,15 @@
-<!-- generated-from: USER_GUIDE.md@sha256:527828c70fb968549b90a0c62f12749f662455ff46031ad910eda751d487903e; model: claude-fable-5.1; date: 2026-09-09 -->
-# Using crux
+<!-- generated-from: USER_GUIDE.md@sha256:527828c70fb968549b90a0c62f12749f662455ff46031ad910eda751d487903e; model: claude-fable-5.1; date: 2026-09-10 -->
+# Working with `bionic/` in your project
 
-crux is a Claude Code plugin that turns a `bionic/` folder in your project into a maintained knowledge base you and Claude share — seven concerns, plus the two default-on surfaces `arch` and `observations`. **You do not write these docs by hand.** You curate, decide, and discuss. Claude does the bookkeeping.
+crux keeps your project's documentation in `bionic/` — seven concerns, plus the two default-on surfaces `arch` and `observations`. **You do not write these docs by hand.** You curate, decide, and discuss. Claude does the bookkeeping.
 
-This guide is for humans. If you are an LLM agent picking up a repo that uses crux, read that repo's `bionic/CLAUDE.md` — that's the operational schema.
+This guide is for humans. If you are an LLM agent picking up a crux-managed repo, read `bionic/CLAUDE.md` — that's the operational schema.
 
 ---
 
 ## At a glance (the 30,000ft view)
 
-There are four moving parts:
+crux turns a `./bionic/` folder into a maintained knowledge base that you and Claude share. There are four moving parts:
 
 1. **The `bionic/` tree — seven concerns, plus two default-on surfaces.** Code docs, research wiki, ADRs, briefs, work journal, promptbooks, invariants — plus the derived `arch` map and the `observations` records. You curate and decide; Claude does the bookkeeping. → [The seven concerns](#the-seven-concerns)
 2. **Skills — natural language, no slash commands.** "propose an ADR", "process inbox", "audit docs", "start a cycle", "forge a skill". Each is triggered by a phrase routed through the skill's description. → [What to say to Claude](#what-to-say-to-claude) (the README has the full catalog)
@@ -53,7 +53,7 @@ You read the wiki. Claude writes it.
 
 ## The seven concerns
 
-_This guide names the default `bionic/` layout. In a repo with a custom `docs_dir` (see [Per-project configuration](#per-project-configuration-the-repo-root-bionicyml-file)), that directory takes the place of `bionic/` everywhere below._
+_This guide names the default `bionic/` layout. In a repo with a custom `docs_dir`, that directory takes the place of `bionic/` everywhere below._
 
 | Directory | What lives there | Who edits |
 |---|---|---|
@@ -91,7 +91,7 @@ crux ships ten **agents** — Claude Code subagents that operate the skills abov
 - **wayfinder** goes ahead and finds the way through large/uncertain or external data — reads it in an isolated context, judges its fitness for your purpose, and returns a verdict + condensed digest so a primary spends its own context only on proven-fit content (read-only; the only agent with `WebFetch`/`WebSearch`, fenced by an egress guardrail).
 - **night-gardener** is the overnight presence — runs as a scheduled routine, reviews what changed since your last move, and leaves a morning note under `bionic/garden/` (ideas, codebase improvements, missing tests/CI/guards, research, news). Turn-based (skips when only her own work changed), full co-CTO behind existing gates, never pushes. Dismiss or snooze her advice via `bionic/garden/tending.md` — no acknowledgment needed. Her news pass reads a curated source list via the `read-news` skill.
 
-The split is enforced by tooling, not etiquette — a librarian *cannot* write, a reviewer *cannot* edit, a developer *cannot* re-delegate. The agents embed the craft disciplines they need (TDD, verification, debugging, two-stage review) so they're self-contained. They become dispatchable once the plugin is installed and the session is restarted.
+The split is enforced by tooling, not etiquette — a librarian *cannot* write, a reviewer *cannot* edit, a developer *cannot* re-delegate. The agents embed the craft disciplines they need (TDD, verification, debugging, two-stage review) so they're self-contained. They become dispatchable once the plugin is installed/upgraded and the session is restarted.
 
 | Agent | Reach for it when you want… | Bounded so it cannot… |
 |---|---|---|
@@ -153,7 +153,7 @@ Categories: `decision | implementation | bug | learning | blocker | refactor | m
 
 ### Planning multi-step work — promptbooks & cycles
 
-Ways to drive multi-step work, in increasing rigor:
+Several ways to drive multi-step work, in increasing rigor:
 
 - **"Start a cycle for X"** (`dev-cycle`) — for **net-new / architectural** work. Assembles a tracked promptbook of ADR + dev + review modules: a decision is recorded as an ADR and council-reviewed, implemented, then independently reviewed (≥13 prompts).
 - **"Iterate on X"** / **"remediate X"** (`iterate`) — for **non-architectural fixes** (bugs, drift, refinements to existing behavior). Same council + review rigor, but a *verify* module (reproduce + root-cause + council-review the diagnosis) instead of an ADR — there's no decision to record. If the verify council finds the work *is* actually architectural, it stops and routes you to `dev-cycle`.
@@ -170,7 +170,7 @@ Books and runs are structured `.yaml` documents validated against a JSON Schema 
 - **"Extract code docs"** → runs the extraction dispatcher per `bionic/manifest.yml`. Regenerates `bionic/code/` from source.
 - **"Verify code docs"** → dry-run version. Reports drift without writing.
 
-Configure which extractors run by editing `code.extractors:` in `bionic/manifest.yml`. Day-one extractors: Elixir, fallback (header-comment scrape). More languages land as extractor plugins in later releases.
+Configure which extractors run by editing `code.extractors:` in `bionic/manifest.yml`. Day-one extractors: Elixir, fallback (header-comment scrape). More languages land as extractor plugins with the plugin.
 
 ### Summarizing the current architecture
 
@@ -199,19 +199,18 @@ Run after every ~10 writes, after a large refresh, before any release.
 
 Run the review weekly. `cleanup-campsite` nudges when the newest report is older than `adr_review_due_days`, which is seven by default.
 
-### Closing capability gaps and reflecting
+### Learning and growing capability
 
-**`forge-skill`** closes a capability gap mid-task by autonomously authoring or revising a project-local skill under `.claude/skills/`. Trigger phrases: *"forge a skill"*, *"author a skill for this"*, *"close this capability gap"*. It runs autonomously and reports after the fact — propose-first (wait for approval) applies only when the capability is outward-facing or irreversible (external sends, spend, publishing), would touch anything outside the repo or any secrets, or when the gap would change project structure or external surfaces (those take the brief/ADR path instead). Every forge act is recorded in the append-only **forge log at `.claude/skills/forge-log.md`** — a reviewable history of what was authored, when, and why. It's a prose workflow — it needs no API keys of its own.
-
-**`retrospective`** is purposeful reflection over finished work. Trigger phrases: *"what should we learn from recent work"*, *"run a retrospective"*, *"retrospective over the last N books"*. It mines `bionic/log.md`, the work journal, and recent run snapshots to surface patterns; distills findings into ≤2 skill proposals; gates each proposal through the council before building it via `forge-skill`. Outcomes are recorded with a `Retrospective:` journal entry (the `## [YYYY-MM-DD HH:MM] learning | Retrospective: …` heading) — the marker `cleanup-campsite` tracks to nudge you when enough archived books have accumulated since the last retrospective.
+- **"Forge a skill"** / **"author a skill for this"** / **"close this capability gap"** → `forge-skill` closes a capability gap mid-task by autonomously authoring or revising a project-local skill under `.claude/skills/`. It runs autonomously and reports after the fact — propose-first (wait for approval) applies only when the capability is outward-facing or irreversible (external sends, spend, publishing), would touch anything outside the repo or any secrets, or when the gap would change project structure or external surfaces (those take the brief/ADR path instead). Every forge act is recorded in the append-only **forge log at `.claude/skills/forge-log.md`** — a reviewable history of what was authored, when, and why. It needs no API keys of its own.
+- **"What should we learn from recent work"** / **"run a retrospective"** / **"retrospective over the last N books"** → `retrospective` mines `bionic/log.md`, the work journal, and recent run snapshots to surface patterns; distills findings into ≤2 skill proposals; gates each proposal through the council before building it via `forge-skill`. Outcomes are recorded with a `Retrospective:` journal entry — the marker `cleanup-campsite` tracks to nudge you when enough archived books have accumulated since the last retrospective.
 
 ---
 
 ## Tools & scripts
 
-Everything Claude does is backed by Python scripts shipped inside the installed plugin at `${CLAUDE_PLUGIN_ROOT}/scripts/` — stdlib-only for the docs tooling; the multi-model substrate (below) adds PEP 723-declared dependencies. **You almost never run these directly** — the skills invoke them for you — but knowing they exist helps when something looks off.
+Everything Claude does is backed by Python scripts shipped inside the installed plugin under `${CLAUDE_PLUGIN_ROOT}/scripts/` — stdlib-only for the docs tooling; the multi-model substrate (below) adds PEP 723-declared dependencies. **You almost never run these directly** — the skills invoke them for you — but knowing they exist helps when something looks off.
 
-`${CLAUDE_PLUGIN_ROOT}` is the plugin's installed root; Claude Code sets it inside sessions.
+`${CLAUDE_PLUGIN_ROOT}` is the plugin's installed root; Claude Code sets it automatically inside sessions.
 
 **Invoked by skills (you don't run these):**
 
@@ -223,18 +222,18 @@ Everything Claude does is backed by Python scripts shipped inside the installed 
 | `migrate-promptbooks.py` | `migrate-promptbooks` | Translates legacy `.md` books/runs → structured `.yaml`. |
 | `visualize-run-progress.py` | `visualize-run-progress` | Renders a run snapshot as a terminal progress bar + a byte-stable markdown artifact. |
 
-**Validators (run on demand or in CI — they never publish):**
+**Validators (run on demand or in your CI — they never publish):**
 
 | Script | What it does |
 |---|---|
-| `validate-promptbook.py` | Validates a promptbook or run `.yaml` against its draft-2020-12 JSON Schema **and** the cycle-coverage invariants (`--kind promptbook\|run`). This is the gate `dev-cycle`, `iterate` and `patch-cycle` books must pass. |
+| `validate-promptbook.py` | Validates a promptbook or run `.yaml` against its draft-2020-12 JSON Schema **and** the cycle-coverage invariants (`--kind promptbook|run`). This is the gate `dev-cycle`, `iterate` and `patch-cycle` books must pass. |
 | `check-blast-radius.py` | Compares a `patch` run's git-recorded changed paths against the blast radius its book declared. `archive-promptbook` runs it as a precondition. |
 
 > **PyYAML requirement.** `validate-promptbook.py`, `migrate-promptbooks.py`, and `visualize-run-progress.py` require a real YAML parser — the bundled minimal fallback isn't faithful enough for validation verdicts or content hashes. Without PyYAML they automatically re-run themselves under `uv run --no-project --with pyyaml>=6.0` when `uv` is installed (announced on stderr; may fetch PyYAML from your configured index on first use), or exit **2** with a remediation message — exit 2 always means *your environment*, never *your docs*. Locked-down environments can set `CRUX_NO_UV_REEXEC=1` to disable the auto-repair and install PyYAML themselves.
 >
 > **Dependency resolution for shipped scripts (PEP 723).** Shipped scripts whose documented invocation is `uv run …` carry PEP 723 inline metadata; on first use, `uv` resolves those dependencies — **unpinned by hash** — from *your configured index* (cached afterwards). Same trust model as the PyYAML re-exec above. Hermetic or locked-down environments should pre-provision the declared dependencies themselves rather than letting first use touch the network; for stricter reproducibility pin resolution with `uv run --exclude-newer <date>` (or the `UV_EXCLUDE_NEWER` environment variable). `uv` itself is a prerequisite for those invocations — without it the command fails at the shell (`command not found`); install it from https://docs.astral.sh/uv/.
 
-**The multi-model substrate** lives under `${CLAUDE_PLUGIN_ROOT}/scripts/crux/`: the LLM router (`call-llm`), the multi-model `council`, `srde`, the tracer, and the identity / knowledge / task-planning modules that power the agent layer. These need API keys (next section) and run under `uv` (Python ≥3.11, per each script's PEP 723 header); `serve-llm` exposes the router over HTTP for non-Python clients.
+**The multi-model substrate** ships under `${CLAUDE_PLUGIN_ROOT}/scripts/crux/`: the LLM router (`call-llm`), the multi-model `council`, `srde`, the tracer, and the identity / knowledge / task-planning modules that power the agent layer. These need API keys (next section) and run under `uv` (Python ≥3.11, per each script's PEP 723 header); `serve-llm` exposes the router over HTTP for non-Python clients.
 
 The **`crux-env` CLI** keeps your API keys outside any repo — its own section follows.
 
@@ -319,7 +318,7 @@ For rotation: `rm` the old, `set` the new. (A future `rotate` subcommand may do 
 - ❌ **Never edit `~/.crux/log/crux-env.log`** to hide that you rotated a compromised key. The log is the audit trail.
 - ✅ **Do rotate** any key you suspect was leaked — the cost is one `set` command.
 
-The full byte-level spec for the secrets store and CLI contract is in your project's `bionic/CLAUDE.md` §13.
+The full byte-level spec for the secrets store and CLI contract lives in your project's `bionic/CLAUDE.md` §13.
 
 ---
 
@@ -338,7 +337,7 @@ artifact_prefix: ""
 `.bionic.yml` supersedes the legacy repo-root `.crux` file (still read for back-compat). Every tree crux creates or migrates carries one — `init-docs` writes it on bootstrap, and `audit-docs --migrate` writes it on the 4→5 upgrade — so the layout is a read rather than an inference. Commit changes to it when you want a non-default convention:
 
 - **`docs_dir`** — relocate the tree (e.g. `documentation/` or `meta/docs/`). Repo-root-relative, no absolute paths, no `..`. The default is `bionic`.
-- **`artifact_prefix`** — brand artifact ids so they're distinguishable across repos: with `artifact_prefix: "CRX"`, new books and ADRs get prefixed ids like `CRX-ADR-0012`. Existing artifacts are never renamed.
+- **`artifact_prefix`** — brand artifact ids so they're distinguishable across repos: with `artifact_prefix: "CRX"`, new books and ADRs get ids prefixed `CRX-`. Existing artifacts are never renamed.
 
 To use a non-default `docs_dir` in a new repo, copy the shipped template to the repo root and edit it **before** you say "init docs" — `init-docs` writes this file itself when it is absent and merges (never clobbers) one you already committed:
 
@@ -360,7 +359,7 @@ Full contract: your project's `bionic/CLAUDE.md` §14.
 
 ## Where to look first
 
-You just joined a repo that uses crux. Read in this order:
+You've just opened a crux-managed project. Read in this order:
 
 1. **`bionic/CLAUDE.md`** (~1000 lines — skim §1–§7 first) — the operational schema. The single source of truth for what lives where and who edits what.
 2. **`bionic/index.md`** — rollup catalog of everything. Section per concern with counts.
@@ -394,9 +393,9 @@ If something feels wrong (a contradiction, a stale page, a missing source), say 
 
 ## Day-one quick start
 
-You're in a fresh repo with `bionic/` just initialized (say *"init docs"* if it isn't yet). To start using it:
+You're in a fresh repo with `bionic/` just initialized. To start using it:
 
-1. **Capture today's intent as an ADR.** Say: *"Propose an ADR explaining why we're using crux for this project."* You'll review, then accept it: *"Accept ADR-NNNN."*
+1. **Capture today's intent as an ADR.** Say: *"Propose an ADR explaining why we're using crux for this project."* You'll review, then *"Accept ADR-0001."*
 2. **Capture the planning material.** Drop your existing design notes / specs / chat exports into `bionic/inbox/` and say *"Process inbox."* Claude classifies each item and routes the research ones through `ingest-research`.
 3. **Plan the first chunk of work.** Say: *"New promptbook for <thing>."* Co-author the prompt list. Then *"Run it."*
 4. **Journal at end of day.** Say: *"Log today's work — `<one line summary>`."*
@@ -413,13 +412,17 @@ You're in a fresh repo with `bionic/` just initialized (say *"init docs"* if it 
 | ADR was accepted but it's wrong | Don't edit — write a new ADR that supersedes it. |
 | Research synthesis page contradicts itself | Run *"refresh synthesis"* — Claude walks you through reconciliation. |
 | Lost track of a promptbook's progress | `bionic/promptbooks/index.md` shows current_run and percent complete. |
-| Whole `bionic/` tree feels broken | Run *"audit docs"* — the full integrity suite across all concerns. |
-| A script exits `2` | That's your environment (missing `uv`, PyYAML, or a parser), never your docs — read the remediation message. |
+| Whole `bionic/` tree feels broken | Run *"audit docs"* — the full check suite across all concerns. |
+| A script exits `2` | That's your environment (missing `uv`, PyYAML, or a `tree-sitter` grammar), never your docs — follow the remediation message. |
 
 ---
 
 ## Plugin and schema
 
-crux maintains your documentation tree at `schema_version 5` (the `bionic/` layout). Install or upgrade via the marketplace — `/plugin marketplace add bionic-coding/crux` then `/plugin install crux@crux` in Claude Code, or `codex plugin marketplace add bionic-coding/crux` then `codex plugin add crux@crux` in Codex. After upgrading, run *"audit docs --migrate"* if the tree is on an older schema_version. Codex users can additionally install the ten crux role agents into a repository with the `install-codex-agents` skill.
+crux maintains your documentation tree at `schema_version 5` (the `bionic/` layout). The plugin's installed copy lives at `${CLAUDE_PLUGIN_ROOT}`. Install or upgrade via the marketplace — `/plugin marketplace add bionic-coding/crux` then `/plugin install crux@crux` in Claude Code, or `codex plugin marketplace add bionic-coding/crux` then `codex plugin add crux@crux` in Codex; after upgrading, run *"audit docs --migrate"* if the tree is on an older schema_version. Codex users can additionally install the ten crux role agents into a repository with the `install-codex-agents` skill.
 
 When the plugin's schema changes, run *"audit docs --migrate"* to bring `bionic/` up to date.
+
+---
+
+_`init-docs` writes a copy of this guide into your project. Re-running `init-docs --force` overwrites that copy._

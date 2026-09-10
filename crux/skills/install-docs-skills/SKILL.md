@@ -1,6 +1,6 @@
 ---
 name: install-docs-skills
-description: "Install or upgrade the Crux plugin in Codex or Claude Code. Use when the user says \"install docs skills\", \"add this plugin\", \"set up crux\", or \"upgrade docs suite\", asks about the installed version, or the Crux plugin is not loaded. In Codex, provide `codex plugin marketplace add bionic-coding/crux` then `codex plugin add crux@crux`; in Claude Code, provide its marketplace slash commands. Report the installed manifest before guiding a schema migration. Distinct from `init-docs`, which bootstraps the target repository's docs tree."
+description: "Use when the user says \"install docs skills\", \"add this plugin\", \"set up crux\", or \"upgrade docs suite\", asks about the installed version, or the Crux plugin is not loaded. Install or upgrade the Crux plugin in Codex or Claude Code. In Codex, provide `codex plugin marketplace add bionic-coding/crux` then `codex plugin add crux@crux`; in Claude Code, provide its marketplace slash commands. Report the installed manifest before guiding a schema migration. Distinct from `init-docs`, which bootstraps the target repository's docs tree."
 disable-model-invocation: true
 metadata:
   tags: "installation, plugin, distribution"

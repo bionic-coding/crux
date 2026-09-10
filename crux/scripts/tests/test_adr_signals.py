@@ -155,6 +155,235 @@ class CarveOutCountTests(unittest.TestCase):
         self.assertEqual(record(TRIPS, "carve_out_count")["value"], 3)
 
 
+class DownstreamInstallShapeTests(unittest.TestCase):
+    """The whole envelope over a root that is NOT a crux development checkout.
+
+    Both corpus roots carry a `crux/scripts/` marker, so every other
+    full-envelope case in this file is a DEV-repo run. The shape a downstream
+    install actually has — a `bionic/` tree and no `crux/` directory at all —
+    was never exercised end to end, so nothing pinned that the signals degrade
+    by NAMING what is absent instead of inventing a value or crashing.
+    """
+
+    def _downstream(self) -> Path:
+        tmp = tempfile.TemporaryDirectory(prefix="adr-signals-downstream-")
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        docs = root / "bionic"
+        (docs / "adrs").mkdir(parents=True)
+        (docs / "journal").mkdir(parents=True)
+        (root / ".bionic.yml").write_text(
+            'config_version: "1"\ndocs_dir: bionic\n', encoding="utf-8")
+        (docs / "manifest.yml").write_text(
+            'schema_version: "5"\nadr:\n  next_number: 2\n'
+            'journal:\n  friction_line_from: "2026-02-01"\n', encoding="utf-8")
+        (docs / "adrs" / "ADR-0001-a-downstream-decision.md").write_text(
+            "---\nid: ADR-0001\nstatus: Accepted\ntitle: A downstream decision\n"
+            "date: 2026-02-02\namends: []\nsupersedes: []\n---\n\n# A downstream decision\n",
+            encoding="utf-8")
+        (docs / "log.md").write_text("# log\n", encoding="utf-8")
+        return root
+
+    def test_no_crux_directory_exists_in_the_fixture(self):
+        """Positive control: the fixture really is the downstream shape."""
+        root = self._downstream()
+        self.assertFalse((root / "crux").exists())
+        self.assertFalse((root / "CLAUDE.md").exists())
+
+    def test_the_envelope_still_carries_every_signal(self):
+        env, _ = sig.build(self._downstream(), TODAY)
+        names = [r["signal"] for r in env["signals"]]
+        self.assertEqual(len(names), len(set(names)))
+        for expected in ("amendment_fan_in", "carve_out_count", "paper_only",
+                         "dormancy_days", "friction_citations", "release_cadence",
+                         "schema_growth", "gate_count"):
+            self.assertIn(expected, names)
+
+    def test_every_record_keeps_the_envelope_contract(self):
+        env, _ = sig.build(self._downstream(), TODAY)
+        assert_envelope_contract(self, env)
+
+    def test_absent_dev_surfaces_are_named_never_invented(self):
+        """`unmeasurable` with a filter, never a fabricated zero."""
+        env, _ = sig.build(self._downstream(), TODAY)
+        by = {r["signal"]: r for r in env["signals"]}
+        for name in ("release_cadence", "gate_count"):
+            self.assertEqual(by[name]["verdict"], "unmeasurable", name)
+            self.assertIsNone(by[name]["value"], name)
+            self.assertIsNotNone(by[name]["filter"], name)
+
+    def test_a_missing_doctrine_index_is_an_error_not_a_silent_zero(self):
+        """The absence is REPORTED. A downstream tree without doctrine says so."""
+        _, errors = sig.build(self._downstream(), TODAY)
+        self.assertTrue(errors, "a downstream root with no doctrine index must report it")
+        self.assertTrue(any("doctrine" in e.get("input", "") or "doctrine" in e.get("problem", "")
+                            for e in errors), errors)
+
+
+class FrictionMeasuredZeroTests(unittest.TestCase):
+    """A recorded adoption date plus a post-adoption entry with NO friction.
+
+    This is the lane that separates "nobody recorded friction" from "nobody has
+    measured". `signal_friction_citations` returns `unmeasurable` when no entry
+    is dated at or after the boundary, so the corpus roots exercise
+    `unmeasurable` (quiet) and a positive count (trips) but never a MEASURED
+    ZERO. A zero that cannot be distinguished from an unmeasured window is the
+    exact ambiguity the adoption boundary exists to remove.
+    """
+
+    def _tree(self, journal_body: str) -> tuple[Path, Path]:
+        tmp = tempfile.TemporaryDirectory(prefix="adr-signals-zero-")
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        docs = root / "bionic"
+        (docs / "journal").mkdir(parents=True)
+        (docs / "manifest.yml").write_text(
+            'schema_version: "5"\njournal:\n  friction_line_from: "2026-02-01"\n',
+            encoding="utf-8")
+        (docs / "journal" / "2026-02.md").write_text(journal_body, encoding="utf-8")
+        (docs / "log.md").write_text("# log\n", encoding="utf-8")
+        return root, docs
+
+    NO_FRICTION = ("# 2026-02\n\n## [2026-02-10 09:00] implementation | a unit of work\n\n"
+                   "Did the thing; nothing got in the way.\n")
+    WITH_FRICTION = ("# 2026-02\n\n## [2026-02-10 09:00] implementation | a unit of work\n\n"
+                     "Did the thing.\n\nFriction: the manifest key had to be hand-edited.\n")
+
+    def _friction(self, body: str) -> dict:
+        root, docs = self._tree(body)
+        ff = sig.read_journal_friction_from((docs / "manifest.yml").read_text(encoding="utf-8"))
+        self.assertEqual(ff, "2026-02-01", "fixture must record an adoption date")
+        return sig.signal_friction_citations(root, docs, "bionic", ff)
+
+    def test_a_post_adoption_entry_with_no_friction_is_a_measured_zero(self):
+        rec = self._friction(self.NO_FRICTION)
+        self.assertEqual(rec["verdict"], "computed")
+        self.assertEqual(rec["value"], 0)
+
+    def test_positive_control_the_same_tree_with_a_friction_line_counts_one(self):
+        """Proves the zero above is a MEASUREMENT, not a fixture that counts nothing."""
+        rec = self._friction(self.WITH_FRICTION)
+        self.assertEqual(rec["verdict"], "computed")
+        self.assertEqual(rec["value"], 1)
+
+    def test_a_window_wholly_before_adoption_stays_unmeasurable(self):
+        """The contrast that gives the zero its meaning: no entry at or after."""
+        body = ("# 2026-01\n\n## [2026-01-10 09:00] implementation | before adoption\n\n"
+                "Friction: this predates the boundary.\n")
+        root, docs = self._tree("# 2026-02\n")
+        (docs / "journal" / "2026-01.md").write_text(body, encoding="utf-8")
+        rec = sig.signal_friction_citations(root, docs, "bionic", "2026-02-01")
+        self.assertEqual(rec["verdict"], "unmeasurable")
+        self.assertIsNone(rec["value"])
+
+
+class GovernsExemptCommentedBlockKeyTests(unittest.TestCase):
+    """`read_governs_exempt` opens the `adr:` block through a comment.
+
+    The sibling of the `journal:` block-key defect, and the same cause: the
+    shipped `manifest.yml.tmpl` comments every column-0 block key, and this
+    reader matched `^adr\\s*:\\s*$`. A commented `adr:` therefore never opened
+    the block, every recorded exemption read as absent, and the carve-out count
+    fell silently to zero on a manifest that records exemptions.
+    """
+
+    EXEMPT = ["ADR-0093", "ADR-0094"]
+
+    def _ids(self, adr_block_key: str, body: str = "  governs_exempt: [ADR-0093, ADR-0094]\n"):
+        return sig.read_governs_exempt(
+            'schema_version: "5"\n' + adr_block_key + body + "promptbook:\n  next_number: 1\n")
+
+    def test_uncommented_and_commented_keys_agree(self):
+        """The paired comparison: same non-empty exemptions, both spellings."""
+        uncommented = self._ids("adr:\n")
+        commented = self._ids("adr:  # ADR allocation\n")
+        self.assertEqual(uncommented, self.EXEMPT)   # positive control
+        self.assertEqual(commented, uncommented)
+
+    def test_a_comment_abutting_the_colon_reads_the_exemptions(self):
+        self.assertEqual(self._ids("adr:# ADR allocation\n"), self.EXEMPT)
+
+    def test_the_mapping_member_shape_survives_a_commented_key(self):
+        """The comment tolerance widens the block key, never the member grammar."""
+        self.assertEqual(
+            self._ids("adr:  # c\n",
+                      '  governs_exempt: [{adr: ADR-0093, reason: "amends only"}]\n'),
+            ["ADR-0093"])
+
+    def test_an_absent_key_under_a_commented_block_is_empty(self):
+        """The absent-key control: empty because the key is absent, not hidden."""
+        self.assertEqual(self._ids("adr:  # c\n", "  next_number: 1\n"), [])
+
+    def test_an_empty_value_under_a_commented_key_is_empty(self):
+        self.assertEqual(self._ids("adr:  # c\n", "  governs_exempt: []\n"), [])
+
+    def test_a_malformed_member_carrying_no_adr_id_is_dropped(self):
+        """Malformed input still yields no fragment, commented key or not."""
+        self.assertEqual(self._ids("adr:  # c\n", '  governs_exempt: [{reason: "no id"}]\n'), [])
+
+    def test_a_different_column_0_key_prefixed_adr_does_not_open_the_block(self):
+        self.assertIsNotNone(self._ids("adrx:  # not the block\n"))
+        self.assertEqual(self._ids("adrx:  # not the block\n"), [])
+
+    def test_the_block_still_ends_at_the_next_column_0_key(self):
+        """A commented key opens the block; it does not stop it from closing."""
+        self.assertEqual(
+            sig.read_governs_exempt("adr:  # c\npromptbook:\n  governs_exempt: [ADR-0093]\n"), [])
+
+
+class JournalFrictionAdoptionReaderTests(unittest.TestCase):
+    """`read_journal_friction_from` opens the `journal:` block through a comment.
+
+    The shipped `manifest.yml.tmpl` comments every column-0 block key. A
+    `journal:` key carrying a trailing `#` comment never opened the block, so
+    the adoption date read as absent and every friction reader reported
+    `unmeasurable` against a manifest that records one. The value leg already
+    stripped its own comment; only the block key did not.
+    """
+
+    DATE = "2026-09-07"
+
+    def _read(self, manifest: str) -> str | None:
+        return sig.read_journal_friction_from(manifest)
+
+    def test_plain_block_key_reads_the_date(self):
+        """The positive control: without a comment the reader always worked."""
+        self.assertEqual(self._read(f"journal:\n  friction_line_from: {self.DATE}\n"), self.DATE)
+
+    def test_a_commented_block_key_reads_the_date(self):
+        self.assertEqual(
+            self._read(f"journal:  # the friction-line cohort boundary\n"
+                       f"  friction_line_from: {self.DATE}\n"), self.DATE)
+
+    def test_a_comment_abutting_the_colon_reads_the_date(self):
+        self.assertEqual(
+            self._read(f"journal:# boundary\n  friction_line_from: {self.DATE}\n"), self.DATE)
+
+    def test_the_shipped_template_block_reads_its_date(self):
+        """The exact spelling `manifest.yml.tmpl` ships, date substituted."""
+        self.assertEqual(self._read(
+            "# Journal concern.\n"
+            "journal:                           # The friction-line cohort boundary.\n"
+            f"  friction_line_from: {self.DATE}  # ISO date; set by init-docs.\n"), self.DATE)
+
+    def test_a_commented_key_with_a_null_value_is_still_null(self):
+        """The comment tolerance widens the block key, never the value grammar."""
+        self.assertIsNone(self._read("journal:  # boundary\n  friction_line_from: null\n"))
+
+    def test_a_commented_key_with_a_non_iso_value_is_still_none(self):
+        self.assertIsNone(self._read("journal:  # boundary\n  friction_line_from: soon\n"))
+
+    def test_a_different_column_0_key_prefixed_journal_does_not_open_the_block(self):
+        """`journalx:` is a different key; the comment tolerance must not match it."""
+        self.assertIsNone(
+            self._read(f"journalx:  # not the block\n  friction_line_from: {self.DATE}\n"))
+
+    def test_the_block_still_ends_at_the_next_column_0_key(self):
+        """A commented key opens the block; it does not stop it from closing."""
+        self.assertIsNone(
+            self._read(f"journal:  # boundary\nadr:\n  friction_line_from: {self.DATE}\n"))
+
+
 class GovernsExemptShapesTests(unittest.TestCase):
     """`read_governs_exempt` returns ids for both member shapes of the key.
 
@@ -1009,37 +1238,85 @@ TWO_RELEASE_CHANGELOG = (
 )
 
 
+#: Progressive CHANGELOG.md snapshots — each stage introduces exactly one
+#: dated heading over the last, without ever touching an already-dated one.
+#: Committed in sequence, each stage's commit becomes that version's release
+#: mark: the predicate (present in this blob, absent from the first-parent
+#: parent's) fires exactly once per version.
+CHANGELOG_SEED = "# Changelog\n\n## [Unreleased]\n\n### Added\n"
+
+CHANGELOG_WITH_1_0_0 = (
+    "# Changelog\n\n## [Unreleased]\n\n### Added\n\n"
+    "## [1.0.0] — 2026-01-01\n\n### Added\n- The first fictitious release.\n"
+)
+
+CHANGELOG_WITH_1_0_0_AND_1_1_0 = (
+    "# Changelog\n\n## [Unreleased]\n\n### Added\n\n"
+    "## [1.1.0] — 2026-01-11\n\n### Added\n- The second fictitious release.\n\n"
+    "## [1.0.0] — 2026-01-01\n\n### Added\n- The first fictitious release.\n"
+)
+# `CHANGELOG_WITH_1_0_0_AND_1_1_0` plus a 1.2.0 section is
+# `THREE_RELEASE_CHANGELOG`, defined above.
+
+
 class ReleaseCadenceTests(unittest.TestCase):
     def _cadence(self, root: Path) -> dict:
         return sig.signal_release_cadence(root, "bionic")
 
     @unittest.skipUnless(GIT, "git is not on PATH")
     def test_computed_over_a_repo_with_three_release_markers(self):
+        """Each dated heading is introduced by ITS OWN commit, so each
+        version resolves to a distinct release mark, and it is that
+        mark-bounded interval — never a subject scan — that `span_commits`
+        and `prep_commits` are computed over.
+
+        Independently hand-calculated: walking first-parent history
+        newest-first gives [v1.2.0-prep, work-d, v1.1.0-prep, work-c, work-b,
+        v1.0.0-prep, work-a, seed]. 1.1.0's interval EXCLUDES 1.0.0's mark and
+        INCLUDES its own: {v1.1.0-prep, work-c, work-b} — 3 commits, 1 of
+        them a declared preparation commit. 1.2.0's interval is
+        {v1.2.0-prep, work-d} — 2 commits, 1 preparation. 1.0.0 is the oldest
+        release: it has no previous release at all, so its interval is
+        unbounded — null on both members, never a guess at "runs to the end
+        of history".
+        """
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             _init_repo(root)
+            (root / "CHANGELOG.md").write_text(CHANGELOG_SEED, encoding="utf-8")
+            _commit(root, "seed")
+            _commit(root, "work a")
+            (root / "CHANGELOG.md").write_text(CHANGELOG_WITH_1_0_0, encoding="utf-8")
+            _commit(root, "Release prep v1.0.0")
+            _commit(root, "work b")
+            _commit(root, "work c")
+            (root / "CHANGELOG.md").write_text(CHANGELOG_WITH_1_0_0_AND_1_1_0,
+                                               encoding="utf-8")
+            _commit(root, "Release prep v1.1.0")
+            _commit(root, "work d")
             (root / "CHANGELOG.md").write_text(THREE_RELEASE_CHANGELOG, encoding="utf-8")
-            for subject in ("seed", "work a", "Release prep v1.0.0",
-                            "work b", "work c", "Release prep v1.1.0",
-                            "work d", "Release prep v1.2.0"):
-                _commit(root, subject)
+            _commit(root, "Release prep v1.2.0")
             _tag(root, "v1.2.0")
 
             rec = self._cadence(root)
             self.assertEqual(rec["verdict"], "computed")
-            # The interval measurement: 2026-01-01 -> 01-11 -> 01-26.
+            # The four changelog-only members: 2026-01-01 -> 01-11 -> 01-26.
             self.assertEqual(rec["value"]["releases"], 3)
             self.assertEqual(rec["value"]["intervals_days"], [10, 15])
-            # The per-release commit count, partitioned in the script over the
-            # first-parent subjects it read. 1.0.0 is the OLDEST matched prep
-            # subject, so its span runs to the end of the read history.
-            # Keys are `repr()`-delimited, so a reader can see where each
-            # version starts and ends.
+            self.assertEqual(rec["value"]["mean_interval_days"], 12.5)
+            self.assertEqual(rec["value"]["median_interval_days"], 12.5)
+            # The two git-dependent, mark-bounded members. Keys are
+            # `repr()`-delimited, so a reader can see where each version
+            # starts and ends.
+            self.assertEqual(rec["value"]["span_commits"],
+                             {"'1.0.0'": None, "'1.1.0'": 3, "'1.2.0'": 2})
             self.assertEqual(rec["value"]["prep_commits"],
-                             {"'1.0.0'": 2, "'1.1.0'": 2, "'1.2.0'": 1})
-            # Both rejected markers, with the coverage measured on this run.
+                             {"'1.0.0'": None, "'1.1.0'": 1, "'1.2.0'": 1})
+            # Both rejected markers, with the coverage measured on this run,
+            # plus the release-mark resolution stats.
             self.assertIn("1 of 3", rec["filter"])   # tags
-            self.assertIn("3 of 3", rec["filter"])   # release-prep subjects
+            self.assertIn("3 of 3 dated headings resolve", rec["filter"])
+            self.assertIn("2 of 3 releases have a bounded interval", rec["filter"])
 
     def test_unmeasurable_in_a_directory_carrying_no_changelog(self):
         # `quiet/` carries no CHANGELOG.md and is not a work tree. This
@@ -1091,29 +1368,724 @@ class ReleaseCadenceTests(unittest.TestCase):
             (root / "CHANGELOG.md").write_text(THREE_RELEASE_CHANGELOG, encoding="utf-8")
             self.assertEqual(self._cadence(root)["verdict"], "computed")
 
-    def test_a_failed_leg_leaves_prep_commits_null_and_keeps_computed(self):
-        # A changelog with no repository around it: the optional leg cannot
-        # run, and the verdict stays `computed` with `prep_commits` null.
+    def test_a_failed_leg_leaves_span_and_prep_commits_null_and_keeps_computed(self):
+        # A changelog with no repository around it: the contained git session
+        # cannot be established, so `span_commits` and `prep_commits` are
+        # null for every release and the verdict stays `computed` — the
+        # four changelog-only members are unaffected.
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "CHANGELOG.md").write_text(THREE_RELEASE_CHANGELOG, encoding="utf-8")
             rec = self._cadence(root)
             self.assertEqual(rec["verdict"], "computed")
-            self.assertIsNone(rec["value"]["prep_commits"])
+            self.assertEqual(rec["value"]["span_commits"],
+                             {"'1.0.0'": None, "'1.1.0'": None, "'1.2.0'": None})
+            self.assertEqual(rec["value"]["prep_commits"],
+                             {"'1.0.0'": None, "'1.1.0'": None, "'1.2.0'": None})
             # The computed verdict is real: the changelog legs measured.
             self.assertEqual(rec["value"]["intervals_days"], [10, 15])
             # The filter says the coverage was not measured rather than
             # printing a hardcoded number.
             self.assertIn("not measured", rec["filter"])
 
-    def test_the_fixture_changelog_computes_with_a_null_prep_commits_member(self):
+    def test_the_fixture_changelog_computes_with_null_span_and_prep_commits(self):
+        # `trips/` is a plain directory copy with no `.git` at all, so the
+        # contained git session cannot be established there either.
         rec = self._cadence(TRIPS)
         self.assertEqual(rec["verdict"], "computed")
         self.assertEqual(rec["value"]["intervals_days"], [5, 15])
-        self.assertIsNone(rec["value"]["prep_commits"])
+        self.assertTrue(all(v is None for v in rec["value"]["span_commits"].values()))
+        self.assertTrue(all(v is None for v in rec["value"]["prep_commits"].values()))
 
+
+# --------------------------------------------------------------------------
+# ADR-0109 — the release mark: `resolve_release_marks` and the interval it
+# bounds. Each case below is independently hand-calculated in its own
+# comment, never asserted by calling the function under test a second time.
+# --------------------------------------------------------------------------
+
+class ReleaseMarkTests(unittest.TestCase):
+    def _marks(self, root: Path):
+        legs = sig._GitLegs(root)
+        self.assertTrue(legs.usable, legs.reason)
+        marks, conditions, _capped = sig.resolve_release_marks(legs)
+        return marks, conditions
+
+    @unittest.skipUnless(GIT, "git is not on PATH")
+    def test_an_unmatched_heading_resolves_no_mark_and_never_widens_a_span(self):
+        """SCENARIO 2 — a missing release boundary reads null, never a
+        widened span. `1.1.0`'s heading is written to the WORKING TREE only
+        and never committed, so no commit satisfies the mark predicate for
+        it: it is a key of neither `marks` nor `conditions` at all — the
+        "no commit ever introduces this heading" case.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _init_repo(root)
+            (root / "CHANGELOG.md").write_text(CHANGELOG_SEED, encoding="utf-8")
+            _commit(root, "seed")
+            (root / "CHANGELOG.md").write_text(CHANGELOG_WITH_1_0_0, encoding="utf-8")
+            _commit(root, "Release prep v1.0.0")
+            _commit(root, "work a")
+            # 1.1.0 lands on disk but is never committed.
+            (root / "CHANGELOG.md").write_text(CHANGELOG_WITH_1_0_0_AND_1_1_0,
+                                               encoding="utf-8")
+
+            marks, conditions = self._marks(root)
+            self.assertIn("1.0.0", marks)
+            self.assertNotIn("1.1.0", marks)
+            self.assertNotIn("1.1.0", conditions)
+
+            # Through the real signal, taken WHILE 1.1.0 is still
+            # uncommitted: its interval is unbounded — null, never a guess
+            # that widens the span to "the rest of history".
+            rec = sig.signal_release_cadence(root, "bionic")
+            self.assertIsNone(rec["value"]["span_commits"]["'1.1.0'"])
+            self.assertIsNone(rec["value"]["prep_commits"]["'1.1.0'"])
+
+            # PAIRED POSITIVE CONTROL: committing that same content DOES
+            # resolve a mark for 1.1.0, so the null above is the missing
+            # commit and not a reader that never resolves a second version.
+            _commit(root, "Release prep v1.1.0")
+            marks2, conditions2 = self._marks(root)
+            self.assertIn("1.1.0", marks2)
+            self.assertEqual(conditions2, {})
+            control = sig.signal_release_cadence(root, "bionic")
+            self.assertIsNotNone(control["value"]["span_commits"]["'1.1.0'"])
+
+    @unittest.skipUnless(GIT, "git is not on PATH")
+    def test_two_prep_declarations_for_one_version_are_one_key_not_two(self):
+        """SCENARIO 4 — a version published to two targets (beta and
+        official) is ONE version and ONE key. Modelled here as two
+        "Release prep" commits inside the SAME release's interval — one
+        that only declares the release, and the one that actually
+        introduces its heading (and so becomes its mark) — so
+        `prep_commits` counts both under the single `'1.1.0'` key rather
+        than splitting into two.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _init_repo(root)
+            (root / "CHANGELOG.md").write_text(CHANGELOG_SEED, encoding="utf-8")
+            _commit(root, "seed")
+            (root / "CHANGELOG.md").write_text(CHANGELOG_WITH_1_0_0, encoding="utf-8")
+            _commit(root, "Release prep v1.0.0")
+            # A "beta" prep declaration, no changelog change yet — it sits
+            # INSIDE 1.1.0's future interval, before the commit that
+            # actually introduces the heading.
+            _commit(root, "Release prep v1.1.0 beta")
+            (root / "CHANGELOG.md").write_text(CHANGELOG_WITH_1_0_0_AND_1_1_0,
+                                               encoding="utf-8")
+            _commit(root, "Release prep v1.1.0 official")
+
+            rec = sig.signal_release_cadence(root, "bionic")
+            self.assertEqual(rec["verdict"], "computed")
+            # ONE key for 1.1.0 — never two, and never a publication-event
+            # key this repository holds no evidence for.
+            self.assertEqual(sorted(rec["value"]["prep_commits"]),
+                             ["'1.0.0'", "'1.1.0'"])
+            self.assertEqual(rec["value"]["prep_commits"]["'1.1.0'"], 2)
+            self.assertEqual(rec["value"]["span_commits"]["'1.1.0'"], 2)
+
+    @unittest.skipUnless(GIT, "git is not on PATH")
+    def test_a_failed_beta_followed_by_a_new_version_is_two_versions_two_keys(self):
+        """SCENARIO 5 — a failed beta (1.1.0, never actually shipped as such
+        in the changelog) followed by a genuinely new version (1.1.1) is TWO
+        distinct versions and TWO distinct keys, each with its own mark.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _init_repo(root)
+            (root / "CHANGELOG.md").write_text(CHANGELOG_SEED, encoding="utf-8")
+            _commit(root, "seed")
+            (root / "CHANGELOG.md").write_text(CHANGELOG_WITH_1_0_0, encoding="utf-8")
+            _commit(root, "Release prep v1.0.0")
+            (root / "CHANGELOG.md").write_text(CHANGELOG_WITH_1_0_0_AND_1_1_0,
+                                               encoding="utf-8")
+            _commit(root, "Release prep v1.1.0")
+            # The 1.1.0 beta failed; 1.1.1 is the actual next release.
+            failed_and_real = (
+                "# Changelog\n\n## [Unreleased]\n\n### Added\n\n"
+                "## [1.1.1] — 2026-01-15\n\n### Added\n- The real release.\n\n"
+                "## [1.1.0] — 2026-01-11\n\n### Added\n- The second fictitious release.\n\n"
+                "## [1.0.0] — 2026-01-01\n\n### Added\n- The first fictitious release.\n"
+            )
+            (root / "CHANGELOG.md").write_text(failed_and_real, encoding="utf-8")
+            _commit(root, "Release prep v1.1.1")
+
+            marks, conditions = self._marks(root)
+            self.assertIn("1.1.0", marks)
+            self.assertIn("1.1.1", marks)
+            self.assertNotEqual(marks["1.1.0"], marks["1.1.1"])
+            self.assertEqual(conditions, {})
+
+    @unittest.skipUnless(GIT, "git is not on PATH")
+    def test_a_shared_mark_reads_null_for_both_sharing_versions(self):
+        """SCENARIO 6 — two versions introduced by the SAME commit share a
+        mark that separates neither of them: both read
+        `"baseline-ref-ambiguous"`, never an arbitrary tie-break.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _init_repo(root)
+            (root / "CHANGELOG.md").write_text(CHANGELOG_SEED, encoding="utf-8")
+            _commit(root, "seed")
+            (root / "CHANGELOG.md").write_text(CHANGELOG_WITH_1_0_0, encoding="utf-8")
+            _commit(root, "Release prep v1.0.0")
+            # One commit introduces BOTH 1.1.0 and 1.2.0 at once.
+            both_at_once = (
+                "# Changelog\n\n## [Unreleased]\n\n### Added\n\n"
+                "## [1.2.0] — 2026-01-26\n\n### Added\n- c.\n\n"
+                "## [1.1.0] — 2026-01-11\n\n### Added\n- b.\n\n"
+                "## [1.0.0] — 2026-01-01\n\n### Added\n- a.\n"
+            )
+            (root / "CHANGELOG.md").write_text(both_at_once, encoding="utf-8")
+            _commit(root, "Release prep v1.1.0 and v1.2.0 together")
+
+            marks, conditions = self._marks(root)
+            self.assertNotIn("1.1.0", marks)
+            self.assertNotIn("1.2.0", marks)
+            self.assertEqual(conditions["1.1.0"], "baseline-ref-ambiguous")
+            self.assertEqual(conditions["1.2.0"], "baseline-ref-ambiguous")
+            # PAIRED POSITIVE CONTROL: 1.0.0, introduced alone, resolves.
+            self.assertIn("1.0.0", marks)
+
+            rec = sig.signal_release_cadence(root, "bionic")
+            self.assertIsNone(rec["value"]["span_commits"]["'1.1.0'"])
+            self.assertIsNone(rec["value"]["span_commits"]["'1.2.0'"])
+            self.assertIsNone(rec["value"]["prep_commits"]["'1.1.0'"])
+            self.assertIsNone(rec["value"]["prep_commits"]["'1.2.0'"])
+
+    @unittest.skipUnless(GIT, "git is not on PATH")
+    def test_duplicate_mark_candidates_from_removal_and_restoration_read_null(self):
+        """SCENARIO 7 — a heading removed and later restored satisfies the
+        mark predicate at MORE THAN ONE commit, so the version has no single
+        mark: `"baseline-ref-ambiguous"`, on the same footing as a shared
+        mark rather than resolving to whichever commit a walk reached first.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _init_repo(root)
+            (root / "CHANGELOG.md").write_text(CHANGELOG_SEED, encoding="utf-8")
+            _commit(root, "seed")
+            (root / "CHANGELOG.md").write_text(CHANGELOG_WITH_1_0_0, encoding="utf-8")
+            _commit(root, "Release prep v1.0.0")   # candidate #1
+            (root / "CHANGELOG.md").write_text(CHANGELOG_SEED, encoding="utf-8")
+            _commit(root, "accidentally drop the 1.0.0 heading")
+            (root / "CHANGELOG.md").write_text(CHANGELOG_WITH_1_0_0, encoding="utf-8")
+            _commit(root, "restore the 1.0.0 heading")   # candidate #2
+
+            marks, conditions = self._marks(root)
+            self.assertNotIn("1.0.0", marks)
+            self.assertEqual(conditions["1.0.0"], "baseline-ref-ambiguous")
+
+            # PAIRED POSITIVE CONTROL: the same heading, introduced exactly
+            # once and never removed, resolves cleanly.
+            with tempfile.TemporaryDirectory() as tmp2:
+                control_root = Path(tmp2)
+                _init_repo(control_root)
+                (control_root / "CHANGELOG.md").write_text(CHANGELOG_SEED, encoding="utf-8")
+                _commit(control_root, "seed")
+                (control_root / "CHANGELOG.md").write_text(CHANGELOG_WITH_1_0_0,
+                                                           encoding="utf-8")
+                _commit(control_root, "Release prep v1.0.0")
+                control_marks, control_conditions = self._marks(control_root)
+                self.assertIn("1.0.0", control_marks)
+                self.assertEqual(control_conditions, {})
+
+    @unittest.skipUnless(GIT, "git is not on PATH")
+    def test_a_root_commit_carrying_several_headings_reads_null_for_all(self):
+        """SCENARIO 8 — a ROOT COMMIT SATISFIES THE PREDICATE'S SECOND HALF
+        VACUOUSLY, because nothing precedes it: a heading present there was
+        introduced there. Where the root commit already carries several
+        dated headings — this repository's own 0.1.0 through 0.7.0 at
+        `1f00a91fde` — every one of them shares that single mark and reads
+        null, on the shared-mark footing rather than the unresolved one.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _init_repo(root)
+            root_changelog = (
+                "# Changelog\n\n## [Unreleased]\n\n### Added\n\n"
+                "## [0.2.0] — 2026-01-05\n\n### Added\n- b.\n\n"
+                "## [0.1.0] — 2026-01-01\n\n### Added\n- a.\n"
+            )
+            (root / "CHANGELOG.md").write_text(root_changelog, encoding="utf-8")
+            _commit(root, "the root commit, already carrying two dated headings")
+            (root / "CHANGELOG.md").write_text(
+                root_changelog.replace(
+                    "## [Unreleased]\n\n### Added\n\n",
+                    "## [Unreleased]\n\n### Added\n\n"
+                    "## [0.3.0] — 2026-01-20\n\n### Added\n- c.\n\n"),
+                encoding="utf-8")
+            _commit(root, "Release prep v0.3.0")
+
+            marks, conditions = self._marks(root)
+            self.assertNotIn("0.1.0", marks)
+            self.assertNotIn("0.2.0", marks)
+            self.assertEqual(conditions["0.1.0"], "baseline-ref-ambiguous")
+            self.assertEqual(conditions["0.2.0"], "baseline-ref-ambiguous")
+            # PAIRED POSITIVE CONTROL: 0.3.0, introduced by its own later
+            # commit, resolves normally — the null above is the shared root
+            # mark and not a reader that resolves nothing.
+            self.assertIn("0.3.0", marks)
+
+    @unittest.skipUnless(GIT, "git is not on PATH")
+    def test_determinism_the_same_repository_state_yields_the_same_json_twice(self):
+        """SCENARIO 10 — the signal is deterministic: the same repository
+        state, read twice, produces byte-identical JSON."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _init_repo(root)
+            (root / "CHANGELOG.md").write_text(CHANGELOG_SEED, encoding="utf-8")
+            _commit(root, "seed")
+            (root / "CHANGELOG.md").write_text(CHANGELOG_WITH_1_0_0, encoding="utf-8")
+            _commit(root, "Release prep v1.0.0")
+            _commit(root, "work a")
+            (root / "CHANGELOG.md").write_text(CHANGELOG_WITH_1_0_0_AND_1_1_0,
+                                               encoding="utf-8")
+            _commit(root, "Release prep v1.1.0")
+
+            first = json.dumps(sig.signal_release_cadence(root, "bionic"), sort_keys=True)
+            second = json.dumps(sig.signal_release_cadence(root, "bionic"), sort_keys=True)
+            self.assertEqual(first, second)
+
+    @unittest.skipUnless(GIT, "git is not on PATH")
+    def test_no_network_and_no_writes(self):
+        """SCENARIO 11 — the release-mark walk opens no socket and writes no
+        file. The fixture repository's tree, mtimes aside, is byte-identical
+        before and after, and a patched `socket.socket` that raises on
+        construction is never triggered.
+        """
+        import socket as socket_module
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _init_repo(root)
+            (root / "CHANGELOG.md").write_text(CHANGELOG_SEED, encoding="utf-8")
+            _commit(root, "seed")
+            (root / "CHANGELOG.md").write_text(CHANGELOG_WITH_1_0_0, encoding="utf-8")
+            _commit(root, "Release prep v1.0.0")
+            _commit(root, "work a")
+            (root / "CHANGELOG.md").write_text(CHANGELOG_WITH_1_0_0_AND_1_1_0,
+                                               encoding="utf-8")
+            _commit(root, "Release prep v1.1.0")
+
+            def _refuse_socket(*_args, **_kwargs):
+                raise AssertionError("signal_release_cadence opened a socket")
+
+            before = {
+                p: p.stat().st_size
+                for p in sorted(root.rglob("*")) if p.is_file()
+            }
+            with unittest.mock.patch.object(socket_module, "socket", _refuse_socket):
+                rec = sig.signal_release_cadence(root, "bionic")
+            after = {
+                p: p.stat().st_size
+                for p in sorted(root.rglob("*")) if p.is_file()
+            }
+            self.assertEqual(rec["verdict"], "computed")
+            self.assertEqual(before, after)
+
+
+def _schema_growth_release_commit(root: Path, version: str, date: str,
+                                  note: str = "release") -> None:
+    """Commit a NEW dated changelog heading for `version`, prepended above
+    whatever headings already exist — so each release lands in its OWN
+    commit and gets its own, unshared release mark, unlike `TWO_RELEASE_CHANGELOG`
+    / `THREE_RELEASE_CHANGELOG` above (whole file written once, before any
+    commit, which is exactly the SHARED-mark shape ADR-0109 also covers).
+    """
+    path = root / "CHANGELOG.md"
+    existing = path.read_text(encoding="utf-8") if path.exists() else "# Changelog\n\n"
+    header, sep, rest = existing.partition("\n\n")
+    heading = f"## [{version}] — {date}\n\n- {note}\n\n"
+    path.write_text(header + sep + heading + rest, encoding="utf-8")
+    _commit(root, f"release {version}")
+
+
+
+class BoundarySelectionTests(unittest.TestCase):
+    """WHICH marks bound an interval or a baseline — the half of the mark
+    machinery a mutation pass found unconstrained. The interval arithmetic
+    itself is pinned elsewhere; every test here changes the SELECTION and
+    states the value a mutant of the named branch would produce instead.
+    """
+
+    def _cadence(self, root: Path) -> dict:
+        return sig.signal_release_cadence(root, "bionic")
+
+    def _growth(self, root: Path) -> dict:
+        return sig.signal_schema_growth(root, root / "bionic", "bionic")
+
+    @staticmethod
+    def _seed(root: Path, n: int) -> None:
+        """A crux-shaped dev repo whose two schema surfaces both measure `n`."""
+        (root / "bionic").mkdir(exist_ok=True)
+        (root / "bionic" / "CLAUDE.md").write_text("x\n" * n, encoding="utf-8")
+        catalog = root / "crux" / "catalog"
+        catalog.mkdir(parents=True, exist_ok=True)
+        (catalog / "skills.json").write_text(
+            json.dumps([{"id": str(k)} for k in range(n)]), encoding="utf-8")
+        (root / "crux" / "scripts").mkdir(parents=True, exist_ok=True)
+
+    @unittest.skipUnless(GIT, "git is not on PATH")
+    def test_the_baseline_is_the_second_newest_release_never_the_oldest(self):
+        """Three releases with distinct marks separate the two positions.
+        Every other schema-growth fixture has exactly two, where the oldest
+        IS the second-newest and a mutant reading either passes.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _init_repo(root)
+            for n, (version, date) in enumerate(
+                    [("1.0.0", "2026-01-01"), ("1.1.0", "2026-01-11"),
+                     ("1.2.0", "2026-01-21")], start=1):
+                self._seed(root, n)
+                _schema_growth_release_commit(root, version, date)
+
+            value = self._growth(root)["value"]
+            self.assertEqual(value["baseline"]["release"], "'1.1.0'")
+            self.assertEqual(value["baseline"]["claude_md_lines"], 2)
+            self.assertEqual(value["current"]["claude_md_lines"], 3)
+            self.assertEqual(value["conditions"], [])
+
+    @unittest.skipUnless(GIT, "git is not on PATH")
+    def test_ambiguity_at_the_NEWEST_position_refuses_the_baseline(self):
+        """The walk reads two positions and either may fail. Here the
+        SECOND-NEWEST resolves cleanly and only the newest is ambiguous —
+        the existing ambiguity fixtures make both fail at once, so a mutant
+        that checks only the second-newest survives them.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _init_repo(root)
+            self._seed(root, 2)
+            _schema_growth_release_commit(root, "1.0.0", "2026-01-01")
+            self._seed(root, 3)
+            _schema_growth_release_commit(root, "1.1.0", "2026-01-11")
+            changelog = root / "CHANGELOG.md"
+            whole = changelog.read_text(encoding="utf-8")
+            # Removing the newest heading and restoring it gives 1.1.0 two
+            # commits satisfying the predicate; 1.0.0 keeps its single mark.
+            changelog.write_text(
+                whole.replace("## [1.1.0] — 2026-01-11\n\n- release\n\n", ""),
+                encoding="utf-8")
+            _commit(root, "drop the newest heading")
+            changelog.write_text(whole, encoding="utf-8")
+            _commit(root, "restore it")
+
+            value = self._growth(root)["value"]
+            self.assertIn({"condition": "baseline-ref-ambiguous"},
+                          value["conditions"])
+            self.assertIsNone(value["baseline"]["ref"])
+            # PAIRED POSITIVE CONTROL: 1.0.0, the second-newest, DID resolve
+            # to a single mark — the refusal is the newest position's.
+            legs = sig._GitLegs(root)
+            marks, conditions, _capped = sig.resolve_release_marks(legs)
+            self.assertIn("1.0.0", marks)
+            self.assertEqual(conditions.get("1.1.0"), "baseline-ref-ambiguous")
+
+    @unittest.skipUnless(GIT, "git is not on PATH")
+    def test_a_version_past_the_walk_cap_names_unresolved(self):
+        """`baseline-ref-unresolved` from the walk itself. Any heading at
+        HEAD is introduced somewhere on first-parent — vacuously at the root
+        — so the cap is the only way this branch is reached in a committed
+        repository, and no test referenced the cap.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _init_repo(root)
+            self._seed(root, 2)
+            for version, date in [("1.0.0", "2026-01-01"),
+                                  ("1.1.0", "2026-01-11"),
+                                  ("1.2.0", "2026-01-21")]:
+                _schema_growth_release_commit(root, version, date)
+
+            with unittest.mock.patch.object(sig, "RELEASE_MARK_WALK_CAP", 1):
+                legs = sig._GitLegs(root)
+                marks, conditions, _capped = sig.resolve_release_marks(legs)
+                self.assertEqual(sorted(marks), ["1.2.0"])
+                self.assertEqual(conditions["1.0.0"], "baseline-ref-unresolved")
+                self.assertEqual(conditions["1.1.0"], "baseline-ref-unresolved")
+                capped = self._growth(root)["value"]
+            self.assertIn({"condition": "baseline-ref-unresolved"},
+                          capped["conditions"])
+
+            # PAIRED POSITIVE CONTROL: the same repository at the real cap
+            # resolves every version and names no condition at all.
+            uncapped = self._growth(root)["value"]
+            self.assertEqual(uncapped["conditions"], [])
+            self.assertEqual(uncapped["baseline"]["release"], "'1.1.0'")
+
+    @unittest.skipUnless(GIT, "git is not on PATH")
+    def test_the_filter_says_whether_the_walk_stopped_at_the_cap(self):
+        """A version past the cap reads `baseline-ref-unresolved`, and
+        glossing that as "no commit satisfies the predicate" would assert an
+        absence the walk did not establish. The note says which case it is.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _init_repo(root)
+            self._seed(root, 2)
+            for version, date in [("1.0.0", "2026-01-01"),
+                                  ("1.1.0", "2026-01-11"),
+                                  ("1.2.0", "2026-01-21")]:
+                _schema_growth_release_commit(root, version, date)
+
+            with unittest.mock.patch.object(sig, "RELEASE_MARK_WALK_CAP", 1):
+                capped = self._cadence(root)["filter"]
+            whole = self._cadence(root)["filter"]
+
+            # Asserted as a DISJUNCTION over the two cases rather than as a
+            # set of literal phrases: what the rule requires is that the note
+            # tell the two apart, and pinning the wording would fail on any
+            # rewrite that still did.
+            truncated = "stopped at the cap"
+            complete = "read every touching commit"
+            self.assertIn(truncated, capped)
+            self.assertNotIn(complete, capped)
+            self.assertIn(complete, whole)
+            self.assertNotIn(truncated, whole)
+            # And the gloss on `unresolved` is qualified only in the capped
+            # case, because only there is the unqualified claim false.
+            self.assertIn("no commit the walk read satisfies", capped)
+            self.assertIn("no commit satisfies the mark predicate", whole)
+
+    @unittest.skipUnless(GIT, "git is not on PATH")
+    def test_a_backdated_heading_never_wraps_to_the_newest_release(self):
+        """`2.0.0` is committed BEFORE `1.0.0` but dated after it, so date
+        order and commit order disagree. The oldest release by date has no
+        predecessor and reads null; the newer one's own mark is OLDER in
+        commit order than its predecessor's, which is also null. A mutant
+        wrapping the oldest to the newest gives it a bounded interval
+        against a release that is not its predecessor.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _init_repo(root)
+            (root / "CHANGELOG.md").write_text("# Changelog\n\n", encoding="utf-8")
+            _commit(root, "seed")
+            _schema_growth_release_commit(root, "2.0.0", "2026-02-01")
+            _commit(root, "work a")
+            _schema_growth_release_commit(root, "1.0.0", "2026-01-01")
+            _commit(root, "work b")
+
+            value = self._cadence(root)["value"]
+            self.assertEqual(value["span_commits"],
+                             {"'1.0.0'": None, "'2.0.0'": None})
+            self.assertEqual(value["prep_commits"],
+                             {"'1.0.0'": None, "'2.0.0'": None})
+            # PAIRED POSITIVE CONTROL: both marks DID resolve — the nulls are
+            # the boundary guard's, not a failure to find the marks.
+            marks, conditions, _capped = sig.resolve_release_marks(sig._GitLegs(root))
+            self.assertEqual(sorted(marks), ["1.0.0", "2.0.0"])
+            self.assertEqual(conditions, {})
+
+    @unittest.skipUnless(GIT, "git is not on PATH")
+    def test_two_releases_dated_the_same_day_order_by_file_position(self):
+        """A shared DATE is not a shared mark. The two headings have
+        distinct marks, so they are ordered — by their position in the file,
+        newest at the top — rather than collapsed into one interval.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _init_repo(root)
+            (root / "CHANGELOG.md").write_text("# Changelog\n\n", encoding="utf-8")
+            _commit(root, "seed")
+            _commit(root, "work a")
+            _schema_growth_release_commit(root, "1.0.1", "2026-01-05")
+            _commit(root, "work b")
+            _commit(root, "work c")
+            _schema_growth_release_commit(root, "1.0.2", "2026-01-05")
+
+            value = self._cadence(root)["value"]
+            # 1.0.2 sits above 1.0.1 in the file, so it is the newer of the
+            # two: its interval is {its own mark, work c, work b} = 3.
+            self.assertEqual(value["span_commits"]["'1.0.2'"], 3)
+            # 1.0.1 is then the oldest release and has no predecessor.
+            self.assertIsNone(value["span_commits"]["'1.0.1'"])
+
+    @unittest.skipUnless(GIT, "git is not on PATH")
+    def test_a_malformed_surface_at_the_baseline_is_null_never_zero(self):
+        """Zero is a measurement. A catalog that does not parse at the
+        baseline leaves that member null with `surface-malformed` named at
+        the endpoint it failed at — a mutant returning 0 reports a
+        measurement nobody made and the condition disappears with it.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _init_repo(root)
+            self._seed(root, 2)
+            (root / "crux" / "catalog" / "skills.json").write_text(
+                "{not json", encoding="utf-8")
+            _schema_growth_release_commit(root, "1.0.0", "2026-01-01")
+            self._seed(root, 3)
+            _schema_growth_release_commit(root, "1.1.0", "2026-01-11")
+
+            value = self._growth(root)["value"]
+            self.assertIn({"condition": "surface-malformed",
+                           "endpoint": "baseline", "surface": "skills"},
+                          value["conditions"])
+            self.assertIsNone(value["baseline"]["skills"])
+            # PAIRED POSITIVE CONTROL: the OTHER surface read cleanly at both
+            # ends, so the null is this surface's and not a dead reader.
+            self.assertEqual(value["baseline"]["claude_md_lines"], 2)
+            self.assertEqual(value["current"]["skills"], 3)
+
+    @unittest.skipUnless(GIT, "git is not on PATH")
+    def test_a_first_parent_leg_that_did_not_run_leaves_both_members_null(self):
+        """The per-release members rest on the first-parent walk. A leg that
+        did not run supplies no commits — which is not a count of zero.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _init_repo(root)
+            self._seed(root, 2)
+            _schema_growth_release_commit(root, "1.0.0", "2026-01-01")
+            _schema_growth_release_commit(root, "1.1.0", "2026-01-11")
+
+            with unittest.mock.patch.object(sig, "_first_parent_commits",
+                                            return_value=None):
+                value = self._cadence(root)["value"]
+            self.assertTrue(all(v is None for v in value["span_commits"].values()),
+                            value["span_commits"])
+            self.assertTrue(all(v is None for v in value["prep_commits"].values()),
+                            value["prep_commits"])
+            # PAIRED POSITIVE CONTROL: the changelog-only members still
+            # computed, so the nulls are the walk's and not the signal's.
+            self.assertEqual(value["releases"], 2)
+
+class LegFailureConditionTests(unittest.TestCase):
+    """The conditions a FAILED GIT LEG produces, as distinct from the ones an
+    absent or malformed surface produces. Every one below survived mutation
+    before these tests existed — `surface-unreadable` had no test at all, and
+    renaming both its emissions to `surface-absent` left the suite green.
+    """
+
+    def _growth(self, root: Path) -> dict:
+        return sig.signal_schema_growth(root, root / "bionic", "bionic")
+
+    def _cadence(self, root: Path) -> dict:
+        return sig.signal_release_cadence(root, "bionic")
+
+    @staticmethod
+    def _seed(root: Path, n: int) -> None:
+        (root / "bionic").mkdir(exist_ok=True)
+        (root / "bionic" / "CLAUDE.md").write_text("x\n" * n, encoding="utf-8")
+        catalog = root / "crux" / "catalog"
+        catalog.mkdir(parents=True, exist_ok=True)
+        (catalog / "skills.json").write_text(
+            json.dumps([{"id": str(k)} for k in range(n)]), encoding="utf-8")
+        (root / "crux" / "scripts").mkdir(parents=True, exist_ok=True)
+
+    def _two_releases(self, root: Path) -> None:
+        _init_repo(root)
+        self._seed(root, 2)
+        _schema_growth_release_commit(root, "1.0.0", "2026-01-01")
+        self._seed(root, 3)
+        _schema_growth_release_commit(root, "1.1.0", "2026-01-11")
+
+    @unittest.skipUnless(GIT, "git is not on PATH")
+    def test_a_failed_listing_leg_names_unreadable_never_absent(self):
+        """`surface-absent` means the ref resolved and the path is not there.
+        A leg that DID NOT RUN establishes neither, so it is `unreadable` —
+        the two are different situations and the closed set names each once.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._two_releases(root)
+            real = sig._GitLegs.lines
+
+            def fail_ls_tree(self, *args):
+                if args and args[0] == "ls-tree":
+                    return None
+                return real(self, *args)
+
+            with unittest.mock.patch.object(sig._GitLegs, "lines", fail_ls_tree):
+                conditions = self._growth(root)["value"]["conditions"]
+            named = {c["condition"] for c in conditions}
+            self.assertIn("surface-unreadable", named)
+            self.assertNotIn("surface-absent", named)
+
+            # PAIRED POSITIVE CONTROL: the same repository with the leg
+            # running names no surface condition at all.
+            self.assertEqual(self._growth(root)["value"]["conditions"], [])
+
+    @unittest.skipUnless(GIT, "git is not on PATH")
+    def test_a_failed_blob_leg_names_unreadable_at_its_own_endpoint(self):
+        """The path IS present and the read failed — the second of the two
+        sites emitting this condition, and it names the endpoint it hit."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._two_releases(root)
+
+            with unittest.mock.patch.object(sig._GitLegs, "blob",
+                                            return_value=None):
+                conditions = self._growth(root)["value"]["conditions"]
+            unreadable = [c for c in conditions
+                          if c["condition"] == "surface-unreadable"]
+            self.assertTrue(unreadable, conditions)
+            for entry in unreadable:
+                self.assertIn(entry["endpoint"], ("baseline", "current"))
+                self.assertIn(entry["surface"], ("claude_md_lines", "skills"))
+
+    @unittest.skipUnless(GIT, "git is not on PATH")
+    def test_a_failed_mark_walk_leg_is_named_at_both_signals(self):
+        """`resolve_release_marks` returning None — the walk itself could not
+        run, which is not the same as a version it ran and could not
+        resolve. Both consumers name it rather than reporting a bare null.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._two_releases(root)
+            real = sig._GitLegs.lines
+
+            def fail_touch_walk(self, *args):
+                if args[:2] == ("log", "--first-parent"):
+                    return None
+                return real(self, *args)
+
+            with unittest.mock.patch.object(sig._GitLegs, "lines",
+                                            fail_touch_walk):
+                cadence = self._cadence(root)
+                growth = self._growth(root)
+
+            self.assertIn("the release-mark walk over CHANGELOG.md's touching "
+                          "commits did not run", cadence["filter"])
+            self.assertIn({"condition": "baseline-ref-unresolved"},
+                          growth["value"]["conditions"])
+            # PAIRED POSITIVE CONTROL: the changelog-only members still
+            # computed, so the signal reports what it could still measure.
+            self.assertEqual(cadence["value"]["releases"], 2)
+            self.assertEqual(cadence["verdict"], "computed")
+
+    @unittest.skipUnless(GIT, "git is not on PATH")
+    def test_one_dated_heading_is_no_release_record_for_schema_growth(self):
+        """The threshold is TWO headings, because the baseline is the
+        second-newest. Pinned at its boundary for this signal, as it already
+        was for release_cadence.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _init_repo(root)
+            self._seed(root, 2)
+            _schema_growth_release_commit(root, "1.0.0", "2026-01-01")
+
+            conditions = self._growth(root)["value"]["conditions"]
+            self.assertIn({"condition": "no-release-record"}, conditions)
+
+            # PAIRED POSITIVE CONTROL: adding the SECOND heading — one more
+            # than the threshold — clears the condition entirely.
+            self._seed(root, 3)
+            _schema_growth_release_commit(root, "1.1.0", "2026-01-11")
+            self.assertEqual(self._growth(root)["value"]["conditions"], [])
 
 class SchemaGrowthTests(unittest.TestCase):
+    """`schema_growth`'s baseline is a RELEASE MARK (a commit), never a tag —
+    rule:baseline-is-a-release-mark-and-unavailable-is-named.
+    """
+
     def _growth(self, root: Path) -> dict:
         return sig.signal_schema_growth(root, root / "bionic", "bionic")
 
@@ -1127,114 +2099,299 @@ class SchemaGrowthTests(unittest.TestCase):
         (catalog / "skills.json").write_text(
             json.dumps([{"id": f"skill-{i}"} for i in range(skills)]), encoding="utf-8")
 
+    @staticmethod
+    def _dev_repo(root: Path) -> None:
+        """The structural marker `_schema_growth_is_dev_repo` reads."""
+        (root / "crux" / "scripts").mkdir(parents=True, exist_ok=True)
+
+    def _two_release_dev_repo(self, root: Path, *, baseline_claude=4, baseline_skills=2,
+                              current_claude=9, current_skills=5):
+        # The seed for a release's own snapshot is written and staged BEFORE
+        # `_schema_growth_release_commit` commits — so the RELEASE MARK
+        # commit (the one introducing that version's heading) is also the
+        # commit that carries that release's schema state, exactly as a real
+        # release does. Seeding AFTER the release commit would put the
+        # baseline's own content one commit later than its mark.
+        _init_repo(root)
+        self._dev_repo(root)
+        self._seed(root, claude_lines=baseline_claude, skills=baseline_skills)
+        _schema_growth_release_commit(root, "1.0.0", "2026-01-01", note="the baseline release")
+        self._seed(root, claude_lines=current_claude, skills=current_skills)
+        _schema_growth_release_commit(root, "1.1.0", "2026-01-11",
+                                      note="growth since the baseline")
+
     @unittest.skipUnless(GIT, "git is not on PATH")
-    def test_computed_with_a_baseline_at_the_second_newest_heading_tag(self):
+    def test_computed_with_a_baseline_at_the_second_newest_release_mark_positive(self):
+        """POSITIVE change: current counts exceed the baseline's."""
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            _init_repo(root)
-            (root / "CHANGELOG.md").write_text(TWO_RELEASE_CHANGELOG, encoding="utf-8")
-            self._seed(root, claude_lines=4, skills=2)
-            _commit(root, "the baseline release")
-            _tag(root, "v1.0.0")
-            self._seed(root, claude_lines=9, skills=5)
-            _commit(root, "growth since the baseline")
+            self._two_release_dev_repo(root, baseline_claude=4, baseline_skills=2,
+                                       current_claude=9, current_skills=5)
 
             rec = self._growth(root)
             self.assertEqual(rec["verdict"], "computed")
-            self.assertEqual(rec["value"]["claude_md_lines"], 9)
-            self.assertEqual(rec["value"]["skills"], 5)
-            self.assertEqual(rec["value"]["baseline"]["ref"], "v1.0.0")
+            self.assertEqual(rec["value"]["conditions"], [])
+            self.assertEqual(rec["value"]["current"]["claude_md_lines"], 9)
+            self.assertEqual(rec["value"]["current"]["skills"], 5)
+            self.assertEqual(rec["value"]["baseline"]["release"], "'1.0.0'")
             self.assertEqual(rec["value"]["baseline"]["claude_md_lines"], 4)
+            self.assertEqual(rec["value"]["baseline"]["skills"], 2)
+            ref = rec["value"]["baseline"]["ref"]
+            self.assertRegex(ref, r"^[0-9a-f]{40}$")
+            # The locator is a COMMIT, never a tag: no tag was ever created.
+            self.assertFalse(_ref_resolves(root, f"refs/tags/{ref}"))
+
+    @unittest.skipUnless(GIT, "git is not on PATH")
+    def test_computed_with_no_change_between_baseline_and_current(self):
+        """ZERO change: current counts equal the baseline's exactly."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._two_release_dev_repo(root, baseline_claude=4, baseline_skills=2,
+                                       current_claude=4, current_skills=2)
+
+            rec = self._growth(root)
+            self.assertEqual(rec["verdict"], "computed")
+            self.assertEqual(rec["value"]["current"]["claude_md_lines"], 4)
+            self.assertEqual(rec["value"]["baseline"]["claude_md_lines"], 4)
+            self.assertEqual(rec["value"]["current"]["skills"], 2)
             self.assertEqual(rec["value"]["baseline"]["skills"], 2)
 
     @unittest.skipUnless(GIT, "git is not on PATH")
-    def test_a_path_absent_at_a_resolved_ref_reports_null_and_keeps_computed(self):
-        # The real case this checkout exhibits: the tag resolves, but the
-        # docs-tree CLAUDE.md does not exist at it. Null, never 0.
+    def test_computed_with_a_negative_change_since_the_baseline(self):
+        """NEGATIVE change: current counts are BELOW the baseline's."""
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            _init_repo(root)
-            (root / "CHANGELOG.md").write_text(TWO_RELEASE_CHANGELOG, encoding="utf-8")
-            (root / "README.md").write_text("nothing yet\n", encoding="utf-8")
-            _commit(root, "the baseline release, before the tree was named")
-            _tag(root, "1.0.0")
-            self._seed(root, claude_lines=9, skills=5)
-            _commit(root, "the tree arrives")
+            self._two_release_dev_repo(root, baseline_claude=9, baseline_skills=5,
+                                       current_claude=4, current_skills=2)
 
             rec = self._growth(root)
             self.assertEqual(rec["verdict"], "computed")
-            self.assertEqual(rec["value"]["claude_md_lines"], 9)
-            self.assertEqual(rec["value"]["baseline"]["ref"], "1.0.0")
-            self.assertIsNone(rec["value"]["baseline"]["claude_md_lines"])
-            self.assertIsNone(rec["value"]["baseline"]["skills"])
+            self.assertEqual(rec["value"]["current"]["claude_md_lines"], 4)
+            self.assertEqual(rec["value"]["baseline"]["claude_md_lines"], 9)
+            self.assertLess(rec["value"]["current"]["claude_md_lines"],
+                            rec["value"]["baseline"]["claude_md_lines"])
 
     @unittest.skipUnless(GIT, "git is not on PATH")
-    def test_a_tag_that_does_not_resolve_leaves_the_baseline_null(self):
+    def test_an_absent_changelog_leaves_the_baseline_unavailable_named(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             _init_repo(root)
-            (root / "CHANGELOG.md").write_text(TWO_RELEASE_CHANGELOG, encoding="utf-8")
+            self._dev_repo(root)
             self._seed(root, claude_lines=9, skills=5)
-            _commit(root, "one commit, no tag at all")
+            _commit(root, "no changelog at all")
 
             rec = self._growth(root)
             self.assertEqual(rec["verdict"], "computed")
-            self.assertIsNone(rec["value"]["baseline"])
-            # Positive control for the null: the HEAD leg DID measure.
-            self.assertEqual(rec["value"]["claude_md_lines"], 9)
+            self.assertIsNone(rec["value"]["baseline"]["ref"])
+            conditions = rec["value"]["conditions"]
+            self.assertIn({"condition": "no-release-record"}, conditions)
+            self.assertIn({"condition": "no-baseline", "surface": "claude_md_lines"},
+                          conditions)
+            self.assertIn({"condition": "no-baseline", "surface": "skills"}, conditions)
+            # PAIRED POSITIVE CONTROL: the HEAD leg DID measure — the
+            # unavailability is the baseline's, not a dead reader.
+            self.assertEqual(rec["value"]["current"]["claude_md_lines"], 9)
 
     @unittest.skipUnless(GIT, "git is not on PATH")
-    def test_both_spellings_on_one_commit_resolve_even_when_one_is_annotated(self):
-        """One commit, two spellings, one of them ANNOTATED — still one commit.
+    def test_a_heading_only_in_the_work_tree_names_unresolved_not_a_bare_null(self):
+        """The mark predicate reads HEAD's blob; this signal reads the work
+        tree. A version declared in the work tree and committed nowhere
+        satisfies the predicate at no commit, so it is `baseline-ref-unresolved`
+        — never a bare `no-baseline`, which names no reason.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._two_release_dev_repo(root)
+            changelog = root / "CHANGELOG.md"
+            changelog.write_text(
+                "## [2.0.0] \u2014 2026-02-02\n\n## [1.9.0] \u2014 2026-02-01\n\n"
+                + changelog.read_text(encoding="utf-8"), encoding="utf-8")
 
-        `git rev-parse refs/tags/<annotated>` yields the TAG OBJECT, not the
-        commit it points at, so comparing rev-parse output across the two
-        admitted spellings compared tag identities rather than commits. A
-        lightweight `1.0.0` and an annotated `v1.0.0` on the SAME commit then
-        read as two commits and nulled a baseline that resolves. The rule is
-        "both spellings naming one commit when both resolve"; peel to the
-        commit before comparing.
+            rec = self._growth(root)
+            conditions = rec["value"]["conditions"]
+            named = {c["condition"] for c in conditions}
+            self.assertIn("baseline-ref-unresolved", named)
+            self.assertIsNone(rec["value"]["baseline"]["ref"])
+            # PAIRED POSITIVE CONTROL: the same repo WITHOUT the uncommitted
+            # headings resolves a baseline, so the refusal is the work-tree
+            # heading's and not this fixture's.
+            changelog.write_text(
+                changelog.read_text(encoding="utf-8").split(
+                    "## [1.9.0] \u2014 2026-02-01\n\n", 1)[1], encoding="utf-8")
+            control = self._growth(root)
+            self.assertEqual(control["value"]["conditions"], [])
+            self.assertRegex(control["value"]["baseline"]["ref"], r"^[0-9a-f]{40}$")
+
+    @unittest.skipUnless(GIT, "git is not on PATH")
+    def test_an_incompatible_baseline_names_not_comparable_never_absent(self):
+        """A downstream (non-crux) repo can never carry the skills catalog —
+        `surface-not-comparable`, not `surface-absent`, at ANY ref including
+        one where the baseline resolves cleanly for `claude_md_lines`.
         """
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             _init_repo(root)
-            (root / "CHANGELOG.md").write_text(TWO_RELEASE_CHANGELOG, encoding="utf-8")
-            self._seed(root, claude_lines=4, skills=2)
-            _commit(root, "the baseline release")
-            _tag(root, "1.0.0")                 # lightweight
-            _annotated_tag(root, "v1.0.0")      # annotated, SAME commit
-            self._seed(root, claude_lines=9, skills=5)
-            _commit(root, "growth since the baseline")
-
-            # Positive control: the two refs really do carry different SHAs, so
-            # this fixture exercises the peel and is not a same-SHA no-op.
-            def sha(ref: str) -> str:
-                out = subprocess.run(
-                    ["git", "-C", str(root), "rev-parse", "--verify", ref],
-                    check=True, capture_output=True, text=True, env=_git_env())
-                return out.stdout.strip()
-            self.assertNotEqual(sha("refs/tags/1.0.0"), sha("refs/tags/v1.0.0"))
+            # Deliberately NOT a crux dev repo: no crux/scripts/ marker.
+            (root / "bionic").mkdir()
+            (root / "bionic" / "CLAUDE.md").write_text("line 0\n" * 4, encoding="utf-8")
+            _schema_growth_release_commit(root, "1.0.0", "2026-01-01")
+            (root / "bionic" / "CLAUDE.md").write_text("line 0\n" * 9, encoding="utf-8")
+            _schema_growth_release_commit(root, "1.1.0", "2026-01-11")
 
             rec = self._growth(root)
             self.assertEqual(rec["verdict"], "computed")
-            self.assertIsNotNone(rec["value"]["baseline"])
-            self.assertEqual(rec["value"]["baseline"]["ref"], "1.0.0")
+            self.assertIsNotNone(rec["value"]["baseline"]["ref"])
+            self.assertIsNone(rec["value"]["current"]["skills"])
+            self.assertIsNone(rec["value"]["baseline"]["skills"])
+            conditions = rec["value"]["conditions"]
+            self.assertIn({"condition": "surface-not-comparable", "surface": "skills"},
+                          conditions)
+            for entry in conditions:
+                self.assertFalse(
+                    entry["condition"] == "surface-absent" and entry.get("surface") == "skills",
+                    conditions)
+            self.assertIn("surface-not-comparable", rec["filter"])
+            # claude_md_lines, on the SAME repo and the SAME resolved baseline,
+            # compares cleanly — the not-comparable verdict is about the
+            # skills SURFACE'S provenance, not about this baseline generally.
             self.assertEqual(rec["value"]["baseline"]["claude_md_lines"], 4)
-            self.assertEqual(rec["value"]["baseline"]["skills"], 2)
-            self.assertNotIn("two different commits", rec["filter"])
+            self.assertEqual(rec["value"]["current"]["claude_md_lines"], 9)
 
-    def test_unmeasurable_when_the_head_leg_cannot_run(self):
-        # `quiet/` is not a work tree, so the HEAD leg fails. This is the one
-        # delivery signal whose measurability rests on the repository history.
+    @unittest.skipUnless(GIT, "git is not on PATH")
+    def test_a_shared_mark_names_baseline_ref_ambiguous(self):
+        """Two versions introduced in ONE commit share a mark — the real case
+        eight early crux versions share at the repository's own root commit.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _init_repo(root)
+            self._dev_repo(root)
+            # Both headings land in the SAME commit: TWO_RELEASE_CHANGELOG is
+            # written whole, before the first (and only) commit.
+            (root / "CHANGELOG.md").write_text(TWO_RELEASE_CHANGELOG, encoding="utf-8")
+            self._seed(root, claude_lines=9, skills=5)
+            _commit(root, "both releases introduced together")
+
+            rec = self._growth(root)
+            self.assertEqual(rec["verdict"], "computed")
+            self.assertIsNone(rec["value"]["baseline"]["ref"])
+            conditions = rec["value"]["conditions"]
+            self.assertIn({"condition": "baseline-ref-ambiguous"}, conditions)
+        # PAIRED POSITIVE CONTROL: the two-commit, one-heading-per-commit
+        # fixture over the SAME two versions resolves cleanly. A SEPARATE
+        # temp directory — a nested repo under the ambiguous one above would
+        # not be a second, independent repository.
+        with tempfile.TemporaryDirectory() as control_tmp:
+            control_root = Path(control_tmp)
+            self._two_release_dev_repo(control_root)
+            control = self._growth(control_root)
+            self.assertIsNotNone(control["value"]["baseline"]["ref"])
+
+    @unittest.skipUnless(GIT, "git is not on PATH")
+    def test_a_removed_and_restored_heading_names_baseline_ref_ambiguous(self):
+        """A version satisfying the predicate at MORE THAN ONE commit — the
+        duplicate-candidate shape a removed-then-restored heading produces.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _init_repo(root)
+            self._dev_repo(root)
+            _schema_growth_release_commit(root, "1.0.0", "2026-01-01")
+            self._seed(root, claude_lines=4, skills=2)
+            _commit(root, "the baseline release")
+            # Remove the 1.0.0 heading, then restore it verbatim: two distinct
+            # commits now satisfy the mark predicate for "1.0.0".
+            (root / "CHANGELOG.md").write_text("# Changelog\n\n", encoding="utf-8")
+            _commit(root, "drop the 1.0.0 heading by mistake")
+            _schema_growth_release_commit(root, "1.0.0", "2026-01-01", note="restored")
+            _schema_growth_release_commit(root, "1.1.0", "2026-01-11")
+            self._seed(root, claude_lines=9, skills=5)
+            _commit(root, "growth since the baseline")
+
+            rec = self._growth(root)
+            self.assertEqual(rec["verdict"], "computed")
+            self.assertIsNone(rec["value"]["baseline"]["ref"])
+            self.assertIn({"condition": "baseline-ref-ambiguous"}, rec["value"]["conditions"])
+
+    @unittest.skipUnless(GIT, "git is not on PATH")
+    def test_unmeasurable_forces_history_unavailable_with_no_endpoint(self):
+        # `quiet/` is not a work tree, so the git session cannot be
+        # established. This is the ONE condition that forces `unmeasurable`.
         rec = self._growth(QUIET)
         self.assertEqual(rec["verdict"], "unmeasurable")
         self.assertIsNone(rec["value"])
-        # The reason, not the surface. `work tree` sits in the shared `surface`
-        # prose that the COMPUTED record's basis also carries, so asserting it
-        # would pass on a signal that failed for some other reason. These two
-        # substrings occur in the HEAD-leg branch and nowhere else.
-        self.assertIn("the HEAD leg did not run", rec["basis"])
-        self.assertIn("measurability rests on it", rec["filter"])
+        self.assertIn("history-unavailable", rec["filter"])
+        self.assertIn("history-unavailable", rec["basis"])
+        # No endpoint is ever named alongside it — it is a resolution
+        # condition, emitted without one.
+        self.assertNotIn("endpoint=", rec["filter"])
+        # PAIRED POSITIVE CONTROL: a real work tree computes.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._two_release_dev_repo(root)
+            control = self._growth(root)
+            self.assertEqual(control["verdict"], "computed")
+
+    @unittest.skipUnless(GIT, "git is not on PATH")
+    def test_a_surface_failing_at_both_endpoints_names_baseline_only(self):
+        """`claude_md_lines` absent at BOTH ends — ONE entry, naming `baseline`
+        and never `current` alongside it (the member carries one condition).
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _init_repo(root)
+            self._dev_repo(root)
+            # The docs tree never exists at either commit read.
+            _schema_growth_release_commit(root, "1.0.0", "2026-01-01")
+            _commit(root, "the baseline release, tree never named")
+            _schema_growth_release_commit(root, "1.1.0", "2026-01-11")
+            _commit(root, "growth, tree still never named")
+
+            rec = self._growth(root)
+            self.assertEqual(rec["verdict"], "computed")
+            self.assertIsNone(rec["value"]["current"]["claude_md_lines"])
+            self.assertIsNone(rec["value"]["baseline"]["claude_md_lines"])
+            matches = [c for c in rec["value"]["conditions"]
+                      if c.get("surface") == "claude_md_lines"
+                      and c["condition"] == "surface-absent"]
+            self.assertEqual(len(matches), 1, rec["value"]["conditions"])
+            self.assertEqual(matches[0]["endpoint"], "baseline")
+
+    @unittest.skipUnless(GIT, "git is not on PATH")
+    def test_determinism_across_two_runs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._two_release_dev_repo(root)
+            first = self._growth(root)
+            second = self._growth(root)
+            self.assertEqual(first, second)
+
+    @unittest.skipUnless(GIT, "git is not on PATH")
+    def test_zero_is_a_measurement_distinct_from_null(self):
+        """An empty skills catalog reports 0; a repo where the catalog never
+        existed at that ref reports null. The two are never confused.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _init_repo(root)
+            self._dev_repo(root)
+            (root / "bionic").mkdir()
+            (root / "bionic" / "CLAUDE.md").write_text("line 0\n" * 4, encoding="utf-8")
+            catalog = root / "crux" / "catalog"
+            catalog.mkdir(parents=True)
+            (catalog / "skills.json").write_text("[]", encoding="utf-8")
+            _schema_growth_release_commit(root, "1.0.0", "2026-01-01",
+                                          note="the baseline release, an EMPTY catalog")
+            _schema_growth_release_commit(root, "1.1.0", "2026-01-11",
+                                          note="growth, catalog still empty at HEAD")
+
+            rec = self._growth(root)
+            self.assertEqual(rec["verdict"], "computed")
+            self.assertEqual(rec["value"]["baseline"]["skills"], 0)
+            self.assertEqual(rec["value"]["current"]["skills"], 0)
+            self.assertNotIn(
+                {"condition": "surface-absent", "endpoint": "baseline", "surface": "skills"},
+                rec["value"]["conditions"])
 
 
 ROSTER_HEADER = "| Output | Source of truth | Regenerator | Drift check |"
@@ -1464,25 +2621,42 @@ class MinedVersionRedactionTests(unittest.TestCase):
 
     @unittest.skipUnless(GIT, "the version-control binary is not on PATH")
     def test_a_hostile_version_reaches_the_schema_growth_filter_bounded_and_redacted(self):
+        # The hostile version is its OWN release, in its OWN commit — so its
+        # mark resolves cleanly and its (redacted) name reaches
+        # `baseline["release"]` and the `filter` sentence, rather than
+        # tripping `baseline-ref-ambiguous` by sharing a mark with 1.1.0.
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             _init_repo(root)
-            (root / "CHANGELOG.md").write_text(_hostile_changelog(), encoding="utf-8")
+            SchemaGrowthTests._dev_repo(root)
+            _schema_growth_release_commit(root, HOSTILE_VERSION, "2026-01-01")
+            SchemaGrowthTests._seed(root, claude_lines=4, skills=2)
+            _commit(root, "the baseline release, hostile version")
+            _schema_growth_release_commit(root, "1.1.0", "2026-01-11")
             SchemaGrowthTests._seed(root, claude_lines=9, skills=5)
-            _commit(root, "seed")
+            _commit(root, "growth since the baseline")
 
             rec = sig.signal_schema_growth(root, root / "bionic", "bionic")
             self.assertEqual(rec["verdict"], "computed")
             self.assertNotIn(ESC, rec["filter"])
             self.assertIn("unprintable", rec["filter"])
             self.assertIn("truncated from 309 characters", rec["filter"])
-            self.assertLess(len(rec["filter"]), 1500)
+            self.assertLess(len(rec["filter"]), 2000)
             # Positive control: a benign second-newest version is named in the
             # filter verbatim, so the bound above is the redaction firing and
             # not the version having been dropped from the sentence.
-            (root / "CHANGELOG.md").write_text(TWO_RELEASE_CHANGELOG, encoding="utf-8")
-            benign = sig.signal_schema_growth(root, root / "bionic", "bionic")
-            self.assertIn("'1.0.0'", benign["filter"])
+            with tempfile.TemporaryDirectory() as tmp2:
+                benign_root = Path(tmp2)
+                _init_repo(benign_root)
+                SchemaGrowthTests._dev_repo(benign_root)
+                _schema_growth_release_commit(benign_root, "1.0.0", "2026-01-01")
+                SchemaGrowthTests._seed(benign_root, claude_lines=4, skills=2)
+                _commit(benign_root, "the baseline release")
+                _schema_growth_release_commit(benign_root, "1.1.0", "2026-01-11")
+                SchemaGrowthTests._seed(benign_root, claude_lines=9, skills=5)
+                _commit(benign_root, "growth since the baseline")
+                benign = sig.signal_schema_growth(benign_root, benign_root / "bionic", "bionic")
+                self.assertIn("'1.0.0'", benign["filter"])
 
     def test_the_release_cadence_filter_states_what_a_heading_yields(self):
         rec = sig.signal_release_cadence(TRIPS, "bionic")
@@ -1534,7 +2708,7 @@ class BlobDecodeTests(unittest.TestCase):
             # The content discriminator: the blob was read, with the byte
             # replaced rather than raised on.
             self.assertEqual(growth["verdict"], "computed")
-            self.assertEqual(growth["value"]["claude_md_lines"], 3)
+            self.assertEqual(growth["value"]["current"]["claude_md_lines"], 3)
 
 
 class SubstrateGuardTests(unittest.TestCase):
@@ -1626,7 +2800,7 @@ class SubstrateGuardTests(unittest.TestCase):
             # itself computes, so the refusal is containment and not the fixture.
             control = sig.signal_schema_growth(root, root / "bionic", "bionic")
             self.assertEqual(control["verdict"], "computed")
-            self.assertEqual(control["value"]["claude_md_lines"], 9)
+            self.assertEqual(control["value"]["current"]["claude_md_lines"], 9)
 
     @unittest.skipUnless(GIT, "the version-control binary is not on PATH")
     def test_every_repo_supplied_value_is_passed_after_end_of_options(self):
@@ -1663,42 +2837,6 @@ class SubstrateGuardTests(unittest.TestCase):
                         # The pathspec separator is never substituted for it: a
                         # ref placed after that separator reads as a path.
                         self.assertNotIn("--", args)
-
-    @unittest.skipUnless(GIT, "the version-control binary is not on PATH")
-    def test_a_branch_named_after_a_tag_is_never_read_in_the_tag_place(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            _init_repo(root)
-            (root / "CHANGELOG.md").write_text(TWO_RELEASE_CHANGELOG, encoding="utf-8")
-            SchemaGrowthTests._seed(root, claude_lines=4, skills=2)
-            _commit(root, "the commit the branch names")
-            _branch(root, "1.0.0")
-            SchemaGrowthTests._seed(root, claude_lines=9, skills=5)
-            _commit(root, "the commit HEAD names")
-
-            # Positive controls on the fixture: the BRANCH exists under the
-            # heads namespace and no tag of that name exists.
-            self.assertTrue(_ref_resolves(root, "refs/heads/1.0.0"))
-            self.assertFalse(_ref_resolves(root, "refs/tags/1.0.0"))
-
-            rec = sig.signal_schema_growth(root, root / "bionic", "bionic")
-            self.assertEqual(rec["verdict"], "computed")
-            self.assertIsNone(rec["value"]["baseline"])
-            # Both admitted spellings were tried, in the tags namespace, and
-            # the mined version is delimited exactly once rather than pasted
-            # in bare twice.
-            self.assertIn("neither admitted spelling of '1.0.0' resolves under refs/tags/",
-                          rec["filter"])
-            self.assertNotIn("refs/tags/v1.0.0", rec["filter"])
-
-            # PAIRED POSITIVE CONTROL: a real tag of the same name, on the
-            # OTHER commit, does resolve — and the baseline reads that commit's
-            # 9 lines rather than the branch commit's 4.
-            _tag(root, "1.0.0")
-            control = sig.signal_schema_growth(root, root / "bionic", "bionic")
-            self.assertEqual(control["value"]["baseline"]["ref"], "1.0.0")
-            self.assertEqual(control["value"]["baseline"]["claude_md_lines"], 9)
-
 
 class RootFileContainmentTests(unittest.TestCase):
     """A root-level read follows no symlink out of the declared read surface.
@@ -1766,38 +2904,41 @@ class RootFileContainmentTests(unittest.TestCase):
             outside.write_text(THREE_RELEASE_CHANGELOG, encoding="utf-8")
             root = Path(inner)
             _init_repo(root)
+            SchemaGrowthTests._dev_repo(root)
             (root / "CHANGELOG.md").symlink_to(outside)
             SchemaGrowthTests._seed(root, claude_lines=9, skills=5)
             _commit(root, "one commit, CHANGELOG.md symlinked outside the root")
 
             rec = sig.signal_schema_growth(root, root / "bionic", "bionic")
             self.assertEqual(rec["verdict"], "computed")
-            self.assertIsNone(rec["value"]["baseline"])
+            self.assertIsNone(rec["value"]["baseline"]["ref"])
+            self.assertIn({"condition": "no-release-record"}, rec["value"]["conditions"])
             self.assertIn("resolves outside that root", rec["filter"])
             # The HEAD leg itself is unaffected: it reads bionic/CLAUDE.md and
             # the skills catalog at HEAD, never the symlinked CHANGELOG.
-            self.assertEqual(rec["value"]["claude_md_lines"], 9)
+            self.assertEqual(rec["value"]["current"]["claude_md_lines"], 9)
 
     @unittest.skipUnless(GIT, "the version-control binary is not on PATH")
     def test_the_same_changelog_content_in_place_does_resolve_a_baseline(self):
         # PAIRED POSITIVE CONTROL for the refusal above, built independently:
-        # in-place CHANGELOG.md content with a real tag DOES report a
-        # baseline, so the null above is the symlink refusal and not a
-        # fixture that never carries two dated headings or a resolvable tag.
+        # in-place CHANGELOG.md content, one release per commit, DOES report a
+        # baseline mark, so the null above is the symlink refusal and not a
+        # fixture that never carries two dated headings or a resolvable mark.
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             _init_repo(root)
-            (root / "CHANGELOG.md").write_text(TWO_RELEASE_CHANGELOG, encoding="utf-8")
+            SchemaGrowthTests._dev_repo(root)
+            _schema_growth_release_commit(root, "1.0.0", "2026-01-01")
             SchemaGrowthTests._seed(root, claude_lines=4, skills=2)
             _commit(root, "the baseline release")
-            _tag(root, "1.0.0")
+            _schema_growth_release_commit(root, "1.1.0", "2026-01-11")
             SchemaGrowthTests._seed(root, claude_lines=9, skills=5)
             _commit(root, "growth since the baseline")
 
             control = sig.signal_schema_growth(root, root / "bionic", "bionic")
             self.assertEqual(control["verdict"], "computed")
-            self.assertIsNotNone(control["value"]["baseline"])
-            self.assertEqual(control["value"]["baseline"]["ref"], "1.0.0")
+            self.assertIsNotNone(control["value"]["baseline"]["ref"])
+            self.assertEqual(control["value"]["baseline"]["release"], "'1.0.0'")
 
 
 # --------------------------------------------------------------------------
@@ -1986,25 +3127,42 @@ class GitOutputSplittingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             _init_repo(root)
+            (root / "CHANGELOG.md").write_text(CHANGELOG_SEED, encoding="utf-8")
+            _commit(root, "seed")
+            _commit(root, "work a")
+            (root / "CHANGELOG.md").write_text(CHANGELOG_WITH_1_0_0, encoding="utf-8")
+            _commit(root, "Release prep v1.0.0")
+            _commit(root, "work b")
+            _commit(root, "work c")
+            (root / "CHANGELOG.md").write_text(CHANGELOG_WITH_1_0_0_AND_1_1_0,
+                                               encoding="utf-8")
+            _commit(root, "Release prep v1.1.0")
+            # A forged subject: one commit whose subject carries a U+2028
+            # break, so `str.splitlines()` would misread it as TWO lines —
+            # "notes" and "Release prep v1.2.0" — with the second matching
+            # the declared prefix. `_git` splits on `"\n"` alone, so this is
+            # ONE subject, "notes Release prep v1.2.0", which does not
+            # itself start with the prefix. It sits inside 1.2.0's own
+            # interval below.
+            _commit(root, "notes Release prep v1.2.0")
             (root / "CHANGELOG.md").write_text(THREE_RELEASE_CHANGELOG, encoding="utf-8")
-            for subject in ("seed", "work a", "Release prep v1.0.0",
-                            "work b", "notes Release prep v1.2.0",
-                            "work c", "Release prep v1.1.0", "work d"):
-                _commit(root, subject)
+            _commit(root, "work e")
 
             rec = sig.signal_release_cadence(root, "bionic")
             self.assertEqual(rec["verdict"], "computed")
-            # 1.2.0 is named by NO genuine top-level subject: the forged
-            # "Release prep v1.2.0" fragment only exists after a U+2028 break
-            # inside a subject that does not itself start with the prefix, so
-            # a correct `\n`-only split never sees it as its own line.
+            # 1.2.0's mark is "work e" (the commit that introduces its
+            # heading), and its interval is {"work e", the forged commit}.
+            # Neither subject genuinely starts with the declared prefix, so
+            # the forged fragment counts nothing — 0, never a guess.
             self.assertEqual(rec["value"]["prep_commits"]["'1.2.0'"], 0)
-            self.assertIn("2 of 3", rec["filter"])
-            # Positive control: 1.0.0 and 1.1.0 ARE named by genuine subjects
-            # in this same history, so the 0 above is the forged-line refusal
-            # and not a reader that matches nothing.
-            self.assertGreater(rec["value"]["prep_commits"]["'1.0.0'"], 0)
-            self.assertGreater(rec["value"]["prep_commits"]["'1.1.0'"], 0)
+            # Positive control: 1.1.0's interval genuinely contains a
+            # "Release prep v1.1.0" commit, so the 0 above is the forged-line
+            # refusal and not a reader that matches nothing.
+            self.assertEqual(rec["value"]["prep_commits"]["'1.1.0'"], 1)
+            # 1.0.0 is the oldest release and has no previous release, so its
+            # interval is unbounded regardless of any subject text.
+            self.assertIsNone(rec["value"]["prep_commits"]["'1.0.0'"])
+            self.assertIn("3 of 3 dated headings resolve", rec["filter"])
 
 
 # --------------------------------------------------------------------------
@@ -2295,11 +3453,14 @@ class ReleasePrepKeyCollisionTests(unittest.TestCase):
     applies `repr` to the redacted HEAD and appends the note OUTSIDE the
     quotes.
 
-    The pair is driven through `_partition_release_prep` rather than through a
+    The pair is driven through `_prep_key` directly rather than through a
     CHANGELOG: `FORGER_VERSION` ends in `]` and `CHANGELOG_HEADING` captures
-    `[^\\]]+`, so this exact forger cannot be spelled as a heading. The
-    end-to-end case below therefore pins the KEY SHAPE — the note outside the
-    quotes — on the real signal instead.
+    `[^\\]]+`, so this exact forger cannot be spelled as a heading.
+    `signal_release_cadence` keys both `span_commits` and `prep_commits` by
+    exactly `_prep_key(version)` for every version the changelog carries, so
+    building that same mapping here is composed from the real stages rather
+    than a stand-in. The end-to-end case below pins the KEY SHAPE — the note
+    outside the quotes — on the real signal.
     """
 
     def test_the_heading_reader_returns_the_raw_capture(self):
@@ -2318,9 +3479,7 @@ class ReleasePrepKeyCollisionTests(unittest.TestCase):
         captured = [v for v, _d in sig._dated_release_headings(
             f"# Changelog\n\n## [{HOSTILE_ESC_VERSION}] — 2026-01-11\n\n- b\n")]
         self.assertEqual(captured, [HOSTILE_ESC_VERSION])
-        counts, matched, unmatchable = sig._partition_release_prep(
-            [], captured + [FORGER_VERSION])
-        self.assertEqual(unmatchable, [])
+        counts = {sig._prep_key(v): None for v in captured + [FORGER_VERSION]}
         # The discriminator: TWO versions, TWO keys. Under the render-at-entry
         # shape this mapping carried ONE, and one release's count silently
         # overwrote the other's.
@@ -2334,16 +3493,11 @@ class ReleasePrepKeyCollisionTests(unittest.TestCase):
         # carries and it does not.
         self.assertIn(repr(FORGER_VERSION), counts)
         self.assertNotEqual(hostile_key, repr(FORGER_VERSION))
-        self.assertEqual(matched, 0)
         # PAIRED POSITIVE CONTROL: ordinary versions still key the mapping as
-        # their own `repr()`, so the render above did not change what a benign
-        # changelog produces, and the counting half still counts.
-        benign, benign_matched, benign_unmatchable = sig._partition_release_prep(
-            ["work", "release prep v1.1.0", "work", "release prep v1.0.0"],
-            ["1.0.0", "1.1.0"])
-        self.assertEqual(benign_unmatchable, [])
-        self.assertEqual(set(benign), {"'1.0.0'", "'1.1.0'"})
-        self.assertEqual(benign_matched, 2)
+        # their own `repr()`, so the render above did not change what a
+        # benign changelog produces.
+        benign = {sig._prep_key(v) for v in ("1.0.0", "1.1.0")}
+        self.assertEqual(benign, {"'1.0.0'", "'1.1.0'"})
 
     @unittest.skipUnless(GIT, "the version-control binary is not on PATH")
     def test_the_note_lands_outside_the_quotes_on_the_real_signal(self):
@@ -2374,145 +3528,15 @@ class ReleasePrepKeyCollisionTests(unittest.TestCase):
 
 
 # --------------------------------------------------------------------------
-# `re.escape` around the mined version, and the crash lane its absence opens
+# `re.escape`-around-a-mined-subject and the re.error containment lane —
+# RETIRED under ADR-0109. `prep_commits` no longer matches a mined version
+# string against a commit subject at all: the boundary comes from a
+# CHANGELOG.md blob diff, and the interval count matches only the fixed,
+# unescaped declared prefix. There is no mined content left to compile into
+# a regex, so the hazard `SubjectMatchEscapeTests` and
+# `SubjectMatchFailureIsAFindingTests` guarded against has no call site left
+# to guard.
 # --------------------------------------------------------------------------
-
-
-class SubjectMatchEscapeTests(unittest.TestCase):
-    """`re.escape` in `_subject_names_version` is load-bearing on TWO lanes.
-
-    Neither had a test: the call was deletable with the module green, because
-    every case that reached it used a version whose characters happen to be
-    regex-inert, and the crash it opens exits 2 — which no case discriminated
-    from any other exit-2 condition.
-    """
-
-    def test_a_versions_dots_are_literal_and_match_no_wildcard(self):
-        """LANE 1, SEMANTICS. Unescaped, `1.0.0`'s dots are wildcards and the
-        subject `release prep v1x0y0` matches — attributing one release's prep
-        count to another version entirely."""
-        counts, matched, unmatchable = sig._partition_release_prep(
-            ["release prep v1x0y0"], ["1.0.0"])
-        self.assertEqual(matched, 0)
-        self.assertEqual(counts, {"'1.0.0'": 0})
-        self.assertEqual(unmatchable, [])
-        # PAIRED POSITIVE CONTROL: the SAME version against a subject that
-        # really names it DOES match, so the 0 above is the escape firing and
-        # not a matcher that never fires at all.
-        _c, control_matched, _u = sig._partition_release_prep(
-            ["release prep v1.0.0"], ["1.0.0"])
-        self.assertEqual(control_matched, 1)
-
-    def test_a_version_that_is_no_pattern_counts_zero_instead_of_raising(self):
-        """LANE 2, CRASH. A changelog heading `## [(] — 2026-02-01` mines the
-        version `(`, which is not a pattern. Unescaped, `re.search` raises
-        `re.error` — a `ValueError` subclass, so it escaped `build`'s callers
-        exactly as `UnicodeDecodeError` did and collapsed all eight signals
-        into exit 2."""
-        for version in ("(", ")", "[", "*", "+", "?", "1.0.0(", "a{2,"):
-            with self.subTest(version=version):
-                counts, matched, unmatchable = sig._partition_release_prep(
-                    ["release prep v1.0.0"], [version])
-                self.assertEqual(counts, {repr(version): 0})
-                self.assertEqual(matched, 0)
-                self.assertEqual(unmatchable, [])
-
-    def test_the_heading_grammar_really_admits_a_regex_metacharacter(self):
-        """The positive control on the FIXTURE: `## [(] — 2026-02-01` is a
-        heading the reader mines, so the case above is a changelog a project
-        can actually carry and not a value only a unit test can construct."""
-        text = "# Changelog\n\n## [(] — 2026-02-01\n\n- a\n"
-        self.assertEqual(sig._dated_release_headings(text), [("(", "2026-02-01")])
-
-
-class SubjectMatchFailureIsAFindingTests(unittest.TestCase):
-    """A version no pattern can be built around counts null and files a
-    finding — it does not collapse the envelope.
-
-    `re.escape` makes the condition unreachable today, so the containment is
-    driven by forcing the raise. The two are independent guards on the same
-    class: the escape stops the error arising, the containment stops any
-    future one taking the other seven signals down with it.
-    """
-
-    def _forced(self, errors):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            _init_repo(root)
-            (root / "CHANGELOG.md").write_text(TWO_RELEASE_CHANGELOG,
-                                               encoding="utf-8")
-            _commit(root, "release prep v1.0.0")
-            with unittest.mock.patch.object(
-                    sig, "_subject_names_version",
-                    side_effect=re.error("forced, to drive the containment")):
-                return sig.signal_release_cadence(root, "bionic", errors)
-
-    @unittest.skipUnless(GIT, "the version-control binary is not on PATH")
-    def test_the_record_survives_with_null_counts_and_names_the_condition(self):
-        errors: list[dict] = []
-        rec = self._forced(errors)
-        # The signal still COMPUTES: the cadence rests on the changelog, and
-        # only the optional git-history member is affected.
-        self.assertEqual(rec["verdict"], "computed")
-        self.assertEqual(rec["value"]["releases"], 2)
-        self.assertEqual(rec["value"]["intervals_days"], [10])
-        # Every affected version counts null — never zero, which in this file
-        # means "the leg ran and matched nothing".
-        self.assertEqual(rec["value"]["prep_commits"],
-                         {"'1.0.0'": None, "'1.1.0'": None})
-        self.assertIn("count null because no pattern could be built",
-                      rec["filter"])
-        # And the condition reaches the FINDINGS lane, naming the keys.
-        self.assertEqual(len(errors), 1, errors)
-        self.assertEqual(errors[0]["input"], "CHANGELOG.md")
-        self.assertIn("'1.0.0'", errors[0]["problem"])
-        self.assertIn("'1.1.0'", errors[0]["problem"])
-
-    @unittest.skipUnless(GIT, "the version-control binary is not on PATH")
-    def test_an_unforced_run_files_no_finding_and_counts_numbers(self):
-        # PAIRED POSITIVE CONTROL: the SAME repository without the forced
-        # raise files nothing and counts integers, so the finding above is
-        # the containment firing rather than an entry every run appends.
-        errors: list[dict] = []
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            _init_repo(root)
-            (root / "CHANGELOG.md").write_text(TWO_RELEASE_CHANGELOG,
-                                               encoding="utf-8")
-            _commit(root, "release prep v1.0.0")
-            rec = sig.signal_release_cadence(root, "bionic", errors)
-        self.assertEqual(errors, [])
-        self.assertEqual(rec["value"]["prep_commits"], {"'1.0.0'": 0, "'1.1.0'": 0})
-        self.assertNotIn("count null because no pattern could be built",
-                         rec["filter"])
-
-    @unittest.skipUnless(GIT, "the version-control binary is not on PATH")
-    def test_build_hands_the_signal_its_findings_list_and_the_others_survive(self):
-        """The wiring, end to end. Without the third argument at `build`'s
-        call site the finding is computed and dropped, and this is the case
-        that sees it."""
-        tmp = tempfile.TemporaryDirectory(prefix="adr-signals-re-error-")
-        self.addCleanup(tmp.cleanup)
-        root = Path(tmp.name) / "trips"
-        shutil.copytree(TRIPS, root)
-        _init_repo(root)
-        _commit(root, "release prep v0.3.0")
-        with unittest.mock.patch.object(
-                sig, "_subject_names_version",
-                side_effect=re.error("forced, to drive the containment")):
-            envelope, errors = sig.build(root, TODAY)
-        self.assertEqual(len(envelope["signals"]), 8)
-        self.assertEqual([e["input"] for e in errors], ["CHANGELOG.md"])
-        # THE POINT OF THE CONTAINMENT: the other seven signals still compute.
-        # Uncontained, `re.error` escaped `build` entirely and every one of
-        # them became exit 2 with no envelope at all.
-        collapsed = [r["signal"] for r in envelope["signals"]
-                     if r["verdict"] not in ("computed", "unmeasurable")]
-        self.assertEqual(collapsed, [])
-        cadence = next(r for r in envelope["signals"]
-                       if r["signal"] == "release_cadence")
-        self.assertEqual(cadence["verdict"], "computed")
-        self.assertTrue(all(v is None for v in cadence["value"]["prep_commits"].values()))
 
 
 # --------------------------------------------------------------------------
@@ -2576,23 +3600,49 @@ class PrepKeyInjectivityTests(unittest.TestCase):
                          sig.redact(COLLIDING_B, quoted=True))
 
     def test_two_colliding_versions_key_two_distinct_slots(self):
-        counts, _matched, _unmatchable = sig._partition_release_prep(
-            [], [COLLIDING_A, COLLIDING_B])
+        # A dict comprehension keyed by `_prep_key`, exactly the shape
+        # `signal_release_cadence` builds `span_commits`/`prep_commits`
+        # with, over the two colliding-rendering versions.
+        counts = {sig._prep_key(v): None for v in (COLLIDING_A, COLLIDING_B)}
         self.assertEqual(len(counts), 2, counts)
         self.assertEqual(sig._prep_key(COLLIDING_A), sig._prep_key(COLLIDING_A))
         self.assertNotEqual(sig._prep_key(COLLIDING_A), sig._prep_key(COLLIDING_B))
 
-    def test_each_slot_keeps_its_own_count(self):
-        """Driven through the counting half, which is where the collision
-        actually cost something: alone, A counted 3 and B counted 1; together
-        they reported one key and one of the two numbers."""
-        subjects = ["x", "y", "z", "release prep " + COLLIDING_A,
-                    "w", "release prep " + COLLIDING_B]
-        counts, matched, _u = sig._partition_release_prep(
-            subjects, [COLLIDING_A, COLLIDING_B])
-        self.assertEqual(matched, 2)
-        self.assertEqual(counts[sig._prep_key(COLLIDING_A)], 1)
-        self.assertEqual(counts[sig._prep_key(COLLIDING_B)], 0)
+    @unittest.skipUnless(GIT, "the version-control binary is not on PATH")
+    def test_each_slot_keeps_its_own_release_mark_interval(self):
+        """The end-to-end sibling: two colliding-rendering versions as REAL
+        consecutive releases, each with its own release mark and its own
+        interval, driven through the real signal — the counting mechanism
+        this file's collision property actually has to hold against now.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _init_repo(root)
+            (root / "CHANGELOG.md").write_text(CHANGELOG_SEED, encoding="utf-8")
+            _commit(root, "seed")
+            _commit(root, "work a")
+            (root / "CHANGELOG.md").write_text(
+                f"# Changelog\n\n## [Unreleased]\n\n### Added\n\n"
+                f"## [{COLLIDING_A}] — 2026-01-01\n\n- a\n",
+                encoding="utf-8")
+            _commit(root, "Release prep A")
+            _commit(root, "work b")
+            (root / "CHANGELOG.md").write_text(
+                f"# Changelog\n\n## [Unreleased]\n\n### Added\n\n"
+                f"## [{COLLIDING_B}] — 2026-01-11\n\n### Added\n- b\n\n"
+                f"## [{COLLIDING_A}] — 2026-01-01\n\n- a\n",
+                encoding="utf-8")
+            _commit(root, "work c")
+
+            rec = sig.signal_release_cadence(root, "bionic")
+            self.assertEqual(rec["verdict"], "computed")
+            key_a, key_b = sig._prep_key(COLLIDING_A), sig._prep_key(COLLIDING_B)
+            self.assertEqual(set(rec["value"]["prep_commits"]), {key_a, key_b})
+            # A (oldest) has no previous release: null. B's interval is
+            # {"work c", "work b"} — bounded, zero preparation declared.
+            self.assertIsNone(rec["value"]["prep_commits"][key_a])
+            self.assertEqual(rec["value"]["prep_commits"][key_b], 0)
+            self.assertEqual(rec["value"]["span_commits"][key_b], 2)
 
     def test_the_key_stays_bounded_and_carries_no_unprintable_character(self):
         """The property the naive repair would have destroyed. The key is
@@ -2700,9 +3750,9 @@ class PrepKeyInjectivityTests(unittest.TestCase):
         # produce rather than one it never could.
         self.assertEqual(sig.redact(a, quoted=True), sig.redact(b, quoted=True))
         self.assertNotEqual(sig._prep_key(a), sig._prep_key(b))
-        counts, matched, _unmatchable = sig._partition_release_prep(
-            ["release prep " + a, "x", "release prep " + b], [a, b])
-        self.assertEqual(matched, 2)
+        # Driven through the same dict-comprehension shape
+        # `signal_release_cadence` builds `span_commits`/`prep_commits` with.
+        counts = {sig._prep_key(v): None for v in (a, b)}
         self.assertEqual(len(counts), 2, counts)
 
 
@@ -2906,6 +3956,31 @@ class RefusedSurfaceIsNamedTests(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory(prefix="adr-signals-refused-outside-")
         self.addCleanup(tmp.cleanup)
         return Path(tmp.name)
+
+    def test_a_readable_dated_log_produces_its_entries(self):
+        """POSITIVE CONTROL for every symlink case in this class.
+
+        The three symlink tests below assert `entries == []` over `DATED_LOG`.
+        That empty list is evidence of refusal ONLY if the same fixture, read
+        normally, is known to produce entries — otherwise a fixture that parses
+        to nothing would satisfy all three and the guard could be absent.
+        Nothing in this file pinned that, so the greens rested on an unpinned
+        assumption. This is the assumption, pinned.
+
+        Verifies the existing implementation. It reproduces no new defect and
+        changes no behaviour authored in cff92d0.
+        """
+        root = self._root()
+        docs = root / "bionic"
+        docs.mkdir(parents=True)
+        (docs / "log.md").write_text(DATED_LOG, encoding="utf-8")
+        entries, refused = sig._dated_entries(root, docs)
+        self.assertEqual(refused, [])
+        self.assertEqual(entries, [("log.md", "2026-02-10", {"ADR-0001"})])
+        # And the signal built from those entries is a real measurement, so the
+        # refused cases' `null` is a narrowing rather than the fixture's own shape.
+        rec = sig.signal_dormancy_days({"ADR-0001": {}}, entries, TODAY, "bionic", refused)
+        self.assertIsNotNone(rec["value"]["ADR-0001"])
 
     def test_a_dangling_symlink_at_a_surface_is_refused_and_named(self):
         # `is_file()`/`is_dir()` follow the link, so a dangling one read as

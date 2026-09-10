@@ -56,6 +56,18 @@ research:
   # candidates for refresh. Default 90 days.
   refresh_interval_days: 90
 
+# Journal concern. friction_line_from is this tree's adoption date for the
+# journal friction line (docs/CLAUDE.md §7), prospective on the same cohort
+# model as adr.spec_rule_from: a reader counts `Friction:` lines only in
+# entries dated at or after it, so a zero count below the boundary means
+# "not yet adopted" rather than "no friction". init-docs substitutes the
+# initialization date, which is when this tree's conforming journal writer
+# came into use. NEVER move it earlier: an earlier date reintroduces the
+# ambiguity the boundary exists to remove. A re-bootstrap over an existing
+# tree carries that tree's recorded date forward instead of resetting it.
+journal:
+  friction_line_from: "{{today}}"
+
 # ADR allocation. propose-adr reads adr.next_number, allocates it, writes the
 # new ADR, and increments this field atomically. Numbers are NEVER reused.
 adr:
