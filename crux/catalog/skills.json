@@ -326,7 +326,7 @@
   {
     "id": "install-codex-agents",
     "name": "install-codex-agents",
-    "description": "Use when the user says \"install codex agents\", \"install crux agents for codex\", or \"refresh the codex agents\". Install or refresh Crux's ten Codex-native role agents in a target project's .codex/agents directory. Use when a Codex user asks to install Crux agents, enable the Crux architect/developer/reviewer roles, or refresh generated Codex role definitions after a plugin upgrade. Does not overwrite a conflicting role without --force.",
+    "description": "Use when the user says \"install codex agents\", \"install crux agents for codex\", or \"refresh the codex agents\". Install or refresh Crux's ten Codex-native role agents in the user's personal Codex agent directory by default, or in one explicit project's .codex/agents directory. Use when a Codex user asks to install Crux agents, enable the Crux architect/developer/reviewer roles, check agent health, or refresh model and skill bindings after a plugin upgrade or relocation. Does not overwrite a changed or stale managed role without --force.",
     "tags": [
       "codex",
       "agents",

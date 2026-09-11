@@ -6,6 +6,7 @@ model: sonnet
 maxTurns: 100
 effort: medium
 isolation: worktree
+skills: [forge-skill, log-work]
 metadata:
   tags: "agents, implementation, worker"
   bundles: "crux-agents"

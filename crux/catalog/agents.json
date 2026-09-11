@@ -30,7 +30,15 @@
     "skills": [
       "propose-adr",
       "transition-adr",
-      "review-decisions"
+      "review-decisions",
+      "council",
+      "srde",
+      "author-promptbook",
+      "dev-cycle",
+      "link-adr-graph",
+      "propose-brief",
+      "log-work",
+      "forge-skill"
     ]
   },
   {
@@ -58,7 +66,10 @@
     "risk_level": "low",
     "maxTurns": 50,
     "skills": [
-      "whiteboarding"
+      "whiteboarding",
+      "query-docs",
+      "forge-skill",
+      "log-work"
     ]
   },
   {
@@ -94,7 +105,12 @@
     "maxTurns": 200,
     "skills": [
       "run-promptbook",
-      "visualize-run-progress"
+      "visualize-run-progress",
+      "dev-cycle",
+      "council",
+      "srde",
+      "forge-skill",
+      "log-work"
     ]
   },
   {
@@ -126,7 +142,11 @@
       "crux-agents"
     ],
     "risk_level": "high",
-    "maxTurns": 100
+    "maxTurns": 100,
+    "skills": [
+      "forge-skill",
+      "log-work"
+    ]
   },
   {
     "id": "developer",
@@ -154,6 +174,10 @@
     "risk_level": "medium",
     "maxTurns": 100,
     "effort": "medium",
+    "skills": [
+      "forge-skill",
+      "log-work"
+    ],
     "isolation": "worktree"
   },
   {
@@ -184,8 +208,23 @@
     "maxTurns": 50,
     "effort": "medium",
     "skills": [
+      "init-docs",
+      "audit-docs",
+      "cleanup-campsite",
+      "link-adr-graph",
+      "migrate-promptbooks",
+      "check-drift",
+      "transition-adr",
+      "ingest-research",
+      "process-inbox",
+      "propose-adr",
+      "propose-brief",
       "log-work",
-      "process-inbox"
+      "archive-promptbook",
+      "extract-code-docs",
+      "verify-code-docs",
+      "run-promptbook",
+      "forge-skill"
     ],
     "memory": "project"
   },
@@ -213,7 +252,9 @@
     "maxTurns": 50,
     "effort": "medium",
     "skills": [
-      "query-docs"
+      "query-docs",
+      "forge-skill",
+      "log-work"
     ]
   },
   {
@@ -248,6 +289,20 @@
     ],
     "risk_level": "high",
     "maxTurns": 100,
+    "skills": [
+      "tend-garden",
+      "cleanup-campsite",
+      "read-news",
+      "refresh-research-sources",
+      "retrospective",
+      "council",
+      "srde",
+      "whiteboarding",
+      "query-docs",
+      "prose-review",
+      "forge-skill",
+      "log-work"
+    ],
     "memory": "project"
   },
   {
@@ -275,7 +330,11 @@
     "maxTurns": 150,
     "effort": "high",
     "skills": [
-      "prose-review"
+      "prose-review",
+      "council",
+      "srde",
+      "forge-skill",
+      "log-work"
     ]
   },
   {
@@ -302,6 +361,7 @@
     ],
     "risk_level": "medium",
     "maxTurns": 50,
-    "effort": "medium"
+    "effort": "medium",
+    "skills": []
   }
 ]

@@ -12,9 +12,11 @@ Stdlib only (unittest, tempfile, importlib, pathlib, sys).
 from __future__ import annotations
 
 import importlib.util
+import shutil
 import sys
 import tempfile
 import unittest
+from copy import deepcopy
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
@@ -406,6 +408,168 @@ class InvocationControlAgentTests(unittest.TestCase):
         self.assertEqual(errs, [])
 
 
+class AgentSkillDeclarationTests(unittest.TestCase):
+    """ADR-0111: every role declares the skills its workflows require."""
+
+    EXPECTED_ROLE_SKILLS = {
+        "architect": [
+            "propose-adr", "transition-adr", "review-decisions", "council", "srde",
+            "author-promptbook", "dev-cycle", "link-adr-graph", "propose-brief",
+            "log-work", "forge-skill",
+        ],
+        "brainstormer": ["whiteboarding", "query-docs", "forge-skill", "log-work"],
+        "commander": [
+            "run-promptbook", "visualize-run-progress", "dev-cycle", "council", "srde",
+            "forge-skill", "log-work",
+        ],
+        "dev-lead": ["forge-skill", "log-work"],
+        "developer": ["forge-skill", "log-work"],
+        "historian": [
+            "init-docs", "audit-docs", "cleanup-campsite", "link-adr-graph",
+            "migrate-promptbooks", "check-drift", "transition-adr", "ingest-research", "process-inbox", "propose-adr",
+            "propose-brief", "log-work",
+            "archive-promptbook", "extract-code-docs", "verify-code-docs",
+            "run-promptbook", "forge-skill",
+        ],
+        "librarian": ["query-docs", "forge-skill", "log-work"],
+        "night-gardener": [
+            "tend-garden", "cleanup-campsite", "read-news", "refresh-research-sources",
+            "retrospective", "council", "srde", "whiteboarding", "query-docs", "prose-review",
+            "forge-skill", "log-work",
+        ],
+        "reviewer": ["prose-review", "council", "srde", "forge-skill", "log-work"],
+        "wayfinder": [],
+    }
+
+    DIRECT_ROLE_SKILLS = {
+        "architect": {
+            "propose-adr", "transition-adr", "review-decisions", "council", "srde",
+            "author-promptbook", "dev-cycle", "link-adr-graph", "propose-brief",
+            "forge-skill",
+        },
+        "brainstormer": {"whiteboarding", "query-docs", "forge-skill"},
+        "commander": {
+            "run-promptbook", "visualize-run-progress", "dev-cycle", "council", "srde",
+            "forge-skill",
+        },
+        "dev-lead": {"forge-skill"},
+        "developer": {"forge-skill"},
+        "historian": {
+            "init-docs", "audit-docs", "cleanup-campsite", "link-adr-graph",
+            "migrate-promptbooks", "ingest-research", "process-inbox", "log-work",
+            "archive-promptbook", "extract-code-docs", "verify-code-docs",
+            "run-promptbook", "forge-skill",
+        },
+        "librarian": {"query-docs", "forge-skill"},
+        "night-gardener": {"tend-garden", "forge-skill"},
+        "reviewer": {"prose-review", "council", "srde", "forge-skill"},
+        "wayfinder": set(),
+    }
+
+    REQUIRED_SKILL_DEPENDENCIES = {
+        "audit-docs": {"check-drift", "transition-adr"},
+        "forge-skill": {"log-work"},
+        "process-inbox": {"ingest-research", "propose-adr", "propose-brief", "log-work"},
+        "read-news": {"refresh-research-sources"},
+        "retrospective": {"council", "srde", "forge-skill", "log-work"},
+        "review-decisions": {"log-work"},
+        "tend-garden": {
+            "cleanup-campsite", "read-news", "retrospective", "whiteboarding", "prose-review",
+        },
+        "whiteboarding": {"query-docs"},
+    }
+
+    def _plugin_fixture(self, tmp: Path) -> Path:
+        plugin = tmp / "crux"
+        shutil.copytree(REPO_ROOT / "crux" / "agents", plugin / "agents")
+        (plugin / "catalog").mkdir(parents=True)
+        shutil.copy2(REPO_ROOT / "crux" / "catalog" / "models.yml", plugin / "catalog" / "models.yml")
+        return plugin
+
+    @staticmethod
+    def _write_skill(plugin: Path, name: str) -> None:
+        path = plugin / "skills" / name
+        path.mkdir(parents=True)
+        (path / "SKILL.md").write_text("---\nname: real-skill\n---\n", encoding="utf-8")
+
+    def _valid_agent(self, plugin: Path, name: str) -> tuple[dict, Path, set[str]]:
+        agent_path = plugin / "agents" / f"{name}.md"
+        frontmatter, error = validator.extract_agent_frontmatter(agent_path)
+        self.assertIsNone(error, error)
+        allowed_models, error = validator.agent_model_enum(plugin)
+        self.assertIsNone(error, error)
+        assert allowed_models is not None
+        return deepcopy(frontmatter), agent_path, allowed_models
+
+    def _errors_for(self, plugin: Path, frontmatter: dict, agent_path: Path, skill_ids: set[str]) -> list[dict]:
+        _, errors = validator.validate_agent_frontmatter(
+            frontmatter, agent_path, plugin, {"fable", "opus", "sonnet"}, skill_ids
+        )
+        return errors
+
+    def _shipped_role_skill_map(self) -> dict[str, list[str]]:
+        plugin = REPO_ROOT / "crux"
+        skill_ids = {path.parent.name for path in validator.discover_skills(plugin)}
+        entries, errors = validator.regenerate_agents_json(plugin, verbose=False, skill_ids=skill_ids)
+        hard_errors = [error for error in errors if error.get("severity") != "warning"]
+        self.assertEqual(hard_errors, [], hard_errors)
+        return {entry["id"]: entry.get("skills") for entry in entries}
+
+    def test_shipped_roles_declare_the_exact_workflow_skill_map(self):
+        self.assertEqual(self._shipped_role_skill_map(), self.EXPECTED_ROLE_SKILLS)
+
+    def test_declared_skills_cover_each_role_workflow_dependency_closure(self):
+        declared_by_role = self._shipped_role_skill_map()
+        for role, roots in self.DIRECT_ROLE_SKILLS.items():
+            with self.subTest(role=role):
+                required = set(roots)
+                pending = list(roots)
+                while pending:
+                    skill = pending.pop()
+                    for dependency in self.REQUIRED_SKILL_DEPENDENCIES.get(skill, set()):
+                        if dependency not in required:
+                            required.add(dependency)
+                            pending.append(dependency)
+                self.assertTrue(
+                    required <= set(declared_by_role[role]),
+                    f"{role} omits {sorted(required - set(declared_by_role[role]))}",
+                )
+
+    def test_missing_skills_declaration_is_rejected(self):
+        with tempfile.TemporaryDirectory() as td:
+            plugin = self._plugin_fixture(Path(td))
+            frontmatter, agent_path, _ = self._valid_agent(plugin, "developer")
+            frontmatter.pop("skills", None)
+            errors = self._errors_for(plugin, frontmatter, agent_path, set())
+        self.assertTrue(any(error["field"] == "skills" and "missing required" in error["error"] for error in errors))
+
+    def test_duplicate_skill_declaration_is_rejected(self):
+        with tempfile.TemporaryDirectory() as td:
+            plugin = self._plugin_fixture(Path(td))
+            self._write_skill(plugin, "real-skill")
+            frontmatter, agent_path, _ = self._valid_agent(plugin, "developer")
+            frontmatter["skills"] = ["real-skill", "real-skill"]
+            errors = self._errors_for(plugin, frontmatter, agent_path, {"real-skill"})
+        self.assertTrue(any(error["field"] == "skills" and "duplicate" in error["error"] for error in errors))
+
+    def test_unknown_skill_declaration_is_rejected(self):
+        with tempfile.TemporaryDirectory() as td:
+            plugin = self._plugin_fixture(Path(td))
+            self._write_skill(plugin, "real-skill")
+            frontmatter, agent_path, _ = self._valid_agent(plugin, "developer")
+            frontmatter["skills"] = ["ghost-skill"]
+            errors = self._errors_for(plugin, frontmatter, agent_path, {"real-skill"})
+        self.assertTrue(any(error["field"] == "skills" and "ghost-skill" in error["error"] for error in errors))
+
+    def test_declared_skill_without_a_skill_file_is_rejected(self):
+        with tempfile.TemporaryDirectory() as td:
+            plugin = self._plugin_fixture(Path(td))
+            frontmatter, agent_path, _ = self._valid_agent(plugin, "developer")
+            frontmatter["skills"] = ["real-skill"]
+            errors = self._errors_for(plugin, frontmatter, agent_path, {"real-skill"})
+        self.assertTrue(any(error["field"] == "skills" and "SKILL.md" in error["error"] for error in errors))
+
+
 class BundleClosureTests(unittest.TestCase):
     """ADR-0092 item 6: every skill a default-on skill depends on must be default-on."""
 
@@ -471,7 +635,6 @@ if __name__ == "__main__":
 # written into a tmpdir: self-contained, and it never touches the real file.
 
 import json  # noqa: E402
-import shutil  # noqa: E402
 
 CATALOG_DIR = REPO_ROOT / "crux" / "catalog"
 SHIPPED_MODELS = CATALOG_DIR / "models.yml"
@@ -738,6 +901,96 @@ class ModelsCatalogNegativeTests(unittest.TestCase):
                 "levels.<level>.opencode",
             ],
         )
+
+
+class AgentCodexOverrideValidationTests(unittest.TestCase):
+    """Apply Codex value rules to agent overrides and level defaults."""
+
+    REVIEWER_CODEX = (
+        "  reviewer:\n"
+        "    level: apex\n"
+        "    opencode: kimi-latest\n"
+        "    codex:\n"
+        "      model: gpt-5.6-sol\n"
+        "      reasoning_effort: xhigh\n"
+        '      verified: "2026-09-11"\n'
+        '      source: "OpenAI GPT-5.6 Sol model documentation checked 2026-09-11"'
+    )
+
+    def _findings(self, transform) -> list[dict]:
+        original = SHIPPED_MODELS.read_text(encoding="utf-8")
+        mutated = transform(original)
+        self.assertNotEqual(
+            mutated,
+            original,
+            "agent Codex override fixture is inert: the reviewer override changed shape",
+        )
+        with tempfile.TemporaryDirectory() as td:
+            findings = _rules(_plugin_fixture(Path(td), mutated))
+        return findings
+
+    def _replace_override(self, original: str, replacement: str) -> str:
+        self.assertIn(
+            self.REVIEWER_CODEX,
+            original,
+            "reviewer Codex override fixture is inert: expected reviewer override is absent",
+        )
+        return original.replace(self.REVIEWER_CODEX, replacement, 1)
+
+    def test_v4_rejects_agent_override_effort_outside_the_enum(self):
+        findings = self._findings(
+            lambda t: self._replace_override(
+                t, self.REVIEWER_CODEX.replace("reasoning_effort: xhigh", "reasoning_effort: extreme")
+            )
+        )
+        self.assertIn("V4", _fields(findings), findings)
+
+    def test_v4_rejects_agent_override_empty_source(self):
+        findings = self._findings(
+            lambda t: self._replace_override(
+                t,
+                self.REVIEWER_CODEX.replace(
+                    'source: "OpenAI GPT-5.6 Sol model documentation checked 2026-09-11"',
+                    'source: ""',
+                ),
+            )
+        )
+        self.assertIn("V4", _fields(findings), findings)
+
+    def test_v4_rejects_agent_override_impossible_verified_date(self):
+        findings = self._findings(
+            lambda t: self._replace_override(
+                t, self.REVIEWER_CODEX.replace('verified: "2026-09-11"', 'verified: "2026-99-99"')
+            )
+        )
+        self.assertIn("V4", _fields(findings), findings)
+
+    def test_v4_rejects_agent_override_future_verified_date(self):
+        findings = self._findings(
+            lambda t: self._replace_override(
+                t, self.REVIEWER_CODEX.replace('verified: "2026-09-11"', 'verified: "2999-01-01"')
+            )
+        )
+        self.assertIn("V4", _fields(findings), findings)
+
+    def test_v4_warns_for_agent_override_stale_verified_date(self):
+        findings = self._findings(
+            lambda t: self._replace_override(
+                t, self.REVIEWER_CODEX.replace('verified: "2026-09-11"', 'verified: "2020-01-01"')
+            )
+        )
+        warnings = [f for f in findings if f.get("severity") == "warning"]
+        errors = [f for f in findings if f.get("severity") != "warning"]
+        self.assertTrue(warnings, findings)
+        self.assertEqual(errors, [], findings)
+
+    def test_v5_rejects_agent_override_model_absent_from_router_registry(self):
+        findings = self._findings(
+            lambda t: self._replace_override(
+                t, self.REVIEWER_CODEX.replace("model: gpt-5.6-sol", "model: gpt-5.6")
+            )
+        )
+        self.assertIn("V5", _fields(findings), findings)
 
 
 class RosterKeyConfinementTests(unittest.TestCase):

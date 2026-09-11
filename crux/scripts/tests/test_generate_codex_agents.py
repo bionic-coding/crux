@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 try:
@@ -34,14 +35,16 @@ EXPECTED_SOURCE_NAMES = {
 EXPECTED_FILES = {agents.codex_agent_filename(name) for name in EXPECTED_SOURCE_NAMES}
 INSTALLER = REPO_ROOT / "crux" / "skills" / "install-codex-agents" / "scripts" / "install.py"
 
-# Exact per-role (model, model_reasoning_effort) expectations. The pairs now
-# come from the level rows of `crux/catalog/models.yml`; this table is the
-# independent statement of what they must be, so a catalog edit that changes a
-# role's tier fails here rather than passing silently. Provenance
+# Exact per-role (model, model_reasoning_effort) expectations. The pairs come
+# from each role's resolved Codex runtime in `crux/catalog/models.yml`. The
+# catalog selects a complete agent override when present, otherwise the level
+# fallback. This table independently states the required values, so a catalog
+# edit fails here rather than passing silently. Provenance
 # (ADR-0046 clause 6a): these slugs are an OpenAI-owned external contract,
 # Sol/Terra were verified 2026-07-09 against the Codex docs and CLI catalog.
 # Astra and high effort were verified 2026-09-03 against the local Codex
-# 0.153.0 model catalog. Apex selects Astra; flagship selects Sol.
+# 0.153.0 model catalog. The apex fallback selects Astra. The reviewer override
+# selects Sol at xhigh effort.
 # Exact expectations catch a wrong slug or a model leaking into another tier.
 EXPECTED_RUNTIME = {
     "architect": ("gpt-5.6-sol", "high"),
@@ -52,7 +55,7 @@ EXPECTED_RUNTIME = {
     "historian": ("gpt-5.6-terra", "high"),
     "librarian": ("gpt-5.6-terra", "high"),
     "night-gardener": ("gpt-6-astra", "high"),
-    "reviewer": ("gpt-6-astra", "high"),
+    "reviewer": ("gpt-5.6-sol", "xhigh"),
     "wayfinder": ("gpt-5.6-terra", "high"),
 }
 
@@ -129,30 +132,66 @@ class RenderTests(unittest.TestCase):
             parsed = tomllib.loads(generated[agents.codex_agent_filename(source_name)])
             self.assertEqual(parsed["sandbox_mode"], "workspace-write")
 
+    @unittest.skipUnless(HAVE_TOMLLIB, "tomllib not available — Python 3.11+ required")
+    def test_install_render_binds_declared_skills_without_affecting_portable_output(self):
+        """Installation binds absolute resources; committed output stays portable."""
+        for role in EXPECTED_SOURCE_NAMES:
+            with self.subTest(role=role):
+                source = agents.parse_source(agents.SOURCE_DIR / f"{role}.md")
+                portable = agents.render_agent(source, CATALOG.resolve(role).codex)
+                installed = agents.render_agent(
+                    source, CATALOG.resolve(role).codex, skill_root=REPO_ROOT / "crux" / "skills"
+                )
+                self.assertNotIn("[[skills.config]]", portable)
+                self.assertNotIn(str(REPO_ROOT), portable)
+                parsed = tomllib.loads(installed)
+                self.assertEqual(parsed["model"], EXPECTED_RUNTIME[role][0])
+                self.assertEqual(parsed["model_reasoning_effort"], EXPECTED_RUNTIME[role][1])
+                configured = parsed.get("skills", {}).get("config", [])
+                self.assertEqual(len(configured), len(source.skills))
+                self.assertEqual([item["path"] for item in configured], sorted(item["path"] for item in configured))
+                self.assertTrue(all(item["enabled"] is True for item in configured))
+                for item in configured:
+                    resource = Path(item["path"])
+                    self.assertTrue(resource.is_absolute())
+                    self.assertTrue(resource.is_file())
+                    self.assertEqual(resource.name, "SKILL.md")
 
-class SyncTests(unittest.TestCase):
-    # Dev-dogfood check: the committed project `.codex/agents/` (this repo's
-    # own dogfood output, per ADR-0046) must match what the generator would
-    # produce right now. `.codex/` is NOT in the sync allowlist (ADR-0036 §3;
-    # tools/sync_stage.py ALLOWLIST_DIRS = ("crux",) plus a short named-file
-    # list — `.codex/` is absent from both), so a STAGED tree (sync.sh's
-    # `run_gate "unittest"`, which cds into $STAGE_DIR before running this
-    # suite) never has a `.codex/agents/` dir at all. Without this guard,
-    # `agents.diff()` on a missing output_dir treats every generated file as
-    # "added" and this test fails there on every release — a false blocker,
-    # not a real drift finding, since the staged tree was never supposed to
-    # carry `.codex/`. Skip (not weaken/delete) when the directory is absent;
-    # in the dev tree it is always present and this still enforces drift.
+    def test_install_render_refuses_missing_or_escaping_skill_resource(self):
+        source = agents.SourceAgent(
+            name="architect", description="x", tools=frozenset({"Read"}), body="body",
+            skills=("does-not-exist",),
+        )
+        with self.assertRaises(agents.SpecViolation):
+            agents.render_agent(source, CATALOG.resolve("architect").codex, skill_root=REPO_ROOT / "crux" / "skills")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "skills"
+            root.mkdir()
+            outside = Path(temporary) / "outside.md"
+            outside.write_text("outside", encoding="utf-8")
+            escaped = root / "escape"
+            escaped.mkdir()
+            (escaped / "SKILL.md").symlink_to(outside)
+            source = agents.SourceAgent(
+                name="architect", description="x", tools=frozenset({"Read"}), body="body", skills=("escape",)
+            )
+            with self.assertRaises(agents.SpecViolation):
+                agents.render_agent(source, CATALOG.resolve("architect").codex, skill_root=root)
+
+
+class DevCheckoutShadowTests(unittest.TestCase):
+    # Personal agents are the dogfood configuration. A project-local copy in
+    # this checkout shadows them and can silently omit new personal settings.
+    # The `tools/` marker limits this assertion to the private development
+    # checkout; the public artifact does not ship that directory.
     @unittest.skipUnless(
-        (REPO_ROOT / ".codex" / "agents").is_dir(),
-        "no project .codex/agents/ — expected when running outside the dev "
-        "tree (e.g. a sync.sh staged tree, which excludes .codex/ per the "
-        "ADR-0036 allowlist); this is a dev-dogfood check, not applicable there",
+        (REPO_ROOT / "tools" / "sync_stage.py").is_file(),
+        "project-shadow guard applies only to the private development checkout",
     )
-    def test_project_codex_agents_are_generated_and_current(self):
+    def test_dev_checkout_has_no_project_codex_agents(self):
         output_dir = REPO_ROOT / ".codex" / "agents"
-        added, changed, removed = agents.diff(output_dir, agents.generate())
-        self.assertEqual((added, changed, removed), ([], [], []))
+        shadows = sorted(path.name for path in output_dir.glob("crux-*.toml"))
+        self.assertEqual(shadows, [], "project-local Crux agents shadow personal agents")
 
 
 class WriteSymlinkRefusalTests(unittest.TestCase):
@@ -233,6 +272,102 @@ class WriteSymlinkRefusalTests(unittest.TestCase):
             self.assertEqual(removed, [])
             self.assertTrue(stale.exists())  # untouched when remove_stale=False
 
+    def test_write_replaces_a_managed_hardlink_without_mutating_its_victim(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output_dir = Path(temporary) / "agents"
+            generated = agents.generate()
+            agents.write(output_dir, generated)
+            leaf = output_dir / agents.codex_agent_filename("architect")
+            victim = Path(temporary) / "victim.toml"
+            victim.hardlink_to(leaf)
+            original = victim.read_text(encoding="utf-8")
+            replacement = dict(generated)
+            replacement[leaf.name] = replacement[leaf.name] + "# refreshed\n"
+
+            agents.write(output_dir, replacement)
+
+            self.assertEqual(victim.read_text(encoding="utf-8"), original)
+            self.assertEqual(leaf.read_text(encoding="utf-8"), replacement[leaf.name])
+
+    def test_write_refuses_nonregular_leaf_before_any_partial_write(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output_dir = Path(temporary) / "agents"
+            output_dir.mkdir()
+            (output_dir / agents.codex_agent_filename("developer")).mkdir()
+            with self.assertRaises(agents.SpecViolation):
+                agents.write(output_dir, agents.generate())
+            self.assertFalse((output_dir / agents.codex_agent_filename("architect")).exists())
+
+    def test_atomic_replace_does_not_follow_leaf_substituted_after_validation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output_dir = Path(temporary) / "agents"
+            generated = agents.generate()
+            agents.write(output_dir, generated)
+            leaf = output_dir / agents.codex_agent_filename("architect")
+            victim = Path(temporary) / "victim.toml"
+            victim.write_text("SENTINEL\n", encoding="utf-8")
+            replacement = dict(generated)
+            replacement[leaf.name] = replacement[leaf.name] + "# refreshed\n"
+            actual_replace = agents.os.replace
+
+            def substitute_then_replace(src, dst, *args, **kwargs):
+                leaf.unlink()
+                leaf.symlink_to(victim)
+                return actual_replace(src, dst, *args, **kwargs)
+
+            with mock.patch.object(agents.os, "replace", side_effect=substitute_then_replace):
+                agents.write(output_dir, replacement)
+
+            self.assertEqual(victim.read_text(encoding="utf-8"), "SENTINEL\n")
+            self.assertFalse(leaf.is_symlink())
+            self.assertEqual(leaf.read_text(encoding="utf-8"), replacement[leaf.name])
+
+    def test_pinned_directory_survives_output_directory_substitution(self):
+        """A post-validation output link swap cannot redirect replacement."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "root"
+            output_dir = root / ".codex" / "agents"
+            output_dir.parent.mkdir(parents=True)
+            target = root / "managed-agents"
+            target.mkdir()
+            output_dir.symlink_to(target, target_is_directory=True)
+            outside = Path(temporary) / "outside"
+            outside.mkdir()
+            generated = agents.generate()
+
+            with agents.pin_directory(output_dir, containment_root=root) as pinned:
+                output_dir.unlink()
+                output_dir.symlink_to(outside, target_is_directory=True)
+                agents.write(pinned, generated)
+
+            self.assertEqual(
+                {path.name for path in target.glob("crux-*.toml")},
+                set(EXPECTED_FILES),
+            )
+            self.assertEqual({path.name for path in outside.glob("crux-*.toml")}, set())
+
+    def test_pinned_directory_survives_parent_directory_substitution(self):
+        """A post-validation parent swap cannot redirect replacement."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "root"
+            output_dir = root / ".codex" / "agents"
+            output_dir.mkdir(parents=True)
+            outside = Path(temporary) / "outside"
+            outside.mkdir()
+            generated = agents.generate()
+
+            with agents.pin_directory(output_dir, containment_root=root) as pinned:
+                original_parent = root / ".codex-original"
+                (root / ".codex").rename(original_parent)
+                (root / ".codex").symlink_to(outside, target_is_directory=True)
+                agents.write(pinned, generated)
+
+            self.assertEqual(
+                {path.name for path in (original_parent / "agents").glob("crux-*.toml")},
+                set(EXPECTED_FILES),
+            )
+            self.assertEqual({path.name for path in outside.glob("crux-*.toml")}, set())
+
 
 class InstallerTests(unittest.TestCase):
     def _run(self, repo_root: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -256,14 +391,14 @@ class InstallerTests(unittest.TestCase):
         (plugin_root / "scripts").mkdir()
         scratch_scripts = plugin_root / "skills" / "install-codex-agents" / "scripts"
         scratch_scripts.mkdir(parents=True)
-        # All THREE modules, because all three ship together. Copying only
+        # All four modules, because they ship together. Copying only
         # `codex_agents.py` modelled an install that cannot exist, and the gap
         # was invisible in the dev tree — there, `models_catalog` is importable
         # from sys.path, so the fixture accidentally worked. Under the staged
         # release artifact it was not, and the by-location fallback raised
         # FileNotFoundError at import time: exit 1 and a traceback where this
         # test asserts exit 2 and structured JSON.
-        for module in ("codex_agents.py", "models_catalog.py", "_yaml_min.py"):
+        for module in ("codex_agents.py", "codex_agent_health.py", "models_catalog.py", "_yaml_min.py"):
             shutil.copy2(SCRIPTS_DIR / module, plugin_root / "scripts")
         shutil.copy2(INSTALLER, scratch_scripts)
         return scratch_scripts / "install.py"
@@ -576,6 +711,13 @@ class RegeneratorCliTests(unittest.TestCase):
         self.assertIn("generate-codex-agents:", result.stderr)
         self.assertEqual(result.stdout, "")
 
+    def test_output_dir_is_required(self):
+        result = self._run("--dry-run")
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("--output-dir", result.stderr)
+        self.assertIn("required", result.stderr)
+
     def test_output_dir_that_is_a_regular_file_is_refused(self):
         with tempfile.TemporaryDirectory() as temporary:
             blocker = Path(temporary) / "agents"
@@ -652,6 +794,60 @@ class SpecViolationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             with self.assertRaises(agents.SpecViolation):
                 agents.generate(Path(d))
+
+
+class SourceSkillsParserTests(unittest.TestCase):
+    """The Codex source parser matches the catalog's flow-list contract."""
+
+    def _write(self, skills_lines: str) -> Path:
+        tempdir = tempfile.TemporaryDirectory()
+        self.addCleanup(tempdir.cleanup)
+        path = Path(tempdir.name) / "architect.md"
+        path.write_text(
+            "---\n"
+            "name: architect\n"
+            "description: x\n"
+            "tools: Read\n"
+            f"{skills_lines}"
+            "---\n"
+            "Body.\n",
+            encoding="utf-8",
+        )
+        return path
+
+    def test_missing_skills_is_rejected(self):
+        with self.assertRaisesRegex(agents.SpecViolation, "missing skills"):
+            agents.parse_source(self._write(""))
+
+    def test_duplicate_skill_list_entry_is_rejected(self):
+        with self.assertRaisesRegex(agents.SpecViolation, "duplicate skill"):
+            agents.parse_source(self._write("skills: [forge-skill, forge-skill]\n"))
+
+    def test_quoted_flow_skill_strings_are_accepted(self):
+        source = agents.parse_source(
+            self._write("skills: [\"forge-skill\", 'log-work']\n")
+        )
+        self.assertEqual(source.skills, ("forge-skill", "log-work"))
+
+    def test_flow_skills_allow_a_yaml_comment_after_the_list(self):
+        source = agents.parse_source(
+            self._write("skills: [propose-adr] # required workflow\n")
+        )
+        self.assertEqual(source.skills, ("propose-adr",))
+
+    def test_hash_inside_quoted_skill_name_is_not_treated_as_a_comment(self):
+        with self.assertRaisesRegex(agents.SpecViolation, "invalid skills declaration"):
+            agents.parse_source(self._write("skills: ['propose#adr'] # annotation\n"))
+
+    def test_empty_flow_skill_element_is_rejected(self):
+        with self.assertRaisesRegex(agents.SpecViolation, "empty"):
+            agents.parse_source(self._write("skills: [forge-skill,, log-work]\n"))
+
+    def test_duplicate_top_level_skills_key_is_rejected(self):
+        with self.assertRaisesRegex(agents.SpecViolation, "duplicate top-level skills"):
+            agents.parse_source(
+                self._write("skills: [forge-skill]\nskills: [log-work]\n")
+            )
 
 
 class CatalogFailClosedTests(unittest.TestCase):

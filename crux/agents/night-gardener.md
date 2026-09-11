@@ -5,6 +5,7 @@ tools: Read, Grep, Glob, Edit, Write, Bash, Agent(historian), Agent(wayfinder), 
 model: fable
 maxTurns: 100
 memory: project
+skills: [tend-garden, cleanup-campsite, read-news, refresh-research-sources, retrospective, council, srde, whiteboarding, query-docs, prose-review, forge-skill, log-work]
 metadata:
   tags: "agents, garden, strategic, overnight, generative"
   bundles: "crux-agents"

@@ -145,12 +145,15 @@ def joined_skill_text(skill_md: Path) -> str:
     return re.sub(r"\\\n\s*", " ", raw)
 
 
-def documented_uv_run_scripts() -> dict[str, set[str]]:
-    """Map script-path-relative-to-scripts/ -> set of surface names citing it
-    in a `uv run …scripts/<name>.py` invocation. Scans every distributed
+def documented_uv_run_scripts() -> dict[Path, set[str]]:
+    """Map an absolute shipped script path to its documenting surfaces.
+
+    A skill-local ``<skill-dir>/scripts/X.py`` path resolves beside its
+    ``SKILL.md``. Other ``…/scripts/X.py`` paths retain the established
+    plugin-level ``crux/scripts/X.py`` resolution. Scans every distributed
     prose surface (skills, agents, templates), not just skills — a template
     or agent documenting an invocation binds the same block-coverage rule."""
-    cited: dict[str, set[str]] = {}
+    cited: dict[Path, set[str]] = {}
     surfaces = (
         sorted(SKILLS_DIR.glob("*/SKILL.md"))
         + sorted((SKILLS_DIR.parent / "agents").glob("*.md"))
@@ -161,7 +164,15 @@ def documented_uv_run_scripts() -> dict[str, set[str]]:
         for line in text.splitlines():
             for m in UV_RUN_SCRIPT_RE.finditer(line):
                 rel = m.group(1).strip("\"'")
-                cited.setdefault(rel, set()).add(skill_md.stem if skill_md.name != "SKILL.md" else skill_md.parent.name)
+                prefix = m.group(0)
+                script = (
+                    skill_md.parent / "scripts" / rel
+                    if "<skill-dir>/scripts/" in prefix and skill_md.name == "SKILL.md"
+                    else SCRIPTS_DIR / rel
+                )
+                cited.setdefault(script, set()).add(
+                    skill_md.stem if skill_md.name != "SKILL.md" else skill_md.parent.name
+                )
     return cited
 
 
@@ -171,18 +182,27 @@ class TestBlockCoverage(unittest.TestCase):
     def test_skills_dir_exists(self):
         self.assertTrue(SKILLS_DIR.is_dir(), f"missing skills dir: {SKILLS_DIR}")
 
+    def test_skill_local_invocation_resolves_beside_its_skill(self):
+        cited = documented_uv_run_scripts()
+        local_install = SKILLS_DIR / "install-codex-agents" / "scripts" / "install.py"
+        self.assertIn(local_install, cited)
+        self.assertNotIn(SCRIPTS_DIR / "install.py", cited)
+
     def test_every_uv_run_documented_script_carries_a_block(self):
         failures = []
-        for rel, skills in sorted(documented_uv_run_scripts().items()):
-            script = SCRIPTS_DIR / rel
+        for script, skills in sorted(documented_uv_run_scripts().items()):
+            try:
+                label = str(script.relative_to(PLUGIN_ROOT))
+            except ValueError:
+                label = str(script)
             if not script.is_file():
                 failures.append(
-                    f"{rel}: referenced by {sorted(skills)} but missing on disk"
+                    f"{label}: referenced by {sorted(skills)} but missing on disk"
                 )
                 continue
             if extract_script_block(script) is None:
                 failures.append(
-                    f"{rel}: documented as `uv run` by {sorted(skills)} but has "
+                    f"{label}: documented as `uv run` by {sorted(skills)} but has "
                     "no PEP 723 `# /// script` block before first code "
                     "(block-coverage rule, ADR-0035 §2)"
                 )

@@ -20,7 +20,6 @@ Stdlib only. Run: uv run python3 -m unittest crux.scripts.tests.test_yaml_min_ca
 
 from __future__ import annotations
 
-import importlib
 import sys
 import unittest
 from pathlib import Path
@@ -77,7 +76,7 @@ class ShippedCatalogParityTests(unittest.TestCase):
 
     def test_models_yml_parses_the_same_on_both_paths(self):
         parsed = self._assert_parity(MODELS_YML)
-        self.assertEqual(parsed["schema_version"], "2")
+        self.assertEqual(parsed["schema_version"], "3")
 
     def test_bundles_yml_parses_the_same_on_both_paths(self):
         parsed = self._assert_parity(BUNDLES_YML)

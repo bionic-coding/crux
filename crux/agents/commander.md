@@ -4,7 +4,7 @@ description: Use when the user says "run promptbook", "run PB-NNNN", "start the 
 tools: Read, Grep, Glob, Agent(architect), Agent(brainstormer), Agent(dev-lead), Agent(historian), Agent(librarian), Agent(night-gardener), Agent(reviewer), Agent(wayfinder), Skill, TodoWrite
 model: fable
 maxTurns: 200
-skills: [run-promptbook, visualize-run-progress]
+skills: [run-promptbook, visualize-run-progress, dev-cycle, council, srde, forge-skill, log-work]
 metadata:
   tags: "agents, orchestration, conductor, runtime"
   bundles: "crux-agents"

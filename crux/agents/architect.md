@@ -5,7 +5,7 @@ tools: Read, Grep, Glob, Edit, Write, Bash, Skill, WebSearch, WebFetch
 model: opus
 maxTurns: 50
 effort: high
-skills: [propose-adr, transition-adr, review-decisions]
+skills: [propose-adr, transition-adr, review-decisions, council, srde, author-promptbook, dev-cycle, link-adr-graph, propose-brief, log-work, forge-skill]
 metadata:
   tags: "agents, architecture, adr, decisions"
   bundles: "crux-agents"

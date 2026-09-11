@@ -4,6 +4,7 @@ description: Use when the user says "implement this", "build the feature", "lead
 tools: Read, Grep, Glob, Edit, Write, Bash, Agent(developer), Agent(historian), Agent(reviewer), Agent(wayfinder), Skill, TodoWrite
 model: opus
 maxTurns: 100
+skills: [forge-skill, log-work]
 metadata:
   tags: "agents, implementation, lead, coordination"
   bundles: "crux-agents"

@@ -57,6 +57,7 @@ name: {name}
 description: Use when the user wants X. Triggers — "do this", "do that".
 tools: Read, Grep, Glob, Skill
 model: sonnet
+skills: []
 metadata:
   tags: "agents, retrieval"
   bundles: "crux-agents"
@@ -82,6 +83,12 @@ def _write_agent(tmp: Path, stem: str, body: str) -> Path:
     path = agents_dir / f"{stem}.md"
     path.write_text(body, encoding="utf-8")
     return path
+
+
+def _write_skill(tmp: Path, name: str) -> None:
+    skill_dir = tmp / "skills" / name
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    (skill_dir / "SKILL.md").write_text("---\nname: demo\n---\n", encoding="utf-8")
 
 
 class AgentDiscoveryTests(unittest.TestCase):
@@ -121,12 +128,13 @@ class AgentValidationTests(unittest.TestCase):
             self.assertEqual(entry["tags"], ["agents", "retrieval"])
             self.assertEqual(entry["bundles"], ["crux-agents"])
             self.assertEqual(entry["risk_level"], "low")
+            self.assertEqual(entry["skills"], [])
             # owner/version/status pruned (ADR-0092); no invocation keys on this
             # fixture, so the entry carries exactly the always-present keys.
             self.assertNotIn("status", entry)
             self.assertEqual(
                 set(entry.keys()),
-                {"id", "name", "description", "tools", "model", "tags", "bundles", "risk_level"},
+                {"id", "name", "description", "tools", "model", "tags", "bundles", "risk_level", "skills"},
             )
 
     def test_bad_model_rejected(self):
@@ -267,6 +275,99 @@ class AgentValidationTests(unittest.TestCase):
             self.assertIn("Triggers:", entry["description"])
 
 
+class AgentSkillsSourceParsingTests(unittest.TestCase):
+    """Catalog parsing enforces the same inline `skills:` contract as Codex."""
+
+    def _parse(self, tmp: Path, skills_line: str):
+        body = VALID_AGENT.format(name="developer").replace("skills: []\n", skills_line)
+        return validator.extract_agent_frontmatter(_write_agent(tmp, "developer", body))
+
+    def test_missing_skills_is_rejected_by_validation(self):
+        with tempfile.TemporaryDirectory() as t:
+            tmp = Path(t)
+            frontmatter, error = self._parse(tmp, "")
+            self.assertIsNone(error, error)
+            _, errors = validator.validate_agent_frontmatter(
+                frontmatter, tmp / "agents" / "developer.md", tmp, ALLOWED_MODELS, set()
+            )
+        self.assertTrue(any(e["field"] == "skills" and "missing required" in e["error"] for e in errors))
+
+    def test_duplicate_skill_list_entry_is_rejected(self):
+        with tempfile.TemporaryDirectory() as t:
+            tmp = Path(t)
+            _write_skill(tmp, "forge-skill")
+            frontmatter, error = self._parse(tmp, "skills: [forge-skill, forge-skill]\n")
+            self.assertIsNone(error, error)
+            _, errors = validator.validate_agent_frontmatter(
+                frontmatter, tmp / "agents" / "developer.md", tmp, ALLOWED_MODELS, {"forge-skill"}
+            )
+        self.assertTrue(any(e["field"] == "skills" and "duplicate" in e["error"] for e in errors))
+
+    def test_quoted_flow_skill_strings_are_accepted(self):
+        with tempfile.TemporaryDirectory() as t:
+            tmp = Path(t)
+            _write_skill(tmp, "forge-skill")
+            _write_skill(tmp, "log-work")
+            frontmatter, error = self._parse(tmp, "skills: [\"forge-skill\", 'log-work']\n")
+            self.assertIsNone(error, error)
+            entry, errors = validator.validate_agent_frontmatter(
+                frontmatter, tmp / "agents" / "developer.md", tmp, ALLOWED_MODELS,
+                {"forge-skill", "log-work"},
+            )
+        self.assertEqual(errors, [], errors)
+        self.assertEqual(entry["skills"], ["forge-skill", "log-work"])
+
+    def test_flow_skills_allow_a_yaml_comment_after_the_list(self):
+        with tempfile.TemporaryDirectory() as t:
+            tmp = Path(t)
+            _write_skill(tmp, "forge-skill")
+            frontmatter, error = self._parse(tmp, "skills: [forge-skill] # required workflow\n")
+            self.assertIsNone(error, error)
+            entry, errors = validator.validate_agent_frontmatter(
+                frontmatter, tmp / "agents" / "developer.md", tmp, ALLOWED_MODELS, {"forge-skill"}
+            )
+        self.assertEqual(errors, [], errors)
+        self.assertEqual(entry["skills"], ["forge-skill"])
+
+    def test_hash_inside_quoted_skill_name_is_not_treated_as_a_comment(self):
+        with tempfile.TemporaryDirectory() as t:
+            tmp = Path(t)
+            _write_skill(tmp, "forge#skill")
+            frontmatter, error = self._parse(tmp, "skills: ['forge#skill'] # annotation\n")
+            self.assertIsNone(error, error)
+            _, errors = validator.validate_agent_frontmatter(
+                frontmatter, tmp / "agents" / "developer.md", tmp, ALLOWED_MODELS, {"forge#skill"}
+            )
+        self.assertTrue(any(e["field"] == "skills" and "invalid skill name" in e["error"] for e in errors))
+
+    def test_empty_flow_skill_element_is_rejected(self):
+        with tempfile.TemporaryDirectory() as t:
+            frontmatter, error = self._parse(Path(t), "skills: [forge-skill,, log-work]\n")
+        self.assertEqual(frontmatter, {})
+        self.assertIsNotNone(error)
+        self.assertIn("empty", error)
+
+    def test_duplicate_top_level_skills_key_is_rejected(self):
+        with tempfile.TemporaryDirectory() as t:
+            frontmatter, error = self._parse(
+                Path(t), "skills: [forge-skill]\nskills: [log-work]\n"
+            )
+        self.assertEqual(frontmatter, {})
+        self.assertEqual(error, "duplicate top-level skills key")
+
+    def test_invalid_skill_name_is_rejected_even_if_a_resource_exists(self):
+        with tempfile.TemporaryDirectory() as t:
+            tmp = Path(t)
+            _write_skill(tmp, "invalid skill")
+            frontmatter, error = self._parse(tmp, "skills: ['invalid skill']\n")
+            self.assertIsNone(error, error)
+            _, errors = validator.validate_agent_frontmatter(
+                frontmatter, tmp / "agents" / "developer.md", tmp, ALLOWED_MODELS,
+                {"invalid skill"},
+            )
+        self.assertTrue(any(e["field"] == "skills" and "invalid skill name" in e["error"] for e in errors))
+
+
 class AgentInvocationKeyValidatorTests(unittest.TestCase):
     """ADR-0092 items 2/3: the agent invocation-control validator type-checks.
 
@@ -311,7 +412,10 @@ class AgentInvocationKeyValidatorTests(unittest.TestCase):
 def _agent_with(name: str, extra_lines: str) -> str:
     """A VALID_AGENT variant with extra top-level frontmatter lines inserted
     after the `model:` line (i.e. still inside the frontmatter block)."""
-    return VALID_AGENT.format(name=name).replace(
+    source = VALID_AGENT.format(name=name)
+    if extra_lines.startswith("skills:"):
+        source = source.replace("skills: []\n", "")
+    return source.replace(
         "model: sonnet\n", "model: sonnet\n" + extra_lines
     )
 
@@ -367,6 +471,7 @@ class BlockStyleProjectionKeyTests(unittest.TestCase):
         # This is exactly how the shipped agents author `skills:`; it must not trip.
         with tempfile.TemporaryDirectory() as t:
             tmp = Path(t)
+            _write_skill(tmp, "query-docs")
             body = _agent_with("developer", "skills: [query-docs]\n")
             _, errors = self._validate(tmp, "developer", body, skill_ids={"query-docs"})
             self.assertEqual(
@@ -423,7 +528,10 @@ class RealCatalogByteStabilityTests(unittest.TestCase):
     catalog validates with zero errors."""
 
     def test_real_agents_regenerate_byte_identical(self):
-        entries, findings = validator.regenerate_agents_json(PLUGIN_DIR, verbose=False)
+        skill_ids = {path.parent.name for path in validator.discover_skills(PLUGIN_DIR)}
+        entries, findings = validator.regenerate_agents_json(
+            PLUGIN_DIR, verbose=False, skill_ids=skill_ids
+        )
         # The effort key (ADR-0092 item 3) emits a non-failing WARNING; only true
         # errors matter for byte-stability. Filter warnings out.
         errors = [f for f in findings if f.get("severity") != "warning"]

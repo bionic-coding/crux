@@ -1,6 +1,6 @@
 ---
 name: install-codex-agents
-description: "Use when the user says \"install codex agents\", \"install crux agents for codex\", or \"refresh the codex agents\". Install or refresh Crux's ten Codex-native role agents in a target project's .codex/agents directory. Use when a Codex user asks to install Crux agents, enable the Crux architect/developer/reviewer roles, or refresh generated Codex role definitions after a plugin upgrade. Does not overwrite a conflicting role without --force."
+description: "Use when the user says \"install codex agents\", \"install crux agents for codex\", or \"refresh the codex agents\". Install or refresh Crux's ten Codex-native role agents in the user's personal Codex agent directory by default, or in one explicit project's .codex/agents directory. Use when a Codex user asks to install Crux agents, enable the Crux architect/developer/reviewer roles, check agent health, or refresh model and skill bindings after a plugin upgrade or relocation. Does not overwrite a changed or stale managed role without --force."
 disable-model-invocation: true
 metadata:
   tags: "codex, agents, installation, roles"
@@ -26,16 +26,20 @@ This skill is portable across Claude Code, Codex, and OpenCode. This section ove
 ## Overview
 
 Codex reads custom subagents from `.codex/agents/*.toml`; it does not consume
-Crux's Claude Code agent Markdown files. This skill generates the ten
-namespaced Crux roles into the target repo:
+Crux's source agent Markdown files. This skill installs the ten namespaced Crux
+roles into the active user's personal Codex directory by default:
 
 `crux_architect`, `crux_brainstormer`, `crux_commander`, `crux_dev_lead`,
 `crux_developer`, `crux_historian`, `crux_librarian`,
 `crux_night_gardener`, `crux_reviewer`, and `crux_wayfinder`.
 
-The generated files are `crux-<role>.toml`. They preserve a target project's
-unrelated `.codex/agents/*.toml` files. Read-oriented roles default to Codex's
-`read-only` sandbox; writer roles default to `workspace-write`.
+The generated files are `crux-<role>.toml`. Each file pins the role's model and
+reasoning effort from `crux/catalog/models.yml`. It also contains one enabled
+`skills.config` entry for each skill declared in `crux/agents/<role>.md`.
+Those entries use absolute paths to the selected plugin's `SKILL.md` files.
+
+The installer preserves unrelated agent files. Read-oriented roles default to
+Codex's `read-only` sandbox; writer roles default to `workspace-write`.
 
 ## Install
 
@@ -50,40 +54,126 @@ upstream, don't assume it. Verified 2026-07-09 against the official docs
 (`crux@crux`) forms. -->
 
 Codex provides this selected skill's absolute `SKILL.md` path in context. Let
-`<skill-dir>` be its containing directory, then run the sibling installer from
-the **target repository root**:
+`<skill-dir>` be its containing directory.
+
+Install for the active user:
 
 ```bash
-python3 <skill-dir>/scripts/install.py --repo-root "$PWD"
+uv run <skill-dir>/scripts/install.py
 ```
 
-The first install writes the generated roles. A later run refuses if an existing
-`crux-*.toml` file differs, so a locally modified role is never silently lost.
-The installer also refuses fail-closed (never writing) if a `crux-*.toml` entry
-is a symlink, so it can never clobber the link's target inside or outside the
-repo; it likewise refuses if `.codex/agents/` resolves outside the repo root.
-Review the diff, then refresh deliberately:
+This targets `~/.codex/agents/`. Supply the current repository when you also
+want the health report to scan for project agents with the same effective name:
 
 ```bash
-python3 <skill-dir>/scripts/install.py --repo-root "$PWD" --force
+uv run <skill-dir>/scripts/install.py --project-context "$PWD"
 ```
 
-Start a new Codex thread after installation so the project-scoped custom agents
-are loaded. Ask Codex to spawn a role by its namespaced identifier, for example
-`crux_reviewer` or `crux_developer`.
+Use project scope only when the user requests repository-local agents:
+
+```bash
+uv run <skill-dir>/scripts/install.py --repo-root "$PWD"
+```
+
+`--repo-root` and `--codex-home` are mutually exclusive. `--codex-home <path>`
+sets the personal target to `<path>/agents`. It supports isolated tests and
+explicit alternate installations. Codex discovery from an alternate home
+remains unverified until that exact client and path pass the fresh-session procedure in
+[`references/fresh-session-verification.md`](references/fresh-session-verification.md).
+
+### Check health without writing
+
+```bash
+uv run <skill-dir>/scripts/install.py --check --project-context "$PWD"
+```
+
+`--check` prints JSON and does not create the target. Its exit status is `0`
+when `drift.status` and `installed.status` are `clean` and the shadow scan has
+no findings. It returns `1` for managed drift, installed-state findings, or
+shadow findings. It returns `2` for a configuration or environment error.
+
+The stable health report uses these terms:
+
+- `scope`: `personal` or `project`.
+- `target`: the resolved agent directory.
+- `plugin`: `root` and `version` for the selected Crux plugin.
+- `roles`: the sorted canonical expectations. Each record contains `role`,
+  `name`, `model`, `model_reasoning_effort`, `declared_skills`, and
+  `resolved_skills`.
+- `installed`: parsed managed TOML state. It contains `status` (`clean` or
+  `findings`) and a sorted `roles` array. Each installed role contains `role`,
+  `file`, `status`, `model`, `model_reasoning_effort`, and `skill_bindings`.
+  Role status is `installed`, `missing`, `unsafe`, or `malformed`.
+- `skill_bindings`: each installed role's binding comparison. Every binding
+  contains `skill`, `expected_path`, `installed_path`, and `status`. Binding
+  status is `enabled`, `disabled`, or `missing`.
+- `drift`: `status` (`clean` or `drift`) plus `added`, `changed`, and `removed`.
+- `shadows`: `status` (`unverified`, `clean`, or `findings`) plus
+  `project_context`, `roles`, `malformed`, and `unsafe`.
+- `runtime`: `status`, `client_version`, and `reason`. The current runtime
+  status is `unverified`, the client version is `null`, and the reason is
+  `fresh-session host evidence has not been recorded`.
+
+A completed install adds `written` and `removed` to the report. Repeating an
+unchanged install returns an empty `written` list and does not rewrite files.
+`roles` always describes the selected plugin's canonical configuration.
+`installed.roles` describes what the health check parsed from managed files.
+
+### Refresh managed files
+
+A later run refuses to replace a changed managed file or remove a stale managed
+file. Review the reported `changed` and `removed` lists, then refresh:
+
+```bash
+uv run <skill-dir>/scripts/install.py --force --project-context "$PWD"
+```
+
+Plugin relocation changes the absolute skill paths and therefore appears as
+managed drift. Refresh with `--force` after you verify the new plugin root.
+The installer preserves unrelated files and refuses managed symlink leaves.
+It also refuses any target or managed leaf that resolves outside the selected
+personal or project root.
+
+### Understand shadowing and runtime limits
+
+`--project-context <repo>` scans `<repo>/.codex/agents/*.toml` by the effective
+TOML `name`, regardless of filename. It reports matching `crux_*` roles,
+malformed TOML, and unsafe symlinks without changing the repository. Without
+`--project-context`, `shadows.status` is `unverified`.
+
+Start a new Codex thread after installation so Codex can discover the agents.
+Ask Codex to spawn a namespaced role such as `crux_reviewer` or
+`crux_developer`. Static health separates canonical expectations in `roles`
+from parsed managed files in `installed.roles`. It does not prove host
+discovery, effective model settings, skill loading, or workflow behavior.
+Runtime stays `unverified` unless the selected Codex version has a recorded
+pass and the health reporter consumes that evidence.
+
+Skill configuration controls availability and enablement. It does not grant
+tools, credentials, sandbox access, or eager instruction loading. Parent-session
+permission overrides and Codex's delegation-depth limits still apply.
 
 ## Verification
 
-- [ ] `.codex/agents/` contains exactly the ten generated `crux-*.toml` files.
+- [ ] The selected target contains the ten generated `crux-*.toml` files.
 - [ ] Existing non-Crux agent files remain unchanged.
-- [ ] The installer returned JSON with `written` and no unreviewed conflicts.
-- [ ] A new Codex thread can see the `crux_*` agent names.
+- [ ] Every role record contains the expected model, effort, and declared skills.
+- [ ] Every `resolved_skills` entry points to the selected plugin's `SKILL.md`.
+- [ ] `installed.status` is `clean` and every installed role has status
+  `installed`.
+- [ ] Installed models, efforts, and skill bindings match the canonical role.
+- [ ] `drift.status` is `clean` after installation.
+- [ ] Shadow findings were reviewed, or `shadows.status` is recorded as
+  `unverified` because no project context was supplied.
+- [ ] `runtime.status` is reported as `unverified` until fresh-session host
+  evidence exists.
 
 ## Guardrails
 
 - Do not hand-edit generated `crux-*.toml` files. Change `crux/agents/*.md` in
   the Crux source, regenerate, and refresh intentionally.
-- Do not use `--force` to bypass a target project's local role changes without
-  reviewing them first.
+- Do not use `--force` before reviewing changed and stale managed files.
+- Do not treat a role's self-report as evidence of its effective model, effort,
+  or loaded skills. Use host-observed evidence.
 - Codex parent-session permission overrides can be broader than a role's default
   sandbox. The role prompt remains binding even when that occurs.

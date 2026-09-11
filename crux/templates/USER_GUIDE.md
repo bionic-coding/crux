@@ -14,7 +14,7 @@ crux turns a `./bionic/` folder into a maintained knowledge base that you and Cl
 
 1. **The `bionic/` tree — seven concerns.** Code docs, research wiki, ADRs, briefs, work journal, promptbooks, invariants. You curate and decide; Claude does the bookkeeping. → [The seven concerns](#the-seven-concerns)
 2. **Skills — natural language, no slash commands.** "propose an ADR", "process inbox", "audit docs", "start a cycle", "forge a skill". Each is triggered by a phrase routed through the skill's description. → [What to say to Claude](#what-to-say-to-claude)
-3. **Agents — a role layer over the skills.** A `commander` conductor delegates to `architect` / `dev-lead` / `developer` / `reviewer` / `historian` / `librarian` / `brainstormer`, each fenced by a tool allowlist so duties are separated *structurally*. → [The agent layer](#the-agent-layer)
+3. **Agents — ten roles over the skills.** `commander`, `architect`, `dev-lead`, `developer`, `reviewer`, `historian`, `librarian`, `brainstormer`, `night-gardener`, and `wayfinder` divide planning, implementation, review, preservation, retrieval, exploration, overnight work, and reconnaissance. → [The agent layer](#the-agent-layer)
 4. **Three workflows for change.** `dev-cycle` (net-new / architectural — ADR + council + review), `iterate` (non-architectural fixes — verify + council + review, no ADR), and `patch-cycle` (a small reversible fix — five phases, one prompt each, with a declared blast radius). All three are tracked promptbooks. Trivial work: a plain promptbook or the skills directly. → [Planning multi-step work](#planning-multi-step-work--promptbooks--cycles)
 
 Under the hood: stdlib Python **scripts** (extractors, validators, the LLM router) that the skills call for you, plus the `crux-env` **CLI** for secrets. → [Tools & scripts](#tools--scripts)
@@ -71,7 +71,8 @@ The seventh concern, **invariants**, is the "far half of the bridge": where the 
 
 ## The agent layer
 
-As of **v0.7.0**, crux also ships nine **agents** — Claude Code subagents that operate the skills above, each with a `tools` allowlist that enforces its role:
+Crux ships ten **agents** that operate the skills above. Claude Code loads the
+source agents from the plugin. Codex and OpenCode use generated native forms.
 
 | Agent | Reach for it when you want… | Bounded so it cannot… |
 |---|---|---|
@@ -83,10 +84,29 @@ As of **v0.7.0**, crux also ships nine **agents** — Claude Code subagents that
 | `reviewer` | an independent check of a diff | edit files (it reports; never fix-and-hide) |
 | `historian` | anything written under `bionic/` (intake, journaling, indexes) | edit source code |
 | `librarian` | a question answered from `bionic/` (`query-docs`) | write anything |
+| `night-gardener` | an overnight pass that records ideas, gaps, research, and news | push, merge, or send material externally |
+| `wayfinder` | a condensed assessment of a large or uncertain source | write, execute, or delegate |
 
-The split is enforced by tooling, not etiquette — a librarian *cannot* write, a reviewer *cannot* edit, a developer *cannot* re-delegate. The agents embed the craft disciplines they need (TDD, verification, debugging, two-stage review) so they're self-contained. They become dispatchable once the plugin is installed/upgraded to a version shipping `crux/agents/` and the session is restarted.
+The source roles declare tool boundaries and required skills. Host permissions can
+override a role's default sandbox, so the role prompt remains binding. The
+agents embed their craft disciplines, including testing, verification,
+debugging, and two-stage review.
 
 **How you actually use them:** you rarely name an agent — a cycle (and the `commander`) dispatches them for you. But you can be explicit: *"have the architect propose an ADR for X"*, *"send this design to the council"*, *"have the reviewer check the diff"*, *"ask the librarian what we decided about Y"*.
+
+In Codex, say **"install the Crux agents in Codex"** after installing the
+plugin. The installer writes the ten namespaced `crux_*` roles to
+`~/.codex/agents/` by default. Each role pins its catalog model and reasoning
+effort and binds its declared skills to the installed plugin. An explicit
+`--repo-root` selects one project's `.codex/agents/` directory.
+
+An unchanged refresh is a no-op. Changed or stale managed files require
+`--force` after review. Plugin relocation appears as drift because skill
+bindings use absolute paths. `--check --project-context <repo>` reports managed
+drift and project agents that shadow personal roles. The report separates
+canonical expectations from managed TOML state parsed from disk. Its runtime
+result stays `unverified` until fresh-session host evidence confirms discovery,
+settings, skills, and representative workflows for the selected Codex version.
 
 ---
 
@@ -338,7 +358,14 @@ You're in a fresh repo with `bionic/` just initialized. To start using it:
 
 ## Plugin and schema
 
-This project uses the `crux` documentation tree at `schema_version 5` (the `bionic/` layout). The plugin installs via the Claude Code marketplace (`/plugin marketplace add bionic-coding/crux`, then `/plugin install crux@crux`) or, in Codex, via the Codex plugin marketplace (`codex plugin marketplace add bionic-coding/crux`, then `codex plugin add crux@crux`); update with the same commands for your platform. After upgrading, run `audit-docs --migrate` if the tree is on an older schema_version. Codex users can additionally install the nine Crux role agents into a repository with the `install-codex-agents` skill.
+This project uses the `crux` documentation tree at `schema_version 5` (the
+`bionic/` layout). The plugin installs through the Claude Code marketplace with
+`/plugin marketplace add bionic-coding/crux` and `/plugin install crux@crux`.
+In Codex, use `codex plugin marketplace add bionic-coding/crux` and
+`codex plugin add crux@crux`. Update with the same commands for your platform.
+After upgrading, run `audit-docs --migrate` if the tree uses an older
+`schema_version`. Codex users can install the ten Crux role agents personally
+with the `install-codex-agents` skill.
 
 When the plugin's schema changes, run *"audit docs --migrate"* to bring `bionic/` up to date.
 

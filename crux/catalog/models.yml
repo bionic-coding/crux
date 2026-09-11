@@ -2,7 +2,7 @@
 # Hand-authored. Validated by validate-catalog.py. NEVER regenerated.
 # schema_version is read by models_catalog.load(), which refuses any value it
 # does not recognize (rule V0). It is not decoration.
-schema_version: "2"
+schema_version: "3"
 
 # Table 1 — providers: the allowlist for the provider half of an alias value.
 # Adding a provider is a deliberate one-line edit, reviewed like any other.
@@ -48,8 +48,9 @@ aliases:
   glm-flash: openrouter/z-ai/glm-5.3-flash
 
 # Table 3 — roster: agent role -> level. A value is either a level name or a
-# mapping {level, opencode}, where `opencode` overrides the OpenCode column
-# only. The KEY SET is in bijection with the stems of crux/agents/*.md.
+# mapping {level, opencode, codex}. `opencode` overrides the OpenCode column.
+# `codex` atomically replaces the complete Codex runtime from the level. The
+# KEY SET is in bijection with the stems of crux/agents/*.md.
 agents:
   architect: flagship
   brainstormer: flagship
@@ -70,6 +71,11 @@ agents:
   reviewer:
     level: apex
     opencode: kimi-latest
+    codex:
+      model: gpt-5.6-sol
+      reasoning_effort: xhigh
+      verified: "2026-09-11"
+      source: "OpenAI GPT-5.6 Sol model documentation checked 2026-09-11"
   wayfinder: standard
 
 # Table 4 — level -> per-harness resolution. `opencode` is optional; a level
@@ -102,6 +108,10 @@ agents:
 # and this paragraph together. Earlier revisions of this file cited
 # "codex_agents.py RUNTIME" as the source, which had become circular — that
 # module no longer holds the slugs, it reads them from here.
+#
+# The reviewer is an approved per-agent exception. Its complete Codex runtime block cites
+# the official GPT-5.6 Sol model documentation, checked 2026-09-11. That source
+# lists `xhigh` as a supported reasoning effort for `gpt-5.6-sol`.
 levels:
   apex:
     claude: fable

@@ -32,8 +32,8 @@ EXPECTED_AGENTS = {
     "historian", "librarian", "night-gardener", "reviewer", "wayfinder",
 }
 
-# ADR-0071 §2's exact v1 body. Refused, not migrated: the v1 file had no
-# consumer, so v2 is the only shape the code will ever read.
+# Historical schema-1 body. The schema-version-3 reader refuses it without
+# migration or inference.
 V1_BODY = textwrap.dedent(
     """\
     schema_version: "1"
@@ -142,7 +142,7 @@ class ShippedCatalogTests(unittest.TestCase):
             "historian":      ("sonnet", "qwen-max",      "gpt-5.6-terra", "high"),
             "librarian":      ("sonnet", "qwen-max",      "gpt-5.6-terra", "high"),
             "night-gardener": ("fable",  "kimi-latest",   "gpt-6-astra",   "high"),
-            "reviewer":       ("fable",   "kimi-latest",   "gpt-6-astra",   "high"),
+            "reviewer":       ("fable",   "kimi-latest",   "gpt-5.6-sol",   "xhigh"),
             "wayfinder":      ("sonnet", "qwen-max",      "gpt-5.6-terra", "high"),
         }
         catalog = MC.load()
@@ -170,16 +170,78 @@ class ShippedCatalogTests(unittest.TestCase):
         self.assertIsNone(apex.opencode)
         self.assertIsNotNone(flagship.opencode)
 
+    def test_reviewer_is_the_only_codex_override(self):
+        """The reviewer override keeps the other nine level-derived Codex assignments unchanged."""
+        catalog = MC.load()
+        overrides = {name for name, row in catalog.agents.items() if row.codex is not None}
+        self.assertEqual(overrides, {"reviewer"})
+        expected = MC.CodexRuntime(
+            model="gpt-5.6-sol",
+            reasoning_effort="xhigh",
+            verified="2026-09-11",
+            source="OpenAI GPT-5.6 Sol model documentation checked 2026-09-11",
+        )
+        self.assertEqual(catalog.agents["reviewer"].codex, expected)
+        self.assertEqual(catalog.resolve("reviewer").codex, expected)
+
+    def test_agent_without_a_codex_override_falls_back_to_its_level(self):
+        catalog = MC.load()
+        self.assertIsNone(catalog.agents["commander"].codex)
+        self.assertEqual(catalog.resolve("commander").codex, catalog.levels["apex"].codex)
+
 
 class FailClosedTests(unittest.TestCase):
-    def test_unrecognized_schema_version_raises(self):
-        """AC-7: the v1 shape is refused, not migrated."""
+    def test_historical_v1_schema_is_refused_without_migration(self):
+        """AC-7: an older schema is refused, not migrated."""
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "models.yml"
             path.write_text(V1_BODY, encoding="utf-8")
             with self.assertRaises(MC.SpecViolation) as ctx:
                 MC.load(catalog_path=path, agents_dir=MC.AGENTS_DIR)
         self.assertIn("schema_version", str(ctx.exception))
+
+    def test_v2_schema_is_refused_without_migration_or_defaults(self):
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            path = _catalog_copy(
+                tmp, lambda text: text.replace('schema_version: "3"', 'schema_version: "2"', 1)
+            )
+            with self.assertRaises(MC.SpecViolation) as ctx:
+                MC.load(catalog_path=path, agents_dir=_agents_fixture(tmp))
+        self.assertIn("schema_version must be '3'", str(ctx.exception))
+
+    def test_load_rejects_a_non_mapping_reviewer_codex_override(self):
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            path = _catalog_copy(
+                tmp,
+                lambda text: text.replace(
+                    "    codex:\n"
+                    "      model: gpt-5.6-sol\n"
+                    "      reasoning_effort: xhigh\n"
+                    '      verified: "2026-09-11"\n'
+                    '      source: "OpenAI GPT-5.6 Sol model documentation checked 2026-09-11"',
+                    "    codex: gpt-5.6-sol",
+                    1,
+                ),
+            )
+            with self.assertRaises(MC.SpecViolation) as ctx:
+                MC.load(catalog_path=path, agents_dir=_agents_fixture(tmp))
+        self.assertIn("agents.'reviewer'.codex must be a mapping", str(ctx.exception))
+
+    def test_load_rejects_a_non_string_member_of_reviewer_codex_override(self):
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            path = _catalog_copy(
+                tmp,
+                lambda text: text.replace("      reasoning_effort: xhigh", "      reasoning_effort: 4", 1),
+            )
+            with self.assertRaises(MC.SpecViolation) as ctx:
+                MC.load(catalog_path=path, agents_dir=_agents_fixture(tmp))
+        self.assertIn(
+            "agents.'reviewer'.codex.'reasoning_effort' must be a string",
+            str(ctx.exception),
+        )
 
     def test_missing_file_raises_spec_violation(self):
         with tempfile.TemporaryDirectory() as td:
@@ -250,6 +312,30 @@ class RuleFindingTests(unittest.TestCase):
         # roster key is otherwise invisible in the finding.
         self.assertTrue(any("agents.'architect'" in f for f in MC.check_shape(raw)))
 
+    def test_shape_rejects_a_partial_agent_codex_override(self):
+        raw = MC.load_raw()
+        raw["agents"]["reviewer"]["codex"] = {"model": "gpt-5.6-sol"}
+        findings = MC.check_shape(raw)
+        self.assertTrue(any(
+            "agents.'reviewer'.codex key set must be exactly" in finding
+            for finding in findings
+        ))
+
+    def test_shape_rejects_an_agent_codex_override_with_an_extra_field(self):
+        raw = MC.load_raw()
+        raw["agents"]["reviewer"]["codex"] = {
+            "model": "gpt-5.6-sol",
+            "reasoning_effort": "xhigh",
+            "verified": "2026-09-11",
+            "source": "OpenAI GPT-5.6 Sol model documentation checked 2026-09-11",
+            "unexpected": "value",
+        }
+        findings = MC.check_shape(raw)
+        self.assertTrue(any(
+            "agents.'reviewer'.codex key set must be exactly" in finding
+            for finding in findings
+        ))
+
     def test_reference_graph_rejects_an_undeclared_alias(self):
         raw = MC.load_raw()
         raw["agents"]["commander"] = {"level": "apex", "opencode": "not-declared"}
@@ -274,6 +360,20 @@ class RuleFindingTests(unittest.TestCase):
             if level == "standard":
                 raw["agents"][name] = {"level": "standard", "opencode": "glm-latest"}
         self.assertTrue(any("standard" in f for f in MC.check_reference_graph(raw)))
+
+    def test_reference_graph_rejects_an_uninherited_codex_level_default(self):
+        raw = MC.load_raw()
+        for name, row in list(raw["agents"].items()):
+            level = row if isinstance(row, str) else row["level"]
+            if level == "standard":
+                override = dict(row) if isinstance(row, dict) else {"level": level}
+                override["codex"] = dict(raw["levels"]["standard"]["codex"])
+                raw["agents"][name] = override
+        findings = MC.check_reference_graph(raw)
+        self.assertTrue(any(
+            "levels.standard.codex: every agent at this level overrides it" in finding
+            for finding in findings
+        ))
 
 
 class NonStringKeyTests(unittest.TestCase):

@@ -5,7 +5,7 @@ tools: Read, Grep, Glob, Bash, Skill
 model: fable
 maxTurns: 150
 effort: high
-skills: [prose-review]
+skills: [prose-review, council, srde, forge-skill, log-work]
 metadata:
   tags: "agents, review, verification, security"
   bundles: "crux-agents"

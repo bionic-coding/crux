@@ -4,7 +4,7 @@ description: Use when the user says "brainstorm", "let's explore X", "whiteboard
 tools: Read, Grep, Glob, Skill, WebSearch, WebFetch
 model: opus
 maxTurns: 50
-skills: [whiteboarding]
+skills: [whiteboarding, query-docs, forge-skill, log-work]
 metadata:
   tags: "agents, brainstorming, exploration, design"
   bundles: "crux-agents"

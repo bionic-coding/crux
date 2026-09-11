@@ -3,7 +3,7 @@
 # requires-python = ">=3.11"
 # dependencies = ["pyyaml>=6.0"]
 # ///
-"""Regenerate .codex/agents/ from crux/agents/ for project-local Codex use."""
+"""Generate Codex agents into an explicitly selected output directory."""
 
 from __future__ import annotations
 
@@ -15,13 +15,9 @@ from pathlib import Path
 from codex_agents import SpecViolation, diff, generate, write
 
 
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-DEFAULT_OUTPUT_DIR = REPO_ROOT / ".codex" / "agents"
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--dry-run", action="store_true", help="report drift without writing")
     args = parser.parse_args(argv)
 

@@ -49,9 +49,17 @@ codex plugin add crux@crux
 ```
 
 Start a new Codex thread after installation so its skill inventory is refreshed.
-To make the Crux role agents available in a particular repository, then invoke
-`install-codex-agents` from that repository. Plugin installation supplies skills;
-the agent installer supplies project-scoped `.codex/agents/*.toml` files.
+Then invoke `install-codex-agents`. The agent installer targets the active
+user's `~/.codex/agents/` directory by default. Pass `--repo-root` only for an
+explicit project installation. Plugin installation supplies the skill
+resources; the agent installer binds each role to its declared skills.
+
+Pass the current repository as `--project-context` when checking a personal
+installation. The resulting health report detects project agents that shadow a
+personal Crux role. It separates canonical expectations from the managed TOML
+state parsed from disk. Static health cannot prove host discovery or instruction
+loading, so runtime verification remains `unverified` until fresh-session host
+evidence exists.
 
 For an upgrade, refresh the configured Git marketplace and reinstall:
 
@@ -59,6 +67,11 @@ For an upgrade, refresh the configured Git marketplace and reinstall:
 codex plugin marketplace upgrade crux
 codex plugin add crux@crux
 ```
+
+After the upgraded plugin loads in a new thread, invoke
+`install-codex-agents` again. A changed plugin path changes the absolute skill
+bindings and appears as managed drift. Review that drift before refreshing the
+managed agent files with `--force`.
 
 If Codex reports that no marketplace named `crux` exists, repeat the first
 install command. Use `codex plugin marketplace list` and `codex plugin list` to
@@ -242,7 +255,9 @@ If no tree exists yet (fresh project), there's no `log.md` to write to — skip 
 
 ## Red flags — STOP and reconsider
 
-- About to run any shell command to install or upgrade the plugin. **Never.** There is no script-based install path; the marketplace flow is the only one, and it's user-typed.
+- About to run a shell command to install or upgrade the plugin. **Never.** The
+  user types the marketplace command. The separate Codex agent installer is not
+  a plugin installation path.
 - About to delete or rename anything under the plugin cache to "clean up". **Never.** A broken install is reported; the fix is re-running `/plugin install crux@crux`.
 - About to bootstrap `docs/` from this skill. **Never.** That's `init-docs`. The skills are split on purpose.
 - About to edit `.claude/settings.json` or any marketplace state by hand. The marketplace flow owns registration; this skill does not.

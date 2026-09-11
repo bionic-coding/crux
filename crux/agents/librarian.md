@@ -5,7 +5,7 @@ tools: Read, Grep, Glob, Skill
 model: sonnet
 maxTurns: 50
 effort: medium
-skills: [query-docs]
+skills: [query-docs, forge-skill, log-work]
 metadata:
   tags: "agents, retrieval, read-only, research"
   bundles: "crux-agents"

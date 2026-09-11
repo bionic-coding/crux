@@ -5,7 +5,7 @@ tools: Read, Grep, Glob, Edit, Write, Bash, Skill, TodoWrite
 model: sonnet
 maxTurns: 50
 effort: medium
-skills: [log-work, process-inbox]
+skills: [init-docs, audit-docs, cleanup-campsite, link-adr-graph, migrate-promptbooks, check-drift, transition-adr, ingest-research, process-inbox, propose-adr, propose-brief, log-work, archive-promptbook, extract-code-docs, verify-code-docs, run-promptbook, forge-skill]
 memory: project
 metadata:
   tags: "agents, docs, maintenance, custodian"

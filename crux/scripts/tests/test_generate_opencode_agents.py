@@ -531,7 +531,7 @@ class CatalogResolutionTests(unittest.TestCase):
             "historian":      ("sonnet", "qwen-max",      "gpt-5.6-terra", "high"),
             "librarian":      ("sonnet", "qwen-max",      "gpt-5.6-terra", "high"),
             "night-gardener": ("fable",  "kimi-latest",   "gpt-6-astra",   "high"),
-            "reviewer":       ("fable",   "kimi-latest",   "gpt-6-astra",   "high"),
+            "reviewer":       ("fable",   "kimi-latest",   "gpt-5.6-sol",   "xhigh"),
             "wayfinder":      ("sonnet", "qwen-max",      "gpt-5.6-terra", "high"),
         }
         self.assertEqual(set(expected), EXPECTED_AGENTS)

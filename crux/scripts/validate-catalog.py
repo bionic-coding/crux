@@ -186,6 +186,7 @@ EFFORT_LEVELS = {"low", "medium", "high", "xhigh", "max"}
 CONTEXT_VALUES = {"fork"}
 MEMORY_SCOPES = {"user", "project", "local"}
 ISOLATION_VALUES = {"worktree"}
+AGENT_SKILL_NAME_RE = re.compile(r"[a-z0-9][a-z0-9-]*")
 
 SKILL_INVOCATION_KEYS = [
     "disable-model-invocation",
@@ -1323,6 +1324,22 @@ def _router_registry(plugin_dir: Path) -> tuple[dict, dict] | None:
     return data.get("models") or {}, data.get("model_roles") or {}
 
 
+def _codex_runtime_cells(levels: dict, agents: dict) -> list[tuple[str, dict]]:
+    """Return every complete Codex runtime cell that V4 and V5 must validate.
+
+    V0 has already established the cell shape before this traversal runs. Agent
+    cells are complete overrides, so they receive the same effort, provenance,
+    date, and registry checks as their level defaults.
+    """
+    cells = [(f"levels.{name}", row["codex"]) for name, row in sorted(levels.items())]
+    cells.extend(
+        (f"agents.{name}", row["codex"])
+        for name, row in sorted(agents.items())
+        if isinstance(row, dict) and "codex" in row
+    )
+    return cells
+
+
 def validate_models_yml(models_path: Path, plugin_dir: Path) -> list[dict]:
     """Run rules V0-V9 over models.yml. Returns findings; warnings carry
     `severity: "warning"` and must not flip the exit code."""
@@ -1384,6 +1401,7 @@ def validate_models_yml(models_path: Path, plugin_dir: Path) -> list[dict]:
     agents = raw["agents"]
     providers = set(raw["providers"])
     claude_aliases = set(raw["claude_aliases"])
+    codex_cells = _codex_runtime_cells(levels, agents)
 
     # ── V3 Claude alias legality ───────────────────────────────────────────
     # The `claude_disabled` deny-list table was removed from the shipped
@@ -1398,37 +1416,36 @@ def validate_models_yml(models_path: Path, plugin_dir: Path) -> list[dict]:
 
     # ── V4 Codex value legality ────────────────────────────────────────────
     today = datetime.date.today()
-    for name, row in sorted(levels.items()):
-        codex = row["codex"]
+    for path, codex in codex_cells:
         effort = codex["reasoning_effort"]
         if effort not in models_catalog.REASONING_EFFORTS:
             findings.append(
                 _finding(
                     "V4",
-                    f"levels.{name}.codex.reasoning_effort={effort!r} is not one of "
+                    f"{path}.codex.reasoning_effort={effort!r} is not one of "
                     f"{sorted(models_catalog.REASONING_EFFORTS)}",
                 )
             )
         if not codex["source"].strip():
-            findings.append(_finding("V4", f"levels.{name!r}: codex.source is empty"))
+            findings.append(_finding("V4", f"{path}: codex.source is empty"))
         try:
             # fromisoformat, not a shape regex: a regex would admit 2026-99-99.
             verified = datetime.date.fromisoformat(codex["verified"])
         except ValueError:
             findings.append(
-                _finding("V4", f"levels.{name}.codex.verified={codex['verified']!r} is not a real ISO date")
+                _finding("V4", f"{path}.codex.verified={codex['verified']!r} is not a real ISO date")
             )
             continue
         if (verified - today).days > 1:
             # One day of tolerance absorbs clock skew and timezone offset.
             findings.append(
-                _finding("V4", f"levels.{name}.codex.verified={codex['verified']!r} is in the future")
+                _finding("V4", f"{path}.codex.verified={codex['verified']!r} is in the future")
             )
         elif (today - verified).days > VERIFIED_STALE_DAYS:
             findings.append(
                 _finding(
                     "V4",
-                    f"levels.{name}.codex.verified={codex['verified']!r} is more than "
+                    f"{path}.codex.verified={codex['verified']!r} is more than "
                     f"{VERIFIED_STALE_DAYS} days old; re-verify the slug against the Codex catalog",
                     warning=True,
                 )
@@ -1442,19 +1459,19 @@ def validate_models_yml(models_path: Path, plugin_dir: Path) -> list[dict]:
         )
     else:
         router_models, router_roles = registry
-        for name, row in sorted(levels.items()):
-            model = row["codex"]["model"]
+        for path, codex in codex_cells:
+            model = codex["model"]
             if model not in router_models:
                 findings.append(
                     _finding(
                         "V5",
-                        f"levels.{name}.codex.model={model!r} is not a key in the router's "
+                        f"{path}.codex.model={model!r} is not a key in the router's "
                         "`models` registry — a name that reads like a slug and resolves nowhere",
                     )
                 )
             if model in router_roles:
                 findings.append(
-                    _finding("V5", f"levels.{name}.codex.model={model!r} is a router ROLE, not a model")
+                    _finding("V5", f"{path}.codex.model={model!r} is a router ROLE, not a model")
                 )
 
     for alias, value in sorted(aliases.items()):
@@ -1667,6 +1684,9 @@ def extract_agent_frontmatter(agent_path: Path) -> tuple[dict, str | None]:
     if end_idx is None:
         return {}, "missing closing `---` frontmatter delimiter"
     block = "\n".join(lines[1:end_idx])
+    skills_error = _agent_skills_source_error(block)
+    if skills_error is not None:
+        return {}, skills_error
     # Strict YAML-validity gate (PB-0039). Agent frontmatter MUST be valid YAML:
     # both Claude Code AND OpenCode load it as YAML, and OpenCode's strict loader
     # (unlike Claude Code's lenient one) rejects e.g. an unquoted `: ` (colon-space)
@@ -1694,6 +1714,27 @@ def extract_agent_frontmatter(agent_path: Path) -> tuple[dict, str | None]:
     return fm_raw, None
 
 
+def _agent_skills_source_error(block: str) -> str | None:
+    """Reject ambiguous or lossy authored `skills:` flow-list layouts.
+
+    PyYAML accepts duplicate mapping keys by keeping the last one, while the
+    Codex projection reads a single source line. Inspect the raw top-level
+    layout before either parser can erase that distinction. Empty elements are
+    likewise rejected before the PyYAML and no-PyYAML paths diverge.
+    """
+    declarations = re.findall(r"(?m)^skills:[ \t]*(.*)$", block)
+    if len(declarations) > 1:
+        return "duplicate top-level skills key"
+    if not declarations:
+        return None
+    value = _strip_yaml_comment(declarations[0]).strip()
+    if not (value.startswith("[") and value.endswith("]")):
+        return None
+    inner = value[1:-1].strip()
+    if inner and any(not token.strip() for token in inner.split(",")):
+        return "skills flow list contains an empty element"
+
+
 def _csv_to_list(value: Any) -> list[str]:
     """Split a CSV string on `,` and strip each token (dropping empties).
 
@@ -1708,14 +1749,17 @@ def _csv_to_list(value: Any) -> list[str]:
 
 
 def _validate_agent_invocation_keys(
-    fm: dict, rel: str, skill_ids: set[str], errors: list[dict]
+    fm: dict,
+    rel: str,
+    skill_ids: set[str],
+    errors: list[dict],
+    plugin_dir: Path | None = None,
 ) -> None:
-    """Type-check the ADR-0092 agent invocation-control top-level keys.
+    """Type-check the agent invocation-control top-level keys.
 
-    An `effort` key is accepted but emits a WARNING (severity marker): Codex
-    pins reasoning-effort from the models.yml level row per ADR-0046, so the
-    frontmatter field is Claude-only-effective — the divergence is surfaced, not
-    silent (ADR-0092 item 3).
+    An `effort` key is accepted but emits a WARNING. Codex pins reasoning
+    effort through models.yml resolution, so the field affects only Claude.
+    The validator reports this divergence.
     """
 
     def bad(field: str, msg: str) -> None:
@@ -1731,9 +1775,9 @@ def _validate_agent_invocation_keys(
         else:
             errors.append({
                 "file": rel, "field": "effort", "severity": "warning",
-                "error": "effort is Claude-only-effective: Codex pins reasoning-effort "
-                         "from the models.yml level row (ADR-0046) and OpenCode has no "
-                         "reasoning-effort field, so this field drops in both projections",
+                "error": "effort affects only Claude. Codex resolves reasoning effort "
+                         "through models.yml. OpenCode has no reasoning-effort field. "
+                         "Both generated projections omit effort.",
             })
     if "memory" in fm and fm["memory"] not in MEMORY_SCOPES:
         bad("memory", f"memory {fm['memory']!r} must be one of {sorted(MEMORY_SCOPES)}")
@@ -1743,13 +1787,26 @@ def _validate_agent_invocation_keys(
         value = fm["skills"]
         if not (isinstance(value, list) and all(isinstance(s, str) for s in value)):
             bad("skills", "skills must be a list of skill names")
-        elif skill_ids:
-            # Existence is only checkable when the caller supplies the on-disk
-            # skill set (main() does); a standalone caller passes none and the
-            # membership check is skipped rather than failing spuriously.
+        else:
+            seen_skills: set[str] = set()
             for s in value:
+                if s in seen_skills:
+                    bad("skills", f"duplicate skill name {s!r}")
+                    continue
+                seen_skills.add(s)
+                if not AGENT_SKILL_NAME_RE.fullmatch(s):
+                    bad("skills", f"invalid skill name {s!r}")
+                    continue
                 if s not in skill_ids:
-                    bad("skills", f"preloaded skill {s!r} is not a skill on disk")
+                    bad("skills", f"declared skill {s!r} is not a shipped skill")
+                    continue
+                if plugin_dir is not None:
+                    resource = plugin_dir / "skills" / s / "SKILL.md"
+                    if not resource.is_file():
+                        bad(
+                            "skills",
+                            f"declared skill {s!r} has no shipped SKILL.md resource",
+                        )
     if "disallowedTools" in fm:
         value = fm["disallowedTools"]
         ok = isinstance(value, str) or (
@@ -1916,8 +1973,10 @@ def validate_agent_frontmatter(
             }
         )
 
-    # ── invocation-control top-level keys (ADR-0092) ────────────────────────
-    _validate_agent_invocation_keys(fm, rel, skill_ids, errors)
+    # ── invocation-control top-level keys (ADR-0092 / ADR-0111) ────────────
+    if "skills" not in fm:
+        errors.append({"file": rel, "field": "skills", "error": "missing required key 'skills'"})
+    _validate_agent_invocation_keys(fm, rel, skill_ids, errors, plugin_dir)
     _reject_block_style_projection_keys(fm, agent_path, rel, errors)
 
     # ── unknown top-level keys ──────────────────────────────────────────────

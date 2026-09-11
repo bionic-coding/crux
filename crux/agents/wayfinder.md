@@ -5,6 +5,7 @@ tools: Read, Grep, Glob, WebFetch, WebSearch
 model: sonnet
 maxTurns: 50
 effort: medium
+skills: []
 metadata:
   tags: "agents, wayfinder, read-only, context-preservation, reconnaissance"
   bundles: "crux-agents"

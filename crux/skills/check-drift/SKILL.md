@@ -29,7 +29,7 @@ Every derived artifact in this repo has a vendored regenerator and a `--dry-run`
 
 It is the whole-tree counterpart to `verify-code-docs`, which runs the one `code/` gate. Same contract, wider surface: **it never regenerates anything.** For every drifted or broken gate it names the regenerator the user runs to fix it.
 
-**Read-only invariant.** This skill invokes each regenerator with `--dry-run` only. It writes nothing under the tree, `crux/catalog/`, `opencode/agents/`, `.codex/agents/`, or any source file. When it finds drift, it recommends the regenerator by name; the user (or a CI hook) decides whether to run it.
+**Read-only invariant.** This skill invokes each enrolled regenerator with `--dry-run` only. It writes nothing under the tree, `crux/catalog/`, `opencode/agents/`, or any source file. When it finds drift, it recommends the regenerator by name; the user (or a CI hook) decides whether to run it.
 
 ## When to use
 
@@ -62,7 +62,6 @@ Run each command below from the repo root. **Parse each command's stdout as JSON
 | `<docs_dir>/adrs/summaries/` | `summarize-adrs.py --dry-run` | `summarize-adrs.py` |
 | `<docs_dir>/adrs/doctrine/` | `compile-doctrine.py --dry-run` | `compile-doctrine.py` (skill `compile-doctrine`) |
 | `opencode/agents/` | `generate-opencode-agents.py --dry-run` | `generate-opencode-agents.py` |
-| `.codex/agents/` | `generate-codex-agents.py --dry-run` | `generate-codex-agents.py` |
 | `<docs_dir>/adrs/lineage.md` | `generate-lineage.py --dry-run` | `generate-lineage.py` (skill `link-adr-graph`) |
 | `<docs_dir>/adrs/index.md` | `generate-adr-index.py --dry-run` | `generate-adr-index.py` |
 | `<docs_dir>/index.md` `## ADRs` rollup | `generate-index-rollup.py --dry-run` | `generate-index-rollup.py` |
@@ -77,7 +76,7 @@ Invoke each via `uv run "${CRUX_PLUGIN_ROOT}/scripts/<name>" ...` from the repo 
 
 ### 1.A. Run the validation checks
 
-A validation check is not a drift gate. It regenerates nothing, so it owns no row in the repo-root `CLAUDE.md` "regenerative outputs" roster, and enrolling it there would break the derived-artifact rule rather than keep it — a roster row promises a regenerator, and a validation check has none to promise. The roster count is unchanged by this section, and `audit-docs`'s CHK-DRIFT-1 still covers thirteen outputs.
+A validation check is not a drift gate. It regenerates nothing, so it owns no row in the repo-root `CLAUDE.md` "regenerative outputs" roster, and enrolling it there would break the derived-artifact rule rather than keep it — a roster row promises a regenerator, and a validation check has none to promise. The roster count is unchanged by this section, and `audit-docs`'s CHK-DRIFT-1 still covers twelve outputs.
 
 Run each check below from the repo root, after the drift gates and before the report.
 
@@ -126,7 +125,7 @@ no evidence         <E>   rows whose gate exited 0 having inspected ZERO configu
 
 **Count ROWS, not commands.** The unit is the repo-root roster row, because that is what
 membership means; one command may cover several rows (`validate-catalog.py` covers both
-`skills.json` and `agents.json`, so the step-1 table runs sixteen commands over seventeen
+`skills.json` and `agents.json`, so the step-1 table runs fifteen commands over sixteen
 rows). Attribute a command's verdict to every row it covers, or the identity below fails
 for a reason that has nothing to do with drift.
 
