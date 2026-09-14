@@ -38,6 +38,10 @@ modules:
 
 goal: |
   <One paragraph: the feature or change being delivered through this cycle.
+  Open it with three statements: the Outcome — what improves for the
+  affected user when the work is done; the Evidence — what would
+  demonstrate that improvement; and the Constraint — what the change must
+  preserve. Prose in this field: no new field, no form, no gate.
   End-state: a reviewed, tested, documented PR ready for human merge.>
 
 strategy: |
@@ -207,6 +211,15 @@ prompts:
       the ADR path, the implementation plan, its assigned work units, and
       explicit conventions from `docs/CLAUDE.md`.
 
+      Each agent also receives the book's `goal` statements — the Outcome, the
+      Evidence, and the Constraint. A dispatch passes them forward verbatim, or
+      narrows the Outcome and says so: a narrowed Outcome is entailed by its
+      parent and names the parent it narrowed and what it dropped. The Evidence
+      and the Constraint pass whole — a dispatch may add an Evidence item or a
+      Constraint, saying which it added, and may drop neither. Record any
+      narrowing in this run snapshot's Notes under the label `Outcome narrowing`
+      — never by editing the book.
+
       Each agent must make actual edits and run the relevant tests for its
       scope. Each returns: files changed, tests added/updated, test results,
       and any unilateral decisions with rationale.
@@ -303,6 +316,11 @@ prompts:
       `docs/CLAUDE.md` conventions, adjacent patterns; (c) Clarity — reads as a
       new engineer; flags confusing names, undocumented invariants, magic numbers.
 
+      Commission these reviewers yourself for the units you dispatched.
+      Where you integrated across those units, that integration is your own
+      authorship, so its review is commissioned by your delegator and not by
+      you.
+
       **PLUS a dedicated multi-subagent security review** — one `Agent` per threat
       class over the diff: (S1) injection & untrusted-input; (S2) secrets &
       credentials (incl. the `~/.crux/` contract, `docs/CLAUDE.md` §13);
@@ -314,8 +332,26 @@ prompts:
       finding exploitable on a reachable path is MUST-FIX and cannot be
       downgraded; deferred security items → snapshot Notes `Review security
       deferrals` with residual-risk rationale.
+
+      Every reviewer receives the book's `goal` statements — the Outcome, the
+      Evidence, and the Constraint. Each judges the change against the Outcome
+      rather than against the diff alone.
+      Each returns one disposition per Evidence item:
+        - verified, with the command and the result token, or the observation
+          and where it is recorded when no command produced it;
+        - contradicted, which is a finding;
+        - unobserved, with what was attempted, what limited it, and what
+          would settle it.
+      Each states whether the Constraint held and what shows that. A result
+      token is an exit code, a pass count, or a named verdict — never raw
+      output, an environment value, or a secret.
+      A disposition is re-derived, never adopted from the author's report:
+      an item stands verified only where this reviewer ran the command and
+      read the result token, or re-read the observation where it is
+      recorded; anything it cannot re-derive is unobserved in its own report.
     expected_output: |
-      Aggregated external-review + security findings.
+      Aggregated external-review + security findings, plus a disposition
+      per Evidence item.
     side_effects: []
 
   - n: 10
@@ -343,9 +379,26 @@ prompts:
             checked at the commit phase (Prep). Verdict in Notes `Review
             conformance`: PASS/FAIL; any Tier-1 NOT-ALLOWED hit ⇒ FAIL ⇒ MUST-FIX.
 
+      Every reviewer receives the book's `goal` statements — the Outcome, the
+      Evidence, and the Constraint. Each judges the change against the Outcome
+      rather than against the diff alone.
+      Each returns one disposition per Evidence item:
+        - verified, with the command and the result token, or the observation
+          and where it is recorded when no command produced it;
+        - contradicted, which is a finding;
+        - unobserved, with what was attempted, what limited it, and what
+          would settle it.
+      Each states whether the Constraint held and what shows that. A result
+      token is an exit code, a pass count, or a named verdict — never raw
+      output, an environment value, or a secret.
+      A disposition is re-derived, never adopted from the author's report:
+      an item stands verified only where this reviewer ran the command and
+      read the result token, or re-read the observation where it is
+      recorded; anything it cannot re-derive is unobserved in its own report.
+
       Each returns a findings list.
     expected_output: |
-      Aggregated test/doc findings.
+      Aggregated test/doc findings, plus a disposition per Evidence item.
     side_effects: []
 
   - n: 11
@@ -357,11 +410,22 @@ prompts:
       Combine the findings from Prompts 9 and 10 — quality, **security (incl.
       any non-downgradable `[SECURITY:Sn]` MUST-FIX)**, and **dev-practice
       conformance (any Tier-1 NOT-ALLOWED hit / `CONFORMANCE: FAIL`)**. For each
-      MUST-FIX, dispatch a fix `Agent` (or fix directly if small). For each
+      MUST-FIX, dispatch a fix `Agent` (or fix directly if small). A fix
+      dispatch is an assignment: it carries the finding, the book's Outcome and
+      Constraint, and the Evidence item the finding bears on. Narrow the Outcome
+      to the finding and say what the narrowing dropped; pass the Evidence and
+      the Constraint whole. A fixer that is told only what is broken optimizes
+      for the gate rather than for the user the fix is meant to serve. For each
       SHOULD-CONSIDER, decide and document in the run snapshot Notes under
       `Review deferrals`.
 
       After fixes land, re-run Prompt 7's quality gates. If they still pass
+      Where you fixed a MUST-FIX yourself rather than dispatching it, that
+      fix is your own authorship: the re-review of it is commissioned by
+      your delegator, not by you, and you re-dispatch only the reviewers of
+      work you did not write. At the top of the chain the delegator is the
+      human who approved the run.
+
       AND the original reviewers (re-dispatched, incl. security + conformance)
       report zero MUST-FIX findings, advance to Prompt 12. Otherwise loop back
       to Prompt 9.

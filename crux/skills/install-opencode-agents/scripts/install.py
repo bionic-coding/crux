@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -23,12 +24,27 @@ from opencode_agents import (  # noqa: E402
     write,
 )
 
-# The V2 runner this installer probes before writing. Overridable by
-# `CRUX_OPENCODE2_BIN` so the refusal lane is reachable in a test and on a
-# machine that installs the binary under another name; the default is the
-# documented one.
-V2_BINARY_ENV = "CRUX_OPENCODE2_BIN"
-V2_BINARY_DEFAULT = "opencode2"
+# The runner this installer probes before writing. Identity comes from the
+# VERSION the runner reports, never from the name of its executable: OpenCode
+# 2.x ships as `opencode`, and on an upgraded machine `opencode2` survives as a
+# shim execing the same binary, so both spellings report the same version and
+# the name discriminates nothing.
+RUNNER_ENV = "CRUX_OPENCODE_BIN"
+RUNNER_ENV_DEPRECATED = "CRUX_OPENCODE2_BIN"
+RUNNER_CANDIDATES = ("opencode", "opencode2")
+
+# An optional leading `v`, the major as group 1, optional further dotted
+# components so `v1.4` and `v1.4.2.1` both read, an optional prerelease or
+# build suffix, token-bounded on both sides. Written compact on purpose: the
+# spaced form needs re.VERBOSE and silently matches nothing without it.
+_VERSION_TOKEN = re.compile(r"(?<![\w.])v?(\d+)(?:\.\d+)*(?:[-+][0-9A-Za-z.-]+)?(?![\w.])")
+
+COMPATIBLE = "compatible"
+KNOWN_INCOMPATIBLE = "known-incompatible"
+UNESTABLISHED = "unestablished"
+# Strongest wins. An absent or unreadable candidate never dilutes positive
+# evidence that a V1 runner is installed.
+_VERDICT_RANK = {COMPATIBLE: 2, KNOWN_INCOMPATIBLE: 1, UNESTABLISHED: 0}
 
 
 def _is_contained(candidate: Path, root: Path) -> bool:
@@ -72,43 +88,163 @@ def _containment_error(repo_root: Path, output_dir: Path, filenames: list[str]) 
     return None
 
 
-def _v2_preflight_error() -> str | None:
-    """Return an error message when no OpenCode V2 runner is discoverable.
+def _classify(stdout: str, returncode: int) -> str:
+    """Classify one runner's report (rule:opencode-runner-identified-by-version).
 
-    The projection this installer writes is V2-only: a V1 runner reading it
-    drops every deny. So the write path refuses unless `opencode2 --version`
-    resolves and exits 0.
-
-    NECESSARY, NOT SUFFICIENT — and the distinction is not a hedge. Exit 0
-    proves a V2 binary is installed on this machine. It does not prove the
-    runner that later reads the projection is V2: on a machine carrying both
-    binaries a user passes this preflight and then invokes V1 by hand. That
-    case is accepted residual risk covered by documentation, not by this
-    check. The preflight reaches the installer's write path and nothing else;
-    the manual `ln -s` install executes no crux code at all.
+    Three rules, in this order, each closing a hole a council found:
+      * ANY below-2 major anywhere on the first line dominates. Token
+        boundaries establish a token, never which token is the runner's, so
+        positive V1 evidence is never diluted by a higher token beside it.
+      * `compatible` needs exactly one token, reading 2, with exit 0. An
+        ambiguous line is unestablished rather than compatible.
+      * A readable below-2 report is evidence whatever the exit status. Only
+        `compatible` requires exit 0. Routing a below-2 report that exited
+        non-zero to `unestablished` would make it assertion-eligible, which is
+        the one thing this contract exists to prevent.
     """
-    binary = os.environ.get(V2_BINARY_ENV) or V2_BINARY_DEFAULT
-    resolved = shutil.which(binary)
+    first_line = (stdout.splitlines() or [""])[0]
+    majors = [int(m.group(1)) for m in _VERSION_TOKEN.finditer(first_line)]
+    if not majors:
+        return UNESTABLISHED
+    if any(major < 2 for major in majors):
+        return KNOWN_INCOMPATIBLE
+    if len(majors) == 1 and majors[0] == 2 and returncode == 0:
+        return COMPATIBLE
+    return UNESTABLISHED
+
+
+def _probe(name: str) -> dict:
+    """Probe one candidate. Never raises; an unreachable runner is a verdict."""
+    resolved = shutil.which(name)
     if resolved is None:
-        return (
-            f"refusing to write: no OpenCode V2 runner found. `{binary}` is not on PATH. "
-            "The generated agents use the V2 `permissions` array, which a V1 runner "
-            f"ignores. Install OpenCode V2, or set {V2_BINARY_ENV} to its path."
-        )
+        return {"name": name, "resolved": None, "verdict": UNESTABLISHED,
+                "reported": None, "stdout": "", "stderr": ""}
     try:
-        probe = subprocess.run(
+        run = subprocess.run(
             [resolved, "--version"],
             check=False, capture_output=True, text=True, timeout=30,
         )
     except (OSError, subprocess.SubprocessError) as exc:
-        return f"refusing to write: could not run `{binary} --version` ({exc})"
-    if probe.returncode != 0:
-        return (
-            f"refusing to write: `{binary} --version` exited {probe.returncode}, so no "
-            "OpenCode V2 runner is discoverable. The generated agents use the V2 "
-            "`permissions` array, which a V1 runner ignores."
-        )
-    return None
+        return {"name": name, "resolved": resolved, "verdict": UNESTABLISHED,
+                "reported": None, "stdout": "", "stderr": f"{exc}"}
+    verdict = _classify(run.stdout, run.returncode)
+    first_line = (run.stdout.splitlines() or [""])[0]
+    return {
+        "name": name, "resolved": resolved, "verdict": verdict,
+        # The raw first line travels even when it did not parse: a human
+        # deciding whether to assert must be able to see `opencode v1.4`
+        # rather than an empty field.
+        "reported": first_line[:400] or None,
+        "stdout": first_line, "stderr": (run.stderr or "").strip()[:400],
+    }
+
+
+def runner_preflight() -> dict:
+    """Probe the candidates and return the preflight record.
+
+    Candidate resolution: a configured override is the ONLY candidate;
+    otherwise `opencode` then `opencode2`. The preflight verdict is the
+    STRONGEST verdict any candidate reached.
+    """
+    override = os.environ.get(RUNNER_ENV) or ""
+    deprecated = os.environ.get(RUNNER_ENV_DEPRECATED) or ""
+    used_deprecated_alias = bool(deprecated) and not override
+    configured = override or deprecated
+    candidates = (configured,) if configured else RUNNER_CANDIDATES
+
+    probes = [_probe(name) for name in candidates]
+    verdict = max((p["verdict"] for p in probes), key=lambda v: _VERDICT_RANK[v])
+    # The assertion binds to the first resolved candidate that is not
+    # known-incompatible, so an absent alternative can never make a known-V1
+    # runner assertable. A candidate that resolved but never ran is eligible:
+    # it is the weakest evidence the flag can act on, and the payload says so.
+    bindable = next(
+        (p for p in probes if p["resolved"] and p["verdict"] != KNOWN_INCOMPATIBLE),
+        None,
+    )
+    return {
+        "verdict": verdict,
+        "candidates": [
+            {"name": p["name"], "resolved": p["resolved"],
+             "verdict": p["verdict"], "reported": p["reported"],
+             "stderr": p["stderr"] or None}
+            for p in probes
+        ],
+        "bindable": bindable,
+        "used_deprecated_alias": used_deprecated_alias,
+        "configured": configured or None,
+    }
+
+
+def _deprecation_notice(record: dict) -> str | None:
+    """The notice for a run that selected its runner through the old env name."""
+    if not record["used_deprecated_alias"]:
+        return None
+    return (
+        f"{RUNNER_ENV_DEPRECATED} is deprecated and was read because {RUNNER_ENV} "
+        f"is unset; set {RUNNER_ENV} instead."
+    )
+
+
+def preflight_refusal(record: dict, assume_compatible: bool) -> dict | None:
+    """Return the refusal payload, or None when the write may proceed.
+
+    Every refusal carries the deprecation notice when the alias selected the
+    runner. Emitting it only on success would hide it from exactly the runs most
+    likely to be misconfigured.
+    """
+    verdict = record["verdict"]
+    if verdict == COMPATIBLE:
+        return None
+    probed = [
+        f"{c['name']}"
+        + (f" ({c['reported']})" if c["reported"] else
+           " (not on PATH)" if not c["resolved"] else " (no readable version)")
+        for c in record["candidates"]
+    ]
+    if verdict == KNOWN_INCOMPATIBLE:
+        return {
+            "error": (
+                "refusing to write: a probed OpenCode runner reports a version older than 2, "
+                "and the generated agents use the V2 `permissions` array, which such a runner "
+                "ignores — every deny would be silently dropped. "
+                f"Probed: {'; '.join(probed)}. "
+                "Install OpenCode 2.x, or set CRUX_OPENCODE_BIN to a 2.x runner. "
+                "An assertion cannot override this verdict."
+            ),
+            "verdict": verdict, "candidates": record["candidates"],
+            "notice": _deprecation_notice(record),
+        }
+    if assume_compatible and record["bindable"] is not None:
+        return None
+    # The decision names two remedies for this verdict: point the configuration at the
+    # runner, or install OpenCode V2. Both are stated even when one is the likelier
+    # fix, because the installer cannot tell "installed under a name I do not probe"
+    # from "not installed" — that IS what unestablished means. Nothing resolved makes
+    # installing the likelier of the two, so it leads.
+    nothing_resolved = record["bindable"] is None and not any(
+        c["resolved"] for c in record["candidates"]
+    )
+    remedies = (
+        "Install OpenCode 2.x, or set CRUX_OPENCODE_BIN to the runner you intend."
+        if nothing_resolved else
+        "Set CRUX_OPENCODE_BIN to the runner you intend, install OpenCode 2.x if you have "
+        "none, or pass --assume-compatible to assert that the resolved runner reads a V2 "
+        "projection."
+    )
+    return {
+        "error": (
+            "refusing to write: no probed candidate reported a version this release "
+            "recognises, so compatibility is unestablished. This does not mean no OpenCode "
+            "runner is installed. "
+            f"Probed: {'; '.join(probed)}. "
+            + remedies
+            + ("" if record["bindable"] is not None else
+               " No candidate resolved, so there is nothing an assertion could bind to.")
+        ),
+        "verdict": verdict, "candidates": record["candidates"],
+        "notice": _deprecation_notice(record),
+    }
 
 
 class LegacyScanError(Exception):
@@ -202,6 +338,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repo-root", type=Path, required=True)
     parser.add_argument("--force", action="store_true", help="replace changed Crux-managed agent files")
     parser.add_argument(
+        "--assume-compatible",
+        action="store_true",
+        help=(
+            "assert that the resolved runner reads a V2 projection when no candidate "
+            "reported a recognised version; cannot override a known-incompatible verdict"
+        ),
+    )
+    parser.add_argument(
         "--migrate-legacy-agent-dir",
         action="store_true",
         help="move roster-named files out of the legacy .opencode/agent/ into .opencode/agents/",
@@ -220,9 +364,13 @@ def main(argv: list[str] | None = None) -> int:
     output_dir = repo_root / ".opencode" / "agents"
     legacy_dir = repo_root / ".opencode" / "agent"
 
-    preflight_error = _v2_preflight_error()
-    if preflight_error:
-        print(json.dumps({"error": preflight_error}))
+    # Probe before any write. The verdict is what gates, not the presence of a
+    # binary: a runner older than 2 ignores the `permissions` array these files
+    # carry, so every deny in the projection would be silently dropped.
+    runner = runner_preflight()
+    refusal = preflight_refusal(runner, args.assume_compatible)
+    if refusal is not None:
+        print(json.dumps(refusal, indent=2))
         return 2
 
     # Path containment (resolve-then-contain): resolve the repo root and the
@@ -415,7 +563,28 @@ def main(argv: list[str] | None = None) -> int:
         # symlink (in-repo or escaping target). Surface it as a structured
         # error, never a traceback.
         return emit({"error": str(exc)}, 2)
-    print(json.dumps({"written": written, "removed": removed, "migrated": migrated}, indent=2))
+    # The write's own record of what it trusted. A run that proceeded on an
+    # assertion says so here, so a later reader can tell a probed 2.x install
+    # from an asserted one without re-running anything.
+    assumed = bool(args.assume_compatible and runner["verdict"] != COMPATIBLE)
+    payload = {
+        "written": written,
+        "removed": removed,
+        "migrated": migrated,
+        "runner": {
+            "verdict": runner["verdict"],
+            "candidates": runner["candidates"],
+            "assumed_compatible": assumed,
+            # Only a write the assertion permitted has something bound. On a
+            # compatible verdict no assertion was made, so naming a candidate here
+            # would describe a decision nobody took.
+            "bound": (runner["bindable"] or {}).get("resolved") if assumed else None,
+        },
+    }
+    notice = _deprecation_notice(runner)
+    if notice:
+        payload["runner"]["notice"] = notice
+    print(json.dumps(payload, indent=2))
     return 0
 
 

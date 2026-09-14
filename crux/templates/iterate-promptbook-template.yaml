@@ -39,9 +39,13 @@ modules:
 
 goal: |
   <One paragraph: the bug / drift / refinement being fixed through this iterate
-  cycle. NON-architectural by definition — if it needs a new architectural
-  decision, the verify council routes it to `dev-cycle`. End-state: a reviewed,
-  tested, documented PR ready for human merge.>
+  cycle. Open it with three statements: the Outcome — what improves for the
+  affected user when the work is done; the Evidence — what would demonstrate
+  that improvement; and the Constraint — what the change must preserve. Prose
+  in this field: no new field, no form, no gate. NON-architectural by definition —
+  if it needs a new architectural decision, the verify council routes it to
+  `dev-cycle`. End-state: a reviewed, tested, documented PR ready for human
+  merge.>
 
 strategy: |
   Drive a single non-architectural fix through the iterate cycle: verify
@@ -167,9 +171,20 @@ prompts:
     prompt: |
       Group the Prompt 5 work units by independence. Dispatch one `Agent` per
       independent group; each receives the diagnosis, the plan, its work units,
-      and `docs/CLAUDE.md` conventions. Each makes actual edits, adds/updates
-      tests, and reports files changed + test results + any unilateral decisions.
-      Integrate; reconcile overlaps. Stay within the approved minimal scope.
+      and `docs/CLAUDE.md` conventions.
+
+      Each agent also receives the book's `goal` statements — the Outcome, the
+      Evidence, and the Constraint. A dispatch passes them forward verbatim, or
+      narrows the Outcome and says so: a narrowed Outcome is entailed by its
+      parent and names the parent it narrowed and what it dropped. The Evidence
+      and the Constraint pass whole — a dispatch may add an Evidence item or a
+      Constraint, saying which it added, and may drop neither. Record any
+      narrowing in this run snapshot's Notes under the label `Outcome narrowing`
+      — never by editing the book.
+
+      Each agent makes actual edits, adds/updates tests, and reports files
+      changed + test results + any unilateral decisions. Integrate; reconcile
+      overlaps. Stay within the approved minimal scope.
     expected_output: |
       All work units implemented; per-agent reports collected.
     side_effects: []
@@ -220,6 +235,11 @@ prompts:
       Independent verification of correctness, consistency, clarity, and security.
     prompt: |
       Dispatch parallel `Agent` reviewers, each blind to the others, scoped to the
+      Commission these reviewers yourself for the units you dispatched.
+      Where you integrated across those units, that integration is your own
+      authorship, so its review is commissioned by your delegator and not by
+      you.
+
       full cycle diff. **Three quality dimensions:** (a) Correctness — re-run the
       Prompt 7 gates, then read the diff for behavior bugs + confirm the fix
       actually resolves the diagnosed root cause; (b) Consistency — vs ADRs,
@@ -228,8 +248,26 @@ prompts:
       injection, S2 secrets incl. `~/.crux/`, S3 authz, S4 supply-chain, S5
       unsafe file/shell/resource), scope-adaptive with MANDATORY N/A reports. A
       `[SECURITY:Sn]` finding on a reachable path is non-downgradable MUST-FIX.
+
+      Every reviewer receives the book's `goal` statements — the Outcome, the
+      Evidence, and the Constraint. Each judges the change against the Outcome
+      rather than against the diff alone.
+      Each returns one disposition per Evidence item:
+        - verified, with the command and the result token, or the observation
+          and where it is recorded when no command produced it;
+        - contradicted, which is a finding;
+        - unobserved, with what was attempted, what limited it, and what
+          would settle it.
+      Each states whether the Constraint held and what shows that. A result
+      token is an exit code, a pass count, or a named verdict — never raw
+      output, an environment value, or a secret.
+      A disposition is re-derived, never adopted from the author's report:
+      an item stands verified only where this reviewer ran the command and
+      read the result token, or re-read the observation where it is
+      recorded; anything it cannot re-derive is unobserved in its own report.
     expected_output: |
-      Aggregated external-review + security findings.
+      Aggregated external-review + security findings, plus a disposition
+      per Evidence item.
     side_effects: []
 
   - n: 10
@@ -247,8 +285,26 @@ prompts:
       weakened assertions / `skip` added with no code fix / hand-mutated-DB prose.
       Verdict in `notes` `Review conformance`: PASS/FAIL; Tier-1 NOT-ALLOWED ⇒
       FAIL ⇒ MUST-FIX.
+
+      Every reviewer receives the book's `goal` statements — the Outcome, the
+      Evidence, and the Constraint. Each judges the change against the Outcome
+      rather than against the diff alone.
+      Each returns one disposition per Evidence item:
+        - verified, with the command and the result token, or the observation
+          and where it is recorded when no command produced it;
+        - contradicted, which is a finding;
+        - unobserved, with what was attempted, what limited it, and what
+          would settle it.
+      Each states whether the Constraint held and what shows that. A result
+      token is an exit code, a pass count, or a named verdict — never raw
+      output, an environment value, or a secret.
+      A disposition is re-derived, never adopted from the author's report:
+      an item stands verified only where this reviewer ran the command and
+      read the result token, or re-read the observation where it is
+      recorded; anything it cannot re-derive is unobserved in its own report.
     expected_output: |
-      Aggregated test/doc/conformance findings + verdict.
+      Aggregated test/doc/conformance findings + verdict, plus a
+      disposition per Evidence item.
     side_effects: []
 
   - n: 11
@@ -259,7 +315,18 @@ prompts:
     prompt: |
       Combine the Prompt 9 + 10 findings (quality, security, conformance). Fix
       every MUST-FIX (dispatch fix `Agent`s or fix directly); document
-      SHOULD-CONSIDER deferrals in `notes`. Re-run the Prompt 7 gates; if green
+      SHOULD-CONSIDER deferrals in `notes`. A fix dispatch is an assignment: it
+      carries the finding, the book's Outcome and Constraint, and the Evidence
+      item the finding bears on. Narrow the Outcome to the finding and say what
+      the narrowing dropped; pass the Evidence and the Constraint whole. A fixer
+      that is told only what is broken optimizes for the gate rather than for the
+      Where you fixed a MUST-FIX yourself rather than dispatching it, that
+      fix is your own authorship: the re-review of it is commissioned by
+      your delegator, not by you, and you re-dispatch only the reviewers of
+      work you did not write. At the top of the chain the delegator is the
+      human who approved the run.
+
+      user the fix is meant to serve. Re-run the Prompt 7 gates; if green
       AND re-dispatched reviewers report zero MUST-FIX, advance to Prompt 12.
       Otherwise loop to Prompt 9. After 3 review-fix loops without convergence,
       STOP and escalate.

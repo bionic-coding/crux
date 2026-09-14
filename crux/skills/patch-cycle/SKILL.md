@@ -78,12 +78,12 @@ Do **not** use this skill for:
 
 ## Inputs
 
-- **Required**: a working title and a one-paragraph goal describing the change. The goal must be a real description — the verify prompt's agents have no conversation context.
+- **Required**: a working title and a one-paragraph goal describing the change. The goal must be a real description — the verify prompt's agents have no conversation context. One sentence carries all three: the Outcome (what improves for the affected user), the Evidence (what would demonstrate that improvement), and the Constraint (what the change must preserve) — prose inside the same paragraph, sized to a patch: no new field, no form, no gate.
 - **Required**: the **blast radius** — the repository paths the change may touch, as repo-relative paths. A directory entry covers everything under it. Draw it as tightly as the work allows; the council will challenge a loose one. **A declaration that reaches the cycle machinery itself — the validator, the archive check, or the schemas — is a self-reference the verify council must refuse**, because the check that would judge the patch is code the patch would be licensed to edit. No mechanical guard can close that; the council is the only reader that can.
 
 When called interactively, elicit both:
 
-> "A patch cycle is five prompts — verify, plan, implement, review, summary — and it declares its blast radius up front. Which repository paths may this change touch? Anything outside them blocks the archive."
+> "A patch cycle is five prompts — verify, plan, implement, review, summary — and it declares its blast radius up front. Which repository paths may this change touch? Anything outside them blocks the archive. And does the goal state the Outcome, the Evidence, and the Constraint in one sentence?"
 
 ## The pipeline
 

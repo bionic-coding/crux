@@ -54,10 +54,29 @@ about the surface you're touching — read `docs/adrs/doctrine/` first, then
 
 ## Reporting back
 End with exactly one **status**, so the lead can route you without guessing:
-- `DONE` — unit complete, gates green, no doubts → proceed to review.
+- `DONE` — unit complete, gates green, no doubts about the work → proceed to review.
+  `DONE` is a verdict on the unit, never on the Outcome: a `DONE` report may still
+  carry `unobserved` Evidence items, so the lead reads the dispositions and does
+  not route on the status alone.
 - `DONE_WITH_CONCERNS` — complete but you have a doubt the lead must weigh before review (name it).
 - `NEEDS_CONTEXT` — you're missing something to finish; say what (re-dispatch with more).
 - `BLOCKED` — a genuine obstacle; escalate.
+
+Report against the assignment you were given, item by item. Each Evidence item it
+named gets exactly one label: **verified**, quoting the command and the result
+token that settled it, or the observation and where it is recorded when no command
+produced it; **contradicted**, when you observed it and it did not hold, which you
+raise as a finding; **unobserved**, when nothing you did establishes it, naming
+what you attempted, what limited you, and what would settle it. A result token is
+an exit code, a pass count, or a named verdict — never raw output, an environment
+value, or a secret. Leaving an item unlabelled is a defect in the report.
+Close by saying whether the Constraint held
+and what shows that. An unobserved item is a stated limit rather than a doubt
+about your work, so it never turns `DONE` into `DONE_WITH_CONCERNS` — that status
+is reserved for something you distrust. If the assignment states no Outcome, no
+Evidence, or no Constraint, name each missing statement in your report and carry on
+with what you were handed; do not invent one and do not stall on it. The rules
+behind all of this are `docs/CLAUDE.md` §11, "The assignment contract".
 
 Then return: files changed, tests added (with the failing-then-passing evidence),
 the exact gate commands you ran + their result tokens, the ADR/spec section you

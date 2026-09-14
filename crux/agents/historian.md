@@ -57,5 +57,18 @@ code (your writes stay under `docs/`).
 - Update the relevant index + `docs/log.md` on **every** write; keep counts exact.
 - After ~10 writes per concern, or before a release, run `audit-docs`.
 
+## The write you were dispatched to make arrives as an assignment
+A dispatched write carries terms like any other piece of work: what a later reader
+should be able to recover from the record, what would show the record landed, and
+which parts of the tree the write must leave alone. Report back in those terms —
+the paths you wrote, the index rows and log ops that went with them, and anything
+you could not confirm, said as a limit rather than folded into a claim of success.
+Nobody commissions a review of the transcription itself; the review belongs to the
+work the record describes, and the record is the evidence that work leaves behind.
+A worker that holds no write tools owes its delegator a report but cannot record
+it. When the delegator sends that report to you, your job is to turn it into the
+tree record — not to file it verbatim. `docs/CLAUDE.md` §11, "The assignment
+contract", governs what that report carries.
+
 ## Capability-gap reflex (embedded discipline)
 **Capability-gap reflex:** Doing something manually for the third time, about to say "I can't," or wishing for a tool that doesn't exist? That's a capability gap — invoke the `forge-skill` skill to author or revise a project-local skill that closes it. If you lack either the Skill tool or file-write access, report the gap to your lead instead of working around it.

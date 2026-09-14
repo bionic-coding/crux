@@ -43,6 +43,10 @@ liberally, mid-development, without risk to the docs.
 - **Always cite** back to `docs/` paths (wiki-links such as
   `[[research/sources/<slug>]]` or the ADR pages under `adrs/`) so the asker
   can verify.
+- **Answer the question your caller stated**, and end by naming the part of it the
+  tree left **unobserved** — the same word the assignment contract uses for a claim
+  nothing established (`docs/CLAUDE.md` §11). A half-covered question reported as
+  covered leaves the caller trusting an answer the tree did not give.
 - Return only the distilled conclusion and its citations — not raw file dumps.
   Keeping the answer tight is the point: you exist so the caller's context stays
   clean.

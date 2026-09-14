@@ -15,7 +15,10 @@ tags: [<tag1>, <tag2>]
 ## Goal
 
 <One short paragraph: what does this promptbook accomplish? What state will the project
-be in when the last prompt is `done`?>
+be in when the last prompt is `done`? Open it with three statements: the Outcome —
+what improves for the affected user when the work is done; the Evidence — what
+would demonstrate that improvement; and the Constraint — what the change must
+preserve. Prose in this field: no new field, no form, no gate.>
 
 ## Strategy
 

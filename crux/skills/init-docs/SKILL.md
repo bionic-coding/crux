@@ -394,6 +394,20 @@ _No spine yet._
 
 - If it does not exist, do **not** create one — that's the user's call. Surface a WARNING in the summary suggesting they add the reference.
 
+For each existing repo-root `CLAUDE.md` and `AGENTS.md`, also add the following
+instruction unless the file already names `objectives.md`. Substitute `${DOCS_DIR}`:
+
+```markdown
+Read `${DOCS_DIR}/objectives.md` before work of any size; follow `${DOCS_DIR}/CLAUDE.md` §5.B for alignment and the populate gate.
+Commander and night gardener read it at startup and on resume.
+Every delegation includes its resolved path plus the mission and relevant goals, or an instruction to read it before work.
+Carry this context through further delegation. Keep small-task alignment brief; objectives do not expand authorization.
+```
+
+Preserve existing instructions and generated regions. If either root file is
+absent, include the suggested instruction in the existing warning; do not
+create that file solely for this addition.
+
 ### 10. Write the human-facing `USER_GUIDE.md` to repo root
 
 - Read `${CRUX_PLUGIN_ROOT}/templates/USER_GUIDE.md`.
@@ -442,6 +456,10 @@ See below. If any item fails, roll back per the rollback contract (remove only t
 - [ ] `${DOCS_DIR}/promptbooks/index.md` exists with empty Active and Archived tables.
 - [ ] `${DOCS_DIR}/promptbooks/{active,runs,archive}/`, `${DOCS_DIR}/adrs/reviews/`, and `${DOCS_DIR}/invariants/checks/` each contain a `.gitkeep` — the reviews surface exists before the first decision review, so the cadence nudge never points at a directory that is not there.
 - [ ] No remaining `{{...}}` placeholders anywhere under `${DOCS_DIR}/`.
+- [ ] If the repo root carries an `AGENTS.md`, its objectives block was appended and no
+      pre-existing content was rewritten. If it carries none, nothing was created.
+- [ ] If the repo root carries a `CLAUDE.md`, step 9's objectives block was appended there too,
+      preserving existing content and generated regions. If it carries none, nothing was created.
 - [ ] Repo-root `CLAUDE.md` either already references the tree's `CLAUDE.md` or a WARNING was surfaced.
 - [ ] `${CRUX_PLUGIN_ROOT}/catalog/skills.json` and `${CRUX_PLUGIN_ROOT}/catalog/bundles.yml` both exist; `uv run "${CRUX_PLUGIN_ROOT}/scripts/validate-catalog.py" --dry-run` exits 0 against them.
 - [ ] `${REPO_ROOT}/USER_GUIDE.md` exists, contains the substituted `${REPO_NAME}`, has no remaining `{{...}}` placeholders. (Or — if a pre-existing USER_GUIDE.md was preserved without `--force` + explicit confirmation — a WARNING was surfaced.)
@@ -457,7 +475,7 @@ See below. If any item fails, roll back per the rollback contract (remove only t
 - About to write `manifest.yml` with `adr.next_number: 0`. The next user ADR takes number 1; 0 is reserved for the meta-ADR.
 - About to mark `init-docs` complete with `validate-catalog.py` exit 1. That means the plugin install shipped catalog drift — the user's catalog is broken from day one. Roll back per the rollback contract and surface the drift JSON. The fix is re-installing the plugin via the marketplace flow, not patching `catalog/skills.json` by hand (regenerative invariant).
 - About to leave a partial tree behind because step 7 or 8 failed. Roll back fully.
-- About to silently edit the repo-root `CLAUDE.md`. Append exactly one line; if it's already referenced, do nothing.
+- About to silently edit the repo-root `CLAUDE.md`. Two appends are sanctioned and no others: the one-line tree reference (skip it if already referenced), and step 9's objectives block (skip it if the file already names `objectives.md`). Both append and preserve existing content and generated regions; neither creates a file that does not exist. Anything beyond those two is a silent edit — don't.
 - About to create the tree but skip the `## [${TODAY}] init |` log entry. The audit relies on this entry to know the schema version was bootstrapped today.
 - About to overwrite a pre-existing `USER_GUIDE.md` at repo root without `--force` AND an explicit per-file confirmation. The user may have customized it; preserve it and surface a WARNING.
 - About to leave a stale `USER_GUIDE.md` referencing a different `{{repo_name}}` after `--force` regeneration. Always substitute.

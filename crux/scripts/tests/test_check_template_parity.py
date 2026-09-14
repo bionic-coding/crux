@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -958,6 +959,86 @@ class TestForgedLineBoundaries(ParityTestCase):
                     self.assertEqual(proc.returncode, 1,
                                      f"{name}/{label}: {proc.stdout}{proc.stderr}")
                     self.assertIn("DRIFT", proc.stdout)
+
+
+def _split_top_level_alternatives(pattern: str) -> list[str]:
+    """Split a regex on its TOP-LEVEL `|` only.
+
+    A `|` inside `(...)`, `[...]`, or escaped by a backslash belongs to a
+    sub-expression and is not an alternative of the whole pattern. Splitting
+    naively would manufacture fragments that never compile, and every one of
+    them would look like a dead alternative."""
+    parts, buf = [], []
+    depth = bracket = 0
+    i = 0
+    while i < len(pattern):
+        c = pattern[i]
+        if c == "\\" and i + 1 < len(pattern):
+            buf.append(pattern[i:i + 2]); i += 2; continue
+        if c == "[" and not bracket:
+            bracket = 1
+        elif c == "]" and bracket:
+            bracket = 0
+        elif not bracket and c == "(":
+            depth += 1
+        elif not bracket and c == ")":
+            depth -= 1
+        elif not bracket and depth == 0 and c == "|":
+            parts.append("".join(buf)); buf = []; i += 1; continue
+        buf.append(c); i += 1
+    parts.append("".join(buf))
+    return [p for p in parts if p.strip()]
+
+
+class ManifestAlternativeLivenessTests(unittest.TestCase):
+    """Every TOP-LEVEL alternative of every clause pattern must resolve in its
+    canonical section.
+
+    Why this is separate from `ShippedManifestLivenessTests`: that test asks
+    whether a clause resolves AT ALL, and a clause with one live alternative
+    and three dead ones resolves fine. `check_parity` compares only the values
+    that matched the canonical, so a dead alternative contributes no compared
+    value and gates nothing — the clause still reports `ok` while the sentence
+    it advertises is unguarded. That is not hypothetical: it is how a reworded
+    canonical sentence silently disarmed its own clause, which the clause's
+    `section` field still claimed to cover."""
+
+    def test_every_alternative_resolves_in_canonical(self):
+        try:
+            from ._dev_surface import require_dev_surface
+        except ImportError:  # unittest discover imports test modules top-level
+            from _dev_surface import require_dev_surface
+        require_dev_surface(self, REPO_ROOT / "bionic" / "CLAUDE.md", "bionic/CLAUDE.md")
+        manifest = json.loads(
+            (SCRIPTS_DIR / "template_parity_manifest.json").read_text(encoding="utf-8")
+        )
+        dead: list[str] = []
+        checked = 0
+        for entry in manifest["clauses"]:
+            pattern = entry.get("pattern")
+            if not pattern:
+                continue  # whole-section comparison: no alternatives to check
+            canonical = REPO_ROOT / entry["canonical"]
+            if not canonical.exists():
+                continue
+            body = ctp._section_after(canonical.read_text(encoding="utf-8"), entry["anchor"])
+            if body is None:
+                continue  # a STALE anchor is the other test's finding, not this one
+            for alt in _split_top_level_alternatives(pattern):
+                try:
+                    compiled = re.compile(alt)
+                except re.error:
+                    continue  # a fragment that is not independently compilable
+                checked += 1
+                if not compiled.search(body):
+                    dead.append(f"{entry['id']}: {alt[:70]}")
+        self.assertGreater(checked, 0, "no alternatives checked — manifest empty or unreadable?")
+        self.assertEqual(
+            dead, [],
+            "parity clause alternatives that match nothing in their canonical section, "
+            "so they gate nothing while the clause still passes:\n  " + "\n  ".join(dead),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

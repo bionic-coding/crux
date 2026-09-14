@@ -75,6 +75,15 @@
     receives: the ADR(s), the implementation plan, its assigned work units,
     and explicit conventions from `docs/CLAUDE.md`.
 
+    Each agent also receives the book's `goal` statements — the Outcome, the
+    Evidence, and the Constraint. A dispatch passes them forward verbatim, or
+    narrows the Outcome and says so: a narrowed Outcome is entailed by its
+    parent and names the parent it narrowed and what it dropped. The Evidence
+    and the Constraint pass whole — a dispatch may add an Evidence item or a
+    Constraint, saying which it added, and may drop neither. Record any
+    narrowing in this run snapshot's Notes under the label
+    `Outcome narrowing {M}` — never by editing the book.
+
     Each agent must make actual edits and run the relevant tests for its
     scope. Each returns: files changed, tests added/updated, test results,
     and any unilateral decisions with rationale.

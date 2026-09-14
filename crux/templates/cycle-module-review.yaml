@@ -60,6 +60,11 @@
       (c) Clarity — reads the code as a new engineer would; flags
           confusing names, undocumented invariants, magic numbers.
 
+    Commission these reviewers yourself for the units you dispatched.
+    Where you integrated across those units, that integration is your own
+    authorship, so its review is commissioned by your delegator and not by
+    you.
+
     **PLUS a dedicated multi-subagent security review** — one `Agent` per threat class
     over {SCOPE}:
       (S1) Injection & untrusted-input — SQL/command/template injection,
@@ -84,8 +89,26 @@
     exploitable on a reachable path is MUST-FIX and CANNOT be downgraded;
     deferred (SHOULD-CONSIDER) security items go in run-snapshot Notes under
     `Review {M} security deferrals` with residual-risk rationale.
+
+    Every reviewer receives the book's `goal` statements — the Outcome, the
+    Evidence, and the Constraint. Each judges the change against the Outcome
+    rather than against the diff alone.
+    Each returns one disposition per Evidence item:
+      - verified, with the command and the result token, or the observation
+        and where it is recorded when no command produced it;
+      - contradicted, which is a finding;
+      - unobserved, with what was attempted, what limited it, and what
+        would settle it.
+    Each states whether the Constraint held and what shows that. A result
+    token is an exit code, a pass count, or a named verdict — never raw
+    output, an environment value, or a secret.
+    A disposition is re-derived, never adopted from the author's report:
+    an item stands verified only where this reviewer ran the command and
+    read the result token, or re-read the observation where it is
+    recorded; anything it cannot re-derive is unobserved in its own report.
   expected_output: |
-    Aggregated external-review + security findings for {SCOPE}.
+    Aggregated external-review + security findings for {SCOPE}, plus a
+    disposition per Evidence item.
   side_effects: []
 
 - title: "Review {M}: tests, docs, and dev-practice conformance audit of {SCOPE}"
@@ -131,9 +154,27 @@
           SHOULD-CONSIDER unless clearly pass-forcing). Any Tier-1 NOT-ALLOWED
           hit ⇒ FAIL ⇒ MUST-FIX ⇒ cycle blocked at this module's fix prompt.
 
+    Every reviewer receives the book's `goal` statements — the Outcome, the
+    Evidence, and the Constraint. Each judges the change against the Outcome
+    rather than against the diff alone.
+    Each returns one disposition per Evidence item:
+      - verified, with the command and the result token, or the observation
+        and where it is recorded when no command produced it;
+      - contradicted, which is a finding;
+      - unobserved, with what was attempted, what limited it, and what
+        would settle it.
+    Each states whether the Constraint held and what shows that. A result
+    token is an exit code, a pass count, or a named verdict — never raw
+    output, an environment value, or a secret.
+    A disposition is re-derived, never adopted from the author's report:
+    an item stands verified only where this reviewer ran the command and
+    read the result token, or re-read the observation where it is
+    recorded; anything it cannot re-derive is unobserved in its own report.
+
     Each returns a findings list with severity.
   expected_output: |
-    Aggregated test/doc/conformance findings + conformance verdict for {SCOPE}.
+    Aggregated test/doc/conformance findings + conformance verdict for {SCOPE},
+    plus a disposition per Evidence item.
   side_effects: []
 
 - title: "Review {M}: implement feedback; loop until clean"
@@ -145,8 +186,19 @@
     **security (incl. any non-downgradable `[SECURITY:Sn]` MUST-FIX)**, and
     **dev-practice conformance (any Tier-1 NOT-ALLOWED hit / `CONFORMANCE:
     FAIL`)**. For each MUST-FIX, dispatch a fix `Agent` (or fix directly if
-    small). For each SHOULD-CONSIDER, decide and document in the run snapshot
+    small). A fix dispatch is an assignment: it carries the finding, the book's
+    Outcome and Constraint, and the Evidence item the finding bears on. Narrow
+    the Outcome to the finding and say what the narrowing dropped; pass the
+    Evidence and the Constraint whole. A fixer that is told only what is broken
+    optimizes for the gate rather than for the user the fix is meant to serve.
+    For each SHOULD-CONSIDER, decide and document in the run snapshot
     Notes under `Review {M} deferrals`.
+
+    Where you fixed a MUST-FIX yourself rather than dispatching it, that
+    fix is your own authorship: the re-review of it is commissioned by
+    your delegator, not by you, and you re-dispatch only the reviewers of
+    work you did not write. At the top of the chain the delegator is the
+    human who approved the run.
 
     After fixes land, re-run the relevant quality gates from the most
     recent dev module. If they still pass AND the original reviewers

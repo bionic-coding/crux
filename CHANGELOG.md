@@ -1,4 +1,4 @@
-<!-- generated-from: CHANGELOG.md@sha256:a2a09c1215e8e53a7641cbfc72f6cbabd7c05776529eb8464122e85c17177e41; model: claude-fable-5.1; date: 2026-09-11 -->
+<!-- generated-from: CHANGELOG.md@sha256:aab1e74669f22ef9251a1344cead87fc4b0478dc855fc3ac29c89d5826b6e0e5; model: claude-fable-5.1; date: 2026-09-13 -->
 # Changelog
 
 All notable changes to crux. The format roughly follows [Keep a Changelog](https://keepachangelog.com/) and the project adheres to [Semantic Versioning](https://semver.org/).
@@ -12,6 +12,31 @@ All notable changes to crux. The format roughly follows [Keep a Changelog](https
 ### Fixed
 
 ### Removed
+
+## [3.14.0] — 2026-09-14
+
+### Added
+
+- **The OpenCode installer now reports which runner it probed and what it concluded.** Its JSON output includes a verdict, every candidate executable it checked along with the version that candidate reported, and whether the run proceeded on a human assertion rather than on a recognised version.
+- **New `--assume-compatible` flag.** Lets you install against a resolved runner whose reported version this release does not recognise. It cannot override a runner that reports a major version below 2, and it refuses to run when no candidate runner resolved at all, since there is nothing for the assertion to bind to.
+
+### Changed
+
+- **The OpenCode installer identifies a compatible runner by the version it reports, not by the name of its executable.** OpenCode 2.0.3 installs as `opencode`, so the previous check (`opencode2 --version` exiting 0) refused to write on a correctly upgraded machine and wrote on a machine whose `opencode2` was still a V1 binary. The installer now probes `opencode` and then `opencode2` — or the single runner named by `CRUX_OPENCODE_BIN` — and classifies each by its reported major version.
+- **`CRUX_OPENCODE_BIN` replaces `CRUX_OPENCODE2_BIN`.** The old variable name still works; when it is used, the run says so in its output.
+- **All OpenCode-related documentation now refers to the runner as `opencode` and tells you to check its version.** The executable name no longer distinguishes a V1 runner from a V2 one, because an upgraded machine may keep an `opencode2` shim pointing at the same 2.x binary.
+
+### Fixed
+
+- **A runner reporting a version below 2 is now refused regardless of its exit status**, and no flag can override that refusal. Such a runner reads the generated `permissions` array with every `deny` entry silently dropped, which is exactly the failure the preflight check exists to prevent.
+- **The documented number of `audit-docs` checks was wrong in four places**, and by different amounts in each. The README gave `~45` in one table and `~54` in another; the skill gave `~65` in its overview and `~70` in its total. The suite actually defines 97 checks across eighteen groups, and all four places now read `~97`.
+
+## [3.13.0] — 2026-09-13
+
+### Added
+
+- **A contract requiring an assignment between agents to state its outcome, its evidence, and its constraint.** The contract requires an assignment to name what should improve for the affected user, what would demonstrate that improvement, and what the change must preserve; to carry those three statements through every delegation hop; to have a reviewer commissioned by the delegator rather than by the party whose work is under review; and to mark each evidence item as verified, contradicted, or unobserved. A direct fix states all of this in one sentence. There is no new field, no form, and no approval gate. The contract and the agent instructions that carry it ship in this release. Whether agents follow them in practice is not established by this release, and no measure in the project yet reports on it.
+- **Crux now checks that its own documentation rules still apply to the text they name.** The check verifies that each alternative phrasing in a rule's gating clause still matches its governing text. A rewording can leave one alternative applying to nothing. Its first run surfaced three alternatives that had stopped applying after an earlier rewording, and all three are repaired in this release. The check runs in the crux development repository and guards crux's own documentation; it is not a check over your project's rules.
 
 ## [3.12.1] — 2026-09-11
 

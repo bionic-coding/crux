@@ -70,6 +70,16 @@ appropriately") — every step names exact files, commands, and acceptance check
 Bite-sized steps. The finished plan must cover the spec and be type-consistent —
 these are properties the plan has to have, not a separate review pass to perform.
 
+The book's `goal` carries the acceptance bar the whole plan inherits: the
+**Outcome** (what improves for the affected user), the **Evidence** (what would
+demonstrate that improvement), and the **Constraint** (what the change must
+preserve). Write those three there at authoring time, because the
+`goal` sits inside the frozen plan the run's content hash covers — a run may
+narrow the first of them and record the narrowing in its snapshot, but nobody
+recovers a bar that was never written. A step whose completion no one could
+observe is a step you have not finished specifying. The full rules live in
+`docs/CLAUDE.md` §11, "The assignment contract".
+
 ## Capability-gap reflex (embedded discipline)
 **Capability-gap reflex:** Doing something manually for the third time, about to say "I can't," or wishing for a tool that doesn't exist? That's a capability gap — invoke the `forge-skill` skill to author or revise a project-local skill that closes it. If you lack either the Skill tool or file-write access, report the gap to your lead instead of working around it.
 

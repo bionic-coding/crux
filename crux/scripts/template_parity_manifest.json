@@ -319,7 +319,7 @@
       "canonical": "bionic/CLAUDE.md",
       "twin": "crux/templates/CLAUDE.md.tmpl",
       "anchor": "### adrs (append-only history)",
-      "pattern": "The Coverage section additionally carries a seven-column assessment table|one row per measure part, identified by its own header row and never by its position|seven columns keeps it disjoint from the five-column summary table and the five-column lifecycle record table|so no two of the three tables are confusable and a mistyped header cannot silently reassign rows|are two fields, never one|six of the sixteen pairs are legal and the rest are refused|The per-goal matrix survives beside the assessment table and carries the derived alignment rollup|a goal no part attempted, including one that yields no parts, is `not-assessed`|The frontmatter `measured_objectives` key carries one entry per goal|`measured` and `attempted` both discharge the three-report rotation|`not-assessed` and `unknown` discharge nothing|A report carrying no `measured_objectives` key reads as the literal `unknown` for every goal|A report carrying a flat list of bare ids demotes to `attempted` and is never promoted|a finding whose confidence is `unresolved` is never routed to Revoke|Revocation requires positive evidence that continued observance produces a named cost against a named objective|dormancy, a missing run binding and unavailable evidence are absences and establish none|The regenerator still does not read `measured_objectives`, so it adds no row to the regenerative-outputs roster|the objective itself initiates a bounded investigation|every surface a pass read beyond its signal-flagged set is covered by a slip naming it|at most three investigations per pass and five surfaces counted once each per investigation|On the third consecutive `attempted` outcome recorded under this grammar|a demoted entry starts no strike and a `measured` outcome resets the count|carries one entry per COUNTED THING|every entry carries an identifier of the measure version it concerns|The strongest outcome wins within one counted thing and never across two|a part's count resets only when THAT part discriminates"
+      "pattern": "The Coverage section additionally carries a seven-column assessment table|one row per measure part, identified by its own header row and never by its position|seven columns keeps it disjoint from the five-column summary table and the five-column lifecycle record table|so no two of the three tables are confusable and a mistyped header cannot silently reassign rows|are two fields, never one|six of the sixteen pairs are legal and the rest are refused|The per-goal matrix survives beside the assessment table and carries the derived alignment rollup|a goal no part attempted, including one that yields no parts, is `not-assessed`|carries one entry per COUNTED THING|`measured` and `attempted` both discharge the three-report rotation|`not-assessed` and `unknown` discharge nothing|A report carrying no `measured_objectives` key reads as the literal `unknown` for every goal|A report carrying a flat list of bare ids demotes to `attempted` and is never promoted|a finding whose confidence is `unresolved` is never routed to Revoke|Revocation requires positive evidence that continued observance produces a named cost against a named objective|dormancy, a missing run binding and unavailable evidence are absences and establish none|renders nothing from it, so it adds no row to the regenerative-outputs roster|the objective itself initiates a bounded investigation|every surface a pass read beyond its signal-flagged set is covered by a slip naming it|at most three investigations per pass and five surfaces counted once each per investigation|On the third consecutive `attempted` outcome recorded under this grammar|a demoted entry resets the count and starts no strike|carries one entry per COUNTED THING|every entry carries an identifier of the measure version it concerns|The strongest outcome wins within one counted thing and never across two|a part's count resets only when THAT part discriminates"
     },
     {
       "id": "journal-composed-body-never-leaves-a-fence-open",
@@ -328,6 +328,46 @@
       "twin": "crux/templates/CLAUDE.md.tmpl",
       "anchor": "### journal (append-only narrative)",
       "pattern": "(?m)^- \\*\\*A composed body never leaves a fence open\\*\\*[^\\n]*$"
+    },
+    {
+      "id": "assignment-states-outcome-evidence-constraint",
+      "section": "§11 the assignment contract: the Outcome/Evidence/Constraint triad, the proportion clause, and the frozen-goal consequence",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "### The assignment contract",
+      "pattern": "(?m)^- \\*\\*(?:Outcome|Evidence|Constraint)\\*\\* — [^\\n]*$|\\*\\*Ceremony scales with the change:\\*\\*|a task sized for the direct-fix rung \\(§11\\.C\\) states all three in one sentence|records that in the run snapshot and never by editing the book"
+    },
+    {
+      "id": "delegation-carries-objectives-context",
+      "section": "§11 the assignment contract: the objectives context is owned by §5.B and restated nowhere here",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "### The assignment contract",
+      "pattern": "An assignment travels beside the objectives context|§5\\.B is the one statement of what that context is|this section names it and restates none of it"
+    },
+    {
+      "id": "assignment-survives-every-delegation-hop",
+      "section": "§11 the assignment contract: the statements survive every hop, only the Outcome narrows, the reviewer is commissioned by the delegator, and the chain terminates at the review, the provenance of a statement, and the boundary against the tool-allowlist rule",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "### The assignment contract",
+      "pattern": "\\*\\*The three statements survive every hop\\*\\*|a forked skill invocation included|Session history carries none of them|The Evidence and the Constraint pass whole|may drop neither|never from the party under review|cannot commission the review of that integration|The chain terminates at the review|never for the transcription that records it|owes the report, not the write|no stop point under the run-autonomy rules|The three statements are authored by the delegator|enters an assignment as quoted data, never as one of the three statements|the tool allowlist remains the sole \\*mechanical\\* enforcement of separation of duties"
+    },
+    {
+      "id": "completion-separates-verified-from-unobserved",
+      "section": "§11 the assignment contract: the three dispositions, evidence classified by what it observed, the result token, re-derivation, and the durable record",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "### The assignment contract",
+      "pattern": "one of three dispositions|\\*\\*verified\\*\\*|\\*\\*contradicted\\*\\*|\\*\\*unobserved\\*\\*|An Evidence item carrying no disposition is a finding|adds no artifact and no field|classified by what it observed, not by the tool that produced it|never raw output, an environment value, or a secret|re-derives each disposition|\\*\\*The statements land in a durable record\\*\\*|without the dispatch text or the session"
+    },
+    {
+      "id": "objectives-alignment-before-work-and-through-delegation",
+      "section": "§5.B the alignment rules: every agent reads objectives before work, and every delegation carries the resolved path plus the mission or an instruction to read it",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "## 5.B. `docs/objectives.md` format",
+      "pattern": "\\*\\*Alignment before work and through delegation\\.\\*\\*|Commander and night gardener read it at startup and on resume|never assume the literal `docs/` directory exists|including a forked skill invocation, carries the resolved objectives path|require recipients to preserve this context in further delegation|Objectives alone authorize no additional work"
     }
   ]
 }

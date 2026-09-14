@@ -50,7 +50,10 @@ Do **not** use this skill for:
 
 ## Inputs
 
-- **Required**: a working title, a one-paragraph goal.
+- **Required**: a working title, a one-paragraph goal that opens with what should improve
+  for the affected user (Outcome), what would show it (Evidence), and what the work must
+  preserve (Constraint) — see `docs/CLAUDE.md` §11, "The assignment contract". A short
+  book says all three in a sentence. No new field, no form, no gate.
 - **Recommended on first author**: the prompts list (at least 1, ideally 3–12). If the user only gives a title, write a stub book with one placeholder prompt and tell them to fill it in before starting a run.
 - **A successor book** (optional): when the user is re-authoring after an abandoned run, read the predecessor and carry its plan — `goal`, `strategy`, and `prompts` — into the new `.yaml` book, revised as the user wants. The predecessor may be **either** a new-format `.yaml` book **or** a legacy `.md` book; format-detect it (§1) and translate the legacy body into the structured fields when reading `.md`. The new book names the predecessor in its `goal`/`strategy` prose; `forked_from:` stays `null`, and every state field is fresh (`status: active`, `current_run: null`, `current_prompt: null`).
 

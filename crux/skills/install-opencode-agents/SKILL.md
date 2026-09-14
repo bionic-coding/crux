@@ -84,19 +84,38 @@ root. Review the diff, then refresh deliberately:
 python3 <skill-dir>/scripts/install.py --repo-root "$PWD" --force
 ```
 
-### The V2 runner preflight
+### The runner preflight
 
-Before writing anything, the installer runs `opencode2 --version` and refuses
-with a non-zero exit when it does not resolve or does not exit 0. The generated
-agents use the V2 `permissions` array, and a V1 runner reading them drops every
-deny.
+Before writing anything, the installer probes each candidate runner with
+`--version` and classifies it by the major version it reports, never by the name
+of its executable. OpenCode 2.0.3 installs as `opencode`, and an upgraded machine
+may keep an `opencode2` shim onto the same binary, so the name discriminates
+nothing. Candidates are `opencode` then `opencode2`, or the single runner named
+by `CRUX_OPENCODE_BIN` when that is set.
 
-This is a **necessary condition, not a sufficient one**. Exit 0 proves a V2
-binary is installed on this machine; it does not prove the runner that later
-reads the projection is V2. On a machine carrying both binaries you can pass the
-preflight and then invoke V1 by hand — accepted residual risk, covered by
-documentation rather than by this check. Set `CRUX_OPENCODE2_BIN` when the
-binary is installed under another name.
+Each candidate gets one of three verdicts, and the strongest one any candidate
+reached decides the run:
+
+| Verdict | When | What the installer does |
+|---|---|---|
+| `compatible` | one version token, major 2, exit 0 | writes |
+| `known-incompatible` | any token below major 2, whatever the exit status | refuses; `--assume-compatible` cannot override it |
+| `unestablished` | nothing resolved, nothing parsed, or the line is ambiguous | refuses, unless `--assume-compatible` binds it to a resolved candidate |
+
+The refusal exists because the generated agents use the V2 `permissions` array,
+and a runner older than 2 reads them with every `deny` silently dropped.
+
+This is a **necessary condition, not a sufficient one**. A `compatible` verdict
+proves a 2.x runner answered on this machine; it does not prove the runner that
+later reads the projection is that one. On a machine carrying both a 2.x and an
+older runner you can pass the preflight and then invoke the older one by hand —
+accepted residual risk, covered by documentation rather than by this check. The
+installer records its verdict and every candidate in the JSON it prints, so a
+run that proceeded on an assertion says so.
+
+`CRUX_OPENCODE_BIN` names the runner when it is installed under another name.
+`CRUX_OPENCODE2_BIN` is honoured as a deprecated alias, and a run that reads it
+says so in its output.
 
 ### The legacy `.opencode/agent/` directory
 
@@ -135,9 +154,9 @@ spawn a role by its bare name, for example `reviewer` or `developer`.
 - [ ] `.opencode/agent/` — the legacy singular directory — holds no crux role file.
 - [ ] Existing non-Crux agent files remain unchanged.
 - [ ] The installer returned JSON with `written` and no unreviewed conflicts.
-- [ ] `opencode2 debug agents` shows the ten Crux roles, with `commander` and
+- [ ] `opencode debug agents` shows the ten Crux roles, with `commander` and
       `night-gardener` as `all` and the other eight as `subagent`. There is no
-      `opencode2 agent list` and no `opencode2 debug skill`.
+      `opencode agent list` and no `opencode debug skill`.
 
 ## Guardrails
 
@@ -155,3 +174,8 @@ spawn a role by its bare name, for example `reviewer` or `developer`.
 - `--force` overrides the destination-collision refusal. It does NOT override
   path containment: a legacy file resolving outside the repo root is refused
   whether or not you pass it.
+- `--assume-compatible` overrides only an `unestablished` verdict, and only when
+  a candidate resolved. It cannot override `known-incompatible`, and it is not a
+  way past a machine with no runner on it. Pass it when you know the resolved
+  runner reads a V2 projection and it simply reports a version this release does
+  not recognise — never to quiet a refusal you have not read.

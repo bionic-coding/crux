@@ -1,4 +1,4 @@
-<!-- generated-from: OPENCODE.md@sha256:40ee44b5b101c9f8d67d42fd82612c052ab63654a4a830ec16f4175081861575; model: deterministic-copy; date: 2026-09-11 -->
+<!-- generated-from: OPENCODE.md@sha256:399d1757a93cb4de76d381ab3522f7f78cd5007e1b6068e5b990fdf5cc94f070; model: deterministic-copy; date: 2026-09-13 -->
 # Install Crux for OpenCode
 
 Crux has no native OpenCode marketplace package. OpenCode installation uses a stable clone of the public Crux repository. This guide covers machine-wide and project-only installation for humans and agents.
@@ -70,7 +70,7 @@ Fully quit and restart the OpenCode host. Starting a new thread alone is insuffi
 Verify the agents:
 
 ```bash
-opencode2 debug agents
+opencode debug agents
 ```
 
 The command should list these ten Crux roles:
@@ -104,7 +104,7 @@ A project role shadows a machine-wide role with the same name. Choose one scope 
 
 Follow this section when you are the OpenCode agent performing installation for a user.
 
-1. Confirm that an OpenCode V2 runner is available with `opencode2 --version`. If the binary uses another name, set `CRUX_OPENCODE2_BIN` for the project installer.
+1. Confirm that an OpenCode 2.x runner is available: `opencode --version` reports a version whose major is 2. The installer identifies the runner by that reported version, never by the name of its executable, so a 2.x runner installed under any name passes. Set `CRUX_OPENCODE_BIN` to name a runner the installer would not otherwise find.
 2. Resolve the absolute Crux clone or plugin path. Do not write a relative skill path into the global configuration.
 3. Read the existing `~/.config/opencode/opencode.json`. Merge the Crux skill directory into its `skills` array without dropping other keys or entries.
 4. Generate the projection with `uv run python3 <clone>/crux/scripts/generate-opencode-agents.py`.
@@ -151,9 +151,9 @@ The check command never prints secret values.
 
 | Symptom | Action |
 |---|---|
-| `opencode2 debug agents` omits Crux roles | Regenerate the projection, inspect the symlinks, and restart the host. |
+| `opencode debug agents` omits Crux roles | Regenerate the projection, inspect the symlinks, and restart the host. |
 | An agent file reports an invalid comma-separated `tools` field | The symlink targets `crux/agents/` instead of generated `opencode/agents/`. |
-| A role runs without its deny rules | Stop using the V1 runner and launch `opencode2`. |
+| A role runs without its deny rules | The runner is older than 2 and ignored the `permissions` array. Check `opencode --version`, and upgrade to 2.x. |
 | A skill is missing | Check the absolute `skills` path in `opencode.json`, then restart OpenCode. |
 | Roles use old instructions after `git pull` | Regenerate `opencode/agents/`; the public clone leaves that directory untracked. |
 | The project installer refuses a legacy role | Review `.opencode/agent/`, then use the migration flag if those files belong to Crux. |

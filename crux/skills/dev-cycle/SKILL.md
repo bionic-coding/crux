@@ -143,7 +143,11 @@ Do **not** use this skill for:
 ## Inputs
 
 - **Required**: a working title and a one-paragraph goal describing the
-  feature/change.
+  feature/change. The goal opens with three statements — the Outcome (what
+  improves for the affected user when the work is done), the Evidence (what
+  would demonstrate that improvement), and the Constraint (what the change
+  must preserve). They are prose inside this paragraph: no new field, no
+  form, no gate.
 - **Optional**: initial tags beyond the default `[cycle, workflow, feature]`.
 - **Optional**: a hint at the affected scope (file paths, modules) — this
   goes into the Goal paragraph; the planning team in Prompt 1 will refine.
@@ -170,11 +174,13 @@ When called interactively (no flags), elicit the counts as follows:
 > - Two review cycles if you want a mid-cycle review between dev loops in
 >   addition to the final one.
 >
-> Module counts (ADRs / dev loops / review cycles)? [default: 1 / 1 / 1]"
+> Module counts (ADRs / dev loops / review cycles)? [default: 1 / 1 / 1] And
+> does the goal state the Outcome, the Evidence, and the Constraint?"
 
 If the user gives only a title, ask for the goal paragraph before allocating
-an id. A real goal must exist — placeholder goals leak into every downstream
-prompt and degrade agent quality.
+an id, and require it to state the Outcome, the Evidence, and the Constraint. A
+real goal must exist — placeholder goals leak into every downstream prompt and
+degrade agent quality.
 
 ## The pipeline
 

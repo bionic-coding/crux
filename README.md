@@ -1,4 +1,4 @@
-<!-- generated-from: README.md@sha256:c9706a0522b1e903810f353eb677994e3d8bbb3c3a92c09ce8e1a2fd9430087a; model: claude-fable-5.1; date: 2026-09-11 -->
+<!-- generated-from: README.md@sha256:971b80058e04f8427f733bb84d396aff268b7624d06985916c8c1ca086896368; model: claude-fable-5.1; date: 2026-09-13 -->
 # Crux
 
 An Agentic Harness plugin that maintains a `./bionic/` tree inside any software project — so that Claude can navigate, query, and update project knowledge without anyone having to remember where things go. Everything runs locally — no server, no accounts, no background service: just skills, scripts, and your repo.
@@ -7,24 +7,157 @@ An Agentic Harness plugin that maintains a `./bionic/` tree inside any software 
 
 Visit the [Crux guide](https://bionic-coding.com/crux/) for installation and usage instructions.
 
-## Quick install
+## About this repository
 
-In any Claude Code session, run two slash commands:
+This public repository is **generated** from a private development repo on every release (see `.generated`). Each release lands here as a single squash commit. Please **file issues** — they are welcome and read — but pull requests opened against this repo would be overwritten by the next release and cannot be merged.
+
+## Install
+
+crux installs through Claude Code's plugin marketplace. In any Claude Code session, run two slash commands:
 
 ```
 /plugin marketplace add bionic-coding/crux
 /plugin install crux@crux
 ```
 
-Restart the session, then say **init docs**. Full details — including Codex and OpenCode — are in [Install](#install) below.
+That's the whole flow — the second command installs the plugin named `crux` from the marketplace you just added (also named `crux`) — install and upgrade alike (re-run `/plugin install crux@crux` after `/plugin marketplace update crux` to pick up a new version). Installation does **not** touch your project's docs tree; you bootstrap that yourself. Restart the session so the plugin's skills and agents register, then say:
 
-## About this repository
+> **init docs**
 
-This repository is **generated** from a private development repo on every release (see `.generated` for the provenance stamp). Each release lands here as **one squash commit** plus a tag and a GitHub Release. Please **file issues** here — they are read and acted on. Pull requests against this repo cannot be merged: the next release would overwrite them.
+That bootstraps the seven-concern `bionic/` tree plus the default-on arch spine, seeds `bionic/CLAUDE.md` (the operational schema Claude reads on every session), `bionic/manifest.yml`, and the meta-ADR `ADR-0000`.
+
+### Codex
+
+See [CODEX.md](./CODEX.md) for complete installation instructions for humans
+and agents.
+
+crux is also a supported Codex distribution target. The same ten roles are
+generated from `crux/agents/` as Codex-native `.codex/agents/*.toml` files.
+Install the plugin through Codex's marketplace flow:
+
+```
+codex plugin marketplace add bionic-coding/crux
+codex plugin add crux@crux
+```
+
+Start a new Codex thread, then say **"install the Crux agents in Codex"**. The
+`install-codex-agents` skill writes the namespaced `crux_*` roles to
+`~/.codex/agents/` by default. Each role pins its model and reasoning effort and
+binds its declared skills to the installed plugin. Pass `--repo-root` only when
+you want one project's `.codex/agents/` directory.
+
+The installer does not replace changed or stale managed files without
+`--force`. An unchanged refresh is a no-op. Plugin relocation appears as drift
+because installed skill bindings use absolute paths. Run `--check` with
+`--project-context` to inspect drift and project agents that shadow personal
+roles. The static report separates canonical expectations from the managed TOML
+state parsed from disk. It keeps runtime status `unverified` until fresh-session
+host evidence confirms the effective Codex configuration. Parent permissions,
+credentials, sandbox policy, eager skill loading, and delegation depth remain
+Codex host constraints.
+
+### OpenCode (manual setup)
+
+See [OPENCODE.md](./OPENCODE.md) for complete machine-wide and project
+installation instructions for humans and agents.
+
+There is **no native Crux OpenCode marketplace package yet** — OpenCode support is a **manual, preview-grade setup** for now (a public OpenCode distribution channel is a deliberately deferred future decision). The steps below wire the full 60-skill + 10-agent set into OpenCode 2.x from a public clone, and work from the published repo — no separate checkout required. Install OpenCode 2.x with `curl -fsSL https://opencode.ai/v2/install | bash`, which leaves a binary named `opencode`.
+
+1. **Clone to a stable path** (the config below uses absolute paths, so pick a permanent home — moving it later breaks the setup):
+
+   ```bash
+   git clone https://github.com/bionic-coding/crux ~/.local/share/crux
+   ```
+
+2. **Install [uv](https://docs.astral.sh/uv/)** (needed to run the agent generator):
+
+   ```bash
+   curl -LsSf https://astral.sh/uv/install.sh | sh
+   ```
+
+3. **Generate the OpenCode agent tree** (`opencode/agents/*.md` is a regenerated projection of `crux/agents/`, produced on demand — the public artifact does not ship it):
+
+   ```bash
+   cd ~/.local/share/crux
+   uv run python3 crux/scripts/generate-opencode-agents.py
+   ```
+
+4. **Point OpenCode's skill scanner at the clone.** Merge this into `~/.config/opencode/opencode.json` (create it if absent), using the **absolute** path to `<clone>/crux/skills`:
+
+   ```json
+   {
+     "$schema": "https://opencode.ai/config.json",
+     "skills": ["/Users/you/.local/share/crux/crux/skills"]
+   }
+   ```
+
+   V2 reads `skills` as an array of directories; V1's `{"paths": [...]}` object is the same setting in its earlier form. Entries from every config document merge, and a relative entry resolves against OpenCode's working directory — which is why this one is absolute.
+
+5. **Symlink every generated agent** into `~/.config/opencode/agents/` (OpenCode has no `paths` escape hatch for agents — the files must physically exist there). The glob catches all ten roles — `wayfinder` and any future role — automatically. Symlinks, not copies, so a later regenerate needs no re-symlink:
+
+   ```bash
+   mkdir -p ~/.config/opencode/agents
+   for f in ~/.local/share/crux/opencode/agents/*.md; do
+     ln -sf "$f" ~/.config/opencode/agents/"$(basename "$f")"
+   done
+   ```
+
+   Leave the legacy singular `~/.config/opencode/agent/` empty. In the project-local pair, the plural directory wins with no warning; the global pair was not measured. Populating both therefore leaves you guessing which copy is live. Upgrading from the previous release leaves ten symlinks there — prune them:
+
+   ```bash
+   rm -f ~/.config/opencode/agent/{architect,brainstormer,commander,dev-lead,developer,historian,librarian,night-gardener,reviewer,wayfinder}.md
+   ```
+
+   > **These symlinks expose a V2-only projection — run the roles with a 2.x runner.** The generated files carry V2's `permissions` array. A runner older than 2 does not read that key, so it loads each role with every `deny` dropped. The role then grants what the file meant to refuse. Nothing warns you: the file parses, the role appears, and the restriction is gone. Check the version, not the name. Release 2.0.3 installs as `opencode`, and an upgraded machine may keep an `opencode2` shim onto the same binary. Run `opencode --version` and read the major.
+
+6. **Fully quit and restart the OpenCode host.** OpenCode loads config once at startup and does not hot-reload. For the **Zed / ACP** integration, restart Zed itself (or the ACP connection) — opening a new thread alone is **not** sufficient.
+
+7. **Verify:**
+
+   ```bash
+   opencode debug agents   # should list the 10 Crux roles alongside the built-ins
+   ```
+
+   Until the background service has resolved the project, `debug agents` returns `[]` at exit 0 — re-run it rather than reading `[]` as a failure.
+
+   V2 has no skill-listing command; `opencode debug` offers exactly `agents`, `config` and `paths`. Verify skills by asking for one instead — say *"what's next"* and expect `cleanup-campsite` to run.
+
+> **Re-run step 3 after every `git pull`.** `opencode/agents/` is a generated projection that git does not track, so an upgrade updates its source (`crux/agents/`) and leaves the projection on the old content. Nothing errors — the symlinks still resolve, and OpenCode goes on loading the previous release's role definitions. Regenerate, then restart the host:
+>
+> ```bash
+> cd ~/.local/share/crux && git pull && uv run python3 crux/scripts/generate-opencode-agents.py
+> ```
+>
+> Skills need no equivalent step: the `skills` entry points at the tracked `crux/skills/`, so a pull updates them in place.
+
+> Moving or deleting the clone breaks the absolute `skills` entry and every agent symlink — rerun this setup (re-clone, re-generate, re-symlink) if you relocate it.
+
+**Per-project agents instead of machine-wide.** The steps above give every project on the machine the ten roles. To scope them to one repo, skip steps 3 and 5 and say **"install the Crux agents in OpenCode"** from that repo — the `install-opencode-agents` skill generates the same ten projected roles from `crux/agents/` and writes them into `.opencode/agents/`, refuses to overwrite a locally modified role without `--force`, and leaves the project's own agent files alone. A project-scoped role shadows a global one of the same name.
+
+### Requirements
+
+- [Claude Code](https://claude.ai/code) installed
+- `python3` 3.11 or newer on PATH, and [uv](https://docs.astral.sh/uv/). Every script declares its dependencies in a PEP 723 header, so `uv run <script>` resolves them; a bare `python3` runs only the stdlib-only scripts. macOS ships 3.9 at `/usr/bin/python3`, which cannot parse this code.
+
+### Optional: secrets management
+
+If any of your workflows need API keys, crux ships a `crux-env` CLI that keeps them in `~/.crux/env` (mode `0600`, outside any repo, never committed). Invoke it via the installed plugin (`${CLAUDE_PLUGIN_ROOT}` is the plugin's install root, set inside Claude Code sessions; in a plain terminal substitute the plugin's install path. Alias the command if you use it often):
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crux-env.py" init                       # one-time setup
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crux-env.py" set OPENROUTER_API_KEY ...  # store a key
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crux-env.py" check --project crux      # verify what a project needs
+```
+
+See the [Crux guide](https://bionic-coding.com/crux/) for the full surface.
+
+### Optional: per-project configuration
+
+A repo can commit an optional `.bionic.yml` file at its root (distinct from the `~/.crux/` secrets directory — never put secrets in it) to relocate the tree (`docs_dir`) or brand artifact ids with a prefix (`artifact_prefix: "CRX"` → `CRX-PB-0040`). It supersedes the legacy `.crux` file, which is still read for back-compat. Copy `crux/templates/bionic-yml.tmpl` to get started; see the [Crux guide](https://bionic-coding.com/crux/) for details.
 
 ---
 
-## What's inside
+## What crux maintains
 
 **60 skills** across seven concerns — plus a default-on, derived **arch** surface (the current-state architecture map, built on demand by `derive-arch`) and the default-on **observations** concern (what the code already does, evidenced and ratified rather than decided) — plus a **10-agent operator layer** (see **Agents** below), under a single naming convention — no `crux-` prefix.
 
@@ -56,7 +189,7 @@ A **cycle** is one trip around crux's development loop for a single feature or c
 
 > **"Start a cycle for &lt;feature&gt;. The goal is &lt;one paragraph&gt;."**
 
-Claude allocates the next `PB-NNNN`, assembles a promptbook from modular building blocks, and you drive it forward with **"advance"** / **"next"**. A cycle is composed of three module types — each can appear once or many times depending on the work — plus a fixed prep + summary at the end:
+Claude allocates the next promptbook number, assembles a promptbook from modular building blocks, and you drive it forward with **"advance"** / **"next"**. A cycle is composed of three module types — each can appear once or many times depending on the work — plus a fixed prep + summary at the end:
 
 | Module | Prompts per instance | What it does |
 |---|---|---|
@@ -66,7 +199,7 @@ Claude allocates the next `PB-NNNN`, assembles a promptbook from modular buildin
 | **Prep (fixed)** | 1 | Changelog entry, docs updates, journal entry, PR notes |
 | **Summary (fixed)** | 1 | Completion report (stats, key decisions, links) **and archival** — the cycle ends with `archive-promptbook` so finished books don't straggle in `active/` |
 
-`total_prompts = 4·(ADRs) + 4·(dev loops) + 3·(review cycles) + 2`. The **minimum cycle** is 1 + 1 + 1 → **13 prompts**. Bigger cycles are valid when the work needs them — two ADRs for a feature with two distinct architectural commitments, two dev loops when the implementation splits cleanly (backend + UI, schema + migration), or an extra review cycle in the middle of a multi-loop dev phase.
+`total_prompts = 4·(ADRs) + 4·(dev loops) + 3·(review cycles) + 2`. The **minimum cycle** is 1 + 1 + 1 → **13 prompts** (matching the canonical `cycle-promptbook-template.yaml`). Bigger cycles are valid when the work needs them — two ADRs for a feature with two distinct architectural commitments, two dev loops when the implementation splits cleanly (backend + UI, schema + migration), or an extra review cycle in the middle of a multi-loop dev phase.
 
 **Three invariants every cycle MUST satisfy:**
 
@@ -102,7 +235,7 @@ crux bundles a **role-based agent layer**: **ten** Claude Code subagents that *o
 | **night-gardener** | Overnight visionary/coach/co-CTO — reviews recent work, writes a morning note under `docs/garden/` (ideas, gaps, research, news) | push/merge, send externally, or self-install the routine |
 | **wayfinder** | Read-only reconnaissance — reads large/uncertain or external data ahead of the caller, judges fitness, returns a verdict + condensed digest so the primary spends its context only on proven-fit content | write, execute, delegate, or relay local content outbound |
 
-Two choices make the layer portable and safe. Agents are **self-contained** — the craft disciplines (TDD with its proof-mechanism, verification-before-completion, systematic debugging, two-stage review) are embedded in each agent's prompt rather than depending on separately-installed skills. And they're **first-class plugin citizens** — agents are cataloged and registered exactly like skills. The agents register once the plugin is installed/upgraded and the session is restarted.
+Two choices make the layer portable and safe. Agents are **self-contained** — the craft disciplines (TDD with its proof-mechanism, verification-before-completion, systematic debugging, two-stage review) are embedded in each agent's prompt rather than depending on separately-installed skills. And they're **first-class catalog citizens** — agent frontmatter is regenerated into `catalog/agents.json` exactly like skills, with an `agents:` array in `plugin.json`. The agents register once the plugin is installed/upgraded to a version that ships `crux/agents/` and the session is restarted.
 
 Codex installs the same ten roles as namespaced `crux_*` agents. Each installed
 role pins its catalog model and reasoning effort. It also binds every declared
@@ -199,7 +332,7 @@ You never type a slash command — each skill is triggered by natural-language p
 ### Health & questions
 | Skill | Say this / when | What it does |
 |---|---|---|
-| `audit-docs` | "audit docs" / before a release | ~45 integrity checks across all concerns; auto-fixes safe drift. |
+| `audit-docs` | "audit docs" / before a release | ~97 integrity checks across all concerns; auto-fixes safe drift. |
 | `check-drift` | "check drift" / "is the tree in sync" / "pre-release drift check" | Runs every enrolled regenerator's `--dry-run` gate read-only and reports one table of gate / verdict / drifted paths / the regenerator that fixes it. Never regenerates — the whole-tree counterpart to `verify-code-docs`. |
 | `cleanup-campsite` | "what's next" / "cleanup" | Forward-looking process-state scan → regenerates `docs/whats_next.md`. |
 | `query-docs` | "what does X do?" / "why did we choose Y?" | Index-first search of `docs/` with cited answers. |
@@ -227,152 +360,6 @@ These power the council + agent layer; you mostly invoke them indirectly (a cycl
 
 ---
 
-## Install
-
-crux installs through Claude Code's plugin marketplace. In any Claude Code session, run two slash commands:
-
-```
-/plugin marketplace add bionic-coding/crux
-/plugin install crux@crux
-```
-
-That's the whole flow — the second command installs the plugin named `crux` from the marketplace you just added (also named `crux`) — install and upgrade alike (re-run `/plugin install crux@crux` after `/plugin marketplace update crux` to pick up a new version). Installation does **not** touch your `./docs/` folder; you bootstrap that yourself. Restart the session so the plugin's skills and agents register, then say:
-
-> **init docs**
-
-That bootstraps the seven-concern `bionic/` tree plus the default-on arch spine, seeds `bionic/CLAUDE.md` (the operational schema Claude reads on every session), `bionic/manifest.yml`, and the meta-ADR `ADR-0000`.
-
-### Codex
-
-See [CODEX.md](./CODEX.md) for complete installation instructions for humans
-and agents.
-
-crux is also a supported Codex distribution target. The same ten roles are
-generated from `crux/agents/` as Codex-native `.codex/agents/*.toml` files.
-Install the plugin through Codex's marketplace flow:
-
-```
-codex plugin marketplace add bionic-coding/crux
-codex plugin add crux@crux
-```
-
-Start a new Codex thread, then say **"install the Crux agents in Codex"**. The
-`install-codex-agents` skill writes the namespaced `crux_*` roles to
-`~/.codex/agents/` by default. Each role pins its model and reasoning effort and
-binds its declared skills to the installed plugin. Pass `--repo-root` only when
-you want one project's `.codex/agents/` directory.
-
-The installer does not replace changed or stale managed files without
-`--force`. An unchanged refresh is a no-op. Plugin relocation appears as drift
-because installed skill bindings use absolute paths. Run `--check` with
-`--project-context` to inspect drift and project agents that shadow personal
-roles. The static report separates canonical expectations from the managed TOML
-state parsed from disk. It keeps runtime status `unverified` until fresh-session
-host evidence confirms the effective Codex configuration. Parent permissions,
-credentials, sandbox policy, eager skill loading, and delegation depth remain
-Codex host constraints.
-
-### OpenCode (manual setup)
-
-See [OPENCODE.md](./OPENCODE.md) for complete machine-wide and project
-installation instructions for humans and agents.
-
-There is **no native Crux OpenCode marketplace package yet** — OpenCode support is a **manual, preview-grade setup** for now (a public OpenCode distribution channel is a deliberately deferred future decision). The steps below wire the full 60-skill + 10-agent set into OpenCode V2 (`opencode2`) from a public clone. They work from the published repo — no dev checkout required.
-
-1. **Clone to a stable path** (the config below uses absolute paths, so pick a permanent home — moving it later breaks the setup):
-
-   ```bash
-   git clone https://github.com/bionic-coding/crux ~/.local/share/crux
-   ```
-
-2. **Install [uv](https://docs.astral.sh/uv/)** (needed to run the agent generator):
-
-   ```bash
-   curl -LsSf https://astral.sh/uv/install.sh | sh
-   ```
-
-3. **Generate the OpenCode agent tree** (`opencode/agents/*.md` is a regenerated projection of `crux/agents/`, produced on demand — the public artifact does not ship it):
-
-   ```bash
-   cd ~/.local/share/crux
-   uv run python3 crux/scripts/generate-opencode-agents.py
-   ```
-
-4. **Point OpenCode's skill scanner at the clone.** Merge this into `~/.config/opencode/opencode.json` (create it if absent), using the **absolute** path to `<clone>/crux/skills`:
-
-   ```json
-   {
-     "$schema": "https://opencode.ai/config.json",
-     "skills": ["/Users/you/.local/share/crux/crux/skills"]
-   }
-   ```
-
-   V2 reads `skills` as an array of directories; V1's `{"paths": [...]}` object is the same setting in its earlier form. Entries from every config document merge, and a relative entry resolves against OpenCode's working directory — which is why this one is absolute.
-
-5. **Symlink every generated agent** into `~/.config/opencode/agents/` (OpenCode has no `paths` escape hatch for agents — the files must physically exist there). The glob catches all ten roles — `wayfinder` and any future role — automatically. Symlinks, not copies, so a later regenerate needs no re-symlink:
-
-   ```bash
-   mkdir -p ~/.config/opencode/agents
-   for f in ~/.local/share/crux/opencode/agents/*.md; do
-     ln -sf "$f" ~/.config/opencode/agents/"$(basename "$f")"
-   done
-   ```
-
-   Leave the legacy singular `~/.config/opencode/agent/` empty. In the project-local pair, the plural directory wins with no warning; the global pair was not measured. Populating both therefore leaves you guessing which copy is live. Upgrading from the previous release leaves ten symlinks there — prune them:
-
-   ```bash
-   rm -f ~/.config/opencode/agent/{architect,brainstormer,commander,dev-lead,developer,historian,librarian,night-gardener,reviewer,wayfinder}.md
-   ```
-
-   > **These symlinks expose a V2-only projection — run the roles with `opencode2`.** The generated files carry V2's `permissions` array. A V1 `opencode` runner does not read that key, so it loads each role with every `deny` dropped. The role then grants what the file meant to refuse. Nothing warns you: the file parses, the role appears, and the restriction is gone.
-
-6. **Fully quit and restart the OpenCode host.** OpenCode loads config once at startup and does not hot-reload. For the **Zed / ACP** integration, restart Zed itself (or the ACP connection) — opening a new thread alone is **not** sufficient.
-
-7. **Verify:**
-
-   ```bash
-   opencode2 debug agents   # should list the 10 Crux roles alongside the built-ins
-   ```
-
-   Until the background service has resolved the project, `debug agents` returns `[]` at exit 0 — re-run it rather than reading `[]` as a failure.
-
-   V2 has no skill-listing command; `opencode2 debug` offers exactly `agents`, `config` and `paths`. Verify skills by asking for one instead — say *"what's next"* and expect `cleanup-campsite` to run.
-
-> **Re-run step 3 after every `git pull`.** `opencode/agents/` is a generated projection that git does not track, so an upgrade updates its source (`crux/agents/`) and leaves the projection on the old content. Nothing errors — the symlinks still resolve, and OpenCode goes on loading the previous release's role definitions. Regenerate, then restart the host:
->
-> ```bash
-> cd ~/.local/share/crux && git pull && uv run python3 crux/scripts/generate-opencode-agents.py
-> ```
->
-> Skills need no equivalent step: the `skills` entry points at the tracked `crux/skills/`, so a pull updates them in place.
-
-> Moving or deleting the clone breaks the absolute `skills` entry and every agent symlink — rerun this setup (re-clone, re-generate, re-symlink) if you relocate it.
-
-**Per-project agents instead of machine-wide.** The steps above give every project on the machine the ten roles. To scope them to one repo, skip steps 3 and 5 and say **"install the Crux agents in OpenCode"** from that repo — the `install-opencode-agents` skill generates the same ten projected roles from `crux/agents/` and writes them into `.opencode/agents/`, refuses to overwrite a locally modified role without `--force`, and leaves the project's own agent files alone. A project-scoped role shadows a global one of the same name.
-
-### Requirements
-
-- [Claude Code](https://claude.ai/code) installed
-- `python3` 3.11 or newer on PATH, and [uv](https://docs.astral.sh/uv/). Every script declares its dependencies in a PEP 723 header, so `uv run <script>` resolves them; a bare `python3` runs only the stdlib-only scripts. macOS ships 3.9 at `/usr/bin/python3`, which cannot parse this code.
-
-### Optional: secrets management
-
-If any of your workflows need API keys, crux ships a `crux-env` CLI that keeps them in `~/.crux/env` (mode `0600`, outside any repo, never committed). Invoke it via the installed plugin (`${CLAUDE_PLUGIN_ROOT}` is the plugin's install root, set inside Claude Code sessions; in a plain terminal substitute the plugin's install path. Alias the command if you use it often):
-
-```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crux-env.py" init                       # one-time setup
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crux-env.py" set OPENROUTER_API_KEY ...  # store a key
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crux-env.py" check --project crux      # verify what a project needs
-```
-
-See the [Crux guide](https://bionic-coding.com/crux/) for the full surface.
-
-### Optional: per-project configuration
-
-A repo can commit an optional `.bionic.yml` file at its root (distinct from the `~/.crux/` secrets directory — never put secrets in it) to relocate the tree (`docs_dir`) or brand artifact ids with a prefix (`artifact_prefix: "CRX"` → `CRX-PB-0040`). It supersedes the legacy `.crux` file, which is still read for back-compat. Copy `crux/templates/bionic-yml.tmpl` to get started; see the [Crux guide](https://bionic-coding.com/crux/) for details.
-
----
-
 ## Tips for using it
 
 ### 1. It's all natural language — no slash commands
@@ -390,14 +377,12 @@ Skills are triggered by phrases routed through each skill's description. Say wha
 | "new promptbook for X" | Scaffold a plan-of-prompts artifact you'll co-author (use this for non-cycle plans) |
 | "run promptbook PB-0003" | Start an immutable run snapshot of that book |
 | "extract code docs" | Regenerate `docs/code/` from your source's docstrings |
-| "audit docs" | Run the integrity checks across every enabled concern and auto-fix safe drift; `audit docs --migrate` upgrades an older docs tree |
+| "audit docs" | Run ~97 integrity checks across every enabled concern and auto-fix safe drift; `audit docs --migrate` upgrades an older docs tree |
 | "what does X do?" / "why did we choose Y?" | Search `docs/`, return answers with citations |
 
 ### 2. Run `audit docs` regularly
 
-Especially after large batches of writes, after a research refresh, or before a release. It catches dangling links, supersession asymmetries, missing index rows, and stale counters — and fixes the safe ones automatically.
-
-The `## ADRs (N)` rollup in `docs/index.md` is a pure function of your ADR frontmatter, so a vendored regenerator rebuilds it (`--dry-run` reports drift, exit 1). Prefer running it — or `check-drift`, which runs every enrolled regenerator's drift gate at once — over hand-fixing that section.
+Especially after large batches of writes, after a research refresh, or before a release. It catches dangling links, supersession asymmetries, missing index rows, and stale counters — and fixes the safe ones automatically. The `## ADRs (N)` rollup in `docs/index.md` is a pure function of your ADR frontmatter and is regenerated mechanically — prefer regenerating it over hand-fixing that section.
 
 ### 3. The append-only stuff really is append-only
 
@@ -441,10 +426,9 @@ If you spot something wrong — a stale page, a contradiction, a broken link —
 
 - **[Crux guide](https://bionic-coding.com/crux/)** — the deep human-facing guide. Mental model, phrase reference, secrets, troubleshooting.
 - **`bionic/CLAUDE.md`** (after `init docs`) — the operational schema Claude reads. Authoritative.
-- **[CODEX.md](./CODEX.md)** — installing and running the Crux roles in Codex.
-- **[OPENCODE.md](./OPENCODE.md)** — the manual OpenCode setup, machine-wide and per-project.
+- **[CODEX.md](./CODEX.md)** and **[OPENCODE.md](./OPENCODE.md)** — detailed install instructions for the Codex and OpenCode hosts.
 - **[CHANGELOG.md](./CHANGELOG.md)** — what each release added.
 
 ## License & status
 
-MIT licensed (see [LICENSE](./LICENSE)). v3.12.1 — see [CHANGELOG.md](./CHANGELOG.md) for the per-release breakdown. Issues welcome; the public repo is regenerated on every release, so pull requests there cannot be merged.
+MIT licensed (see [LICENSE](./LICENSE)). v3.14.0 — see [CHANGELOG.md](./CHANGELOG.md) for the per-release breakdown. Issues welcome; the public repo is regenerated on every release, so pull requests there cannot be merged.

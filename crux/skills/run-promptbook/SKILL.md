@@ -45,7 +45,44 @@ A book writes one `promptbook` op when a run **starts** and one when the book **
 
 The derived indexes therefore regenerate at run start and at archive, not per advance. Name the consequence when it matters: between those two points the indexes hold the state as of the run's start, so a mid-run reader sees a stale progress figure. Once the book archives, every index holds what per-advance regeneration would have produced.
 
-## Format detection (do this FIRST, every invocation — see `docs/CLAUDE.md` §3 for the `.md`/`.yaml` coexistence contract)
+## Objectives context for execution
+
+**Order of work, once per invocation:** resolve `<docs_dir>` (pipeline step 0, which owns that
+resolution and which nothing here re-implements); read `<docs_dir>/objectives.md`; format-detect;
+then run the mode's pipeline.
+
+Before starting or resuming execution, read the resolved `<docs_dir>/objectives.md` and apply
+`docs/CLAUDE.md` §5.B. Pass its resolved
+path to commander. Every agent or forked skill assignment includes that path
+and either the mission with relevant goal statements and measures, or an
+explicit instruction to read it before work and preserve this context in
+further delegation. Include known tensions; a concrete conflict with the
+approved plan is a contradicted premise under §11.
+
+Keep alignment in the existing assignment or result. This adds no run fields,
+no per-advance writes, and no per-step approval. Re-read when objectives change.
+
+## The book's Outcome, Evidence and Constraint travel with every dispatch
+
+The book's `goal` states what should improve for the affected user, what would
+demonstrate it, and what the change must preserve — `docs/CLAUDE.md` §11 "The
+assignment contract" is the rule. Every agent a prompt dispatches receives all
+three, beside the objectives path, **including a generic dispatch that names no
+crux role**: a worker on the far side of a dispatch has none of this run's
+history, so anything you do not write into the dispatch is not there.
+
+Pass them verbatim, or narrow the Outcome to the dispatched part and say what
+the narrowing dropped; the Evidence and the Constraint pass whole. Record a
+narrowing in the run snapshot rather than by editing the book — `goal` is inside
+the frozen plan the run's `book_content_hash` covers, so editing it mid-run
+moves the hash and CHK-PB-BIND fires.
+
+A prompt's `result` records the dispositions the work came back with, so the
+acceptance bar and what was actually observed against it both survive in the
+snapshot. A book whose goal omits one of the three statements is named in the
+run notes and the run proceeds; a missing statement is no stop point under §11.
+
+## Format detection (do this FIRST on every invocation that reads or writes a book or run — see `docs/CLAUDE.md` §3 for the `.md`/`.yaml` coexistence contract)
 
 Two on-disk formats coexist; **detect before reading or writing anything**. The decision table routes on `(extension, format_version-present)` for the BOOK (mode `start`) and is fixed-by-the-snapshot's-own-extension for the RUN (mode `advance`):
 

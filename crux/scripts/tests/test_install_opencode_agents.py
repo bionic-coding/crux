@@ -38,26 +38,43 @@ INSTALLER = REPO_ROOT / "crux" / "skills" / "install-opencode-agents" / "scripts
 SOURCE_DIR = REPO_ROOT / "crux" / "agents"
 
 
-_V2_STUB_DIR: tempfile.TemporaryDirectory | None = None
-_V2_STUB: Path | None = None
+_RUNNER_STUB_DIR: tempfile.TemporaryDirectory | None = None
+_RUNNER_STUB: Path | None = None
+
+# What a real OpenCode 2.0.3 prints for `--version` on a machine that has it:
+# one token, no banner, exit 0. Both `opencode` and `opencode2` print this
+# after the 2.x upgrade, which is why the installer classifies on the version
+# and not on the name.
+REPORTED_V2 = "opencode v2.0.3"
+REPORTED_V1 = "opencode v1.4.2"
 
 
-def _make_v2_stub(directory: Path, *, exit_code: int = 0, name: str = "opencode2") -> Path:
-    """Write an executable stand-in for the `opencode2 --version` preflight probe.
+def _make_runner_stub(
+    directory: Path,
+    *,
+    exit_code: int = 0,
+    name: str = "opencode",
+    reported: str = REPORTED_V2,
+) -> Path:
+    """Write an executable stand-in for the `--version` preflight probe.
 
-    The installer's point-11 preflight shells out to a real binary. CI carries
-    no `opencode2`, so without an override every installer test would fail on
-    an environment fact rather than on the behaviour under test. The installer
-    therefore reads the binary name from `CRUX_OPENCODE2_BIN`, and these tests
-    point it at a stub. `V2PreflightTests` is where the override is the
-    subject rather than the scaffolding: it drives a stub that EXITS NON-ZERO
-    and a name that does not resolve at all, so the refusal lane is exercised
-    against the same code path the default name reaches.
+    The installer's preflight shells out to a real binary. CI carries no
+    OpenCode, so without an override every installer test would fail on an
+    environment fact rather than on the behaviour under test. The installer
+    reads the runner name from `CRUX_OPENCODE_BIN`, and these tests point it
+    at a stub. `RunnerPreflightTests` is where the stub is the SUBJECT rather
+    than the scaffolding: it varies `reported` and `exit_code` across the
+    verdict matrix, so each lane is exercised against the same code path the
+    default name reaches.
+
+    `reported` goes to stdout because the classifier reads stdout's first
+    line. A stub that printed to stderr would model no real runner and would
+    make every case read as unestablished.
     """
     path = directory / name
     path.write_text(
         "#!/bin/sh\n"
-        'if [ "$1" = "--version" ]; then echo "v0.0.0-beta-stub"; fi\n'
+        f'if [ "$1" = "--version" ]; then echo "{reported}"; fi\n'
         f"exit {exit_code}\n",
         encoding="utf-8",
     )
@@ -66,20 +83,38 @@ def _make_v2_stub(directory: Path, *, exit_code: int = 0, name: str = "opencode2
 
 
 def setUpModule() -> None:
-    global _V2_STUB_DIR, _V2_STUB
-    _V2_STUB_DIR = tempfile.TemporaryDirectory()
-    _V2_STUB = _make_v2_stub(Path(_V2_STUB_DIR.name))
+    global _RUNNER_STUB_DIR, _RUNNER_STUB
+    _RUNNER_STUB_DIR = tempfile.TemporaryDirectory()
+    _RUNNER_STUB = _make_runner_stub(Path(_RUNNER_STUB_DIR.name))
 
 
 def tearDownModule() -> None:
-    if _V2_STUB_DIR is not None:
-        _V2_STUB_DIR.cleanup()
+    if _RUNNER_STUB_DIR is not None:
+        _RUNNER_STUB_DIR.cleanup()
 
 
-def _env_with_v2(**overrides: str) -> dict[str, str]:
-    """os.environ plus a passing V2 preflight, unless an override says otherwise."""
+def _env_with_runner(**overrides: str) -> dict[str, str]:
+    """os.environ plus a compatible runner, unless an override says otherwise."""
     env = dict(os.environ)
-    env["CRUX_OPENCODE2_BIN"] = str(_V2_STUB)
+    env["CRUX_OPENCODE_BIN"] = str(_RUNNER_STUB)
+    env.pop("CRUX_OPENCODE2_BIN", None)
+    env.update(overrides)
+    return env
+
+
+def _env_without_runner(bin_dir: Path | None = None, **overrides: str) -> dict[str, str]:
+    """os.environ with PATH scrubbed to `bin_dir` alone and no override set.
+
+    Needed because a developer machine HAS OpenCode installed. A test that
+    asserts "no candidate resolves" while inheriting the ambient PATH measures
+    the developer's machine, not the installer: `shutil.which("opencode")`
+    finds the real one and the case silently stops testing what it names. So
+    PATH is replaced rather than prepended, and both env overrides are cleared.
+    """
+    env = dict(os.environ)
+    env["PATH"] = str(bin_dir) if bin_dir is not None else os.devnull
+    env.pop("CRUX_OPENCODE_BIN", None)
+    env.pop("CRUX_OPENCODE2_BIN", None)
     env.update(overrides)
     return env
 
@@ -126,7 +161,7 @@ def _run_installer_isolated(installer: Path, repo: Path) -> subprocess.Completed
     )
     return subprocess.run(
         [sys.executable, "-c", driver],
-        check=False, capture_output=True, text=True, env=_env_with_v2(),
+        check=False, capture_output=True, text=True, env=_env_with_runner(),
     )
 
 
@@ -375,7 +410,7 @@ class InstallerTests(unittest.TestCase):
     ) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             [sys.executable, str(INSTALLER), "--repo-root", str(repo_root), *args],
-            check=False, capture_output=True, text=True, env=env or _env_with_v2(),
+            check=False, capture_output=True, text=True, env=env or _env_with_runner(),
         )
 
     def _scratch_installer_without_source_agents(self, scratch: Path) -> Path:
@@ -469,7 +504,7 @@ class InstallerTests(unittest.TestCase):
 
             result = subprocess.run(
                 [sys.executable, str(installer), "--repo-root", str(repo)],
-                check=False, capture_output=True, text=True, env=_env_with_v2(),
+                check=False, capture_output=True, text=True, env=_env_with_runner(),
             )
             self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
             self.assertIn("no source agents", json.loads(result.stdout)["error"])
@@ -633,7 +668,7 @@ class LegacyAgentDirTests(unittest.TestCase):
     ) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             [sys.executable, str(INSTALLER), "--repo-root", str(repo_root), *args],
-            check=False, capture_output=True, text=True, env=env or _env_with_v2(),
+            check=False, capture_output=True, text=True, env=env or _env_with_runner(),
         )
 
     @staticmethod
@@ -821,50 +856,471 @@ class LegacyAgentDirTests(unittest.TestCase):
             )
 
 
-class V2PreflightTests(unittest.TestCase):
-    """The point-11 preflight: refuse to write when no V2 binary is discoverable.
+class RunnerPreflightTests(unittest.TestCase):
+    """The preflight: classify the runner by the VERSION it reports.
 
-    NECESSARY, NOT SUFFICIENT. Exit 0 from `opencode2 --version` proves a V2
-    binary is installed on this machine; it does not bind which binary a human
-    later invokes against the projection. These tests measure the refusal, and
-    claim nothing beyond it.
+    NECESSARY, NOT SUFFICIENT. A `compatible` verdict proves a 2.x runner
+    answered `--version` on this machine; it does not bind which binary a human
+    later invokes against the projection. These tests measure the verdict and
+    the refusal, and claim nothing beyond them.
+
+    The matrix below is the decision's classifier, one case per rule:
+      * below-2 anywhere on the line dominates, whatever the exit status, and
+        an assertion cannot override it;
+      * `compatible` needs exactly one token reading 2, with exit 0;
+      * anything else is unestablished, which an assertion MAY override when a
+        candidate resolved.
     """
 
-    def _run(self, repo_root: Path, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    def _run(
+        self, repo_root: Path, env: dict[str, str], *args: str
+    ) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
-            [sys.executable, str(INSTALLER), "--repo-root", str(repo_root)],
+            [sys.executable, str(INSTALLER), "--repo-root", str(repo_root), *args],
             check=False, capture_output=True, text=True, env=env,
         )
 
-    def test_refuses_and_writes_nothing_when_no_v2_binary_resolves(self):
+    def _verdict_for(self, reported: str, exit_code: int = 0) -> tuple[str, int, dict]:
+        """Probe one stub and return (verdict, returncode, payload)."""
+        with tempfile.TemporaryDirectory() as tmp_bin, tempfile.TemporaryDirectory() as tmp:
+            stub = _make_runner_stub(
+                Path(tmp_bin), name="runner-stub", reported=reported, exit_code=exit_code
+            )
+            result = self._run(Path(tmp), _env_with_runner(CRUX_OPENCODE_BIN=str(stub)))
+            payload = json.loads(result.stdout)
+            verdict = payload.get("verdict") or payload["runner"]["verdict"]
+            return verdict, result.returncode, payload
+
+    # --- the classifier matrix -------------------------------------------
+
+    def test_a_bare_two_x_version_is_compatible(self):
+        for reported in ("opencode v2.0.3", "opencode 2.0.3", "2.0.3", "v2.1"):
+            with self.subTest(reported=reported):
+                verdict, code, _ = self._verdict_for(reported)
+                self.assertEqual(verdict, "compatible", reported)
+                self.assertEqual(code, 0)
+
+    def test_a_below_two_version_is_known_incompatible(self):
+        for reported in ("opencode v1.4.2", "opencode 1.4", "0.9.1", "v1.4.2.1"):
+            with self.subTest(reported=reported):
+                verdict, code, payload = self._verdict_for(reported)
+                self.assertEqual(verdict, "known-incompatible", reported)
+                self.assertEqual(code, 2)
+                self.assertIn("older than 2", payload["error"])
+
+    def test_a_below_two_version_dominates_a_higher_token_on_the_same_line(self):
+        """Token boundaries establish a token, never WHICH token is the runner's.
+
+        `opencode v1.4.2 (node 22.1.0)` carries a 22. Reading the highest, or
+        the last, would call a V1 runner compatible on the strength of its
+        Node version. Below-2 anywhere wins.
+        """
+        verdict, code, _ = self._verdict_for("opencode v1.4.2 (node 22.1.0)")
+        self.assertEqual(verdict, "known-incompatible")
+        self.assertEqual(code, 2)
+
+    def test_an_ambiguous_multi_token_line_is_unestablished_not_compatible(self):
+        """Two tokens, none below 2: which one is the runner is not established."""
+        verdict, code, _ = self._verdict_for("opencode 2.0.3 (node 22.1.0)")
+        self.assertEqual(verdict, "unestablished")
+        self.assertEqual(code, 2)
+
+    def test_an_unreadable_report_is_unestablished(self):
+        for reported in ("welcome to the tui", "", "opencode (dev build)"):
+            with self.subTest(reported=reported):
+                verdict, code, _ = self._verdict_for(reported)
+                self.assertEqual(verdict, "unestablished", reported)
+                self.assertEqual(code, 2)
+
+    def test_a_two_x_report_that_exits_non_zero_is_unestablished(self):
+        """`compatible` is the only verdict that requires exit 0."""
+        verdict, code, _ = self._verdict_for("opencode v2.0.3", exit_code=1)
+        self.assertEqual(verdict, "unestablished")
+        self.assertEqual(code, 2)
+
+    def test_a_below_two_report_that_exits_non_zero_is_still_known_incompatible(self):
+        """The security invariant: a readable V1 report is evidence whatever the exit.
+
+        Routing this to `unestablished` would make it assertion-eligible, and
+        `--assume-compatible` would then write a V2 projection against a runner
+        already known to ignore its denies.
+        """
+        verdict, code, payload = self._verdict_for("opencode v1.4.2", exit_code=1)
+        self.assertEqual(verdict, "known-incompatible")
+        self.assertEqual(code, 2)
+        self.assertIn("older than 2", payload["error"])
+
+    # --- what the assertion flag may and may not override ------------------
+
+    def test_assume_compatible_cannot_override_known_incompatible(self):
+        with tempfile.TemporaryDirectory() as tmp_bin, tempfile.TemporaryDirectory() as tmp:
+            stub = _make_runner_stub(Path(tmp_bin), name="v1-stub", reported=REPORTED_V1)
+            repo = Path(tmp)
+            result = self._run(
+                repo, _env_with_runner(CRUX_OPENCODE_BIN=str(stub)), "--assume-compatible"
+            )
+            self.assertEqual(result.returncode, 2, result.stdout)
+            error = json.loads(result.stdout)["error"]
+            self.assertIn("An assertion cannot override this verdict", error)
+            self.assertFalse((repo / ".opencode").exists())
+
+    def test_assume_compatible_writes_when_a_candidate_resolved_but_said_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp_bin, tempfile.TemporaryDirectory() as tmp:
+            stub = _make_runner_stub(
+                Path(tmp_bin), name="quiet-stub", reported="welcome to the tui"
+            )
+            repo = Path(tmp)
+            result = self._run(
+                repo, _env_with_runner(CRUX_OPENCODE_BIN=str(stub)), "--assume-compatible"
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            runner = json.loads(result.stdout)["runner"]
+            self.assertEqual(runner["verdict"], "unestablished")
+            self.assertTrue(runner["assumed_compatible"])
+            self.assertEqual(runner["bound"], str(stub))
+            self.assertEqual(
+                {p.name for p in (repo / ".opencode" / "agents").iterdir()}, EXPECTED_FILES
+            )
+
+    def test_assume_compatible_refuses_when_nothing_resolved_at_all(self):
+        """An assertion needs something to bind to. Nothing resolved, nothing asserted."""
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
-            env = _env_with_v2(CRUX_OPENCODE2_BIN="opencode2-does-not-exist-anywhere")
-            result = self._run(repo, env)
-            self.assertNotEqual(result.returncode, 0, result.stdout)
+            result = self._run(repo, _env_without_runner(), "--assume-compatible")
+            self.assertEqual(result.returncode, 2, result.stdout)
             error = json.loads(result.stdout)["error"]
-            self.assertIn("opencode2-does-not-exist-anywhere", error)
+            self.assertIn("nothing an assertion could bind to", error)
+            self.assertFalse((repo / ".opencode").exists())
+
+    # --- candidate resolution ---------------------------------------------
+
+    def test_neither_candidate_on_path_refuses_and_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            result = self._run(repo, _env_without_runner())
+            self.assertEqual(result.returncode, 2, result.stdout)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["verdict"], "unestablished")
+            self.assertIn("opencode (not on PATH)", payload["error"])
             self.assertFalse((repo / ".opencode").exists())
             self.assertNotIn("Traceback", result.stderr)
 
-    def test_refuses_when_the_v2_probe_exits_non_zero(self):
+    def test_an_override_naming_a_missing_binary_does_not_fall_back_to_path(self):
+        """The override is the ONLY candidate when set.
+
+        Falling back would silently probe a different binary than the one the
+        operator named, and report a verdict about that other binary.
+        """
         with tempfile.TemporaryDirectory() as tmp_bin, tempfile.TemporaryDirectory() as tmp:
-            failing = _make_v2_stub(Path(tmp_bin), exit_code=1, name="opencode2-failing")
+            _make_runner_stub(Path(tmp_bin), name="opencode", reported=REPORTED_V2)
             repo = Path(tmp)
-            result = self._run(repo, _env_with_v2(CRUX_OPENCODE2_BIN=str(failing)))
-            self.assertNotEqual(result.returncode, 0, result.stdout)
-            self.assertIn("--version", json.loads(result.stdout)["error"])
+            env = _env_without_runner(
+                Path(tmp_bin), CRUX_OPENCODE_BIN="runner-does-not-exist-anywhere"
+            )
+            result = self._run(repo, env)
+            self.assertEqual(result.returncode, 2, result.stdout)
+            payload = json.loads(result.stdout)
+            self.assertEqual(
+                [c["name"] for c in payload["candidates"]], ["runner-does-not-exist-anywhere"]
+            )
             self.assertFalse((repo / ".opencode").exists())
 
-    def test_positive_control_a_passing_probe_writes(self):
-        """Without this, both refusals above would pass on a broken installer."""
+    def test_the_legacy_name_alone_still_installs_and_is_reported(self):
+        """An upgraded machine keeps `opencode2` as a shim onto the 2.x binary."""
+        with tempfile.TemporaryDirectory() as tmp_bin, tempfile.TemporaryDirectory() as tmp:
+            _make_runner_stub(Path(tmp_bin), name="opencode2", reported=REPORTED_V2)
+            repo = Path(tmp)
+            result = self._run(repo, _env_without_runner(Path(tmp_bin)))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            runner = json.loads(result.stdout)["runner"]
+            self.assertEqual(runner["verdict"], "compatible")
+            self.assertEqual(
+                [c["name"] for c in runner["candidates"]], ["opencode", "opencode2"]
+            )
+            self.assertEqual(runner["candidates"][0]["resolved"], None)
+
+    def test_a_two_x_candidate_outweighs_a_v1_sibling(self):
+        """Strongest verdict wins: a 2.x runner exists, whatever else is installed.
+
+        The refusal exists because a V1 runner would ignore the `permissions`
+        array. It is not a claim that no V1 binary may exist on the machine, so
+        a probed 2.x candidate settles it — and BOTH candidates stay in the
+        payload so the operator can see the V1 one.
+        """
+        with tempfile.TemporaryDirectory() as tmp_bin, tempfile.TemporaryDirectory() as tmp:
+            _make_runner_stub(Path(tmp_bin), name="opencode", reported=REPORTED_V2)
+            _make_runner_stub(Path(tmp_bin), name="opencode2", reported=REPORTED_V1)
+            repo = Path(tmp)
+            result = self._run(repo, _env_without_runner(Path(tmp_bin)))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            runner = json.loads(result.stdout)["runner"]
+            self.assertEqual(runner["verdict"], "compatible")
+            self.assertEqual(
+                [c["verdict"] for c in runner["candidates"]],
+                ["compatible", "known-incompatible"],
+            )
+            self.assertEqual(runner["candidates"][1]["reported"], REPORTED_V1)
+
+    def test_the_deprecated_env_name_still_works_and_says_it_is_deprecated(self):
+        with tempfile.TemporaryDirectory() as tmp_bin, tempfile.TemporaryDirectory() as tmp:
+            stub = _make_runner_stub(Path(tmp_bin), name="legacy-stub", reported=REPORTED_V2)
+            repo = Path(tmp)
+            env = _env_without_runner(CRUX_OPENCODE2_BIN=str(stub))
+            result = self._run(repo, env)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            runner = json.loads(result.stdout)["runner"]
+            self.assertEqual(runner["candidates"][0]["name"], str(stub))
+            self.assertIn("CRUX_OPENCODE2_BIN is deprecated", runner["notice"])
+
+    def test_the_current_env_name_wins_over_the_deprecated_one_without_a_notice(self):
+        with tempfile.TemporaryDirectory() as tmp_bin, tempfile.TemporaryDirectory() as tmp:
+            stub = _make_runner_stub(Path(tmp_bin), name="current-stub", reported=REPORTED_V2)
+            repo = Path(tmp)
+            env = _env_without_runner(
+                CRUX_OPENCODE_BIN=str(stub), CRUX_OPENCODE2_BIN="ignored-does-not-exist"
+            )
+            result = self._run(repo, env)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            runner = json.loads(result.stdout)["runner"]
+            self.assertEqual([c["name"] for c in runner["candidates"]], [str(stub)])
+            self.assertNotIn("notice", runner)
+
+    # --- the acceptance fixture matrix ------------------------------------
+    #
+    # Four candidate layouts, each run with AND without --assume-compatible.
+    # Rows 2 and 3 are the discriminator against a preflight that folds to the
+    # WEAKEST candidate verdict rather than the strongest; row 4 is the
+    # discriminator against a flag that writes with nothing resolved. Every row
+    # runs over a scrubbed PATH, because an inherited one would let this
+    # machine's own OpenCode resolve as a fifth, unnamed candidate.
+
+    def _layout(self, bin_dir: Path, **names: str | None) -> None:
+        for name, reported in names.items():
+            if reported is not None:
+                _make_runner_stub(bin_dir, name=name, reported=reported)
+
+    def _run_layout(self, layout: dict, *args: str) -> tuple[int, dict, bool]:
+        """Install over a PATH holding exactly `layout`. Returns (code, payload, wrote)."""
+        with tempfile.TemporaryDirectory() as tmp_bin, tempfile.TemporaryDirectory() as tmp:
+            self._layout(Path(tmp_bin), **layout)
+            repo = Path(tmp)
+            result = self._run(repo, _env_without_runner(Path(tmp_bin)), *args)
+            wrote = (repo / ".opencode" / "agents").is_dir()
+            return result.returncode, json.loads(result.stdout), wrote
+
+    def test_fixture_v1_first_with_a_two_x_second_is_compatible_and_writes_unconfigured(self):
+        """Row 1. V1 is probed FIRST; the 2.x behind it still decides.
+
+        This is the case an implementation that stopped at the first verdict,
+        or folded to the weakest, would refuse — on a machine that has a
+        working 2.x runner sitting right there.
+        """
+        for args in ((), ("--assume-compatible",)):
+            with self.subTest(args=args):
+                code, payload, wrote = self._run_layout(
+                    {"opencode": REPORTED_V1, "opencode2": REPORTED_V2}, *args
+                )
+                self.assertEqual(code, 0, payload)
+                self.assertEqual(payload["runner"]["verdict"], "compatible")
+                self.assertTrue(wrote)
+
+    def test_fixture_v1_alone_is_known_incompatible_with_or_without_the_flag(self):
+        """Row 2. No second candidate to dilute the V1 evidence, and no override."""
+        for args in ((), ("--assume-compatible",)):
+            with self.subTest(args=args):
+                code, payload, wrote = self._run_layout({"opencode": REPORTED_V1}, *args)
+                self.assertEqual(code, 2, payload)
+                self.assertEqual(payload["verdict"], "known-incompatible")
+                self.assertFalse(wrote)
+
+    def test_fixture_v1_beside_an_uninterpretable_second_is_known_incompatible(self):
+        """Row 3. An unreadable candidate must not soften a readable V1 report.
+
+        A preflight folding to the weakest verdict would land on unestablished
+        here, and `--assume-compatible` would then write a V2 projection
+        against a runner already known to drop every deny.
+        """
+        for args in ((), ("--assume-compatible",)):
+            with self.subTest(args=args):
+                code, payload, wrote = self._run_layout(
+                    {"opencode": REPORTED_V1, "opencode2": "welcome to the tui"}, *args
+                )
+                self.assertEqual(code, 2, payload)
+                self.assertEqual(payload["verdict"], "known-incompatible")
+                self.assertFalse(wrote)
+
+    def test_fixture_nothing_resolves_is_unestablished_with_or_without_the_flag(self):
+        """Row 4. The flag asserts something ABOUT a runner; there is no runner."""
+        for args in ((), ("--assume-compatible",)):
+            with self.subTest(args=args):
+                code, payload, wrote = self._run_layout({}, *args)
+                self.assertEqual(code, 2, payload)
+                self.assertEqual(payload["verdict"], "unestablished")
+                self.assertFalse(wrote)
+
+    def test_a_major_above_two_is_unestablished_and_never_compatible(self):
+        """A 3.x runner is outside the evidence this decision covers.
+
+        Admitting it as compatible would claim the projection is read correctly
+        by a release nobody measured. It is refused until a human asserts, or a
+        later decision widens the admitted set. Deleting the upper bound — for
+        example classifying on `major >= 2` — turns this red.
+        """
+        for reported in ("opencode v3.0.0", "opencode 4.2.1", "v10.0.0"):
+            with self.subTest(reported=reported):
+                verdict, code, _ = self._verdict_for(reported)
+                self.assertEqual(verdict, "unestablished", reported)
+                self.assertEqual(code, 2)
+
+    def test_the_flag_binds_to_the_first_resolved_candidate_in_probe_order(self):
+        """Several resolved unestablished candidates: probe order decides the binding.
+
+        Both resolve and neither parses, so the flag may write. The record must
+        name `opencode` — the first in probe order — not whichever the code
+        happened to visit last.
+        """
+        with tempfile.TemporaryDirectory() as tmp_bin, tempfile.TemporaryDirectory() as tmp:
+            first = _make_runner_stub(
+                Path(tmp_bin), name="opencode", reported="welcome to the tui"
+            )
+            _make_runner_stub(Path(tmp_bin), name="opencode2", reported="some other banner")
+            repo = Path(tmp)
+            result = self._run(
+                repo, _env_without_runner(Path(tmp_bin)), "--assume-compatible"
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            runner = json.loads(result.stdout)["runner"]
+            self.assertEqual(runner["verdict"], "unestablished")
+            self.assertTrue(runner["assumed_compatible"])
+            self.assertEqual(runner["bound"], str(first))
+            self.assertEqual(
+                {p.name for p in (repo / ".opencode" / "agents").iterdir()}, EXPECTED_FILES
+            )
+
+    def test_an_unestablished_refusal_names_the_verdict_and_both_remedies(self):
+        """And it must NOT claim no OpenCode runner is installed.
+
+        Nothing resolved means nothing was asked. Saying "no V2 runner found"
+        asserts a fact the installer did not establish, and sends a user to
+        reinstall a runner they may already have.
+        """
+        code, payload, _ = self._run_layout({"opencode": "welcome to the tui"})
+        self.assertEqual(code, 2)
+        error = payload["error"]
+        self.assertEqual(payload["verdict"], "unestablished")
+        self.assertIn("unestablished", error)
+        # The decision's two remedies: point the configuration at the runner, or
+        # install OpenCode V2. Naming only the configuration strands a user who has
+        # no OpenCode at all — the installer cannot tell that case apart from a
+        # runner installed under a name it does not probe.
+        self.assertIn("CRUX_OPENCODE_BIN", error)
+        self.assertIn("install opencode 2.x", error.lower())
+        self.assertIn("--assume-compatible", error)
+        self.assertNotIn("no OpenCode V2 runner found", error)
+        self.assertIn("does not mean no OpenCode runner is installed", error)
+
+    def test_an_unestablished_refusal_with_nothing_resolved_leads_with_installing(self):
+        """The likelier fix leads when no candidate resolved at all.
+
+        A user with no OpenCode must not be handed, as its first remedy, a
+        configuration variable that has nothing to point at.
+        """
+        code, payload, _ = self._run_layout({})
+        self.assertEqual(code, 2)
+        error = payload["error"]
+        self.assertIn("Install OpenCode 2.x", error)
+        self.assertLess(
+            error.index("Install OpenCode 2.x"), error.index("CRUX_OPENCODE_BIN"),
+            "installing must be offered before a variable with nothing to point at",
+        )
+        self.assertIn("nothing an assertion could bind to", error)
+
+    def test_the_deprecation_notice_survives_a_refusal(self):
+        """The notice must reach the runs most likely to be misconfigured.
+
+        Emitting it only on success hides it from every user still on the old
+        spelling whose runner ALSO fails the preflight — which is exactly the
+        population the rename is trying to move.
+        """
+        with tempfile.TemporaryDirectory() as tmp_bin, tempfile.TemporaryDirectory() as tmp:
+            stub = _make_runner_stub(Path(tmp_bin), name="old-v1", reported=REPORTED_V1)
+            repo = Path(tmp)
+            result = self._run(repo, _env_without_runner(CRUX_OPENCODE2_BIN=str(stub)))
+            self.assertEqual(result.returncode, 2, result.stdout)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["verdict"], "known-incompatible")
+            self.assertIn("CRUX_OPENCODE2_BIN is deprecated", payload["notice"])
+            self.assertFalse((repo / ".opencode").exists())
+
+    def test_a_compatible_verdict_binds_nothing_because_nothing_was_asserted(self):
+        """`bound` records what an assertion bound to, not what the probe found.
+
+        With a silent `opencode` and a 2.x `opencode2`, the first resolved
+        not-known-incompatible candidate is the silent one. Reporting it as `bound`
+        on a compatible verdict would name the candidate that established nothing
+        while the one that decided the run goes unnamed in that field.
+        """
+        with tempfile.TemporaryDirectory() as tmp_bin, tempfile.TemporaryDirectory() as tmp:
+            _make_runner_stub(Path(tmp_bin), name="opencode", reported="welcome to the tui")
+            _make_runner_stub(Path(tmp_bin), name="opencode2", reported=REPORTED_V2)
+            repo = Path(tmp)
+            result = self._run(repo, _env_without_runner(Path(tmp_bin)))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            runner = json.loads(result.stdout)["runner"]
+            self.assertEqual(runner["verdict"], "compatible")
+            self.assertFalse(runner["assumed_compatible"])
+            self.assertIsNone(runner["bound"])
+
+    def test_a_known_incompatible_refusal_names_every_candidate_and_its_report(self):
+        code, payload, _ = self._run_layout(
+            {"opencode": REPORTED_V1, "opencode2": "welcome to the tui"}
+        )
+        self.assertEqual(code, 2)
+        error = payload["error"]
+        # Every probed candidate, with what it reported — the RAW first line,
+        # including one that did not parse. A user deciding whether to assert
+        # has to be able to read `opencode v1.4.2` rather than an empty field.
+        self.assertIn(f"opencode ({REPORTED_V1})", error)
+        self.assertIn("opencode2 (welcome to the tui)", error)
+        # And the configuration that narrows the candidate set.
+        self.assertIn("CRUX_OPENCODE_BIN", error)
+        self.assertEqual(
+            [c["reported"] for c in payload["candidates"]], [REPORTED_V1, "welcome to the tui"]
+        )
+
+    def test_a_refusal_distinguishes_absent_from_silent_from_reporting(self):
+        """Three different things a candidate can be, said three different ways."""
+        code, payload, _ = self._run_layout({"opencode": ""})
+        self.assertEqual(code, 2)
+        error = payload["error"]
+        self.assertIn("opencode (no readable version)", error)   # resolved, said nothing
+        self.assertIn("opencode2 (not on PATH)", error)          # never resolved
+
+    def test_positive_control_a_two_x_named_opencode_writes_with_no_configuration(self):
+        """The case the old name-matching implementation fails.
+
+        A correctly upgraded 2.0.3 machine has `opencode` and no `opencode2`.
+        Nothing is configured — no override env, no flag. It must write. An
+        implementation keyed on the executable name refuses here, which is the
+        defect this decision exists to remove.
+        """
+        code, payload, wrote = self._run_layout({"opencode": REPORTED_V2})
+        self.assertEqual(code, 0, payload)
+        self.assertEqual(payload["runner"]["verdict"], "compatible")
+        self.assertFalse(payload["runner"]["assumed_compatible"])
+        self.assertTrue(wrote)
+
+    def test_positive_control_a_compatible_probe_writes_the_roster(self):
+        """Without this, every refusal above would pass on a wholly broken installer."""
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
-            result = self._run(repo, _env_with_v2())
+            result = self._run(repo, _env_with_runner())
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertEqual(
                 {p.name for p in (repo / ".opencode" / "agents").iterdir()}, EXPECTED_FILES
             )
+            self.assertFalse(json.loads(result.stdout)["runner"]["assumed_compatible"])
+
 
 class MigrationFailureLaneTests(unittest.TestCase):
     """The migration's failure lanes, and the fail-closed scan.
@@ -886,7 +1342,7 @@ class MigrationFailureLaneTests(unittest.TestCase):
     ) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             [sys.executable, str(INSTALLER), "--repo-root", str(repo_root), *args],
-            check=False, capture_output=True, text=True, env=env or _env_with_v2(),
+            check=False, capture_output=True, text=True, env=env or _env_with_runner(),
         )
 
     @staticmethod

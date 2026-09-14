@@ -69,10 +69,14 @@ blast_radius:
 
 goal: |
   <One paragraph: the small reversible non-architectural change this patch makes.
-  If it needs an architectural decision recorded, it is NOT a patch — the verify
-  council routes it to `dev-cycle`. If it cannot be bounded by the declared paths
-  or finished in one implement prompt, it is NOT a patch — the council routes it
-  to `iterate`. End-state: a reviewed, tested change ready for human merge.>
+  Open it with one sentence carrying all three: the Outcome — what improves for
+  the affected user; the Evidence — what would demonstrate that improvement; and
+  the Constraint — what the change must preserve. Prose in this field: no new
+  field, no form, no gate. If it needs an architectural decision recorded, it is NOT a
+  patch — the verify council routes it to `dev-cycle`. If it cannot be bounded by
+  the declared paths or finished in one implement prompt, it is NOT a patch — the
+  council routes it to `iterate`. End-state: a reviewed, tested change ready for
+  human merge.>
 
 strategy: |
   Drive one small change through the patch tier: verify (reproduce/root-cause,
@@ -209,11 +213,31 @@ prompts:
       authz, supply-chain, unsafe file/shell/path ops). A `[SECURITY:Sn]` finding
       on a reachable path is a non-downgradable MUST-FIX.
 
+      The reviewer receives the book's `goal` statements — the Outcome, the
+      Evidence, and the Constraint. It judges the change against the Outcome,
+      not against the diff alone.
+      It returns one disposition per Evidence item:
+        - verified, with the command and the result token, or the observation
+          and where it is recorded when no command produced it;
+        - contradicted, which is a finding;
+        - unobserved, with what was attempted, what limited it, and what
+          would settle it.
+      It re-derives each disposition rather than adopting the author's.
+      It states whether the Constraint held and what shows that. A result token is
+      an exit code, a pass count, or a named verdict — never raw output, an
+      environment value, or a secret.
+
+      Where you fixed a MUST-FIX yourself rather than dispatching it, that
+      fix is your own authorship: the re-review of it is commissioned by
+      your delegator, not by you, and you re-dispatch only the reviewers of
+      work you did not write. At the top of the chain the delegator is the
+      human who approved the run.
+
       Fix every MUST-FIX, then re-run the gates. After 3 loops without
       convergence, STOP and escalate.
     expected_output: |
       All gates green with a command + result token recorded per gate; review
-      findings resolved.
+      findings resolved; one disposition per Evidence item.
     side_effects: [verify-code-docs]
 
   - n: 5

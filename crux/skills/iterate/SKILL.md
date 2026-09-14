@@ -124,7 +124,11 @@ Do **NOT** use this skill for:
 
 - **Required**: a working title and a one-paragraph goal describing the issue
   (the bug / drift / refinement). The goal must be a real description — Prompt 1's
-  research agents have no conversation context.
+  research agents have no conversation context. It opens with three
+  statements — the Outcome (what improves for the affected user once the
+  issue is resolved), the Evidence (what would demonstrate that improvement),
+  and the Constraint (what the fix must preserve) — as prose inside the same
+  paragraph: no new field, no form, no gate.
 - **Optional module counts** (default each = 1):
   - `--verifies V` (V ≥ 1) — e.g. two verify modules for two distinct issues.
   - `--dev-loops D` (D ≥ 1) — e.g. two when the fix splits cleanly.
@@ -136,7 +140,8 @@ When called interactively (no flags), elicit counts:
 
 > "This iterate cycle will include at least one verify module, one dev loop, and
 > one review cycle (= 13 prompts minimum). Anticipate any more? Module counts
-> (verifies / dev loops / review cycles)? [default: 1 / 1 / 1]"
+> (verifies / dev loops / review cycles)? [default: 1 / 1 / 1] And does the
+> goal state the Outcome, the Evidence, and the Constraint?"
 
 ## The pipeline
 
