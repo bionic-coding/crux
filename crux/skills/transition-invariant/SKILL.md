@@ -1,11 +1,12 @@
 ---
 name: transition-invariant
-description: "Use when the user says \"ratify invariant INV-NNNN\", \"reject invariant INV-NNNN\", \"retire invariant INV-NNNN\", \"transition invariant\", or dispositions a recovered/observed invariant pin. Owns the ratification state-machine transitions on existing invariant ledger pages (observed → ratified | rejected, ratified → retired), the reconciliation update, the per-concern + master index row update, and the docs/log.md entry. The human gate of the machine-proposes/human-disposes model — recovery never ratifies. Refuses to touch a pin's identity/class/why body; mutates only ratification frontmatter."
+description: "Ratify, reject, or retire an invariant on human direction. Update lifecycle metadata without changing the invariant's body."
 disable-model-invocation: true
 metadata:
   tags: "invariants, state-machine, ratification, human-gate"
   bundles: "crux-docs"
   risk_level: "low"
+  triggers: "ratify invariant INV-NNNN | reject invariant INV-NNNN | retire invariant INV-NNNN | transition invariant"
 ---
 
 # Transition Invariant

@@ -1,10 +1,11 @@
 ---
 name: prose-review
-description: "Use when the user says \"review this prose\", \"prose review\", \"tighten this writing\", \"check the writing rules\", or \"edit this text\". Review prose against seven writing rules — one name per concept, no unjustified hedging, no frozen verbs (nominalizations), no uncheckable adjectives, one idea per sentence, single-word verbs over phrasal verbs, ADRs cited as footnotes not inline — and return concrete rewrites for every violation. Use this whenever the user asks to review, edit, tighten, clean up, or check writing; whenever they ask whether text follows the project writing rules or CLAUDE.md style; and before finalizing any README, doc page, release note, PR description, or design doc. Also use it when the user says text feels vague, wordy, salesy, hedgy, or repetitive, even if they don't name a rule."
+description: "Review prose against the project's seven writing rules and propose concrete rewrites for violations."
 metadata:
   tags: "writing, prose, review, style, editing"
   bundles: "crux-verification"
   risk_level: "low"
+  triggers: "review this prose | prose review | tighten this writing | check the writing rules | edit this text"
   routing_note: "Checks text against the seven §16 writing rules and returns a rewrite for every finding (`fix` | `confirm`); a finding without replacement text is not a finding. Mandatory at three points: `release-preflight` over `README.md` + `CHANGELOG.md` (advisory until the waiver path is vendored), the `dev-cycle`/`iterate` prep prompt, and `tend-garden` before the morning note."
 ---
 

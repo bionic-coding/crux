@@ -1,10 +1,11 @@
 ---
 name: init-docs
-description: "Use when starting a new project, when the documentation tree is missing or empty, when the user says \"init docs\", \"set up docs\", \"bootstrap documentation\", or on the plugin's first run inside a target repo. Owns the one-shot creation of the entire tree (`bionic/` by default) — directories, root files, `CLAUDE.md` from template, `manifest.yml` with detected language plugins, the bootstrap meta-ADR, the empty journal/research/promptbook scaffolding, the `.bionic.yml` write (merged, never clobbered, when a config already exists), and the initial `init` entry in the tree's `log.md`."
+description: "Initialize a repository's crux documentation tree and configuration while preserving existing configuration values."
 metadata:
   tags: "bootstrap, initialization, scaffolding"
   bundles: "crux-docs"
   risk_level: "low"
+  triggers: "init docs | set up docs | bootstrap documentation"
   routing_note: "First-run; refuses to overwrite without `--force`."
 ---
 

@@ -1,10 +1,11 @@
 ---
 name: ingest-research
-description: "Use when moving research-shaped items from `docs/inbox/` into the research wiki, when ingesting a pasted URL, when the user says \"ingest\", \"file this\", \"capture this\", \"save this\", \"paste a URL\" (pastes a URL to file, not just discuss), or when a `urls.md` batch manifest appears under `docs/inbox/`. Usually invoked by `process-inbox` with explicit item path(s); invoked directly, scans `docs/inbox/` for research-shaped items. Required before reporting any research ingest complete. Owns the move-to-raw, audited-markdown, synthesis updates, `docs/research/index.md` and `docs/index.md` rollup, `docs/research/sources.md` registry append, and `docs/log.md` entry, plus the end-of-ingest verification checklist."
+description: "File URLs or research inbox items into the research wiki, preserving source captures and updating synthesis and indexes."
 metadata:
   tags: "research, ingest, sources"
   bundles: "crux-docs"
   risk_level: "low"
+  triggers: "ingest | file this | capture this | save this | paste a URL"
   routing_note: "One source per invocation. Reads research items from the unified `docs/inbox/` (usually invoked by `process-inbox` with explicit paths)."
 ---
 

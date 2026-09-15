@@ -8,6 +8,10 @@
       "domain": "decision-review",
       "rule": "For a trend objective, discovering that the baseline is missing establishes a MEASUREMENT BLOCKER and establishes neither the trend's direction nor its success. A trend part whose baseline is absent is recorded as partial evidence reaching an inconclusive conclusion, and the permission for such a part to reach a gap conclusion is withdrawn, because that pair discriminates and would therefore read the goal as measured, discharge the rotation and reset the escalation count on the same absent baseline every pass. Where a goal's own declared measure asserts that something is measurable, the missing instrument is assessed as a SEPARATE part carrying its own part id, whose claim is that the baseline is obtainable; direct observation of the absence is resolved evidence, so that part reaches a gap honestly, and the exception therefore cannot classify an unrelated trend as measured because it never touches the trend's own row. A measurability part resting on partial evidence proves nothing and stays inconclusive."
     },
+    "an-undeclared-trigger-is-a-reported-gap": {
+      "domain": "skill-trigger-declaration",
+      "rule": "A user-invocable skill that declares no triggers and quotes none is a routing gap, reported through the regenerator's existing gap channel and never defaulted. No trigger is invented from a skill's name. A skill that is not user-invocable carries no phrase column and is no gap when it declares nothing."
+    },
     "assessment-row-is-the-measure-part": {
       "domain": "decision-review",
       "rule": "An objective assessment is recorded per measure part, not per goal: a seven-column assessment table under Coverage carries one row per part, naming the objective, the part and its label in the architect's own words, the evidence availability, a locator, the decision domains judged, the alignment conclusion, and the finding ids bearing on that part. Seven columns is the arity that keeps the table disjoint from the summary table, from the lifecycle record table, and from the five-cell ISO-dated refusal that guards a mistyped record header. Two derived values are read off one goal's part rows and they sit on different axes, so neither is computed from the other. The ALIGNMENT rollup, carried in the per-goal matrix that survives beside the assessment table, answers whether the decisions serve the goal: it serves only when every part serves, gaps when any part gaps, and is otherwise inconclusive, or not-assessed when no part was attempted. The MEASUREMENT outcome, carried in the frontmatter and read by the rotation, answers whether the pass learned anything about the goal. A goal whose alignment rollup is inconclusive because three of its four parts are unavailable is still measured when the fourth discriminated, and a checker verifying that the rollup agrees with its parts checks the alignment rollup alone. A finding id in an assessment row is a reference like every other id outside a heading, and defines nothing."
@@ -36,13 +40,25 @@
       "domain": "decision-review",
       "rule": "Every pass writes a Coverage matrix carrying one row per OBJ-N in the objectives file, in id order, naming the signals and domains that measured that goal this pass or carrying a literal em dash, where a signal measures a goal only when that signal's verdict is computed, an unmeasurable signal never counting as measuring a goal, and a domain measures a goal when the pass judged what is held in that domain against it, so a goal no signal reaches is still reachable; and every goal whose status is active is measured at least once across the three newest report dates under the reviews directory, read from an append-only measured_objectives frontmatter list on each report."
     },
+    "declared-triggers-first-prose-fallback": {
+      "domain": "skill-trigger-declaration",
+      "rule": "The routing-table regenerator reads a skill's declared triggers first and falls back to the quoted phrases in its description's first sentence only where the skill declares none. The fallback is what makes the declared field additive: a skill that still carries its triggers inline keeps routing unchanged, and no existing skill is forced to move."
+    },
     "delegation-carries-objectives-context": {
       "domain": "agent-assignment",
       "rule": "An assignment travels beside the objectives context, and the objectives contract is the one statement of what that context is and when it is carried. This rule adds no second statement of it: the assignment contract names the objectives contract and restates none of its text, so one rule about objectives context exists and one section owns it."
     },
+    "description-is-prose-not-a-trigger-list": {
+      "domain": "skill-trigger-declaration",
+      "rule": "A description is prose for a human reader and for model-driven selection, and is not a trigger list. It states what the skill does and what distinguishes it from its neighbours, and its length is bounded by what a discovery surface renders without truncating. Restoring triggers by lengthening a description past that bound is forbidden."
+    },
     "disputed-note-outranks-re-verification": {
       "domain": "decision-review",
       "rule": "A disputed note on an inherited finding outranks any later re-verification of that finding, so the finding reads as disputed until the owner acts."
+    },
+    "drift-report-carries-scope-and-reconciles": {
+      "domain": "regenerator-scope",
+      "rule": "A drift report carries each row's scope, reports an out-of-scope row as not applicable with its reason, and reconciles enrolled against executed passing plus failed plus skipped-or-inapplicable, with no-evidence re-counting the rows that measured nothing. A gate that inspected the plugin's own copy of itself measured nothing about the project and is never recorded as executed passing for a project row."
     },
     "escalation-history-is-carried-and-bounded": {
       "domain": "decision-review",
@@ -116,9 +132,17 @@
       "domain": "objectives-alignment",
       "rule": "Commander and night gardener read the objectives file at startup and on resume, before selecting work or delegating. A commander without shell access receives the resolved path from its caller. The gardener's turn gate runs before every other act, reads included: a skipped turn reads nothing and stays silent; on a turn that proceeds the gardener reads objectives before selecting work, and any missing-objectives notice waits for output the gate permits."
     },
+    "out-of-scope-is-surface-absent": {
+      "domain": "regenerator-scope",
+      "rule": "A gate that does not apply says so and exits 0 with a surface-absent verdict carrying its reason, having written nothing. A plugin-authoring regenerator running outside the plugin's authoring checkout takes that lane, and so does a projection regenerator whose marked target region exists nowhere in the tree. Exiting non-zero misreports an inapplicable check as a failure, and exiting 0 with a clean verdict misreports it as verified."
+    },
     "parity-counts-match-on-both-sides": {
       "domain": "template-parity",
       "rule": "A template-parity clause matches every top-level alternation of its pattern the same number of times in the canonical section and in the twin section. A count that differs between the sides is a finding of that clause, and the finding names the alternation, both counts, and the side that holds fewer. Equal counts of zero are not a pass: an alternation matching neither section names text the manifest guards and neither file carries, and it is stale at the lower severity. This subsumes the weaker question of whether an alternation resolves at all, and it sits beside the value comparison the clause already performs, which alone catches a value reworded behind an open-ended pattern tail."
+    },
+    "regenerator-declares-its-scope": {
+      "domain": "regenerator-scope",
+      "rule": "Every enrolled regenerator has exactly one declared scope. It is project when the output lives in the consuming project's documentation tree, and plugin-authoring when the output lives in the plugin's own source checkout. The enrollment roster records that scope beside the row, and a row carrying none is incomplete rather than defaulted, because a gate that cannot say whose tree it inspects cannot say what its verdict covers."
     },
     "regenerator-plus-drift-gate": {
       "domain": "derived-artifacts",
@@ -175,6 +199,14 @@
     "span-and-prep-are-different-counts": {
       "domain": "decision-review",
       "rule": "The signal set carries three delivery signals — release_cadence, schema_growth and gate_count — and this rule governs release_cadence. It reads the release record from the changelog's dated version headings, and names in its filter the rejected markers with their measured coverage. GIT-DEPENDENCE IS PER MEMBER, not per signal: the changelog alone supplies `releases` and the interval members `intervals_days`, `mean_interval_days` and `median_interval_days`, which compute with no git leg at all; the two per-release members below rest on the mark predicate, which is a first-parent commit test, so they and only they require git. Where the contained git session cannot be established those two members are null and the changelog-only members still compute, and the signal's verdict stays computed, because an absent git session is an absent input for two members rather than for the signal. The release-cadence signal reports two per-release members over the half-open interval that EXCLUDES the previous release's mark and INCLUDES this release's own mark, so consecutive intervals partition the history without overlap and both members read the same interval, and names each for what it counts. `span_commits` counts first-parent commits in that interval; it establishes that those commits lie between two release boundaries and establishes nothing about whether any of them was preparation, concerned that version, or was work that version required. `prep_commits` counts the commits in that same interval whose subject matches the declared preparation prefix; it counts DECLARATIONS and never the span. Zero and null are different values with different meanings on both members: zero means the interval is bounded and the count inside it is zero, and on `prep_commits` that establishes that nobody declared preparation rather than that the release had none; null means the interval is not bounded, and a null is never rendered as a zero. `prep_commits` is keyed by the version string and stays injective because the changelog carries at most one dated heading for a version at any commit, which a heading removed and later restored does not violate; it is never re-keyed on the publication event, because the repository holds no evidence of either event and an event-keyed map would be fabricated."
+    },
+    "triggers-are-declared-in-frontmatter": {
+      "domain": "skill-trigger-declaration",
+      "rule": "A skill declares its routing trigger phrases in a dedicated optional frontmatter field under metadata, and that declaration is the source of its triggers. Where a skill declares the field, it is the only source consulted; a description is never read for triggers behind a declaration that exists."
+    },
+    "triggers-separator-fits-the-value-type": {
+      "domain": "skill-trigger-declaration",
+      "rule": "The trigger field is pipe-separated rather than comma-separated, because a trigger is a natural-language phrase and a comma occurs inside one. A value whose token carries the separator is refused at validation rather than split, because the encoding cannot represent it. The separator is chosen by what the value type admits, never by what a neighbouring field happens to use."
     }
   },
   "schema": "1",

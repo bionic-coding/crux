@@ -1,4 +1,4 @@
-<!-- generated-from: CHANGELOG.md@sha256:3541b082b2ef74c595664370c34bbc13db4c41774e54791e57a42f9dd230b274; model: claude-fable-5.1; date: 2026-09-14 -->
+<!-- generated-from: CHANGELOG.md@sha256:ba234513b6aeb5d57d6b7930bf5e484b790be8239d3d3512baecaf301d33be10; model: claude-fable-5.1; date: 2026-09-15 -->
 # Changelog
 
 All notable changes to crux. The format roughly follows [Keep a Changelog](https://keepachangelog.com/) and the project adheres to [Semantic Versioning](https://semver.org/).
@@ -10,6 +10,43 @@ All notable changes to crux. The format roughly follows [Keep a Changelog](https
 ### Changed
 
 ### Fixed
+
+### Removed
+
+## [3.16.1] — 2026-09-15
+
+### Fixed
+
+- **Asking a question about the architecture no longer risks rewriting files.** Phrases such as `summarize the current architecture`, `what's the current architecture`, `what supersedes what` and `how do the ADRs relate` could previously be picked up by `derive-arch` or `link-adr-graph`, both of which regenerate documentation — so a read-only question sometimes triggered a write. These four questions now route to `query-docs`, which answers from the existing docs without modifying anything. Commands that ask for output to be produced, such as `show ADR lineage`, still go to the skill that produces it. Skills that regenerate, replace or rewrite files no longer claim question-style triggers.
+
+## [3.16.0] — 2026-09-15
+
+### Added
+
+- **`metadata.triggers` — a skill now declares its routing phrases explicitly.** Add an optional pipe-separated `triggers` field under `metadata:` in a skill's frontmatter; it is projected into the skills catalog as a JSON array and used to build the routing table. The separator is a pipe (not the comma used by `tags` and `bundles`) because a trigger is a natural-language phrase and may itself contain a comma. 56 of the 60 shipped skills declare 270 phrases; the four with none are `user-invocable: false` and route through the Claude-only table, which has no phrase column. **Breaking:** `plugin.json` `schema_version` moves from `"3"` to `"4"`. The metadata contract is strict, so a skill carrying `triggers` validates under a reader that knows schema 4 and fails validation under one that does not.
+- **Regenerators now agree on whose tree they act on.** Every regenerator resolves its target tree from `--repo-root`, defaulting to the current working directory. A regenerator whose output belongs to the plugin's own source checkout, when run anywhere else, takes a "surface absent" lane: it exits 0, prints `{"surface_absent": true, "drift": false, "reason": ...}`, and writes nothing. The `check-drift` gate table gained a `Scope` column declaring each row as `project` or `plugin-authoring`.
+
+### Changed
+
+- **Every skill description is now 91–133 characters (down from 245–924).** Codex's skill loader silently truncates descriptions at roughly 220–240 characters, so previously all 60 skill descriptions reached the model cut off mid-sentence; now all 60 render whole. Descriptions are prose describing what a skill does and how it differs from its neighbours, rather than a list of phrases to match.
+- **The routing table generator reads declared `triggers` first and falls back to the description.** Previously it only extracted quoted spans from the description's first sentence, so the shorter descriptions would have emptied the user-phrase column for every user-facing skill without tripping the drift gate. A skill that still writes its triggers inline keeps routing; the new field is additive.
+- **`check-drift` now distinguishes "does not apply" from "passed".** Each gate row carries its scope; an out-of-scope row is reported N/A with the gate's own reason rather than as clean or broken, and a gate that inspected the plugin's own copy of itself is never recorded as a passing project result. The skill also documents its one side effect — running a gate writes `__pycache__` beside the plugin — instead of claiming a run writes nothing.
+- **`generate-lineage.py`, `generate-index-rollup.py` and `generate-readme-footer.py` print JSON on every path.** Two used to print a prose diff and the third printed nothing when clean, so the drift report that parses their output could not classify them. The diff is preserved in a `diff` field.
+- **The librarian names an unobserved claim rather than reporting its own read coverage.** Reporting how much of a page it read displaced the one slot an unsettled claim needed and hedged answers nothing contradicted. Its route is unchanged: `docs/index.md` down to the pages.
+
+### Fixed
+
+- **Four trigger phrases in the authoritative routing table were wrong.** They had been recovered from the old descriptions by regex, which cannot tell a trigger from a quoted word: `read-news` claimed the bare word `what` (from `what's new in the ecosystem`), `derive-arch` claimed `why` (from a parenthetical), `run-promptbook` claimed a phrase that should route read-only status questions to `visualize-run-progress`, and `patch-cycle` lost a 71-character phrase to a length ceiling. All four are repaired, and validation now rejects the whole class mechanically: no phrase claimed by two skills, none containing the table's ` / ` separator, and no bare interrogative.
+- **`metadata.triggers` accepted any token type.** Numbers, booleans and mappings were coerced with `str()` and shipped as phrases, duplicates rendered twice, and a token containing a newline could break the Markdown routing table. Each is now refused. One limit is stated openly: in the string form a token containing the pipe separator cannot be distinguished from two tokens, so that case is only refused in the list form.
+- **The shipped `CLAUDE.md` template documented a contract that now fails validation.** Its §7.A named `plugin.json` schema `"2"` and listed `owner`, `version` and `status` as required metadata keys — all three have been removed and any lingering one is a validation error. The section now names schema `"4"` and documents `routing_note` and `triggers`.
+- **`install-docs-skills` compared the wrong two numbers and told every existing consumer to STOP.** It read `schema_version` from the installed `plugin.json` (the SKILL.md frontmatter contract) and compared it to a project's `manifest.yml` value (the documentation tree layout) as if they were the same axis. Throughout the 3.x line the first read `"3"` and every tree read `"5"`, so the documented upgrade path refused every project that had one. The skill now reads the supported tree version from the shipped `templates/manifest.yml.tmpl`, which is the manifest `init-docs` writes.
+- **`log-work`'s description claimed it updates the journal index by hand.** It runs the regenerator that derives the row; the description now says the index is regenerated.
+- **Six regenerators targeted the plugin cache instead of your project when run from an installed plugin.** `validate-catalog.py`, `generate-opencode-agents.py`, `generate-readme-footer.py`, `generate-writing-rules.py`, `generate-routing-table.py` and `generate-runtime-compat.py` derived their root from their own file location or required a `crux/` tree beside the caller. From a consuming project, three crashed, two reported errors against paths inside the plugin cache, and two passed clean having validated the installed plugin against itself — and the suggested remedy for the `opencode/agents/` row would have written into your plugin cache. Each now reports `surface_absent` outside the plugin's authoring checkout and behaves unchanged inside one.
+- **`check-public-release-content.py` scanned the installed plugin when run from a consuming project.** `tend-garden` invokes it, and its default root came from its own file path, so it scanned the plugin's distributed surfaces and exited 0 — a verdict about the plugin reported to someone asking about their project. The script now declines a root that holds no plugin source.
+- **Three gates reported a failure when run against a checkout that contains `crux/` but no documentation tree.** `generate-writing-rules.py` and `generate-routing-table.py` exited 1 naming a file that does not ship, and `generate-rules-catalog.py` exited 2 because every slug it had to resolve came from a tree that was not there. Each now takes the surface-absent lane. A file that is present but carries no marker is still a validation error, because that is a real defect in a tree that owns the surface.
+- **`audit-docs` read the surface-absent payload as a clean pass.** CHK-CAT-3 and CHK-ROUTE-1 keyed on `drift: false`, so a consuming project's audit recorded the catalog and routing table as verified. Both now report N/A with the payload's reason, as CHK-DRIFT-1 already did for the reviews and journal indexes.
+- **`OPENCODE_GUIDE.md` told readers to run the agent regenerator by absolute path from any directory.** With roots now resolved from the working directory, that would regenerate nothing and exit 0, leaving a silently stale projection. The two documented invocations now `cd` to the clone first.
+- **`generate-adr-index.py` crashed on `import yaml` outside the authoring checkout.** It was the one regenerator without a PEP 723 dependency header, so `uv run` installed nothing and the import only resolved where PyYAML happened to be available. It now declares `pyyaml>=6.0`.
 
 ### Removed
 

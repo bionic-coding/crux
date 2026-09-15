@@ -43,6 +43,9 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import authoring_scope as _scope  # noqa: E402
+
 # The authored footer line, with the version as its one derived field.
 FOOTER_RE = re.compile(r"^(MIT licensed \(see \[LICENSE\]\(\./LICENSE\)\)\. )v(\d+\.\d+\.\d+)(.*)$", re.M)
 
@@ -55,13 +58,21 @@ def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(
         description="Regenerate the README.md version footer from crux/plugin.json."
     )
-    ap.add_argument("--repo-root", default=".", help="repo root (default: cwd)")
+    ap.add_argument("--repo-root", default=".", help="repo root to inspect (default: the working directory)")
     ap.add_argument(
         "--dry-run", action="store_true", help="drift gate: exit 1 if the footer is stale"
     )
     args = ap.parse_args(argv)
 
-    root = Path(args.repo_root)
+    root = _scope.resolve_repo_root(args.repo_root)
+
+    # SURFACE-ABSENT LANE. The footer this regenerator owns is the plugin's OWN
+    # README, and its one source is `crux/plugin.json`. A consuming project has
+    # neither, so a run there used to exit 2 on a path that was never going to be
+    # present -- an environment crash reported for a check that does not apply.
+    if not _scope.is_authoring_checkout(root, __file__):
+        return _scope.print_surface_absent()
+
     readme = root / "README.md"
     if not readme.is_file():
         sys.stderr.write(f"generate-readme-footer.py: {readme} not found\n")
@@ -82,17 +93,25 @@ def main(argv: list[str]) -> int:
         return 2
 
     have = m.group(2)
+    # JSON on every lane. Clean used to print nothing at all, and drift printed a
+    # sentence, so the one reader of this gate -- `check-drift`, which parses each
+    # gate's stdout as JSON regardless of exit code -- could read neither verdict.
     if args.dry_run:
         if have == want:
+            print(json.dumps({"drift": False, "path": "README.md", "version": want},
+                             sort_keys=True))
             return 0
-        sys.stdout.write(
-            f"README.md footer reads v{have}; crux/plugin.json is {want} "
-            f"— run `python3 crux/scripts/generate-readme-footer.py`\n"
-        )
+        print(json.dumps(
+            {"drift": True, "paths": ["README.md"], "found": have, "expected": want,
+             "fix": "generate-readme-footer.py"},
+            sort_keys=True))
         return 1
 
     if have != want:
         readme.write_text(FOOTER_RE.sub(rf"\g<1>v{want}\g<3>", text, count=1), encoding="utf-8")
+        print(json.dumps({"written": "README.md", "version": want}, sort_keys=True))
+        return 0
+    print(json.dumps({"written": None, "version": want}, sort_keys=True))
     return 0
 
 

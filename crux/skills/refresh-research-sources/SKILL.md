@@ -1,10 +1,11 @@
 ---
 name: refresh-research-sources
-description: "Use when checking research source URLs for upstream updates, when the user says \"refresh sources\" / \"update from source\" / \"check for updates\" / \"find the old ones\", or proactively when sources haven't been checked in over `research.refresh_interval_days` (default 90). Re-fetches URL-backed source captures, detects meaningful changes, files updates as new dated raw captures (preserving the originals), and flags synthesis pages that may need reconciliation. Does not auto-rewrite synthesis pages."
+description: "Check research sources for upstream changes, preserve updated captures, and flag affected synthesis without rewriting it."
 metadata:
   tags: "research, refresh, sources"
   bundles: "crux-docs"
   risk_level: "low"
+  triggers: "refresh sources | update from source | check for updates | find the old ones"
   routing_note: "Re-fetches stale sources; marks synthesis pages."
 ---
 

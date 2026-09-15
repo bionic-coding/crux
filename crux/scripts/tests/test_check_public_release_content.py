@@ -24,6 +24,8 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 SCRIPT_PATH = REPO_ROOT / "crux" / "scripts" / "check-public-release-content.py"
+from _authoring_fixture import seed_authoring_probe
+
 
 BANNED = "zi" + "ppy"
 
@@ -174,6 +176,31 @@ class SkippingTests(FixtureCase):
 
 
 class MainExitCodeTests(FixtureCase):
+    """`main` on a fixture that IS the plugin's authoring checkout.
+
+    rule:out-of-scope-is-surface-absent. `main` now declines a root holding no
+    plugin source, because run from a consuming project it used to scan the
+    INSTALLED plugin and report that verdict as the project's. Seeding the probe
+    makes the fixture model what these tests claim to drive; without it every
+    assertion below would pass through the decline lane and measure nothing.
+    """
+
+    def setUp(self):
+        super().setUp()
+        seed_authoring_probe(self.root, SCRIPT_PATH)
+
+    def test_a_root_without_plugin_source_is_declined_not_scanned(self):
+        """The control for the seeding above: the decline lane exists and is real."""
+        other = Path(self._tmp.name) / "consumer"
+        (other / "docs").mkdir(parents=True)
+        (other / "README.md").write_text(f"{BANNED}\n", encoding="utf-8")
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            rc = checker.main(["--root", str(other)])
+        self.assertEqual(rc, 0)
+        self.assertEqual(out.getvalue(), "")
+        self.assertIn("not the plugin's authoring checkout", err.getvalue())
+
     def _run_main(self, *argv: str) -> tuple[int, str, str]:
         out, err = io.StringIO(), io.StringIO()
         with redirect_stdout(out), redirect_stderr(err):

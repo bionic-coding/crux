@@ -1,10 +1,11 @@
 ---
 name: link-adr-graph
-description: "Use when the user says \"show ADR lineage\", \"render ADR graph\", \"what supersedes what\", \"ADR dependency graph\", \"how do the ADRs relate\", or wants to see the supersedes/amends relationships across the ADR set. Regenerates `docs/adrs/lineage.md` — a Mermaid graph plus a tag-clustered lineage table derived from ADR frontmatter. Read-only against ADRs; the lineage file is a regenerated artifact (hand-edits are blown away). Logs under the `adr` op."
+description: "Regenerate the ADR lineage graph and table from supersedes and amends relationships. Does not modify decisions."
 metadata:
   tags: "adrs, lineage, derivation, regenerative, visualization"
   bundles: "crux-docs"
   risk_level: "low"
+  triggers: "show ADR lineage | render ADR graph | ADR dependency graph"
   routing_note: "Regenerates `docs/adrs/lineage.md` (Mermaid + table)."
 ---
 

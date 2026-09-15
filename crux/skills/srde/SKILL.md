@@ -1,10 +1,11 @@
 ---
 name: srde
-description: "Use when the user says \"resolve the dissent\", \"run srde\", or \"resolve the council disagreement\". Self-Resolving Dissent Engine — automatically resolves disagreements from council votes without human intervention. Uses context-aware resolution (MentalModel), cross-references existing probes via Semantic Bridge, and pattern matching. Use after any council deliberation that surfaces dissenting votes."
+description: "Resolve dissent from a multi-model council using shared context, existing probes, and structured analysis."
 metadata:
   tags: "reasoning, dissent-resolution, council"
   bundles: "crux-core, crux-docs"
   risk_level: "low"
+  triggers: "resolve the dissent | run srde | resolve the council disagreement"
 ---
 
 # Crux SRDE (Self-Resolving Dissent Engine)

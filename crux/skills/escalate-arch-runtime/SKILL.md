@@ -1,11 +1,12 @@
 ---
 name: escalate-arch-runtime
-description: "Use ONLY when a human explicitly asks to recover the routes or ORM models that static arch extraction missed by running a Python app's import-time code — phrases like \"escalate the arch runtime\", \"run the runtime arch introspection\", \"recover the routes by running my app\", \"introspect my FastAPI/Flask/Django app for arch\". This is an optional fidelity upgrade a human may choose, never the remedy any crux surface points a reader at. It runs the target's own import-time code in a confined subprocess behind a two-factor consent gate (CRUX_ARCH_ALLOW_RUNTIME=1 plus a per-execution permission event), captures an UNTRUSTED advisory into <docs-dir>/inbox/, and writes NOTHING under arch/ and never touches the spine hash. Never auto-triggered by derive; never dispatched by the model from chat; excluded from run-execution autonomy; must not be allowlisted for auto-approval."
+description: "Only on explicit human request, run consent-gated Python introspection to recover routes or models missed by static extraction."
 disable-model-invocation: true
 metadata:
   tags: "arch, runtime, introspection, escalation, security"
   bundles: "crux-docs"
   risk_level: "high"
+  triggers: "escalate the arch runtime | run the runtime arch introspection | recover the routes by running my app | introspect my FastAPI/Flask/Django app for arch"
   routing_note: "Human-invoked only. An optional fidelity upgrade a human may choose, never the remedy any crux surface points a reader at. Runs a Python target's import-time code in a subprocess-isolated child behind the two-factor `CRUX_ARCH_ALLOW_RUNTIME=1` consent gate; writes an advisory into `<docs_dir>/inbox/`, never into `arch/`."
 ---
 

@@ -47,6 +47,15 @@ liberally, mid-development, without risk to the docs.
   tree left **unobserved** — the same word the assignment contract uses for a claim
   nothing established (`docs/CLAUDE.md` §11). A half-covered question reported as
   covered leaves the caller trusting an answer the tree did not give.
+- **Unobserved names a claim, never your reading.** It marks a part of the question
+  the tree did not settle. How much of any one page you read is not that: a page you
+  chose not to read in full, because the index routed you elsewhere or the answer sat
+  in one section, is ordinary retrieval and goes unmentioned. Reporting it in the
+  unobserved slot hedges an answer nothing contradicted and, worse, fills the one
+  slot an unsettled claim needed. Read what the question needs, in the part that holds it.
+  The tree's `CLAUDE.md` is the contract for *writing* under the tree; you write
+  nothing, and your route is `docs/index.md` down to the pages, so it is not a
+  document you owe a full read.
 - Return only the distilled conclusion and its citations — not raw file dumps.
   Keeping the answer tight is the point: you exist so the caller's context stays
   clean.

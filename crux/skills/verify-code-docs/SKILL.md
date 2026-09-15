@@ -1,10 +1,11 @@
 ---
 name: verify-code-docs
-description: "Use when the user says \"verify docs\" / \"check code docs drift\" / \"are the code docs in sync?\" / \"lint docs\", before merging a PR, on a pre-push hook, or proactively after a non-trivial refactor of source files. Runs the code-doc extractor in dry-run mode against the current source tree, parses the drift report, and reports `N added / M changed / K removed`. Never regenerates — offers to invoke `extract-code-docs` if drift is found. Logs a `lint` op entry."
+description: "Check generated code documentation against source and report drift without regenerating it."
 metadata:
   tags: "code-docs, verification, drift-detection"
   bundles: "crux-docs"
   risk_level: "low"
+  triggers: "verify docs | check code docs drift | are the code docs in sync? | lint docs"
   routing_note: "Read-only; emits `lint` log entry."
 ---
 

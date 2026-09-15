@@ -1,12 +1,13 @@
 ---
 name: derive-arch
-description: "Use when the user says \"build the arch\", \"build the arch directory\", \"derive arch\", \"summarize the current architecture\", \"what's the current architecture\", \"regenerate the architecture\", \"refresh the architecture map\", \"rebuild the arch spine\", or \"update the arch\", or proactively when the project's schemas, ADRs, skills, or package imports have changed since the last derive. Regenerates the `arch` concern — the derived architecture spine (`data-model`, `api-surface`, `module-graph`, `decision-index`) plus a synthesized `overview.md` — wholesale from the project's own sources via `scripts/derive-arch.py`. The primary current-state discovery surface (ADRs are the secondary 'why'). Throw-away regeneration; never reads `arch/` as input, and manual edits there are OVERWRITTEN. `--dry-run` is the drift check."
+description: "Regenerate the current architecture map from project sources, or check its drift. Replaces generated architecture files."
 context: fork
 model: sonnet
 metadata:
   tags: "arch, architecture, regeneration, derived-spine"
   bundles: "crux-docs"
   risk_level: "low"
+  triggers: "build the arch | build the arch directory | derive arch | regenerate the architecture | refresh the architecture map | rebuild the arch spine | update the arch"
   routing_note: "Regenerative — rewrites `<docs_dir>/arch/` wholesale from the project's sources. `--dry-run` is the drift check. The primary current-state surface."
 ---
 

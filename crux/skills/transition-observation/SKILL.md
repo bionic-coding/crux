@@ -1,11 +1,12 @@
 ---
 name: transition-observation
-description: "Use when the user says \"ratify observation OBS-NNNN\", \"reject observation OBS-NNNN\", \"retire observation OBS-NNNN\", \"mark observation OBS-NNNN decided\", \"transition observation\", or dispositions an observed record. Owns the lifecycle transitions on existing observation records (observed → ratified | rejected, ratified → retired | decided), the concern index row update, the `docs/index.md` `_Last updated:` bump, and the `observation` op in `docs/log.md`. The human gate of the machine-proposes/human-disposes model — no scan, scaffold, or re-mine ratifies. Mutates only the lifecycle frontmatter; never touches a record's claim or its body."
+description: "Apply a human disposition to an observation's lifecycle state without changing its claim or body."
 disable-model-invocation: true
 metadata:
   tags: "observations, state-machine, ratification, human-gate"
   bundles: "crux-docs"
   risk_level: "low"
+  triggers: "ratify observation OBS-NNNN | reject observation OBS-NNNN | retire observation OBS-NNNN | mark observation OBS-NNNN decided | transition observation"
 ---
 
 # Transition Observation

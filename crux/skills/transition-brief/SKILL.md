@@ -1,11 +1,12 @@
 ---
 name: transition-brief
-description: "Use when the user says \"publish brief\", \"abandon brief\", \"close out a brief\", \"mark brief published\", \"mark brief abandoned\", or \"transition BRIEF-<slug>\". Closes the briefs lifecycle (`draft` → `published` | `abandoned`), the symmetric counterpart to `transition-adr`. Mutates ONLY the `status`/`updated_at` frontmatter, updates the `docs/index.md` brief rollup, and writes a `brief` log op. Refuses to touch the brief body — the body is human-authored and frozen here."
+description: "Publish or abandon a draft brief, updating lifecycle metadata and indexes without changing its body."
 disable-model-invocation: true
 metadata:
   tags: "briefs, state-machine, transitions, lifecycle"
   bundles: "crux-docs"
   risk_level: "low"
+  triggers: "publish brief | abandon brief | close out a brief | mark brief published | mark brief abandoned | transition BRIEF-<slug>"
   routing_note: "Transitions a brief `draft → published | abandoned`; mutates only frontmatter, never the body; updates the rollup + writes a `brief` op."
 ---
 

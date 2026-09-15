@@ -1,10 +1,11 @@
 ---
 name: recover-decisions
-description: "Use when the user says 'recover decisions', 'mine decisions from the code', 'what load-bearing decisions have no ADR', or when seeding an existing project's decision log from reality instead of hand-backfilling ADRs. Scans the codebase module-by-module for load-bearing decisions latent in code that have no governing ADR, and emits each as an `observed` candidate into `<docs_dir>/arch/_recovered/state.yml` — it NEVER authors an ADR. Ratify a candidate into a Proposed ADR with `transition-decision`. Part of the arch concern (SP-3)."
+description: "Mine code for load-bearing decisions without governing ADRs. Record candidates for human disposition; never create ADRs."
 metadata:
   tags: "arch, decision-recovery, adr, provenance"
   bundles: "crux-docs"
   risk_level: "low"
+  triggers: "recover decisions | mine decisions from the code | what load-bearing decisions have no ADR"
 ---
 
 # recover-decisions

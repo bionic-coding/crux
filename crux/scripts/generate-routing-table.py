@@ -58,14 +58,22 @@ _PHRASE_RE = re.compile(r'"([^"]+)"' + r"|(?<![A-Za-z])'([^']+?)'(?![A-Za-z])")
 _SENTENCE_END_RE = re.compile(r"\.(?=\s|$)")
 
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import authoring_scope as _scope  # noqa: E402
+
 class RegenError(Exception):
     """A validation failure on the exit-1 findings lane."""
 
 
 def _repo_root(explicit: str | None) -> Path:
-    if explicit:
-        return Path(explicit).resolve()
-    return Path(__file__).resolve().parent.parent.parent
+    """The project root under inspection -- never this script's own location.
+
+    `Path(__file__).parents[2]` used to stand here. In the authoring checkout it
+    lands on the repo root and looks right; in an installed plugin it lands on the
+    plugin cache, so a gate run from a consuming project inspected the plugin's own
+    copy of itself and reported the result as if it were the project's.
+    """
+    return _scope.resolve_repo_root(explicit)
 
 
 def _tree_name(root: Path) -> str:
@@ -152,6 +160,39 @@ def extract_phrases(description: str) -> list[str]:
     return out
 
 
+def routing_phrases(entry: dict) -> list[str]:
+    """A skill's routing triggers: the declared field first, the description second.
+
+    rule:declared-triggers-first-prose-fallback, rule:description-is-prose-not-a-trigger-list,
+    rule:an-undeclared-trigger-is-a-reported-gap.
+
+    `metadata.triggers` is the DECLARED source, projected into the catalog as a list.
+    It exists because the descriptions used to carry their triggers inline as quoted
+    spans, and shortening them to fit a discovery surface without truncation took all
+    270 of those phrases with it -- every user-facing row of this table lost its cell
+    while this regenerator's own drift gate stayed clean, because an empty cell is not
+    drift. The phrases now live in a field a shortening cannot reach.
+
+    The description fallback is kept rather than removed: a skill that still writes its
+    triggers inline keeps routing, so the declared field is additive and no skill is
+    forced to change. Declaring the field WINS over the description, so a skill that
+    does both is read one way and not merged.
+    """
+    declared = entry.get("triggers") or []
+    if isinstance(declared, str):
+        declared = [tok.strip() for tok in declared.split("|") if tok.strip()]
+    if declared:
+        seen: set[str] = set()
+        out: list[str] = []
+        for phrase in declared:
+            phrase = str(phrase).strip()
+            if phrase and phrase not in seen:
+                seen.add(phrase)
+                out.append(phrase)
+        return out
+    return extract_phrases(entry.get("description", "") or "")
+
+
 def _cell(text: str) -> str:
     """Escape a Markdown table cell: the pipe is the only structural character."""
     return text.replace("|", r"\|")
@@ -170,7 +211,7 @@ def build_region(skills: list[dict]) -> tuple[str, list[str]]:
         if user_invocable is False:
             claude_only.append((sid, note))
             continue
-        phrases = extract_phrases(entry.get("description", "") or "")
+        phrases = routing_phrases(entry)
         if not phrases:
             no_triggers.append(sid)
         phrase_cell = " / ".join(f'"{p}"' for p in phrases)
@@ -195,6 +236,14 @@ def build_region(skills: list[dict]) -> tuple[str, list[str]]:
 
 
 def run(root: Path, dry_run: bool) -> tuple[int, dict]:
+    # SURFACE-ABSENT LANE, second trigger. rule:out-of-scope-is-surface-absent names
+    # two: a plugin-authoring gate outside the authoring checkout, AND a projection
+    # regenerator whose marked region exists nowhere. Only the first was implemented,
+    # so the public clone and the staged release artifact -- both of which carry
+    # `crux/scripts/` and so pass the first probe -- got exit 1 with an error naming a
+    # file that never ships. A missing FILE is an absent surface; a file that is
+    # present but carries no marker is still BROKEN, because that is a real defect in
+    # a tree that owns the surface.
     skills_json = root / "crux" / "catalog" / "skills.json"
     if not skills_json.is_file():
         raise RegenError(f"{skills_json}: not found (run validate-catalog.py first)")
@@ -210,7 +259,9 @@ def run(root: Path, dry_run: bool) -> tuple[int, dict]:
     rel = f"{_tree_name(root)}/CLAUDE.md"
     path = root / rel
     if not path.is_file():
-        raise RegenError(f"{rel}: target not found at {path}")
+        return 0, _scope.surface_absent_payload(
+            reason=f"{rel} holds the routing-table region and is not present here; "
+                   "this tree owns no region to project into")
     text = read_text_verbatim(path)
     i, j = find_region(text, rel)
     current = text[i:j]
@@ -233,11 +284,23 @@ def main(argv: list[str] | None = None) -> int:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     ap.add_argument("--dry-run", action="store_true", help="report drift; write nothing")
-    ap.add_argument("--repo-root", default=None, help="repo root (default: derived)")
+    ap.add_argument("--repo-root", default=None, help="repo root to inspect (default: the working directory)")
     args = ap.parse_args(argv)
 
+    root = _repo_root(args.repo_root)
+
+    # SURFACE-ABSENT LANE, on the `extract-code-docs` model. Every surface this
+    # regenerator reads and every region it projects into lives in the plugin's own
+    # source checkout. A consuming project owns none of them, so nothing here can
+    # have drifted for that project and nothing can have been verified for it either.
+    # Reporting a failure would file an inapplicable check as a defect in the reader's
+    # repository; reporting a clean pass would file it as verified. This lane says
+    # neither, and `check-drift` renders it N/A with the reason.
+    if not _scope.is_authoring_checkout(root, __file__):
+        return _scope.print_surface_absent()
+
     try:
-        code, payload = run(_repo_root(args.repo_root), args.dry_run)
+        code, payload = run(root, args.dry_run)
     except RegenError as exc:
         print(json.dumps({"error": str(exc)}, indent=2))
         return 1

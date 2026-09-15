@@ -1,10 +1,11 @@
 ---
 name: log-work
-description: "Use when finishing a unit of work, when the user says \"log work\", \"journal this\", \"record progress\", \"log this\", at end-of-day, or after any other crux skill completes a non-trivial side effect that warrants narrative context. Owns the append to `docs/journal/YYYY-MM.md`, the `journal` op entry in `docs/log.md`, and the regenerator run that derives the `docs/journal/index.md` row. Supports a `--silent` mode for other skills to auto-log."
+description: "Record completed work and its context in the project journal, append the operation log, and regenerate the journal index."
 metadata:
   tags: "journal, work-log, narrative"
   bundles: "crux-docs"
   risk_level: "low"
+  triggers: "log work | journal this | record progress | log this"
   routing_note: "Categorization required."
 ---
 

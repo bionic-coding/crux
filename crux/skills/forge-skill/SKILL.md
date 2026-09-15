@@ -1,10 +1,11 @@
 ---
 name: forge-skill
-description: "Use when the user says \"forge a skill\", \"author a skill for this\", \"build yourself the capability\", \"close this capability gap\", or \"teach yourself to X\", or when a repeated task reveals a capability gap. Authors or revises a permanent project-local skill through Diagnose, Micro-whiteboard, Research, Author/Revise, and Self-test plus Record. Propose-first applies only to the gated conditions in this skill."
+description: "Create or revise a project-local skill to close a demonstrated capability gap, with research, self-testing, and a durable record."
 metadata:
   tags: "rsi, capability-gap, skill-authoring, autonomous, forge"
   bundles: "crux-core, crux-docs"
   risk_level: "medium"
+  triggers: "forge a skill | author a skill for this | build yourself the capability | close this capability gap | teach yourself to X"
   routing_note: "Autonomous RSI loop; gates + forge log per an ADR."
 ---
 

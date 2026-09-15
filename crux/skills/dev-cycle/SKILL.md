@@ -1,10 +1,11 @@
 ---
 name: dev-cycle
-description: "Use when the user says \"start a cycle\", \"new dev cycle\", \"begin development cycle\", \"cycle this feature\", \"build a cycle promptbook\", or wants to drive a feature/change through the full crux development cycle (plan → develop → review → prep → summary). Unlike `author-promptbook`, this skill enforces machine-checked cycle invariants (≥1 ADR module + council approval, ≥1 dev module, ≥1 review module, the `4N+4M+3K+2` formula) — so a \"rigorous plan\" / \"do this the right way\" request routes here over `author-promptbook`. Allocates the next `PB-NNNN`, assembles a fresh promptbook under `docs/promptbooks/active/` from modular cycle building blocks (≥1 ADR module, ≥1 dev module, ≥1 review module, plus fixed prep + summary), regenerates the promptbooks index, and logs the operation. Minimum 13 prompts; longer when the work needs multiple ADRs, dev loops, or review cycles. The resulting book is run via `run-promptbook`."
+description: "Plan an architectural change through a full development cycle with ADRs, council approval, implementation, and independent review."
 metadata:
   tags: "promptbooks, workflow, cycle, planning"
   bundles: "crux-docs"
   risk_level: "low"
+  triggers: "start a cycle | new dev cycle | begin development cycle | cycle this feature | build a cycle promptbook | rigorous plan | do this the right way"
   routing_note: "Net-new/architectural work. Allocates next `PB-NNNN`; assembles a modular cycle book (≥ 13 prompts, `cycle_kind: adr`) from ADR / dev / review modules. See `dev-cycle/SKILL.md`."
 ---
 

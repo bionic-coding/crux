@@ -1,6 +1,6 @@
 ---
 name: agent-identity
-description: "Cross-agent learning system. Each agent creates a persistent identity (GUID), learns from sessions, shares knowledge, and finds domain experts. Use at START of agent team sessions to create identity + learn from experts, and at END to extract learnings for future agents. Substrate skill: typically called by `dev-cycle` / `author-runbook` agent teams as part of their session lifecycle; call directly only for custom multi-agent wiring (hand-rolling an agent team outside those orchestrators)."
+description: "Maintain persistent agent identities and shared learnings during team sessions. Invoke directly only for custom team orchestration."
 user-invocable: false
 metadata:
   tags: "identity, learning, agent-teams"

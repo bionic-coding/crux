@@ -1,10 +1,11 @@
 ---
 name: refresh-research-synthesis
-description: "Use when synthesis pages under `docs/research/<category>/` have accumulated `> [source updated]`, `> [contradiction]`, or `> [unresolved]` markers (added by `ingest-research` or `refresh-research-sources`); when `last_reviewed` on synthesis pages has aged past `research.refresh_interval_days` (default 90); or when the user asks to \"refresh synthesis\", \"reconcile pages\", \"clear flags\", \"review research\", \"what synthesis pages are stale?\", or \"what needs reconciliation?\". Walks the user through reconciling each affected synthesis page with current source state, applying changes with explicit per-page approval, and bumping `last_reviewed`. Strictly user-gated — never auto-rewrites synthesis content."
+description: "Reconcile stale or flagged research synthesis with current sources. Apply changes only with explicit per-page approval."
 metadata:
   tags: "research, refresh, synthesis"
   bundles: "crux-docs"
   risk_level: "low"
+  triggers: "refresh synthesis | reconcile pages | clear flags | review research | what synthesis pages are stale? | what needs reconciliation?"
   routing_note: "Per-page user-supervised."
 ---
 

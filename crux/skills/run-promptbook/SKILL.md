@@ -1,11 +1,12 @@
 ---
 name: run-promptbook
-description: "Use when the user says \"run promptbook\", \"start promptbook\", \"advance promptbook\", \"next prompt\", \"skip prompt\", \"block on prompt\", \"abandon this run\", or to capture the result of a prompt that just executed. Creates a new run snapshot under `docs/promptbooks/runs/<book>/` on `start`; mutates the current snapshot's state on `advance`; records a deliberate abandonment of the run on `abandon`. This skill mutates run state but does NOT edit the prompts list — to change the plan mid-run, abandon the run and author a fresh book that cites its predecessor. For a read-only \"where am I / what's next / how do I resume PB-NNNN\" status query (no mutation), use `visualize-run-progress`."
+description: "Start, advance, skip, block, or abandon a promptbook run and record results. Changes run state, not the plan."
 arguments: [book]
 metadata:
   tags: "promptbooks, execution, state"
   bundles: "crux-docs"
   risk_level: "low"
+  triggers: "run promptbook | start promptbook | advance promptbook | next prompt | skip prompt | block on prompt | abandon this run"
   routing_note: "Mutates run snapshot, not the book."
 ---
 

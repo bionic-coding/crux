@@ -93,15 +93,22 @@ def projections(root: Path) -> tuple[str, ...]:
 PROJECTIONS = ("AGENTS.md", "bionic/CLAUDE.md", "crux/skills/prose-review/SKILL.md")
 
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import authoring_scope as _scope  # noqa: E402
+
 class RegenError(Exception):
     """A validation failure that belongs on the exit-1 findings lane."""
 
 
 def _repo_root(explicit: str | None) -> Path:
-    if explicit:
-        return Path(explicit).resolve()
-    # scripts/ -> crux/ -> repo root
-    return Path(__file__).resolve().parent.parent.parent
+    """The project root under inspection -- never this script's own location.
+
+    `Path(__file__).parents[2]` used to stand here. In the authoring checkout it
+    lands on the repo root and looks right; in an installed plugin it lands on the
+    plugin cache, so a gate run from a consuming project inspected the plugin's own
+    copy of itself and reported the result as if it were the project's.
+    """
+    return _scope.resolve_repo_root(explicit)
 
 
 def read_text_verbatim(path: Path) -> str:
@@ -208,6 +215,18 @@ def _load_canonical(root: Path) -> str:
 
 
 def run(root: Path, dry_run: bool) -> tuple[int, dict]:
+    # SURFACE-ABSENT LANE, second trigger. rule:out-of-scope-is-surface-absent names
+    # two: a plugin-authoring gate outside the authoring checkout, AND a projection
+    # regenerator whose marked region exists nowhere. Only the first was implemented,
+    # so the public clone and the staged release artifact -- both of which carry
+    # `crux/scripts/` and so pass the first probe -- got exit 1 with an error naming a
+    # file that never ships. A missing FILE is an absent surface; a file that is
+    # present but carries no marker is still BROKEN, because that is a real defect in
+    # a tree that owns the surface.
+    if not (root / CANONICAL_FILE).is_file():
+        return 0, _scope.surface_absent_payload(
+            reason=f"{CANONICAL_FILE} carries the canonical writing-rules block and is "
+                   "not present here; this tree owns no projection of it")
     canonical = _load_canonical(root)
 
     # Pass 1 — validate EVERY target before mutating ANY of them, so a malformed
@@ -252,12 +271,24 @@ def main(argv: list[str] | None = None) -> int:
     )
     ap.add_argument("--dry-run", action="store_true", help="report drift; write nothing")
     ap.add_argument(
-        "--repo-root", default=None, help="repo root (default: derived from this script's path)"
+        "--repo-root", default=None, help="repo root to inspect (default: the working directory)"
     )
     args = ap.parse_args(argv)
 
+    root = _repo_root(args.repo_root)
+
+    # SURFACE-ABSENT LANE, on the `extract-code-docs` model. Every surface this
+    # regenerator reads and every region it projects into lives in the plugin's own
+    # source checkout. A consuming project owns none of them, so nothing here can
+    # have drifted for that project and nothing can have been verified for it either.
+    # Reporting a failure would file an inapplicable check as a defect in the reader's
+    # repository; reporting a clean pass would file it as verified. This lane says
+    # neither, and `check-drift` renders it N/A with the reason.
+    if not _scope.is_authoring_checkout(root, __file__):
+        return _scope.print_surface_absent()
+
     try:
-        code, payload = run(_repo_root(args.repo_root), args.dry_run)
+        code, payload = run(root, args.dry_run)
     except RegenError as exc:
         print(json.dumps({"error": str(exc)}, indent=2))
         return 1

@@ -1,10 +1,11 @@
 ---
 name: iterate
-description: "Use when the user says 'iterate on X', 'start an iterate cycle', 'iterate-cycle for X', 'remediate X', 'fix X with rigor', or wants to drive a NON-architectural fix (bug, drift, or refinement to existing behavior) through council + review rigor WITHOUT an ADR. Like dev-cycle, but the ADR module is replaced by a VERIFY module (research/reproduce/root-cause the issue, then a multi-model council reviews the verified diagnosis + remediation approach). Allocates the next PB-NNNN, assembles a cycle book (cycle_kind: verify) from modular building blocks (≥1 verify + ≥1 dev + ≥1 review, plus fixed prep + summary), validates it, regenerates the promptbooks index, and logs. Minimum 13 prompts. Net-new/architectural features use dev-cycle; trivial changes use author-promptbook. The book is run via run-promptbook."
+description: "Plan a non-architectural fix through diagnosis, council review, implementation, and independent review without an ADR."
 metadata:
   tags: "promptbooks, workflow, cycle, iterate, fix"
   bundles: "crux-docs"
   risk_level: "low"
+  triggers: "iterate on X | start an iterate cycle | iterate-cycle for X | remediate X | fix X with rigor"
   routing_note: "Non-architectural reactive work (bug / drift / refinement) — `dev-cycle` rigor with a **verify** module instead of an ADR (`cycle_kind: verify`, ≥ 13 prompts). See `iterate/SKILL.md`."
 ---
 

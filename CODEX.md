@@ -1,4 +1,4 @@
-<!-- generated-from: CODEX.md@sha256:92c1ec3510233ef8f1ce86ebfcf78eefc587ef304bfca98263c2ea5815825366; model: deterministic-copy; date: 2026-09-14 -->
+<!-- generated-from: CODEX.md@sha256:92c1ec3510233ef8f1ce86ebfcf78eefc587ef304bfca98263c2ea5815825366; model: deterministic-copy; date: 2026-09-15 -->
 # Install Crux for Codex
 
 This guide installs the Crux plugin, its skills, and its ten Codex role agents. It covers human installation and the procedure an agent should follow after the plugin is available.

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import difflib
+import json
 import glob
 import re
 import sys
@@ -128,20 +129,27 @@ def main(argv: list[str]) -> int:
     recs = _load_adrs(adrs_dir)
     generated = render(recs)
 
+    # JSON on every lane. `check-drift` and `audit-docs` both parse each gate's
+    # stdout as JSON regardless of exit code, and a prose diff parses as nothing --
+    # the row could not be classified, so the roster accounting could not reconcile.
+    # The diff survives as a field, because it is what a reader wants to see.
+    rel = str(target.relative_to(root)) if target.is_relative_to(root) else str(target)
     if args.dry_run:
         current = target.read_text(encoding="utf-8") if target.is_file() else ""
         if current == generated:
+            print(json.dumps({"drift": False, "path": rel, "adrs": len(recs)}, sort_keys=True))
             return 0
         diff = "".join(difflib.unified_diff(
             current.splitlines(keepends=True), generated.splitlines(keepends=True),
-            fromfile="docs/adrs/lineage.md (on disk)", tofile="docs/adrs/lineage.md (regenerated)"))
-        sys.stdout.write("lineage.md drift — regenerate with `generate-lineage.py`:\n" + diff)
+            fromfile=f"{rel} (on disk)", tofile=f"{rel} (regenerated)"))
+        print(json.dumps({"drift": True, "paths": [rel], "diff": diff,
+                          "fix": "generate-lineage.py"}, sort_keys=True))
         return 1
 
     target.write_text(generated, encoding="utf-8")
-    sys.stdout.write(f"regenerated {target} ({len(recs)} ADRs, "
-                     f"{sum(len(r['supersedes']) for r in recs)} supersedes, "
-                     f"{sum(len(r['amends']) for r in recs)} amends edges)\n")
+    print(json.dumps({"written": rel, "adrs": len(recs),
+                      "supersedes": sum(len(r["supersedes"]) for r in recs),
+                      "amends": sum(len(r["amends"]) for r in recs)}, sort_keys=True))
     return 0
 
 

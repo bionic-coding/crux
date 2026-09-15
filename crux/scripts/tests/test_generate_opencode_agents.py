@@ -32,6 +32,9 @@ except ImportError:
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 GEN_PATH = SCRIPTS_DIR / "generate-opencode-agents.py"
+# The checkout under test. `main` resolves its root from the invocation, so every
+# case that drives the CLI names this explicitly instead of inheriting the cwd.
+REPO_ROOT = SCRIPTS_DIR.parent.parent
 
 
 def _load_module(name: str, path: Path):
@@ -1260,7 +1263,11 @@ class DryRunTests(unittest.TestCase):
 
     def _run_main_dry_run(self):
         # main() takes NO args — it reads sys.argv via parse_args(); patch argv.
-        sys.argv = ["generate-opencode-agents.py", "--dry-run"]
+        # --repo-root is explicit: `main` now resolves its root from the invocation,
+        # so without it these cases would take the surface-absent lane whenever the
+        # suite runs from a directory that is not this checkout, and measure nothing.
+        sys.argv = ["generate-opencode-agents.py", "--dry-run",
+                    "--repo-root", str(REPO_ROOT)]
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             rc = MOD.main()
@@ -1309,7 +1316,8 @@ class FailClosedTests(unittest.TestCase):
         sys.argv = self._real_argv
 
     def _run_main_expecting_exit(self, *argv):
-        sys.argv = ["generate-opencode-agents.py", *argv]
+        sys.argv = ["generate-opencode-agents.py", *argv,
+                    "--repo-root", str(REPO_ROOT)]
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             with self.assertRaises(SystemExit) as ctx:
@@ -1382,7 +1390,7 @@ class FailClosedTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             out = Path(td) / "agents"
             MOD.OUTPUT_DIR = out
-            sys.argv = ["generate-opencode-agents.py"]
+            sys.argv = ["generate-opencode-agents.py", "--repo-root", str(REPO_ROOT)]
             buf = io.StringIO()
             with contextlib.redirect_stdout(buf):
                 rc = MOD.main()

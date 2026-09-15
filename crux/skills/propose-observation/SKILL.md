@@ -1,10 +1,11 @@
 ---
 name: propose-observation
-description: "Use when the user says \"propose observation\", \"record an observation\", \"new OBS\", \"observe this\", \"record what the code does\", \"this is observed not decided\", or has read the code and wants a fact recorded without deciding it. The reconstructed on-ramp of the observations concern: allocates the next `OBS-NNNN` from `docs/manifest.yml`, computes the record's `anchor_id`, scaffolds `docs/observations/OBS-NNNN-<slug>.md` from the template with `status: observed` and `provenance: reconstructed`, adds the concern index row and the `docs/index.md` rollup count, and writes the `observation` op to `docs/log.md`. Scaffold-only: the human authors the body. Writes no other status and never transitions one (that is `transition-observation`)."
+description: "Scaffold an observation of what code does, without making a decision. Leave its claim body for human authorship."
 metadata:
   tags: "observations, scaffolding, bronze, adr-less"
   bundles: "crux-docs"
   risk_level: "low"
+  triggers: "propose observation | record an observation | new OBS | observe this | record what the code does | this is observed not decided"
   routing_note: "Writes status: observed only; body is human-authored."
 ---
 

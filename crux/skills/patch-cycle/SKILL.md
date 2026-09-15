@@ -1,10 +1,11 @@
 ---
 name: patch-cycle
-description: "Use when the user says 'patch this', 'patch cycle', 'run a patch tier on X', 'small fix with the gates', 'this is too small for a cycle but it still needs a council and a review', or wants a reversible non-architectural change gated without paying the thirteen-prompt floor. Assembles a five-prompt book (cycle_kind: patch) whose phases run verify, plan, implement, review, summary — one prompt each, so its formula is the constant 5. The book declares its blast radius as repository paths BEFORE the run starts; the verify council reviews that declaration for proportion, and the archive precondition checks it mechanically against the paths the run actually changed. Allocates the next PB-NNNN, validates the book, regenerates the promptbooks index, and logs. Work needing an ADR is dev-cycle; a fix too large to bound is iterate; a plan needing no gates at all is author-promptbook."
+description: "Plan a small, reversible, non-architectural change as a five-prompt cycle with declared scope, council, and review gates."
 metadata:
   tags: "promptbooks, workflow, cycle, patch, small-change"
   bundles: "crux-docs"
   risk_level: "low"
+  triggers: "patch this | patch cycle | run a patch tier on X | small fix with the gates | this is too small for a cycle but it still needs a council and a review"
   routing_note: "The third cycle tier: a small reversible non-architectural change, five phases (verify, plan, implement, review, summary) at one prompt each, so the formula is the constant 5 and the floor is 5. Declares a `blast_radius` at authoring; the verify council reviews it for proportion and the archive precondition checks it against the paths the run changed, drawn from git. Work needing an ADR is `dev-cycle`; a fix too large to bound is `iterate`. See `patch-cycle/SKILL.md`."
 ---
 

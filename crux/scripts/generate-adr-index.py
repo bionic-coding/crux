@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["pyyaml>=6.0"]
+# ///
 """generate-adr-index.py — the vendored regenerator for <docs_dir>/adrs/index.md.
 
 Per ADR-0063 (SP-4): the ADR index becomes a *derived* artifact walking BOTH tiers.

@@ -1,10 +1,11 @@
 ---
 name: review-decisions
-description: "Use when the user says \"review the decisions\", \"run a decision review\", \"do the decisions still serve the objectives\", \"review the ADR set against the objectives\", \"decision review\", or \"is the decision set still right\". The periodic architect pass that reads the accepted decisions as a set and asks one question: do they still serve the objectives. Reads the doctrine index and the summaries rule table, runs eight mechanical signals, opens an ADR body only for a domain a signal flagged, and writes at most five findings into one dated report under `<docs_dir>/adrs/reviews/`. Proposes only: it transitions no record, signs off no batch, and authors no skill. Distinct from `audit-docs`, which checks graph integrity; from `cleanup-campsite`, which scans per-artifact process state; and from `retrospective`, which mines finished work for capability gaps."
+description: "Review accepted decisions against project objectives and propose findings. Does not enact changes or transition records."
 metadata:
   tags: "adrs, review, objectives, doctrine"
   bundles: "crux-docs"
   risk_level: "low"
+  triggers: "review the decisions | run a decision review | do the decisions still serve the objectives | review the ADR set against the objectives | decision review | is the decision set still right"
   routing_note: "The periodic architect review of the decision set against `<docs_dir>/objectives.md`; at most five findings in one dated report. Proposes only — it transitions nothing, signs off nothing, and authors nothing."
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: trace-runtime-ops
-description: "Semantic tracing and structured logging for all crux operations. Records model calls, reasoning phases, self-reflections, and generates markdown traces. Use to instrument any crux workflow. Traces land in logs/semantic_tracers/ by default or in the CRUX_TRACES_DIR if set."
+description: "Instrument crux workflows with structured logs and Markdown traces of model calls and reasoning phases."
 user-invocable: false
 metadata:
   tags: "tracing, logging, observability"

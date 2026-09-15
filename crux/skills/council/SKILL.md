@@ -1,12 +1,13 @@
 ---
 name: council
-description: "Use when the user says \"run the council\", \"convene the council\", \"ask the council\", or \"get a multi-model opinion\". Multi-model council deliberation (Claude + Gemini + GPT) for architectural decisions, approach selection, or any choice where multiple perspectives matter. ALWAYS prefer async via crux/scripts/crux/council/async_council.py. Use when choosing between approaches, evaluating tradeoffs, or when you need multi-LLM consensus."
+description: "Convene multiple models to evaluate approaches, tradeoffs, or architectural decisions and return their judgments."
 context: fork
 model: opus
 metadata:
   tags: "verification, multi-model, council, anti-hallucination"
   bundles: "crux-verification, crux-docs"
   risk_level: "medium"
+  triggers: "run the council | convene the council | ask the council | get a multi-model opinion"
   requires_env: "OPENROUTER_API_KEY"
 ---
 

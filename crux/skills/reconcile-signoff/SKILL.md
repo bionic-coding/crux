@@ -1,11 +1,12 @@
 ---
 name: reconcile-signoff
-description: "Use when the user says \"sign off the reconciliation\", \"reconcile INV-NNNN with ADR-NNNN\", \"record the reconciliation verdict\", \"this invariant is compatible with\", or \"mark the collision between\". The single human sign-off write path for one doctrine reconciliation pairing: it renders the invariant text and the rule text, collects the verdict and rationale FROM THE USER, dry-runs, then upserts a digest-bound record into `adrs/doctrine/reconciliations.yml` and re-compiles doctrine only on explicit confirmation. Never chooses a verdict for the user and never batch-signs."
+description: "Record a human verdict on one invariant–rule reconciliation. Never choose the verdict or sign multiple pairings together."
 disable-model-invocation: true
 metadata:
   tags: "doctrine, reconciliation, invariants, human-gate"
   bundles: "crux-docs"
   risk_level: "medium"
+  triggers: "sign off the reconciliation | reconcile INV-NNNN with ADR-NNNN | record the reconciliation verdict | this invariant is compatible with | mark the collision between"
   routing_note: "The single human write path for one doctrine reconciliation pairing: renders the invariant text and the rule text, takes the verdict (compatible | reconciled | collision) and rationale from the user, then upserts a digest-bound record and re-compiles doctrine on explicit confirmation. Human gate — excluded from run-execution autonomy; carries `disable-model-invocation`. Never chooses a verdict; never batch-signs."
 ---
 

@@ -31,6 +31,8 @@ from pathlib import Path
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 REPO_ROOT = SCRIPTS_DIR.parent.parent
 SCRIPT = SCRIPTS_DIR / "generate-runtime-compat.py"
+from _authoring_fixture import seed_authoring_probe
+
 
 
 def _load_module():
@@ -68,6 +70,7 @@ class SyntheticTreeCase(unittest.TestCase):
         exempt: set[str] | None = None,
     ) -> Path:
         root = tmp
+        seed_authoring_probe(root, SCRIPT)
         (root / "crux" / "templates").mkdir(parents=True)
         (root / "crux" / "catalog").mkdir(parents=True)
         (root / "crux" / "templates" / "runtime-compatibility.md").write_text(
@@ -355,7 +358,10 @@ class CliContractTests(unittest.TestCase):
         )
 
     def test_dry_run_on_the_real_tree_exits_zero_with_json(self):
-        result = self._run("--dry-run")
+        # --repo-root is explicit: the CLI takes its target from the invocation, so
+        # without it this case declines whenever the suite runs from a directory that
+        # is not this checkout, and the 56-target assertion below measures nothing.
+        result = self._run("--dry-run", "--repo-root", str(SCRIPT.parents[2]))
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         payload = json.loads(result.stdout)
         self.assertEqual(payload["drifted"], [])
@@ -366,7 +372,7 @@ class CliContractTests(unittest.TestCase):
         """Positive control for the row above, through the same CLI."""
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "crux").mkdir()
+            seed_authoring_probe(root, SCRIPT)
             for sub in ("templates", "catalog", "skills"):
                 (root / "crux" / sub).mkdir()
             (root / "crux" / "templates" / "runtime-compatibility.md").write_text(
@@ -393,6 +399,7 @@ class CliContractTests(unittest.TestCase):
 
     def test_a_validation_error_exits_one_with_json_not_a_traceback(self):
         with tempfile.TemporaryDirectory() as tmp:
+            seed_authoring_probe(tmp, SCRIPT)
             result = self._run("--dry-run", "--repo-root", tmp)
             self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
             self.assertIn("error", json.loads(result.stdout))
@@ -401,6 +408,7 @@ class CliContractTests(unittest.TestCase):
     def test_a_non_utf8_target_exits_two_on_stderr(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            seed_authoring_probe(root, SCRIPT)
             (root / "crux" / "templates").mkdir(parents=True)
             (root / "crux" / "catalog").mkdir(parents=True)
             (root / "crux" / "templates" / "runtime-compatibility.md").write_text(

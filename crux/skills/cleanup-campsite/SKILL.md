@@ -1,10 +1,11 @@
 ---
 name: cleanup-campsite
-description: "Use when the user says \"cleanup\", \"hygiene check\", \"what's next\", \"clean up the docs\", \"refresh whats_next\". Runs forward-looking process-state scans over the project — README/USER_GUIDE version drift, ADRs needing review, stuck/archivable promptbooks, missing journal entries — and regenerates docs/whats_next.md with prioritized, citation-bearing suggestions. Distinct from audit-docs (which finds graph-integrity violations); cleanup proposes forward actions and never edits prose surfaces (README, ADR bodies, journal entries)."
+description: "Scan project process state and refresh prioritized next actions. Finds unfinished work, not documentation graph violations."
 metadata:
   tags: "cleanup, hygiene, whats-next, scan, forward-looking"
   bundles: "crux-docs"
   risk_level: "low"
+  triggers: "cleanup | hygiene check | what's next | clean up the docs | refresh whats_next"
   routing_note: "Forward-looking process-state scan; regenerates `docs/whats_next.md`. Distinct from `audit-docs` — proposes actions, never edits prose."
 ---
 

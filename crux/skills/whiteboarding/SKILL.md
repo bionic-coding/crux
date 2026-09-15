@@ -1,10 +1,11 @@
 ---
 name: whiteboarding
-description: "Use when the user says 'brainstorm', 'whiteboard this', \"let's explore X\", 'help me think through Y', 'design X before we build it', 'I have an idea', or wants pre-decision exploration before committing to a build. The docs-aware replacement for superpowers:brainstorming — turns an idea into a design through dialogue, then produces a brainstorming session the historian files as a brief and the architect turns into an ADR."
+description: "Explore an idea through docs-informed dialogue before committing to a design. Capture the exploration for later filing as a brief."
 metadata:
   tags: "brainstorming, exploration, design, whiteboarding"
   bundles: "crux-docs"
   risk_level: "low"
+  triggers: "let's explore X | brainstorm | whiteboard this | help me think through Y | design X before we build it | I have an idea"
 ---
 
 # Whiteboarding (docs-aware brainstorming)

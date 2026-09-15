@@ -1,10 +1,11 @@
 ---
 name: author-promptbook
-description: "Use when the user says \"new promptbook\", \"draft a plan-of-prompts\", \"formalize a workflow\", or wants to capture a multi-prompt plan as a tracked artifact — for ad-hoc plans that do NOT need a gated cycle (if the user wants enforced cycle rigor, that's `dev-cycle` for architectural work, `iterate` for non-architectural fixes, or `patch-cycle` for a small reversible change with a declared blast radius; this skill imposes no module structure or invariants). Allocates the next `PB-NNNN`, writes a fresh book under `docs/promptbooks/active/`, regenerates `docs/promptbooks/index.md`, and logs the operation. Also authors a successor book when a run was abandoned."
+description: "Create a tracked, multi-prompt plan without enforced cycle gates. Use for ad-hoc workflows or a successor to an abandoned book."
 metadata:
   tags: "promptbooks, authoring, planning"
   bundles: "crux-docs"
   risk_level: "low"
+  triggers: "new promptbook | draft a plan-of-prompts | formalize a workflow"
   routing_note: "Allocates next `PB-NNNN`."
 ---
 

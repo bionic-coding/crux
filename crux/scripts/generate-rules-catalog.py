@@ -37,6 +37,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import authoring_scope as _scope  # noqa: E402
 
 import summaries_projection as sp  # noqa: E402
 
@@ -115,7 +116,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args(argv)
 
-    repo_root = Path(args.repo_root).resolve()
+    repo_root = _scope.resolve_repo_root(args.repo_root)
     plugin_root = repo_root / "crux"
     target = plugin_root / "catalog" / "rules.json"
 
@@ -126,11 +127,24 @@ def main(argv: list[str] | None = None) -> int:
     # Without this lane a downstream `check-drift` run reported drift against a file it
     # had no business owning, and the remedy that row names WROTE a `crux/` tree into the
     # reader's repository — which the decision explicitly disclaims.
-    if not (plugin_root / "scripts" / Path(__file__).name).is_file():
-        print(json.dumps({"surface_absent": True, "drift": False, "written": None,
-                          "reason": "not the plugin's authoring checkout; nothing to project"},
-                         sort_keys=True))
-        return 0
+    if not _scope.is_authoring_checkout(repo_root, __file__):
+        return _scope.print_surface_absent(written=None)
+
+    # SECOND TRIGGER of the same lane. The catalog is projected from THIS tree's own
+    # `governs` blocks, and the release artifact ships `crux/` without the tree. Run
+    # from the staged artifact or a public clone, the first probe passes -- both carry
+    # `crux/scripts/` -- and then every cited slug resolved to nothing, so the gate
+    # exited 2 with empty stdout and `check-drift` filed a CRASH against an artifact
+    # that owns no source to project from. No tree, no projection, nothing to drift.
+    try:
+        docs = sp.resolve_tree(repo_root)
+    except Exception:  # noqa: BLE001 -- an unresolvable tree is an absent one here
+        docs = None
+    if docs is None or not (docs / "adrs").is_dir():
+        return _scope.print_surface_absent(
+            written=None,
+            reason="the rules catalog is projected from this tree's own governs blocks, "
+                   "and no documentation tree is present here")
 
     try:
         catalog = build_catalog(repo_root, plugin_root)

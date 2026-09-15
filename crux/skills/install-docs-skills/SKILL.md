@@ -1,11 +1,12 @@
 ---
 name: install-docs-skills
-description: "Use when the user says \"install docs skills\", \"add this plugin\", \"set up crux\", or \"upgrade docs suite\", asks about the installed version, or the Crux plugin is not loaded. Install or upgrade the Crux plugin in Codex or Claude Code. In Codex, provide `codex plugin marketplace add bionic-coding/crux` then `codex plugin add crux@crux`; in Claude Code, provide its marketplace slash commands. Report the installed manifest before guiding a schema migration. Distinct from `init-docs`, which bootstraps the target repository's docs tree."
+description: "Install or upgrade the crux plugin in Codex or Claude Code, check its installed version, and guide documentation schema migration."
 disable-model-invocation: true
 metadata:
   tags: "installation, plugin, distribution"
   bundles: "crux-docs"
   risk_level: "low"
+  triggers: "install docs skills | add this plugin | set up crux | upgrade docs suite"
   routing_note: "Re-runs the installer."
 ---
 
@@ -145,7 +146,7 @@ Fields to extract:
 
 - `name` — should be `crux`.
 - `version` — semver of the installed plugin.
-- `schema_version` — the tree schema version this plugin supports.
+- `schema_version` — the **SKILL.md frontmatter contract** version. This is NOT the tree schema version, and comparing it to a tree's `manifest.yml` value is a category error: the two are separate axes that have never held the same number. The supported TREE value comes from `${CRUX_PLUGIN_ROOT}/templates/manifest.yml.tmpl`, which is the manifest `init-docs` writes and therefore, by construction, the tree layout this plugin operates on.
 - `skills` — list of skill names bundled in this version.
 - `agents` — list of bundled agents (when present).
 - `scripts` — list of helper scripts.
@@ -153,11 +154,11 @@ Fields to extract:
 Sanity checks:
 - If `name` is not `crux`, refuse: "Plugin at `<path>` reports name `<X>`, not `crux`. Inspect the directory; do not assume it's this plugin."
 - If `version` is missing or not semver, warn and proceed.
-- If `schema_version` is missing, warn — the schema-compatibility check will be skipped.
+- If `templates/manifest.yml.tmpl` is missing or carries no `schema_version`, warn — the schema-compatibility check will be skipped. A missing `plugin.json` `schema_version` does not skip it, because that field is not its input.
 
-Resolve whether the target repo has an existing tree — via `bionic-config.py --repo-root "<target repo>"`, or directly by checking for `.bionic.yml`, a `bionic/` tree, or a legacy `docs/` tree (any one of these existing counts as an existing tree; never test literal `docs/` absence alone, which misclassifies an established `bionic/`-only repo). If an existing tree is found, read its `manifest.yml` `schema_version` and compare against the plugin's supported value. The current plugin supports **exactly one** value — a single-value check, not an inclusive range. Read the supported value from the installed manifest; do not hardcode it here. There is no "newer/older within a range" gradient; a tree is either at the supported value or it needs migration:
+Resolve whether the target repo has an existing tree — via `bionic-config.py --repo-root "<target repo>"`, or directly by checking for `.bionic.yml`, a `bionic/` tree, or a legacy `docs/` tree (any one of these existing counts as an existing tree; never test literal `docs/` absence alone, which misclassifies an established `bionic/`-only repo). If an existing tree is found, read its `manifest.yml` `schema_version` and compare against the plugin's supported value. The current plugin supports **exactly one** value — a single-value check, not an inclusive range. **Read the supported value from `${CRUX_PLUGIN_ROOT}/templates/manifest.yml.tmpl`, never from `plugin.json`.** `plugin.json`'s `schema_version` is the SKILL.md frontmatter contract on a separate axis; it has held a lower number than the tree schema for the whole 3.x line, so reading it here told every consumer with an existing tree that their tree was written by a newer plugin and to stop. Do not hardcode either value. There is no "newer/older within a range" gradient; a tree is either at the supported value or it needs migration:
 
-Compare the tree's value against the supported value you just read from the manifest — **never against a number written in this file.** This prose has shipped stale twice; the manifest is the only source of truth.
+Compare the tree's value against the supported value you just read from the template — **never against a number written in this file, and never against `plugin.json`.** This prose has shipped stale twice; the shipped template is the only source of truth.
 
 - **Equal (match)** → all good. The plugin operates on this tree.
 - **Below the supported value (needs migration)** → the upgraded plugin does NOT operate on it; this is a distinct "needs migration" state, not an install error. Recommend running `audit-docs --migrate` AFTER upgrading the plugin. Its ladder walks every rung between the tree's value and the supported one, in order.

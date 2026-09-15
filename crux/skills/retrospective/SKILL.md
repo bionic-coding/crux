@@ -1,10 +1,11 @@
 ---
 name: retrospective
-description: "Use when the user says \"run a retrospective\", \"retro this\", \"retro the last few cycles\", \"harvest skills from recent work\", \"what should we learn from the last few cycles\", or \"purposeful reflection\". Also the natural follow-on after several archived books (the cycle summary names it; the cleanup rule CLN-RETRO-1 nudges it). Mines finished work — journal reflective sections, run notes, log ops, whats_next, and the forge log — for recurring friction; distills at most 2 skill proposals (0 is legitimate); gates each through the 3-model council; builds approved proposals by handing off to forge-skill. Deliberate scheduled reflection over many finished works — distinct from forge-skill, which is the mid-task reflex closing one live gap right now."
+description: "Review finished work for recurring friction, propose skill improvements, and build those approved through council review."
 metadata:
   tags: "retrospective, reflection, harvest, skills, council"
   bundles: "crux-core, crux-docs"
   risk_level: "medium"
+  triggers: "run a retrospective | retro this | retro the last few cycles | harvest skills from recent work | what should we learn from the last few cycles | purposeful reflection"
   routing_note: "Deliberate reflection; ≤2 council-gated skill proposals built via forge-skill. Mines recent journal reflections, run notes, and log ops for recurring friction; 0 proposals is a legitimate outcome."
 ---
 

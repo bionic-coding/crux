@@ -49,9 +49,18 @@ from opencode_agents import (  # noqa: E402,F401
 )
 from opencode_agents import generate as _project  # noqa: E402
 
+import authoring_scope as _scope  # noqa: E402
+
+# These name the checkout this script SHIPS IN, which is the right answer only when
+# that checkout is also the one under inspection. `main` re-points them at the
+# resolved `--repo-root` before using them; see the note there.
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 SOURCE_DIR = REPO_ROOT / "crux" / "agents"
 OUTPUT_DIR = REPO_ROOT / "opencode" / "agents"
+
+# Captured at import so `main` can tell an untouched default from a test's retarget.
+_IMPORT_SOURCE_DIR = SOURCE_DIR
+_IMPORT_OUTPUT_DIR = OUTPUT_DIR
 
 
 def crash(msg: str) -> NoReturn:
@@ -72,7 +81,29 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--dry-run", action="store_true",
                         help="report drift as JSON; write nothing; exit 1 on drift")
+    parser.add_argument("--repo-root", default=None,
+                        help="repo root to inspect (default: the working directory)")
     args = parser.parse_args()
+
+    root = _scope.resolve_repo_root(args.repo_root)
+
+    # SURFACE-ABSENT LANE. `opencode/agents/` is the plugin's own projection of its own
+    # `crux/agents/`; a consuming project owns neither side. Run from one, this used to
+    # read the INSTALLED plugin's agents and compare them against an `opencode/agents/`
+    # inside the plugin cache -- ten phantom additions reported as that project's drift,
+    # whose named remedy would have written into the reader's plugin cache.
+    if not _scope.is_authoring_checkout(root, __file__):
+        return _scope.print_surface_absent()
+
+    # Follow the root under inspection, not the checkout this file happens to live in.
+    # LOCALS, never a rebind of the module globals: an earlier version assigned them,
+    # so one call with a foreign --repo-root left every later call in the same process
+    # pointed at that foreign tree -- the "still holds its import-time value" guard is
+    # false forever after the first assignment. Read fresh from the globals each call,
+    # so a test that retargets either one keeps its target and nothing leaks between
+    # calls.
+    source_dir = root / "crux" / "agents" if SOURCE_DIR == _IMPORT_SOURCE_DIR else SOURCE_DIR
+    output_dir = root / "opencode" / "agents" if OUTPUT_DIR == _IMPORT_OUTPUT_DIR else OUTPUT_DIR
 
     # Every filesystem step goes through the shared `opencode_agents` diff/write,
     # exactly as generate-codex-agents.py goes through `codex_agents`. This driver
@@ -93,14 +124,14 @@ def main() -> int:
     # any of them is the same class of failure and owes the caller exit 2 with a
     # message on stderr, never a traceback.
     try:
-        generated = generate()
-        added, changed, removed = diff(OUTPUT_DIR, generated)
+        generated = _project(source_dir)
+        added, changed, removed = diff(output_dir, generated)
         if args.dry_run:
             print(json.dumps(
                 {"added": added, "changed": changed, "removed": removed},
                 indent=2))
             return 1 if (added or changed or removed) else 0
-        written, removed = write(OUTPUT_DIR, generated)
+        written, removed = write(output_dir, generated)
     except SpecViolation as exc:
         crash(str(exc))
 

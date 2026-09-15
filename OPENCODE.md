@@ -1,4 +1,4 @@
-<!-- generated-from: OPENCODE.md@sha256:399d1757a93cb4de76d381ab3522f7f78cd5007e1b6068e5b990fdf5cc94f070; model: deterministic-copy; date: 2026-09-14 -->
+<!-- generated-from: OPENCODE.md@sha256:399d1757a93cb4de76d381ab3522f7f78cd5007e1b6068e5b990fdf5cc94f070; model: deterministic-copy; date: 2026-09-15 -->
 # Install Crux for OpenCode
 
 Crux has no native OpenCode marketplace package. OpenCode installation uses a stable clone of the public Crux repository. This guide covers machine-wide and project-only installation for humans and agents.

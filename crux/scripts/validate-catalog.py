@@ -87,6 +87,8 @@ from typing import Any, Callable
 # when scripts/ is on sys.path and by file location otherwise, mirroring
 # validate-promptbook.py.
 _SCRIPTS_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(_SCRIPTS_DIR))
+import authoring_scope as _scope  # noqa: E402
 
 
 def _sibling(name: str) -> Any:
@@ -177,6 +179,7 @@ SCHEMA_KEYS = [
 OPTIONAL_SCHEMA_KEYS = [
     "requires_env",
     "routing_note",
+    "triggers",
 ]
 
 # Per ADR-0092: the Claude Code skill invocation-control top-level keys. These
@@ -212,6 +215,7 @@ OUTPUT_KEY_ORDER = [
     "risk_level",
     "requires_env",
     "routing_note",
+    "triggers",
     *SKILL_INVOCATION_KEYS,
 ]
 
@@ -250,6 +254,16 @@ EXTENDED_FIELDS_UNDER_METADATA = set(SCHEMA_KEYS[2:]) | set(OPTIONAL_SCHEMA_KEYS
 # Subset of metadata.* fields whose canonical form in catalog/skills.json is
 # a JSON list. _lift_metadata() splits their CSV string on `,` and strips.
 LIST_VALUED_METADATA = {"tags", "bundles", "requires_env"}
+
+# `metadata.triggers` is list-valued too, but PIPE-separated rather than CSV.
+# rule:triggers-are-declared-in-frontmatter, rule:triggers-separator-fits-the-value-type.
+# Its tokens are the user phrases that route to the skill, and a phrase may
+# contain a comma -- `this is small, skip the cycle` is one of them. Splitting
+# that on `,` yields two phrases nobody says, so the field takes the separator
+# its value type allows instead of the one its neighbours happen to use. A
+# trigger containing a pipe cannot be encoded and is refused, not split.
+PIPE_VALUED_METADATA = {"triggers"}
+TRIGGER_SEPARATOR = "|"
 
 # Set of all keys the validator recognizes (post-lift, in the flat shape used
 # by skills.json). Any other top-level key in the lifted frontmatter is
@@ -393,6 +407,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "Parse + validate + emit JSON diff to stdout. Do not write files. "
             "Exit 1 if drift or validation errors; exit 0 if clean."
         ),
+    )
+    parser.add_argument(
+        "--repo-root",
+        default=None,
+        help="repo root to inspect (default: the working directory)",
     )
     parser.add_argument(
         "--verbose",
@@ -674,7 +693,62 @@ def _lift_metadata(raw_fm: dict) -> tuple[dict, list[str]]:
             # are validation errors and are NOT lifted into the catalog shape.
             shape_errors.append(f"unknown metadata key {mk!r} (strict metadata contract per ADR-0034)")
             continue
-        if mk in LIST_VALUED_METADATA:
+        if mk in PIPE_VALUED_METADATA:
+            if mv is None or mv == "":
+                lifted[mk] = []
+                continue
+            if isinstance(mv, list):
+                # rule:triggers-separator-fits-the-value-type -- a token carrying the
+                # separator is REFUSED rather than split, because the encoding cannot
+                # represent it. Only the LIST form can be refused: in the string form
+                # `a|b` is indistinguishable from two tokens by construction. That is
+                # the honest limit of the encoding, and the shipped catalog is gated
+                # on it separately by test_no_declared_phrase_contains_the_separator.
+                non_str = [tok for tok in mv if not isinstance(tok, str)]
+                if non_str:
+                    shape_errors.append(
+                        f"metadata key {mk!r}: every token must be a string; got "
+                        f"{[type(tok).__name__ for tok in non_str]}"
+                    )
+                    continue
+                tokens = [tok.strip() for tok in mv]
+            elif isinstance(mv, str):
+                tokens = [tok.strip() for tok in mv.split(TRIGGER_SEPARATOR)]
+            else:
+                shape_errors.append(
+                    f"metadata key {mk!r}: must be a {TRIGGER_SEPARATOR!r}-separated "
+                    f"string or a list of strings; got {type(mv).__name__}"
+                )
+                continue
+
+            # A token check, on the `requires_env` model. Without one a number, a
+            # mapping or a bool was coerced with `str()` and shipped as a phrase, and
+            # a token carrying a newline reached the §10 Markdown table -- an
+            # instruction-carrying file -- through a cell escape that handles only the
+            # pipe. Refuse the token rather than render it.
+            carriers = [tok for tok in tokens if TRIGGER_SEPARATOR in tok]
+            if carriers:
+                shape_errors.append(
+                    f"metadata key {mk!r}: token(s) carry the {TRIGGER_SEPARATOR!r} "
+                    f"separator and cannot be encoded: {carriers}"
+                )
+                continue
+            control = [tok for tok in tokens if any(c in tok for c in "\r\n\t")]
+            if control:
+                shape_errors.append(
+                    f"metadata key {mk!r}: token(s) carry a control character and "
+                    f"cannot be rendered into a table row: {control!r}"
+                )
+                continue
+            tokens = [tok for tok in tokens if tok]
+            dupes = sorted({tok for tok in tokens if tokens.count(tok) > 1})
+            if dupes:
+                shape_errors.append(
+                    f"metadata key {mk!r}: duplicate token(s) would render twice: {dupes}"
+                )
+                continue
+            lifted[mk] = tokens
+        elif mk in LIST_VALUED_METADATA:
             if mv is None or mv == "":
                 lifted[mk] = []
             elif isinstance(mv, list):
@@ -894,6 +968,8 @@ def validate_skill_frontmatter(fm: dict, skill_path: Path, plugin_dir: Path) -> 
         entry["requires_env"] = fm["requires_env"]
     if "routing_note" in fm and fm.get("routing_note") is not None:
         entry["routing_note"] = fm["routing_note"]
+    if "triggers" in fm and fm.get("triggers") is not None:
+        entry["triggers"] = fm["triggers"]
     for key in SKILL_INVOCATION_KEYS:
         if key in fm and fm.get(key) is not None:
             entry[key] = fm[key]
@@ -2071,7 +2147,19 @@ def read_existing_agents_json(path: Path) -> list[dict]:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
 
-    plugin_dir = Path(__file__).resolve().parent.parent
+    # SURFACE-ABSENT LANE. The catalog is the PLUGIN's derived output, projected from
+    # the plugin's own skills and agents. Run from a consuming project it resolved the
+    # catalog beside itself and validated the installed plugin against the installed
+    # plugin -- exit 0, clean, and nothing said about the project the reader asked
+    # about. That vacuous green was recorded as a passing roster row.
+    root = _scope.resolve_repo_root(getattr(args, "repo_root", None))
+    if not _scope.is_authoring_checkout(root, __file__):
+        print(json.dumps(_scope.surface_absent_payload(
+            reason="the skill and agent catalogs are the plugin's own derived outputs; "
+                   "this is not the plugin's authoring checkout"), sort_keys=True))
+        return 0
+
+    plugin_dir = root / "crux"
     config_path = args.config if args.config is not None else (plugin_dir / "plugin.json")
     if args.verbose:
         print(f"validate-catalog: plugin_dir={plugin_dir}", file=sys.stderr)

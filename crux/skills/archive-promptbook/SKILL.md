@@ -1,11 +1,12 @@
 ---
 name: archive-promptbook
-description: "Use when a promptbook's current run has either completed (every prompt terminal) or been deliberately abandoned, and the user says \"archive promptbook\" / \"archive PB-NNNN\" / \"this promptbook is finished\" / \"close out the book\". Finalizes the current run snapshot, moves the book from `docs/promptbooks/active/` to `docs/promptbooks/archive/`, flips status to `archived`, regenerates `docs/promptbooks/index.md`, and logs the archival. For a `patch` book it also checks the run's changed paths against the declared blast radius. Refuses a book whose current run is still in progress or was merely superseded."
+description: "Archive a promptbook after its current run completes or is deliberately abandoned. Refuse runs still in progress."
 arguments: [book]
 metadata:
   tags: "promptbooks, archive, lifecycle"
   bundles: "crux-docs"
   risk_level: "low"
+  triggers: "archive promptbook | archive PB-NNNN | this promptbook is finished | close out the book"
   routing_note: "Only when all prompts terminal."
 ---
 

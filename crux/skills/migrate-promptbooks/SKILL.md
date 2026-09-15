@@ -1,11 +1,12 @@
 ---
 name: migrate-promptbooks
-description: "Use when the user says \"migrate promptbooks\", \"convert legacy promptbooks to yaml\", \"migrate the promptbook corpus\", \"upgrade the .md promptbooks\", or after the structured-YAML book/run format has landed and the legacy Markdown books + run snapshots need translating. Translates legacy `.md` promptbooks and run snapshots into structured `.yaml` (validated against promptbook.schema.json / run.schema.json), recomputes each run's book_content_hash against its migrated book, preserves every original by relocating it into `docs/promptbooks/legacy/`, regenerates the promptbooks index, and logs the migration. Idempotent and re-runnable; never touches the in-flight active book or its in_progress run."
+description: "Migrate legacy Markdown promptbooks and run snapshots to validated YAML, preserving originals and leaving active runs untouched."
 disable-model-invocation: true
 metadata:
   tags: "promptbooks, migration, yaml"
   bundles: "crux-docs"
   risk_level: "low"
+  triggers: "migrate promptbooks | convert legacy promptbooks to yaml | migrate the promptbook corpus | upgrade the .md promptbooks"
   routing_note: "Translates legacy `.md` books + runs to `.yaml`; preserves originals under `docs/promptbooks/legacy/`; recomputes each run's `book_content_hash`. Idempotent; never touches the in-flight active book."
 ---
 

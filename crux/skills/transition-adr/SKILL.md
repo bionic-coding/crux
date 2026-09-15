@@ -1,11 +1,12 @@
 ---
 name: transition-adr
-description: "Use when the user says \"accept ADR-NNNN\", \"deprecate ADR-NNNN\", \"supersede ADR-NNNN with ADR-MMMM\", or \"retract ADR-NNNN\". Owns the status state-machine transitions on existing ADRs, the bidirectional supersession write, the `docs/adrs/index.md` row update, and the `docs/log.md` entry. Refuses to touch ADR narrative bodies — body is frozen after `Proposed`."
+description: "Accept, deprecate, supersede, or retract an existing ADR. Update status and relationships without changing its narrative body."
 arguments: [adr]
 metadata:
   tags: "adrs, state-machine, transitions"
   bundles: "crux-docs"
   risk_level: "low"
+  triggers: "accept ADR-NNNN | deprecate ADR-NNNN | supersede ADR-NNNN with ADR-MMMM | retract ADR-NNNN"
   routing_note: "Enforces state machine."
 ---
 

@@ -498,7 +498,7 @@ The installed plugin refuses to operate on a `docs/` tree whose `schema_version`
 
 The plugin's SKILL.md frontmatter contract (see §7.A) was revised separately, bumping `plugin.json` `schema_version` from `"1"` to `"2"` — `docs/manifest.yml` `schema_version` did not move because no `docs/` layout changed. Likewise the `cleanup-campsite` additions (the log op, the regenerated `docs/whats_next.md`, the optional `cleanup:` block above) were **additive** — older readers gracefully degrade (the new op shows as a `CHK-LOG-*` warning at worst; absent `whats_next.md` is the v1 default; absent `cleanup:` block falls back to defaults) — and did not bump this `schema_version`. The promptbook/run Markdown→YAML format change is a `format_version` change, NOT a tree-layout bump: the files still live at `promptbooks/active/`, `promptbooks/runs/<id>-<slug>/`, `promptbooks/archive/` — only their extension and intra-file shape changed, and legacy `.md` files coexist with new `.yaml` ones.
 
-## 7.A. Catalog schema (`plugin.json` schema_version `"2"`)
+## 7.A. Catalog schema (`plugin.json` schema_version `"4"`)
 
 The current SKILL.md frontmatter contract is **conformant to the public Agent Skills Spec** (the rationale for the revision: extended catalog fields must live where spec validators like `skills-ref` allow them, so the catalog layer rides under `metadata:` instead of inventing top-level keys).
 
@@ -531,11 +531,10 @@ Top-level optional (per spec):
 |---|---|---|---|
 | `tags` | CSV string | yes | 2-5 kebab-case ASCII tags. CSV format: `", "` (comma + single space). On parse: split on `,`, strip each token, reject empty tokens. |
 | `bundles` | CSV string | yes | Bundle ids the skill belongs to. Same CSV encoding as `tags`. At minimum: `crux-core` or `crux-docs`. |
-| `owner` | string | yes | Team or handle responsible. Default: `crux`. |
-| `version` | string | yes | Semver or date-based. |
 | `risk_level` | enum | yes | `low \| medium \| high`. Default: `low`. |
-| `status` | enum | yes | `draft \| staging \| production \| deprecated`. |
 | `requires_env` | CSV string | no | Env-var keys the skill needs at runtime. Each token must match `^[A-Z][A-Z0-9_]*$`. Empty string means "no env requirement." |
+| `routing_note` | string | no | The optional Notes cell for the skill's routing-table row. |
+| `triggers` | PIPE-separated string | no | The user phrases that route to this skill, projected into `catalog/skills.json` as a JSON array. The separator is `\|`, not the comma `tags`, `bundles` and `requires_env` use: a trigger is a natural-language phrase and may contain a comma, which a CSV split would cut in two. On parse: split on `\|` and strip each token; empty tokens are dropped. A non-string token is refused, and so is one carrying the separator, a control character, or a duplicate of another token. A skill that is `user-invocable: false` declares none, and that is not a gap. |
 
 Concrete example:
 

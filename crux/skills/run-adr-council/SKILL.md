@@ -1,11 +1,12 @@
 ---
 name: run-adr-council
-description: "Use when the user says 'run the council on ADR-NNNN', 'council review ADR-NNNN', 'run-adr-council ADR-NNNN', or 'council-check this ADR', or a cycle's ADR module needs its council gate. Runs the council on ADR-NNNN. Reads the ADR, assembles a structured council prompt with the ADR body as delimited data, invokes async_council.py via a PEP 723 temp driver, and returns a structured verdict. Replaces ad-hoc copy-paste-adapted council driver scripts."
+description: "Run a structured multi-model council review of a specified ADR and return its verdict for the ADR approval gate."
 arguments: [adr]
 metadata:
   tags: "council, adr, verification, multi-model"
   bundles: "crux-verification, crux-docs"
   risk_level: "medium"
+  triggers: "run the council on ADR-NNNN | council review ADR-NNNN | run-adr-council ADR-NNNN | council-check this ADR"
   requires_env: "OPENROUTER_API_KEY"
   routing_note: "Reads the ADR, fences its body as data, invokes the async council, returns a structured verdict; no per-ADR driver."
 ---

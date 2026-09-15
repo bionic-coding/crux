@@ -1,11 +1,12 @@
 ---
 name: install-opencode-agents
-description: "Use when the user says \"install opencode agents\", \"install crux agents for opencode\", or \"refresh the opencode agents\". Install or refresh Crux's ten OpenCode role agents in a target project's .opencode/agents directory. Use when an OpenCode user asks to install Crux agents, enable the Crux architect/developer/reviewer roles, or refresh generated OpenCode role definitions after a plugin upgrade. Does not overwrite a conflicting role without --force."
+description: "Install or refresh crux's OpenCode role agents in a target project. Preserve conflicting roles unless replacement is authorized."
 disable-model-invocation: true
 metadata:
   tags: "opencode, agents, installation, roles"
   bundles: "crux-infrastructure, crux-docs"
   risk_level: "medium"
+  triggers: "install opencode agents | install crux agents for opencode | refresh the opencode agents"
 ---
 
 # Install OpenCode Agents

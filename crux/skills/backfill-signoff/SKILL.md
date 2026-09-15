@@ -1,11 +1,12 @@
 ---
 name: backfill-signoff
-description: "Use when the user says \"sign off backfill batch <id>\", \"backfill sign-off\", or \"sign the backfill\". The single owner write path for a governs backfill batch: renders each enumerated receipt's rule and anchor verbatim for owner approval, validates fail-closed (drift-since-review voids a verdict; never onto a red tree), then flips the batch's signed date, appends the admission ledger, writes the backfill log op, hooks the journal, and sets the completion marker only when the cohort arithmetic has zero pending. Idempotent; a mid-write crash completes absence-conditionally on re-run."
+description: "Obtain owner approval for a governs backfill batch, validate its receipts, and record sign-off. Refuse drifted or failing batches."
 disable-model-invocation: true
 metadata:
   tags: "backfill, sign-off, receipts, human-gate"
   bundles: "crux-docs"
   risk_level: "low"
+  triggers: "sign off backfill batch <id> | backfill sign-off | sign the backfill"
   routing_note: "The single owner write path for a governs backfill batch: verbatim rendering of every enumerated receipt, fail-closed validation, then the four surfaces (reviews `signed` flip, `adr.governs_backfilled` ledger append, `backfill` log op, journal hook) plus the completion marker when the cohort arithmetic holds. Idempotent; absence-conditional completion after a mid-write crash."
 ---
 

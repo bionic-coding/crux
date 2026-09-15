@@ -1,10 +1,11 @@
 ---
 name: propose-brief
-description: "Use when the user says \"draft a brief\", \"scaffold a brief\", \"new brief\", \"BRIEF for <topic>\", \"I want to explore X before deciding\", or wants to start a pre-decision exploration document. Owns slug allocation, the collision-checked creation of `docs/briefs/BRIEF-<slug>.md` from the template with `status: draft` frontmatter, the brief rollup row in `docs/index.md`, and the `brief` op entry in `docs/log.md`. Scaffold-only: leaves the body for humans to author. Does NOT transition brief status or write ADRs."
+description: "Scaffold a draft brief for pre-decision exploration. Leave its body for human authorship; do not create an ADR or change status."
 metadata:
   tags: "briefs, scaffolding, exploration, adr-precursor"
   bundles: "crux-docs"
   risk_level: "low"
+  triggers: "draft a brief | scaffold a brief | new brief | BRIEF for <topic> | I want to explore X before deciding"
   routing_note: "Scaffolds the file + frontmatter; body is human-authored."
 ---
 

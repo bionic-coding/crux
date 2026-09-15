@@ -1,11 +1,12 @@
 ---
 name: transition-decision
-description: "Use when the user says 'ratify decision <id>', 'reject decision <id>', 'defer decision <id>', 'ratify decision <id> as observation', or dispositions a recovered decision candidate emitted by `recover-decisions`. The human ratify/reject/defer gate for decision recovery. `ratify` defaults to creating a Proposed ADR carrying `recovered_id` (idempotent) and sets the candidate `ratified`; `ratify --as observation` instead writes an observation record with `provenance: recovered` (idempotent on `find_ratified_observation`) — the mined on-ramp of the observations concern; `reject`/`defer` set the candidate state so it is suppressed on the next scan. This is the ONLY path that turns a recovered candidate into an ADR or an observation record — `recover-decisions` never does either."
+description: "Apply a human ratify, reject, or defer verdict to a recovered decision candidate; ratification creates a Proposed ADR or observation."
 disable-model-invocation: true
 metadata:
   tags: "arch, decision-recovery, adr, observations, ratification"
   bundles: "crux-docs"
   risk_level: "low"
+  triggers: "ratify decision <id> | reject decision <id> | defer decision <id> | ratify decision <id> as observation"
 ---
 
 # transition-decision

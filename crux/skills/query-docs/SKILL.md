@@ -1,10 +1,11 @@
 ---
 name: query-docs
-description: "Use when the user asks a question that can be answered from `docs/` — \"what does X do?\", \"why did we choose Y?\", \"what's our plan for Z?\", \"what do we know about W?\", \"compare X and Y\", \"what's new since\" — or any open question the docs tree might cover. Locates relevant pages via `docs/index.md` and per-concern indexes, reads them, synthesizes an answer with citations back to `docs/` paths, optionally logs the query, and offers to file substantive answers as new synthesis pages so explorations compound in the docs tree."
+description: "Answer questions about project knowledge, decisions, plans, and current architecture from the documentation tree."
 metadata:
   tags: "query, search, synthesis"
   bundles: "crux-docs"
   risk_level: "low"
+  triggers: "what does X do? | why did we choose Y? | what's our plan for Z? | what do we know about W? | compare X and Y | what's new since | summarize the current architecture | what's the current architecture | what supersedes what | how do the ADRs relate"
   routing_note: "Index-first; cites sources."
 ---
 

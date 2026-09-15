@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import argparse
 import difflib
+import json
 import glob
 import re
 import sys
@@ -143,21 +144,27 @@ def main(argv: list[str]) -> int:
     want = render_section(load_adrs(adrs_dir))
     have = m.group(0)
 
+    # JSON on every lane. `check-drift` and `audit-docs` both parse each gate's
+    # stdout as JSON regardless of exit code, and a prose diff parses as nothing --
+    # the row could not be classified, so the roster accounting could not reconcile.
+    # The diff survives as a field, because it is what a reader wants to see.
+    rel = str(index.relative_to(root)) if index.is_relative_to(root) else str(index)
     if args.dry_run:
         if have == want:
+            print(json.dumps({"drift": False, "path": rel, "region": "## ADRs"}, sort_keys=True))
             return 0
-        sys.stdout.writelines(
-            difflib.unified_diff(
-                have.splitlines(keepends=True),
-                want.splitlines(keepends=True),
-                fromfile="docs/index.md (on disk)",
-                tofile="docs/index.md (regenerated)",
-            )
-        )
+        diff = "".join(difflib.unified_diff(
+            have.splitlines(keepends=True), want.splitlines(keepends=True),
+            fromfile=f"{rel} (on disk)", tofile=f"{rel} (regenerated)"))
+        print(json.dumps({"drift": True, "paths": [rel], "region": "## ADRs", "diff": diff,
+                          "fix": "generate-index-rollup.py"}, sort_keys=True))
         return 1
 
     if have != want:
         index.write_text(current[: m.start()] + want + current[m.end():], encoding="utf-8")
+        print(json.dumps({"written": rel, "region": "## ADRs"}, sort_keys=True))
+        return 0
+    print(json.dumps({"written": None, "region": "## ADRs"}, sort_keys=True))
     return 0
 
 

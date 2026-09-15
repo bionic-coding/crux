@@ -1,10 +1,11 @@
 ---
 name: author-runbook
-description: "Use when the user says \"author a runbook\", \"generate a runbook\", \"build me a runbook\", or \"write an autonomous prompt runbook\". Generate a crux-aware autonomous prompt runbook (50-100 prompts) from a single GOAL string. Embeds the 3-testable-hypotheses discipline (hypothesis → test → reflect, with confidence gates), confidence thresholds, and crux review cycles so an AI agent can execute hands-off for 2-4 hours. Use when you want to walk away and have an agent grind through a multi-phase feature, refactor, or research task without prompting after every step. Do NOT use for one-shot questions or single-file edits."
+description: "Generate an autonomous, multi-phase prompt runbook from a goal, with hypothesis testing and review checkpoints."
 metadata:
   tags: "planning, runbook, autonomous, codegen"
   bundles: "crux-core"
   risk_level: "medium"
+  triggers: "author a runbook | generate a runbook | build me a runbook | write an autonomous prompt runbook"
   requires_env: "OPENROUTER_API_KEY"
 ---
 

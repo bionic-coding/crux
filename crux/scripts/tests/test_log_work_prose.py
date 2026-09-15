@@ -275,11 +275,32 @@ class TheThreeSitesAgreeTests(unittest.TestCase):
         self.assertNotIn("the `docs/journal/index.md` rollup row", inputs)
 
     def test_the_frontmatter_description_agrees_with_step_six(self):
+        """The description must attribute the index to a REGENERATOR, not to a write.
+
+        What this guards is the distinction step 6 states: `log-work` computes no cell,
+        increments no count, and edits no row by hand. A description saying it "updates
+        the index" reads as the hand-write step 6 forbids, which is the paraphrase this
+        class exists to catch.
+
+        It used to pin one 64-character sentence fragment verbatim. That is longer than
+        half the description budget, so the pin and the length bound could not both be
+        met; the assertion now names the distinction rather than one wording of it.
+        """
         frontmatter = self.text[:self.text.index("\n---\n", 4)]
-        self.assertIn(
-            "the regenerator run that derives the `docs/journal/index.md` row",
-            frontmatter)
-        self.assertNotIn("the rollup row in `docs/journal/index.md`", frontmatter)
+        description = re.search(r'^description:\s*"(.*)"\s*$', frontmatter, re.M)
+        self.assertIsNotNone(description, "no single-line quoted description")
+        description = description.group(1)
+        self.assertRegex(
+            description, r"regenerat",
+            "the description must say the journal index is REGENERATED; step 6 owns "
+            "the row through the regenerator and nothing hand-writes it")
+        for hand_write in ("rollup row in `docs/journal/index.md`",
+                           "update its index", "updates its index",
+                           "write the index", "writes the index"):
+            self.assertNotIn(
+                hand_write, description,
+                f"the description claims a hand-write ({hand_write!r}) that step 6 "
+                "explicitly denies")
 
 
 if __name__ == "__main__":

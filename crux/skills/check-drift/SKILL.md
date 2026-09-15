@@ -1,10 +1,11 @@
 ---
 name: check-drift
-description: "Use when the user says \"check drift\", \"is the tree in sync\", \"run the drift gates\", \"any drift?\", \"verify all regenerated outputs\", or \"pre-release drift check\". Runs every enrolled regenerator in `--dry-run` mode read-only, parses each JSON verdict regardless of exit code, and reports one table of gate / verdict / drifted paths / the regenerator that fixes it. Never regenerates anything — it recommends the regenerator by name. The whole-tree counterpart to `verify-code-docs`, which checks the single `code/` gate."
+description: "Check enrolled regenerated outputs for drift without regenerating them. Report findings and name the relevant repair commands."
 metadata:
   tags: "drift-detection, regeneration, verification, release-gate"
   bundles: "crux-docs"
   risk_level: "low"
+  triggers: "check drift | is the tree in sync | run the drift gates | any drift? | verify all regenerated outputs | pre-release drift check"
   routing_note: "Read-only. Runs every enrolled regenerator's `--dry-run` gate in one pass and reports one table — gate, verdict, drifted paths, and the regenerator that fixes it; never regenerates. The whole-tree counterpart to `verify-code-docs`. Emits a `lint` log op."
 ---
 
@@ -31,6 +32,12 @@ It is the whole-tree counterpart to `verify-code-docs`, which runs the one `code
 
 **Read-only invariant.** This skill invokes each enrolled regenerator with `--dry-run` only. It writes nothing under the tree, `crux/catalog/`, `opencode/agents/`, or any source file. When it finds drift, it recommends the regenerator by name; the user (or a CI hook) decides whether to run it.
 
+**The one side effect, named rather than glossed.** Running a gate imports the plugin's own
+Python modules, so the interpreter writes `__pycache__/*.pyc` beside them inside the installed
+plugin. That is bytecode, not content: no source file, no catalog, no file under the tree and
+nothing in the project under inspection is touched. Set `PYTHONDONTWRITEBYTECODE=1` to suppress it.
+Report it if a reader asks what the run wrote; do not report the run as having written nothing at all.
+
 ## When to use
 
 - User says: "check drift", "is the tree in sync", "run the drift gates", "any drift?", "verify all regenerated outputs", "pre-release drift check".
@@ -54,26 +61,40 @@ Run `python3 "${CRUX_PLUGIN_ROOT}/scripts/bionic-config.py"` from the repo root.
 
 Run each command below from the repo root. **Parse each command's stdout as JSON regardless of its exit code** — the exit code alone does not tell clean from drift. Collect a verdict per gate; do not stop on the first drift.
 
-| Gate (output) | Dry-run command | Regenerator that fixes it |
-|---|---|---|
-| `crux/catalog/skills.json` + `agents.json` | `validate-catalog.py --dry-run` | `validate-catalog.py` |
-| `docs/code/` | `extract-code-docs.py --dry-run --config <docs_dir>/manifest.yml` | `extract-code-docs.py --config <docs_dir>/manifest.yml` (skill `extract-code-docs`) |
-| `<docs_dir>/arch/` spine | `derive-arch.py --dry-run --docs-dir <docs_dir>` | `derive-arch.py --docs-dir <docs_dir>` (skill `derive-arch`) |
-| `<docs_dir>/adrs/summaries/` | `summarize-adrs.py --dry-run` | `summarize-adrs.py` |
-| `<docs_dir>/adrs/doctrine/` | `compile-doctrine.py --dry-run` | `compile-doctrine.py` (skill `compile-doctrine`) |
-| `opencode/agents/` | `generate-opencode-agents.py --dry-run` | `generate-opencode-agents.py` |
-| `<docs_dir>/adrs/lineage.md` | `generate-lineage.py --dry-run` | `generate-lineage.py` (skill `link-adr-graph`) |
-| `<docs_dir>/adrs/index.md` | `generate-adr-index.py --dry-run` | `generate-adr-index.py` |
-| `<docs_dir>/index.md` `## ADRs` rollup | `generate-index-rollup.py --dry-run` | `generate-index-rollup.py` |
-| `README.md` version footer | `generate-readme-footer.py --dry-run` | `generate-readme-footer.py` |
-| writing-rules block (3 surfaces) | `generate-writing-rules.py --dry-run` | `generate-writing-rules.py` |
-| runtime-compatibility block (56 skills) | `generate-runtime-compat.py --dry-run` | `generate-runtime-compat.py` |
-| `<tree>/CLAUDE.md` §10 routing-table region | `generate-routing-table.py --dry-run` | `generate-routing-table.py` |
-| `<docs_dir>/adrs/reviews/index.md` | `generate-reviews-index.py --dry-run` | `generate-reviews-index.py` |
-| `<docs_dir>/journal/index.md` | `generate-journal-index.py --dry-run` | `generate-journal-index.py` |
-| `crux/catalog/rules.json` (the rules the plugin ships) | `generate-rules-catalog.py --dry-run` | `generate-rules-catalog.py` |
+| Gate (output) | Scope | Dry-run command | Regenerator that fixes it |
+|---|---|---|---|
+| `crux/catalog/skills.json` + `agents.json` | plugin-authoring | `validate-catalog.py --dry-run` | `validate-catalog.py` |
+| `docs/code/` | project | `extract-code-docs.py --dry-run --config <docs_dir>/manifest.yml` | `extract-code-docs.py --config <docs_dir>/manifest.yml` (skill `extract-code-docs`) |
+| `<docs_dir>/arch/` spine | project | `derive-arch.py --dry-run --docs-dir <docs_dir>` | `derive-arch.py --docs-dir <docs_dir>` (skill `derive-arch`) |
+| `<docs_dir>/adrs/summaries/` | project | `summarize-adrs.py --dry-run` | `summarize-adrs.py` |
+| `<docs_dir>/adrs/doctrine/` | project | `compile-doctrine.py --dry-run` | `compile-doctrine.py` (skill `compile-doctrine`) |
+| `opencode/agents/` | plugin-authoring | `generate-opencode-agents.py --dry-run` | `generate-opencode-agents.py` |
+| `<docs_dir>/adrs/lineage.md` | project | `generate-lineage.py --dry-run` | `generate-lineage.py` (skill `link-adr-graph`) |
+| `<docs_dir>/adrs/index.md` | project | `generate-adr-index.py --dry-run` | `generate-adr-index.py` |
+| `<docs_dir>/index.md` `## ADRs` rollup | project | `generate-index-rollup.py --dry-run` | `generate-index-rollup.py` |
+| `README.md` version footer | plugin-authoring | `generate-readme-footer.py --dry-run` | `generate-readme-footer.py` |
+| writing-rules block (3 surfaces) | plugin-authoring | `generate-writing-rules.py --dry-run` | `generate-writing-rules.py` |
+| runtime-compatibility block (56 skills) | plugin-authoring | `generate-runtime-compat.py --dry-run` | `generate-runtime-compat.py` |
+| `<tree>/CLAUDE.md` §10 routing-table region | plugin-authoring | `generate-routing-table.py --dry-run` | `generate-routing-table.py` |
+| `<docs_dir>/adrs/reviews/index.md` | project | `generate-reviews-index.py --dry-run` | `generate-reviews-index.py` |
+| `<docs_dir>/journal/index.md` | project | `generate-journal-index.py --dry-run` | `generate-journal-index.py` |
+| `crux/catalog/rules.json` (the rules the plugin ships) | plugin-authoring | `generate-rules-catalog.py --dry-run` | `generate-rules-catalog.py` |
 
 Invoke each via `uv run "${CRUX_PLUGIN_ROOT}/scripts/<name>" ...` from the repo root. This roster is the source of truth for what a derived artifact owes; if the repo-root `CLAUDE.md` roster grows a row, add its gate here.
+
+**The `Scope` column says whose tree the row's gate inspects.** That is the difference between a
+verdict about this project and a verdict about the plugin. A `project` row's output lives in the
+documentation tree, so its gate measures the project wherever the plugin is installed. A
+`plugin-authoring` row's output lives in the plugin's own source checkout — the catalogs, the
+`opencode/` projection, the plugin `README.md` footer, and the writing-rules, routing-table and
+runtime-compatibility regions. **Every one of those eight roster rows is inapplicable in a consuming
+project, and its gate reports so itself:** exit 0 with `"surface_absent": true` and a `reason`, having
+written nothing. Report those rows N/A with the reason, never as clean and never as broken.
+
+Run the whole roster every time. Do not decide in advance which rows apply — the gate is what
+decides, and reading its `surface_absent` payload is how you learn. A `plugin-authoring` gate that
+returns a drift verdict in a consuming project has resolved a path inside the installed plugin, and
+that is a defect to report, not drift to fix.[^scope]
 
 ### 1.A. Run the validation checks
 
@@ -101,7 +122,7 @@ Shared exit-code semantics (the same contract `verify-code-docs`, CHK-CODE-4, CH
 - **DRIFT** — exit 1 with a JSON drift payload (`{"drift": true, "paths": [...]}`, non-empty `added/changed/removed`, or a section diff). Capture the drifted paths. The fix is the regenerator in the table's third column.
 - **BROKEN** — the JSON carries a non-empty `validation_errors` key (a malformed `governs` entry, a malformed reconciliation ledger, a schema error). Regenerating does NOT fix a validation error; the named input must be repaired first. Report the problems.
 - **CRASH** — non-zero exit with empty or unparseable stdout (a missing dependency, an unhandled exception). Surface stderr; this is an environment problem, never a document finding.
-- **N/A** — exit 0 with `"surface_absent": true` on the JSON. The verdict keys on that payload key, not on which gate printed it. Three gates emit it: `generate-reviews-index.py` when the tree carries no `<docs_dir>/adrs/reviews/`, which is every project that has not yet run a decision review; `generate-journal-index.py` when the tree carries no `<docs_dir>/journal/` at all; and `extract-code-docs.py` when `code.extractors` is empty, which is every project that has configured no extractor. That third one used to exit 0 with EMPTY stdout and one line on stderr, so a reader aggregating exit codes counted it as a clean gate and a tree that had scanned nothing reported its code docs verified. There is no derived artifact, so nothing can have drifted, and nothing was measured either. **Report it as N/A, never as clean** — a gate that scanned an absent surface has verified nothing, and recording it green is the vacuous-green shape this skill exists to prevent. **The fix is never the regenerator, and it differs by surface:** run `review-decisions` when a review is due, `init-docs` when the journal surface was never created, and configure `code.extractors` in `<docs_dir>/manifest.yml` when no extractor is declared.
+- **N/A** — exit 0 with `"surface_absent": true` on the JSON. The verdict keys on that payload key, not on which gate printed it. **Every `plugin-authoring` gate emits it outside the plugin's own source checkout**, carrying a `reason` that names why the row does not apply; report the reason, and recommend no regenerator, because there is no output in this project for one to write. Three project gates emit it too: `generate-reviews-index.py` when the tree carries no `<docs_dir>/adrs/reviews/`, which is every project that has not yet run a decision review; `generate-journal-index.py` when the tree carries no `<docs_dir>/journal/` at all; and `extract-code-docs.py` when `code.extractors` is empty, which is every project that has configured no extractor. That third one used to exit 0 with EMPTY stdout and one line on stderr, so a reader aggregating exit codes counted it as a clean gate and a tree that had scanned nothing reported its code docs verified. There is no derived artifact, so nothing can have drifted, and nothing was measured either. **Report it as N/A, never as clean** — a gate that scanned an absent surface has verified nothing, and recording it green is the vacuous-green shape this skill exists to prevent. **The fix is never the regenerator, and it differs by surface:** run `review-decisions` when a review is due, `init-docs` when the journal surface was never created, and configure `code.extractors` in `<docs_dir>/manifest.yml` when no extractor is declared.
 
 **Warnings ride alongside, never change the verdict.** Read any top-level `warnings` key (`validate-catalog.py` emits one — the `models.yml` `verified:` staleness clock; `check-doctrine-reconciliation.py`'s S1 warn lane is similar). Surface it as WARNING beside the gate's verdict. A gate at exit 0 with a non-empty `warnings` list is a **clean pass worth reporting with its warning**, not a failure.
 
@@ -134,7 +155,7 @@ for a reason that has nothing to do with drift.
 
 Never write "all gates clean" while `skipped/inapplicable` or `no evidence` is above zero. Say how many measured nothing, and name them.
 
-**A measured zero is not no evidence.** A gate with extractors configured that finds zero drift inspected its inputs and found them in sync; that is a real pass and belongs in `executed passing`. Only a gate that inspected nothing belongs in `no evidence`. Do not collapse the two, and never drop a row from the roster to improve the pass count -- membership is fixed by the repo-root `CLAUDE.md` roster, not by how a run turned out.
+**A measured zero is not no evidence.** A gate with extractors configured that finds zero drift inspected its inputs and found them in sync; that is a real pass and belongs in `executed passing`. Only a gate that inspected nothing belongs in `no evidence`. **A gate that inspected the plugin's own copy of itself measured nothing about this project either**, and is never recorded as `executed passing` for a project row — that reading is what let a downstream run report the plugin's 56 shipped skills as a clean project gate. Do not collapse the two, and never drop a row from the roster to improve the pass count -- membership is fixed by the repo-root `CLAUDE.md` roster, not by how a run turned out.
 
 For DRIFT rows, the recommended fix is the third-column regenerator. For BROKEN rows, the fix is repairing the named input, then re-running its regenerator — except a validation-check row, whose fix is editing the authored text the finding names, with no regenerator involved. For CRASH rows, the fix is the environment. For a REFUSAL row, the fix is the named upstream input's regenerator, then a re-derive.
 
@@ -194,6 +215,8 @@ Body, 1–3 lines: the summary line, and for any non-clean gate its name plus th
 - **Skipping the log entry on an all-clean run.** Verification with no drift is still a verification event — log it.
 - **Reading a citation finding as drift.** A drift gate compares an output against its source. A validation check reads a claim. Only the first has a regenerator.
 - **Reporting a linter refusal at exit 0.** A containment breach, a non-regular file, a bound breach or a decoding failure all exit nonzero. A refusal reported at exit 0 is the fail-open the check exists to close.
+
+[^scope]: rule:regenerator-declares-its-scope, rule:out-of-scope-is-surface-absent, rule:drift-report-carries-scope-and-reconciles
 
 ## See also
 

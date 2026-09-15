@@ -1,6 +1,6 @@
 ---
 name: semantic-bridge
-description: "Connects probes, dissents, and resolutions to prevent redundant verification across agent teammates. ALWAYS check before running new probes, ALWAYS register after running probes. Critical for agent teams to avoid 5 agents testing the same thing."
+description: "Coordinate team verification: check existing probes before testing, then register results to avoid duplicate work."
 user-invocable: false
 metadata:
   tags: "reasoning, probes, deduplication"

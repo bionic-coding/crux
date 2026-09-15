@@ -1,10 +1,11 @@
 ---
 name: recover-invariants
-description: "Use when the user says \"recover invariants\", \"mine invariants\", \"extract invariant candidates\", or wants the machine to propose invariant pins from code. The Span-2 sibling of extract-code-docs: mines source for candidate invariants, writes observed ledger stubs at docs/invariants/, emits candidate checks into the invariants concern's checks/ suite, and records them in the reconciliation — always as provenance: recovered, ratification: observed. NEVER ratifies (that is transition-invariant, the human gate). v1 is a thin candidate-emitter; the per-language extractor depth is deferred."
+description: "Mine code for candidate invariants and checks. Record them as observed, never ratified; human disposition is separate."
 metadata:
   tags: "invariants, recovery, extraction, candidates, machine-proposes"
   bundles: "crux-docs"
   risk_level: "medium"
+  triggers: "recover invariants | mine invariants | extract invariant candidates"
 ---
 
 # Recover Invariants

@@ -1,12 +1,13 @@
 ---
 name: tend-garden
-description: "Use when the user says 'tend the garden', 'run the night gardener', 'night pass', 'morning note', or when a scheduled session starts with that phrase. Runs the night-gardener's complete overnight pass: checks whether it is the gardener's turn (silent skip if not), reviews the owner's moves, reads diagnostics, reads the news, thinks through ideas, and writes the morning note last. Distinct from cleanup-campsite (mechanical process scan), retrospective (skill harvest from finished work), and audit-docs (graph integrity) — the gardener is generative and strategic: new ideas, improvement vectors, missing engineering substrate, research directions, news that changes the options."
+description: "Run the night gardener's strategic pass over recent work, diagnostics, and news; develop ideas and write a morning note."
 context: fork
 model: sonnet
 metadata:
   tags: "garden, night-gardener, overnight, turn-based, orchestrator"
   bundles: "crux-core"
   risk_level: "medium"
+  triggers: "tend the garden | run the night gardener | night pass | morning note"
   routing_note: "Turn-gated overnight review; silent skip when it isn't her turn."
 ---
 
@@ -174,7 +175,10 @@ In this plugin's private dev repo those are:
 
 In a downstream repo, substitute that repo's documented commands; do not
 run crux-specific commands against a non-crux tree (they would produce
-phantom failures).
+phantom failures). Two of those commands — the catalog
+validator and the script check — decline a tree holding no plugin source instead of
+grading the installed plugin. A declined check measured nothing, so the substitution
+is still yours to make.[^scope]
 
 One more read-only measurement runs in every repo, crux or downstream: the
 **decision-review age**. Take the newest filename date under
@@ -669,3 +673,5 @@ corruption language.
   Unattended mode section.
 - `forge-skill` — available for engineering-gap initiations in step 7.
 - `log-work` — used when filing garden-related journal entries.
+
+[^scope]: rule:out-of-scope-is-surface-absent

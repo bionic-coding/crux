@@ -1,10 +1,11 @@
 ---
 name: propose-adr
-description: "Use when the user says \"propose ADR\", \"record decision\", \"new ADR\", \"ADR for <topic>\", or after a discussion that yields a non-trivial architectural decision that should be recorded. Owns the allocation of the next `ADR-NNNN` number from `docs/manifest.yml`, the creation of the new ADR file with status Proposed, the row append to `docs/adrs/index.md`, the entry to `docs/log.md`, and the optional `--accept-immediately` shortcut."
+description: "Create a Proposed ADR for an architectural decision, allocating its identifier and updating decision indexes and logs."
 metadata:
   tags: "adrs, decisions, authoring"
   bundles: "crux-docs"
   risk_level: "low"
+  triggers: "propose ADR | record decision | new ADR | ADR for <topic>"
   routing_note: "Writes status: Proposed; never auto-accepts."
 ---
 

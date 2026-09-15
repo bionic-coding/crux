@@ -1,11 +1,12 @@
 ---
 name: survey-sheet
-description: "Use when the user says \"scaffold a survey sheet\", \"start a batch review of observations\", \"build the observation review sheet\", \"survey the observed candidates\", \"open a ratification batch\", \"I want to review the observed candidates in one pass\", or names an `SVY-NNNN` batch that does not exist yet. Scaffolds ONE batch review sheet under `<docs_dir>/observations/`, seeding `anchor_id` and `proposed_domain` per candidate row and leaving `verdict`, `domain` and `rationale` EMPTY for the human to author. It fills no human cell, ratifies nothing, and writes no record — `survey-signoff` signs the sheet this skill writes. One live sheet at a time."
+description: "Scaffold a batch review sheet for observed candidates. Leave verdicts and rationales to the human; ratify nothing."
 disable-model-invocation: true
 metadata:
   tags: "observations, ratification, survey, batch, human-gate"
   bundles: "crux-docs"
   risk_level: "low"
+  triggers: "scaffold a survey sheet | start a batch review of observations | build the observation review sheet | survey the observed candidates | open a ratification batch | I want to review the observed candidates in one pass"
   routing_note: "Scaffolds one SVY-NNNN batch review sheet from the observation candidate state file, seeding the machine cells and leaving verdict, domain and rationale empty. Half of the batch-ratification pair; `survey-signoff` is the other half. Human gate — excluded from run-execution autonomy; carries `disable-model-invocation`. Never fills a verdict, never publishes a record."
 ---
 

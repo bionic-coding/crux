@@ -1,10 +1,11 @@
 ---
 name: fix-directly
-description: "Use when the user says \"just fix it\", \"fix it directly\", \"fix this directly\", \"no book for this\", \"this is small, skip the cycle\", or \"direct fix\", or when a defect passes the sizing test: its files can be named now, a failing test can be written before the fix, and no contract changes. The rung below the three cycle tiers: no promptbook, no council, no PB number. The contract is a failing test first, the smallest change that turns it green, the full suite plus the drift gates, one commit naming the defect, and a `log-work` entry so retrospectives still see the work. Escalates to `patch-cycle` when the fix needs a review gate, `iterate` when the diagnosis is open, and `dev-cycle` when a contract changes. A security label on a defect changes its priority, not its size."
+description: "Fix a bounded defect with a failing test first, no contract changes, and no promptbook or council."
 metadata:
   tags: "promptbooks, workflow, fix, small-change, direct"
   bundles: "crux-docs"
   risk_level: "low"
+  triggers: "just fix it | fix it directly | fix this directly | no book for this | this is small, skip the cycle | direct fix"
   routing_note: "The rung below the three cycle tiers (§11.C): no book, no council, no PB number. A failing test first, the smallest green change, the suite and the drift gates, one commit, one `log-work` entry. Passes the sizing test or escalates to `patch-cycle` / `iterate` / `dev-cycle`. See `fix-directly/SKILL.md`."
 ---
 

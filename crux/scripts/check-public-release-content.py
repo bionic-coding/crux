@@ -36,7 +36,8 @@ from pathlib import Path
 from typing import Final
 
 
-REPO_ROOT: Final[Path] = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import authoring_scope as _scope  # noqa: E402
 
 
 # ────────────────────────────── patterns ──────────────────────────────────
@@ -214,8 +215,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--root",
         type=Path,
-        default=REPO_ROOT,
-        help=f"Repo root to scan (default: {REPO_ROOT}).",
+        default=None,
+        help="Repo root to scan (default: the working directory).",
     )
     parser.add_argument(
         "--verbose",
@@ -228,7 +229,23 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    hits = scan(args.root.resolve())
+    root = _scope.resolve_repo_root(args.root)
+
+    # SURFACE-ABSENT LANE, the same one every plugin-authoring regenerator takes.
+    # rule:out-of-scope-is-surface-absent. What this gate scans is the plugin's own
+    # distributed surfaces, and a consuming project holds none of them. The default
+    # root came from this file's own path, so a downstream run -- `tend-garden`
+    # invokes this script -- scanned the INSTALLED plugin and exited 0, reporting a
+    # verdict about the plugin as though it were a verdict about the reader's project.
+    # The prose guard in `tend-garden` said not to do that; this makes it mechanical.
+    if not _scope.is_authoring_checkout(root, __file__):
+        sys.stderr.write(
+            "check-public-release-content: not the plugin's authoring checkout; "
+            "no distributed surface here to scan.\n"
+        )
+        return 0
+
+    hits = scan(root)
     if hits:
         for hit in hits:
             print(hit)

@@ -1,10 +1,11 @@
 ---
 name: compile-doctrine
-description: "Use when the user says \"compile the doctrine\", \"build the doctrine\", \"regenerate the doctrine\", \"refresh the doctrine\", \"is the doctrine current\", or \"doctrine drift\". Regenerates `<docs_dir>/adrs/doctrine/` wholesale from the summaries projection, reconciled against the ratified invariants and the human-signed reconciliation ledger, via `scripts/compile-doctrine.py`; `--dry-run` is the drift check. Never hand-edits anything under `adrs/doctrine/`, and never writes `reconciliations.yml` — that is `reconcile-signoff`'s single write path."
+description: "Regenerate doctrine from decision summaries and signed invariant reconciliations, or check its drift. Never edits sign-offs."
 metadata:
   tags: "doctrine, adrs, regeneration, drift-detection"
   bundles: "crux-docs"
   risk_level: "low"
+  triggers: "compile the doctrine | build the doctrine | regenerate the doctrine | refresh the doctrine | is the doctrine current | doctrine drift"
   routing_note: "Regenerative — rewrites `<docs_dir>/adrs/doctrine/` wholesale from the summaries projection, reconciled against the ratified invariants and the human-signed reconciliation ledger. `--dry-run` is the drift check. Stops and recommends `summarize-adrs.py` first when the summaries projection has drifted; never writes `reconciliations.yml`."
 ---
 

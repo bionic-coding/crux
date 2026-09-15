@@ -1,11 +1,12 @@
 ---
 name: visualize-run-progress
-description: "Use when the user says \"visualize run progress\", \"show run progress\", \"how far along is PB-NNNN\", \"progress of PB-NNNN\", \"run progress bar/chart\", OR asks where a cycle stands — \"where am I\", \"where was I on PB-NNNN\", \"resume my cycle\", \"what's next on PB-NNNN\", \"cycle status\", \"how do I pick this run back up\". One read-only surface answers both: it renders a run snapshot against its book as a colored terminal progress bar + per-prompt checklist (plus an opt-in byte-stable `run-RUN-NNN-progress.md` artifact), and it narrates the status query — which book and run, the current prompt, the next pending prompt verbatim, and the exact command to resume. READ-ONLY: derives a view, never mutates run state. Validates `.yaml` inputs against run.schema.json / promptbook.schema.json."
+description: "Show promptbook progress, the next pending prompt, and how to resume. Read-only; does not advance or resume the run."
 arguments: [book]
 metadata:
   tags: "promptbooks, visualization, regenerative, cli"
   bundles: "crux-docs"
   risk_level: "low"
+  triggers: "visualize run progress | show run progress | how far along is PB-NNNN | progress of PB-NNNN | run progress bar/chart | where am I | where was I on PB-NNNN | resume my cycle | what's next on PB-NNNN | cycle status | how do I pick this run back up"
   routing_note: "Read-only, and the single surface for both read-only questions a run raises. Renders a run snapshot as a terminal progress bar + per-prompt checklist plus an opt-in byte-stable `run-RUN-NNN-progress.md` artifact, and narrates the status query — which book and run, the current prompt, the next pending prompt verbatim from the book, and the resume command. Joins `module_tag` from the book (`—` on hash mismatch / legacy `.md`). Never mutates; a status query writes nothing and logs nothing."
 ---
 

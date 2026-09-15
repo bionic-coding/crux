@@ -8,6 +8,7 @@ internal decision-record reference (it is projected into a SKILL.md that ships).
 from __future__ import annotations
 
 import importlib.util
+import json
 import re
 import shutil
 import subprocess
@@ -18,6 +19,8 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = REPO_ROOT / "crux" / "scripts" / "generate-writing-rules.py"
+from _authoring_fixture import seed_authoring_probe
+
 
 try:  # package-relative when run as a module, flat when run by discovery
     from ._dev_surface import IS_STAGED_ARTIFACT
@@ -109,6 +112,7 @@ class ProjectionTestCase(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        seed_authoring_probe(self.tmp, SCRIPT)
         for rel in (gwr.CANONICAL_FILE, *gwr.PROJECTIONS):
             dst = self.tmp / rel
             dst.parent.mkdir(parents=True, exist_ok=True)
@@ -192,6 +196,7 @@ class CouncilFindingsTestCase(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        seed_authoring_probe(self.tmp, SCRIPT)
         for rel in (gwr.CANONICAL_FILE, *gwr.PROJECTIONS):
             dst = self.tmp / rel
             dst.parent.mkdir(parents=True, exist_ok=True)
@@ -337,13 +342,41 @@ class ExitCodeTestCase(unittest.TestCase):
         self.assertIn('"drifted"', proc.stdout)
 
     def test_validation_error_exits_one_with_json_on_stdout(self):
+        """A canonical file that is PRESENT but carries no marker is a validation
+        error, and stays exit 1.
+
+        rule:out-of-scope-is-surface-absent draws the line at presence: a missing
+        `CLAUDE.md` is an absent surface, which the staged release artifact and every
+        public clone have, and calling that BROKEN filed a defect against a tree that
+        owns no projection. A file that exists and lacks its marker is a real defect
+        in a tree that does own it. The two cases are covered separately -- this one,
+        and `test_an_absent_canonical_file_is_surface_absent_not_broken` below.
+        """
         with tempfile.TemporaryDirectory() as d:
+            seed_authoring_probe(d, SCRIPT)
+            (Path(d) / gwr.CANONICAL_FILE).write_text(
+                "# A repo with no canonical writing-rules region\n", encoding="utf-8")
             proc = subprocess.run(
                 [sys.executable, str(SCRIPT), "--dry-run", "--repo-root", d],
                 capture_output=True, text=True,
             )
-            self.assertEqual(proc.returncode, 1)
+            self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
             self.assertIn('"error"', proc.stdout)
+
+    def test_an_absent_canonical_file_is_surface_absent_not_broken(self):
+        """The public clone and the staged artifact: `crux/scripts/` present, the
+        repo-root `CLAUDE.md` absent. Exit 1 there filed BROKEN against a tree that
+        ships no projection of the block."""
+        with tempfile.TemporaryDirectory() as d:
+            seed_authoring_probe(d, SCRIPT)
+            proc = subprocess.run(
+                [sys.executable, str(SCRIPT), "--dry-run", "--repo-root", d],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            payload = json.loads(proc.stdout)
+            self.assertTrue(payload.get("surface_absent"), payload)
+            self.assertTrue((payload.get("reason") or "").strip(), payload)
 
 
 @_dev_only

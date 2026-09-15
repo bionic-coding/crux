@@ -1,12 +1,13 @@
 ---
 name: extract-code-docs
-description: "Use when the user says \"extract docs\", \"refresh code docs\", \"regenerate code docs\", on a pre-push hook, or proactively when source files have changed since the last extraction. Regenerates `docs/code/` from in-source documentation via the `extract-code-docs.py` dispatcher and per-language extractor plugins. Throw-away regeneration — never reads `docs/code/*` as input. Manual edits there are DELETED on every run."
+description: "Regenerate code documentation from source using language extractors. Replaces generated files, including manual edits."
 context: fork
 model: sonnet
 metadata:
   tags: "code-docs, extraction, regeneration"
   bundles: "crux-docs"
   risk_level: "low"
+  triggers: "extract docs | refresh code docs | regenerate code docs"
   routing_note: "Regenerative — wipes `docs/code/`."
 ---
 

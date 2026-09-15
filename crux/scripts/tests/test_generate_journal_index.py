@@ -1479,7 +1479,7 @@ class SurfaceAbsentVerdictProseTests(JournalCliTestCase):
         # unrun, and an N/A verdict for a gate nobody invokes is not a check.
         text = CHECK_DRIFT_SKILL.read_text(encoding="utf-8")
         self.assertIn(
-            "| `<docs_dir>/journal/index.md` | `generate-journal-index.py "
+            "| `<docs_dir>/journal/index.md` | project | `generate-journal-index.py "
             "--dry-run` | `generate-journal-index.py` |", text)
 
 

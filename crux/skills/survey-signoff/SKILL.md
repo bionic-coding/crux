@@ -1,11 +1,12 @@
 ---
 name: survey-signoff
-description: "Use when the user says \"sign off the survey\", \"sign the survey sheet\", \"sign off SVY-NNNN\", \"publish the batch\", \"batch-ratify the observations\", \"I have filled in the review sheet\", or \"finish the observation batch\". The single human sign-off that publishes ONE filled-in batch review sheet: it renders every claim and verdict, refuses an empty verdict or a sheet edited since it was signed, then publishes the batch under one digest-bound receipt on explicit confirmation. Equivalent to N individual ratifications under one signature, and the only batch route past `observed`. Never authors a verdict; never signs two batches at once."
+description: "Publish one completed observation review batch after explicit human confirmation. Never author verdicts."
 disable-model-invocation: true
 metadata:
   tags: "observations, ratification, survey, receipts, human-gate"
   bundles: "crux-docs"
   risk_level: "medium"
+  triggers: "sign off the survey | sign the survey sheet | sign off SVY-NNNN | publish the batch | batch-ratify the observations | I have filled in the review sheet | finish the observation batch"
   routing_note: "The single human write path that signs one filled-in SVY-NNNN review sheet and publishes its records under one digest-bound receipt. The only batch route past `observed`; `transition-observation` remains the only single-record route. Human gate — excluded from run-execution autonomy; carries `disable-model-invocation`. Never authors a verdict; never signs two batches at once."
 ---
 

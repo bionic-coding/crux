@@ -1,6 +1,6 @@
 ---
 name: call-llm
-description: "Single-gateway LLM caller. Every model resolves through one OpenAI-compatible gateway on one OPENROUTER_API_KEY, behind a unified call_model() interface plus the lower-level build_gateway_request/call_gateway pair and a typed gateway-error taxonomy. Model configs live in crux/scripts/crux/_config/llm_router_config.json. Use whenever you need to call an external LLM from crux code."
+description: "Call external language models from crux code through its shared OpenRouter gateway and model configuration."
 user-invocable: false
 metadata:
   tags: "llm, multi-model, gateway"

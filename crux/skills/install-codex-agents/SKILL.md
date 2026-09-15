@@ -1,11 +1,12 @@
 ---
 name: install-codex-agents
-description: "Use when the user says \"install codex agents\", \"install crux agents for codex\", or \"refresh the codex agents\". Install or refresh Crux's ten Codex-native role agents in the user's personal Codex agent directory by default, or in one explicit project's .codex/agents directory. Use when a Codex user asks to install Crux agents, enable the Crux architect/developer/reviewer roles, check agent health, or refresh model and skill bindings after a plugin upgrade or relocation. Does not overwrite a changed or stale managed role without --force."
+description: "Install, refresh, or check crux's Codex role agents in the personal or specified project directory. Preserve conflicting roles."
 disable-model-invocation: true
 metadata:
   tags: "codex, agents, installation, roles"
   bundles: "crux-infrastructure, crux-docs"
   risk_level: "medium"
+  triggers: "install codex agents | install crux agents for codex | refresh the codex agents"
 ---
 
 # Install Codex Agents
