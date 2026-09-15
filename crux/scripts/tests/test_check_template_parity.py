@@ -231,11 +231,32 @@ class TestStaleManifest(ParityTestCase):
     (twin IS present) → a P3 STALE finding; the entry must NOT report OK.
     (ADR-0047 §3 resolved-question: stale replaces parity — never a vacuous green.)"""
 
-    def test_stale_anchor_yields_p3_finding(self):
-        # The canonical has NO "## Test Heading" anchor
+    def test_anchor_absent_from_canonical_only_is_drift(self):
+        """One-sided anchor loss is DRIFT, not stale (rule:one-sided-anchor-is-drift-absent-file-is-stale).
+
+        The canonical lost the heading and the twin still carries it, so the two
+        surfaces disagree. Reporting this as a P3 stale exited 0 on exactly the
+        deletion the check exists to catch.
+        """
         stale_canonical = "## Some Other Heading\n\nContent here.\n"
         _make_canonical(self.root, stale_canonical)
         _make_twin(self.root, _TWIN_WITH_VALUE)
+        manifest = _make_manifest(self.root, [_CLAUSE_TEMPLATE])
+
+        results = ctp.check_parity(manifest, self.root)
+
+        self.assertEqual(len(results), 1)
+        r = results[0]
+        self.assertEqual(r["status"], "DRIFT")
+        self.assertEqual(r["severity"], "P2")
+
+    def test_anchor_absent_from_both_sides_is_stale(self):
+        """Two-sided anchor loss stays STALE/P3 — the manifest names a heading
+        neither file carries, which is a signal about the checker rather than
+        evidence a shipped surface drifted."""
+        gone = "## Some Other Heading\n\nContent here.\n"
+        _make_canonical(self.root, gone)
+        _make_twin(self.root, gone)
         manifest = _make_manifest(self.root, [_CLAUSE_TEMPLATE])
 
         results = ctp.check_parity(manifest, self.root)
@@ -260,8 +281,11 @@ class TestStaleManifest(ParityTestCase):
             f"Stale entry must NOT read as OK; got {results}",
         )
 
-    def test_stale_pattern_yields_p3_finding(self):
-        # Anchor is present but pattern matches nothing in that section
+    def test_pattern_matching_nothing_in_canonical_only_is_drift(self):
+        """A pattern matching nothing in the canonical while the twin still
+        carries it is a one-sided loss, so it is DRIFT and exits non-zero. It
+        was STALE/P3 at exit 0 until ADR-0117, which is how a canonical-side
+        deletion passed the gate it was supposed to trip."""
         canonical_no_pattern = (
             "## Test Heading\n"
             "\nContent with no sentinel here.\n"
@@ -269,6 +293,26 @@ class TestStaleManifest(ParityTestCase):
         )
         _make_canonical(self.root, canonical_no_pattern)
         _make_twin(self.root, _TWIN_WITH_VALUE)
+        manifest = _make_manifest(self.root, [_CLAUSE_TEMPLATE])
+
+        results = ctp.check_parity(manifest, self.root)
+
+        self.assertEqual(len(results), 1)
+        r = results[0]
+        self.assertEqual(r["status"], "DRIFT")
+        self.assertEqual(r["severity"], "P2")
+
+    def test_pattern_matching_nothing_on_either_side_is_stale(self):
+        """Two-sided: the manifest names text neither file carries. That stays
+        STALE/P3 and does not flip the exit, which is the predecessor's
+        reasoning kept intact."""
+        no_pattern = (
+            "## Test Heading\n"
+            "\nContent with no sentinel here.\n"
+            "\n## Next Heading\n"
+        )
+        _make_canonical(self.root, no_pattern)
+        _make_twin(self.root, no_pattern)
         manifest = _make_manifest(self.root, [_CLAUSE_TEMPLATE])
 
         results = ctp.check_parity(manifest, self.root)
@@ -363,9 +407,12 @@ class TestCLIExitCodes(ParityTestCase):
         findings (drift) exit 1; P3-only (stale) exits 0 so downstream CI that
         runs on non-dev repos does not break on a stale-manifest condition that
         can only be fixed by a crux developer."""
-        stale_canonical = "## No Matching Anchor\n\nContent here.\n"
-        _make_canonical(self.root, stale_canonical)
-        _make_twin(self.root, _TWIN_WITH_VALUE)
+        # TWO-SIDED stale: the anchor is absent from BOTH files. A one-sided
+        # absence is DRIFT after ADR-0117 and exits 1, so a one-sided fixture
+        # here would assert the opposite of the contract.
+        stale_both = "## No Matching Anchor\n\nContent here.\n"
+        _make_canonical(self.root, stale_both)
+        _make_twin(self.root, stale_both)
         manifest = _make_manifest(self.root, [_CLAUSE_TEMPLATE])
 
         result = self.run_cli("--manifest", str(manifest), "--root", str(self.root))
@@ -603,7 +650,8 @@ class TestTwinSectionAbsent(ParityTestCase):
         r = results[0]
         self.assertEqual(r["status"], "DRIFT")
         self.assertEqual(r["severity"], "P2")
-        self.assertIn("missing entirely from twin", r["detail"])
+        self.assertIn("is absent from", r["detail"])
+        self.assertIn("the two surfaces disagree", r["detail"])
 
 
 # ──────────────────── (MF-2c) non-UTF-8 file → exit 2 ────────────────────────
@@ -961,33 +1009,138 @@ class TestForgedLineBoundaries(ParityTestCase):
                     self.assertIn("DRIFT", proc.stdout)
 
 
-def _split_top_level_alternatives(pattern: str) -> list[str]:
-    """Split a regex on its TOP-LEVEL `|` only.
 
-    A `|` inside `(...)`, `[...]`, or escaped by a backslash belongs to a
-    sub-expression and is not an alternative of the whole pattern. Splitting
-    naively would manufacture fragments that never compile, and every one of
-    them would look like a dead alternative."""
-    parts, buf = [], []
-    depth = bracket = 0
-    i = 0
-    while i < len(pattern):
-        c = pattern[i]
-        if c == "\\" and i + 1 < len(pattern):
-            buf.append(pattern[i:i + 2]); i += 2; continue
-        if c == "[" and not bracket:
-            bracket = 1
-        elif c == "]" and bracket:
-            bracket = 0
-        elif not bracket and c == "(":
-            depth += 1
-        elif not bracket and c == ")":
-            depth -= 1
-        elif not bracket and depth == 0 and c == "|":
-            parts.append("".join(buf)); buf = []; i += 1; continue
-        buf.append(c); i += 1
-    parts.append("".join(buf))
-    return [p for p in parts if p.strip()]
+class CountComparisonTests(unittest.TestCase):
+    """rule:parity-counts-match-on-both-sides — an alternation must match the
+    same number of times on both sides.
+
+    The presence test these replace could not see a deletion when another
+    occurrence of the same alternation survived, which is how the shipped
+    `adrs-append-only-freeze` clause guarded nothing: its `append-only`
+    alternation matched the section heading and its `frozen` alternation matched
+    an unrelated bullet 8.6 kB away.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.addCleanup(self.tmp.cleanup)
+
+    def _run(self, canon_body, twin_body, pattern):
+        _make_canonical(self.root, f"## Test Heading\n{canon_body}\n## Next Heading\n")
+        _make_twin(self.root, f"## Test Heading\n{twin_body}\n## Next Heading\n")
+        clause = dict(_CLAUSE_TEMPLATE, pattern=pattern)
+        manifest = _make_manifest(self.root, [clause])
+        return ctp.check_parity(manifest, self.root)[0]
+
+    def test_equal_counts_pass(self):
+        r = self._run("alpha and alpha\n", "alpha and alpha\n", "alpha")
+        self.assertEqual(r["status"], "OK")
+
+    def test_one_of_two_occurrences_removed_from_canonical_is_drift(self):
+        """The defect that made a clause vacuous: a surviving occurrence answered
+        the presence question yes while the governed one was gone."""
+        r = self._run("alpha once\n", "alpha and alpha\n", "alpha")
+        self.assertEqual(r["status"], "DRIFT")
+        self.assertEqual(r["severity"], "P2")
+        self.assertIn("canonical=1", r["detail"])
+        self.assertIn("twin=2", r["detail"])
+
+    def test_one_of_two_occurrences_removed_from_twin_is_drift(self):
+        r = self._run("alpha and alpha\n", "alpha once\n", "alpha")
+        self.assertEqual(r["status"], "DRIFT")
+        self.assertIn("canonical=2", r["detail"])
+        self.assertIn("twin=1", r["detail"])
+
+    def test_each_alternation_names_its_own_short_side(self):
+        """Two alternations drifting in OPPOSITE directions.
+
+        One label was derived from the first record and applied to the whole clause,
+        so the finding sent a maintainer chasing the second alternation to the wrong
+        file. `rule:parity-counts-match-on-both-sides` requires the side that holds
+        fewer, per alternation.
+        """
+        r = self._run("alpha beta beta\n", "alpha alpha beta\n", "alpha|beta")
+        self.assertEqual(r["status"], "DRIFT")
+        d = r["detail"]
+        self.assertIn("'alpha' canonical=1 twin=2 (canonical holds fewer)", d)
+        self.assertIn("'beta' canonical=2 twin=1 (twin holds fewer)", d)
+
+    def test_a_dead_alternation_is_still_named_when_a_sibling_drifts(self):
+        """A dead-on-both alternation was dropped from the message entirely.
+
+        Alone it reports STALE/P3; beside a drifting sibling it vanished at every
+        severity, so a stale manifest entry was hidden by an unrelated finding.
+        """
+        r = self._run("alpha\n", "alpha alpha\n", "alpha|gamma")
+        self.assertEqual(r["status"], "DRIFT")
+        self.assertIn("'alpha' canonical=1 twin=2", r["detail"])
+        self.assertIn("gamma", r["detail"])
+        self.assertIn("manifest stale?", r["detail"])
+
+    def test_equal_counts_of_zero_are_stale_not_a_pass(self):
+        """0 == 0 is not parity: the manifest names text neither file carries."""
+        r = self._run("nothing here\n", "nothing here\n", "alpha")
+        self.assertEqual(r["status"], "STALE")
+        self.assertEqual(r["severity"], "P3")
+
+    def test_a_surviving_sibling_alternation_does_not_mask_a_loss(self):
+        """The positive control for the whole change: `beta` is intact on both
+        sides, and that must not hide `alpha` going one-sided."""
+        r = self._run("beta only\n", "alpha and beta\n", "alpha|beta")
+        self.assertEqual(r["status"], "DRIFT")
+        self.assertIn("'alpha'", r["detail"])
+
+
+class SplitterTests(unittest.TestCase):
+    """The alternation reader MOVED into the shipped checker rather than being
+    copied, so it needs its own cases there."""
+
+    def test_nested_groups_character_classes_and_escapes(self):
+        f = ctp.split_top_level_alternatives
+        self.assertEqual(f("a|b"), ["a", "b"])
+        self.assertEqual(f("a(b|c)|d"), ["a(b|c)", "d"])
+        self.assertEqual(f("a[b|c]|d"), ["a[b|c]", "d"])
+        self.assertEqual(f(r"a\|b"), [r"a\|b"])
+        self.assertEqual(f("solo"), ["solo"])
+
+    def test_a_leading_inline_flag_scopes_every_fragment(self):
+        """A flag group at the head of a pattern applies to the whole pattern.
+
+        This previously asserted `["(?i)a", "b"]` — it pinned the lossy behaviour as
+        intended rather than flagging it, so the checker's own suite agreed that a
+        later fragment should compile under different flags than its pattern.
+        """
+        f = ctp.split_top_level_alternatives
+        self.assertEqual(f("(?i)a|b"), ["(?i)a", "(?i)b"])
+        self.assertEqual(f("(?im)a|b"), ["(?im)a", "(?im)b"])
+
+    def test_an_anchored_alternation_in_a_multiline_pattern_still_matches(self):
+        """The consequence the flag loss produced, on the shape a manifest clause uses.
+
+        Without the flag carried over, `^beta$` matched 0 times on BOTH sides, which
+        this checker reports as a stale manifest entry — a clean exit for a clause
+        whose text is present and governed.
+        """
+        import re as _re
+        text = "alpha\nbeta\n"
+        for frag in ctp.split_top_level_alternatives(r"(?m)^alpha$|^beta$"):
+            self.assertEqual(len(_re.findall(frag, text)), 1,
+                             f"fragment {frag!r} lost its pattern's flags")
+
+    def test_every_fragment_compiles(self):
+        import json as _json
+        man = _json.loads(
+            (SCRIPTS_DIR / "template_parity_manifest.json").read_text(encoding="utf-8")
+        )
+        clauses = man["clauses"] if isinstance(man, dict) and "clauses" in man else man
+        n = 0
+        for c in clauses:
+            for alt in ctp.split_top_level_alternatives(c.get("pattern") or ""):
+                re.compile(alt)
+                n += 1
+        self.assertGreater(n, 100, "splitter produced too few fragments to be measuring anything")
+
 
 
 class ManifestAlternativeLivenessTests(unittest.TestCase):
@@ -1024,7 +1177,7 @@ class ManifestAlternativeLivenessTests(unittest.TestCase):
             body = ctp._section_after(canonical.read_text(encoding="utf-8"), entry["anchor"])
             if body is None:
                 continue  # a STALE anchor is the other test's finding, not this one
-            for alt in _split_top_level_alternatives(pattern):
+            for alt in ctp.split_top_level_alternatives(pattern):
                 try:
                     compiled = re.compile(alt)
                 except re.error:

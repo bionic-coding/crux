@@ -35,11 +35,11 @@
     },
     {
       "id": "adrs-append-only-freeze",
-      "section": "§4 adrs write rules",
+      "section": "§4 adrs write rules: ADRs are append-only and a body is frozen once the record leaves Proposed",
       "canonical": "bionic/CLAUDE.md",
       "twin": "crux/templates/CLAUDE.md.tmpl",
       "anchor": "### adrs (append-only history)",
-      "pattern": "append-only|frozen"
+      "pattern": "ADRs are \\*\\*append-only\\*\\*|Once an ADR leaves `Proposed`, its body is frozen|only the status frontmatter mutates"
     },
     {
       "id": "wikilink-promptbook-lifecycle-neutral",
@@ -362,12 +362,44 @@
       "pattern": "one of three dispositions|\\*\\*verified\\*\\*|\\*\\*contradicted\\*\\*|\\*\\*unobserved\\*\\*|An Evidence item carrying no disposition is a finding|adds no artifact and no field|classified by what it observed, not by the tool that produced it|never raw output, an environment value, or a secret|re-derives each disposition|\\*\\*The statements land in a durable record\\*\\*|without the dispatch text or the session"
     },
     {
-      "id": "objectives-alignment-before-work-and-through-delegation",
-      "section": "§5.B the alignment rules: every agent reads objectives before work, and every delegation carries the resolved path plus the mission or an instruction to read it",
+      "id": "objectives-read-before-work",
+      "section": "§5.B rule:objectives-read-before-work — every agent reads objectives before work of any size, resolving the tree rather than assuming `docs/`, and re-reads it when it changes",
       "canonical": "bionic/CLAUDE.md",
       "twin": "crux/templates/CLAUDE.md.tmpl",
       "anchor": "## 5.B. `docs/objectives.md` format",
-      "pattern": "\\*\\*Alignment before work and through delegation\\.\\*\\*|Commander and night gardener read it at startup and on resume|never assume the literal `docs/` directory exists|including a forked skill invocation, carries the resolved objectives path|require recipients to preserve this context in further delegation|Objectives alone authorize no additional work"
+      "pattern": "\\*\\*Alignment before work and through delegation\\.\\*\\*|Every agent reads the resolved `<docs_dir>/objectives\\.md` before starting work, including small fixes, research, planning, and reviews|Resolve the tree through §14; never assume the literal `docs/` directory exists|Re-read the file when it changes during the work"
+    },
+    {
+      "id": "orchestrators-read-objectives-at-startup-and-resume",
+      "section": "§5.B rule:orchestrators-read-objectives-at-startup-and-resume — the commander and night gardener read at startup and on resume, the shell-less commander is handed the path, and the gardener's turn gate precedes every read",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "## 5.B. `docs/objectives.md` format",
+      "pattern": "Commander and night gardener read it at startup and on resume|A commander without shell access receives the resolved path from its caller|The gardener's turn gate runs before every other act, reads included|any missing-objectives notice waits for output the gate permits"
+    },
+    {
+      "id": "objectives-shape-the-work-and-authorize-none",
+      "section": "§5.B rule:objectives-shape-the-work-and-authorize-none — the mission and active goals shape the work under the maturity ladder, a sentence suffices for a small task with no artifact and no approval gate, and objectives authorize nothing further",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "## 5.B. `docs/objectives.md` format",
+      "pattern": "Use the Mission and relevant active goals to assess the task's purpose, tradeoffs, and completion evidence|`exploring` goals remain hypotheses|Do not treat dropped goals as requirements|A sentence suffices for a small task; no extra artifact or approval gate is required|Do not invent a goal association when none is supported|a conflict with an approved plan is a contradicted premise under §11|Objectives alone authorize no additional work"
+    },
+    {
+      "id": "objectives-context-travels-with-every-delegation",
+      "section": "§5.B rule:objectives-context-travels-with-every-delegation — every delegation carries the resolved path plus the mission or an instruction to read it, with known tensions, and session history supplies none of it",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "## 5.B. `docs/objectives.md` format",
+      "pattern": "including a forked skill invocation, carries the resolved objectives path|Include known tensions and require recipients to preserve this context in further delegation|Do not assume session history or a role's installed prompt supplies it"
+    },
+    {
+      "id": "objectives-populate-gate-never-invents-a-goal",
+      "section": "§5.B rule:objectives-populate-gate-never-invents-a-goal — every reader checks the file first, a missing or placeholder file routes to the owner, and no mission or goal is invented to unblock a step",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "## 5.B. `docs/objectives.md` format",
+      "pattern": "\\*\\*Populate gate\\.\\*\\*|the skill asks the owner to populate it|in an unattended session, write one line naming the gap in the output and skip the dependent step|Never invent a mission or a goal to unblock a step|Apply the populate gate above when objectives are unavailable"
     }
   ]
 }

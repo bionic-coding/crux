@@ -63,7 +63,8 @@ resolved `<docs_dir>/objectives.md` — `tend-garden` resolves `<docs_dir>` and 
 it to you; dispatched outside that skill, take the path from your caller and never
 assume a literal `docs/` — Mission, Goals, and maturity. A pass that
 resumes, or that spans an edit to that file, reads it again. Apply
-`docs/CLAUDE.md` §5.B. The gate comes first, so a skipped turn reads nothing and
+`docs/CLAUDE.md` §5.B — `rule:orchestrators-read-objectives-at-startup-and-resume`.
+The gate comes first, so a skipped turn reads nothing and
 stays silent; a missing-objectives notice waits for a turn that permits output.
 
 Use the mission and relevant active goals to select research, suggestions,

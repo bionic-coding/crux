@@ -1599,7 +1599,7 @@ CATALOG_TARGETS: dict[str, Callable[[Path, dict], list[dict]]] = {
 # the rule therefore derived an EMPTY list and the "skills.json exists"
 # guarantee degraded silently to nothing. A constant beside CATALOG_TARGETS
 # travels with the plugin, so the rule means the same thing everywhere.
-REQUIRED_CATALOG_JSON: tuple[str, ...] = ("agents.json", "skills.json")
+REQUIRED_CATALOG_JSON: tuple[str, ...] = ("agents.json", "rules.json", "skills.json")
 
 
 # ─────────────────────────────── diff helpers ─────────────────────────────

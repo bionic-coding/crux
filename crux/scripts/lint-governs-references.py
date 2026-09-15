@@ -346,6 +346,8 @@ _REFUSAL_DETAIL = {
     "not_found": "--path names nothing on disk",
     "symlink_root": "a scan root that is itself a symlink",
     "unreadable": "could not be opened for reading",
+    "catalog_unusable": ("the shipped rules catalog is present but could not be read as a "
+                         "slug->rule mapping; reinstall the plugin"),
 }
 
 
@@ -454,6 +456,148 @@ def excluded_paths(root: Path) -> frozenset[Path]:
     return frozenset(
         [tree / p for p in TREE_EXCLUDED_PREFIXES]
         + [plugin / p for p in PLUGIN_EXCLUDED_PREFIXES])
+
+
+
+# The root of the artifact the release stages, resolved from THIS file rather than
+# from the caller's repository root. This script ships inside that artifact, so the
+# directory holding it is the plugin root wherever the lint runs: `<repo>/crux` in
+# the authoring checkout, `<stage>/crux` in a staged artifact, and the versioned
+# plugin cache in an installed project.
+SHIPPED_ROOT = Path(__file__).resolve().parent.parent
+
+
+def is_shipped_surface(path: Path) -> bool:
+    """True when `path` is part of the artifact the release stages.
+
+    rule:citation-resolves-by-its-citing-surface — "the citing file's location
+    decides which rule applies, and the rule being cited never does". A reader's
+    own `<repo>/crux/` is NOT this directory unless the reader IS the authoring
+    checkout, so a project cannot make its own pages shipped by naming a folder
+    `crux`. The release also stages six repository-root files; none is in this
+    lint's default scope, and a reader who names one with `--path` gets the
+    reader-owned reading, which is the safe direction — it reports more, never
+    fewer, citations.
+
+    A path is judged by BOTH its lexical location and its resolved one, and either
+    being inside the plugin root makes it shipped. Judging only the resolved path let
+    a symlink sitting in the plugin's own skills directory take the reader-owned
+    reading, so a reader's rule could answer for a file at a shipped location — and
+    the sibling scanner in `generate-rules-catalog.py` refuses such a file outright,
+    which left two readers of one boundary giving two answers. Erring toward "shipped"
+    is the safe direction: it applies the stricter resolution, never the looser one.
+    """
+    try:
+        # The PARENT is resolved and the final component is not, so the test asks
+        # where the file SITS without following the file's own link. Resolving the
+        # whole path followed the leaf and lost the location; leaving it unresolved
+        # broke on any symlinked ancestor, which every macOS temporary directory has
+        # (`/var` -> `/private/var`).
+        located = path.parent.resolve(strict=False) / path.name
+    except (OSError, ValueError):
+        located = Path(os.path.normpath(os.path.abspath(path)))
+    if _contained(SHIPPED_ROOT, located):
+        return True
+    try:
+        return _contained(SHIPPED_ROOT, path.resolve())
+    except (OSError, ValueError):
+        return False
+
+
+def _shipped_catalog_rules() -> tuple[dict[str, str], dict | None, bool]:
+    """slug -> rule text, from the catalog the plugin ships, if it is present.
+
+    The catalog is read from BESIDE THIS SCRIPT and from nowhere else. Reading
+    `<root>/crux/catalog/rules.json` first, as this did, let a reader's own file
+    at that path replace the shipped catalog outright — not merge with it — so a
+    project could redefine a rule inside the plugin's own instructions by minting
+    the same slug, which is the substitution
+    rule:citation-resolves-by-its-citing-surface exists to prevent. In the
+    authoring checkout the two paths name the same file, which is why the defect
+    was invisible here and reachable in any project holding a `crux/` directory.
+
+    Returns `(rules, refusal, present)`. ABSENT and UNUSABLE are different conditions
+    and this draws the line between them, because collapsing them weakened the gate
+    silently:
+
+      absent    -> `({}, None, False)`. An older plugin or a partial checkout carries
+                   no catalog, and turning this gate red for a reason the reader cannot
+                   fix helps nobody. The caller falls back to the reader's projection.
+      unusable  -> `({}, refusal, True)`. A file that EXISTS but is corrupt, truncated,
+                   missing its `rules` key, or not a mapping is not an older plugin —
+                   it is a broken install the reader CAN fix by reinstalling. Treating
+                   it as "no catalog" reverted the shipped reading to reader-first and
+                   disabled the collision report at once, with no diagnostic anywhere.
+                   It is PRESENT, so the caller keeps the strict shipped reading and
+                   the refusal gates the exit code: loud AND strict, not merely loud.
+      usable    -> `(rules, None, True)`.
+
+    `present` is what the caller keys the fallback on, NOT an empty rule map. Keying on
+    emptiness made two mistakes at once: a broken install still resolved shipped
+    citations against the reader's projection, and a legitimately empty catalog — the
+    exact bytes this project's own regenerator emits for a plugin citing nothing — was
+    refused forever for a condition nobody could fix.
+
+    A per-entry value that is not a mapping is refused too. Tolerating it resolved a
+    shipped citation to empty rule text with no diagnostic, which is a quieter version
+    of the same defect one level down.
+    """
+    candidate = SHIPPED_ROOT / "catalog" / "rules.json"
+    if not candidate.is_file():
+        return {}, None, False
+    try:
+        data = json.loads(candidate.read_text(encoding="utf-8"))
+        rules = data["rules"]
+        if not isinstance(rules, dict):
+            raise TypeError("'rules' is not a mapping")
+        out: dict[str, str] = {}
+        for k, v in rules.items():
+            if not isinstance(v, dict):
+                raise TypeError(f"catalog entry {k!r} is not a mapping")
+            out[k] = v.get("rule", "")
+        return out, None, True
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, KeyError,
+            TypeError, AttributeError):
+        return {}, _refusal(candidate, "catalog_unusable"), True
+
+
+def catalog_collisions(tree_slugs: dict[str, str], catalog: dict[str, str],
+                       resolver: dict, authoring: bool = False) -> list[dict]:
+    """Slugs the reader's projection and the shipped catalog BOTH define, with
+    different text — reported wherever the lint runs.
+
+    rule:citation-resolves-by-its-citing-surface: "A slug both sides hold is
+    reported wherever the citation lint runs, because a silent substitution and
+    a deliberate override are not the same act."
+
+    Texts are compared space-folded, and identical text is not a collision. In
+    the authoring checkout the catalog IS a projection of this tree, so all 44
+    of its slugs are held on both sides while naming one rule reachable two
+    ways. That is neither a substitution nor an override, and reporting it would
+    make every authoring run red against itself. A slug whose two texts DIFFER
+    is the act the clause names, and it is reported.
+    """
+    out: list[dict] = []
+    for slug, cat_rule in sorted(catalog.items()):
+        handle = tree_slugs.get(slug)
+        if handle is None:
+            continue
+        tree_rule = (resolver.get(handle) or {}).get("rule", "")
+        if " ".join(tree_rule.split()) == " ".join(cat_rule.split()):
+            continue
+        # In the authoring checkout the catalog is DERIVED from this very projection,
+        # so differing text means the catalog is stale, not that two authorities
+        # disagree. Naming it a collision misdescribed the condition and named no
+        # remedy, while the regenerator's own drift gate already reports it.
+        out.append({
+            "slug": redact(slug, quoted=False),
+            "reason": ("the shipped catalog is stale for this slug; run "
+                       "generate-rules-catalog.py" if authoring else
+                       "defined by both this projection and the shipped catalog"),
+            "kind": "stale_catalog" if authoring else "competing_definition",
+            "tree_handle": redact(handle, quoted=False),
+        })
+    return out
 
 
 def resolve_scope(root: Path, extra: list[str]) -> tuple[list[Path], list[Path], list[dict]]:
@@ -591,6 +735,7 @@ def _row_resolves(row: dict | None) -> bool:
 def find_unresolved(paths: list[Path], resolver: dict,
                     slugs: dict[str, str] | None = None,
                     retired_slugs: dict[str, list[str]] | None = None,
+                    shipped_slugs: dict[str, str] | None = None,
                     ) -> tuple[list[dict], list[dict], int, list[dict]]:
     """`(handle_findings, rule_findings, rule_tokens, refusals)` across `paths`.
 
@@ -609,6 +754,14 @@ def find_unresolved(paths: list[Path], resolver: dict,
     message naming the displacing rules), or when the slug is unknown
     (`reason: unknown`). One entry per distinct (path, line, token), sorted.
     `rule_tokens` counts every token seen, resolving or not.
+
+    Resolution is keyed by the CITING SURFACE, per
+    rule:citation-resolves-by-its-citing-surface. `slugs` is the reader-owned
+    reading (the reader's own projection first, the shipped catalog second) and
+    `shipped_slugs` the shipped one (the shipped catalog first, whatever the
+    reader's projection holds). Each path is read under the map its own location
+    selects. `shipped_slugs` omitted means one map for every path, which is what
+    a caller asking a single-surface question wants.
     """
     slugs = slugs or {}
     retired_slugs = retired_slugs or {}
@@ -623,6 +776,10 @@ def find_unresolved(paths: list[Path], resolver: dict,
         if isinstance(text, dict):
             refusals.append(text)
             continue
+        # The citing file's location decides which rule applies; the rule being
+        # cited never does.
+        here = (shipped_slugs if shipped_slugs is not None and is_shipped_surface(path)
+                else slugs)
         for handle in find_handles(text):
             key = (str(path), handle)
             if key in seen:
@@ -640,7 +797,7 @@ def find_unresolved(paths: list[Path], resolver: dict,
             rule_tokens += 1
             token = m.group(0)
             slug = token[len("rule:"):]
-            named = slugs.get(slug)
+            named = here.get(slug)
             row = resolver.get(named) if named is not None else None
             if named is not None and _row_resolves(row):
                 continue
@@ -724,15 +881,69 @@ def main(argv=None) -> int:
                                      alias_rows=alias_rows)
         # ADR-0099 clause 2: the slug maps AND the collision gate, one traversal.
         slugs, retired_slugs = sp.live_and_retired_slugs(records)
+        # rule:citation-resolves-by-its-citing-surface. Two readings of the same
+        # citation grammar, and the citing file's location picks between them:
+        #
+        #   shipped surface -> the shipped catalog FIRST, whatever this projection
+        #                      holds, so a project cannot redefine a rule inside the
+        #                      plugin's own instructions by minting the same slug;
+        #   reader-owned    -> this projection FIRST and the catalog second, so the
+        #                      reader's own rules keep their meaning and the plugin's
+        #                      stay reachable.
+        #
+        # Building ONE merged map, as this did, implements neither: it gave every
+        # surface the reader-first reading, so the substitution the clause forbids
+        # resolved silently and the clause's central requirement had no code at all.
+        catalog_rules, catalog_refusal, catalog_present = _shipped_catalog_rules()
+        # This repo IS the plugin's authoring checkout when the shipped tree sits at
+        # EXACTLY `<root>/crux` — the same test `generate-rules-catalog.py` applies
+        # before it projects anything. Containment under root was not that test: a
+        # plugin vendored at `<repo>/vendor/plugin` read as authoring here while the
+        # regenerator took its surface-absent lane, so the lint named a remedy that
+        # does nothing in the project it was named to.
+        try:
+            authoring = SHIPPED_ROOT == (root / "crux").resolve()
+        except (OSError, ValueError):
+            authoring = False
+        catalog_slugs: dict[str, str] = {}
+        for _slug, _rule in catalog_rules.items():
+            _handle = f"catalog/{_slug}"
+            catalog_slugs[_slug] = _handle
+            # the resolver row the handle must land in, or `_row_resolves` reports the
+            # slug as naming a handle absent from the resolver. The catalog carries no
+            # decision-record identifier, so `source_adr` is null rather than invented.
+            resolver.setdefault(_handle, {
+                "authority": "prescriptive",
+                "disposition": "decided",
+                "provenance": "authored",
+                "review_state": "shipped-catalog",
+                "rule": _rule,
+                "source_adr": None,
+            })
+        collisions = catalog_collisions(slugs, catalog_rules, resolver, authoring)
+        # "whatever the reader's own projection holds" — so on a shipped surface the
+        # catalog is not merely preferred, it is the ONLY source. Merging this
+        # projection in behind it would let a reader's record answer for a slug the
+        # catalog does not carry, which is the same substitution by a slower route.
+        # The one exception is a catalog that is absent entirely: an older plugin or a
+        # partial checkout leaves no shipped source to consult, and turning every
+        # shipped citation red for a reason the reader cannot fix helps nobody.
+        shipped_slugs = dict(catalog_slugs) if catalog_present else dict(slugs)
+        reader_slugs = {**catalog_slugs, **slugs}    # this projection wins
         scan_paths, roots, refusals = resolve_scope(root, args.path)
         handle_findings, rule_findings, rule_tokens, read_refusals = find_unresolved(
-            scan_paths, resolver, slugs, retired_slugs)
+            scan_paths, resolver, reader_slugs, retired_slugs,
+            shipped_slugs=shipped_slugs)
     except sp.GovernsValidationError as exc:
         print(json.dumps({"validation_errors": exc.problems}, sort_keys=True))
         return 1
     except Exception as exc:
         sys.stderr.write(f"lint-governs-references: {type(exc).__name__}: {exc}\n")
         return 2
+    # A present-but-unusable catalog is reported rather than silently treated as
+    # absent; it rides the refusals list, which already gates the exit code.
+    if catalog_refusal is not None:
+        refusals = refusals + [catalog_refusal]
     refused = {r["path"] for r in read_refusals}
     scanned = [str(p) for p in scan_paths if str(p) not in refused]
     refusals = sorted(refusals + read_refusals, key=lambda r: (r["path"], r["reason"]))
@@ -742,13 +953,17 @@ def main(argv=None) -> int:
         "unresolved": handle_findings,
         "rule_findings": rule_findings,
         "rule_tokens": rule_tokens,
+        "collisions": collisions,
         "refusals": refusals,
     }
     # R4: an empty resolved scope is a hard failure, never a vacuous pass.
     if not scan_paths:
         payload["error"] = "empty_scope"
     print(json.dumps(payload, sort_keys=True))
-    return 1 if (handle_findings or rule_findings or refusals or "error" in payload) else 0
+    # A collision is a finding. Reporting it into the payload while exiting 0 is the
+    # silent form of exactly the act the clause distinguishes from a deliberate one.
+    return 1 if (handle_findings or rule_findings or refusals or collisions
+                 or "error" in payload) else 0
 
 
 if __name__ == "__main__":

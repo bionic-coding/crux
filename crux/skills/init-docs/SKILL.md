@@ -398,10 +398,10 @@ For each existing repo-root `CLAUDE.md` and `AGENTS.md`, also add the following
 instruction unless the file already names `objectives.md`. Substitute `${DOCS_DIR}`:
 
 ```markdown
-Read `${DOCS_DIR}/objectives.md` before work of any size; follow `${DOCS_DIR}/CLAUDE.md` §5.B for alignment and the populate gate.
-Commander and night gardener read it at startup and on resume.
-Every delegation includes its resolved path plus the mission and relevant goals, or an instruction to read it before work.
-Carry this context through further delegation. Keep small-task alignment brief; objectives do not expand authorization.
+Read `${DOCS_DIR}/objectives.md` before work of any size, and carry its context through every delegation.
+`${DOCS_DIR}/CLAUDE.md` §5.B is the one statement of what that means — who reads, when, what a delegation carries, how the mission bounds the work, and what to do when the file is missing or still a placeholder.[^objectives]
+
+[^objectives]: rule:objectives-read-before-work, rule:orchestrators-read-objectives-at-startup-and-resume, rule:objectives-shape-the-work-and-authorize-none, rule:objectives-context-travels-with-every-delegation, rule:objectives-populate-gate-never-invents-a-goal
 ```
 
 Preserve existing instructions and generated regions. If either root file is

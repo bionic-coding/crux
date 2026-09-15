@@ -1221,7 +1221,9 @@ class CatalogTargetsTests(unittest.TestCase):
         target repo, so the guarantee degraded to nothing downstream. The
         enumeration ships in code beside CATALOG_TARGETS instead.
         """
-        self.assertEqual(validator.REQUIRED_CATALOG_JSON, ("agents.json", "skills.json"))
+        self.assertEqual(
+            validator.REQUIRED_CATALOG_JSON, ("agents.json", "rules.json", "skills.json")
+        )
         on_disk = {p.name for p in CATALOG_DIR.glob("*.json")}
         self.assertEqual(set(validator.REQUIRED_CATALOG_JSON), on_disk)
 

@@ -71,6 +71,7 @@ Run each command below from the repo root. **Parse each command's stdout as JSON
 | `<tree>/CLAUDE.md` §10 routing-table region | `generate-routing-table.py --dry-run` | `generate-routing-table.py` |
 | `<docs_dir>/adrs/reviews/index.md` | `generate-reviews-index.py --dry-run` | `generate-reviews-index.py` |
 | `<docs_dir>/journal/index.md` | `generate-journal-index.py --dry-run` | `generate-journal-index.py` |
+| `crux/catalog/rules.json` (the rules the plugin ships) | `generate-rules-catalog.py --dry-run` | `generate-rules-catalog.py` |
 
 Invoke each via `uv run "${CRUX_PLUGIN_ROOT}/scripts/<name>" ...` from the repo root. This roster is the source of truth for what a derived artifact owes; if the repo-root `CLAUDE.md` roster grows a row, add its gate here.
 
@@ -125,7 +126,7 @@ no evidence         <E>   rows whose gate exited 0 having inspected ZERO configu
 
 **Count ROWS, not commands.** The unit is the repo-root roster row, because that is what
 membership means; one command may cover several rows (`validate-catalog.py` covers both
-`skills.json` and `agents.json`, so the step-1 table runs fifteen commands over sixteen
+`skills.json` and `agents.json`, so the step-1 table runs sixteen commands over seventeen
 rows). Attribute a command's verdict to every row it covers, or the identity below fails
 for a reason that has nothing to do with drift.
 

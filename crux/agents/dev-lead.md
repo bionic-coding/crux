@@ -24,7 +24,8 @@ Never assume the literal `docs/` directory exists. Take the resolved path from t
 caller that dispatched you; a skill in the pipeline has already resolved it. If you
 were handed none, you hold `Bash` — resolve it yourself through the config CLI the
 skills use, per `docs/CLAUDE.md` §14.2, and say in your result that you did.
-Apply `docs/CLAUDE.md` §5.B, including its populate gate and maturity rules.
+Apply `docs/CLAUDE.md` §5.B, including its populate gate and maturity rules —
+`rule:objectives-read-before-work` and `rule:objectives-context-travels-with-every-delegation`.
 Preserve the caller's objectives context in every developer, reviewer,
 historian, or forked skill assignment. Include the resolved path and either
 the mission with relevant goal statements and measures, or an explicit

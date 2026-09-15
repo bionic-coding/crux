@@ -1,4 +1,4 @@
-<!-- generated-from: CHANGELOG.md@sha256:aab1e74669f22ef9251a1344cead87fc4b0478dc855fc3ac29c89d5826b6e0e5; model: claude-fable-5.1; date: 2026-09-13 -->
+<!-- generated-from: CHANGELOG.md@sha256:3541b082b2ef74c595664370c34bbc13db4c41774e54791e57a42f9dd230b274; model: claude-fable-5.1; date: 2026-09-14 -->
 # Changelog
 
 All notable changes to crux. The format roughly follows [Keep a Changelog](https://keepachangelog.com/) and the project adheres to [Semantic Versioning](https://semver.org/).
@@ -10,6 +10,28 @@ All notable changes to crux. The format roughly follows [Keep a Changelog](https
 ### Changed
 
 ### Fixed
+
+### Removed
+
+## [3.15.0] — 2026-09-15
+
+### Added
+
+- The objectives-alignment rules are now individually citable. Five rules — read the objectives before work, the two orchestrating roles read them at startup and on resume, how the mission shapes the work and what it does not authorize, what a delegation carries, and the populate gate — each have their own identity and are grouped into a single objectives domain.
+- **The plugin now ships the rules its own instructions cite.** Previously, a `rule:` citation on a shipped skill, agent or template pointed at a record that did not exist in an installed project, so the citation resolved to nothing. A rule catalog now ships alongside the plugin and the tree-contract template states where a citation resolves. No generation, fetching, or configuration is required on your part.
+
+### Changed
+
+- The instruction files at the repo root and the block that `init-docs` writes into a new repo now point at the single statement of the objectives rules instead of each restating them. Each file keeps the resolved path it owns. The three copies had previously drifted from one another and from the contract.
+- The template-parity check now carries one clause per objectives rule, up from a single clause covering all of them. The read-before-work sentence, the application paragraph and the populate gate were previously not covered by any clause.
+
+### Fixed
+
+- **A parity clause now compares how many times its text appears on each side, not merely whether it appears at all.** Deleting a governed sentence from the tree contract used to pass as long as another occurrence of the same wording survived elsewhere in the section; the clause guarding the append-only freeze, for example, reported parity while actually matching a heading and an unrelated bullet. Deleting a governed sentence is now reported as a finding from either side: four sentence deletions were driven, each from both files, and a wider sweep removed the text of all 159 top-level alternations from the canonical side, every one of which produced a finding. A clause whose text is absent from both sides is reported as a stale manifest entry rather than as agreement.
+- **A `rule:` citation now resolves according to the surface it sits on.** A project that minted a rule slug the plugin also uses could previously redefine that rule inside the plugin's own instructions, with no way to distinguish a deliberate override from a silent substitution. A citation on a shipped surface now resolves against the shipped catalog regardless of what the project defines; a citation on a project-owned surface resolves against the project's rules first; and a slug both sides define with different text is reported wherever the lint runs.
+- A shipped rule catalog that is present but unreadable — corrupt, truncated, or not a slug-to-rule mapping — is now reported as a refusal instead of being treated as absent, which previously sent shipped citations silently back to the project's rules. Only a genuinely absent catalog (as with an older plugin or a partial checkout) falls back.
+- A parity finding covering two alternations that drifted in opposite directions used to name one side for both, pointing you at the wrong file. Each alternation now names the side that holds fewer occurrences, and a manifest entry that matches neither side is no longer dropped from the message when a sibling drifts.
+- A parity clause whose pattern began with an inline regex flag lost that flag when the pattern was split, so an anchored alternation in a multiline pattern matched nothing on either side and was misreported as a stale manifest entry instead of the working clause it was.
 
 ### Removed
 

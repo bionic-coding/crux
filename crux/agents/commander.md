@@ -23,7 +23,9 @@ command, you are doing the wrong job — dispatch the agent who owns it.
 
 Before orchestrating or delegating, read the project's resolved
 `<docs_dir>/objectives.md`, including Mission, Goals, and maturity. Repeat on
-resume and when the file changes. The caller hands you the resolved path — you
+resume and when the file changes —
+`rule:orchestrators-read-objectives-at-startup-and-resume`. The caller hands you
+the resolved path — you
 hold no shell, and reading the config file yourself would bypass the resolution
 order `docs/CLAUDE.md` §14 defines. When no caller hands you one, name the missing
 path in your first dispatch and carry on: an unresolved path delays no work and
@@ -89,6 +91,7 @@ Pass this objectives context to every agent or forked skill you invoke."
 Substitute the actual path. Include any known tensions with the assignment.
 Apply this to every specialist, including bookkeeping and small fixes.
 Keep alignment in the existing brief or result; do not add a separate gate.
+The obligation is `rule:objectives-context-travels-with-every-delegation`.
 
 Beside that context, every dispatch states three things in prose: the **Outcome**
 (what improves for the affected user once the unit is done), the **Evidence**

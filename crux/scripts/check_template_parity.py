@@ -172,6 +172,78 @@ def _section_after(text: str, anchor: str) -> str | None:
     return "\n".join(body)
 
 
+
+def split_top_level_alternatives(pattern: str) -> list[str]:
+    """Split a regex on its TOP-LEVEL `|` only.
+
+    A `|` inside `(...)`, `[...]`, or escaped by a backslash belongs to a
+    sub-expression and is not an alternative of the whole pattern. Splitting
+    naively would manufacture fragments that never compile, and every one of
+    them would look like a dead alternative.
+
+    This lived in the test suite until the count comparison below needed it.
+    It MOVED rather than being copied: a second hand-maintained copy of a
+    parser is the defect class this file's own history already paid for
+    (rule:parity-counts-match-on-both-sides).
+    """
+    parts: list[str] = []
+    buf: list[str] = []
+    depth = bracket = 0
+    i = 0
+    while i < len(pattern):
+        c = pattern[i]
+        if c == "\\" and i + 1 < len(pattern):
+            buf.append(pattern[i:i + 2]); i += 2; continue
+        if c == "[" and not bracket:
+            bracket = 1
+        elif c == "]" and bracket:
+            bracket = 0
+        elif not bracket and c == "(":
+            depth += 1
+        elif not bracket and c == ")":
+            depth -= 1
+        elif not bracket and depth == 0 and c == "|":
+            parts.append("".join(buf)); buf = []; i += 1; continue
+        buf.append(c); i += 1
+    parts.append("".join(buf))
+    parts = [p for p in parts if p.strip()]
+    # A leading inline-flag group scopes the WHOLE pattern, but after the split it
+    # sits on the first fragment only, so every later fragment compiles under
+    # different flags than the pattern it came from. An anchored alternation in a
+    # `(?m)` pattern then matched 0 times on BOTH sides, which this file reports as a
+    # stale manifest entry rather than as the working alternation it is — a false
+    # green for a real clause. No live manifest pattern trips this today; one
+    # anchored alternation added to any of the three `(?m)` clauses would.
+    if parts:
+        flags = re.match(r"(?:\(\?[aiLmsux]+\))+", parts[0])
+        if flags:
+            prefix = flags.group(0)
+            parts = [parts[0]] + [prefix + p for p in parts[1:]]
+    return parts
+
+
+def _count_comparison(pattern: str, canon_sec: str, twin_sec: str) -> list[dict]:
+    """Per-alternation match counts on both sides (rule:parity-counts-match-on-both-sides).
+
+    Returns one record per alternation whose counts disagree, or whose counts
+    are equal and zero — equal counts of zero name text the manifest guards and
+    neither file carries, which is a stale clause rather than a pass.
+    """
+    out: list[dict] = []
+    for alt in split_top_level_alternatives(pattern):
+        try:
+            rx = re.compile(alt)
+        except re.error as e:
+            raise ValueError(
+                f"manifest pattern alternation is not a valid regex: {alt!r}: {e}"
+            ) from e
+        nc = len(rx.findall(canon_sec))
+        nt = len(rx.findall(twin_sec))
+        if nc != nt or (nc == 0 and nt == 0):
+            out.append({"alternation": alt, "canonical": nc, "twin": nt})
+    return out
+
+
 def _check_entry(entry: dict, root: Path) -> dict | None:
     """Check one manifest entry against the repo rooted at `root`.
 
@@ -239,32 +311,36 @@ def _check_entry(entry: dict, root: Path) -> dict | None:
     with twin_path.open(encoding="utf-8", newline="") as handle:
         twin_text = handle.read()
 
+    # BOTH sides are resolved before either is judged. Deciding on the canonical
+    # alone cannot tell a one-sided loss (the surfaces disagree — DRIFT) from a
+    # two-sided one (the manifest names a heading neither file carries — STALE),
+    # and the difference is the exit status
+    # (rule:one-sided-anchor-is-drift-absent-file-is-stale).
     canon_sec = _section_after(canon_text, anchor)
+    twin_sec = _section_after(twin_text, anchor)
 
-    # Stale-manifest guard: anchor absent from canonical (twin is present) →
-    # P3 STALE INSTEAD OF parity result — never a vacuous green.
-    if canon_sec is None:
+    if canon_sec is None and twin_sec is None:
         return {
             "id": cid,
             "section": section,
             "status": "STALE",
             "severity": "P3",
             "detail": (
-                f"anchor {anchor!r} absent in canonical {entry['canonical']} "
-                f"(manifest stale?)"
+                f"anchor {anchor!r} absent from both {entry['canonical']} and "
+                f"twin {entry['twin']} (manifest stale?)"
             ),
         }
-
-    twin_sec = _section_after(twin_text, anchor)
-    if twin_sec is None:
+    if canon_sec is None or twin_sec is None:
+        short = entry["canonical"] if canon_sec is None else entry["twin"]
+        other = entry["twin"] if canon_sec is None else entry["canonical"]
         return {
             "id": cid,
             "section": section,
             "status": "DRIFT",
             "severity": "P2",
             "detail": (
-                f"section {section} (anchor {anchor!r}) missing entirely from "
-                f"twin {entry['twin']}"
+                f"section {section} (anchor {anchor!r}) is absent from {short} "
+                f"but present in {other} — the two surfaces disagree"
             ),
         }
 
@@ -279,18 +355,68 @@ def _check_entry(entry: dict, root: Path) -> dict | None:
             raise ValueError(
                 f"manifest pattern is not a valid regex: {pattern!r}: {e}"
             ) from e
-        if not canon_vals:
-            # Pattern found no values in canonical — stale manifest entry.
+        if not canon_vals and not _findall_strings(pattern, twin_sec):
+            # Pattern found nothing on EITHER side — stale manifest entry. The
+            # two-sided test is load-bearing: a pattern matching nothing in the
+            # canonical while the twin still carries it is a one-sided loss,
+            # which the count comparison below reports as drift. Returning stale
+            # here on the canonical alone would exit 0 on exactly the deletion
+            # this check exists to catch (rule:one-sided-anchor-is-drift-absent-file-is-stale).
             return {
                 "id": cid,
                 "section": section,
                 "status": "STALE",
                 "severity": "P3",
                 "detail": (
-                    f"pattern {pattern!r} matched nothing in canonical section "
-                    f"{section} of {entry['canonical']} (manifest stale?)"
+                    f"pattern {pattern!r} matched nothing in section {section} of "
+                    f"either {entry['canonical']} or {entry['twin']} (manifest stale?)"
                 ),
             }
+        # rule:parity-counts-match-on-both-sides — each alternation must match the
+        # same number of times on both sides. This runs BEFORE the value comparison
+        # because a surviving sibling alternation would otherwise mask a deletion.
+        count_findings = _count_comparison(pattern, canon_sec, twin_sec)
+        if count_findings:
+            dead = [f for f in count_findings if f["canonical"] == 0 and f["twin"] == 0]
+            if len(dead) == len(count_findings):
+                return {
+                    "id": cid,
+                    "section": section,
+                    "status": "STALE",
+                    "severity": "P3",
+                    "detail": (
+                        f"alternation(s) {[f['alternation'] for f in dead]} match neither "
+                        f"{entry['canonical']} nor {entry['twin']} in section {section} "
+                        f"(manifest stale?)"
+                    ),
+                }
+            live = [f for f in count_findings if not (f["canonical"] == 0 and f["twin"] == 0)]
+            # The side that holds fewer is named PER ALTERNATION. Deriving one label
+            # from the first record and applying it to the whole clause sent a
+            # maintainer to the wrong file whenever two alternations drifted in
+            # opposite directions.
+            parts = ", ".join(
+                f"{f['alternation']!r} canonical={f['canonical']} twin={f['twin']} "
+                f"({'canonical' if f['canonical'] < f['twin'] else 'twin'} holds fewer)"
+                for f in live
+            )
+            detail = f"match counts differ in section {section}: {parts}"
+            if dead:
+                # A dead-on-both alternation is reported here too. Dropping it because
+                # a sibling drifted hid a stale manifest entry at ANY severity, where
+                # the same entry alone is reported at P3.
+                detail += (
+                    f"; alternation(s) {[f['alternation'] for f in dead]} match neither "
+                    f"side (manifest stale?)"
+                )
+            return {
+                "id": cid,
+                "section": section,
+                "status": "DRIFT",
+                "severity": "P2",
+                "detail": detail,
+            }
+
         twin_norm = _normalize(twin_sec)
         # Normalize BOTH sides symmetrically: a captured canonical value
         # containing collapsible whitespace or a template placeholder is run
