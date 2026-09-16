@@ -107,22 +107,23 @@ def lines(*rows: str) -> str:
 # `(name, text, expected)`. `expected` is written out from the fixture beside
 # it and is never produced by calling either parser.
 
-NINE_CATEGORY_DATES = {
+CATEGORY_DATES = {
     "decision": "2026-09-01", "implementation": "2026-09-02", "bug": "2026-09-03",
     "learning": "2026-09-04", "blocker": "2026-09-05", "refactor": "2026-09-06",
     "meeting": "2026-09-07", "review": "2026-09-08", "misc": "2026-09-09",
+    "release": "2026-09-10",
 }
 
 CORPUS: list[tuple[str, str, list[tuple[str, str]]]] = [
 
-    # ── column-0 headings, real ASCII calendar dates, all nine categories ──
+    # ── column-0 headings, real ASCII calendar dates, every category ──
     (
-        "all nine categories at column zero",
+        "every category at column zero",
         lines("# Journal — 2026-09", "",
               *[line for cat in CATEGORIES
-                for line in (f"## [{NINE_CATEGORY_DATES[cat]} 10:00] {cat} | s",
+                for line in (f"## [{CATEGORY_DATES[cat]} 10:00] {cat} | s",
                              "", "One body line.", "")]),
-        [(NINE_CATEGORY_DATES[cat], cat) for cat in CATEGORIES],
+        [(CATEGORY_DATES[cat], cat) for cat in CATEGORIES],
     ),
 
     # ── prose carrying pipes and inline backticks ──────────────────────────
@@ -296,7 +297,9 @@ class RequiredAgreementTests(unittest.TestCase):
         ])
         self.assertGreaterEqual(len(CORPUS) - len(empty), 18)
         total_pairs = sum(len(expected) for _, _, expected in CORPUS)
-        self.assertEqual(total_pairs, 9 + 2 * 5 + 3 + 6 + 2 + 5)
+        # The first term is the every-category lane, so it tracks the enum rather
+        # than a frozen count -- the enum grew by one when `release` was adopted.
+        self.assertEqual(total_pairs, len(CATEGORIES) + 2 * 5 + 3 + 6 + 2 + 5)
 
     def test_every_expected_pair_is_a_real_in_month_enum_category(self):
         """The corpus stays inside the required-agreement region by construction.

@@ -247,11 +247,21 @@ The id is not reused. This stub exists so a future reader finds the reasoning in
 
 #### CLN-JR-1 — recent log operations without matching journal entries
 
-- **Reads:** `docs/log.md` (newest entries), `docs/journal/YYYY-MM.md` for the month(s) covered.
-- **Looks for:** Within the last 7 days from `${TODAY}`, scan `docs/log.md` for entries matching regex `## \[(\d{4}-\d{2}-\d{2})\] (adr|promptbook|schema) \|.*\b(accept|archived|migration)\b`. For each hit, identify the artifact named in the subject (e.g., `ADR-NNNN`, `PB-NNNN-<slug>`). Then read the journal file for the entry's month and check whether any entry contains a `[[wiki-link]]` to that artifact. Missing journal entry → finding.
+- **Reads:** `docs/log.md` (newest entries), `docs/journal/YYYY-MM.md` for the month(s) covered, and — through the shared checker — `docs/adrs/summaries/resolver.json` where the tree has one.
+- **Looks for:** Within the last 7 days from `${TODAY}`, scan `docs/log.md` for entries matching regex `## \[(\d{4}-\d{2}-\d{2})\] (adr|promptbook|schema) \|.*\b(accept|archived|migration)\b`. For each hit, identify the artifact named in the subject (e.g., `ADR-NNNN`, `PB-NNNN-<slug>`). Then invoke the shared checker once per artifact, for the month the hit's date names:
+
+  ```bash
+  uv run "${CRUX_PLUGIN_ROOT}/scripts/check-journal-reference.py" \
+    --artifact <artifact-id> --month YYYY-MM --repo-root <repo-root>
+  ```
+
+  Branch on the exit code. **0** — referenced; no finding. **1** — not referenced; emit the finding, reading the payload for the wording below. **2** — environment or usage failure; surface it and emit NO finding for that artifact, because a month file that could not be read is not evidence of a missing entry.
+- **Two kinds of evidence, because two contracts govern the citation.** An entry references an artifact when it carries a `[[wiki-link]]` naming it, **or** a `rule:<slug>` the summaries resolver maps to a handle that artifact owns. Writing rule 7 tells the journal to cite `rule:<slug>` where a rule exists, and to name the ADR only where it carries no `governs` block. A wiki-link-only check therefore reports every governs-bearing ADR as unjournaled: three reflections in this repo's own tree were reported missing while sitting in the month file.
+- **Mere slug presence is not evidence.** A slug the resolver does not carry, and a slug another ADR owns, are both REJECTED rather than ignored. The checker returns them under `rejected` with `resolves_to`, so a finding can name the decision the entry actually reflects on. A retired slug counts for the ADR owning its successor, because that is what retirement means.
+- **An absent resolver is reported, never fatal.** `init-docs` creates no summaries projection, so a fresh tree has none. The checker then decides on wiki-links alone, sets `resolver_available: false`, and returns every slug token under `unverifiable`. Where a finding carries `resolver_available: false` and a non-empty `unverifiable` list, say so in the finding text: the reflection may exist and cite a rule this tree cannot resolve.
 - **Stable id:** `cleanup-CLN-JR-1-<artifact-id>`.
 - **Category:** `journal-gap`. **Severity:** P1.
-- **Proposed action:** "Invoke `log-work` with a reflective entry on `<artifact-id>` (per v0.2.0 log-work: name at least one thing that didn't work first, one surprise, one thing to do differently)."
+- **Proposed action:** "Invoke `log-work` with a reflective entry on `<artifact-id>` (per v0.2.0 log-work: name at least one thing that didn't work first, one surprise, one thing to do differently). Cite the decision as `rule:<slug>` where it carries a `governs` block, and as a `[[wiki-link]]` where it does not." Where the checker rejected a citation, add: "`rule:<token>` is already cited here and belongs to `<resolves_to>`."
 
 #### CLN-JR-2 — thin months
 

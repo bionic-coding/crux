@@ -7,7 +7,7 @@ month's own journal file holds — no cell is ever computed from the row it
 replaces. The count comes from a fence-aware split built on the shared subset
 in `crux/scripts/md_fences.py` (never re-implemented here); the two dates are
 bounded by the month the file names; the category rollup is anchored on the
-journal's closed nine-member category enum.
+journal's closed category enum.
 
 WRITTEN POLICY, VERBATIM, so a test can assert against it rather than against
 this module's behaviour:
@@ -18,8 +18,14 @@ this module's behaviour:
   string round-trips `datetime.date.fromisoformat` as a real calendar date. A
   heading failing either check is not an entry heading: it opens no entry, and
   it is left untouched as body prose. A heading whose category is not one of
-  the nine enum members, case-sensitive and no superstring, is likewise not an
-  entry heading. A heading whose date is well-formed and real but falls
+  the enum members, case-sensitive and no superstring, is likewise not an
+  entry heading. Such a heading IS reported: where its date is a real
+  calendar date and its shape is otherwise exact, it is a near miss, and
+  `unknown_category_headings` returns its 1-based line number and its
+  category token so the caller can refuse the file. A heading whose date is
+  not a real calendar date is not reported as a near miss, because the date
+  is the defect and naming the category would send the reader to the wrong
+  token. A heading whose date is well-formed and real but falls
   outside the month the file names contributes no entry to that month's
   derivation — the heading is still read, its date and category are still
   valid, but the entry is dropped from the count, the dates, and the rollup
@@ -58,6 +64,12 @@ from md_fences import closes_fence, fence_marker, split_lines  # noqa: E402
 CATEGORIES = (
     "decision", "implementation", "bug", "learning",
     "blocker", "refactor", "meeting", "review", "misc",
+    # `release` joined the journal category enum when the `release` op was adopted
+    # into the log-op enum. It was missing here for one release cycle, and the cost
+    # was silent: an unrecognised category is read as prose, not as an entry, so the
+    # month's count and its top-category cell both excluded every release entry
+    # while the drift gate reported the index clean.
+    "release",
 )
 
 # The month cell's own grammar: a four-ASCII-digit year, a real two-digit
@@ -83,6 +95,18 @@ MONTH_RE = re.compile(r"^[0-9]{4}-(0[1-9]|1[0-2])\Z")
 ENTRY_RE = re.compile(
     r"^## \[(?P<date>[0-9]{4}-[0-9]{2}-[0-9]{2}) [0-9]{2}:[0-9]{2}\] "
     r"(?P<category>" + "|".join(CATEGORIES) + r") \| \S"
+)
+
+# The near-miss pattern: an entry heading in every respect except the token
+# in its category slot. `\S+` is the widest token that slot can hold, so a
+# category the enum does not carry is CAUGHT here rather than falling through
+# `ENTRY_RE` as body prose. The date group keeps `[0-9]`, and the captured
+# date is validated against `date.fromisoformat` in
+# `unknown_category_headings` — a heading whose date is unreal is a date
+# defect, not a category one, and belongs to the reader who owns that lane.
+NEAR_MISS_RE = re.compile(
+    r"^## \[(?P<date>[0-9]{4}-[0-9]{2}-[0-9]{2}) [0-9]{2}:[0-9]{2}\] "
+    r"(?P<category>\S+) \| \S"
 )
 
 # The em-dash placeholder `log-work` step 6 already uses for an empty cell.
@@ -122,6 +146,53 @@ def journal_entries(text: str, month: str) -> list[tuple[str, str]]:
         if not raw_date.startswith(month + "-"):
             continue
         out.append((raw_date, m.group("category")))
+    return out
+
+
+def unknown_category_headings(text: str) -> list[tuple[int, str]]:
+    """Every near-miss heading in `text`, as `(1-based line, category token)`.
+
+    A near miss is a heading that would open an entry but for the token in
+    its category slot. `journal_entries` reads such a heading as body prose,
+    which is correct — it opens no entry — and silent, which is not: a
+    category added to the tree schema and not to `CATEGORIES` shrinks a
+    month's count with every gate still green. This function is what a caller
+    refuses on.
+
+    Fence-aware on the same terms as `journal_entries`, so a heading quoted
+    inside a fenced block is content and is reported by neither. That
+    includes a block behind an opener the file never closes, which runs to
+    end of file — the caller diagnoses that file by its unclosed fence
+    instead.
+
+    Bounded to near misses on purpose. The date must be ASCII and must
+    round-trip `date.fromisoformat`, so a forged or impossible date is
+    diagnosed as a date rather than mislabelled a category. No month bound
+    applies: an unclassifiable category is a defect in the file wherever the
+    heading is dated.
+    """
+    out: list[tuple[int, str]] = []
+    fence: tuple[str, int] | None = None
+    for lineno, line in enumerate(split_lines(text), start=1):
+        marker = fence_marker(line)
+        if fence is not None:
+            if closes_fence(marker, fence):
+                fence = None
+            continue
+        if marker is not None:
+            fence = (marker[0], marker[1])
+            continue
+        m = NEAR_MISS_RE.match(line)
+        if not m:
+            continue
+        category = m.group("category")
+        if category in CATEGORIES:
+            continue
+        try:
+            date.fromisoformat(m.group("date"))
+        except ValueError:
+            continue
+        out.append((lineno, category))
     return out
 
 

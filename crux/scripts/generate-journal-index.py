@@ -16,14 +16,19 @@ that month file holds and never from the row it replaces
 (`rule:journal-index-row-is-derived-on-every-write`[^derived-row]).
 
 FAIL-CLOSED BEHAVIOUR. A month file this script cannot describe — a name
-outside the `YYYY-MM.md` grammar, a symlink, a non-regular file, or a file
-ending inside a fence its own text never closes — refuses the whole run in
+outside the `YYYY-MM.md` grammar, a symlink, a non-regular file, a file
+ending inside a fence its own text never closes, or a file carrying an entry
+heading whose category is outside the journal enum — refuses the whole run in
 ALL THREE modes, write and `--dry-run` and `--check-stdin`: exit 1, a
 non-empty `validation_errors` list of `{"file", "error"}` on stdout, and
-nothing written. Exit 2 stays reserved for a genuine environment failure (a
-malformed `.bionic.yml`, an unresolvable repo root, a containment refusal on
-a directory a checkout controls) — never for a hand-edited journal file,
-which is a document defect a human repairs.
+nothing written. The category refusal is the narrow one: a heading is
+reported only when it would open an entry but for that token, so a fenced
+example and a forged date each stay with the lane that already owns them.
+
+Exit 2 stays reserved for a genuine environment failure (a malformed
+`.bionic.yml`, an unresolvable repo root, a containment refusal on a
+directory a checkout controls) — never for a hand-edited journal file, which
+is a document defect a human repairs.
 
 AN ABSENT JOURNAL SURFACE IS NOT A REFUSAL. A tree with no
 `<docs_dir>/journal/` directory at all carries no derived artifact, so there
@@ -165,6 +170,7 @@ from journal_index import (  # noqa: E402
     derive_row,
     find_unclosed_fence,
     render_index,
+    unknown_category_headings,
 )
 from untrusted import MESSAGE_LIMIT, redact  # noqa: E402
 
@@ -467,6 +473,20 @@ def main(argv=None) -> int:
             errors.append({"file": rel, "error": f"line {unclosed} opens a "
                            "fence never closed — entry boundaries below it "
                            "are ambiguous"})
+            continue
+        # A heading that would open an entry but for its category token. Read
+        # as body prose it costs the month an entry with every gate still
+        # green, which is how the journal index undercounted 2026-09 for a
+        # release cycle. Reported per heading, in line order, so a file with
+        # several near misses is repaired in one pass.
+        near_misses = unknown_category_headings(text)
+        if near_misses:
+            for lineno, category in near_misses:
+                errors.append({"file": rel, "error": (
+                    f"line {lineno} is an entry heading whose category "
+                    f"{category!r} is outside the journal category enum — "
+                    "correct the heading, or add the category to the tree "
+                    "schema and to CATEGORIES in journal_index.py")})
             continue
         rows.append(derive_row(month, text))
 

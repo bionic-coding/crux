@@ -138,7 +138,7 @@ When upstream sources may have changed:
 - **"Log work"** or **"journal this"** → adds an entry to `bionic/journal/YYYY-MM.md` with today's date and a category.
 - Claude may also call this silently after meaningful operations (ADR accepted, promptbook completed, large refactor).
 
-Categories: `decision | implementation | bug | learning | blocker | refactor | meeting | review | misc`.
+Categories: `decision | implementation | bug | learning | blocker | refactor | meeting | review | misc | release`.
 
 ### Planning multi-step work — promptbooks & cycles
 

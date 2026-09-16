@@ -151,7 +151,7 @@ New books and runs are written as structured `.yaml`. Legacy `.md` books and run
 ### journal (append-only narrative)
 - `docs/journal/YYYY-MM.md` — one file per month. Append-only. Greppable headings.
 - Each entry: `## [YYYY-MM-DD HH:MM] <category> | <subject>` then 1–10 lines + optional `Refs: [[...]] [[...]]` line.
-- Category enum: `decision | implementation | bug | learning | blocker | refactor | meeting | review | misc`.
+- Category enum: `decision | implementation | bug | learning | blocker | refactor | meeting | review | misc | release`.
 - Skill: `log-work`. Triggers: "log work", "journal this", end-of-day, after a meaningful skill side-effect.
 - **Body lines never begin with `## [`** — that prefix is reserved for entry headings. Any content that would start a body line with `## [` must be rewritten or dropped; otherwise it is indistinguishable from a real heading and can poison the retrospective window anchor.
 - **A composed body never leaves a fence open** — judged by the shared fence subset in `crux/scripts/md_fences.py` over the composed body alone, not the body concatenated with existing file content. A fence line counts toward the 1–10 body budget, the same treatment the `Friction:` line already gets.
@@ -366,25 +366,27 @@ Append-only, newest entries at the **top**. Each entry uses the exact prefix:
 ## [YYYY-MM-DD] <op> | <subject>
 ```
 
-Op enum (exhaustive): `init | extract | arch | ingest | refresh | audit | cleanup-campsite | lint | adr | brief | journal | promptbook | invariant | observation | recover | query | schema | skill | origin | garden | adr-review | backfill`. (Long-lived trees may carry the legacy `cleanup` op spelling — what `cleanup-campsite` was formerly called — in historical log entries; `audit-docs` CHK-LOG-1 accepts both forms for backward compatibility on append-only history.)
+Op enum (exhaustive): `init | extract | arch | ingest | refresh | audit | cleanup-campsite | lint | adr | brief | journal | promptbook | invariant | observation | recover | query | schema | skill | origin | garden | adr-review | backfill | release`. (Long-lived trees may carry the legacy `cleanup` op spelling — what `cleanup-campsite` was formerly called — in historical log entries; `audit-docs` CHK-LOG-1 accepts both forms for backward compatibility on append-only history.)
 
 #### Op-enum regex (canonical — single source of truth)
 
-This block is the **single source of truth** for the `docs/log.md` op-enum regex. `audit-docs` (CHK-LOG-1, both the inline and Explore-agent paths) MUST reference this block by name rather than restating the pattern. Adding or renaming an op is a one-line edit here; downstream readers pick it up by indirection.
+This block is the **single source of truth** for the `docs/log.md` op-enum regex. `audit-docs` (CHK-LOG-1, both the inline and Explore-agent paths) MUST reference this block by name rather than restating the pattern.
+
+**A log op and a journal category are two enums.** `docs/log.md` records a skill *operation*, enumerated above. `docs/journal/YYYY-MM.md` records a work *category*, enumerated in §4. The two lists are independent, and one name can sit in both — `release` does. Adding a name to one enum leaves the other unchanged.
 
 - **Current-writer regex** — what every skill MUST emit going forward. `cleanup-campsite` only; the legacy `cleanup` form is NOT permitted in new entries:
 
   ```
-  ^## \[\d{4}-\d{2}-\d{2}\] (init|extract|arch|ingest|refresh|audit|cleanup-campsite|lint|adr|brief|journal|promptbook|invariant|observation|recover|query|schema|skill|origin|garden|adr-review|backfill) \| 
+  ^## \[\d{4}-\d{2}-\d{2}\] (init|extract|arch|ingest|refresh|audit|cleanup-campsite|lint|adr|brief|journal|promptbook|invariant|observation|recover|query|schema|skill|origin|garden|adr-review|backfill|release) \| 
   ```
 
 - **Historical-reader regex** — what `audit-docs` accepts when validating append-only history. Identical to the current-writer regex except the legacy `cleanup` form is also tolerated (pre-rename entries are frozen history and must not be flagged):
 
   ```
-  ^## \[\d{4}-\d{2}-\d{2}\] (init|extract|arch|ingest|refresh|audit|cleanup-campsite|cleanup|lint|adr|brief|journal|promptbook|invariant|observation|recover|query|schema|skill|origin|garden|adr-review|backfill) \| 
+  ^## \[\d{4}-\d{2}-\d{2}\] (init|extract|arch|ingest|refresh|audit|cleanup-campsite|cleanup|lint|adr|brief|journal|promptbook|invariant|observation|recover|query|schema|skill|origin|garden|adr-review|backfill|release) \| 
   ```
 
-When the op enum changes, edit BOTH regexes here and the prose enum above; nothing else needs touching.
+**Changing either enum is not a one-line edit here.** The installed crux skills carry their own copy of both enums, and each does something different with it. `log-work` refuses a log op its copy does not carry, and writes nothing. It does NOT refuse an unknown journal category: it falls back to `misc` and warns, so the entry lands under the wrong name rather than not at all. `audit-docs` reports a heading outside either enum and edits neither — CHK-LOG-1 surfaces a log heading as drift, CHK-JR-1 a journal heading as a warning. `generate-journal-index.py` refuses a month file whose heading carries a category outside its tuple. An op or category added to this file alone therefore reaches none of them. Extending either enum is a change to the crux plugin rather than to this file.
 
 - `init` — `init-docs` ran.
 - `extract` — `extract-code-docs` regenerated `docs/code/`.
@@ -408,6 +410,7 @@ When the op enum changes, edit BOTH regexes here and the prose enum above; nothi
 - `garden` — `tend-garden` wrote a morning note under `docs/garden/`. Body: note date, headline count, artifact count. Written immediately BEFORE the note (the op is the note's log_head anchor and corroboration).
 - `adr-review` — `review-decisions` completed one pass over the decision set. Body: the review's date, the report path under `docs/adrs/reviews/`, and the finding definition counts across the four finding sections (Propose, Amend, Repair, Revoke); Keep and Coverage define no finding, so neither carries a count. One entry per pass; written only by `review-decisions`. The token `adr-review` names one act on three surfaces — this op, the `whats_next.md` category (§5.A), and the `adr-review-<slug>` finding-id prefix — and that sharing is deliberate.
 - `backfill` — a governs backfill batch sign-off ran, initial or correction. Body: the batch id and the affected ADR ids, carried as `ADRs: <sorted ids>` so the receipts↔log↔journal cross-validation joins all three surfaces by batch id and date. One entry per batch; written only by the backfill sign-off skill. Heading: `## [<signed-date>] backfill | <batch-id>` — the subject IS the batch id. Body carries `ADRs: <sorted ids>`. The paired journal hook is category `review`, subject `backfill sign-off <batch-id>`, in the signed month.
+- `release` — a version was published to a release target. Body: the publication time carrying an explicit timezone, the version, the target repo, and the published revision. The heading date is the publication date in that same timezone, so the heading and the instant below it never name different days. A release published at 05:08 UTC therefore reads as the previous day in Mountain time, which is the day the person who ran it experienced. Name the zone rather than an offset, so a winter release reads MST and a summer one MDT. One entry per target, so a version that reaches the private beta and then the public repo carries two entries. The beta entry is written first, because a version that fails beta never reaches the public repo. A record written after the fact also names when it was recorded, so a reader can tell the act from the note of it. Written by whoever runs the release.
 
 Body under the heading: 1–5 lines. List specific paths touched. Keep terse — `log.md` is for grep, not reading.
 

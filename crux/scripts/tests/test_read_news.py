@@ -368,7 +368,138 @@ class TestHTTPSuccess(ReadNewsBase):
         self.assertEqual(body.get("search_context_size"), "medium")
 
 
-@unittest.skipUnless(HAVE_HTTPX, "httpx not installed — run under uv")
+class TestSinceFilter(ReadNewsBase):
+    """`--since` keeps results by publication `date` and ignores `last_updated`.
+
+    The regression: a page published in 2023 and re-crawled last night ranks
+    as fresh and carries a fresh `last_updated`. Four nights of curated
+    `site:` queries returned nothing new while the sources' feeds held thirty
+    new posts. The filter reads `date` only.
+    """
+
+    TEST_KEY = "pplx-test-key-since-000000000000"
+    FAKE_RESULTS = [
+        # New by publication date; the crawl stamp is older than the cut.
+        {"title": "new", "url": "https://example.com/new",
+         "snippet": "s", "date": "2026-09-11", "last_updated": "2026-09-01"},
+        # Old by publication date; the crawl stamp is newer than the cut. This
+        # is the false-fresh shape, and it must be dropped.
+        {"title": "old-recrawled", "url": "https://example.com/old",
+         "snippet": "s", "date": "2023-11-03", "last_updated": "2026-09-13"},
+        # Undated: cannot be shown to be new, so it is dropped.
+        {"title": "undated", "url": "https://example.com/tag",
+         "snippet": "s", "date": None, "last_updated": "2026-09-15"},
+        # Published on the cut day itself: kept (on or after).
+        {"title": "on-the-day", "url": "https://example.com/day",
+         "snippet": "s", "date": "2026-09-06", "last_updated": "2026-09-06"},
+    ]
+
+    def test_bad_since_is_a_usage_error_before_the_key_check(self):
+        cp = run_script("--query", "q", "--since", "2026-13-01", env=self.env)
+        self.assertEqual(cp.returncode, 1)
+        self.assertEqual(json.loads(cp.stdout)["error"], "usage_error")
+
+    def test_good_since_reaches_the_key_check(self):
+        # No key in the isolated env: a well-formed --since gets past validation
+        # and the run stops at the key lookup, exit 2, as any other run would.
+        cp = run_script("--query", "q", "--since", "2026-09-06", env=self.env)
+        self.assertEqual(cp.returncode, 2)
+        self.assertEqual(json.loads(cp.stdout)["error"], "env_not_configured")
+
+    @unittest.skipUnless(HAVE_HTTPX, "httpx not installed")
+    def test_since_keeps_by_date_and_ignores_last_updated(self):
+        sys.path.insert(0, str(SCRIPTS_DIR))
+        import importlib.util
+        import io
+        import contextlib
+
+        spec = importlib.util.spec_from_file_location("read_news_since", READ_NEWS)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+
+        fake_response_obj = httpx.Response(
+            200,
+            json={"results": self.FAKE_RESULTS},
+            request=httpx.Request("POST", "https://api.perplexity.ai/search"),
+        )
+
+        class FakeClient:
+            def __init__(self, *a, **kw):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def post(self, url, *, json=None, headers=None, timeout=None):
+                return fake_response_obj
+
+        out_buf = io.StringIO()
+        err_buf = io.StringIO()
+        old_env = os.environ.copy()
+        os.environ["CRUX_HOME"] = self.tmpdir
+        os.environ["PERPLEXITY_API_KEY"] = self.TEST_KEY
+        import crux_env  # noqa: F401
+        crux_env._reset_cache()
+        try:
+            with contextlib.redirect_stdout(out_buf), contextlib.redirect_stderr(err_buf):
+                original_client = mod.httpx.Client
+                mod.httpx.Client = FakeClient
+                try:
+                    rc = mod.main(["--query", "q", "--since", "2026-09-06"])
+                finally:
+                    mod.httpx.Client = original_client
+        finally:
+            os.environ.clear()
+            os.environ.update(old_env)
+            crux_env._reset_cache()
+
+        self.assertEqual(rc, 0, err_buf.getvalue())
+        data = json.loads(out_buf.getvalue())
+        self.assertEqual(data["since"], "2026-09-06")
+        self.assertEqual(data["dropped_by_since"], 2)
+        # The two reasons are counted apart: one stale, one undated.
+        self.assertEqual(data["dropped_older"], 1)
+        self.assertEqual(data["dropped_undated"], 1)
+        self.assertEqual([r["title"] for r in data["results"]], ["new", "on-the-day"])
+        # Positive control for the regression this filter exists to close: the
+        # re-crawled old page is dropped DESPITE carrying a fresh crawl stamp.
+        # An earlier version of this control read `max(last_updated)`, which is
+        # the UNDATED fixture's stamp, so it asserted about the wrong item and
+        # passed for the wrong reason.
+        old_recrawled = next(r for r in self.FAKE_RESULTS if r["title"] == "old-recrawled")
+        self.assertGreater(old_recrawled["last_updated"], "2026-09-06")
+        self.assertNotIn("old-recrawled", [r["title"] for r in data["results"]])
+        self.assertNotIn(self.TEST_KEY, out_buf.getvalue())
+
+    def test_filter_since_unit(self):
+        sys.path.insert(0, str(SCRIPTS_DIR))
+        import importlib.util
+        from datetime import date as _date
+
+        spec = importlib.util.spec_from_file_location("read_news_since_unit", READ_NEWS)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        kept, dropped = mod._filter_since(self.FAKE_RESULTS, _date(2026, 9, 6))
+        self.assertEqual([r["title"] for r in kept], ["new", "on-the-day"])
+        # The census, not a single total: `older` and `undated` are different
+        # claims about why an item is absent.
+        self.assertEqual(dropped, {"older": 1, "undated": 1})
+        # Malformed dates and non-mapping items drop rather than raise.
+        kept, dropped = mod._filter_since(
+            [{"date": "2026-99-99"}, "not-a-mapping", {"date": "2026-09-07"}], _date(2026, 9, 6))
+        self.assertEqual((len(kept), dropped), (1, {"older": 0, "undated": 2}))
+        self.assertEqual(mod._filter_since("not-a-list", _date(2026, 9, 6)),
+                         ([], {"older": 0, "undated": 0}))
+        # A datetime-shaped `date` is a real publication day, not an undated item.
+        kept, dropped = mod._filter_since(
+            [{"date": "2026-09-07T10:00:00Z"}, {"date": "2026-09-01T10:00:00+00:00"}],
+            _date(2026, 9, 6))
+        self.assertEqual((len(kept), dropped), (1, {"older": 1, "undated": 0}))
+
+
 class TestHTTPError(ReadNewsBase):
     """Non-2xx API response → exit 1 api_error, key must not appear."""
 

@@ -63,6 +63,7 @@ from journal_index import (  # noqa: E402
     journal_entries,
     parse_index_row,
     render_index,
+    unknown_category_headings,
 )
 
 MONTH = "2026-09"
@@ -394,6 +395,94 @@ class CategoryEnumTests(unittest.TestCase):
         self.assertEqual(derive_row(MONTH, text)["categories"], "bug, refactor")
 
 
+class UnknownCategoryNearMissTests(unittest.TestCase):
+    """A heading that is an entry in every respect but its category.
+
+    `CategoryEnumTests` above fixes what such a heading does NOT do: it opens
+    no entry. This class fixes what it DOES do — it is reported, with the line
+    it sits on and the token that failed, so a category added to the schema
+    and not to `CATEGORIES` reddens a gate instead of shrinking a count. The
+    near miss is bounded deliberately: only a heading whose date is real and
+    whose shape is otherwise exact qualifies, so a forged date is diagnosed as
+    a date rather than mislabelled a category.
+    """
+
+    def test_an_out_of_enum_category_is_reported_with_its_line_and_token(self):
+        self.assertNotIn("chore", CATEGORIES)
+        text = lines(heading("2026-09-08"), "", "## [2026-09-09 10:00] chore | tidied up")
+        self.assertEqual(unknown_category_headings(text), [(3, "chore")])
+
+    def test_the_reported_line_number_is_one_based_and_counts_every_line(self):
+        text = lines("# Journal", "", "body", "", "## [2026-09-09 10:00] chore | x")
+        self.assertEqual(unknown_category_headings(text), [(5, "chore")])
+
+    def test_every_near_miss_is_reported_not_only_the_first(self):
+        text = lines("## [2026-09-09 10:00] chore | x",
+                     "## [2026-09-10 10:00] shipped | y")
+        self.assertEqual(unknown_category_headings(text),
+                         [(1, "chore"), (2, "shipped")])
+
+    def test_a_near_miss_inside_a_fence_is_content_and_is_not_reported(self):
+        text = lines("```", "## [2026-09-09 10:00] chore | x", "```")
+        self.assertEqual(unknown_category_headings(text), [])
+
+    def test_a_near_miss_under_an_unclosed_fence_is_not_reported(self):
+        # The opener runs to end of file per the shared fence subset, so every
+        # line below it is content. The driver refuses such a file for the
+        # unclosed fence itself, which is the accurate diagnosis.
+        text = lines("~~~", "## [2026-09-09 10:00] chore | x")
+        self.assertEqual(unknown_category_headings(text), [])
+
+    def test_an_in_enum_heading_is_not_reported(self):
+        # PAIRED POSITIVE CONTROL: every category the enum carries is admitted
+        # in the same slot the near miss occupies.
+        for category in CATEGORIES:
+            with self.subTest(category=category):
+                text = lines(f"## [2026-09-09 10:00] {category} | x")
+                self.assertEqual(unknown_category_headings(text), [])
+
+    def test_an_unreal_date_is_not_reported_as_a_category_near_miss(self):
+        # The date is the defect; calling it a category near miss would send a
+        # reader to the wrong token.
+        text = lines("## [2026-09-31 10:00] chore | x")
+        self.assertEqual(unknown_category_headings(text), [])
+
+    def test_a_non_ascii_digit_date_is_not_reported(self):
+        text = lines("## [2026-09-\u0669\u0669 10:00] chore | x")
+        self.assertEqual(unknown_category_headings(text), [])
+
+    def test_a_heading_with_no_subject_is_not_reported(self):
+        # ` | ` with nothing after it is not an entry heading in any category,
+        # so it is not a category near miss either.
+        text = lines("## [2026-09-09 10:00] chore | ")
+        self.assertEqual(unknown_category_headings(text), [])
+
+    def test_ordinary_prose_and_other_headings_are_not_reported(self):
+        text = lines("# Journal", "## Notes", "A line about chore work.",
+                     "## [2026-09-09] chore | no time component")
+        self.assertEqual(unknown_category_headings(text), [])
+
+    def test_a_category_differing_only_in_case_is_reported(self):
+        # The enum is case-sensitive, so `Bug` is outside it — and it is
+        # exactly the near miss a human hand-edit produces.
+        text = lines("## [2026-09-09 10:00] Bug | x")
+        self.assertEqual(unknown_category_headings(text), [(1, "Bug")])
+
+    def test_the_live_journal_tree_produces_no_near_miss(self):
+        # FALSE-POSITIVE CONTROL against real content rather than fixtures: a
+        # guard calibrated only on its own exemplar cannot see a false
+        # positive. Skipped where the dogfood tree is absent (a staged
+        # artifact carries `crux/` without `bionic/`).
+        journal_dir = SCRIPTS.parent.parent / "bionic" / "journal"
+        if not journal_dir.is_dir():
+            self.skipTest("no dogfood journal tree in this checkout")
+        for month_file in sorted(journal_dir.glob("*.md")):
+            with self.subTest(month=month_file.name):
+                found = unknown_category_headings(
+                    month_file.read_text(encoding="utf-8"))
+                self.assertEqual(found, [], f"{month_file.name}: {found}")
+
+
 class BalancedFenceTests(unittest.TestCase):
     """A heading inside a CLOSED fence is content, for the tilde run too.
 
@@ -441,8 +530,12 @@ class WrittenPolicyTests(unittest.TestCase):
         "never matched with `\\d`, which admits non-ASCII digit scripts",
         "round-trips `datetime.date.fromisoformat` as a real calendar date",
         "it opens no entry, and it is left untouched as body prose",
-        "A heading whose category is not one of the nine enum members, "
+        "A heading whose category is not one of the enum members, "
         "case-sensitive and no superstring, is likewise not an entry heading",
+        "`unknown_category_headings` returns its 1-based line number and its "
+        "category token so the caller can refuse the file",
+        "A heading whose date is not a real calendar date is not reported as a "
+        "near miss",
         "the entry is dropped from the count, the dates, and the rollup bounded "
         "by that month",
     )
@@ -474,13 +567,22 @@ class WrittenPolicyTests(unittest.TestCase):
         self.assertEqual(journal_entries(lines(heading("2026-09-31")), MONTH), [])
         # "never matched with `\d`, which admits non-ASCII digit scripts"
         self.assertEqual(journal_entries(lines(heading("2026-09-\u0669\u0669")), MONTH), [])
-        # "not one of the nine enum members"
-        self.assertEqual(len(CATEGORIES), 9)
+        # "not one of the enum members"
+        self.assertIn("release", CATEGORIES)  # the enum grows; the clause no longer pins a count
         self.assertEqual(
             journal_entries(lines("## [2026-09-08 10:00] chore | x"), MONTH), [])
         # "the entry is dropped from the count, the dates, and the rollup
         # bounded by that month"
         self.assertEqual(journal_entries(lines(heading("2026-08-31")), MONTH), [])
+        # "`unknown_category_headings` returns its 1-based line number and its
+        # category token so the caller can refuse the file"
+        self.assertEqual(
+            unknown_category_headings(lines("## [2026-09-08 10:00] chore | x")),
+            [(1, "chore")])
+        # "A heading whose date is not a real calendar date is not reported as
+        # a near miss"
+        self.assertEqual(
+            unknown_category_headings(lines("## [2026-09-31 10:00] chore | x")), [])
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1481,6 +1583,150 @@ class SurfaceAbsentVerdictProseTests(JournalCliTestCase):
         self.assertIn(
             "| `<docs_dir>/journal/index.md` | project | `generate-journal-index.py "
             "--dry-run` | `generate-journal-index.py` |", text)
+
+
+class UnknownCategoryRefusalTests(JournalCliTestCase):
+    """The driver refuses a month file carrying a category it cannot classify.
+
+    The incident this closes: `release` joined the journal category enum in
+    the schema and not in `CATEGORIES`, so every release entry was read as
+    body prose. The month undercounted, the rollup cell omitted the category,
+    and the drift gate compared the index on disk against the index the
+    regenerator would write and found them equal. The gate was correct about
+    the only thing it measured. These lanes give it something else to measure.
+    """
+
+    #: Line 5 (1-based) carries the near miss. Written out here rather than
+    #: searched for, and cross-checked against the fixture below.
+    NEAR_MISS_LINE = 5
+    DEFECTIVE = lines(
+        "# Journal " + DASH + " " + MONTH,            # 1
+        "",                                           # 2
+        heading("2026-09-08", "review", "above"),     # 3
+        "",                                           # 4
+        "## [2026-09-09 10:00] shipped | a release",  # 5  <- outside the enum
+        "",                                           # 6
+        "One body line.",                             # 7
+    )
+
+    def test_the_fixtures_near_miss_really_sits_on_the_named_line(self):
+        self.assertEqual(self.DEFECTIVE.split("\n")[self.NEAR_MISS_LINE - 1],
+                         "## [2026-09-09 10:00] shipped | a release")
+        self.assertNotIn("shipped", CATEGORIES)
+
+    def test_both_modes_refuse_and_the_existing_index_bytes_are_untouched(self):
+        before = self.seed_written_index()
+        self.write_month(MONTH, self.DEFECTIVE)
+        for args in ((), ("--dry-run",)):
+            with self.subTest(args=args):
+                result = self.run_cli(*args)
+                self.assertEqual(result.returncode, 1, self.out(result))
+                errors = self.payload(result)["validation_errors"]
+                self.assertEqual(len(errors), 1, errors)
+                self.assertEqual(errors[0]["file"], REL_MONTH)
+                # The finding names the line and the token that failed.
+                self.assertIn(f"line {self.NEAR_MISS_LINE}", errors[0]["error"])
+                self.assertIn("shipped", errors[0]["error"])
+                self.assertIn("shipped", self.err(result))
+                self.assertEqual(self.index.read_bytes(), before)
+
+    def test_positive_control_an_enum_category_in_that_slot_is_admitted(self):
+        """The refusal is the token, not the heading, the line, or the fixture."""
+        self.seed_written_index()
+        self.write_month(MONTH, self.DEFECTIVE.replace(
+            "] shipped | ", "] release | "))
+        result = self.run_cli()
+        self.assertEqual(result.returncode, 0, self.err(result))
+        self.assertEqual(self.payload(result), {"written": REL_INDEX})
+        # And the admitted entry reaches the row it was dropped from before.
+        row = parse_index_row(self.index.read_text(encoding="utf-8"), MONTH)
+        self.assertEqual(row["entries"], 2)
+        self.assertIn("release", row["categories"])
+
+    def test_a_fenced_example_is_content_and_the_run_is_clean(self):
+        # FALSE-POSITIVE LANE: a month file that documents the heading grammar
+        # inside a fence is admissible, and every journal month in this repo
+        # is free to carry one.
+        self.seed_written_index()
+        self.write_month(MONTH, CLEAN_MONTH + lines(
+            "```", "## [2026-09-09 10:00] shipped | an example", "```"))
+        result = self.run_cli()
+        self.assertEqual(result.returncode, 0, self.err(result))
+        self.assertEqual(self.payload(result), {"written": REL_INDEX})
+
+    def test_check_stdin_refuses_prospective_content_carrying_a_near_miss(self):
+        # `log-work` preflights a prospective month file through this mode. A
+        # preflight that admitted a heading write mode then refuses would
+        # promise a write that cannot happen.
+        self.write_month(MONTH, CLEAN_MONTH)
+        result = self.run_cli("--check-stdin", "--month", MONTH,
+                              stdin=self.DEFECTIVE.encode("utf-8"))
+        self.assertEqual(result.returncode, 1, self.out(result))
+        errors = self.payload(result)["validation_errors"]
+        self.assertEqual(errors[0]["file"], REL_MONTH)
+        self.assertIn("shipped", errors[0]["error"])
+
+    def test_the_undercount_the_guard_prevents_is_one_entry_here(self):
+        """The COST of the silent drop, stated as a number.
+
+        The defective month and its corrected twin differ by one token. The
+        corrected one derives two entries; the defective one derives one, and
+        before this guard that is the index the regenerator wrote and the
+        drift gate agreed with. Measured on the shipped derivation rather
+        than on the CLI, so the number survives any change to how the driver
+        reports it.
+        """
+        corrected = self.DEFECTIVE.replace("] shipped | ", "] release | ")
+        self.assertEqual(derive_row(MONTH, corrected)["entries"], 2)
+        self.assertEqual(derive_row(MONTH, self.DEFECTIVE)["entries"], 1)
+
+    def test_every_other_refusal_lane_admits_this_file(self):
+        """Why the drop was silent: nothing else had anything to say.
+
+        The name matches the month grammar, the file is regular and not a
+        symlink, the text decodes, and no fence is left open. Every guard the
+        driver carried BEFORE this one passes, so the near-miss check is the
+        only thing between this file and a silently short index. If a future
+        change makes another lane catch it too, this test fails and the
+        rationale above needs rewriting rather than quietly outliving itself.
+        """
+        self.assertIsNone(find_unclosed_fence(self.DEFECTIVE))
+        self.assertTrue(MONTH_RE.fullmatch(MONTH))
+        self.assertEqual(journal_entries(self.DEFECTIVE, MONTH),
+                         [("2026-09-08", "review")])
+        # And the heading really is well-formed apart from its category: same
+        # line, in-enum token, opens an entry.
+        corrected = self.DEFECTIVE.replace("] shipped | ", "] release | ")
+        self.assertIn(("2026-09-09", "release"), journal_entries(corrected, MONTH))
+
+    def test_check_stdin_reported_the_short_count_before_the_guard(self):
+        """The pre-fix signature, pinned so the repair cannot regress quietly.
+
+        With the guard removed, `--check-stdin` on this content exits 0 with
+        `{"check": "ok", "entries": 1}` — a preflight vouching for a write
+        that loses an entry. It now exits 1 instead. The assertion below pins
+        BOTH halves: the refusal, and the count that would otherwise have
+        been reported, so a future change that turns the refusal back into a
+        pass cannot also quietly restore the wrong number.
+        """
+        self.write_month(MONTH, CLEAN_MONTH)
+        result = self.run_cli("--check-stdin", "--month", MONTH,
+                              stdin=self.DEFECTIVE.encode("utf-8"))
+        self.assertEqual(result.returncode, 1, self.out(result))
+        self.assertNotIn('"check": "ok"', self.out(result))
+        self.assertEqual(derive_row(MONTH, self.DEFECTIVE)["entries"], 1)
+
+    def test_every_near_miss_in_a_file_is_reported_not_only_the_first(self):
+        self.seed_written_index()
+        self.write_month(MONTH, lines(
+            "## [2026-09-09 10:00] shipped | x",
+            "## [2026-09-10 10:00] chore | y"))
+        result = self.run_cli("--dry-run")
+        self.assertEqual(result.returncode, 1, self.out(result))
+        errors = self.payload(result)["validation_errors"]
+        self.assertEqual(len(errors), 2, errors)
+        self.assertIn("shipped", errors[0]["error"])
+        self.assertIn("chore", errors[1]["error"])
 
 
 

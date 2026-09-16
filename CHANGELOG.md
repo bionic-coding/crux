@@ -1,4 +1,4 @@
-<!-- generated-from: CHANGELOG.md@sha256:ba234513b6aeb5d57d6b7930bf5e484b790be8239d3d3512baecaf301d33be10; model: claude-fable-5.1; date: 2026-09-15 -->
+<!-- generated-from: CHANGELOG.md@sha256:785c78b6cca6962a5753fa8c2106fd024759d477fb241b7274878e53431c57ec; model: claude-fable-5.1; date: 2026-09-16 -->
 # Changelog
 
 All notable changes to crux. The format roughly follows [Keep a Changelog](https://keepachangelog.com/) and the project adheres to [Semantic Versioning](https://semver.org/).
@@ -10,6 +10,26 @@ All notable changes to crux. The format roughly follows [Keep a Changelog](https
 ### Changed
 
 ### Fixed
+
+### Removed
+
+## [3.17.0] — 2026-09-16
+
+### Added
+
+- **`sync.sh` now prints the `release` log entry for the release it just made.** The entry carries the date and time, the source commit, the published commit, the tag and the tree hash. The release runbook already had a preflight, a dry run, six gates and a byte-identity check, and no step that recorded the release anywhere. Three releases shipped without a record before an audit noticed. The entry is printed for the operator to paste rather than written automatically. Writing into the documentation tree would leave it dirty, and the next release refuses to run on a dirty tree.
+- **`read-news.py` takes `--since YYYY-MM-DD`, and the `read-news` skill queries each curated source with that source's own `last_seen`.** Search results carry both a publication date and a last-crawled date, and ranking follows the crawl. An old page re-crawled last night could therefore look brand new and crowd out genuinely fresh posts. `--since` filters on the publication date alone; results whose publication date cannot be determined are dropped. The response reports `dropped_older` and `dropped_undated` separately, so a quiet night stays distinguishable from a filter that removed everything.
+
+### Changed
+
+- **A journal heading whose category is not in the category list now fails the journal-index run instead of being silently skipped.** Previously such a heading opened no entry and produced no warning, so the month lost an entry while every check still passed. `generate-journal-index.py` now reports one `validation_errors` item per bad heading, naming the file, the 1-based line and the offending token. It refuses in write mode, `--dry-run` and `--check-stdin` alike. The existing index is left untouched. Detection is deliberately narrow: a malformed date is still reported as a date problem, and headings inside fenced code blocks are still treated as content.
+- **`cleanup-campsite` rule CLN-JR-1 now accepts the citation form the journal is actually told to write.** The rule only looked for a wiki-link to the accepted ADR. The writing guidance tells the journal to cite `rule:<slug>` whenever a rule exists, and to name the ADR only when it has no `governs` block. ADRs with a `governs` block could not satisfy both, so they were reported as permanently missing a reflection. The rule now accepts either form. A slug counts only when the summaries resolver maps it to a handle owned by that ADR. An unresolved slug, or one owned by a different ADR, is reported as a rejection naming what the citation actually resolves to. A retired slug counts for the ADR that owns its successor. A tree with no summaries projection reports `resolver_available: false` and returns slug tokens as unverifiable, keeping "no reflection" distinguishable from "could not check".
+- **The tree schema now documents what changing the log-op or journal-category enum actually involves.** The schema previously claimed adding or renaming a log op was a one-line edit; in practice it touches several files. The distributed template now states that both enums belong to the installed plugin, and names what each skill does with its copy. `log-work` refuses an unknown log op. It falls back to `misc` with a warning on an unknown journal category, and `audit-docs` reports a heading outside either list without editing it. Both copies also gain a paragraph making clear that log ops and journal categories are two separate lists, with `release` a member of both.
+
+### Fixed
+
+- **A `release` log entry now records when it was published, in a named timezone.** `sync.sh` previously stamped the entry with the machine's local date and no time. A release cut after local midnight UTC-side was filed under the wrong day, with nothing in the entry to show it. Entries now carry the publication time in `America/Edmonton`, rendered MDT or MST as the date requires, and the heading carries that same day. Headings stay date-only, so existing entries are unaffected.
+- **The journal category list installed into new projects was missing `release`.** The `USER_GUIDE.md` template shipped with the plugin still listed nine categories after the tenth was adopted, even though the other copies of the guide had it. The template now lists all ten. `release` is also confirmed present in the schema's log-op enum, and in the paragraph that separates the two enums.
 
 ### Removed
 

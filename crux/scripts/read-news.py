@@ -16,7 +16,20 @@ Purpose:
 Canonical invocation:
     uv run "${CRUX_PLUGIN_ROOT}/scripts/read-news.py" --query "<q>" \
         [--max-results N] [--search-context-size low|medium|high] \
-        [--timeout SECONDS]
+        [--timeout SECONDS] [--since YYYY-MM-DD]
+
+Freshness:
+    Every result carries two dates. `date` is when the page was published;
+    `last_updated` is when the search index last crawled it. Only `date` says
+    whether an item is new. A page published years ago re-crawled yesterday
+    ranks as fresh and carries a fresh `last_updated`, which is how three
+    curated sources returned nothing new for four nights while their feeds
+    held thirty new posts. `--since` keeps a result only when its `date`
+    parses as a calendar date on or after the given day; a result with no
+    `date` is dropped, because an undated item cannot be shown to be new.
+    The envelope reports `since`, `dropped_older` and `dropped_undated` so the
+    delta is auditable and the two drop reasons stay apart. `last_updated`
+    never counts.
 
 Exit codes:
     0  success — JSON results on stdout
@@ -36,6 +49,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import date, datetime
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -111,6 +125,12 @@ def _main_inner(argv: list[str] | None = None) -> int:
         default=DEFAULT_TIMEOUT,
         help=f"HTTP timeout in seconds (default {DEFAULT_TIMEOUT}).",
     )
+    parser.add_argument(
+        "--since",
+        default=None,
+        help="Keep only results whose publication `date` is on or after this "
+             "ISO day (YYYY-MM-DD). `last_updated` is a crawl stamp and never counts.",
+    )
 
     args = parser.parse_args(argv)
 
@@ -128,6 +148,22 @@ def _main_inner(argv: list[str] | None = None) -> int:
             flush=True,
         )
         return 1
+
+    since: date | None = None
+    if args.since is not None:
+        try:
+            since = date.fromisoformat(args.since)
+        except ValueError:
+            print(
+                json.dumps(
+                    {
+                        "error": "usage_error",
+                        "detail": "--since must be an ISO calendar date (YYYY-MM-DD)",
+                    }
+                ),
+                flush=True,
+            )
+            return 1
 
     # --- Key lookup ---------------------------------------------------------
     api_key = crux_env.get(_KEY_NAME)
@@ -240,15 +276,79 @@ def _main_inner(argv: list[str] | None = None) -> int:
     # --- Emit success output -----------------------------------------------
     # The query is echoed as the audit trail (ADR-0040 §2).
     # The key NEVER appears here.
+    results = payload["results"]
     output = {
         "query": args.query,
         "max_results": args.max_results,
         "search_context_size": args.search_context_size,
-        "results": payload["results"],
     }
+    if since is not None:
+        kept, census = _filter_since(results, since)
+        output["since"] = since.isoformat()
+        output["dropped_older"] = census["older"]
+        output["dropped_undated"] = census["undated"]
+        output["dropped_by_since"] = census["older"] + census["undated"]
+        results = kept
+    output["results"] = results
     print(json.dumps(output))
     return 0
 
+
+def _parse_day(value: object) -> date | None:
+    """The publication day of a `date` field, or None when it carries none.
+
+    Accepts the bare `YYYY-MM-DD` the API is documented to emit AND the
+    datetime shapes `date.fromisoformat` rejects on older interpreters --
+    `2026-09-11T10:00:00Z`, `...+00:00`, `...T10:00:00`. The tree holds no
+    captured live result, so the bare-day assumption is unverified; reading
+    only that shape would drop every result of a datetime-emitting API and
+    render it as `results: []`, which a reader cannot tell from "nothing new".
+    """
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text)
+    except ValueError:
+        pass
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).date()
+    except ValueError:
+        pass
+    try:
+        return date.fromisoformat(text[:10])
+    except ValueError:
+        return None
+
+
+def _filter_since(results: object, since: date) -> tuple[list, dict]:
+    """Split `results` into those published on or after `since` and a drop census.
+
+    Reads the `date` field only; `last_updated` is a crawl stamp and never
+    counts. The two drop reasons are counted apart, because they are not the
+    same claim: `older` is a result shown to be stale, `undated` is a result
+    nothing could place in time. Undated is where a re-crawled evergreen page
+    hides, so it stays dropped -- but a reader who cannot see the two counts
+    apart cannot tell a quiet night from a filter eating everything.
+    """
+    kept: list = []
+    census = {"older": 0, "undated": 0}
+    if not isinstance(results, list):
+        return kept, census
+    for item in results:
+        if not isinstance(item, dict):
+            census["undated"] += 1
+            continue
+        day = _parse_day(item.get("date"))
+        if day is None:
+            census["undated"] += 1
+        elif day < since:
+            census["older"] += 1
+        else:
+            kept.append(item)
+    return kept, census
 
 def main(argv: list[str] | None = None) -> int:
     """Top-level entry point; wraps _main_inner() with a catch-all guard.

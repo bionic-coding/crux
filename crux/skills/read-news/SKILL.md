@@ -51,11 +51,30 @@ uv run "${CRUX_PLUGIN_ROOT}/scripts/read-news.py" \
   --query "<q>" \
   [--max-results N] \
   [--search-context-size low|medium|high] \
-  [--timeout SECONDS]
+  [--timeout SECONDS] \
+  [--since YYYY-MM-DD]
 ```
 
 Flags: `--max-results` default 10, hard cap 20; `--search-context-size`
-default `low`; `--timeout` default 30 (HTTP timeout in seconds).
+default `low`; `--timeout` default 30 (HTTP timeout in seconds); `--since`
+keeps only results published on or after that day.
+
+**Query a curated row with `--since <its last_seen>`.** Every result carries two
+dates: `date` is when the page was published, `last_updated` is when the index
+last crawled it, and ranking follows the crawl. A page published years ago and
+re-crawled yesterday therefore ranks as fresh — which is how three curated
+sources reported nothing new for four nights while their feeds held thirty new
+posts. `--since` reads `date` alone, so the kept set IS what is new since that
+row was last seen; `last_top` stays the secondary marker for the same row.
+`sources.md` already stores `last_seen` as `YYYY-MM-DD`, so it passes straight
+through with no conversion.
+
+The response adds three keys under `--since`: `since`, and the two drop counts
+`dropped_older` and `dropped_undated`. They are counted apart on purpose — an
+older result was shown to be stale, an undated one could not be placed in time
+at all. An undated result is dropped, because a re-crawled evergreen page is
+exactly what hides there; report both counts so a quiet night stays
+distinguishable from a filter that ate everything.
 
 In a source checkout where `${CRUX_PLUGIN_ROOT}` is unset, substitute the
 checkout's `crux/` directory.
@@ -229,7 +248,11 @@ the owner can simply run `process-inbox` immediately after the pass — the gate
 stays, the latency disappears. An item can be both NOTE-worthy and KEEPER-worthy.
 
 **Noise** — neither question answerable with a named artifact. Dropped. Tally
-drops in the count line: "scanned 42, kept 2, dropped 40".
+drops in the count line: "scanned 42, kept 2, dropped 40". When a query ran
+with `--since`, add the two filter counts: "scanned 42, kept 2, dropped 40
+(12 older, 3 undated)". A night that kept nothing because everything was
+older reads differently from one that kept nothing because nothing carried
+a date, and the note should say which.
 
 ---
 
