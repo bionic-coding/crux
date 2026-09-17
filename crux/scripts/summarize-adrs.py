@@ -240,7 +240,14 @@ def build(root: Path, *, manifest: dict | None = None) -> dict[Path, str]:
             # has signed no batch. Schema "4" is this key's arrival.
             "survey_receipts_sha256": (sp.survey_receipts_sha256(observations)
                                        if observations is not None else None),
-            "schema": "4",
+            # Bumped 4 -> 5 when the resolver row gained `source_status`. The rule this
+        # followed, recorded here because it is reusable: bump a projection's
+        # declared schema where that value IDENTIFIES the output shape and no
+        # migration rung depends on it, additive or not. The tree manifest's
+        # "breaking changes only" convention does not govern here — that version
+        # gates a migration, this one only tells a reader which contract the file
+        # was written against.
+        "schema": "5",
             "tool": "summarize-adrs.py",
         },
         sort_keys=True,

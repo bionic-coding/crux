@@ -21,7 +21,8 @@ driver mirroring summarize-adrs.py: build the two artifacts, compare-or-write
 them, report drift/write status as JSON. All shared machinery lives in
 `doctrine_projection.py` (which imports the frozen `summaries_projection.py`).
 
-  - index.md     one section per governs domain (rules + disposition + basis +
+  - index.md     one section per governs domain (rules + source_status +
+                 disposition + basis +
                  reconciliation status + state), an exempt-ADR roster, and a
                  provenance block of input digests
   - _meta.json   the input-digest + schema block for the projection

@@ -28,6 +28,10 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import adr_frontmatter  # noqa: E402
+
 
 def _tree_name(root: Path) -> str:
     cfg = root / ".bionic.yml"
@@ -43,11 +47,17 @@ def _load(paths) -> list[dict]:
     recs = []
     for p in sorted(paths):
         path = Path(p)
-        m = re.match(r"^---\n(.*?)\n---\n", path.read_text(encoding="utf-8"), re.S)
-        if not m:
-            continue
+        # The fence is read through the ONE shared reader. `validated_adr_paths`
+        # already refused this run if any input failed it, so `None` here is
+        # unreachable — and it raises rather than skipping, because a second
+        # copy of the fence test with a bare `continue` is the paired construct
+        # this change exists to remove.
+        block = adr_frontmatter.frontmatter_block(path.read_text(encoding="utf-8"))
+        if block is None:
+            raise adr_frontmatter.FenceValidationError(
+                [{"file": str(path), "error": adr_frontmatter.FENCE_ERROR}])
         import yaml
-        fm = yaml.safe_load(m.group(1)) or {}
+        fm = yaml.safe_load(block) or {}
         recs.append({
             "num": int(str(fm["id"]).split("-")[-1]),
             "id": str(fm["id"]),
@@ -94,6 +104,11 @@ def build(root: Path) -> tuple[Path, str]:
     adrs = root / _tree_name(root) / "adrs"
     if not adrs.is_dir():
         raise FileNotFoundError(f"{adrs} not found")
+    # REFUSAL BEFORE WRITING. Both tiers are validated here, before the caller
+    # reads the existing index to diff against or opens it to write, so one
+    # unreadable ADR cannot shorten the index and cannot create one that did
+    # not exist. Raises FenceValidationError, which `main` maps to exit 1.
+    adr_frontmatter.validated_adr_paths(adrs, adr_frontmatter.repo_relative(root))
     active = _load(glob.glob(str(adrs / "ADR-*.md")))
     archived = _load(glob.glob(str(adrs / "archive" / "ADR-*.md")))
     return adrs / "index.md", render(active, archived)
@@ -107,6 +122,9 @@ def main(argv=None) -> int:
     root = Path(args.repo_root).resolve()
     try:
         path, want = build(root)
+    except adr_frontmatter.FenceValidationError as exc:
+        return adr_frontmatter.print_validation_errors(
+            exc.errors, "generate-adr-index", sys.stdout, sys.stderr)
     except Exception as exc:
         sys.stderr.write(f"generate-adr-index: {type(exc).__name__}: {exc}\n")
         return 2

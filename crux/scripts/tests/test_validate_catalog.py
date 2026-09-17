@@ -14,6 +14,7 @@ from __future__ import annotations
 import importlib.util
 import shutil
 import sys
+import re
 import tempfile
 import unittest
 from copy import deepcopy
@@ -775,18 +776,29 @@ class ModelsCatalogNegativeTests(unittest.TestCase):
     def test_v2a_undeclared_alias_reference(self):
         self._assert_rule("V2", lambda t: t.replace("opencode: glm-flash", "opencode: not-declared"))
 
+    # Both fixtures below are anchored on STRUCTURE — the agent name and its `level:` line —
+    # and never on the `opencode:` alias beside it. They used to splice whole three-line blocks
+    # including that alias, so changing which OpenCode model an agent selects made every splice
+    # a silent no-op. `_assert_rule`'s inertness guard caught it, which is what that guard is
+    # for; re-anchoring is what stops it recurring on the next model change. A model alias is a
+    # value the owner picks, not part of the shape these rules govern.
+
+    def _drop_apex_agents(self, text: str) -> str:
+        """Move every apex agent to flagship, leaving its override untouched.
+
+        V2 fires because `apex` is then a level no agent names.
+        """
+        return re.sub(r"^(  (?:commander|night-gardener|reviewer):\n    level: )apex$",
+                      r"\1flagship", text, flags=re.M)
+
     def test_v2b_level_no_agent_names(self):
-        self._assert_rule("V2", lambda t: t.replace(
-            "  commander:\n    level: apex\n    opencode: qwen-max",
-            "  commander:\n    level: flagship\n    opencode: qwen-max").replace(
-            "  reviewer:\n    level: apex\n    opencode: kimi-latest",
-            "  reviewer:\n    level: flagship\n    opencode: kimi-latest").replace(
-            "  night-gardener:\n    level: apex\n    opencode: kimi-latest",
-            "  night-gardener:\n    level: flagship\n    opencode: kimi-latest"))
+        self._assert_rule("V2", self._drop_apex_agents)
 
     def test_v2c_apex_agent_with_no_override(self):
-        self._assert_rule("V2", lambda t: t.replace(
-            "  commander:\n    level: apex\n    opencode: qwen-max", "  commander: apex"))
+        """An apex agent collapsed to a bare level, so it names no OpenCode override."""
+        self._assert_rule("V2", lambda t: re.sub(
+            r"^  commander:\n    level: apex\n(?:    (?!level:)\S.*\n)*",
+            "  commander: apex\n", t, flags=re.M))
 
     # ── V3, one ────────────────────────────────────────────────────────────
     # The deny-list negative (`claude: fable` refused) is GONE with the

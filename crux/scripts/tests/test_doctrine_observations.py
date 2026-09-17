@@ -548,7 +548,7 @@ class AuthorityRenderingTests(_Base):
         self.t.write_source("crux/scripts/x.py")
         self.t.write_source("crux/scripts/y.py")
         index = self.t.index()
-        self.assertIn("| OBS-0001/o | rule:o | the observed rule | OBS-0001 | observed "
+        self.assertIn("| OBS-0001/o | rule:o | the observed rule | OBS-0001 | ratified | observed "
                       "| evidence-resolves |", index)
 
     def test_basis_is_evidence_missing_when_one_evidence_path_is_missing(self):
@@ -557,7 +557,7 @@ class AuthorityRenderingTests(_Base):
                          evidence=["crux/scripts/x.py:1-2", "crux/scripts/missing.py:3-4"])
         self.t.write_source("crux/scripts/x.py")
         index = self.t.index()
-        self.assertIn("| OBS-0001/o | rule:o | the observed rule | OBS-0001 | observed "
+        self.assertIn("| OBS-0001/o | rule:o | the observed rule | OBS-0001 | ratified | observed "
                       "| evidence-missing |", index)
         self.assertIn("| OBS-0001/o | crux/scripts/missing.py:3-4 | no |", index)
         self.assertIn("| OBS-0001/o | crux/scripts/x.py:1-2 | yes |", index)
@@ -573,7 +573,7 @@ class AuthorityRenderingTests(_Base):
             "prompts:\n  - n: 1\n    state: done\n    artifacts: [OBS-0001, ADR-0090]\n",
             encoding="utf-8")
         index = self.t.index()
-        self.assertIn("| OBS-0001/o | rule:o | the observed rule | OBS-0001 | observed "
+        self.assertIn("| OBS-0001/o | rule:o | the observed rule | OBS-0001 | ratified | observed "
                       "| evidence-missing |", index)
 
     def test_adr_sourced_basis_is_run_bound_when_a_run_binds_the_adr(self):
@@ -593,7 +593,7 @@ class AuthorityRenderingTests(_Base):
             "format_version: \"1\"\nrun_id: RUN-001\nbook_id: PB-0001\n"
             "status: completed\nprompts:\n  - n: 1\n    state: done\n"
             "    artifacts: [ADR-0090]\n", encoding="utf-8")
-        self.assertIn("| ADR-0090/a | rule:a | the authored rule | ADR-0090 | decided "
+        self.assertIn("| ADR-0090/a | rule:a | the authored rule | ADR-0090 | Accepted | decided "
                       "| run-bound |", self.t.index())
 
     def test_adr_sourced_basis_is_not_run_bound_when_no_run_binds_the_adr(self):
@@ -602,7 +602,7 @@ class AuthorityRenderingTests(_Base):
         this pair, a column hard-coded to one value would pass both."""
         self.t.write_adr(90, [{"handle": "ADR-0090/a", "domain": "other",
                                "scope": "tools"}])
-        self.assertIn("| ADR-0090/a | rule:a | the authored rule | ADR-0090 | decided "
+        self.assertIn("| ADR-0090/a | rule:a | the authored rule | ADR-0090 | Accepted | decided "
                       "| not-run-bound |", self.t.index())
 
     def test_the_basis_legend_states_that_no_value_is_evidence(self):
@@ -734,7 +734,10 @@ class CompileDriverGateTests(unittest.TestCase):
         meta = json.loads(t.build()["_meta.json"])
         self.assertIsNone(meta["observations_sha256"])
         self.assertIsNone(meta["survey_receipts_sha256"])
-        self.assertEqual(meta["schema"], "3")
+        # Hard-coded literal, and the OLD value asserted absent, so a
+        # regression to "3" fails rather than being tolerated.
+        self.assertEqual(meta["schema"], "4")
+        self.assertNotEqual(meta["schema"], "3")
 
 
 # ── P1: the zero-observation identity, three legs ───────────────────────────
@@ -811,7 +814,8 @@ class P1ZeroObservationIdentityTests(unittest.TestCase):
                          {"observations_sha256", "survey_receipts_sha256"})
         self.assertEqual(m_read["observations_sha256"], EMPTY_CORPUS_SHA256)
         self.assertIsNone(m_held["observations_sha256"])
-        self.assertEqual(m_read["schema"], "3")
+        self.assertEqual(m_read["schema"], "4")
+        self.assertNotEqual(m_read["schema"], "3")
 
     def test_p1c_one_pairing_observation_changes_the_compile_and_its_removal_restores_it(self):
         """The anti-vacuity leg: without it P1a and P1b also pass against dead
@@ -965,13 +969,13 @@ class CitationRenderingTests(_Base):
 
     def test_the_header_names_the_citation_column_beside_the_handle(self):
         self.t.write_adr(90, [{"handle": "ADR-0090/a"}])
-        self.assertIn("| handle | citation | rule | source ADR | disposition | basis |",
+        self.assertIn("| handle | citation | rule | source ADR | source_status | disposition | basis |",
                       self.t.index())
 
     def test_an_adr_handle_renders_its_citation_beside_the_handle(self):
         self.t.write_adr(90, [{"handle": "ADR-0090/slug-gate"}])
         self.assertIn("| ADR-0090/slug-gate | rule:slug-gate | the authored rule "
-                      "| ADR-0090 | decided | not-run-bound |", self.t.index())
+                      "| ADR-0090 | Accepted | decided | not-run-bound |", self.t.index())
 
     def test_an_observation_handle_renders_its_citation_the_same_way(self):
         """ADR-0099 clause 1: the form is identical on every surface, so an
@@ -981,7 +985,7 @@ class CitationRenderingTests(_Base):
                          evidence=["crux/scripts/x.py:1-2"])
         self.t.write_source("crux/scripts/x.py")
         self.assertIn("| OBS-0001/seen-rule | rule:seen-rule | the observed rule "
-                      "| OBS-0001 | observed | evidence-resolves |", self.t.index())
+                      "| OBS-0001 | ratified | observed | evidence-resolves |", self.t.index())
 
     def test_every_rendered_slug_is_slug_of_its_handle(self):
         self.t.write_adr(90, [{"handle": "ADR-0090/one-two"},

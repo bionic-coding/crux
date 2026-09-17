@@ -30,6 +30,10 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import adr_frontmatter  # noqa: E402
+
 try:
     import yaml
 except ImportError:
@@ -52,15 +56,25 @@ def _tree_name(root) -> str:
     return _m.resolve_tree_name(root)
 
 
-def _load_adrs(adrs_dir: Path) -> list[dict]:
+def _load_adrs(adrs_dir: Path, rel=None) -> list[dict]:
     recs = []
+    # REFUSAL BEFORE WRITING: every file matching the glob, in both tiers, is
+    # validated before a single record is built. `rel` renders the reported
+    # path; it defaults to `str` so existing callers keep their signature.
+    adr_frontmatter.validated_adr_paths(adrs_dir, rel or str)
     # Walk BOTH tiers (active + cold archive), per ADR-0063.
     both = glob.glob(str(adrs_dir / "ADR-*.md")) + glob.glob(str(adrs_dir / "archive" / "ADR-*.md"))
     for p in sorted(both):
-        m = re.match(r"^---\n(.*?)\n---\n", Path(p).read_text(encoding="utf-8"), re.S)
-        if not m:
-            continue
-        fm = yaml.safe_load(m.group(1))
+        # The fence is read through the ONE shared reader. `validated_adr_paths`
+        # already refused this run if any input failed it, so `None` here is
+        # unreachable — and it raises rather than skipping, because a second
+        # copy of the fence test with a bare `continue` is the paired construct
+        # this change exists to remove.
+        block = adr_frontmatter.frontmatter_block(Path(p).read_text(encoding="utf-8"))
+        if block is None:
+            raise adr_frontmatter.FenceValidationError(
+                [{"file": str(p), "error": adr_frontmatter.FENCE_ERROR}])
+        fm = yaml.safe_load(block)
         recs.append({
             "id": fm["id"],
             "num": int(str(fm["id"]).split("-")[-1]),
@@ -126,7 +140,18 @@ def main(argv: list[str]) -> int:
     root = Path(args.repo_root)
     adrs_dir = root / _tree_name(root) / "adrs"
     target = adrs_dir / "lineage.md"
-    recs = _load_adrs(adrs_dir)
+    try:
+        recs = _load_adrs(adrs_dir, adr_frontmatter.repo_relative(root))
+    except adr_frontmatter.FenceValidationError as exc:
+        return adr_frontmatter.print_validation_errors(
+            exc.errors, "generate-lineage", sys.stdout, sys.stderr)
+    except (OSError, UnicodeDecodeError) as exc:
+        # A file the process cannot open or decode is a fact about the
+        # checkout, not a document defect: the environment lane, matching
+        # `generate-reviews-index.py`. Exit 1 would tell `check-drift` to
+        # repair an input, which is advice nobody can follow for an EACCES.
+        sys.stderr.write(f"generate-lineage: {type(exc).__name__}: {exc}\n")
+        return 2
     generated = render(recs)
 
     # JSON on every lane. `check-drift` and `audit-docs` both parse each gate's

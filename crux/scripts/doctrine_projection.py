@@ -736,6 +736,11 @@ def build_domain_entries(records: list[dict], invariants: list[dict],
                 # per-DOMAIN `authority` below is the widening's rendering,
                 # emitted only when an observation rule is present.
                 "disposition": sp.disposition_for(rec["provenance"]),
+                # The source record's lifecycle status, verbatim. Rendered
+                # beside `disposition` rather than folded into it: a Proposed
+                # ADR's rule resolves and is still not adopted, and those are
+                # two different facts.
+                "source_status": rec.get("source_status"),
                 "basis": basis,
                 "source_kind": rec.get("source_kind", "adr"),
             })
@@ -861,14 +866,16 @@ def build_index(entries: list[dict], exempt_entries: list[dict],
         # to suppress the cell is an ADR-level change, not a renderer change.
         # Nothing here can produce a citation the gate accepts for a rule the
         # gate rejects, which is the direction that would matter.
-        out.append("| handle | citation | rule | source ADR | disposition | basis |")
-        out.append("|--------|----------|------|------------|-------------|-------|")
+        out.append("| handle | citation | rule | source ADR | source_status | disposition | basis |")
+        out.append("|--------|----------|------|------------|---------------|-------------|-------|")
         for r in e["rules"]:
             out.append(
                 f"| {_md_escape(r['handle'])} "
                 f"| {_md_escape('rule:' + sp.slug_of(r['handle']))} "
                 f"| {_md_escape(r['rule'])} "
-                f"| {_md_escape(r['source_adr'])} | {_md_escape(r['disposition'])} "
+                f"| {_md_escape(r['source_adr'])} "
+                f"| {_md_escape(r.get('source_status') or 'unknown')} "
+                f"| {_md_escape(r['disposition'])} "
                 f"| {_md_escape(r['basis'])} |")
         out.append("")
         if e.get("evidence"):
@@ -951,6 +958,10 @@ def input_digests(root: Path, records: list[dict], invariants: list[dict],
         "survey_receipts_sha256": (sp.survey_receipts_sha256(observations)
                                    if observations is not None else None),
         "governs_from": governs_from,
-        "schema": "3",
+        # Bumped 3 -> 4 when the rule table gained its `source_status` column.
+        # Same rule as the summaries projection's literal: a declared schema that
+        # identifies output shape bumps on an additive change, because nothing
+        # else tells a reader which contract the file was written against.
+        "schema": "4",
         "tool": "compile-doctrine.py",
     }

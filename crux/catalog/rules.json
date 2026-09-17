@@ -8,6 +8,10 @@
       "domain": "decision-review",
       "rule": "For a trend objective, discovering that the baseline is missing establishes a MEASUREMENT BLOCKER and establishes neither the trend's direction nor its success. A trend part whose baseline is absent is recorded as partial evidence reaching an inconclusive conclusion, and the permission for such a part to reach a gap conclusion is withdrawn, because that pair discriminates and would therefore read the goal as measured, discharge the rotation and reset the escalation count on the same absent baseline every pass. Where a goal's own declared measure asserts that something is measurable, the missing instrument is assessed as a SEPARATE part carrying its own part id, whose claim is that the baseline is obtainable; direct observation of the absence is resolved evidence, so that part reaches a gap honestly, and the exception therefore cannot classify an unrelated trend as measured because it never touches the trend's own row. A measurability part resting on partial evidence proves nothing and stays inconclusive."
     },
+    "an-ineligible-citation-refuses-the-projection": {
+      "domain": "rule-citation",
+      "rule": "An ineligible citation refuses the projection rather than being filtered out of it. The shipped catalog is not regenerated while any cited slug is ineligible, so a rule is never quietly dropped from the artifact while the surface citing it still ships. One run reports every ineligible citation rather than stopping at the first, so the remedy is one round trip. The refusal is a document-lane finding: it exits with the repository's findings code and a machine-readable payload naming, per citation, the citing path, the citation, the source record, that record's raw status and the reason. It leaves an existing catalog byte-unchanged, creates no absent one, and reports in every mode that reads the cited set, the drift mode included — because a status change moves no byte of the catalog, so a byte comparison alone can never see it."
+    },
     "an-undeclared-trigger-is-a-reported-gap": {
       "domain": "skill-trigger-declaration",
       "rule": "A user-invocable skill that declares no triggers and quotes none is a routing gap, reported through the regenerator's existing gap channel and never defaulted. No trigger is invented from a skill's name. A skill that is not user-invocable carries no phrase column and is no gap when it declares nothing."
@@ -59,6 +63,10 @@
     "drift-report-carries-scope-and-reconciles": {
       "domain": "regenerator-scope",
       "rule": "A drift report carries each row's scope, reports an out-of-scope row as not applicable with its reason, and reconciles enrolled against executed passing plus failed plus skipped-or-inapplicable, with no-evidence re-counting the rows that measured nothing. A gate that inspected the plugin's own copy of itself measured nothing about the project and is never recorded as executed passing for a project row."
+    },
+    "eligibility-is-declared-and-refuses-the-unnamed": {
+      "domain": "rule-citation",
+      "rule": "The eligibility verdict comes from a declared table keyed on the source record's kind and its raw lifecycle status, and nothing is admitted by default. The table names every pair it admits and every pair it refuses; a pair it names neither way is refused, so a new record kind, a new lifecycle status, and a record carrying no status at all are each refused rather than admitted. The status is compared as the source record wrote it, because the value is copied rather than derived and normalising it would merge states that differ. The verdict is computed from the source records themselves at check time, never from a committed derived artifact, so a stale projection cannot supply a status the records no longer carry."
     },
     "escalation-history-is-carried-and-bounded": {
       "domain": "decision-review",
@@ -119,6 +127,14 @@
     "objectives-shape-the-work-and-authorize-none": {
       "domain": "objectives-alignment",
       "rule": "The Mission and the relevant active goals are used to assess the task's purpose, tradeoffs, and completion evidence, respecting the maturity ladder: `exploring` goals remain hypotheses, and dropped goals are not treated as requirements. How the task serves or preserves the mission or the relevant goals is explained in the existing task brief or result; a sentence suffices for a small task, and no extra artifact and no approval gate is required. A goal association none of the goals supports is not invented. A concrete conflict is reported before dependent work proceeds, and a conflict with an approved plan is a contradicted premise under the run-autonomy contract. Objectives alone authorize no additional work and no edits to the objectives file."
+    },
+    "observation-backed-publication-is-denied-for-now": {
+      "domain": "rule-citation",
+      "rule": "A rule sourced from an observation record is refused at the publication boundary, as an interim denial this decision adopts rather than as a policy it settles. The denial is this decision's own choice, made because an observation describes what the code does and decides nothing, so its ratification affirms the description and is not by itself a warrant to publish it as a rule the plugin follows; what the eventual policy should be stays open for an owner to decide, and a successor may reverse this denial without disturbing anything else here. The denial changes no observation's disposition, authority or lifecycle, removes no observation from any projection's input, and leaves every citation of an observation-backed rule on a reader-owned surface resolving exactly as before."
+    },
+    "one-guard-called-from-every-enforcement-point": {
+      "domain": "rule-citation",
+      "rule": "One implementation answers the eligibility question, and every enforcement point calls it. Catalog generation calls it before it writes, the automatic checks call it, the release preflight calls it, and the publication path calls it where the source records are still present, which is the authoring tree rather than the staged artifact that excludes them. The postcondition is falsifiable and is the test of coverage: a change editing only a source record's lifecycle status, with no shipped file touched, reds an automatic check. An enforcement point selecting work by changed shipped files therefore does not satisfy this rule on its own. No manual release step is added, and no enforcement point is satisfied by a check that reports a pass without executing."
     },
     "one-sided-anchor-is-drift-absent-file-is-stale": {
       "domain": "template-parity",
@@ -183,6 +199,10 @@
     "shipped-catalog-is-derived-and-names-no-decision-record": {
       "domain": "rule-citation",
       "rule": "The shipped catalog is a derived projection of this project's own governs blocks, carrying a regenerator and a drift gate and enrolled in the regenerative-outputs roster, so hand-edits are blown away and no release step generates it. It carries each rule's slug, its text and its domain, and carries no decision-record identifier. Its input domain is the distinct slugs cited on shipped surfaces, excluding test fixtures and the catalog's own output. A citation naming a slug the catalog does not yet carry drifts it until the regenerator runs; a citation naming a slug already carried drifts nothing, and removing the last citation of a slug drifts it again, because the domain is the set of slugs cited rather than a count of occurrences."
+    },
+    "shipped-citation-requires-an-accepted-decision": {
+      "domain": "rule-citation",
+      "rule": "A rule citation on a shipped surface requires a source record whose decision has been accepted. Resolution and publication eligibility are two checks asking two questions, and neither answers the other: resolution asks whether a slug names a live rule, and eligibility asks whether the record behind that rule has been decided, so a citation may resolve and still be refused. An ADR-backed rule is eligible exactly when its host ADR's status is Accepted; a Proposed, Deprecated or Superseded host is refused, because an entry state and two exit states are each something other than a current decision. Eligibility is asked only of a shipped surface. A reader-owned surface, an internal proposal, a plan and a dated record are unaffected, and each may cite a rule of any source state and keep citing it, because no such citation crosses the release boundary."
     },
     "signal-script-read-surface": {
       "domain": "decision-review",

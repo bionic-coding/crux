@@ -60,6 +60,23 @@
     `rule:<slug>` per `governs` entry, the slug being the part of the handle
     after the slash. The id is the machine field the accept prompt reads;
     the citations are what the dev and review modules implement and check.
+
+    Then run the rule-length advisory and read its `warnings` list:
+
+      uv run "${CRUX_PLUGIN_ROOT}/scripts/check-governs-coverage.py" --repo-root <repo-root>
+
+    A row naming this ADR means a `governs` rule is longer than the recommended
+    maximum; the row carries the handle, the length, that maximum, and the
+    guidance for shortening it. It is ADVISORY: it changes no exit code and
+    blocks nothing.
+
+    The principle it serves is `docs/CLAUDE.md` §11.D rule 7 — read it there;
+    this prompt names it and does not restate it. Either shorten the rule as
+    that rule and the row's own message direct, or say in this prompt's Result
+    why the length is what precision costs here. Do not truncate a rule to
+    clear a row. Saying so in the Result is a note in an existing free-text
+    field, not a waiver: there is no waiver field to fill and no approval step
+    to pass.
   expected_output: |
     ADR file at `docs/adrs/ADR-NNNN-<slug>.md` with `status: Proposed`;
     `manifest.yml`'s `adr.next_number` incremented; `docs/log.md` entry
@@ -149,7 +166,18 @@
     References).
 
     Resolve findings **autonomously** — use the council/`srde` outputs and
-    dispatched `Agent`s; do NOT ask a human. When every finding is resolved,
+    dispatched `Agent`s; do NOT ask a human.
+
+    A revision lengthens a rule as easily as it shortens one, so re-run the
+    advisory before the next round and read its `warnings` list again:
+
+      uv run "${CRUX_PLUGIN_ROOT}/scripts/check-governs-coverage.py" --repo-root <repo-root>
+
+    Handle any row naming this ADR exactly as the drafting prompt says: shorten
+    it per `docs/CLAUDE.md` §11.D rule 7, or say in this prompt's Result why the
+    length is necessary. Advisory throughout — it never blocks the round.
+
+    When every finding is resolved,
     return to this module's council prompt to re-convene the council. After
     3 full loops without convergence, STOP and escalate to the user — a
     genuine fundamental disagreement (not a resolvable finding) is the only

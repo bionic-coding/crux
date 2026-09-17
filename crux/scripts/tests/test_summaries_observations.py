@@ -14,7 +14,7 @@ Pins, one named test per claim:
   - S3  a `decided` record projects an alias row per handle and no rule row.
   - S4  `observations_sha256` mirrors `adr_frontmatter_sha256`'s construction
         and moves on ratification, retirement, and a ratified successor.
-  - S5  `_meta.json` is schema "4" with `input_domain`,
+  - S5  `_meta.json` is schema "5" with `input_domain`,
         `observations_sha256` and `survey_receipts_sha256` added (the last
         two schema bumps: ADR-0095 then ADR-0098); the driver refuses (exit 2, nothing
         written) to rewrite a projection whose declared domain names a source
@@ -501,14 +501,15 @@ class S5MetaAndRefusalTests(_Base):
     def _meta(self) -> dict:
         return json.loads(self.t.build()["_meta.json"])
 
-    def test_meta_schema_is_4_with_exactly_the_added_keys(self):
+    def test_meta_schema_is_5_with_exactly_the_added_keys(self):
         # Schema "4" is ADR-0098 clause 2's arrival: the per-batch survey
         # receipts join the input domain as one declared source beside the
         # records, so `survey-receipts` joins `input_domain` and
         # `survey_receipts_sha256` joins the digests. Null here, because this
         # tree has signed no batch.
         meta = self._meta()
-        self.assertEqual(meta["schema"], "4")
+        self.assertEqual(meta["schema"], "5")
+        self.assertNotEqual(meta["schema"], "4")
         self.assertEqual(set(meta), {"adr_frontmatter_sha256", "backfill_reviews_sha256",
                                      "input_domain", "observations_sha256",
                                      "survey_receipts_sha256", "schema", "tool"})
@@ -579,7 +580,7 @@ class S5MetaAndRefusalTests(_Base):
             {"schema": "2", "tool": "summarize-adrs.py"}), encoding="utf-8")
         rc, _out, _err = _run_main(["--repo-root", str(self.t.root)])
         self.assertEqual(rc, 0)
-        self.assertEqual(json.loads((self.t.summaries / "_meta.json").read_text())["schema"], "4")
+        self.assertEqual(json.loads((self.t.summaries / "_meta.json").read_text())["schema"], "5")
 
 
 # ── Requirement 6: observations without ADRs ────────────────────────────────
@@ -659,7 +660,8 @@ class P1ZeroObservationIdentityTests(unittest.TestCase):
                           "survey_receipts_sha256"})
         self.assertEqual(m_read["observations_sha256"], EMPTY_CORPUS_SHA256)
         self.assertIsNone(m_held["observations_sha256"])
-        self.assertEqual(m_read["schema"], "4")
+        self.assertEqual(m_read["schema"], "5")
+        self.assertNotEqual(m_read["schema"], "4")
 
     def test_p1c_one_ratified_observation_changes_the_build_and_its_removal_restores_it(self):
         tmp = tempfile.TemporaryDirectory()

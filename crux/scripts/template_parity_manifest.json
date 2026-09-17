@@ -122,6 +122,22 @@
       "pattern": "base_commit_pin.divergence"
     },
     {
+      "id": "adr-brevity-principle",
+      "section": "\u00a711.D rule 7, the brevity principle",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "## 11.D.",
+      "pattern": "shortest ADR that fully states|one obligation and its necessary conditions|Brevity must not change the meaning|seven numbered rules"
+    },
+    {
+      "id": "manifest-adr-governs-rule-baseline",
+      "section": "\u00a77 `manifest.yml` schema \u2014 the rule-length advisory baseline key",
+      "canonical": "bionic/CLAUDE.md",
+      "twin": "crux/templates/CLAUDE.md.tmpl",
+      "anchor": "## 7.",
+      "pattern": "governs_rule_baseline"
+    },
+    {
       "id": "adr-body-budget-value",
       "section": "\u00a711.D the ADR body budget value",
       "canonical": "bionic/CLAUDE.md",

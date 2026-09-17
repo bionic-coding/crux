@@ -143,7 +143,9 @@ class SurveyReceiptProjectionTests(unittest.TestCase):
         self.assertIsNotNone(meta["survey_receipts_sha256"])
         self.assertRegex(meta["survey_receipts_sha256"], r"^[0-9a-f]{64}$")
         self.assertIn("survey-receipts", meta["input_domain"])
-        self.assertEqual(meta["schema"], "4")
+        # Hard literal, plus the superseded value asserted absent.
+        self.assertEqual(meta["schema"], "5")
+        self.assertNotEqual(meta["schema"], "4")
         self.assertEqual(self._compile().returncode, 0)
 
     def test_a_tree_with_no_receipts_renders_with_a_null_digest(self):

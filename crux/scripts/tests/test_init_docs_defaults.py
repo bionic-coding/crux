@@ -80,8 +80,34 @@ class ManifestTemplateTests(unittest.TestCase):
                                             "next_survey_number": 1,
                                             "survey_stub_days": 1})
         self.assertEqual(m["schema_version"], "5")
-        self.assertEqual(m["adr"], {"next_number": 1})
+        self.assertEqual(m["adr"], {"next_number": 1, "governs_rule_baseline": []})
         self.assertEqual(m["promptbook"], {"next_number": 1})
+
+    def test_manifest_tmpl_ships_an_explicit_empty_rule_length_baseline(self):
+        """The key must be PRESENT and EMPTY, and the distinction is the whole design.
+
+        `init-docs` copies this template verbatim, so whatever is here is a fresh tree's manifest.
+        An ABSENT key means "this tree has not snapshotted its existing ADRs yet" and leaves the
+        rule-length advisory inert; an EMPTY list means "there is nothing to grandfather", which
+        is true of a tree with no ADRs and switches the advisory on. Ship it absent and every
+        freshly bootstrapped tree would carry the advisory permanently dead — the failure a
+        council round caught in the design before it was written.
+        """
+        m = yaml.safe_load((TEMPLATES / "manifest.yml.tmpl").read_text())
+        self.assertIn("governs_rule_baseline", m["adr"],
+                      "an absent key leaves the advisory inert in every new tree")
+        self.assertEqual(m["adr"]["governs_rule_baseline"], [],
+                         "a new tree grandfathers nothing; the list is empty, not populated")
+
+    def test_the_template_ships_no_adr_identity_of_this_project(self):
+        """This project's own ADR ids are not universal exemptions for anyone else."""
+        import re
+        raw = (TEMPLATES / "manifest.yml.tmpl").read_text()
+        m = yaml.safe_load(raw)
+        self.assertEqual([x for x in m["adr"]["governs_rule_baseline"]], [])
+        body = "\n".join(l for l in raw.splitlines() if not l.strip().startswith("#"))
+        self.assertEqual(re.findall(r"ADR-\d{4}", body), [],
+                         "no ADR identifier may ship in the manifest template")
 
     def test_manifest_tmpl_agrees_with_claude_md_tmpl(self):
         # Twin lock-step: the CLAUDE.md.tmpl §7 example manifest must show the

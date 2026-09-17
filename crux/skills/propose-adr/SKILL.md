@@ -138,6 +138,28 @@ uv run "${CRUX_PLUGIN_ROOT}/scripts/summarize-adrs.py" --repo-root <repo-root>
 
 This rewrites `<docs_dir>/adrs/summaries/` (rule table, resolver, implementation map, `_meta.json`) from every active ADR's governs blocks. The projection's input hash covers the full active-ADR frontmatter, so any ADR frontmatter mutation drifts it; regenerating here keeps the `summarize-adrs.py --dry-run` drift gate (and CI) green rather than leaving a drifted tree for the next PR to catch. Skip only when the ADR has no `governs` block and `adr.governs_from` is unset.
 
+### 9a. Read the rule-length advisory
+
+Same guard as step 9: skip only when the ADR has no `governs` block and `adr.governs_from` is unset.
+
+```
+uv run "${CRUX_PLUGIN_ROOT}/scripts/check-governs-coverage.py" --repo-root <repo-root>
+```
+
+Read the `warnings` list in its JSON. A row naming this ADR means one of its `governs` rules is
+longer than the recommended maximum; the row carries the handle, the actual length, that maximum,
+and the guidance for shortening it. **It is advisory.** It never changes the exit code, it blocks
+nothing, and it is not a waiver you record — there is no waiver field and no approval step.
+
+**The principle the row serves is `docs/CLAUDE.md` §11.D rule 7. Read it there; this skill does not
+restate it, for the reason step 6 gives.** Act on the row in one of two ways: shorten the rule as
+that rule and the row's own message direct, or leave it and say in one line, in the hand-off
+below, why the length is what precision costs here. Never truncate or rewrite a rule mechanically
+to clear a row.
+
+A row naming `manifest.yml` rather than an ADR means this tree has not snapshotted its baseline, so
+the advisory is inert; that is a tree-configuration matter, not a finding about this ADR.
+
 ### 10. Optional: `--accept-immediately`
 
 - Only if the flag was passed.
@@ -148,6 +170,7 @@ This rewrites `<docs_dir>/adrs/summaries/` (rule table, resolver, implementation
 
 - Tell the user: ADR id assigned, file path, current status (`Proposed`).
 - Explicitly instruct: edit the five body sections (`Context`, `Decision`, `Alternatives Considered`, `Consequences`, `References`) — do NOT change the frontmatter.
+- If step 9a reported a row for this ADR, name the rule and say whether it was shortened or why its length is what precision costs. Do NOT restate `docs/CLAUDE.md` §11.D rule 7 in the hand-off; name it.
 - Point the author at `docs/CLAUDE.md` §11.D before they write: requirements and postconditions, not recipe; name a source of truth rather than restating a shape; measurements go in a footnote marked informative; the four narrative sections carry a line budget, and going over it on purpose means declaring why. Naming the section is the whole instruction — do not paraphrase the rule here.
 - If accepted-immediately, tell the user the body is now frozen except via supersession.
 - Optionally call `log-work --silent --category decision --subject "ADR-NNNN proposed: <title>"` if the user opted into auto-journaling for ADRs.

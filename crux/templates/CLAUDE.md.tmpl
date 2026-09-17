@@ -446,6 +446,15 @@ adr:
   next_number: 1                   # monotonic, never reused; allocated by propose-adr
   spec_rule_from: null             # OPTIONAL. The CHK-ADR-SPEC cohort boundary (§11.D):
                                    # null/absent = rule inert; NNNN = governs every ADR numbered >= NNNN.
+  governs_rule_baseline: []        # OPTIONAL. The rule-length advisory baseline (§11.D rule 7): the
+                                   # ENUMERATED ADR ids that predate the advisory IN THIS TREE,
+                                   # snapshotted once and closed from then on. `[]` is correct for a
+                                   # new tree and self-maintaining — with no ADRs yet, every ADR you
+                                   # write is advised on. ABSENT leaves the advisory inert, and the
+                                   # governs-coverage gate says so in its `warnings`. Adopting it in
+                                   # a tree that already has ADRs is a ONE-OFF snapshot of their ids,
+                                   # not a list regenerated on each run and never grown to excuse a
+                                   # newly written ADR.
 
 arch:                              # OPTIONAL block. The arch concern's strict gate (§4).
   require:                         # OPTIONAL. The concerns this tree REQUIRES. Absent = no gate.
@@ -956,7 +965,7 @@ A `patch` book declares its blast radius as a set of repo-relative repository pa
 
 **This section is the single statement of the rule.** `${CRUX_PLUGIN_ROOT}/templates/ADR-template.md`, `propose-adr`, and `audit-docs` (`CHK-ADR-SPEC`) carry a pointer to it and never a copy — §11.A's name-it-once discipline applied to the rule about naming things once. §11.A governs an ADR's frontmatter; this section governs what its body may contain. The writing rules the `prose-review` skill carries govern how a sentence in it is written.
 
-The six numbered rules below are **§11.D's own numbering**. Cite this section by rule number; if your tree records the deciding ADR separately, do not read its clause numbers as these rule numbers.
+The seven numbered rules below are **§11.D's own numbering**. Cite this section by rule number; if your tree records the deciding ADR separately, do not read its clause numbers as these rule numbers.
 
 **1. A body states requirements and postconditions, never implementation recipe.** An ADR says what must be true when the work is done. It may bind a mechanism when the mechanism **is** the decision — a protocol, a storage engine, a wire format, a published interface — because that choice is disputable on architectural grounds. It may not say how a chosen thing is driven: call signatures, serializer options, exact file contents, command recipes, code. Those are disputable only on syntax, and they belong to the dev module, where a type checker and a test suite review them. Where one of them **is** the contract being decided, the carve-out governs and the prohibition does not.
 
@@ -979,6 +988,8 @@ A body over budget **with** that line is not a finding. A body over budget **wit
 **5. A path inside a frozen ADR body is history, not drift.** A body past `Proposed` is frozen, so a path it cites records what was true when the decision was made. Cleanup does not report that class; a rule that did was retired outright, and any standing dismissals stay in `docs/whats_next.md` as history. Rule 4's postcondition keeps new bodies safe going forward and is not retroactive.
 
 **6. Route a convention a check can carry to the invariants concern.** A decision whose whole content is a convention an executable check can carry belongs in the invariants concern (§15) rather than in an ADR. Guidance for the drafting architect; it adds no gate.
+
+**7. Write the shortest ADR that fully states the decision, its scope, and its consequences.** Use simple, precise prose. Keep each `governs` rule to one obligation and its necessary conditions; put rationale and examples in the body. Brevity must not change the meaning.
 
 ### The prospective cohort
 

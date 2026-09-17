@@ -59,7 +59,7 @@ Run `python3 "${CRUX_PLUGIN_ROOT}/scripts/bionic-config.py"` from the repo root.
 
 ### 1. Run every enrolled drift gate
 
-Run each command below from the repo root. **Parse each command's stdout as JSON regardless of its exit code** — the exit code alone does not tell clean from drift. Collect a verdict per gate; do not stop on the first drift.
+Run each command below from the repo root — **both tables**: the roster gates here, and the guards in *Guards that carry no roster row* further down. The second table's verdicts are reported exactly like the first's, and its rows count toward the step-4 accounting the same way, so `enrolled` there means every row of both tables. **Parse each command's stdout as JSON regardless of its exit code** — the exit code alone does not tell clean from drift. Collect a verdict per gate; do not stop on the first drift.
 
 | Gate (output) | Scope | Dry-run command | Regenerator that fixes it |
 |---|---|---|---|
@@ -80,7 +80,22 @@ Run each command below from the repo root. **Parse each command's stdout as JSON
 | `<docs_dir>/journal/index.md` | project | `generate-journal-index.py --dry-run` | `generate-journal-index.py` |
 | `crux/catalog/rules.json` (the rules the plugin ships) | plugin-authoring | `generate-rules-catalog.py --dry-run` | `generate-rules-catalog.py` |
 
+> **This row's gate answers two questions, and only one of them is drift.** Beside the byte comparison it checks PUBLICATION ELIGIBILITY: every slug cited on a shipped surface must resolve to a source record whose decision has been accepted.[^pubelig] A refusal exits 1 with a `validation_errors` list rather than a `drift` key, and each row names the citing path, the citation, the source record, its raw status and the reason. **File such a row BROKEN, never DRIFT, and do not name the regenerator as its remedy** — re-running it refuses again. The remedy depends on the row's reason: accept a Proposed decision; for a Deprecated or Superseded one, migrate the citation to the rule that displaced it or remove it; an observation-backed rule needs an owner decision before it can ship. A status change moves no byte of the catalog, so a row reported clean by byte comparison alone would be a false green here.
+
 Invoke each via `uv run "${CRUX_PLUGIN_ROOT}/scripts/<name>" ...` from the repo root. This roster is the source of truth for what a derived artifact owes; if the repo-root `CLAUDE.md` roster grows a row, add its gate here.
+
+**In the plugin's own development repository that sentence is mechanical rather than a request.** A runner there parses the table above as its operational declaration and executes every row. It binds three surfaces: the repo-root roster's drift-check column (the MEMBERSHIP record), this table (the OPERATIONAL declaration), and the runner's own execution set. A generator enrolled in the roster and missing from this table fails a test rather than going unrun. **That runner is development tooling and is not part of the plugin** — a release stages the plugin directory alone, so an installed copy does not carry it, and a downstream reader follows this skill's own steps instead. The split between the two tables is the one this skill already stated; what changed upstream is that disagreeing with it is detectable.
+
+### Guards that carry no roster row
+
+These answer real questions and are executed by the same runner, but they regenerate nothing, so they are deliberately absent from the regenerative-outputs roster — that roster's subject is derived artifacts. They are declared here instead, which is the one place a reader looks for what gets executed. Each emits the same envelope the roster gates do, including the self-declared not-applicable lane.
+
+| Guard | Scope | Command | What it answers |
+|---|---|---|---|
+| `<docs_dir>/observations/` records | project | `check_observations.py` | the CHK-OBS-* rules; reports `concern_enabled: false` when the concern is off |
+| `<docs_dir>/promptbooks/index.md` | project | `check-promptbook-index.py` | CHK-PB-11 completeness: a missing row, a duplicate row, a row naming an absent book, and the three count surfaces |
+
+**The governs/body parity checker is deliberately NOT in that table.** It is per-ADR, takes a dynamic argv, emits no JSON envelope, and its exit 1 means *a human should classify these rows* rather than *this is broken*. Those four properties cannot coexist with the runner's contract, so it runs as its own CI step with its applicability stated there: only ADRs carrying at least one `governs` entry, advisory on exit 1, red on exit 2.
 
 **The `Scope` column says whose tree the row's gate inspects.** That is the difference between a
 verdict about this project and a verdict about the plugin. A `project` row's output lives in the
@@ -226,3 +241,5 @@ Body, 1–3 lines: the summary line, and for any non-clean gate its name plus th
 - The repo-root `CLAUDE.md` "regenerative outputs" table — the enrollment roster this skill's gate list mirrors. The validation checks of §1.A are deliberately absent from it.
 
 [^retired]: `rule:retired-cite-fails-lint` — a retired slug fails the lint, and the failure names the rule that displaced it.
+
+[^pubelig]: rule:shipped-citation-requires-an-accepted-decision, rule:an-ineligible-citation-refuses-the-projection

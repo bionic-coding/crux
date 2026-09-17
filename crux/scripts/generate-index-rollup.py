@@ -51,6 +51,10 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import adr_frontmatter  # noqa: E402
+
 try:
     import yaml
 except ImportError:
@@ -79,19 +83,29 @@ def _tree_name(root) -> str:
     return _m.resolve_tree_name(root)
 
 
-def load_adrs(adrs_dir: Path) -> list[dict]:
+def load_adrs(adrs_dir: Path, rel=None) -> list[dict]:
     """Read every ADR-NNNN-*.md frontmatter. The filename stem is the wiki-link
     target (docs/CLAUDE.md §9 cites ADRs by page name, not by id alone)."""
     recs: list[dict] = []
+    # REFUSAL BEFORE WRITING: every file matching the glob, in both tiers, is
+    # validated before a single record is built. `rel` renders the reported
+    # path; it defaults to `str` so existing callers keep their signature.
+    adr_frontmatter.validated_adr_paths(adrs_dir, rel or str)
     # Walk BOTH tiers (active + cold archive), per ADR-0063: an archived ADR stays
     # in the master rollup and lineage; only the active-index reading path shrinks.
     both = glob.glob(str(adrs_dir / "ADR-*.md")) + glob.glob(str(adrs_dir / "archive" / "ADR-*.md"))
     for p in sorted(both):
         path = Path(p)
-        m = re.match(r"^---\n(.*?)\n---\n", path.read_text(encoding="utf-8"), re.S)
-        if not m:
-            continue
-        fm = yaml.safe_load(m.group(1)) or {}
+        # The fence is read through the ONE shared reader. `validated_adr_paths`
+        # already refused this run if any input failed it, so `None` here is
+        # unreachable — and it raises rather than skipping, because a second
+        # copy of the fence test with a bare `continue` is the paired construct
+        # this change exists to remove.
+        block = adr_frontmatter.frontmatter_block(path.read_text(encoding="utf-8"))
+        if block is None:
+            raise adr_frontmatter.FenceValidationError(
+                [{"file": str(path), "error": adr_frontmatter.FENCE_ERROR}])
+        fm = yaml.safe_load(block) or {}
         recs.append(
             {
                 "num": int(str(fm["id"]).split("-")[-1]),
@@ -141,7 +155,18 @@ def main(argv: list[str]) -> int:
         sys.stderr.write("generate-index-rollup.py: no '## ADRs (N)' section found in docs/index.md\n")
         return 2
 
-    want = render_section(load_adrs(adrs_dir))
+    try:
+        want = render_section(load_adrs(adrs_dir, adr_frontmatter.repo_relative(root)))
+    except adr_frontmatter.FenceValidationError as exc:
+        return adr_frontmatter.print_validation_errors(
+            exc.errors, "generate-index-rollup", sys.stdout, sys.stderr)
+    except (OSError, UnicodeDecodeError) as exc:
+        # A file the process cannot open or decode is a fact about the
+        # checkout, not a document defect: the environment lane, matching
+        # `generate-reviews-index.py`. Exit 1 would tell `check-drift` to
+        # repair an input, which is advice nobody can follow for an EACCES.
+        sys.stderr.write(f"generate-index-rollup: {type(exc).__name__}: {exc}\n")
+        return 2
     have = m.group(0)
 
     # JSON on every lane. `check-drift` and `audit-docs` both parse each gate's

@@ -72,15 +72,21 @@ EXPECTED_AGENTS = {
 }
 
 # wayfinder's exact resolved OpenCode model (ADR-0047/ADR-0048): a read/search-only
-# reconnaissance role that inherits the standard rung's OpenCode alias (qwen-max),
-# mapped to openrouter/qwen/qwen3.8-2.4t-a95b — the same tier as historian and librarian,
-# not the flagship claude-opus-5 tier. Asserted exactly so a silent regression to
-# the wrong tier is caught (test_completeness + test_values_name_a_declared_provider
-# check shape/membership only, not this specific value).
+# reconnaissance role that inherits the standard rung's OpenCode alias, the same tier as
+# historian and librarian, not the flagship tier. Asserted exactly so a silent regression to
+# the wrong tier is caught (test_completeness + test_values_name_a_declared_provider check
+# shape/membership only, not this specific value).
 #
 # Every alias value now resolves through the one gateway, so the provider half is
 # `openrouter` and the vendor namespace moved one segment right (ADR-0087).
-EXPECTED_WAYFINDER_MODEL = "openrouter/qwen/qwen3.8-2.4t-a95b"
+#
+# THE ALIAS NAME IS NOT PINNED HERE, only the tier it must resolve to. This constant read
+# `openrouter/qwen/…` while the standard rung selected `qwen-max`; the owner has since taken
+# qwen-max out of active OpenCode use, and a hard-coded id made that a test failure rather
+# than a configuration change. The value is derived from the rung so that changing which
+# model the standard tier selects is a one-line edit to the catalog, while a wayfinder
+# promoted off the standard rung still fails this assertion — which is what it guards.
+EXPECTED_WAYFINDER_MODEL = CATALOG.aliases[CATALOG.levels["standard"].opencode]
 
 
 def _fm(tools, description="Use when ...", extra=""):
@@ -528,14 +534,14 @@ class CatalogResolutionTests(unittest.TestCase):
         expected = {
             "architect":      ("opus",   "kimi-latest",   "gpt-5.6-sol",   "high"),
             "brainstormer":   ("opus",   "kimi-latest",   "gpt-5.6-sol",   "high"),
-            "commander":      ("fable",   "qwen-max",      "gpt-6-astra",   "high"),
-            "dev-lead":       ("opus",   "glm-latest",    "gpt-5.6-sol",   "high"),
+            "commander":      ("fable",  "glm-latest",    "gpt-6-astra",   "high"),
+            "dev-lead":       ("opus",   "kimi-latest",   "gpt-5.6-sol",   "high"),
             "developer":      ("sonnet", "glm-flash",     "gpt-5.6-terra", "high"),
-            "historian":      ("sonnet", "qwen-max",      "gpt-5.6-terra", "high"),
-            "librarian":      ("sonnet", "qwen-max",      "gpt-5.6-terra", "high"),
+            "historian":      ("sonnet", "glm-latest",    "gpt-5.6-terra", "high"),
+            "librarian":      ("sonnet", "glm-latest",    "gpt-5.6-terra", "high"),
             "night-gardener": ("fable",  "kimi-latest",   "gpt-6-astra",   "high"),
             "reviewer":       ("fable",   "kimi-latest",   "gpt-5.6-sol",   "xhigh"),
-            "wayfinder":      ("sonnet", "qwen-max",      "gpt-5.6-terra", "high"),
+            "wayfinder":      ("sonnet", "glm-latest",    "gpt-5.6-terra", "high"),
         }
         self.assertEqual(set(expected), EXPECTED_AGENTS)
         for name, (claude, alias, codex_model, effort) in sorted(expected.items()):

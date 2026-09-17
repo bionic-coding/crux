@@ -666,6 +666,21 @@ def _adr_body(text: str) -> str:
 # not a second one minted here.
 PROVENANCE_ENUM = ("authored", "recovered", "reconstructed")
 
+# The recommended maximum length of one `governs` rule, in Unicode CODE POINTS of the parsed
+# YAML string after trimming. A REVIEW THRESHOLD, NOT A TARGET and not a limit: exceeding it
+# warns and nothing else. Nothing in this module or its callers may turn it into a failure,
+# and no rule is ever truncated or rewritten.
+#
+# WHY CODE POINTS. `len()` on the parsed string, with no normalisation. Bytes would punish a rule
+# for containing an em dash, and normalising would silently change the count of a composed
+# character. Measured on this corpus when the threshold was set: 219 rules, median 207, and 34
+# already above 768 — which is why the baseline below is load-bearing rather than cosmetic.
+RULE_LENGTH_RECOMMENDED_MAX = 768
+
+# The manifest key naming the ADR identities that predate this advisory. See
+# `rule_length_baseline` for why it is an enumerated set rather than a number.
+RULE_LENGTH_BASELINE_KEY = "governs_rule_baseline"
+
 # The CLOSED set of `governs` entry sub-fields (docs/CLAUDE.md §11.A). An entry
 # carrying anything else is a validation error, and that refusal is the
 # MISTYPED-KEY half of ADR-0097 part 6's typo rule: before it, an unread key
@@ -2672,6 +2687,21 @@ def build_resolver(records: list[dict], reviews: dict | None = None,
             "disposition": disposition_for(prov),
             "authority": authority_for(prov),
             "source_adr": r["source_adr"],
+            # RAW frontmatter `status`, never a normalised enum. The value
+            # set is the union of the ADR state-machine vocabulary and the
+            # observation constant, and comparison is CASE-SENSITIVE — a reader
+            # lower-casing before comparing would merge states that differ.
+            # Do not "tidy" this into a closed enum: normalising would put a
+            # derived value where a copied one belongs, and the field's whole
+            # purpose is to report what the source record said.
+            # The host record's lifecycle status, verbatim and unnormalised:
+            # the ADR state-machine value for an ADR row, the observation
+            # constant for an observation row. It says which record the rule
+            # came from, never whether the rule is adopted — `disposition`,
+            # `authority` and `review_state` keep their own axes. Absent
+            # status projects JSON null rather than a sentinel string, so a
+            # consumer cannot mistake a placeholder for a real value.
+            "source_status": r.get("source_status"),
         }
         if reviews is not None and r.get("source_kind", "adr") == "adr":
             row["review_state"] = review_state(r, reviews, governs_from)
@@ -2815,3 +2845,93 @@ def coverage(adrs: Path, manifest: dict) -> dict:
     uncovered.sort(key=adr_num)
     return {"governs_from": threshold, "cohort": cohort,
             "covered": covered, "uncovered": uncovered}
+
+
+def rule_length_baseline(manifest: dict) -> tuple[set[str], bool]:
+    """`(ids, declared)` — the ADR identities that predate the rule-length advisory.
+
+    AN ENUMERATED SET, NOT A NUMBER, and the difference is the whole point. This tree already
+    carries two numeric cohort boundaries for adjacent rules, and both are `>= N` predicates. An
+    ADR numbered BELOW such a boundary but added after rollout escapes it, and the policy this
+    serves requires a newly added ADR to be checked whatever its number or its date. Only an
+    enumerated identity set gives that. The precedent for the SHAPE is the frozen backfill cohort
+    in the same manifest block: enumerated once, recorded, closed from then on.
+
+    `declared` distinguishes "the key is present and empty" from "the key is absent". An empty
+    baseline is the correct and self-maintaining state for a NEW tree — every ADR is new relative
+    to nothing — while an absent key means a tree that has not snapshotted yet, and the caller
+    reports that as a discoverable advisory rather than leaving the check silently inert.
+    """
+    adr = manifest.get("adr")
+    if not isinstance(adr, dict) or RULE_LENGTH_BASELINE_KEY not in adr:
+        return set(), False
+    raw = adr.get(RULE_LENGTH_BASELINE_KEY)
+    if raw is None:
+        return set(), False
+    if not isinstance(raw, list):
+        # Read-tolerant, like the sibling exemption reader: a mis-typed value yields an empty
+        # baseline rather than an exception, because this advisory may never raise. It reports
+        # NOT-DECLARED rather than an empty declaration, so a tree whose key is a bare string
+        # falls into the inert lane and the caller says the key needs attention — which is true,
+        # if imprecisely worded for that case. The alternative, treating a mis-typed value as an
+        # empty baseline, would switch the advisory ON for the whole corpus on a typo.
+        return set(), False
+    return {str(x) for x in raw if isinstance(x, str)}, True
+
+
+def rule_length_advisories(adrs: Path, manifest: dict) -> list[dict]:
+    """One advisory row per `governs` rule longer than the recommended maximum. Never raises.
+
+    ADVISORY MEANS ADVISORY. This returns rows and nothing else: it never raises, never mutates,
+    and deliberately does NOT route through `_governs_shape_problems` or `GovernsValidationError`,
+    because that class is a DOCUMENT verdict every caller turns into exit 1. A rule being long is
+    not a defect in the corpus; it is a signal to the author that the rule probably wants
+    rewriting.
+
+    PER-FILE TOLERANCE, stated because "never raises" is otherwise not implementable. A file this
+    cannot read, a frontmatter block it cannot parse, and a `rule` value that is not a string each
+    contribute NO row and NO error. That is not the advisory forgiving a malformed ADR — the
+    existing validators still fail on exactly those inputs, in their own lane, unchanged. The
+    advisory neither introduces a failure nor suppresses one.
+
+    GRANDFATHERING is by identity, never by date or number: an ADR whose id is in the baseline is
+    skipped outright, so an existing ADR and every later edit to it stay exempt, while an ADR
+    absent from the baseline is checked however it is numbered.
+    """
+    baseline, declared = rule_length_baseline(manifest)
+    if not declared:
+        return []
+    rows: list[dict] = []
+    try:
+        paths = adr_paths(adrs)
+    except Exception:  # noqa: BLE001 — an unreadable corpus yields no advice, never an error
+        return []
+    for path in paths:
+        try:
+            fm = read_frontmatter(path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001 — see PER-FILE TOLERANCE above
+            continue
+        aid = str(fm.get("id") or "")
+        if not aid or aid in baseline:
+            continue
+        for e in governs_entries(fm):
+            rule = e.get("rule")
+            if not isinstance(rule, str):
+                continue
+            length = len(rule.strip())
+            if length <= RULE_LENGTH_RECOMMENDED_MAX:
+                continue
+            handle = e.get("handle")
+            rows.append({
+                "file": str(path),
+                "handle": redact(handle, quoted=False) if isinstance(handle, str) else None,
+                "length": length,
+                "recommended_max": RULE_LENGTH_RECOMMENDED_MAX,
+                "error": f"governs rule is {length} characters; the recommended maximum is "
+                         f"{RULE_LENGTH_RECOMMENDED_MAX}. A rule this long is unlikely to be one "
+                         "obligation. Keep the obligation and the conditions necessary to it, move "
+                         "rationale and examples into the body, and split it only where the parts "
+                         "are independently enforceable.",
+            })
+    rows.sort(key=lambda r: (r["file"], r["handle"] or ""))
+    return rows

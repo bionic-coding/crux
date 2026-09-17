@@ -56,10 +56,8 @@ agents:
   brainstormer: flagship
   commander:
     level: apex
-    opencode: qwen-max
-  dev-lead:
-    level: flagship
     opencode: glm-latest
+  dev-lead: flagship
   developer:
     level: standard
     opencode: glm-flash
@@ -130,7 +128,7 @@ levels:
       source: "developers.openai.com/codex/ + codex-cli 0.144.0 catalog"
   standard:
     claude: sonnet
-    opencode: qwen-max
+    opencode: glm-latest
     codex:
       model: gpt-5.6-terra
       reasoning_effort: high
