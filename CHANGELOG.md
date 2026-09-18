@@ -1,4 +1,4 @@
-<!-- generated-from: CHANGELOG.md@sha256:35999ff707523980fc4563b5526f6f0734e19f543d19d1bda37a8ecb18bbe700; model: claude-fable-5.1; date: 2026-09-17 -->
+<!-- generated-from: CHANGELOG.md@sha256:8345e157cf253d81548b8676ba83b8402aa78df7a9c24ee3b32bf373d20f3d84; model: claude-fable-5.1; date: 2026-09-18 -->
 # Changelog
 
 All notable changes to crux. The format roughly follows [Keep a Changelog](https://keepachangelog.com/) and the project adheres to [Semantic Versioning](https://semver.org/).
@@ -8,6 +8,18 @@ All notable changes to crux. The format roughly follows [Keep a Changelog](https
 ### Added
 
 ### Changed
+
+### Fixed
+
+### Removed
+
+## [3.18.1] — 2026-09-18
+
+### Added
+
+### Changed
+
+- **The developer role now runs DeepSeek v4.1 Flash on OpenCode.** The OpenCode developer agent is routed to a new `deepseek-flash` model alias (`openrouter/deepseek/deepseek-v4.1-flash`) instead of `glm-flash`, and the generated OpenCode developer agent definition reflects the change. The `glm-flash` alias remains declared as an available alternate. The Claude and Codex developer seats are unchanged, and no other role is affected.
 
 ### Fixed
 

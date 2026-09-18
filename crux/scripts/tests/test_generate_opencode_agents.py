@@ -536,7 +536,7 @@ class CatalogResolutionTests(unittest.TestCase):
             "brainstormer":   ("opus",   "kimi-latest",   "gpt-5.6-sol",   "high"),
             "commander":      ("fable",  "glm-latest",    "gpt-6-astra",   "high"),
             "dev-lead":       ("opus",   "kimi-latest",   "gpt-5.6-sol",   "high"),
-            "developer":      ("sonnet", "glm-flash",     "gpt-5.6-terra", "high"),
+            "developer":      ("sonnet", "deepseek-flash", "gpt-5.6-terra", "high"),
             "historian":      ("sonnet", "glm-latest",    "gpt-5.6-terra", "high"),
             "librarian":      ("sonnet", "glm-latest",    "gpt-5.6-terra", "high"),
             "night-gardener": ("fable",  "kimi-latest",   "gpt-6-astra",   "high"),

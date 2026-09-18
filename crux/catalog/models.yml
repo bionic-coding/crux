@@ -37,13 +37,14 @@ aliases:
   haiku-latest: openrouter/anthropic/claude-haiku-4.5
   kimi-latest: openrouter/moonshotai/kimi-k3
   qwen-max: openrouter/qwen/qwen3.8-2.4t-a95b
+  deepseek-flash: openrouter/deepseek/deepseek-v4.1-flash
 
   # The separator asymmetry in the GLM pair is UPSTREAM'S and not a typo here:
   # the base SKU is `glm-5.3` (dot) and the fast SKU is `glm-5.3-flash` (hyphen
   # before `flash`). Verbatim upstream slugs, as the header requires — never
   # "fix" a perceived typo against the gateway's own spelling, and never derive
-  # one row's shape from a neighbouring row. The flash SKU is live, not parked:
-  # it resolves the developer agent's OpenCode cell.
+  # one row's shape from a neighbouring row. The flash SKU remains a parked
+  # alternate for developer tasks.
   glm-latest: openrouter/z-ai/glm-5.3
   glm-flash: openrouter/z-ai/glm-5.3-flash
 
@@ -60,7 +61,7 @@ agents:
   dev-lead: flagship
   developer:
     level: standard
-    opencode: glm-flash
+    opencode: deepseek-flash
   historian: standard
   librarian: standard
   night-gardener:

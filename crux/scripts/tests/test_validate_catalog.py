@@ -679,6 +679,20 @@ def _fields(findings: list[dict]) -> set[str]:
 _OPUS_STABLE_ROW = "opus-stable: openrouter/anthropic/claude-opus-4.8"
 _QWEN_MAX_ROW = "  qwen-max: openrouter/"
 
+# The two fixtures that need an UNDECLARED alias reference mutate the developer
+# row's OpenCode override. Anchored on the agent name and its `level:` line and
+# never on the alias VALUE, for the reason the V2b/V2c comment below gives: the
+# owner picks that value, and a fixture spelling it out goes inert the next time
+# it changes — which is exactly what happened when developer moved off
+# `glm-flash`. The substitution keeps whatever level the row declares, so only
+# the alias becomes undeclared and V2a is the clause under test.
+_DEVELOPER_OPENCODE = re.compile(r"^(  developer:\n    level: \S+\n    opencode: )\S+$", re.M)
+
+
+def _undeclare_developer_opencode(text: str) -> str:
+    """Point the developer row's OpenCode override at an alias the table lacks."""
+    return _DEVELOPER_OPENCODE.sub(r"\1not-declared", text)
+
 
 class ModelsCatalogPositiveTests(unittest.TestCase):
     def test_shipped_catalog_passes_every_rule(self):
@@ -774,7 +788,7 @@ class ModelsCatalogNegativeTests(unittest.TestCase):
 
     # ── V2, one per clause ─────────────────────────────────────────────────
     def test_v2a_undeclared_alias_reference(self):
-        self._assert_rule("V2", lambda t: t.replace("opencode: glm-flash", "opencode: not-declared"))
+        self._assert_rule("V2", _undeclare_developer_opencode)
 
     # Both fixtures below are anchored on STRUCTURE — the agent name and its `level:` line —
     # and never on the `opencode:` alias beside it. They used to splice whole three-line blocks
@@ -1071,7 +1085,7 @@ class RosterKeyConfinementTests(unittest.TestCase):
         self.assertNotIn("V6", _fields(findings), "V6 read a path built from an unvalidated key")
 
     def test_v6_does_not_run_once_v2_has_findings(self):
-        findings = self._findings(lambda t: t.replace("opencode: glm-flash", "opencode: not-declared"))
+        findings = self._findings(_undeclare_developer_opencode)
         self.assertIn("V2", _fields(findings))
         self.assertNotIn("V6", _fields(findings))
 
