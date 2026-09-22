@@ -188,7 +188,7 @@ class DownstreamInstallShapeTests(unittest.TestCase):
         """Positive control: the fixture really is the downstream shape."""
         root = self._downstream()
         self.assertFalse((root / "crux").exists())
-        self.assertFalse((root / "CLAUDE.md").exists())
+        self.assertFalse((root / "AGENTS.md").exists())
 
     def test_the_envelope_still_carries_every_signal(self):
         env, _ = sig.build(self._downstream(), TODAY)
@@ -387,7 +387,7 @@ class JournalFrictionAdoptionReaderTests(unittest.TestCase):
 class GovernsExemptShapesTests(unittest.TestCase):
     """`read_governs_exempt` returns ids for both member shapes of the key.
 
-    `docs/CLAUDE.md` §7 admits a bare `ADR-NNNN` and a `{adr, reason}` mapping,
+    `docs/AGENTS.md` §7 admits a bare `ADR-NNNN` and a `{adr, reason}` mapping,
     in flow or block form. A reader pinned to the bare form returned
     `reason: ...` fragments as exemptions and miscounted the carve-outs.
     """
@@ -1722,7 +1722,7 @@ class BoundarySelectionTests(unittest.TestCase):
     def _seed(root: Path, n: int) -> None:
         """A crux-shaped dev repo whose two schema surfaces both measure `n`."""
         (root / "bionic").mkdir(exist_ok=True)
-        (root / "bionic" / "CLAUDE.md").write_text("x\n" * n, encoding="utf-8")
+        (root / "bionic" / "AGENTS.md").write_text("x\n" * n, encoding="utf-8")
         catalog = root / "crux" / "catalog"
         catalog.mkdir(parents=True, exist_ok=True)
         (catalog / "skills.json").write_text(
@@ -1972,7 +1972,7 @@ class LegFailureConditionTests(unittest.TestCase):
     @staticmethod
     def _seed(root: Path, n: int) -> None:
         (root / "bionic").mkdir(exist_ok=True)
-        (root / "bionic" / "CLAUDE.md").write_text("x\n" * n, encoding="utf-8")
+        (root / "bionic" / "AGENTS.md").write_text("x\n" * n, encoding="utf-8")
         catalog = root / "crux" / "catalog"
         catalog.mkdir(parents=True, exist_ok=True)
         (catalog / "skills.json").write_text(
@@ -2092,7 +2092,7 @@ class SchemaGrowthTests(unittest.TestCase):
     @staticmethod
     def _seed(root: Path, claude_lines: int, skills: int) -> None:
         (root / "bionic").mkdir(exist_ok=True)
-        (root / "bionic" / "CLAUDE.md").write_text(
+        (root / "bionic" / "AGENTS.md").write_text(
             "".join(f"line {i}\n" for i in range(claude_lines)), encoding="utf-8")
         catalog = root / "crux" / "catalog"
         catalog.mkdir(parents=True, exist_ok=True)
@@ -2233,9 +2233,9 @@ class SchemaGrowthTests(unittest.TestCase):
             _init_repo(root)
             # Deliberately NOT a crux dev repo: no crux/scripts/ marker.
             (root / "bionic").mkdir()
-            (root / "bionic" / "CLAUDE.md").write_text("line 0\n" * 4, encoding="utf-8")
+            (root / "bionic" / "AGENTS.md").write_text("line 0\n" * 4, encoding="utf-8")
             _schema_growth_release_commit(root, "1.0.0", "2026-01-01")
-            (root / "bionic" / "CLAUDE.md").write_text("line 0\n" * 9, encoding="utf-8")
+            (root / "bionic" / "AGENTS.md").write_text("line 0\n" * 9, encoding="utf-8")
             _schema_growth_release_commit(root, "1.1.0", "2026-01-11")
 
             rec = self._growth(root)
@@ -2376,7 +2376,7 @@ class SchemaGrowthTests(unittest.TestCase):
             _init_repo(root)
             self._dev_repo(root)
             (root / "bionic").mkdir()
-            (root / "bionic" / "CLAUDE.md").write_text("line 0\n" * 4, encoding="utf-8")
+            (root / "bionic" / "AGENTS.md").write_text("line 0\n" * 4, encoding="utf-8")
             catalog = root / "crux" / "catalog"
             catalog.mkdir(parents=True)
             (catalog / "skills.json").write_text("[]", encoding="utf-8")
@@ -2407,17 +2407,17 @@ class GateCountTests(unittest.TestCase):
         self.assertEqual(rec["value"], 2)
         # Positive control that the header row is the input: the fixture's
         # heading above the table spells its count as an English word.
-        text = (TRIPS / "CLAUDE.md").read_text(encoding="utf-8")
+        text = (TRIPS / "AGENTS.md").read_text(encoding="utf-8")
         self.assertIn(ROSTER_HEADER, text)
         self.assertIn("## Two regenerative outputs", text)
 
     def test_unmeasurable_over_a_root_with_no_claude_md(self):
-        self.assertFalse((QUIET / "CLAUDE.md").exists())
+        self.assertFalse((QUIET / "AGENTS.md").exists())
         rec = self._gates(QUIET)
         self.assertEqual(rec["verdict"], "unmeasurable")
         self.assertIsNone(rec["value"])
         # This signal has two unmeasurable branches and BOTH filters name
-        # `CLAUDE.md` and `header row`, so neither token tells them apart.
+        # `AGENTS.md` and `header row`, so neither token tells them apart.
         # Assert the phrase this branch alone carries, and refuse the other's.
         self.assertIn("is absent from the repository root", rec["filter"])
         self.assertNotIn("carries no roster header row", rec["filter"])
@@ -2425,8 +2425,8 @@ class GateCountTests(unittest.TestCase):
     def test_unmeasurable_over_a_claude_md_carrying_no_roster_header_row(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "CLAUDE.md").write_text(
-                "# CLAUDE.md\n\n## Sixteen regenerative outputs\n\n"
+            (root / "AGENTS.md").write_text(
+                "# AGENTS.md\n\n## Sixteen regenerative outputs\n\n"
                 "| a | b |\n|---|---|\n| one | two |\n", encoding="utf-8")
             rec = self._gates(root)
             self.assertEqual(rec["verdict"], "unmeasurable")
@@ -2437,16 +2437,16 @@ class GateCountTests(unittest.TestCase):
             self.assertNotIn("is absent from the repository root", rec["filter"])
             # Positive control: adding the header row makes the same reader
             # compute, so the refusal is the missing row and not a dead parser.
-            (root / "CLAUDE.md").write_text(
-                f"# CLAUDE.md\n\n{ROSTER_HEADER}\n|---|---|---|---|\n"
+            (root / "AGENTS.md").write_text(
+                f"# AGENTS.md\n\n{ROSTER_HEADER}\n|---|---|---|---|\n"
                 "| a | b | c | d |\n", encoding="utf-8")
             self.assertEqual(self._gates(root)["value"], 1)
 
     def test_a_roster_with_no_enrolled_row_reports_zero_and_stays_computed(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "CLAUDE.md").write_text(
-                f"# CLAUDE.md\n\n{ROSTER_HEADER}\n|---|---|---|---|\n\n"
+            (root / "AGENTS.md").write_text(
+                f"# AGENTS.md\n\n{ROSTER_HEADER}\n|---|---|---|---|\n\n"
                 "The roster is empty today.\n", encoding="utf-8")
             rec = self._gates(root)
             self.assertEqual(rec["verdict"], "computed")
@@ -2696,8 +2696,8 @@ class BlobDecodeTests(unittest.TestCase):
             root = Path(tmp) / "root"
             shutil.copytree(QUIET, root)
             _init_repo(root)
-            (root / "bionic" / "CLAUDE.md").write_bytes(b"schema\n\xff\nmore\n")
-            _commit(root, "a tree whose CLAUDE.md carries one invalid byte")
+            (root / "bionic" / "AGENTS.md").write_bytes(b"schema\n\xff\nmore\n")
+            _commit(root, "a tree whose AGENTS.md carries one invalid byte")
 
             proc = _run("--repo-root", str(root), "--today", TODAY.isoformat(), "--json")
             self.assertEqual(proc.returncode, 0, proc.stderr)
@@ -2721,7 +2721,7 @@ class SubstrateGuardTests(unittest.TestCase):
     """
 
     def test_the_argument_grammar_admits_a_qualified_ref_and_refuses_nine_shapes(self):
-        for admitted in ("refs/tags/1.0.0", "HEAD", "bionic/CLAUDE.md",
+        for admitted in ("refs/tags/1.0.0", "HEAD", "bionic/AGENTS.md",
                          "crux/catalog/skills.json"):
             with self.subTest(admitted=admitted):
                 self.assertTrue(sig._valid_git_arg(admitted))
@@ -2822,7 +2822,7 @@ class SubstrateGuardTests(unittest.TestCase):
             try:
                 legs = sig._GitLegs(root)
                 self.assertTrue(legs.usable, legs.reason)
-                self.assertIsNotNone(legs.blob("HEAD", "bionic/CLAUDE.md"))
+                self.assertIsNotNone(legs.blob("HEAD", "bionic/AGENTS.md"))
                 self.assertIsNotNone(legs.tag_commit("1.0.0"))
             finally:
                 sig._git = real
@@ -2842,7 +2842,7 @@ class RootFileContainmentTests(unittest.TestCase):
     """A root-level read follows no symlink out of the declared read surface.
 
     `release_cadence` reads the repository root's CHANGELOG.md and
-    `gate_count` its CLAUDE.md; both computed from files outside that root
+    `gate_count` its AGENTS.md; both computed from files outside that root
     when the root-level name was a symlink. The refusal is `unmeasurable` with
     the reason in `filter` — never an `errors` entry, and never exit 2.
     """
@@ -2873,16 +2873,16 @@ class RootFileContainmentTests(unittest.TestCase):
         self.assertEqual(control["value"]["intervals_days"], [10, 15])
 
     def test_a_symlinked_repo_root_claude_md_is_refused_rather_than_read(self):
-        roster = (f"# CLAUDE.md\n\n{ROSTER_HEADER}\n|---|---|---|---|\n"
+        roster = (f"# AGENTS.md\n\n{ROSTER_HEADER}\n|---|---|---|---|\n"
                   "| a | b | c | d |\n")
-        root, outside = self._pair("CLAUDE.md", roster)
+        root, outside = self._pair("AGENTS.md", roster)
         rec = sig.signal_gate_count(root, "bionic")
         self.assertEqual(rec["verdict"], "unmeasurable")
         self.assertIsNone(rec["value"])
         self.assertIn("resolves outside", rec["filter"])
         # PAIRED POSITIVE CONTROL: the same roster in place counts its one row.
-        (root / "CLAUDE.md").unlink()
-        shutil.copyfile(outside, root / "CLAUDE.md")
+        (root / "AGENTS.md").unlink()
+        shutil.copyfile(outside, root / "AGENTS.md")
         self.assertEqual(sig.signal_gate_count(root, "bionic")["value"], 1)
 
     @unittest.skipUnless(GIT, "the version-control binary is not on PATH")
@@ -2914,7 +2914,7 @@ class RootFileContainmentTests(unittest.TestCase):
             self.assertIsNone(rec["value"]["baseline"]["ref"])
             self.assertIn({"condition": "no-release-record"}, rec["value"]["conditions"])
             self.assertIn("resolves outside that root", rec["filter"])
-            # The HEAD leg itself is unaffected: it reads bionic/CLAUDE.md and
+            # The HEAD leg itself is unaffected: it reads bionic/AGENTS.md and
             # the skills catalog at HEAD, never the symlinked CHANGELOG.
             self.assertEqual(rec["value"]["current"]["claude_md_lines"], 9)
 
@@ -3173,8 +3173,8 @@ class GateCountDecoyHeaderTests(unittest.TestCase):
     def test_a_decoy_header_row_placed_first_does_not_win(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "CLAUDE.md").write_text(
-                f"# CLAUDE.md\n\n{ROSTER_HEADER}\n|---|---|---|---|\n"
+            (root / "AGENTS.md").write_text(
+                f"# AGENTS.md\n\n{ROSTER_HEADER}\n|---|---|---|---|\n"
                 "| decoy | decoy | decoy | decoy |\n\n"
                 "## Two regenerative outputs\n\n"
                 f"{ROSTER_HEADER}\n|---|---|---|---|\n"
@@ -3191,8 +3191,8 @@ class GateCountDecoyHeaderTests(unittest.TestCase):
         # the ambiguity and not a reader that never counts a roster.
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "CLAUDE.md").write_text(
-                "# CLAUDE.md\n\n## Two regenerative outputs\n\n"
+            (root / "AGENTS.md").write_text(
+                "# AGENTS.md\n\n## Two regenerative outputs\n\n"
                 f"{ROSTER_HEADER}\n|---|---|---|---|\n"
                 "| a | b | c | d |\n| e | f | g | h |\n",
                 encoding="utf-8")
@@ -3814,7 +3814,7 @@ class DatedEntryFencedMentionTests(unittest.TestCase):
 def _decoy_roster_claude_md(fenced: bool) -> str:
     open_marker = f"{FENCE}text\n" if fenced else ""
     close_marker = f"{FENCE}\n" if fenced else ""
-    return ("# CLAUDE.md\n\n"
+    return ("# AGENTS.md\n\n"
             "An example of the roster shape, quoted:\n\n"
             f"{open_marker}"
             f"{ROSTER_HEADER}\n|---|---|---|---|\n"
@@ -3834,7 +3834,7 @@ def _decoy_roster_with_separator(sep: str) -> str:
     the real roster. With `sep` a U+2028 the whole thing is one content line
     that closes nothing — unless the reader split it with `str.splitlines()`.
     """
-    return ("# CLAUDE.md\n\n"
+    return ("# AGENTS.md\n\n"
             "An example of the roster shape, quoted:\n\n"
             f"{FENCE}text\n"
             f"a sample line{sep}{FENCE}\n"
@@ -3849,7 +3849,7 @@ def _decoy_roster_with_separator(sep: str) -> str:
 class GateCountFencedDecoyTests(unittest.TestCase):
     """A decoy header row inside a fence is content, never a candidate match.
 
-    The live repo-root CLAUDE.md carries a fenced block above its real roster,
+    The live repo-root AGENTS.md carries a fenced block above its real roster,
     which is why the loop tracks fences at all — yet every one of those lines
     was uncovered: the pre-existing decoy test plants two UNFENCED rows, so it
     reaches the ambiguity refusal and never the fence tracking.
@@ -3858,7 +3858,7 @@ class GateCountFencedDecoyTests(unittest.TestCase):
     def test_a_fenced_decoy_row_leaves_one_candidate_and_the_roster_computes(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "CLAUDE.md").write_text(_decoy_roster_claude_md(True),
+            (root / "AGENTS.md").write_text(_decoy_roster_claude_md(True),
                                             encoding="utf-8")
             rec = sig.signal_gate_count(root, "bionic")
             self.assertEqual(rec["verdict"], "computed")
@@ -3872,7 +3872,7 @@ class GateCountFencedDecoyTests(unittest.TestCase):
         # fixture that only ever carried one header row.
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "CLAUDE.md").write_text(_decoy_roster_claude_md(False),
+            (root / "AGENTS.md").write_text(_decoy_roster_claude_md(False),
                                             encoding="utf-8")
             rec = sig.signal_gate_count(root, "bionic")
             self.assertEqual(rec["verdict"], "unmeasurable")
@@ -3883,7 +3883,7 @@ class GateCountFencedDecoyTests(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory(prefix="adr-signals-gate-split-")
         self.addCleanup(tmp.cleanup)
         root = Path(tmp.name)
-        (root / "CLAUDE.md").write_text(text, encoding="utf-8")
+        (root / "AGENTS.md").write_text(text, encoding="utf-8")
         return sig.signal_gate_count(root, "bionic")
 
     def test_a_u2028_in_the_fence_forges_no_closer_and_inverts_no_roster(self):

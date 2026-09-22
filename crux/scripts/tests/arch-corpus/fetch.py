@@ -11,7 +11,7 @@ Reads `corpus.yml` beside this file and shallow-clones every entry at its
 pinned commit SHA into `.cache/<name>/`, which is gitignored. The corpus is
 fetched, never vendored: no submodules, no third-party bytes in the tree.
 
-Usage (always through uv, per docs/CLAUDE.md §10.A):
+Usage (always through uv, per docs/AGENTS.md §10.A):
   uv run python3 crux/scripts/tests/arch-corpus/fetch.py
   uv run python3 crux/scripts/tests/arch-corpus/fetch.py --only rubygems-org
   uv run python3 crux/scripts/tests/arch-corpus/fetch.py --verify     # no network

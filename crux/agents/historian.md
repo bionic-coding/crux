@@ -49,8 +49,8 @@ code (your writes stay under `docs/`).
   and **read its output** so you're writing into a known-consistent tree. The
   dry-run verifies the **existing** tree's integrity *before* you add to it — it
   does **not** pre-validate your proposed write — so you still apply the
-  `docs/CLAUDE.md` §4 write rules for the target concern independently.
-- Respect the schema in `docs/CLAUDE.md` exactly — slug/date/wiki-link rules,
+  `docs/AGENTS.md` §4 write rules for the target concern independently.
+- Respect the schema in `docs/AGENTS.md` exactly — slug/date/wiki-link rules,
   the ADR state machine, indexes and rollups, the append-only log.
 - Regenerated artifacts (`docs/code/`, `lineage.md`, `whats_next.md`,
   `catalog/*.json`) are rewritten wholesale — never hand-patch them.
@@ -67,7 +67,7 @@ Nobody commissions a review of the transcription itself; the review belongs to t
 work the record describes, and the record is the evidence that work leaves behind.
 A worker that holds no write tools owes its delegator a report but cannot record
 it. When the delegator sends that report to you, your job is to turn it into the
-tree record — not to file it verbatim. `docs/CLAUDE.md` §11, "The assignment
+tree record — not to file it verbatim. `docs/AGENTS.md` §11, "The assignment
 contract", governs what that report carries.
 
 ## Capability-gap reflex (embedded discipline)

@@ -65,7 +65,7 @@ strategy: |
 # The run-autonomy contract lives in this top-level field (moved out of
 # `## Strategy` so the runner reads it structurally). `run-promptbook`
 # reads the book at execution time; this field is its source for the autonomy
-# contract. It MUST be present and MUST reference `docs/CLAUDE.md` §11.
+# contract. It MUST be present and MUST reference `docs/AGENTS.md` §11.
 run_autonomy: |
   Once this cycle's run is started, it runs to completion without human
   review. Questions and decisions are resolved by the `council` skill and
@@ -75,8 +75,8 @@ run_autonomy: |
   non-convergence on council, quality gates, or review fix-loop) and (b) a
   genuinely irreversible/outward-facing action the plan did not authorize
   (push/merge, deploy, external send, data deletion, spend). In-repo edits —
-  including `docs/CLAUDE.md`, skill files, and code — are never stop points.
-  See `docs/CLAUDE.md` §11 "Run execution autonomy" for the full contract
+  including `docs/AGENTS.md`, skill files, and code — are never stop points.
+  See `docs/AGENTS.md` §11 "Run execution autonomy" for the full contract
   (authoritative).
 
 prompts:
@@ -119,7 +119,7 @@ prompts:
         (2) Correctness — does the proposal actually solve the problem?
             Are the assumptions verifiable?
         (3) Consistency — does this conflict with any prior `Accepted` ADRs,
-            briefs, or invariants in `docs/CLAUDE.md`?
+            briefs, or invariants in `docs/AGENTS.md`?
         (4) Clarity — would a new engineer (or future Claude) understand the
             decision from this ADR alone?
         (5) Security — does the decision introduce a security risk (new attack
@@ -209,7 +209,7 @@ prompts:
       Group the work units from Prompt 5 by independence. Dispatch one
       `Agent` per independent group in parallel. Each agent receives:
       the ADR path, the implementation plan, its assigned work units, and
-      explicit conventions from `docs/CLAUDE.md`.
+      explicit conventions from `docs/AGENTS.md`.
 
       Each agent also receives the book's `goal` statements — the Outcome, the
       Evidence, and the Constraint. A dispatch passes them forward verbatim, or
@@ -240,7 +240,7 @@ prompts:
         - The repo's **full test suite** — the COMPLETE run (e.g.
           `python3 -m unittest discover -s crux/scripts/tests`, `mix test`,
           `pytest`), NOT a hand-picked subset of "the tests that look relevant".
-          Capture the exact command from `docs/CLAUDE.md` or root CLAUDE.md.
+          Capture the exact command from `docs/AGENTS.md` or root AGENTS.md.
           **The full run is mandatory whenever the change touches any shared or
           enumerated surface** — the agent roster, model/router config, the
           catalog, or anything a *different* file hardcodes a list or count of.
@@ -313,7 +313,7 @@ prompts:
       including the **full test suite** (the COMPLETE run, not a subset — same
       mandate as Prompt 7), then reads the diff for behavior bugs;
       (b) Consistency — checks against ADRs,
-      `docs/CLAUDE.md` conventions, adjacent patterns; (c) Clarity — reads as a
+      `docs/AGENTS.md` conventions, adjacent patterns; (c) Clarity — reads as a
       new engineer; flags confusing names, undocumented invariants, magic numbers.
 
       Commission these reviewers yourself for the units you dispatched.
@@ -323,7 +323,7 @@ prompts:
 
       **PLUS a dedicated multi-subagent security review** — one `Agent` per threat
       class over the diff: (S1) injection & untrusted-input; (S2) secrets &
-      credentials (incl. the `~/.crux/` contract, `docs/CLAUDE.md` §13);
+      credentials (incl. the `~/.crux/` contract, `docs/AGENTS.md` §13);
       (S3) authz & privilege; (S4) supply-chain & dependency; (S5) unsafe
       file/shell/path & resource ops. Scope-adaptive with MANDATORY report (a
       class with no relevant surface returns "N/A — no executable surface").
@@ -366,7 +366,7 @@ prompts:
             changed, is there a test that exercises it? Are edge cases
             covered? Are the tests reliable (no flakes, no false-greens)?
         (b) Comments and docs — are non-obvious decisions explained (per
-            `docs/CLAUDE.md` commenting rules: only for WHY, not WHAT)?
+            `docs/AGENTS.md` commenting rules: only for WHY, not WHAT)?
             Are public APIs documented? Does `extract-code-docs --dry-run`
             report drift?
         (c) Dev-practice conformance
@@ -470,8 +470,8 @@ prompts:
          workflow promotes Unreleased entries into the versioned section
          automatically on dispatch, do NOT hand-promote.)
       2. **Documentation**: run `audit-docs`. Address every BROKEN finding.
-         If the change altered a documented contract in `docs/CLAUDE.md` or
-         `crux/templates/CLAUDE.md.tmpl`, update both.
+         If the change altered a documented contract in `docs/AGENTS.md` or
+         `crux/templates/AGENTS.md.tmpl`, update both.
       3. **Developer journal**: invoke `log-work` with a reflective entry:
          what went well, what was hard, what to do differently next cycle.
          These notes feed the agent's own improvement loop — be specific.

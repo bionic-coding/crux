@@ -32,7 +32,7 @@ artifact bindings and builds three derived artifacts behind ONE drift gate:
                              the build read) and `observations_sha256`
 
 The input domain is active ADRs UNION `ratified` observations
-(docs/CLAUDE.md §17; ADR-0095 requirement 4) — read iff `observations` is in
+(docs/AGENTS.md §17; ADR-0095 requirement 4) — read iff `observations` is in
 the tree's `concerns_enabled`. The regenerator refuses, fail-closed, to rewrite
 a projection whose declared domain names a source it cannot read (requirement
 6); the refusal runs before the build, in --dry-run too, and exits 2.

@@ -23,7 +23,7 @@ Two rules close it, and this module is the one implementation of both.
 The lane has TWO triggers, and this module answers only the first. ``is_authoring_checkout``
 asks whether plugin source is present, which settles the consuming-project case and
 nothing else. A public clone and the staged release artifact both carry ``crux/`` and so
-pass it, while carrying neither the repo-root ``CLAUDE.md``, the documentation tree, nor
+pass it, while carrying neither the repo-root ``AGENTS.md``, the documentation tree, nor
 the ``opencode/`` directory. The three gates whose canonical input lives outside ``crux/``
 therefore take the lane on their own second test -- their input file is absent -- rather
 than on this probe. Do not read a passing probe as "this is the authoring repo"; read it

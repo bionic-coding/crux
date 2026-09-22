@@ -66,7 +66,7 @@ An ADR body is opened only for a domain a signal flagged, and only to answer wha
 
 Two gates, in order. Neither is skippable.
 
-**The objectives populate gate** (`docs/CLAUDE.md` §5.B). Read `<docs_dir>/objectives.md` and take its `maturity`:
+**The objectives populate gate** (`docs/AGENTS.md` §5.B). Read `<docs_dir>/objectives.md` and take its `maturity`:
 
 | maturity | what this pass does |
 |---|---|

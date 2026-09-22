@@ -1,4 +1,4 @@
-"""Tests for `scaffold-survey-sheet.py` (ADR-0098, docs/CLAUDE.md §17.5).
+"""Tests for `scaffold-survey-sheet.py` (ADR-0098, docs/AGENTS.md §17.5).
 
 The scaffold is the machine half of batch ratification: it seeds `anchor_id`
 and `proposed_domain` and **fills no human cell**. Two properties carry that,

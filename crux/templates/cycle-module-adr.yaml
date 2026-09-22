@@ -70,7 +70,7 @@
     guidance for shortening it. It is ADVISORY: it changes no exit code and
     blocks nothing.
 
-    The principle it serves is `docs/CLAUDE.md` §11.D rule 7 — read it there;
+    The principle it serves is `docs/AGENTS.md` §11.D rule 7 — read it there;
     this prompt names it and does not restate it. Either shorten the rule as
     that rule and the row's own message direct, or say in this prompt's Result
     why the length is what precision costs here. Do not truncate a rule to
@@ -97,7 +97,7 @@
           Are the assumptions verifiable?
       (3) Consistency — does this conflict with any prior `Accepted` ADRs
           (INCLUDING any ADRs accepted earlier in this cycle), briefs, or
-          invariants in `docs/CLAUDE.md`?
+          invariants in `docs/AGENTS.md`?
       (4) Clarity — would a new engineer (or future Claude) understand the
           decision from this ADR alone?
       (5) **Security** — does the decision introduce a security risk?
@@ -140,7 +140,7 @@
     silently auto-resolved; they always route to (c) or the findings loop.
     (c) For dissents `srde` cannot resolve, dispatch ONE dedicated
     deep-architecture-review `Agent` that reads the full ADR graph
-    (`docs/adrs/index.md`, every cited ADR, `docs/CLAUDE.md` invariants) and
+    (`docs/adrs/index.md`, every cited ADR, `docs/AGENTS.md` invariants) and
     renders a binding architectural verdict **using the same vocabulary as
     the council** (`APPROVE` / `APPROVE_WITH_NITS` / `REQUEST_CHANGES` + a
     findings list); its surviving findings → the address-findings prompt like
@@ -174,7 +174,7 @@
       uv run "${CRUX_PLUGIN_ROOT}/scripts/check-governs-coverage.py" --repo-root <repo-root>
 
     Handle any row naming this ADR exactly as the drafting prompt says: shorten
-    it per `docs/CLAUDE.md` §11.D rule 7, or say in this prompt's Result why the
+    it per `docs/AGENTS.md` §11.D rule 7, or say in this prompt's Result why the
     length is necessary. Advisory throughout — it never blocks the round.
 
     When every finding is resolved,

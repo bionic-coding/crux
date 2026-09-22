@@ -96,8 +96,8 @@ run_autonomy: |
   council's escape verdict — "this needs an ADR, use `dev-cycle`" or "this is too
   large to bound, use `iterate`" — and (c) a genuinely irreversible/outward-facing
   action the plan did not authorize (push/merge, deploy, external send, data
-  deletion, spend). In-repo edits — including `docs/CLAUDE.md`, skill files, and
-  code — are never stop points. See `docs/CLAUDE.md` §11 "Run execution autonomy"
+  deletion, spend). In-repo edits — including `docs/AGENTS.md`, skill files, and
+  code — are never stop points. See `docs/AGENTS.md` §11 "Run execution autonomy"
   for the full contract.
 
 prompts:
@@ -126,7 +126,7 @@ prompts:
       work needs? A radius wider than the change is the tier's main failure mode,
       because containment then passes for free; (5) Security.
 
-      **Three escape verdicts, each a `docs/CLAUDE.md` §11 premise-contradiction
+      **Three escape verdicts, each a `docs/AGENTS.md` §11 premise-contradiction
       stop:** if the work needs an architectural decision recorded, STOP and
       recommend `dev-cycle`. If it cannot be bounded by the declaration or
       finished in one implement prompt, STOP and recommend `iterate`. If the
@@ -208,7 +208,7 @@ prompts:
       environment-capability error (surface stderr; a distinct lane).
 
       Then dispatch an independent reviewer over the diff — correctness against
-      the diagnosed root cause, consistency with ADRs and `docs/CLAUDE.md`,
+      the diagnosed root cause, consistency with ADRs and `docs/AGENTS.md`,
       clarity, and security (injection, secrets incl. the `~/.crux/` contract,
       authz, supply-chain, unsafe file/shell/path ops). A `[SECURITY:Sn]` finding
       on a reachable path is a non-downgradable MUST-FIX.

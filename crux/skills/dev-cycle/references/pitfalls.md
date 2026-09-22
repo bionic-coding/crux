@@ -24,7 +24,7 @@ recurring-mistake catalog.
   The composed (N/M/K > 1) path MUST carry it just as
   the canonical template does — `run-promptbook` reads the *book* at execution
   time, not this skill, so the autonomy contract has to live in the produced
-  artifact's `run_autonomy` field and reference `docs/CLAUDE.md` §11.
+  artifact's `run_autonomy` field and reference `docs/AGENTS.md` §11.
 - **Leaving the run-autonomy paragraph in `## Strategy`** (the legacy
   location): there is no `## Strategy` Markdown section anymore — the
   book is structured YAML and the autonomy contract lives in the top-level

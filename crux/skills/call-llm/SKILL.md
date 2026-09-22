@@ -83,7 +83,7 @@ d=$(mktemp -d) && uv run "$d/driver.py"
 
 Write the driver into a private per-run directory as above, never a fixed shared path like `/tmp/driver.py` — a predictable name in a world-writable directory is a symlink hazard.
 
-When writing the temp file, substitute `${CRUX_PLUGIN_ROOT}` (crux's portable plugin-root name — in Claude Code, the value of `CLAUDE_PLUGIN_ROOT`; in Codex, derived from this `SKILL.md`'s path per the Runtime compatibility note above) with its actual value; in a source checkout substitute the checkout's `crux/` directory. Without `uv` installed this fails at the shell (`command not found: uv`, exit 127) — remediation: install uv (https://docs.astral.sh/uv/). See `council/SKILL.md` and `docs/CLAUDE.md` §10.A for the canonical reference.
+When writing the temp file, substitute `${CRUX_PLUGIN_ROOT}` (crux's portable plugin-root name — in Claude Code, the value of `CLAUDE_PLUGIN_ROOT`; in Codex, derived from this `SKILL.md`'s path per the Runtime compatibility note above) with its actual value; in a source checkout substitute the checkout's `crux/` directory. Without `uv` installed this fails at the shell (`command not found: uv`, exit 127) — remediation: install uv (https://docs.astral.sh/uv/). See `council/SKILL.md` and `docs/AGENTS.md` §10.A for the canonical reference.
 
 ## `call_model` — the recommended entry point
 

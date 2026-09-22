@@ -187,7 +187,7 @@ degrade agent quality.
 
 ### 0. Resolve per-repo configuration (.crux)
 
-Run `python3 "${CRUX_PLUGIN_ROOT}/scripts/crux-config.py"` from the repo root (or pass `--repo-root <repo-root>`), and confirm the returned `repo_root` is the repo you are operating in — `source: "discovery:<dir>"` with an unexpected `repo_root` means you resolved the wrong directory, not that no config exists. On exit 1, **STOP** and surface the `{"error": ...}` payload — never fall back to defaults. Use the returned `docs_dir` wherever this skill says `docs/` (per the docs/CLAUDE.md §14 normative definition clause). When `artifact_prefix` is non-empty, format the newly allocated book id with it (e.g. `CRX-PB-0040`) — the `NNNN` still comes from the manifest counter exactly as below; the prefix only changes the formatting.
+Run `python3 "${CRUX_PLUGIN_ROOT}/scripts/crux-config.py"` from the repo root (or pass `--repo-root <repo-root>`), and confirm the returned `repo_root` is the repo you are operating in — `source: "discovery:<dir>"` with an unexpected `repo_root` means you resolved the wrong directory, not that no config exists. On exit 1, **STOP** and surface the `{"error": ...}` payload — never fall back to defaults. Use the returned `docs_dir` wherever this skill says `docs/` (per the docs/AGENTS.md §14 normative definition clause). When `artifact_prefix` is non-empty, format the newly allocated book id with it (e.g. `CRX-PB-0040`) — the `NNNN` still comes from the manifest counter exactly as below; the prefix only changes the formatting.
 
 ### 1. Confirm inputs
 
@@ -319,7 +319,7 @@ goal paragraph.
 carries it verbatim; the composed (N/M/K > 1) path reuses the canonical
 template's top-level keys (step 4.1), so it inherits `run_autonomy` too —
 **confirm it wasn't dropped** when you rebuilt the `prompts:` list. The field
-MUST be present and MUST reference `docs/CLAUDE.md` §11. `run-promptbook` reads
+MUST be present and MUST reference `docs/AGENTS.md` §11. `run-promptbook` reads
 the *book* at execution time, so the autonomy contract has to live in the
 produced artifact, not just here.
 
@@ -407,7 +407,7 @@ and a one-line note `cycle: assembled from modular templates`.
       entry.
 - [ ] `docs/index.md` Promptbooks count incremented; `_Last updated:` set.
 - [ ] The authored book's top-level **`run_autonomy` field is present and
-      references `docs/CLAUDE.md` §11** (the autonomy contract lives in this
+      references `docs/AGENTS.md` §11** (the autonomy contract lives in this
       top-level field, not inside `strategy`). The
       default 1×1×1 path inherits it by copying the canonical template; the
       composed (N/M/K > 1) path MUST carry it too (it reuses the template's
@@ -420,8 +420,8 @@ and a one-line note `cycle: assembled from modular templates`.
   genuine stop points are its module escalation loops (3-round non-convergence)
   and genuinely irreversible/outward-facing actions the plan didn't authorize
   (push/merge, deploy, external send, data deletion, spend). In-repo edits —
-  including `docs/CLAUDE.md`, skill files, code — are not those. See
-  `docs/CLAUDE.md` §11 "Run execution autonomy." (Authoring the book is this
+  including `docs/AGENTS.md`, skill files, code — are not those. See
+  `docs/AGENTS.md` §11 "Run execution autonomy." (Authoring the book is this
   skill's job; executing it is `run-promptbook`'s — this red flag applies once
   execution starts.)
 - About to author a cycle with `total_prompts < 13`. Refuse — the cycle

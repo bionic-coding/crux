@@ -15,7 +15,7 @@ tags: [<tag1>, <tag2>]
 related_briefs: []          # filenames under docs/briefs/, e.g. [BRIEF-storage-options]
 related_research: []        # slugs under docs/research/sources/
 governs: []                 # optional; list of {domain, rule, scope, handle, anchor, provenance, retires} mappings.
-                             # Omit or leave [] if this ADR governs nothing yet. See docs/CLAUDE.md §11.A.
+                             # Omit or leave [] if this ADR governs nothing yet. See docs/AGENTS.md §11.A.
 # governs:
 #   - domain: <governed area, e.g. storage>
 #     rule: "<the one-line rule this decision imposes>"
@@ -25,7 +25,7 @@ governs: []                 # optional; list of {domain, rule, scope, handle, an
 #              by space-folded containment, AND over list elements. Required when this ADR's number
 #              is below adr.governs_from (the backfill cohort); expected absent prospectively.>"
 #     provenance: authored
-#     retires: []   # optional; rule handles this entry displaces. See docs/CLAUDE.md §11.A.
+#     retires: []   # optional; rule handles this entry displaces. See docs/AGENTS.md §11.A.
 ---
 
 # ADR-NNNN — <Title>
@@ -41,7 +41,7 @@ governs: []                 # optional; list of {domain, rule, scope, handle, an
      The four narrative sections below carry a stated line budget, as a tripwire
      for the rule above rather than a cap; an over-budget body declares why.
      The rule, the budget's value, and the form of that declaration are stated
-     once in `docs/CLAUDE.md` §11.D. Read it there — this template carries a
+     once in `docs/AGENTS.md` §11.D. Read it there — this template carries a
      pointer, not a copy, which is the rule applied to itself. -->
 
 ## Context

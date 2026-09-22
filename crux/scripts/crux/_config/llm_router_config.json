@@ -689,6 +689,22 @@
         "avoid_for": []
       },
       "_note": "Frontier-class fast model; sub-agent/agentic-loop workhorse. Source: research/sources/gemini-3-5-flash + gemini-api-pricing."
+    },
+    "jev-1.13": {
+      "provider": "openrouter",
+      "api_string": "typesafe/jev-1.13",
+      "display_name": "Jev 1.13 (TypeSafe, Decisions route)",
+      "_note": "Structured decision model. Reachable ONLY through the gateway's Decisions route (POST /api/alpha/decisions), NOT through chat completions, so call_model/call_gateway cannot address it; the adapter that can is a development-only experiment and is not part of this distribution. Pinned to 1.13; the latest alias is not a valid route id. Named in no catalog/models.yml alias and in NO model_roles entry, so no agent and no council seat can reach it — crux/scripts/crux/council/council.py resolves seats through model_roles, which is the surface that matters for that claim. Entry read 2026-09-18 from https://openrouter.ai/typesafe/jev-1.13.",
+      "supports_temperature": false,
+      "type": "decisions",
+      "context_window": 32000,
+      "max_output_tokens": 0,
+      "data_collection": "deny",
+      "cost": {
+        "input_per_1m": 0.042,
+        "output_per_1m": 0.0
+      },
+      "judge_eligible": false
     }
   },
   "performance_tracking": {

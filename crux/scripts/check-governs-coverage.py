@@ -13,7 +13,7 @@ absent/null, is out of scope.
 
 This is a thin CLI wrapper over the coverage logic in `summaries_projection.py`
 (the frozen shared core) — a coverage GATE, not a regenerator. It writes
-nothing, so it carries no row in the repo-root CLAUDE.md regenerative-outputs
+nothing, so it carries no row in the repo-root AGENTS.md regenerative-outputs
 roster and is deliberately NOT named generate-*.py.
 
 This script does not import `yaml` itself, but `summaries_projection.py` does

@@ -19,7 +19,7 @@ The ported code reads API keys via `crux_env` (~/.crux/env). That
 module lives one level up from this package at `scripts/crux_env.py`,
 so we prepend that directory to sys.path here to make `import crux_env`
 work regardless of how this package is installed. The bare `import` form
-matches docs/CLAUDE.md §13 and keeps the crux_env API single-import.
+matches docs/AGENTS.md §13 and keeps the crux_env API single-import.
 """
 
 import sys as _sys

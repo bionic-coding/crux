@@ -2,7 +2,7 @@
 # Hand-authored. Validated by validate-catalog.py against the regenerated
 # skills.json. NEVER regenerated. The `.yml` extension declares that: in
 # crux/catalog/, `.json` means machine-regenerated and `.yml` means
-# hand-authored (see the repo-root CLAUDE.md catalog-provenance paragraph).
+# hand-authored (see the repo-root AGENTS.md catalog-provenance paragraph).
 #
 # Keyed by bundle id: the mapping key IS the `id`, so it is not repeated in
 # the value. `skills:` must list every skill whose SKILL.md frontmatter names

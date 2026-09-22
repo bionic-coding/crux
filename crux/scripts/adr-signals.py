@@ -90,7 +90,7 @@ artifact: it writes no file, and its output is an envelope on stdout that
 nothing on disk is compared against. Every `crux/scripts/generate-*.py` is a
 regenerator, and `RegeneratorEnrollmentTests` in
 `tools/tests/test_schema_invariants.py` globs exactly that name and fails on
-one missing a row in the `CLAUDE.md` roster table. Renaming this file to
+one missing a row in the `AGENTS.md` roster table. Renaming this file to
 `generate-adr-signals.py` would therefore redden that gate, and the repair is
 not to add a roster row — there is nothing to regenerate and nothing to
 drift-check. `generate-reviews-index.py`, the review's OTHER script, is the
@@ -168,7 +168,7 @@ EXIT LANES.
       this script's own check, which returns 2 to match argparse's usage-error
       code. Message on stderr, empty stdout.
 
-An absent `CHANGELOG.md`, an absent repo-root `CLAUDE.md` and an absent
+An absent `CHANGELOG.md`, an absent repo-root `AGENTS.md` and an absent
 version-control binary are `unmeasurable` verdicts at exit 0. None of the three
 is an exit-1 error and none is an exit-2 environment failure: they are the
 reported measurement states of `release_cadence`, `gate_count` and
@@ -249,7 +249,7 @@ def _load_bionic_config():
 
 
 def _tree_name(root: Path) -> str:
-    """The documentation tree's directory name, resolved per bionic/CLAUDE.md §14.1.
+    """The documentation tree's directory name, resolved per bionic/AGENTS.md §14.1.
 
     Resolution runs through `bionic_config`, never an ad-hoc read: a local
     regex over `.bionic.yml` skips the legacy `.crux` tier and skips
@@ -537,7 +537,7 @@ def read_governs_exempt(text: str) -> list[str]:
     `text` is the tree manifest's content, already read through
     `_read_contained` by the caller.
 
-    The key admits two member shapes (`docs/CLAUDE.md` §7): a bare `ADR-NNNN`
+    The key admits two member shapes (`docs/AGENTS.md` §7): a bare `ADR-NNNN`
     string and a mapping `{adr: ADR-NNNN, reason: "..."}`, in flow or block
     form. The block key admits a trailing `#` comment, for the same reason
     `read_journal_friction_from`'s does: the shipped template comments every
@@ -1567,7 +1567,7 @@ def _schema_growth_is_dev_repo(root: Path) -> bool:
 
 
 def signal_schema_growth(root: Path, docs: Path, tree: str) -> dict:
-    """The docs-tree CLAUDE.md line count and the catalogued skill count,
+    """The docs-tree AGENTS.md line count and the catalogued skill count,
     compared between HEAD and the RELEASE MARK of the second-newest dated
     changelog version — rule:baseline-is-a-release-mark-and-unavailable-is-named.
 
@@ -1587,7 +1587,7 @@ def signal_schema_growth(root: Path, docs: Path, tree: str) -> dict:
     to a neighbouring version when the intended one has no single mark —
     sliding would substitute one release's boundary for another's.
     """
-    claude_rel = f"{tree}/CLAUDE.md"
+    claude_rel = f"{tree}/AGENTS.md"
     catalog_rel = "crux/catalog/skills.json"
     surface = (f"{claude_rel} and {catalog_rel}, read at HEAD and at the release mark "
                f"of the second-newest dated changelog version, through a contained git "
@@ -1790,21 +1790,21 @@ def signal_schema_growth(root: Path, docs: Path, tree: str) -> dict:
 
 
 def signal_gate_count(root: Path, tree: str) -> dict:
-    """The enrolled regenerator rows in the repo-root CLAUDE.md roster.
+    """The enrolled regenerator rows in the repo-root AGENTS.md roster.
 
     Reads no git. The roster is located by its four-column header row and never
     by the heading above it, so THAT ROW is the input whose absence forces
     `unmeasurable`. A roster the header row locates carrying no enrolled row is
     a count of zero rather than an absence.
     """
-    path = root / "CLAUDE.md"
-    surface = (f"the regenerator roster in the repo-root CLAUDE.md — not "
-               f"{tree}/CLAUDE.md, which is the tree's operational schema")
+    path = root / "AGENTS.md"
+    surface = (f"the regenerator roster in the repo-root AGENTS.md — not "
+               f"{tree}/AGENTS.md, which is the tree's operational schema")
     if not path.is_file():
         return _record(
             "gate_count", "unmeasurable", None,
             f"{surface}; the file is absent",
-            "CLAUDE.md is absent from the repository root, so the roster's four-column "
+            "AGENTS.md is absent from the repository root, so the roster's four-column "
             "header row — this signal's whole input — does not exist",
         )
     text = _read_contained(root, path)
@@ -1812,14 +1812,14 @@ def signal_gate_count(root: Path, tree: str) -> dict:
         return _record(
             "gate_count", "unmeasurable", None,
             f"{surface}; the file was not read as a contained artifact",
-            "CLAUDE.md at the repository root was not read as a contained artifact — "
+            "AGENTS.md at the repository root was not read as a contained artifact — "
             "the name did not resolve, or resolves outside that root, or the resolved "
             "name is a symlink O_NOFOLLOW refused, or the open failed for another "
             "reason — so no roster is located",
         )
     lines = _lines(text)
     # Fence-aware: a decoy header row inside a fenced code block — the
-    # live repo-root CLAUDE.md carries one such fence a few lines above its
+    # live repo-root AGENTS.md carries one such fence a few lines above its
     # real roster header — is content, never a candidate match. `next(...)`
     # over the unguarded scan took the FIRST textual match wherever it sat,
     # so a decoy placed first would win outright.
@@ -1840,7 +1840,7 @@ def signal_gate_count(root: Path, tree: str) -> dict:
         return _record(
             "gate_count", "unmeasurable", None,
             f"{surface}; the roster header row is absent",
-            f"the repo-root CLAUDE.md carries no roster header row `{ROSTER_HEADER_ROW}`; "
+            f"the repo-root AGENTS.md carries no roster header row `{ROSTER_HEADER_ROW}`; "
             f"that header row is the input, and the heading above the table is never "
             f"read, because it spells its count as an English word",
         )
@@ -1848,7 +1848,7 @@ def signal_gate_count(root: Path, tree: str) -> dict:
         return _record(
             "gate_count", "unmeasurable", None,
             f"{surface}; {len(matches)} unfenced candidate header rows found",
-            f"the repo-root CLAUDE.md carries {len(matches)} lines matching the roster "
+            f"the repo-root AGENTS.md carries {len(matches)} lines matching the roster "
             f"header row outside any fenced block; a first-match read could be won by a "
             f"decoy, so an ambiguous roster is refused rather than guessed at",
         )

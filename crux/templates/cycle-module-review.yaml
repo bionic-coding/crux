@@ -54,7 +54,7 @@
           `rule:<slug>` citations recorded in this run's Artifacts
           (INCLUDING every rule an ADR accepted earlier in this cycle
           authored), read through `docs/adrs/doctrine/index.md`; plus
-          existing conventions in `docs/CLAUDE.md` and adjacent code
+          existing conventions in `docs/AGENTS.md` and adjacent code
           patterns. A change that contradicts a cited rule is MUST-FIX
           unless an ADR in this cycle retires that rule.
       (c) Clarity — reads the code as a new engineer would; flags
@@ -72,7 +72,7 @@
            trust boundaries.
       (S2) Secrets & credentials — hardcoded keys/tokens, secrets in
            logs/errors/fixtures, anything bypassing the `~/.crux/`
-           contract (`docs/CLAUDE.md` §13 — values never committed or logged).
+           contract (`docs/AGENTS.md` §13 — values never committed or logged).
       (S3) Authz & privilege — missing/incorrect access checks, scope
            confusion, IDOR, privilege boundaries crossed without a check.
       (S4) Supply-chain & dependency — new/bumped deps, lockfile changes,
@@ -123,7 +123,7 @@
           edge cases covered? Are the tests reliable (no flakes, no
           false-greens)?
       (b) Comments and docs — are non-obvious decisions explained (per
-          `docs/CLAUDE.md` commenting rules: only for WHY, not WHAT)?
+          `docs/AGENTS.md` commenting rules: only for WHY, not WHAT)?
           Are public APIs documented? Does `extract-code-docs --dry-run`
           report drift?
       (c) **Dev-practice conformance**

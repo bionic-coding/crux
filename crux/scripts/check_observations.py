@@ -13,7 +13,7 @@
 # and fails under `uv run --no-project` in the release gate — the only place it
 # is tested. `signoff-survey.py` carries the same declaration for the same
 # reason.
-"""check_observations.py — reference checker for the observations concern (docs/CLAUDE.md §17).
+"""check_observations.py — reference checker for the observations concern (docs/AGENTS.md §17).
 
 Implements the CHK-OBS audit rules (§17.3) against the record frontmatter
 under `<docs_dir>/observations/`, the concern index

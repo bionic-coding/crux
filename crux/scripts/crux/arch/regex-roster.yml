@@ -2,7 +2,7 @@
 # authored source (ADR-0097 part 1).
 #
 # HAND-AUTHORED. This file IS a source of truth; nothing regenerates it, so it
-# carries no row in the repo-root CLAUDE.md regenerative-outputs roster.
+# carries no row in the repo-root AGENTS.md regenerative-outputs roster.
 #
 # `regex-over-source` is one of the four input-class kinds a probe may declare,
 # and it is admissible only for a probe this file names. The pack-acceptance

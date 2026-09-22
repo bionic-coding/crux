@@ -3,9 +3,9 @@
 Covers all ten surfaces:
 - 9 crux/agents/*.md files: each must contain the canonical reflex sentence
   EXACTLY ONCE and the canonical escape clause EXACTLY ONCE.
-- docs/CLAUDE.md: must have a '## 10.B' heading exactly once, the canonical
+- docs/AGENTS.md: must have a '## 10.B' heading exactly once, the canonical
   reflex sentence EXACTLY ONCE, and the canonical escape clause EXACTLY ONCE.
-- crux/templates/CLAUDE.md.tmpl: same requirements as docs/CLAUDE.md.
+- crux/templates/AGENTS.md.tmpl: same requirements as docs/AGENTS.md.
 
 Stdlib unittest only (no third-party deps).
 """
@@ -16,9 +16,9 @@ import unittest
 from pathlib import Path
 
 try:
-    from ._dev_surface import TREE, TREE_CLAUDE_MD, require_dev_surface
+    from ._dev_surface import TREE, TREE_AGENTS_MD, require_dev_surface
 except ImportError:  # unittest discover imports test modules top-level
-    from _dev_surface import TREE, TREE_CLAUDE_MD, require_dev_surface
+    from _dev_surface import TREE, TREE_AGENTS_MD, require_dev_surface
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -26,8 +26,8 @@ except ImportError:  # unittest discover imports test modules top-level
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 AGENTS_DIR = REPO_ROOT / "crux" / "agents"
-DOCS_CLAUDE_MD = TREE_CLAUDE_MD
-TMPL_CLAUDE_MD = REPO_ROOT / "crux" / "templates" / "CLAUDE.md.tmpl"
+DOCS_CLAUDE_MD = TREE_AGENTS_MD
+TMPL_CLAUDE_MD = REPO_ROOT / "crux" / "templates" / "AGENTS.md.tmpl"
 
 # ---------------------------------------------------------------------------
 # Canonical sentence — distinctive enough to pin the exact block without
@@ -44,7 +44,7 @@ CANONICAL_ESCAPE = (
     "report the gap to your lead instead of working around it."
 )
 
-# Heading for the §10.B section in docs/CLAUDE.md and the tmpl.
+# Heading for the §10.B section in docs/AGENTS.md and the tmpl.
 SECTION_HEADING = "## 10.B"
 
 # The eight agent files this ADR mandates.
@@ -141,13 +141,13 @@ class AgentReflexBlockTests(unittest.TestCase):
 
 
 _DOC_SURFACES = [
-    (DOCS_CLAUDE_MD, f"{TREE}/CLAUDE.md"),
-    (TMPL_CLAUDE_MD, "crux/templates/CLAUDE.md.tmpl"),
+    (DOCS_CLAUDE_MD, f"{TREE}/AGENTS.md"),
+    (TMPL_CLAUDE_MD, "crux/templates/AGENTS.md.tmpl"),
 ]
 
 
 class DocSurfaceReflexTests(unittest.TestCase):
-    """docs/CLAUDE.md and crux/templates/CLAUDE.md.tmpl must each have the
+    """docs/AGENTS.md and crux/templates/AGENTS.md.tmpl must each have the
     '## 10.B' heading exactly once, the canonical reflex sentence exactly
     once, and the canonical escape clause exactly once.
 

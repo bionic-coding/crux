@@ -674,7 +674,7 @@ class ArchDriftTriggerTests(unittest.TestCase):
 
     # 2026-08-31 direct fix — the decision-recovery candidate state file lives INSIDE
     # `arch/` by design (`arch/_recovered/state.yml`, ADR-0062 D4; the tree's
-    # CLAUDE.md §17 names it a scan artifact inside the tree), yet the derive never
+    # AGENTS.md §17 names it a scan artifact inside the tree), yet the derive never
     # writes it. The stale-artifact sweep read every on-disk file the derive would
     # not produce as drift, so the first `recover-decisions` run on any tree turned
     # the arch gate red and stayed red. The positive control beside it proves the

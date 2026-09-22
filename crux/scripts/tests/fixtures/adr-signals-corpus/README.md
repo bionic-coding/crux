@@ -19,7 +19,7 @@ are fictitious.
 | `friction_citations` | `manifest.yml` records `journal.friction_line_from: 2026-02-14`; three `Friction:` lines at or after that date are counted, one of them dated ON it, one before it is truncated out, one is contentless and skipped, and one sits under a `### ` heading and inside `journal/index.md` — both excluded | `manifest.yml` carries no `journal` key, so the reader has no adoption date and reads `unmeasurable` |
 | `release_cadence` | `CHANGELOG.md` carries three dated version headings — 0.1.0, 0.2.0 and 0.3.0 — so the intervals read 5 and 15 days | no `CHANGELOG.md`, so the release record does not exist and the verdict is `unmeasurable` |
 | `schema_growth` | `unmeasurable` in both roots: neither is a work tree, so the HEAD leg cannot run — the computed cases build their own throwaway repository in the test's temp directory | `unmeasurable` — same reason |
-| `gate_count` | `CLAUDE.md` carries a two-row regenerator roster under the four-column header row | no `CLAUDE.md`, so the header row this signal reads does not exist |
+| `gate_count` | `AGENTS.md` carries a two-row regenerator roster under the four-column header row | no `AGENTS.md`, so the header row this signal reads does not exist |
 
 `trips/bionic/adrs/archive/ADR-0009-archived-thing.md` exists so the archive
 exclusion has something to exclude: it amends ADR-0001 and must contribute
@@ -61,6 +61,18 @@ guarded by `unittest.skipUnless(shutil.which(...))` on that leg alone. Every
 `unmeasurable` case needs no repository and is never skipped.
 
 No test reads the ambient repository's own history, changelog or repo-root
-`CLAUDE.md`. `tools/sync_stage.py` sets `ALLOWLIST_DIRS = ("crux",)`, so the
-repo-root `CLAUDE.md` and `CHANGELOG.md` are absent from the staged public
+`AGENTS.md`. `tools/sync_stage.py` sets `ALLOWLIST_DIRS = ("crux",)`, so the
+repo-root `AGENTS.md` and `CHANGELOG.md` are absent from the staged public
 artifact, and such a test would false-fail the staged sync gate.
+
+## Why `trips/` carries both instruction filenames
+
+`trips/AGENTS.md` is the roster host. It is what `gate_count` reads, because the
+repository's regenerative-outputs roster lives in the canonical instruction file.
+
+`trips/CLAUDE.md` keeps its name on purpose, and its purpose is now different. It is
+the corpus's **legacy** instruction file: the shape instruction discovery must classify
+and never mutate. The repository's `.bionic.yml` names its path in
+`instruction_migration_denylist`, so a migration run over this checkout reports it with
+a named disposition and leaves its bytes alone. Renaming it would delete that coverage
+and silently change a fixture, which is why both names sit here rather than one.

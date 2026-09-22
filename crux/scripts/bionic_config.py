@@ -74,7 +74,7 @@ LEGACY_DOCS_DIR = "docs"  # the pre-ADR-0059 default, still discovered and honor
 SUPPORTED_CONFIG_VERSIONS = ("1",)
 
 # 2-10 chars total: long enough for org codes (JIRA-style), short enough that
-# prefixed filenames stay well under the ~60-char slug budget (CLAUDE.md §9).
+# prefixed filenames stay well under the ~60-char slug budget (AGENTS.md §9).
 PREFIX_PATTERN = re.compile(r"^[A-Z][A-Z0-9]{1,9}$")
 # Reserved artifact type tokens — `PB-PB-0040` is human-hostile (ADR-0032 §1).
 RESERVED_PREFIXES = frozenset({"PB", "ADR", "RUN", "BRIEF"})

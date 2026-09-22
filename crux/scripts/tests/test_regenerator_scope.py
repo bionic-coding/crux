@@ -57,7 +57,7 @@ PLUGIN_AUTHORING = (
     "generate-rules-catalog.py",
 )
 # The plugin-authoring gates whose canonical input lives OUTSIDE `crux/` -- the
-# repo-root `CLAUDE.md`, the tree's `CLAUDE.md`, this tree's own ADRs. The release
+# repo-root `AGENTS.md`, the tree's `AGENTS.md`, this tree's own ADRs. The release
 # artifact ships `crux/` without any of them, so on the stage these three correctly
 # report surface-absent rather than inspecting anything.
 DEV_TREE_GATES = frozenset(
@@ -308,7 +308,7 @@ class OutOfScopeTests(unittest.TestCase):
                     # declines there. That case is measured positively by
                     # `test_a_plugin_source_tree_without_a_documentation_tree_is_not_a_failure`,
                     # which builds its own clone and runs everywhere.
-                    require_dev_surface(self, REPO_ROOT / "CLAUDE.md", "repo-root CLAUDE.md")
+                    require_dev_surface(self, REPO_ROOT / "AGENTS.md", "repo-root AGENTS.md")
                 result = self._run(name, str(REPO_ROOT))
                 self.assertIn(
                     result.returncode, (0, 1),
@@ -326,7 +326,7 @@ class OutOfScopeTests(unittest.TestCase):
 
     def test_a_plugin_source_tree_without_a_documentation_tree_is_not_a_failure(self):
         """The public clone and the staged release artifact: `crux/` is present, the
-        documentation tree and the repo-root `CLAUDE.md` are not.
+        documentation tree and the repo-root `AGENTS.md` are not.
 
         rule:out-of-scope-is-surface-absent names TWO triggers, and only the first --
         no plugin source -- was implemented at first. These roots pass that probe, so
@@ -582,8 +582,8 @@ class RosterScopeTests(unittest.TestCase):
     rule:drift-report-carries-scope-and-reconciles."""
 
     def test_the_enrollment_roster_declares_a_scope_for_every_row(self):
-        claude = REPO_ROOT / "CLAUDE.md"
-        require_dev_surface(self, claude, "repo-root CLAUDE.md")
+        claude = REPO_ROOT / "AGENTS.md"
+        require_dev_surface(self, claude, "repo-root AGENTS.md")
         lines = claude.read_text(encoding="utf-8").splitlines()
         head = next(i for i, l in enumerate(lines) if l.startswith("| Output | Source of truth |"))
         self.assertTrue(lines[head].rstrip().endswith("| Scope |"), lines[head])

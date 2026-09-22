@@ -3,7 +3,7 @@
 
 Per ADR-0002 (rename-to-crux-and-manage-env-and-secrets) and PB-0002
 (build-crux-env-script-and-module). The on-disk file format and this
-module's public API are pinned in docs/CLAUDE.md §13.
+module's public API are pinned in docs/AGENTS.md §13.
 
 This module is ALSO the single source of truth for the env-file parser used
 by the CLI (`crux-env.py`). The CLI imports `parse_env_text`,
@@ -66,7 +66,7 @@ def _env_file() -> Path:
 # ---------------------------------------------------------------------------
 # Parser — shared with the CLI (crux-env.py imports these symbols).
 #
-# Rules (docs/CLAUDE.md §13.2):
+# Rules (docs/AGENTS.md §13.2):
 #   - One KEY=value per line.
 #   - Keys match ^[A-Z][A-Z0-9_]*$. Leading whitespace before a key is a
 #     parse error (we surface format mistakes loudly).
@@ -117,7 +117,7 @@ def parse_env_line(raw_line: str, lineno: int = 0) -> tuple[str, str] | None:
     # leading whitespace is suspicious.
     if line.lstrip().startswith("#") and line[:1] in (" ", "\t"):
         # Allow leading-whitespace comment lines — the existing format
-        # examples (CLAUDE.md §13.2) don't show them but they don't change
+        # examples (AGENTS.md §13.2) don't show them but they don't change
         # parsing. Be lenient on comments specifically.
         return None
     if line.startswith("#"):

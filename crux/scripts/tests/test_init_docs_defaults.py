@@ -10,6 +10,7 @@ obsolete v4 current-layout wording. No third-party deps beyond PyYAML
 """
 from __future__ import annotations
 
+import json
 import re
 import unittest
 from pathlib import Path
@@ -18,9 +19,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 TEMPLATES = REPO_ROOT / "crux" / "templates"
 
 try:
-    from ._dev_surface import TREE, TREE_CLAUDE_MD, require_dev_surface
+    from ._dev_surface import TREE, TREE_AGENTS_MD, require_dev_surface
 except ImportError:  # unittest discover imports test modules top-level
-    from _dev_surface import TREE, TREE_CLAUDE_MD, require_dev_surface
+    from _dev_surface import TREE, TREE_AGENTS_MD, require_dev_surface
 
 try:
     import yaml
@@ -71,7 +72,7 @@ class ManifestTemplateTests(unittest.TestCase):
 
     def test_manifest_tmpl_carries_observation_counter_without_schema_bump(self):
         # Additive enablement on the arch precedent: the counters arrive with
-        # NO schema_version bump (docs/CLAUDE.md §17, §17.5). init-docs step 6
+        # NO schema_version bump (docs/AGENTS.md §17, §17.5). init-docs step 6
         # copies this template VERBATIM, so this block IS a fresh tree's
         # `observation` block — the survey keys are absent from a new repo
         # unless they are seeded here.
@@ -110,24 +111,24 @@ class ManifestTemplateTests(unittest.TestCase):
                          "no ADR identifier may ship in the manifest template")
 
     def test_manifest_tmpl_agrees_with_claude_md_tmpl(self):
-        # Twin lock-step: the CLAUDE.md.tmpl §7 example manifest must show the
+        # Twin lock-step: the AGENTS.md.tmpl §7 example manifest must show the
         # same schema + include invariants, so a fresh seed is self-consistent.
-        c = (TEMPLATES / "CLAUDE.md.tmpl").read_text()
+        c = (TEMPLATES / "AGENTS.md.tmpl").read_text()
         self.assertIn('schema_version: "5"', c)
         self.assertRegex(c, r"concerns_enabled:[\s\S]{0,400}- invariants")
         self.assertRegex(c, r"concerns_enabled:[\s\S]{0,400}- arch")
 
     def test_manifest_tmpl_observation_block_matches_claude_md_tmpl_section_7(self):
         # The gap that shipped the survey keys to the dogfood tree but not to a
-        # fresh one: §7 of the CLAUDE.md written INTO a new tree documents the
+        # fresh one: §7 of the AGENTS.md written INTO a new tree documents the
         # `observation` keys, and nothing compared that list against the
         # manifest init-docs actually writes. Every key §7 documents must exist
         # in the template, or a fresh repo reads a schema doc describing a
         # manifest it does not have.
         m = yaml.safe_load((TEMPLATES / "manifest.yml.tmpl").read_text())
-        c = (TEMPLATES / "CLAUDE.md.tmpl").read_text()
+        c = (TEMPLATES / "AGENTS.md.tmpl").read_text()
         block = re.search(r"\nobservation:.*?\n\n", c, re.DOTALL)
-        self.assertIsNotNone(block, "no `observation:` block in CLAUDE.md.tmpl §7")
+        self.assertIsNotNone(block, "no `observation:` block in AGENTS.md.tmpl §7")
         documented = set(re.findall(r"^  ([a-z_]+):", block.group(0), re.MULTILINE))
         # Positive control: §7 must actually document keys, so an empty match
         # cannot make the subset assertion below vacuously true.
@@ -142,12 +143,12 @@ class StrictFramingSurfaceTests(unittest.TestCase):
         REPO_ROOT / "README.md",
         REPO_ROOT / "USER_GUIDE.md",
         REPO_ROOT / "crux" / "templates" / "USER_GUIDE.md",
-        REPO_ROOT / "CLAUDE.md",
+        REPO_ROOT / "AGENTS.md",
         REPO_ROOT / "crux" / "templates" / "manifest.yml.tmpl",
     ]
 
     def test_no_six_concern_framing_in_strict_surfaces(self):
-        require_dev_surface(self, REPO_ROOT / "CLAUDE.md", "CLAUDE.md")
+        require_dev_surface(self, REPO_ROOT / "AGENTS.md", "AGENTS.md")
         pat = re.compile(r"six[- ]concern", re.IGNORECASE)
         for f in self.STRICT:
             self.assertIsNone(
@@ -156,9 +157,9 @@ class StrictFramingSurfaceTests(unittest.TestCase):
             )
 
     def test_strict_surfaces_name_seven_concerns_or_invariants(self):
-        require_dev_surface(self, REPO_ROOT / "CLAUDE.md", "CLAUDE.md")
+        require_dev_surface(self, REPO_ROOT / "AGENTS.md", "AGENTS.md")
         # Positive check: the framing actually moved to seven / names invariants.
-        for f in (REPO_ROOT / "README.md", REPO_ROOT / "USER_GUIDE.md", REPO_ROOT / "CLAUDE.md"):
+        for f in (REPO_ROOT / "README.md", REPO_ROOT / "USER_GUIDE.md", REPO_ROOT / "AGENTS.md"):
             t = f.read_text()
             self.assertTrue(
                 "seven concern" in t or "invariants" in t,
@@ -375,7 +376,7 @@ def _section_17_1_keyset(claude_md: str) -> list[str]:
 
 
 class ObservationsConcernTests(unittest.TestCase):
-    """The observations concern is enabled additively (docs/CLAUDE.md §17):
+    """The observations concern is enabled additively (docs/AGENTS.md §17):
     the template carries the §17.1 keyset one-for-one, the dogfood + template
     manifests carry the concern and its counter with NO schema_version bump,
     and init-docs eagerly creates the concern's surfaces.
@@ -385,8 +386,8 @@ class ObservationsConcernTests(unittest.TestCase):
     SKILL_MD = REPO_ROOT / "crux" / "skills" / "init-docs" / "SKILL.md"
 
     def test_obs_template_keyset_matches_section_17_1_in_order(self):
-        require_dev_surface(self, TREE_CLAUDE_MD, f"{TREE}/CLAUDE.md")
-        canonical = _section_17_1_keyset(TREE_CLAUDE_MD.read_text())
+        require_dev_surface(self, TREE_AGENTS_MD, f"{TREE}/AGENTS.md")
+        canonical = _section_17_1_keyset(TREE_AGENTS_MD.read_text())
         self.assertTrue(self.OBS_TEMPLATE.exists(), "crux/templates/OBS-template.md missing")
         self.assertEqual(_frontmatter_keys(self.OBS_TEMPLATE.read_text()), canonical)
 
@@ -524,3 +525,55 @@ class ReviewsSurfaceAtInitTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FreshRepositoryInstructionNameTests(unittest.TestCase):
+    """A fresh initialization yields ONE managed instruction filename.
+
+    The failure this pins: a tree seeded with both names. Under the host's default
+    mode the Claude-named sibling suppresses the canonical file outright, so a
+    "harmless extra copy" silences the tree rather than duplicating it.
+    """
+
+    TEMPLATE = TEMPLATES / "AGENTS.md.tmpl"
+
+    def test_the_init_template_is_named_for_the_canonical_file(self):
+        self.assertTrue(self.TEMPLATE.exists(),
+                        "init-docs seeds the tree schema from AGENTS.md.tmpl")
+        self.assertFalse((TEMPLATES / "CLAUDE.md.tmpl").exists(),
+                         "the legacy template name must not survive the migration")
+
+    def test_the_template_names_no_claude_instruction_file_outside_section_18(self):
+        """Section 18 names the legacy file deliberately; nothing else may."""
+        text = self.TEMPLATE.read_text(encoding="utf-8")
+        marker = "## 18. Repository instruction files"
+        self.assertIn(marker, text, "the template carries the instruction contract")
+        before = text.split(marker)[0]
+        self.assertNotIn("CLAUDE.md", before,
+                         "a CLAUDE.md reference survives outside section 18")
+
+    def test_init_docs_writes_agents_md_and_forbids_a_claude_sibling(self):
+        skill = (REPO_ROOT / "crux" / "skills" / "init-docs" / "SKILL.md").read_text()
+        self.assertIn("${REPO_ROOT}/${DOCS_DIR}/AGENTS.md", skill)
+        self.assertIn("Write no `CLAUDE.md` sibling", skill)
+        self.assertNotIn("Write `${DOCS_DIR}/CLAUDE.md` from template", skill)
+
+    def test_init_docs_reports_a_root_claude_md_rather_than_writing_to_it(self):
+        skill = (REPO_ROOT / "crux" / "skills" / "init-docs" / "SKILL.md").read_text()
+        self.assertIn("If a repo-root `CLAUDE.md` exists, do **not** append", skill)
+        self.assertIn("audit-docs --migrate", skill)
+
+    def test_the_verification_checklist_asserts_no_managed_claude_sibling(self):
+        skill = (REPO_ROOT / "crux" / "skills" / "init-docs" / "SKILL.md").read_text()
+        self.assertIn("No `${DOCS_DIR}/CLAUDE.md` sibling was written", skill)
+
+    def test_the_parity_manifest_points_at_the_renamed_twin(self):
+        manifest = json.loads(
+            (REPO_ROOT / "crux" / "scripts" / "template_parity_manifest.json")
+            .read_text(encoding="utf-8"))
+        twins = {c["twin"] for c in manifest["clauses"]}
+        self.assertIn("crux/templates/AGENTS.md.tmpl", twins)
+        self.assertNotIn("crux/templates/CLAUDE.md.tmpl", twins)
+        # The USER_GUIDE twin is a separate pair and is unaffected by the rename.
+        self.assertTrue(twins <= {"crux/templates/AGENTS.md.tmpl",
+                                  "crux/templates/USER_GUIDE.md"}, twins)

@@ -25,7 +25,7 @@ This skill is portable across Claude Code, Codex, and OpenCode. This section ove
 
 ## Overview
 
-The **ratification** state machine for invariant pins — the human gate of the machine-proposes/human-disposes model (see `docs/CLAUDE.md` §15.3). `recover-invariants` proposes pins as `ratification: observed`; **only this skill, driven by a human, disposes of them**. It is the invariants-concern sibling of `transition-adr`: it operates ONLY on the `ratification` frontmatter of an existing ledger page (and the reconciliation mapping when a check binding changes), and it never touches a pin's identity, `class`, `provenance`, or the *why* body.
+The **ratification** state machine for invariant pins — the human gate of the machine-proposes/human-disposes model (see `docs/AGENTS.md` §15.3). `recover-invariants` proposes pins as `ratification: observed`; **only this skill, driven by a human, disposes of them**. It is the invariants-concern sibling of `transition-adr`: it operates ONLY on the `ratification` frontmatter of an existing ledger page (and the reconciliation mapping when a check binding changes), and it never touches a pin's identity, `class`, `provenance`, or the *why* body.
 
 Core principle: **the state machine is the contract, and recovery cannot self-ratify.** Every transition that isn't explicitly allowed is refused with a clear error.
 
@@ -82,7 +82,7 @@ Look up `(current_ratification, op)` in the allowed table. If absent → REFUSE 
 - Preserve frontmatter key order + formatting outside the one mutated key.
 
 ### 4. Reconciliation consistency (audited write)
-- The reconciliation manifest (`docs/CLAUDE.md` §15.4) maps checks → pins and holds `last_result`. This skill does not change `last_result`, but on `reject`/`retire` it MUST leave the reconciliation consistent: a `rejected`/`retired` pin's checks are no longer durable-trusted. Do not delete checks (recovery/human owns the suite), but ensure `audit-docs` will not read a `rejected`/`retired` pin as a live ratified one — the ledger `ratification` is the source of truth (§15.1), so the frontmatter change in §3 is sufficient; verify no reconciliation entry contradicts it (a check still mapped to the pin is fine; the pin's ratification governs the audit rules).
+- The reconciliation manifest (`docs/AGENTS.md` §15.4) maps checks → pins and holds `last_result`. This skill does not change `last_result`, but on `reject`/`retire` it MUST leave the reconciliation consistent: a `rejected`/`retired` pin's checks are no longer durable-trusted. Do not delete checks (recovery/human owns the suite), but ensure `audit-docs` will not read a `rejected`/`retired` pin as a live ratified one — the ledger `ratification` is the source of truth (§15.1), so the frontmatter change in §3 is sufficient; verify no reconciliation entry contradicts it (a check still mapped to the pin is fine; the pin's ratification governs the audit rules).
 - This is the bidirectional/audited half mirroring `transition-adr`'s supersession write: ledger + reconciliation must not disagree. If they would, STOP and surface (never leave drift).
 
 ### 5. Update indexes
@@ -93,7 +93,7 @@ Look up `(current_ratification, op)` in the allowed table. If absent → REFUSE 
 ```
 ## [YYYY-MM-DD] invariant | INV-NNNN: <old> → <new>
 ```
-Body: pin id, class, the transition, one line. The `invariant` op is a first-class member of the `docs/CLAUDE.md` §6 op enum (both the current-writer and historical-reader regexes) — emit it directly.
+Body: pin id, class, the transition, one line. The `invariant` op is a first-class member of the `docs/AGENTS.md` §6 op enum (both the current-writer and historical-reader regexes) — emit it directly.
 
 ### 7. Hand off
 Confirm the new ratification + file path. Remind: recovery cannot reach `ratified` — this human act is the only path. For `ratify`, note the pin now participates in CHK-INV-DECORATION/FAILING (it must have a resolvable, passing check or it becomes a detectable defect). For `retire`, note the pin is explicitly no longer enforced.
@@ -130,5 +130,5 @@ Confirm the new ratification + file path. Remind: recovery cannot reach `ratifie
 
 - `recover-invariants` — the machine that proposes `observed` pins this skill disposes of.
 - `transition-adr` — the ADR state machine this mirrors (frontmatter-only mutation, clear refusals, audited write).
-- `audit-docs` — the CHK-INV rules (`docs/CLAUDE.md` §15.5) that read the ratification this skill sets.
-- `docs/CLAUDE.md` §15 — the invariants-concern contract (ledger schema, axes, reconciliation, audit rules).
+- `audit-docs` — the CHK-INV rules (`docs/AGENTS.md` §15.5) that read the ratification this skill sets.
+- `docs/AGENTS.md` §15 — the invariants-concern contract (ledger schema, axes, reconciliation, audit rules).

@@ -53,7 +53,7 @@ resolution and which nothing here re-implements); read `<docs_dir>/objectives.md
 then run the mode's pipeline.
 
 Before starting or resuming execution, read the resolved `<docs_dir>/objectives.md` and apply
-`docs/CLAUDE.md` §5.B. Pass its resolved
+`docs/AGENTS.md` §5.B. Pass its resolved
 path to commander. Every agent or forked skill assignment includes that path
 and either the mission with relevant goal statements and measures, or an
 explicit instruction to read it before work and preserve this context in
@@ -66,7 +66,7 @@ no per-advance writes, and no per-step approval. Re-read when objectives change.
 ## The book's Outcome, Evidence and Constraint travel with every dispatch
 
 The book's `goal` states what should improve for the affected user, what would
-demonstrate it, and what the change must preserve — `docs/CLAUDE.md` §11 "The
+demonstrate it, and what the change must preserve — `docs/AGENTS.md` §11 "The
 assignment contract" is the rule. Every agent a prompt dispatches receives all
 three, beside the objectives path, **including a generic dispatch that names no
 crux role**: a worker on the far side of a dispatch has none of this run's
@@ -83,7 +83,7 @@ acceptance bar and what was actually observed against it both survive in the
 snapshot. A book whose goal omits one of the three statements is named in the
 run notes and the run proceeds; a missing statement is no stop point under §11.
 
-## Format detection (do this FIRST on every invocation that reads or writes a book or run — see `docs/CLAUDE.md` §3 for the `.md`/`.yaml` coexistence contract)
+## Format detection (do this FIRST on every invocation that reads or writes a book or run — see `docs/AGENTS.md` §3 for the `.md`/`.yaml` coexistence contract)
 
 Two on-disk formats coexist; **detect before reading or writing anything**. The decision table routes on `(extension, format_version-present)` for the BOOK (mode `start`) and is fixed-by-the-snapshot's-own-extension for the RUN (mode `advance`):
 
@@ -124,7 +124,7 @@ The mid-run fork path is deleted. `forked_from` remains an accepted book field t
 
 ### 0. Resolve per-repo configuration (.crux) — applies to BOTH modes
 
-Run `python3 "${CRUX_PLUGIN_ROOT}/scripts/crux-config.py"` from the repo root (or pass `--repo-root <repo-root>`), and confirm the returned `repo_root` is the repo you are operating in — `source: "discovery:<dir>"` with an unexpected `repo_root` means you resolved the wrong directory, not that no config exists. On exit 1, **STOP** and surface the `{"error": ...}` payload — never fall back to defaults. Use the returned `docs_dir` to resolve the docs root wherever this skill says `docs/` (per the docs/CLAUDE.md §14 normative definition clause), and accept prefixed book ids (e.g. `CRX-PB-0040`) anywhere this skill says `PB-NNNN` — the prefixed string is the id, verbatim, in paths and `book_id`. `RUN-NNN` ids are never prefixed.
+Run `python3 "${CRUX_PLUGIN_ROOT}/scripts/crux-config.py"` from the repo root (or pass `--repo-root <repo-root>`), and confirm the returned `repo_root` is the repo you are operating in — `source: "discovery:<dir>"` with an unexpected `repo_root` means you resolved the wrong directory, not that no config exists. On exit 1, **STOP** and surface the `{"error": ...}` payload — never fall back to defaults. Use the returned `docs_dir` to resolve the docs root wherever this skill says `docs/` (per the docs/AGENTS.md §14 normative definition clause), and accept prefixed book ids (e.g. `CRX-PB-0040`) anywhere this skill says `PB-NNNN` — the prefixed string is the id, verbatim, in paths and `book_id`. `RUN-NNN` ids are never prefixed.
 
 ### 1. Resolve the target book (FORMAT-DETECT here)
 
@@ -196,7 +196,7 @@ prompts:
 - **`base_commit` (the run's commit boundary — written ONCE at start, never rewritten):** run `git rev-parse HEAD` at the repo root and store the 40 lowercase hex commit id. This is the evidence source the `patch` tier's archive check reads: it lets `check-blast-radius.py` draw the run's changed paths from the repository's own change record rather than from anything the run wrote about itself. "Never rewritten" is enforced at both ends, not merely asked: `advance-run.py` refuses to write a snapshot whose `base_commit` diverges from the value in its own committed version, and `check-blast-radius.py` refuses to pass one at archival. If the repository is not a git work tree, write `base_commit: null` — and say so, because a `patch` book whose run has no commit boundary cannot archive as completed. For an `adr` or `verify` book the field is recorded but unused.
 - **`abandonment` is OMITTED at creation.** It is written later, once, either by mode `abandon` (`kind: deliberate`) or by a later run's start-path supersession (`kind: superseded`).
 - **`book_content_hash` (the binding — load-bearing, computed ONCE at start, immutable for the run's life):** compute it by calling the validator's hash function over the book's frozen-plan subset — `${CRUX_PLUGIN_ROOT}/scripts/validate-promptbook.py` (source checkout: `<checkout>/crux/scripts/validate-promptbook.py`) exposes `compute_book_hash(book_dict)` (which internally calls `frozen_plan_subset` and `canonical_json`). Pass the parsed `.yaml` book document; it returns `"sha256:" + sha256(canonical_plan_bytes).hexdigest()`. **Do NOT hand-roll a hash** and do NOT hash the raw file bytes — the hash is over the canonical-JSON of the frozen plan subset (`format_version`, `id`, `title`, `tags`, `total_prompts`, `goal`, `strategy`, plus `modules` and `blast_radius` when present, and each prompt's `n`/`title`/`purpose`/`prompt`/`expected_output` plus `side_effects`/`module_tag`/`phase` when present), EXCLUDING the mutable run-state fields `current_run`/`current_prompt`/`status`. `blast_radius` and `phase` are inside the subset deliberately: that is what fixes a `patch` book's declaration and its phase sequence once the run starts. This is exactly the subset the §4 abandon rule freezes, so the hash is stable across the run-state writes every advance makes; a later mismatch (`audit-docs` CHK-PB-BIND, and for a `patch` book `check-blast-radius.py` at archival) means the plan was edited in place instead of the run being abandoned and a successor book authored.
-- The per-prompt shape is validated by `run.schema.json` (audit invokes `validate-promptbook --kind run`); the prose contract for the fields (the `State` enum, the lifecycle, archive eligibility) is **`docs/CLAUDE.md` §11.B**, with the title-case Markdown labels mapping to lowercase snake_case YAML keys (`State`→`state`, `Started`→`started`, `Completed`→`completed`, `Result`→`result`, `Artifacts`→`artifacts`).
+- The per-prompt shape is validated by `run.schema.json` (audit invokes `validate-promptbook --kind run`); the prose contract for the fields (the `State` enum, the lifecycle, archive eligibility) is **`docs/AGENTS.md` §11.B**, with the title-case Markdown labels mapping to lowercase snake_case YAML keys (`State`→`state`, `Started`→`started`, `Completed`→`completed`, `Result`→`result`, `Artifacts`→`artifacts`).
 
 On snapshot creation every prompt is `pending`; prompt 1 transitions to `running` on the first advance.
 
@@ -217,7 +217,7 @@ current_prompt: 1
 ---
 ```
 
-Body: one section per prompt in the active book, in order. The per-prompt block shape (heading + `State`/`Started`/`Completed`/`Result`/`Artifacts` fields, and the `State` enum) is defined canonically in **`docs/CLAUDE.md` §11.B "Run-snapshot per-prompt shape"** (the single source of truth — read §11.B for the authoritative field list). On snapshot creation every prompt is `pending`; prompt 1 transitions to `running` on the first advance.
+Body: one section per prompt in the active book, in order. The per-prompt block shape (heading + `State`/`Started`/`Completed`/`Result`/`Artifacts` fields, and the `State` enum) is defined canonically in **`docs/AGENTS.md` §11.B "Run-snapshot per-prompt shape"** (the single source of truth — read §11.B for the authoritative field list). On snapshot creation every prompt is `pending`; prompt 1 transitions to `running` on the first advance.
 
 ```markdown
 ## Prompt 1 — <title from book>
@@ -302,11 +302,11 @@ Mutate exactly the array element whose `n == current_prompt` (the JOIN KEY). On 
 - `result: "<one-line summary the user provides, or \"\" (empty string) if none>"` — empty is `""`, never the legacy `—`.
 - `artifacts: [<docs/ paths the prompt touched, as a real YAML list>]` — `[]` if none (a list, not a CSV cell).
 
-Do NOT alter the element's `title` or any other element. Only the listed keys change. Never edit prior elements (their state was finalized in earlier advances). **Preserve the run-level trailing fields `notes` / `pr_draft` / `summary` verbatim on every advance** — they are set later in the run (Prep/Summary) and a re-emit that omits them silently drops accumulated notes, the PR draft, and the completion summary (`advance-run.py` round-trips them for you; a hand re-emit must copy them through). The per-prompt shape is validated by `run.schema.json` (audit invokes `validate-promptbook --kind run`); the prose contract is `docs/CLAUDE.md` §11.B, unchanged in meaning.
+Do NOT alter the element's `title` or any other element. Only the listed keys change. Never edit prior elements (their state was finalized in earlier advances). **Preserve the run-level trailing fields `notes` / `pr_draft` / `summary` verbatim on every advance** — they are set later in the run (Prep/Summary) and a re-emit that omits them silently drops accumulated notes, the PR draft, and the completion summary (`advance-run.py` round-trips them for you; a hand re-emit must copy them through). The per-prompt shape is validated by `run.schema.json` (audit invokes `validate-promptbook --kind run`); the prose contract is `docs/AGENTS.md` §11.B, unchanged in meaning.
 
 #### 3b. Legacy `.md` run — mutate the `## Prompt N` block — UNCHANGED
 
-Update only the `## Prompt <current_prompt>` block in the snapshot body (the field set and `State` enum are canonical in `docs/CLAUDE.md` §11.B):
+Update only the `## Prompt <current_prompt>` block in the snapshot body (the field set and `State` enum are canonical in `docs/AGENTS.md` §11.B):
 - `**State:** <outcome>`
 - `**Started:** <set on first advance if still null — use this advance's start time as best-effort, or the actual prompt-start time if known>`
 - `**Completed:** <now ISO 8601 UTC>`
@@ -364,7 +364,7 @@ Abandoning is a **run-level** act. It is how a book that will not finish still c
 
 ## Red flags — STOP and reconsider
 
-- About to pause mid-run to ask permission for a step the current prompt already authorizes (e.g. an in-repo file edit the prompt mandates). DON'T — the plan is the authorization. The only legitimate mid-run stops are the module escalation loops and genuinely irreversible/outward-facing actions the plan didn't authorize (push/merge, deploy, external send, data deletion, spend). Editing in-repo files — including `docs/CLAUDE.md`, skill files, code — is none of those, however important the file feels. See `docs/CLAUDE.md` §11 "Run execution autonomy."
+- About to pause mid-run to ask permission for a step the current prompt already authorizes (e.g. an in-repo file edit the prompt mandates). DON'T — the plan is the authorization. The only legitimate mid-run stops are the module escalation loops and genuinely irreversible/outward-facing actions the plan didn't authorize (push/merge, deploy, external send, data deletion, spend). Editing in-repo files — including `docs/AGENTS.md`, skill files, code — is none of those, however important the file feels. See `docs/AGENTS.md` §11 "Run execution autonomy."
 - About to upgrade an in-flight `.md` run to `.yaml` because "the new format is better." NEVER. A run's format is fixed at its start; converting in place rewrites a frozen immutable body. Format conversion is the deferred migration ADR's job. Keep legacy runs on the legacy path.
 - About to hand-roll the `book_content_hash` (e.g. `sha256sum` of the book file, or your own canonicalizer). NEVER. Call `validate-promptbook`'s `compute_book_hash` — a raw-byte hash mismatches by the second advance (the book's run-state frontmatter changes by design), and a divergent canonicalizer breaks CHK-PB-BIND. There is exactly one correct serialization and the validator owns it.
 - About to send a `.yaml` file lacking `format_version` to the legacy `.md` parser, or a `.md` file to the `.yaml` path. NEVER — format-detect first (§"Format detection"); a `.yaml` without `format_version` is an ERROR, not a legacy doc.
@@ -401,6 +401,6 @@ Abandoning is a **run-level** act. It is how a book that will not finish still c
 - **Forgetting `running` state**: between `pending` and a terminal state, the active prompt is `running`. Skipping `running` is fine, but if you set `running` on advance N, you must transition it to a terminal state on advance N+1.
 - **Computing `total_prompts` from the snapshot body**: don't — it's the book's `total_prompts` (a `.md` book's frontmatter / a `.yaml` book's top-level key). The snapshot inherits the value at creation time (and `len(prompts)` must equal it — an audit cross-check).
 - **Marking `status: completed` while a prompt is still `running`**: the run is only complete when ALL prompts have terminal states (`done`/`skipped`/`blocked`). `status: completed` ⇔ all prompts terminal.
-- **Looking for a per-prompt archive-eligibility flag**: there isn't one. `blocked` is terminal for the run, so a run holding one still completes and the book archives as delivered. Archive eligibility is a RUN property — see `docs/CLAUDE.md` §11.B.
+- **Looking for a per-prompt archive-eligibility flag**: there isn't one. `blocked` is terminal for the run, so a run holding one still completes and the book archives as delivered. Archive eligibility is a RUN property — see `docs/AGENTS.md` §11.B.
 - **Using local timestamps**: always ISO 8601 UTC (`YYYY-MM-DDTHH:MM:SSZ`). Local times collide across timezones.
 - **Nulling the book's `current_run` on any terminal outcome — completed or abandoned**: don't. Only a book's current run can authorize its archive, and `archive-promptbook` reads `current_run` to find the completion or abandonment record. Null `current_prompt` only; `archive-promptbook` nulls `current_run` at archival.

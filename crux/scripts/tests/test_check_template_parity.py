@@ -43,19 +43,19 @@ import check_template_parity as ctp  # noqa: E402
 # ──────────────────────────────── helpers ────────────────────────────────────
 
 def _make_canonical(root: Path, body: str) -> Path:
-    """Write docs/CLAUDE.md in a synthetic root."""
+    """Write docs/AGENTS.md in a synthetic root."""
     docs = root / "docs"
     docs.mkdir(parents=True, exist_ok=True)
-    p = docs / "CLAUDE.md"
+    p = docs / "AGENTS.md"
     p.write_text(body, encoding="utf-8")
     return p
 
 
 def _make_twin(root: Path, body: str) -> Path:
-    """Write crux/templates/CLAUDE.md.tmpl in a synthetic root."""
+    """Write crux/templates/AGENTS.md.tmpl in a synthetic root."""
     tmpl_dir = root / "crux" / "templates"
     tmpl_dir.mkdir(parents=True, exist_ok=True)
-    p = tmpl_dir / "CLAUDE.md.tmpl"
+    p = tmpl_dir / "AGENTS.md.tmpl"
     p.write_text(body, encoding="utf-8")
     return p
 
@@ -78,8 +78,8 @@ def _make_manifest(root: Path, clauses: list) -> Path:
 _CLAUSE_TEMPLATE = {
     "id": "test-clause",
     "section": "§test section",
-    "canonical": "docs/CLAUDE.md",
-    "twin": "crux/templates/CLAUDE.md.tmpl",
+    "canonical": "docs/AGENTS.md",
+    "twin": "crux/templates/AGENTS.md.tmpl",
     "anchor": "## Test Heading",
     "pattern": "SENTINEL-VALUE",
 }
@@ -190,7 +190,7 @@ class TestDownstreamSimulation(ParityTestCase):
     def test_no_twin_yields_zero_findings(self):
         # canonical exists, twin does NOT
         _make_canonical(self.root, _CANONICAL_WITH_VALUE)
-        # deliberately do NOT create crux/templates/CLAUDE.md.tmpl
+        # deliberately do NOT create crux/templates/AGENTS.md.tmpl
         manifest = _make_manifest(self.root, [_CLAUSE_TEMPLATE])
 
         results = ctp.check_parity(manifest, self.root)
@@ -675,7 +675,7 @@ class TestNonUtf8File(ParityTestCase):
         # NOT skipped and the canonical read is reached.
         docs = self.root / "docs"
         docs.mkdir(parents=True, exist_ok=True)
-        (docs / "CLAUDE.md").write_bytes(b"\xff\xfe## Test Heading\n")
+        (docs / "AGENTS.md").write_bytes(b"\xff\xfe## Test Heading\n")
         _make_twin(self.root, _TWIN_WITH_VALUE)
         manifest = _make_manifest(self.root, [_CLAUSE_TEMPLATE])
 
@@ -763,7 +763,7 @@ class ShippedManifestLivenessTests(unittest.TestCase):
             from ._dev_surface import require_dev_surface
         except ImportError:  # unittest discover imports test modules top-level
             from _dev_surface import require_dev_surface
-        require_dev_surface(self, REPO_ROOT / "bionic" / "CLAUDE.md", "bionic/CLAUDE.md")
+        require_dev_surface(self, REPO_ROOT / "bionic" / "AGENTS.md", "bionic/AGENTS.md")
         results = ctp.check_parity(SCRIPTS_DIR / "template_parity_manifest.json", REPO_ROOT)
         self.assertTrue(results, "shipped manifest produced zero clauses — twins missing?")
         stale = [r for r in results if r["status"] == "STALE"]
@@ -847,7 +847,7 @@ class TestForgedLineBoundaries(ParityTestCase):
     character that makes the canonical section unresolvable does not merely
     degrade the check: it turns a real P2 DRIFT into an exit-0 run, and the
     drifted clause ships. No attacker is needed for either vector; a stray
-    U+00A0 pasted into either CLAUDE.md twin is enough.
+    U+00A0 pasted into either AGENTS.md twin is enough.
 
     TWO INDEPENDENT VECTORS, both closed, both pinned here:
 
@@ -1161,7 +1161,7 @@ class ManifestAlternativeLivenessTests(unittest.TestCase):
             from ._dev_surface import require_dev_surface
         except ImportError:  # unittest discover imports test modules top-level
             from _dev_surface import require_dev_surface
-        require_dev_surface(self, REPO_ROOT / "bionic" / "CLAUDE.md", "bionic/CLAUDE.md")
+        require_dev_surface(self, REPO_ROOT / "bionic" / "AGENTS.md", "bionic/AGENTS.md")
         manifest = json.loads(
             (SCRIPTS_DIR / "template_parity_manifest.json").read_text(encoding="utf-8")
         )

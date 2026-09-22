@@ -1,5 +1,5 @@
 """Tests for `survey_sheet.py` — the shared reader, validator, digest and
-state derivation for batch ratification (ADR-0098, docs/CLAUDE.md §17.5).
+state derivation for batch ratification (ADR-0098, docs/AGENTS.md §17.5).
 
 Shape of this suite: **one case per refusal, each paired with the near-miss
 control that must NOT refuse.** A refusal test on its own proves only that

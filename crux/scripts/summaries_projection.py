@@ -31,7 +31,7 @@ Key design points, honored exactly:
     observed/descriptive (ADR-0085 Decision 3).
   - The implementation map reads .yaml run snapshots only.
   - The input domain is active ADRs UNION `ratified` observations
-    (docs/CLAUDE.md §17; ADR-0095 requirement 4). An observation record is
+    (docs/AGENTS.md §17; ADR-0095 requirement 4). An observation record is
     read through the SAME record construction as an ADR entry, so the rule
     table, the resolver, and the content digest need no second parser. The
     record dict carries `source_kind` in {"adr", "observation"}; `source_adr`
@@ -224,7 +224,7 @@ def observations_dir(root: Path) -> Path:
     return observations_root(resolve_tree(root))
 
 
-# ── the observations half of the input domain (docs/CLAUDE.md §17) ─────────
+# ── the observations half of the input domain (docs/AGENTS.md §17) ─────────
 
 # The one observation status that projects rule rows, and the one that
 # projects a resolver ALIAS row only (ADR-0095 requirement 4). Every other
@@ -661,7 +661,7 @@ def _adr_body(text: str) -> str:
 # ── governs entry validation (ADR-0085 Decision 3 + the globally-unique
 #    handle assertion) ───────────────────────────────────────────────────────
 
-# The invariants concern's provenance enum (docs/CLAUDE.md §15.2), reused
+# The invariants concern's provenance enum (docs/AGENTS.md §15.2), reused
 # unchanged for `governs` records per ADR-0085 Decision 3 — one vocabulary,
 # not a second one minted here.
 PROVENANCE_ENUM = ("authored", "recovered", "reconstructed")
@@ -681,7 +681,7 @@ RULE_LENGTH_RECOMMENDED_MAX = 768
 # `rule_length_baseline` for why it is an enumerated set rather than a number.
 RULE_LENGTH_BASELINE_KEY = "governs_rule_baseline"
 
-# The CLOSED set of `governs` entry sub-fields (docs/CLAUDE.md §11.A). An entry
+# The CLOSED set of `governs` entry sub-fields (docs/AGENTS.md §11.A). An entry
 # carrying anything else is a validation error, and that refusal is the
 # MISTYPED-KEY half of ADR-0097 part 6's typo rule: before it, an unread key
 # was dropped in silence, so a `retire:` where `retires:` was meant left the
@@ -694,7 +694,7 @@ GOVERNS_SUBFIELDS = ("domain", "rule", "scope", "handle", "anchor",
 
 # An OBSERVATION entry draws from the same closed set, minus two sub-fields
 # refused in `_observation_shape_problems` for their own stated reasons
-# (docs/CLAUDE.md §17.1): `anchor`, because a record's claim is bound to code
+# (docs/AGENTS.md §17.1): `anchor`, because a record's claim is bound to code
 # by `anchor_id` rather than to a body span, and `retires`, because an
 # observation describes what the code does and cannot displace a decided rule.
 # Those two refusals name the sub-field; the allowlist below stays the SAME
@@ -1509,7 +1509,7 @@ def live_and_retired_slugs(
 def collect_records(adrs: Path, governs_from: int | None = None,
                     observations: Path | None = None) -> list[dict]:
     """One record per governs entry across active ADRs UNION `ratified`
-    observations (docs/CLAUDE.md §17; ADR-0095 requirement 4).
+    observations (docs/AGENTS.md §17; ADR-0095 requirement 4).
 
     Each record: handle, domain, rule, scope, anchor (raw: str | list | None),
     provenance, source_adr (the HOST record id), adr_num, source_kind,

@@ -2,7 +2,7 @@
 """survey_sheet.py — the batch review sheet, its receipt, and the batch state.
 
 The shared reader, validator, digest and state-derivation for batch
-ratification (ADR-0098; the protocol's source of truth is docs/CLAUDE.md
+ratification (ADR-0098; the protocol's source of truth is docs/AGENTS.md
 §17.5). Three callers import it and none of them re-derives any of it:
 
   * `scaffold-survey-sheet.py` writes a sheet with only machine cells filled;

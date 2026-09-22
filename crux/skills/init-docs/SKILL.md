@@ -26,15 +26,15 @@ This skill is portable across Claude Code, Codex, and OpenCode. This section ove
 
 ## Overview
 
-The bootstrap operation for the `crux` plugin. Runs once per repository. Creates the full seven-concern documentation tree (code, research, adrs, briefs, journal, promptbooks, invariants) plus the default-on derived arch spine and the default-on observations concern at the resolved `docs_dir` — `bionic/` for a new repository — plus the four root files (`CLAUDE.md`, `index.md`, `log.md`, `manifest.yml`) plus seeded sub-indexes. The invariants concern is ONE folder: the ledger, its `checks/` subdirectory, and `reconciliation.yml` all live inside the tree (see docs/CLAUDE.md §15). New repos enable the invariants concern **by default** at `schema_version: "5"`, enable the observations concern **by default** additively (docs/CLAUDE.md §17 — no `schema_version` bump), and init writes `.bionic.yml` naming the tree it created (merged, never clobbered, when a config already exists). Refuses to touch an existing tree unless `--force` is passed.
+The bootstrap operation for the `crux` plugin. Runs once per repository. Creates the full seven-concern documentation tree (code, research, adrs, briefs, journal, promptbooks, invariants) plus the default-on derived arch spine and the default-on observations concern at the resolved `docs_dir` — `bionic/` for a new repository — plus the four root files (`AGENTS.md`, `index.md`, `log.md`, `manifest.yml`) plus seeded sub-indexes. The invariants concern is ONE folder: the ledger, its `checks/` subdirectory, and `reconciliation.yml` all live inside the tree (see docs/AGENTS.md §15). New repos enable the invariants concern **by default** at `schema_version: "5"`, enable the observations concern **by default** additively (docs/AGENTS.md §17 — no `schema_version` bump), and init writes `.bionic.yml` naming the tree it created (merged, never clobbered, when a config already exists). Refuses to touch an existing tree unless `--force` is passed.
 
 **New-repo bootstrap only — never an in-place upgrade.** `init-docs` governs the greenfield bootstrap; it MUST NOT enable or upgrade the invariants concern in place in an established (populated) tree — that stays exclusively the opt-in path on the `audit-docs --migrate` rungs. `init-docs --force` on a populated tree is a destructive *re-bootstrap*, not a migration: it archives the existing tree to `${DOCS_DIR}.bak.${TODAY}/` (never deletes) and builds a fresh tree of seven concerns plus the derived arch spine at `schema_version: "5"` — a replacement, not an in-place migration of the old data. A user who wants to keep and upgrade an existing tree uses `audit-docs --migrate`.
 
 Core principle: **deterministic, idempotent-with-force, never partial**. Either the entire tree appears or none of it does. If a step fails midway, roll back what was written so the user retries cleanly.
 
-**Rollback contract.** Track every path this run writes as it is written, and record the PRIOR content of any pre-existing file it modifies (a merged `.bionic.yml`, the appended repo-root `CLAUDE.md` line, an overwritten `USER_GUIDE.md`) before mutating it. On failure: remove ONLY the recorded new paths — files first, then the now-empty directories bottom-up — and **refuse to remove any path not on the list** (report it instead; a directory whose contents are unaccounted for is never removed). Restore the recorded prior content of every modified pre-existing file. If the run archived an existing tree under `--force`, move `${ARCHIVE}` back to `${DOCS_DIR}` — unless `${DOCS_DIR}` still exists (the unaccounted-contents branch refused to clear it), in which case do NOT move and instead report both paths. Always state the archive path in the failure report. Never `rm -rf` the whole `${DOCS_DIR}/` directory.
+**Rollback contract.** Track every path this run writes as it is written, and record the PRIOR content of any pre-existing file it modifies (a merged `.bionic.yml`, the appended repo-root `AGENTS.md` line, an overwritten `USER_GUIDE.md`) before mutating it. On failure: remove ONLY the recorded new paths — files first, then the now-empty directories bottom-up — and **refuse to remove any path not on the list** (report it instead; a directory whose contents are unaccounted for is never removed). Restore the recorded prior content of every modified pre-existing file. If the run archived an existing tree under `--force`, move `${ARCHIVE}` back to `${DOCS_DIR}` — unless `${DOCS_DIR}` still exists (the unaccounted-contents branch refused to clear it), in which case do NOT move and instead report both paths. Always state the archive path in the failure report. Never `rm -rf` the whole `${DOCS_DIR}/` directory.
 
-This skill owns: the directory tree, the `CLAUDE.md` template substitution, `manifest.yml` generation (including language detection), the bootstrap meta-ADR, all root and sub-concern `index.md` headers, the seed `journal/YYYY-MM.md` for the current month, and the first `log.md` entry.
+This skill owns: the directory tree, the `AGENTS.md` template substitution, `manifest.yml` generation (including language detection), the bootstrap meta-ADR, all root and sub-concern `index.md` headers, the seed `journal/YYYY-MM.md` for the current month, and the first `log.md` entry.
 
 ## When to use
 
@@ -52,7 +52,7 @@ Do **not** use this skill for:
 
 - Working directory: the project root. In a git repo, resolve it via `git rev-parse --show-toplevel`; outside one, use the current working directory (git is an enhancement, never a requirement — the tree works identically untracked).
 - Flags: `--force` (overwrite an existing tree — destructive; confirm with user), `--no-adr-0000` (skip seeding the meta-ADR; rare; logged).
-- Templates: read from `${CRUX_PLUGIN_ROOT}/templates/` — `CLAUDE.md.tmpl`, the bootstrap meta-ADR template (see step 7), `manifest.yml.tmpl`, `objectives.md.tmpl` (see step 8), `USER_GUIDE.md`.
+- Templates: read from `${CRUX_PLUGIN_ROOT}/templates/` — `AGENTS.md.tmpl`, the bootstrap meta-ADR template (see step 7), `manifest.yml.tmpl`, `objectives.md.tmpl` (see step 8), `USER_GUIDE.md`.
 
 ## The pipeline
 
@@ -106,51 +106,53 @@ bionic/
   research/ideas/
   research/meetings/
   adrs/
-  adrs/reviews/               # the decision-review surface (docs/CLAUDE.md §4 adrs); empty at init, `.gitkeep`
+  adrs/reviews/               # the decision-review surface (docs/AGENTS.md §4 adrs); empty at init, `.gitkeep`
   briefs/
   journal/
   promptbooks/active/
   promptbooks/runs/
   promptbooks/archive/
-  invariants/                 # the invariants concern — ONE folder (docs/CLAUDE.md §15)
+  invariants/                 # the invariants concern — ONE folder (docs/AGENTS.md §15)
     checks/                   # executable check suite, inside the concern
-  arch/                       # the derived arch concern (docs/CLAUDE.md §4); index.md placeholder at init, spine DEFERRED to first derive
+  arch/                       # the derived arch concern (docs/AGENTS.md §4); index.md placeholder at init, spine DEFERRED to first derive
     index.md
-  observations/               # the observations concern (docs/CLAUDE.md §17); index.md seeded at init
+  observations/               # the observations concern (docs/AGENTS.md §17); index.md seeded at init
     index.md
 ```
 
 Add a `.gitkeep` file to each leaf directory that will otherwise be empty: `inbox/`, `research/raw/`, `research/sources/`, every `research/<category>/`, `adrs/reviews/`, `briefs/`, `promptbooks/active/`, `promptbooks/runs/`, `promptbooks/archive/`, `code/_meta/`, `invariants/checks/`. (In schema_version 3, the unified top-level `inbox/` replaced the old research-local `research/new/`.)
 
-**Invariants concern (enabled by default for new repos at `schema_version: "5"`; see docs/CLAUDE.md §15).** Eagerly create the concern's surfaces — do NOT defer them:
+**Invariants concern (enabled by default for new repos at `schema_version: "5"`; see docs/AGENTS.md §15).** Eagerly create the concern's surfaces — do NOT defer them:
 - `${DOCS_DIR}/invariants/index.md` — the ledger rollup (see step 8; a `Pins (0)` header that visibly marks non-ratified pins).
 - `${DOCS_DIR}/invariants/checks/` — the executable check suite, empty at init (`.gitkeep`).
-- `${DOCS_DIR}/invariants/reconciliation.yml` — the empty check↔pin reconciliation manifest (per docs/CLAUDE.md §15.4): `config_version: "1"` and `checks: []`.
+- `${DOCS_DIR}/invariants/reconciliation.yml` — the empty check↔pin reconciliation manifest (per docs/AGENTS.md §15.4): `config_version: "1"` and `checks: []`.
 
-**Arch concern (enabled by default for new repos; see docs/CLAUDE.md §4).** Create the concern's directory and a placeholder index — but DEFER the derived spine:
+**Arch concern (enabled by default for new repos; see docs/AGENTS.md §4).** Create the concern's directory and a placeholder index — but DEFER the derived spine:
 - `${DOCS_DIR}/arch/` — the derived arch concern's directory.
 - `${DOCS_DIR}/arch/index.md` — a placeholder index only (seeded in step 8), NOT the derived spine.
 - **DEFER the spine — init stays stdlib-only.** init MUST NOT invoke `derive-arch` / `derive-arch.py` at bootstrap. The first "build the arch" (a `derive-arch` run) or the first `audit-docs` (which fires the CHK-ARCH-1 check) builds the spine in place, overwriting the placeholder.
 
-**Observations concern (enabled by default for new repos, additively — no `schema_version` bump; see docs/CLAUDE.md §17).** Eagerly create the concern's surfaces — do NOT defer them:
+**Observations concern (enabled by default for new repos, additively — no `schema_version` bump; see docs/AGENTS.md §17).** Eagerly create the concern's surfaces — do NOT defer them:
 - `${DOCS_DIR}/observations/` — the concern's directory; one `OBS-NNNN-<slug>.md` file per record, none at init.
 - `${DOCS_DIR}/observations/index.md` — the concern rollup (see step 8; a `Records (0)` header that visibly marks non-ratified records).
 - No `.gitkeep`: `index.md` keeps the directory non-empty.
 
 **Conflict handling.** Step 2's guard handles anything pre-existing inside the resolved tree: STOP without `--force`, archive with it. There is no merge-into-a-partial-tree path. The v4 create-if-absent boundary rule is subsumed, not lost: with the check suite folded inside the tree, every pre-existing surface now sits inside the guarded directory, so the guard reaches all of it.
 
-### 5. Write `${DOCS_DIR}/CLAUDE.md` from template
+### 5. Write `${DOCS_DIR}/AGENTS.md` from template
 
-- Read `${CRUX_PLUGIN_ROOT}/templates/CLAUDE.md.tmpl`.
+- Read `${CRUX_PLUGIN_ROOT}/templates/AGENTS.md.tmpl`.
 - Substitute: `{{repo_name}}` → `${REPO_NAME}`, `{{today}}` → `${TODAY}`.
-- Write the result to `${REPO_ROOT}/${DOCS_DIR}/CLAUDE.md`.
+- Write the result to `${REPO_ROOT}/${DOCS_DIR}/AGENTS.md`.
+- **Write no `CLAUDE.md` sibling.** A fresh tree carries one managed instruction
+  filename; a second one would suppress it on a host reading the canonical name.
 - If the template file does not exist, **STOP** — the plugin is broken; tell the user to re-install.
 
 ### 6. Write `${DOCS_DIR}/manifest.yml`
 
 - Read `${CRUX_PLUGIN_ROOT}/templates/manifest.yml.tmpl`. **The literal `schema_version` value comes from the template (currently `"5"`) — the template is authoritative; the value echoed in this prose is for the reader's reference only and is NOT the source of truth.**
-- Substitute the one placeholder: `{{today}}` → `${TODAY}` **inside its quotes**, so the written value is `friction_line_from: "${TODAY}"` (the template quotes it so the template file itself stays YAML-parseable; the reader strips the quotes). Everything else is copied **verbatim** — its shipped literals are already the correct initial values: `schema_version: "5"`, `concerns_enabled: [code, research, adrs, briefs, journal, promptbooks, invariants, arch, observations]` (new repos enable the invariants concern, the derived arch concern, and the observations concern by default — docs/CLAUDE.md §15, §4, §17), `research.refresh_interval_days: 90`, `adr.next_number: 1` (the zeroth id is reserved for the meta-ADR; the first user ADR takes number 1), `promptbook.next_number: 1`, `observation.next_number: 1`.
-- **`journal.friction_line_from` — the friction adoption boundary.** A fresh tree records `${TODAY}`: the conforming journal writer is in use from the moment this skill creates the tree, so the tree measures friction from its first conforming entry rather than reading `unmeasurable` until someone hand-edits the key. If step 2 set `${PRIOR_FRICTION_FROM}`, write **that** date instead — a `--force` re-bootstrap preserves the tree's recorded boundary rather than resetting it forward, because moving the boundary forward silently stops counting entries that already conform. Never write a date earlier than `${TODAY}` on a greenfield tree, and never rewrite historical journal entries to match the boundary; the key is prospective (docs/CLAUDE.md §7).
+- Substitute the one placeholder: `{{today}}` → `${TODAY}` **inside its quotes**, so the written value is `friction_line_from: "${TODAY}"` (the template quotes it so the template file itself stays YAML-parseable; the reader strips the quotes). Everything else is copied **verbatim** — its shipped literals are already the correct initial values: `schema_version: "5"`, `concerns_enabled: [code, research, adrs, briefs, journal, promptbooks, invariants, arch, observations]` (new repos enable the invariants concern, the derived arch concern, and the observations concern by default — docs/AGENTS.md §15, §4, §17), `research.refresh_interval_days: 90`, `adr.next_number: 1` (the zeroth id is reserved for the meta-ADR; the first user ADR takes number 1), `promptbook.next_number: 1`, `observation.next_number: 1`.
+- **`journal.friction_line_from` — the friction adoption boundary.** A fresh tree records `${TODAY}`: the conforming journal writer is in use from the moment this skill creates the tree, so the tree measures friction from its first conforming entry rather than reading `unmeasurable` until someone hand-edits the key. If step 2 set `${PRIOR_FRICTION_FROM}`, write **that** date instead — a `--force` re-bootstrap preserves the tree's recorded boundary rather than resetting it forward, because moving the boundary forward silently stops counting entries that already conform. Never write a date earlier than `${TODAY}` on a greenfield tree, and never rewrite historical journal entries to match the boundary; the key is prospective (docs/AGENTS.md §7).
 - Then author `code.extractors`: one entry per detected language from step 3, with the canonical extractor name and a default glob (e.g., elixir → `mix-docs-json`, globs `["lib/**/*.ex", "lib/**/*.exs"]`), replacing the commented examples the template ships.
 - Write to `${REPO_ROOT}/${DOCS_DIR}/manifest.yml`.
 
@@ -165,7 +167,7 @@ Add a `.gitkeep` file to each leaf directory that will otherwise be empty: `inbo
 
 - `${META_ID}` = `ADR-` + `0000` (the reserved zeroth ADR id, assembled at write time); `${META_BASENAME}` = `${META_ID}-record-architecture-decisions.md`.
 - Read the meta-ADR template: `${CRUX_PLUGIN_ROOT}/templates/${META_BASENAME}`.
-- Substitute placeholders: `{{today}}` → `${TODAY}`, `{{repo_name}}` → `${REPO_NAME}`. (Same substitution rules as the `${DOCS_DIR}/CLAUDE.md` write in step 5.)
+- Substitute placeholders: `{{today}}` → `${TODAY}`, `{{repo_name}}` → `${REPO_NAME}`. (Same substitution rules as the `${DOCS_DIR}/AGENTS.md` write in step 5.)
 - Write to `${REPO_ROOT}/${DOCS_DIR}/adrs/${META_BASENAME}`.
 - Skip if `--no-adr-0000` was passed (rare; surface as a WARNING).
 
@@ -173,7 +175,7 @@ Add a `.gitkeep` file to each leaf directory that will otherwise be empty: `inbo
 
 Write the following files with **exactly these headers** (no extra content unless noted):
 
-**`${DOCS_DIR}/index.md`** — section order matches `docs/CLAUDE.md` §5 exactly: Research → ADRs → Briefs → Journal → Promptbooks → Code. ADRs use a table, not a bullet list. `${META_LINK}` = a double-bracket wiki-link to `adrs/` + the meta-ADR basename without `.md` (i.e. `adrs/${META_ID}-record-architecture-decisions` from step 7, wrapped in `[[ ]]`).
+**`${DOCS_DIR}/index.md`** — section order matches `docs/AGENTS.md` §5 exactly: Research → ADRs → Briefs → Journal → Promptbooks → Code. ADRs use a table, not a bullet list. `${META_LINK}` = a double-bracket wiki-link to `adrs/` + the meta-ADR basename without `.md` (i.e. `adrs/${META_ID}-record-architecture-decisions` from step 7, wrapped in `[[ ]]`).
 
 ```markdown
 # docs/${REPO_NAME}
@@ -215,7 +217,7 @@ No observation records yet. See [[observations/index]]. Records enter `observed`
 _No pages yet. Run `extract-code-docs` to populate. See [[code/index]] once present._
 ```
 
-**`${DOCS_DIR}/objectives.md`** — the placeholder objectives file, per `docs/CLAUDE.md` §5.B. Read `${CRUX_PLUGIN_ROOT}/templates/objectives.md.tmpl`, substitute `${REPO_NAME}` and `${TODAY}`, and write it verbatim otherwise: `maturity: placeholder` stays as written, because the value is what tells every later reader (the decision review, the cleanup nudge, the night gardener) to ask the owner to populate the file rather than cite it. Never draft a mission or a goal here; the owner writes those.
+**`${DOCS_DIR}/objectives.md`** — the placeholder objectives file, per `docs/AGENTS.md` §5.B. Read `${CRUX_PLUGIN_ROOT}/templates/objectives.md.tmpl`, substitute `${REPO_NAME}` and `${TODAY}`, and write it verbatim otherwise: `maturity: placeholder` stays as written, because the value is what tells every later reader (the decision review, the cleanup nudge, the night gardener) to ask the owner to populate the file rather than cite it. Never draft a mission or a goal here; the owner writes those.
 
 **`${DOCS_DIR}/log.md`**
 
@@ -325,14 +327,14 @@ _None yet._
 _None yet._
 ```
 
-**`${DOCS_DIR}/invariants/index.md`** — the invariants ledger rollup (docs/CLAUDE.md §15; visibly marks non-ratified pins):
+**`${DOCS_DIR}/invariants/index.md`** — the invariants ledger rollup (docs/AGENTS.md §15; visibly marks non-ratified pins):
 
 ```markdown
 # Invariants
 
 _Last updated: ${TODAY}_
 
-The invariants concern (`${DOCS_DIR}/CLAUDE.md` §15): pinned, ratified, executable statements of *what must be true*. Each pin is a ledger page here + zero-or-more checks in the `invariants/checks/` subdirectory, reconciled via `invariants/reconciliation.yml` beside the ledger. Non-`ratified` pins are visibly marked — survey-debt must be legible.
+The invariants concern (`${DOCS_DIR}/AGENTS.md` §15): pinned, ratified, executable statements of *what must be true*. Each pin is a ledger page here + zero-or-more checks in the `invariants/checks/` subdirectory, reconciled via `invariants/reconciliation.yml` beside the ledger. Non-`ratified` pins are visibly marked — survey-debt must be legible.
 
 ## Pins (0)
 
@@ -342,7 +344,7 @@ _No invariant pins yet. `recover-invariants` proposes `observed` candidates from
 |----|-------|------------|--------------|--------------|--------|-----|
 ```
 
-**`${DOCS_DIR}/invariants/reconciliation.yml`** — the empty check↔pin reconciliation manifest (docs/CLAUDE.md §15.4), inside the concern beside the ledger:
+**`${DOCS_DIR}/invariants/reconciliation.yml`** — the empty check↔pin reconciliation manifest (docs/AGENTS.md §15.4), inside the concern beside the ledger:
 
 ```yaml
 # invariants/reconciliation.yml — the invariants check↔pin reconciliation.
@@ -355,14 +357,14 @@ config_version: "1"
 checks: []
 ```
 
-**`${DOCS_DIR}/observations/index.md`** — the observations rollup (docs/CLAUDE.md §17; visibly marks non-ratified records):
+**`${DOCS_DIR}/observations/index.md`** — the observations rollup (docs/AGENTS.md §17; visibly marks non-ratified records):
 
 ```markdown
 # Observations
 
 _Last updated: ${TODAY}_
 
-The observations concern (`${DOCS_DIR}/CLAUDE.md` §17): records of *what the code already does*, each evidenced by a `path:line-range` and never by a code excerpt. A record describes; an ADR decides; an invariant prescribes. Non-`ratified` records are visibly marked — survey-debt must be legible, and it is reported as a count, never as a coverage percentage.
+The observations concern (`${DOCS_DIR}/AGENTS.md` §17): records of *what the code already does*, each evidenced by a `path:line-range` and never by a code excerpt. A record describes; an ADR decides; an invariant prescribes. Non-`ratified` records are visibly marked — survey-debt must be legible, and it is reported as a count, never as a coverage percentage.
 
 ## Records (0)
 
@@ -372,7 +374,7 @@ _No observation records yet. `propose-observation` and the `transition-decision`
 |----|--------|------------|--------|----------|-----------|--------------------|
 ```
 
-**`${DOCS_DIR}/arch/index.md`** — an honest placeholder for the derived arch concern (docs/CLAUDE.md §4). The spine is DEFERRED at init; `derive-arch` ("build the arch") OVERWRITES this whole file on its first run:
+**`${DOCS_DIR}/arch/index.md`** — an honest placeholder for the derived arch concern (docs/AGENTS.md §4). The spine is DEFERRED at init; `derive-arch` ("build the arch") OVERWRITES this whole file on its first run:
 
 ```markdown
 # Architecture
@@ -384,28 +386,32 @@ The arch spine is deferred at init — `derive-arch` ("build the arch"), or the 
 _No spine yet._
 ```
 
-### 9. Update the repo-root `CLAUDE.md` reference
+### 9. Update the repo-root `AGENTS.md` reference
 
-- If `${REPO_ROOT}/CLAUDE.md` exists and does not already reference the tree's `CLAUDE.md`, append:
+- If `${REPO_ROOT}/AGENTS.md` exists and does not already reference the tree's `AGENTS.md`, append:
 
   ```markdown
 
-  See `${DOCS_DIR}/CLAUDE.md` for documentation operations.
+  See `${DOCS_DIR}/AGENTS.md` for documentation operations.
   ```
 
 - If it does not exist, do **not** create one — that's the user's call. Surface a WARNING in the summary suggesting they add the reference.
+- If a repo-root `CLAUDE.md` exists, do **not** append the pointer to it and do **not**
+  delete it. Report it as a legacy instruction file with its remedy: it suppresses the
+  canonical `AGENTS.md` on a host reading the fallback, and `audit-docs --migrate`
+  converts it. Creating a second pointer would make the suppression permanent.
 
-For each existing repo-root `CLAUDE.md` and `AGENTS.md`, also add the following
+For each existing repo-root `AGENTS.md`, also add the following
 instruction unless the file already names `objectives.md`. Substitute `${DOCS_DIR}`:
 
 ```markdown
 Read `${DOCS_DIR}/objectives.md` before work of any size, and carry its context through every delegation.
-`${DOCS_DIR}/CLAUDE.md` §5.B is the one statement of what that means — who reads, when, what a delegation carries, how the mission bounds the work, and what to do when the file is missing or still a placeholder.[^objectives]
+`${DOCS_DIR}/AGENTS.md` §5.B is the one statement of what that means — who reads, when, what a delegation carries, how the mission bounds the work, and what to do when the file is missing or still a placeholder.[^objectives]
 
 [^objectives]: rule:objectives-read-before-work, rule:orchestrators-read-objectives-at-startup-and-resume, rule:objectives-shape-the-work-and-authorize-none, rule:objectives-context-travels-with-every-delegation, rule:objectives-populate-gate-never-invents-a-goal
 ```
 
-Preserve existing instructions and generated regions. If either root file is
+Preserve existing instructions and generated regions. If the root file is
 absent, include the suggested instruction in the existing warning; do not
 create that file solely for this addition.
 
@@ -415,7 +421,7 @@ create that file solely for this addition.
 - Substitute placeholders: `{{repo_name}}` → `${REPO_NAME}`, `{{today}}` → `${TODAY}`. Same substitution rules as steps 5 and 7.
 - Write to `${REPO_ROOT}/USER_GUIDE.md`.
 - **Overwrite rule:** if `${REPO_ROOT}/USER_GUIDE.md` already exists, overwrite ONLY when `--force` was passed AND the user has confirmed this overwrite explicitly — step 2's destructive-intent confirmation covers it when a tree guard fired, but with no existing tree this file gets its own prompt (the user may have customized it, and the overwrite is unrecoverable). Without `--force`, leave the existing file alone and surface a WARNING in the summary noting it was preserved.
-- The USER_GUIDE.md is for humans picking up the repo. It explains the mental model (you curate, Claude writes), enumerates the seven concerns, lists the natural-language phrases that trigger each skill, and gives a day-one quick start. It is NOT the operational schema — that's `docs/CLAUDE.md`.
+- The USER_GUIDE.md is for humans picking up the repo. It explains the mental model (you curate, Claude writes), enumerates the seven concerns, lists the natural-language phrases that trigger each skill, and gives a day-one quick start. It is NOT the operational schema — that's `docs/AGENTS.md`.
 
 ### 11. Validate the catalog
 
@@ -436,7 +442,8 @@ See below. If any item fails, roll back per the rollback contract (remove only t
 - [ ] All required subdirectories exist under `${DOCS_DIR}/` (inbox, code, code/_meta, research and 5 categories + raw + sources, adrs, briefs, journal, promptbooks/{active,runs,archive}, invariants, arch, observations) AND `invariants/checks/` INSIDE the concern. Note: `research/new/` is NOT created at schema_version 3 — the top-level `inbox/` replaces it.
 - [ ] No directory literally named `docs` was created on a greenfield default init — the literal name `docs` is retired as a layout; the tree lives at the resolved `${DOCS_DIR}` (`bionic/` by default). (Here `docs` means the literal directory name, not the §14.2 denotation of `<docs_dir>/`.)
 - [ ] The resolved `${REPO_ROOT}/${DOCS_DIR}` is not a symlink, and the other well-known location (`docs/` or `bionic/`, whichever was not resolved) does not hold a second valid crux manifest.
-- [ ] `${DOCS_DIR}/CLAUDE.md` exists, contains the substituted `${REPO_NAME}` (no remaining `{{...}}` placeholders).
+- [ ] `${DOCS_DIR}/AGENTS.md` exists, contains the substituted `${REPO_NAME}` (no remaining `{{...}}` placeholders).
+- [ ] No `${DOCS_DIR}/CLAUDE.md` sibling was written — a fresh tree carries one managed instruction filename.
 - [ ] `.bionic.yml` exists at the repo root and carries `docs_dir` naming the tree just created — written fresh, or merged from a pre-existing config with every prior key preserved (a WARNING was surfaced naming the merge).
 - [ ] `${DOCS_DIR}/manifest.yml` exists, parses as YAML, has `schema_version: "5"` (sourced from the template — see step 6), `concerns_enabled` includes `invariants`, `arch`, and `observations`, `adr.next_number: 1`, `promptbook.next_number: 1`, `observation.next_number: 1`.
 - [ ] `${DOCS_DIR}/manifest.yml` carries `journal.friction_line_from` as a quoted literal `"YYYY-MM-DD"` date — no `{{today}}` placeholder left unsubstituted, and never `null`. On a greenfield tree the value is `${TODAY}`; on a `--force` re-bootstrap over a tree that recorded one, it is `${PRIOR_FRICTION_FROM}`. Confirm the value the friction reader actually sees with `uv run "${CRUX_PLUGIN_ROOT}/scripts/adr-signals.py" --json` — its `friction_citations` record must report a `basis` naming the recorded adoption date, not `unmeasurable` with "the tree records no adoption date".
@@ -445,7 +452,7 @@ See below. If any item fails, roll back per the rollback contract (remove only t
 - [ ] `${DOCS_DIR}/observations/index.md` exists (Records (0)) and `${DOCS_DIR}/observations/` holds no other file — the observations concern is audit-clean at 0 records.
 - [ ] `${DOCS_DIR}/arch/` exists with a placeholder `index.md`, the spine was NOT built at init (deferred to the first `derive-arch` / `audit-docs`), and the master `${DOCS_DIR}/index.md` has NO `## Arch` section.
 - [ ] `${DOCS_DIR}/log.md` exists with exactly one `## [${TODAY}] init |` entry, and its body records schema_version 5 (agreeing with the manifest).
-- [ ] `${DOCS_DIR}/objectives.md` exists, carries `maturity: placeholder`, the substituted `${REPO_NAME}`, and the three H2 headings `## Mission`, `## Goals`, `## Shifts` in that order (per `docs/CLAUDE.md` §5.B).
+- [ ] `${DOCS_DIR}/objectives.md` exists, carries `maturity: placeholder`, the substituted `${REPO_NAME}`, and the three H2 headings `## Mission`, `## Goals`, `## Shifts` in that order (per `docs/AGENTS.md` §5.B).
 - [ ] `${DOCS_DIR}/adrs/${META_BASENAME}` exists (unless `--no-adr-0000`).
 - [ ] `${DOCS_DIR}/adrs/index.md` exists with the meta-ADR row.
 - [ ] `${DOCS_DIR}/research/sources.md` has the nine-column header and no rows.
@@ -459,9 +466,10 @@ See below. If any item fails, roll back per the rollback contract (remove only t
 - [ ] No remaining `{{...}}` placeholders anywhere under `${DOCS_DIR}/`.
 - [ ] If the repo root carries an `AGENTS.md`, its objectives block was appended and no
       pre-existing content was rewritten. If it carries none, nothing was created.
-- [ ] If the repo root carries a `CLAUDE.md`, step 9's objectives block was appended there too,
+- [ ] If the repo root carries an `AGENTS.md`, step 9's objectives block was appended there too,
       preserving existing content and generated regions. If it carries none, nothing was created.
-- [ ] Repo-root `CLAUDE.md` either already references the tree's `CLAUDE.md` or a WARNING was surfaced.
+- [ ] Repo-root `AGENTS.md` either already references the tree's `AGENTS.md` or a WARNING was surfaced.
+- [ ] A repo-root `CLAUDE.md`, if present, was reported as a legacy suppressor with its remedy and left unedited.
 - [ ] `${CRUX_PLUGIN_ROOT}/catalog/skills.json` and `${CRUX_PLUGIN_ROOT}/catalog/bundles.yml` both exist; `uv run "${CRUX_PLUGIN_ROOT}/scripts/validate-catalog.py" --dry-run` exits 0 against them.
 - [ ] `${REPO_ROOT}/USER_GUIDE.md` exists, contains the substituted `${REPO_NAME}`, has no remaining `{{...}}` placeholders. (Or — if a pre-existing USER_GUIDE.md was preserved without `--force` + explicit confirmation — a WARNING was surfaced.)
 
@@ -470,13 +478,13 @@ See below. If any item fails, roll back per the rollback contract (remove only t
 - About to silently assume the project root in a non-git directory. Don't refuse (git is optional) — but don't guess either: confirm the root with the user first. A wrong root is the actual hazard.
 - About to overwrite an existing tree without `--force` and explicit user confirmation.
 - About to skip language detection and ship an empty `code.extractors[]` silently. Surface a WARNING instead.
-- About to leave literal `{{today}}` or `{{repo_name}}` in any seeded file (CLAUDE.md, the meta-ADR, `manifest.yml`, etc.). Always substitute before writing.
+- About to leave literal `{{today}}` or `{{repo_name}}` in any seeded file (AGENTS.md, the meta-ADR, `manifest.yml`, etc.). Always substitute before writing.
 - About to write `manifest.yml` with `journal.friction_line_from: null` or an unsubstituted `{{today}}`. Either one leaves every friction reader `unmeasurable` on a tree that has a conforming journal writer from day one — the defect this key exists to prevent.
 - About to reset `journal.friction_line_from` to `${TODAY}` on a `--force` re-bootstrap of a tree that already recorded an earlier date. Carry the recorded date forward: moving the boundary forward silently stops counting entries that already conform.
 - About to write `manifest.yml` with `adr.next_number: 0`. The next user ADR takes number 1; 0 is reserved for the meta-ADR.
 - About to mark `init-docs` complete with `validate-catalog.py` exit 1. That means the plugin install shipped catalog drift — the user's catalog is broken from day one. Roll back per the rollback contract and surface the drift JSON. The fix is re-installing the plugin via the marketplace flow, not patching `catalog/skills.json` by hand (regenerative invariant).
 - About to leave a partial tree behind because step 7 or 8 failed. Roll back fully.
-- About to silently edit the repo-root `CLAUDE.md`. Two appends are sanctioned and no others: the one-line tree reference (skip it if already referenced), and step 9's objectives block (skip it if the file already names `objectives.md`). Both append and preserve existing content and generated regions; neither creates a file that does not exist. Anything beyond those two is a silent edit — don't.
+- About to silently edit the repo-root `AGENTS.md`. Two appends are sanctioned and no others: the one-line tree reference (skip it if already referenced), and step 9's objectives block (skip it if the file already names `objectives.md`). Both append and preserve existing content and generated regions; neither creates a file that does not exist. Anything beyond those two is a silent edit — don't.
 - About to create the tree but skip the `## [${TODAY}] init |` log entry. The audit relies on this entry to know the schema version was bootstrapped today.
 - About to overwrite a pre-existing `USER_GUIDE.md` at repo root without `--force` AND an explicit per-file confirmation. The user may have customized it; preserve it and surface a WARNING.
 - About to leave a stale `USER_GUIDE.md` referencing a different `{{repo_name}}` after `--force` regeneration. Always substitute.

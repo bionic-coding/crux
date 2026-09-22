@@ -8,7 +8,7 @@
 The fourteenth regenerative output (ADR-0056 enrollment discipline, introduced by
 [[adrs/ADR-0092]]). One source of truth — skill frontmatter, read from the
 already-regenerated `crux/catalog/skills.json` — projected into the §10 "Skill
-invocation table" of `<tree>/CLAUDE.md`, between the markers:
+invocation table" of `<tree>/AGENTS.md`, between the markers:
 
     <!-- BEGIN GENERATED: routing-table -->
     <!-- END GENERATED: routing-table -->
@@ -77,7 +77,7 @@ def _repo_root(explicit: str | None) -> Path:
 
 
 def _tree_name(root: Path) -> str:
-    """Resolve the tree directory; the schema's CLAUDE.md lives inside it."""
+    """Resolve the tree directory; the schema's AGENTS.md lives inside it."""
     import importlib.util as _ilu
 
     path = Path(__file__).resolve().parent / "bionic_config.py"
@@ -256,7 +256,7 @@ def run(root: Path, dry_run: bool) -> tuple[int, dict]:
 
     region, no_triggers = build_region(skills)
 
-    rel = f"{_tree_name(root)}/CLAUDE.md"
+    rel = f"{_tree_name(root)}/AGENTS.md"
     path = root / rel
     if not path.is_file():
         return 0, _scope.surface_absent_payload(

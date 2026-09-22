@@ -1,4 +1,4 @@
-"""Tests for `survey.py` — the scripted survey sequence (docs/CLAUDE.md §17.2).
+"""Tests for `survey.py` — the scripted survey sequence (docs/AGENTS.md §17.2).
 
 `survey.py` runs the two deterministic ends of the survey (`derive` and
 `project`), reports the human step in the middle (`mine`, read-only), and

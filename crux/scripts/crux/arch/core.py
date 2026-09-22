@@ -2485,7 +2485,7 @@ def roster_problems(
     of ADR ids the caller has already resolved as active — this function does
     no ADR resolution of its own, so that logic has exactly one definition
     (`summaries_projection.adr_paths` plus the `Proposed | Accepted` status
-    filter, per `docs/CLAUDE.md` §4 "adrs").
+    filter, per `docs/AGENTS.md` §4 "adrs").
 
     Four rules, four distinct message prefixes, each naming the offending
     qualified name or ADR id — the positive controls discriminate on content,

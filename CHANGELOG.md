@@ -1,4 +1,4 @@
-<!-- generated-from: CHANGELOG.md@sha256:8345e157cf253d81548b8676ba83b8402aa78df7a9c24ee3b32bf373d20f3d84; model: claude-fable-5.1; date: 2026-09-18 -->
+<!-- generated-from: CHANGELOG.md@sha256:3d7b24d050965d683efc6f60313a571a3d17f2be0125c908bfc5f24f74e9e7dc; model: claude-fable-5.1; date: 2026-09-21 -->
 # Changelog
 
 All notable changes to crux. The format roughly follows [Keep a Changelog](https://keepachangelog.com/) and the project adheres to [Semantic Versioning](https://semver.org/).
@@ -12,6 +12,21 @@ All notable changes to crux. The format roughly follows [Keep a Changelog](https
 ### Fixed
 
 ### Removed
+
+## [3.19.0] — 2026-09-22
+
+### Added
+
+- `AGENTS.md` is now the canonical repository instruction file at every scope crux manages. Codex and OpenCode read it directly, and Claude Code reads it on supported distributions from version 2.1.277 onward, as long as no suppressing file takes precedence. The bundled `check-claude-compat.py` script reports your host version, distribution, built-in state, the effective `instructionFiles` mode, and any suppressors behind its verdict.
+- `audit-docs` now discovers and migrates legacy instruction files. A plain audit reports checks CHK-INSTR-1 through CHK-INSTR-5; `audit-docs --migrate` applies a validated migration plan. Only tracked files in the current checkout are modified — vendored dependencies and linked worktrees are left alone — while the audit also flags untracked files that could silence the canonical file. Every reported suppressor comes with a remedy, and only a suppressor on the path from the repository root to your working directory counts as a compatibility failure.
+- When migration merges instruction files, a block is deduplicated only if both its bytes and its heading ancestry match. The migration receipt maps every source block's heading path to its result, and the migration refuses to complete if that accounting does not balance.
+- For hosts that cannot read `AGENTS.md`, an opt-in compatibility adapter is available via the bundled `build-claude-adapter.py` script, which both generates and audits adapters. The audit reports stale, removable, incomplete, and orphan adapters. Generation refuses to write to a destination that was not itself generated, a denylisted path, a symlink, or any target outside the repository.
+- The model registry gains a `jev-1.13` entry for `typesafe/jev-1.13`, a structured decision model served on the gateway's Decisions route rather than chat completions. No catalog alias or model role points to it, so no agent or council seat resolves to it; the adapter that calls it is a development-only experiment and is not included in this release.
+
+### Changed
+
+- In the development repository, the root `AGENTS.md` now holds the instructions previously split across several root instruction files, and `bionic/AGENTS.md` replaces `bionic/CLAUDE.md`. The root file is the source for generated writing rules rather than one of their outputs, so no generator reads and writes the same path. Readers, generators, templates, tests, and release checks were updated together; frozen history is unchanged.
+- The per-request data-retention denial (`provider.data_collection`) sent to the gateway is now built by a single shared `provider_object()` function exported from the gateway client and used by every route. Behaviour is unchanged: every request still carries the denial, and the serving-provider pin is still added only when the registry entry specifies one.
 
 ## [3.18.1] — 2026-09-18
 

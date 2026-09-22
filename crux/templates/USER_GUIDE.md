@@ -2,7 +2,7 @@
 
 This project keeps its documentation in `bionic/` — seven concerns maintained by the `crux` Claude Code plugin. **You do not write these docs by hand.** You curate, decide, and discuss. Claude does the bookkeeping.
 
-This guide is for humans. If you are an LLM agent picking up this repo, read `bionic/CLAUDE.md` — that's the operational schema.
+This guide is for humans. If you are an LLM agent picking up this repo, read `bionic/AGENTS.md` — that's the operational schema.
 
 ---
 
@@ -293,7 +293,7 @@ For rotation: `rm` the old, `set` the new. (A future `rotate` subcommand may do 
 
 ### Where to read more
 
-- `bionic/CLAUDE.md` §13 — the full byte-level spec for the secrets store and CLI contract.
+- `bionic/AGENTS.md` §13 — the full byte-level spec for the secrets store and CLI contract.
 
 ---
 
@@ -301,7 +301,7 @@ For rotation: `rm` the old, `set` the new. (A future `rotate` subcommand may do 
 
 You just cloned this repo. Read in this order:
 
-1. **`bionic/CLAUDE.md`** (~1000 lines — skim §1–§7 first) — the operational schema. The single source of truth for what lives where and who edits what.
+1. **`bionic/AGENTS.md`** (~1000 lines — skim §1–§7 first) — the operational schema. The single source of truth for what lives where and who edits what.
 2. **`bionic/index.md`** — rollup catalog of everything. Section per concern with counts.
 3. **`bionic/adrs/`** — start at the meta-ADR (numbered 0000), walk forward in number order. This is the "why" of the project.
 4. **`bionic/journal/`** — the most recent month tells you what's happening now.
@@ -327,7 +327,7 @@ If something feels wrong (a contradiction, a stale page, a missing source), say 
 
 - Write `bionic/briefs/BRIEF-<slug>.md` files — these are *your* pre-decision exploration. Claude tracks them but doesn't author them.
 - Co-author the `## Goal`, `## Strategy`, and `## Prompts` sections of an active promptbook.
-- Edit the repo-root `CLAUDE.md` to add project-specific notes Claude should know about (just don't remove the `See bionic/CLAUDE.md` line).
+- Edit the repo-root `AGENTS.md` to add project-specific notes Claude should know about (just don't remove the `See bionic/AGENTS.md` line).
 
 ---
 
@@ -363,11 +363,16 @@ This project uses the `crux` documentation tree at `schema_version 5` (the
 `/plugin marketplace add bionic-coding/crux` and `/plugin install crux@crux`.
 In Codex, use `codex plugin marketplace add bionic-coding/crux` and
 `codex plugin add crux@crux`. Update with the same commands for your platform.
-After upgrading, run `audit-docs --migrate` if the tree uses an older
-`schema_version`. Codex users can install the ten Crux role agents personally
-with the `install-codex-agents` skill.
-
-When the plugin's schema changes, run *"audit docs --migrate"* to bring `bionic/` up to date.
+After upgrading from a release before 3.19.0, say *"audit docs --migrate"* even when
+`schema_version` is already `"5"`. The migration converts tracked `CLAUDE.md` files
+to `AGENTS.md`. When both files exist at one scope, it preserves unique blocks and
+removes only exact duplicates under the same heading path. If a heading conflicts or
+a block cannot retain its heading ancestry, the migration keeps both source files and
+writes `.instruction-migration-preview.md`. Reconcile each named block in a JSON
+resolution file that copies `source_hashes` from `.instruction-migration-receipt.json`,
+then say *"audit docs --migrate using the resolution file at `<path>`"*. It reports
+untracked and private suppressors without editing them. Codex users can install the
+ten Crux role agents personally with the `install-codex-agents` skill.
 
 ---
 

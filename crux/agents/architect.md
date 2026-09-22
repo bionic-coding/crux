@@ -78,7 +78,7 @@ preserve). Write those three there at authoring time, because the
 narrow the first of them and record the narrowing in its snapshot, but nobody
 recovers a bar that was never written. A step whose completion no one could
 observe is a step you have not finished specifying. The full rules live in
-`docs/CLAUDE.md` §11, "The assignment contract".
+`docs/AGENTS.md` §11, "The assignment contract".
 
 ## Capability-gap reflex (embedded discipline)
 **Capability-gap reflex:** Doing something manually for the third time, about to say "I can't," or wishing for a tool that doesn't exist? That's a capability gap — invoke the `forge-skill` skill to author or revise a project-local skill that closes it. If you lack either the Skill tool or file-write access, report the gap to your lead instead of working around it.

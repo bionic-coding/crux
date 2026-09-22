@@ -1,4 +1,4 @@
-"""Tests for the observations concern (docs/CLAUDE.md §17).
+"""Tests for the observations concern (docs/AGENTS.md §17).
 
 Covers the four CHK-OBS audit rules via the reference checker
 `check_observations.py` (§17.3), the concern-disabled / missing-directory

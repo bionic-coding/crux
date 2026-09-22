@@ -26,7 +26,7 @@ This skill is portable across Claude Code, Codex, and OpenCode. This section ove
 
 ## Overview
 
-Every derived artifact in this repo has a vendored regenerator and a `--dry-run` drift gate — the enrollment roster is the "regenerative outputs" table in the repo-root `CLAUDE.md`. This skill runs **all** of those gates in one read-only pass and reports a single table, so a developer or a release gate learns in one step whether any regenerated output has drifted from its source.
+Every derived artifact in this repo has a vendored regenerator and a `--dry-run` drift gate — the enrollment roster is the "regenerative outputs" table in the repo-root `AGENTS.md`. This skill runs **all** of those gates in one read-only pass and reports a single table, so a developer or a release gate learns in one step whether any regenerated output has drifted from its source.
 
 It is the whole-tree counterpart to `verify-code-docs`, which runs the one `code/` gate. Same contract, wider surface: **it never regenerates anything.** For every drifted or broken gate it names the regenerator the user runs to fix it.
 
@@ -75,14 +75,14 @@ Run each command below from the repo root — **both tables**: the roster gates 
 | `README.md` version footer | plugin-authoring | `generate-readme-footer.py --dry-run` | `generate-readme-footer.py` |
 | writing-rules block (3 surfaces) | plugin-authoring | `generate-writing-rules.py --dry-run` | `generate-writing-rules.py` |
 | runtime-compatibility block (56 skills) | plugin-authoring | `generate-runtime-compat.py --dry-run` | `generate-runtime-compat.py` |
-| `<tree>/CLAUDE.md` §10 routing-table region | plugin-authoring | `generate-routing-table.py --dry-run` | `generate-routing-table.py` |
+| `<tree>/AGENTS.md` §10 routing-table region | plugin-authoring | `generate-routing-table.py --dry-run` | `generate-routing-table.py` |
 | `<docs_dir>/adrs/reviews/index.md` | project | `generate-reviews-index.py --dry-run` | `generate-reviews-index.py` |
 | `<docs_dir>/journal/index.md` | project | `generate-journal-index.py --dry-run` | `generate-journal-index.py` |
 | `crux/catalog/rules.json` (the rules the plugin ships) | plugin-authoring | `generate-rules-catalog.py --dry-run` | `generate-rules-catalog.py` |
 
 > **This row's gate answers two questions, and only one of them is drift.** Beside the byte comparison it checks PUBLICATION ELIGIBILITY: every slug cited on a shipped surface must resolve to a source record whose decision has been accepted.[^pubelig] A refusal exits 1 with a `validation_errors` list rather than a `drift` key, and each row names the citing path, the citation, the source record, its raw status and the reason. **File such a row BROKEN, never DRIFT, and do not name the regenerator as its remedy** — re-running it refuses again. The remedy depends on the row's reason: accept a Proposed decision; for a Deprecated or Superseded one, migrate the citation to the rule that displaced it or remove it; an observation-backed rule needs an owner decision before it can ship. A status change moves no byte of the catalog, so a row reported clean by byte comparison alone would be a false green here.
 
-Invoke each via `uv run "${CRUX_PLUGIN_ROOT}/scripts/<name>" ...` from the repo root. This roster is the source of truth for what a derived artifact owes; if the repo-root `CLAUDE.md` roster grows a row, add its gate here.
+Invoke each via `uv run "${CRUX_PLUGIN_ROOT}/scripts/<name>" ...` from the repo root. This roster is the source of truth for what a derived artifact owes; if the repo-root `AGENTS.md` roster grows a row, add its gate here.
 
 **In the plugin's own development repository that sentence is mechanical rather than a request.** A runner there parses the table above as its operational declaration and executes every row. It binds three surfaces: the repo-root roster's drift-check column (the MEMBERSHIP record), this table (the OPERATIONAL declaration), and the runner's own execution set. A generator enrolled in the roster and missing from this table fails a test rather than going unrun. **That runner is development tooling and is not part of the plugin** — a release stages the plugin directory alone, so an installed copy does not carry it, and a downstream reader follows this skill's own steps instead. The split between the two tables is the one this skill already stated; what changed upstream is that disagreeing with it is detectable.
 
@@ -113,7 +113,7 @@ that is a defect to report, not drift to fix.[^scope]
 
 ### 1.A. Run the validation checks
 
-A validation check is not a drift gate. It regenerates nothing, so it owns no row in the repo-root `CLAUDE.md` "regenerative outputs" roster, and enrolling it there would break the derived-artifact rule rather than keep it — a roster row promises a regenerator, and a validation check has none to promise. The roster count is unchanged by this section, and `audit-docs`'s CHK-DRIFT-1 still covers twelve outputs.
+A validation check is not a drift gate. It regenerates nothing, so it owns no row in the repo-root `AGENTS.md` "regenerative outputs" roster, and enrolling it there would break the derived-artifact rule rather than keep it — a roster row promises a regenerator, and a validation check has none to promise. The roster count is unchanged by this section, and `audit-docs`'s CHK-DRIFT-1 still covers twelve outputs.
 
 Run each check below from the repo root, after the drift gates and before the report.
 
@@ -170,7 +170,7 @@ for a reason that has nothing to do with drift.
 
 Never write "all gates clean" while `skipped/inapplicable` or `no evidence` is above zero. Say how many measured nothing, and name them.
 
-**A measured zero is not no evidence.** A gate with extractors configured that finds zero drift inspected its inputs and found them in sync; that is a real pass and belongs in `executed passing`. Only a gate that inspected nothing belongs in `no evidence`. **A gate that inspected the plugin's own copy of itself measured nothing about this project either**, and is never recorded as `executed passing` for a project row — that reading is what let a downstream run report the plugin's 56 shipped skills as a clean project gate. Do not collapse the two, and never drop a row from the roster to improve the pass count -- membership is fixed by the repo-root `CLAUDE.md` roster, not by how a run turned out.
+**A measured zero is not no evidence.** A gate with extractors configured that finds zero drift inspected its inputs and found them in sync; that is a real pass and belongs in `executed passing`. Only a gate that inspected nothing belongs in `no evidence`. **A gate that inspected the plugin's own copy of itself measured nothing about this project either**, and is never recorded as `executed passing` for a project row — that reading is what let a downstream run report the plugin's 56 shipped skills as a clean project gate. Do not collapse the two, and never drop a row from the roster to improve the pass count -- membership is fixed by the repo-root `AGENTS.md` roster, not by how a run turned out.
 
 For DRIFT rows, the recommended fix is the third-column regenerator. For BROKEN rows, the fix is repairing the named input, then re-running its regenerator — except a validation-check row, whose fix is editing the authored text the finding names, with no regenerator involved. For CRASH rows, the fix is the environment. For a REFUSAL row, the fix is the named upstream input's regenerator, then a re-derive.
 
@@ -238,7 +238,7 @@ Body, 1–3 lines: the summary line, and for any non-clean gate its name plus th
 - `verify-code-docs` — the single-gate version: the read-only drift check for just the `code/` concern. This skill is that pattern applied to every enrolled regenerator.
 - `audit-docs` — the document-graph integrity walk; its CHK-CAT-3 / CHK-CODE-4 / CHK-ARCH-1 run three of these gates individually, and CHK-DRIFT-1 folds in the rest.
 - `compile-doctrine`, `derive-arch`, `link-adr-graph`, `extract-code-docs` — the skills that actually regenerate the outputs this skill only checks.
-- The repo-root `CLAUDE.md` "regenerative outputs" table — the enrollment roster this skill's gate list mirrors. The validation checks of §1.A are deliberately absent from it.
+- The repo-root `AGENTS.md` "regenerative outputs" table — the enrollment roster this skill's gate list mirrors. The validation checks of §1.A are deliberately absent from it.
 
 [^retired]: `rule:retired-cite-fails-lint` — a retired slug fails the lint, and the failure names the rule that displaced it.
 

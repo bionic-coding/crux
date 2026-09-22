@@ -3,7 +3,7 @@
 Pins four surfaces to the decision they implement
 (rule:footnote-definition-names-the-rule, rule:rule-slug-citation-token):
 
-  1. canonical writing rule 7 in the repo-root CLAUDE.md — footnote form kept,
+  1. canonical writing rule 7 in the repo-root AGENTS.md — footnote form kept,
      the definition names the rule and carries no ADR number;
   2. the prose-review skill — a seventh check beside the six, and every count
      word in its body agrees with the number of rules the generated region
@@ -15,8 +15,8 @@ Pins four surfaces to the decision they implement
      twin has.
 
 Every expectation is derived from disk — no rule count, slug or line number is
-a literal here. Dev-only surfaces (the repo-root CLAUDE.md, the tree's
-CLAUDE.md, the summaries resolver) are guarded with `require_dev_surface` so
+a literal here. Dev-only surfaces (the repo-root AGENTS.md, the tree's
+AGENTS.md, the summaries resolver) are guarded with `require_dev_surface` so
 the file is inert against the staged sync artifact; the skill, the twin and the
 parity manifest ship and are read unguarded.
 """
@@ -36,17 +36,17 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 SCRIPTS = REPO_ROOT / "crux" / "scripts"
 
 try:  # package-relative when run as a module, flat when run by discovery
-    from ._dev_surface import TREE, TREE_CLAUDE_MD, require_dev_surface
+    from ._dev_surface import TREE, TREE_AGENTS_MD, require_dev_surface
 except ImportError:  # pragma: no cover
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from _dev_surface import TREE, TREE_CLAUDE_MD, require_dev_surface
+    from _dev_surface import TREE, TREE_AGENTS_MD, require_dev_surface
 
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
-ROOT_CLAUDE_MD = REPO_ROOT / "CLAUDE.md"
+ROOT_AGENTS_MD = REPO_ROOT / "AGENTS.md"
 SKILL_MD = REPO_ROOT / "crux" / "skills" / "prose-review" / "SKILL.md"
-TWIN = REPO_ROOT / "crux" / "templates" / "CLAUDE.md.tmpl"
+TWIN = REPO_ROOT / "crux" / "templates" / "AGENTS.md.tmpl"
 PARITY_MANIFEST = SCRIPTS / "template_parity_manifest.json"
 RESOLVER = REPO_ROOT / TREE / "adrs" / "summaries" / "resolver.json"
 
@@ -125,9 +125,9 @@ class CanonicalRuleSevenTests(unittest.TestCase):
     """Task 1 — the canonical rule keeps its form and changes its content."""
 
     def setUp(self) -> None:
-        require_dev_surface(self, ROOT_CLAUDE_MD, "repo-root CLAUDE.md")
+        require_dev_surface(self, ROOT_AGENTS_MD, "repo-root AGENTS.md")
         require_dev_surface(self, RESOLVER, f"{TREE}/adrs/summaries/resolver.json")
-        block = _region(ROOT_CLAUDE_MD.read_text(encoding="utf-8"), CANONICAL_BEGIN, CANONICAL_END)
+        block = _region(ROOT_AGENTS_MD.read_text(encoding="utf-8"), CANONICAL_BEGIN, CANONICAL_END)
         self.n_rules = len(_RULE_HEAD.findall(block))
         self.rule = _rule_paragraph(block, self.n_rules)
         self.live_slugs = json.loads(RESOLVER.read_text(encoding="utf-8"))["slugs"]
@@ -205,14 +205,14 @@ class ProseReviewSkillTests(unittest.TestCase):
         The count is read off the canonical block on disk, never spelled here: a
         literal seven is the frozen-world value this whole surface keeps tripping on.
         """
-        require_dev_surface(self, ROOT_CLAUDE_MD, "repo-root CLAUDE.md")
-        require_dev_surface(self, TREE_CLAUDE_MD, f"{TREE}/CLAUDE.md")
+        require_dev_surface(self, ROOT_AGENTS_MD, "repo-root AGENTS.md")
+        require_dev_surface(self, TREE_AGENTS_MD, f"{TREE}/AGENTS.md")
         canonical = _region(
-            ROOT_CLAUDE_MD.read_text(encoding="utf-8"), CANONICAL_BEGIN, CANONICAL_END
+            ROOT_AGENTS_MD.read_text(encoding="utf-8"), CANONICAL_BEGIN, CANONICAL_END
         )
         n = len(_RULE_HEAD.findall(canonical))
         word = _NUMBER_WORDS[n]
-        text = TREE_CLAUDE_MD.read_text(encoding="utf-8")
+        text = TREE_AGENTS_MD.read_text(encoding="utf-8")
         start = text.index(SECTION_16_ANCHOR)
         # the preamble only — the generated region below it is the regenerator's to own
         preamble = text[start:text.index(GENERATED_BEGIN, start)]
@@ -221,7 +221,7 @@ class ProseReviewSkillTests(unittest.TestCase):
             preamble.lower(),
             f"§16's preamble must state the {n} rules the canonical block carries",
         )
-        _assert_no_stale_count_word(self, preamble, n, f"{TREE}/CLAUDE.md §16 preamble")
+        _assert_no_stale_count_word(self, preamble, n, f"{TREE}/AGENTS.md §16 preamble")
 
     def test_last_check_is_the_footnote_definition_check(self) -> None:
         heads = list(_CHECK_HEAD.finditer(self.body))
@@ -269,8 +269,8 @@ class SectionNineAddendumTests(unittest.TestCase):
         self.assertNotIn("[[adrs/", line)
 
     def test_canonical_addendum_is_byte_identical_to_the_twin(self) -> None:
-        require_dev_surface(self, TREE_CLAUDE_MD, f"{TREE}/CLAUDE.md")
-        canon = self._addendum(TREE_CLAUDE_MD.read_text(encoding="utf-8"), "canonical")
+        require_dev_surface(self, TREE_AGENTS_MD, f"{TREE}/AGENTS.md")
+        canon = self._addendum(TREE_AGENTS_MD.read_text(encoding="utf-8"), "canonical")
         twin = self._addendum(TWIN.read_text(encoding="utf-8"), "twin")
         self.assertEqual(canon, twin)
 
@@ -325,13 +325,13 @@ class ParityManifestClauseTests(unittest.TestCase):
         self.assertIn("pattern", clause)
 
     def test_clause_is_live_and_in_parity_against_the_real_repo(self) -> None:
-        require_dev_surface(self, TREE_CLAUDE_MD, f"{TREE}/CLAUDE.md")
+        require_dev_surface(self, TREE_AGENTS_MD, f"{TREE}/AGENTS.md")
         results = {r["id"]: r for r in self.ctp.check_parity(PARITY_MANIFEST, REPO_ROOT)}
         self.assertIn(PARITY_CLAUSE_ID, results)
         self.assertEqual(results[PARITY_CLAUSE_ID]["status"], "OK", results[PARITY_CLAUSE_ID])
 
     def test_clause_reports_drift_when_the_twin_addendum_changes(self) -> None:
-        require_dev_surface(self, TREE_CLAUDE_MD, f"{TREE}/CLAUDE.md")
+        require_dev_surface(self, TREE_AGENTS_MD, f"{TREE}/AGENTS.md")
         clause = self._clause(PARITY_CLAUSE_ID)
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)

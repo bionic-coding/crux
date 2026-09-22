@@ -4,7 +4,7 @@ Operative guarantees (per ADR-0039 §4, §5, and the SSOT mechanism defined by
 ADR-0012):
 
   (a) The `garden` token appears in BOTH §6 SSOT regexes in BOTH
-      docs/CLAUDE.md and crux/templates/CLAUDE.md.tmpl (4 assertions total:
+      docs/AGENTS.md and crux/templates/AGENTS.md.tmpl (4 assertions total:
       token-in-alternation check by extracting the regex lines from each file).
 
   (b) Both regexes still compile (re.compile) and match a synthetic heading
@@ -39,14 +39,14 @@ import unittest
 from pathlib import Path
 
 try:
-    from ._dev_surface import TREE, TREE_CLAUDE_MD, require_dev_surface
+    from ._dev_surface import TREE, TREE_AGENTS_MD, require_dev_surface
 except ImportError:  # unittest discover imports test modules top-level
-    from _dev_surface import TREE, TREE_CLAUDE_MD, require_dev_surface
+    from _dev_surface import TREE, TREE_AGENTS_MD, require_dev_surface
 
 # ─── repo paths ──────────────────────────────────────────────────────────────
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-DOCS_CLAUDE_MD = TREE_CLAUDE_MD
-TMPL_CLAUDE_MD = REPO_ROOT / "crux" / "templates" / "CLAUDE.md.tmpl"
+DOCS_CLAUDE_MD = TREE_AGENTS_MD
+TMPL_CLAUDE_MD = REPO_ROOT / "crux" / "templates" / "AGENTS.md.tmpl"
 TEND_GARDEN_SKILL = REPO_ROOT / "crux" / "skills" / "tend-garden" / "SKILL.md"
 WHITEBOARDING_SKILL = REPO_ROOT / "crux" / "skills" / "whiteboarding" / "SKILL.md"
 NIGHT_GARDENER_AGENT = REPO_ROOT / "crux" / "agents" / "night-gardener.md"
@@ -163,8 +163,8 @@ def _token_in_alternation(regex_line: str, token: str) -> bool:
 
 
 _CLAUDE_SURFACES = [
-    (DOCS_CLAUDE_MD, f"{TREE}/CLAUDE.md"),
-    (TMPL_CLAUDE_MD, "crux/templates/CLAUDE.md.tmpl"),
+    (DOCS_CLAUDE_MD, f"{TREE}/AGENTS.md"),
+    (TMPL_CLAUDE_MD, "crux/templates/AGENTS.md.tmpl"),
 ]
 
 
@@ -205,12 +205,12 @@ class TestGardenTokenInSSOTRegexes(unittest.TestCase):
                 )
 
     def test_docs_claude_md_both_regexes_contain_garden(self) -> None:
-        """docs/CLAUDE.md: both §6 SSOT regex lines must contain 'garden'."""
-        self._assert_garden_in_both_regexes(DOCS_CLAUDE_MD, f"{TREE}/CLAUDE.md")
+        """docs/AGENTS.md: both §6 SSOT regex lines must contain 'garden'."""
+        self._assert_garden_in_both_regexes(DOCS_CLAUDE_MD, f"{TREE}/AGENTS.md")
 
     def test_tmpl_claude_md_both_regexes_contain_garden(self) -> None:
-        """crux/templates/CLAUDE.md.tmpl: both §6 SSOT regex lines must contain 'garden'."""
-        self._assert_garden_in_both_regexes(TMPL_CLAUDE_MD, "crux/templates/CLAUDE.md.tmpl")
+        """crux/templates/AGENTS.md.tmpl: both §6 SSOT regex lines must contain 'garden'."""
+        self._assert_garden_in_both_regexes(TMPL_CLAUDE_MD, "crux/templates/AGENTS.md.tmpl")
 
 
 class TestGardenRegexCompileAndMatch(unittest.TestCase):
@@ -237,30 +237,30 @@ class TestGardenRegexCompileAndMatch(unittest.TestCase):
         return compiled
 
     def test_docs_claude_md_regexes_compile_and_match(self) -> None:
-        """docs/CLAUDE.md: extracted regexes compile and match the synthetic heading."""
-        patterns = self._regexes_from(DOCS_CLAUDE_MD, f"{TREE}/CLAUDE.md")
+        """docs/AGENTS.md: extracted regexes compile and match the synthetic heading."""
+        patterns = self._regexes_from(DOCS_CLAUDE_MD, f"{TREE}/AGENTS.md")
         self.assertGreaterEqual(len(patterns), 2, msg="Expected at least 2 regex patterns")
         for i, pat in enumerate(patterns):
             with self.subTest(regex_index=i):
                 self.assertIsNotNone(
                     pat.match(SYNTHETIC_HEADING),
                     msg=(
-                        f"docs/CLAUDE.md regex {i} did not match synthetic heading.\n"
+                        f"docs/AGENTS.md regex {i} did not match synthetic heading.\n"
                         f"  heading: {SYNTHETIC_HEADING!r}\n"
                         f"  pattern: {pat.pattern!r}"
                     ),
                 )
 
     def test_tmpl_claude_md_regexes_compile_and_match(self) -> None:
-        """crux/templates/CLAUDE.md.tmpl: extracted regexes compile and match the synthetic heading."""
-        patterns = self._regexes_from(TMPL_CLAUDE_MD, "crux/templates/CLAUDE.md.tmpl")
+        """crux/templates/AGENTS.md.tmpl: extracted regexes compile and match the synthetic heading."""
+        patterns = self._regexes_from(TMPL_CLAUDE_MD, "crux/templates/AGENTS.md.tmpl")
         self.assertGreaterEqual(len(patterns), 2, msg="Expected at least 2 regex patterns")
         for i, pat in enumerate(patterns):
             with self.subTest(regex_index=i):
                 self.assertIsNotNone(
                     pat.match(SYNTHETIC_HEADING),
                     msg=(
-                        f"crux/templates/CLAUDE.md.tmpl regex {i} did not match "
+                        f"crux/templates/AGENTS.md.tmpl regex {i} did not match "
                         f"synthetic heading.\n"
                         f"  heading: {SYNTHETIC_HEADING!r}\n"
                         f"  pattern: {pat.pattern!r}"

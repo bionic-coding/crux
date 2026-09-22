@@ -1,5 +1,5 @@
 """observation_evidence.py — the one `path:line-range` grammar and the one
-containment check for observation evidence (docs/CLAUDE.md §17.1, §17.3).
+containment check for observation evidence (docs/AGENTS.md §17.1, §17.3).
 
 Two things live here because they were previously three copies each:
 

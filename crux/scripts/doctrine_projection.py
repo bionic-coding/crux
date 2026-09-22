@@ -142,7 +142,7 @@ MEMBER_A_RE = re.compile(r"^(INV-\d{4}|OBS-\d{4}/[a-z][a-z0-9-]*)$")
 MEMBER_KIND_INVARIANT = "invariant"
 MEMBER_KIND_OBSERVATION = "observation"
 
-# The `path:line-range` evidence grammar (docs/CLAUDE.md §17.1); the path
+# The `path:line-range` evidence grammar (docs/AGENTS.md §17.1); the path
 # half never carries a colon, so the first colon splits it.
 _EVIDENCE_RE = re.compile(r"^(?P<path>[^\s:]+):(?P<start>\d+)-(?P<end>\d+)$")
 

@@ -177,7 +177,7 @@ Even on **zero drift**, log it:
 ## [YYYY-MM-DD] lint | verify-code-docs (in sync)
 ```
 
-The `lint` op is distinct from `audit` — `lint` records a targeted check; `audit` records the broader vault walk. Both are first-class ops in the `docs/CLAUDE.md` §6 enum.
+The `lint` op is distinct from `audit` — `lint` records a targeted check; `audit` records the broader vault walk. Both are first-class ops in the `docs/AGENTS.md` §6 enum.
 
 ### 6. Hand-off
 

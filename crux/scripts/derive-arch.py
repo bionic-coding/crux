@@ -14,7 +14,7 @@
 # package's eager `crux/__init__.py` (council -> llm_caller -> httpx, per the
 # ADR-0087 gateway consolidation — no provider SDKs remain), so the runtime dep
 # set matches the other `crux.*`-importing scripts (spawner, runbook). See
-# docs/CLAUDE.md §10.A.
+# docs/AGENTS.md §10.A.
 #
 # `pyyaml` is pinned here for a different reason than the one transport dep:
 # it changes the OUTPUT, not just the import. The universal `decision-index`

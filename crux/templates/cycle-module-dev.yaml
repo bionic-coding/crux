@@ -73,7 +73,7 @@
     Group the work units from this loop's planning prompt by independence.
     Dispatch one `Agent` per independent group in parallel. Each agent
     receives: the ADR(s), the implementation plan, its assigned work units,
-    and explicit conventions from `docs/CLAUDE.md`.
+    and explicit conventions from `docs/AGENTS.md`.
 
     Each agent also receives the book's `goal` statements — the Outcome, the
     Evidence, and the Constraint. A dispatch passes them forward verbatim, or
@@ -103,7 +103,7 @@
       - The repo's **full test suite** — the COMPLETE run (e.g.
         `python3 -m unittest discover -s crux/scripts/tests`, `mix test`,
         `pytest`), NOT a hand-picked subset of "the tests that look relevant".
-        Capture the exact command from `docs/CLAUDE.md` or root CLAUDE.md.
+        Capture the exact command from `docs/AGENTS.md` or root AGENTS.md.
         **The full run is mandatory whenever the change touches any shared or
         enumerated surface** — the agent roster, model/router config, the
         catalog, or anything a *different* file hardcodes a list or count of.

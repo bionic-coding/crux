@@ -1,6 +1,6 @@
 """Tests for `signoff-survey.py` — the batch sign-off write path.
 
-ADR-0098 and docs/CLAUDE.md §17.5. The suite has three layers:
+ADR-0098 and docs/AGENTS.md §17.5. The suite has three layers:
 
   * **one transition test per numbered cell** of the §17.5 state table, cells
     1 through 17 (cell 17 is the projections' side and is pinned in

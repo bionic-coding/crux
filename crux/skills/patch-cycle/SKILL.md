@@ -90,7 +90,7 @@ When called interactively, elicit both:
 
 ### 0. Resolve per-repo configuration (.crux)
 
-Run `python3 "${CRUX_PLUGIN_ROOT}/scripts/crux-config.py"` from the repo root (or pass `--repo-root <repo-root>`), and confirm the returned `repo_root` is the repo you are operating in — `source: "discovery:<dir>"` with an unexpected `repo_root` means you resolved the wrong directory, not that no config exists. On exit 1, **STOP** and surface the `{"error": ...}` payload — never fall back to defaults. Use the returned `docs_dir` wherever this skill says `docs/` (per the docs/CLAUDE.md §14 normative definition clause). When `artifact_prefix` is non-empty, format the newly allocated book id with it (e.g. `CRX-PB-0040`) — the `NNNN` still comes from the manifest counter; the prefix only changes the formatting.
+Run `python3 "${CRUX_PLUGIN_ROOT}/scripts/crux-config.py"` from the repo root (or pass `--repo-root <repo-root>`), and confirm the returned `repo_root` is the repo you are operating in — `source: "discovery:<dir>"` with an unexpected `repo_root` means you resolved the wrong directory, not that no config exists. On exit 1, **STOP** and surface the `{"error": ...}` payload — never fall back to defaults. Use the returned `docs_dir` wherever this skill says `docs/` (per the docs/AGENTS.md §14 normative definition clause). When `artifact_prefix` is non-empty, format the newly allocated book id with it (e.g. `CRX-PB-0040`) — the `NNNN` still comes from the manifest counter; the prefix only changes the formatting.
 
 ### 1. Confirm inputs
 
@@ -186,4 +186,4 @@ Body: id, title, `total_prompts: 5`, the declared blast radius, and the note `pa
 - `author-promptbook` — an ungated plan, for work that needs no enforced gate.
 - `run-promptbook` — runs the book; stamps the run's `base_commit` at start.
 - `archive-promptbook` — runs the blast-radius containment check as an archive precondition.
-- Schema: `${CRUX_PLUGIN_ROOT}/schemas/promptbook.schema.json`; validator `${CRUX_PLUGIN_ROOT}/scripts/validate-promptbook.py`; containment check `${CRUX_PLUGIN_ROOT}/scripts/check-blast-radius.py`. Contract: `docs/CLAUDE.md` §11.B and §11.C.
+- Schema: `${CRUX_PLUGIN_ROOT}/schemas/promptbook.schema.json`; validator `${CRUX_PLUGIN_ROOT}/scripts/validate-promptbook.py`; containment check `${CRUX_PLUGIN_ROOT}/scripts/check-blast-radius.py`. Contract: `docs/AGENTS.md` §11.B and §11.C.

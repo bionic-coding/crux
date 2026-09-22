@@ -48,6 +48,10 @@
       "domain": "skill-trigger-declaration",
       "rule": "The routing-table regenerator reads a skill's declared triggers first and falls back to the quoted phrases in its description's first sentence only where the skill declares none. The fallback is what makes the declared field additive: a skill that still carries its triggers inline keeps routing unchanged, and no existing skill is forced to move."
     },
+    "dedupe-is-exact-match-only": {
+      "domain": "repository-instructions",
+      "rule": "Automatic deduplication removes only blocks identical in both bytes and heading ancestry; every other difference is retained or escalated to a reviewed resolution."
+    },
     "delegation-carries-objectives-context": {
       "domain": "agent-assignment",
       "rule": "An assignment travels beside the objectives context, and the objectives contract is the one statement of what that context is and when it is carried. This rule adds no second statement of it: the assignment contract names the objectives contract and restates none of its text, so one rule about objectives context exists and one section owns it."
@@ -55,6 +59,10 @@
     "description-is-prose-not-a-trigger-list": {
       "domain": "skill-trigger-declaration",
       "rule": "A description is prose for a human reader and for model-driven selection, and is not a trigger list. It states what the skill does and what distinguishes it from its neighbours, and its length is bounded by what a discovery surface renders without truncating. Restoring triggers by lengthening a description past that bound is forbidden."
+    },
+    "discovery-is-tracked-files-of-one-checkout": {
+      "domain": "repository-instructions",
+      "rule": "Instruction discovery enumerates the tracked files of the checkout it is given and mutates nothing outside that set."
     },
     "disputed-note-outranks-re-verification": {
       "domain": "decision-review",
@@ -108,6 +116,14 @@
       "domain": "decision-review",
       "rule": "A report carrying no measured_objectives key is no recorded measurement evidence, read as the literal unknown for every goal — never measured, never ignored, never an empty list, and never recomputed from a later report, on the same footing a legacy report's standing already holds. A key present and empty is not legacy but a positive record of zero goals measured. A report carrying the flat list of bare ids is read as attempted for every id it names and never as measured, because that grammar cannot distinguish the two and an earlier report is never edited to disambiguate it. The rotation spans the three newest report dates that exist and asserts nothing about dates that do not, so it is vacuously satisfied where fewer exist; each legacy or absent-key date inside the window is named in Coverage, because a window that is partly blind is owed broader coverage from the current pass."
     },
+    "merge-accounting-balances": {
+      "domain": "repository-instructions",
+      "rule": "A merge accounts for every source block, with its heading path, as retained, exactly deduplicated, or superseded by a recorded resolution, and refuses when the accounting does not balance."
+    },
+    "merge-never-reparents-a-block": {
+      "domain": "repository-instructions",
+      "rule": "A merged block keeps the heading ancestry of its source, and a placement that would change it is escalated to a reviewed resolution."
+    },
     "mined-values-fenced-and-bounded": {
       "domain": "decision-review",
       "rule": "Every mined value the review renders into the report, the adr-review log op or the journal entry passes the repo's bound-and-redact rendering, and every mined quote the report carries is fenced with treat-as-data framing at write time."
@@ -131,6 +147,10 @@
     "observation-backed-publication-is-denied-for-now": {
       "domain": "rule-citation",
       "rule": "A rule sourced from an observation record is refused at the publication boundary, as an interim denial this decision adopts rather than as a policy it settles. The denial is this decision's own choice, made because an observation describes what the code does and decides nothing, so its ratification affirms the description and is not by itself a warrant to publish it as a rule the plugin follows; what the eventual policy should be stays open for an owner to decide, and a successor may reverse this denial without disturbing anything else here. The denial changes no observation's disposition, authority or lifecycle, removes no observation from any projection's input, and leaves every citation of an observation-backed rule on a reader-owned surface resolving exactly as before."
+    },
+    "one-canonical-agents-file": {
+      "domain": "repository-instructions",
+      "rule": "Each managed instruction scope carries one canonical AGENTS.md and no committed CLAUDE.md sibling, where a managed scope is a tracked scope no exclusion class claims."
     },
     "one-guard-called-from-every-enforcement-point": {
       "domain": "rule-citation",

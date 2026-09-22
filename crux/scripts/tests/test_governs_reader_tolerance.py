@@ -1,7 +1,7 @@
 """Guard tests for the `governs` frontmatter block's reader tolerance.
 
 ADR-0085 adds an optional, structured `governs` block to ADR frontmatter (one
-row in the canonical schema, docs/CLAUDE.md §11.A). This is NOT the summaries
+row in the canonical schema, docs/AGENTS.md §11.A). This is NOT the summaries
 regenerator that will one day read `governs` for real — it is the guard that
 proves every EXISTING reader stays inert to it:
 

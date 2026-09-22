@@ -1,4 +1,4 @@
-"""The doctrine layer's observation widening (docs/CLAUDE.md §17;
+"""The doctrine layer's observation widening (docs/AGENTS.md §17;
 ADR-0095 requirement 5 and its Postconditions).
 
 Pins, one named test per claim:

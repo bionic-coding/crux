@@ -325,7 +325,7 @@ def _load_bionic_config():
 
 
 def _tree_name(root: Path) -> str:
-    """The documentation tree's directory name, resolved per bionic/CLAUDE.md §14.1.
+    """The documentation tree's directory name, resolved per bionic/AGENTS.md §14.1.
 
     Resolution runs through `bionic_config`, never an ad-hoc read: a local
     regex over `.bionic.yml` skips the legacy `.crux` tier and skips

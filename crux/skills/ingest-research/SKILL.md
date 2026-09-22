@@ -28,7 +28,7 @@ This skill is portable across Claude Code, Codex, and OpenCode. This section ove
 
 The atomic operation for the research concern of `crux`. Each ingest moves one source through a fixed pipeline: capture to `docs/research/raw/YYYY-MM-DD/<slug>/` → audited markdown at `docs/research/sources/<slug>.md` → synthesis updates under `docs/research/<category>/` → `docs/research/index.md` → `docs/index.md` (master rollup) → `docs/research/sources.md` registry → `docs/log.md`. Skipping any step breaks the audit guarantee that every research page traces back to an immutable raw capture.
 
-Read `docs/CLAUDE.md` once per session for surrounding architecture. This skill is the operational checklist for the research concern.
+Read `docs/AGENTS.md` once per session for surrounding architecture. This skill is the operational checklist for the research concern.
 
 **One source at a time.** If multiple sources are in `docs/inbox/`, run the pipeline once per source — don't interleave.
 
@@ -52,7 +52,7 @@ Do **not** use this skill for:
 - Refreshing stale sources (that's `refresh-research-sources`).
 - Reconciling synthesis prose against updated sources (that's `refresh-research-synthesis`).
 - Auditing the research tree (that's `audit-docs`).
-- Editing the schema (`docs/CLAUDE.md`).
+- Editing the schema (`docs/AGENTS.md`).
 - Recording an architectural decision (that's `propose-adr`).
 
 ## Special input: `docs/inbox/urls.md`
@@ -245,7 +245,7 @@ Confirm every item. If any item fails, fix it and re-verify before reporting the
 - [ ] `docs/research/index.md` has entries for any newly-created synthesis pages, each in the correct section.
 - [ ] `docs/research/index.md`'s section counts match the actual file counts in `docs/research/<category>/`.
 - [ ] `docs/research/index.md`'s `_Last updated:_` is today.
-- [ ] `docs/index.md`'s Research section header reads `## Research (N sources, M synthesis pages)` with the exact counts (the `docs/CLAUDE.md` §5 canonical form).
+- [ ] `docs/index.md`'s Research section header reads `## Research (N sources, M synthesis pages)` with the exact counts (the `docs/AGENTS.md` §5 canonical form).
 - [ ] `docs/index.md`'s `_Last updated:_` is today.
 - [ ] `docs/research/sources.md` has a new top row with all nine columns populated correctly.
 - [ ] `docs/log.md` has a new entry with prefix `## [<today>] ingest | <slug>`.
@@ -288,7 +288,7 @@ Any of these means: STOP, return to the relevant step.
 - **Date confusion**: using the source's publication date instead of today's date for the raw folder. Use `captured_at` (today) for `raw/`; `source_date` (publication) is just frontmatter.
 - **Slug from URL slug**: the URL's slug is often noisy (`?utm=...`, hashes). Derive the slug from the *title*, not the URL.
 - **`raw_path` written with `docs/` prefix**: the contract is relative-to-`docs/` (`research/raw/...`). `audit-docs` resolves it by prefixing `docs/`.
-- **Wiki-link target wrong**: from `docs/research/concepts/foo.md`, citing the source is `[[research/sources/some-source]]` (docs-rooted). Don't write `../sources/some-source`. The master `docs/CLAUDE.md` documents the resolver convention.
+- **Wiki-link target wrong**: from `docs/research/concepts/foo.md`, citing the source is `[[research/sources/some-source]]` (docs-rooted). Don't write `../sources/some-source`. The master `docs/AGENTS.md` documents the resolver convention.
 - **Forgetting `sources:` count math**: a synthesis page's `sources:` list is the source of truth; the concern-index row's "sources: N" must match its length.
 - **Skipping `## Capture gaps`** when partial: future audits can't distinguish a complete capture from a partial one without it. Always declare gaps explicitly.
 - **Writing the `schema` log entry for a new category as part of the `ingest` entry**: they're separate ops. One `schema` entry for the category addition, one `ingest` entry for the source.

@@ -67,8 +67,8 @@ run_autonomy: |
   council's "this is actually architectural -> use dev-cycle" escape verdict, and
   (c) a genuinely irreversible/outward-facing action the plan did not authorize
   (push/merge, deploy, external send, data deletion, spend). In-repo edits —
-  including `docs/CLAUDE.md`, skill files, and code — are never stop points. See
-  `docs/CLAUDE.md` §11 "Run execution autonomy" for the full contract.
+  including `docs/AGENTS.md`, skill files, and code — are never stop points. See
+  `docs/AGENTS.md` §11 "Run execution autonomy" for the full contract.
 
 prompts:
   # --- Verify module #1 (4 prompts) — from cycle-module-verify.yaml, module_tag verify-1 ---
@@ -103,7 +103,7 @@ prompts:
       Evidence/Reproduction, (2) Root-cause correctness, (3) Approach soundness +
       **minimality** (no scope creep), (4) Consistency, (5) Security. **Escape
       verdict:** if the work is actually ARCHITECTURAL, treat it as a
-      `docs/CLAUDE.md` §11 premise-contradiction stop — mark this prompt
+      `docs/AGENTS.md` §11 premise-contradiction stop — mark this prompt
       `blocked` (paused), escalate to the user, recommend a `dev-cycle` (the
       diagnosis persists as a citable `learning`). Otherwise route: all APPROVE →
       Prompt 4; minor non-safety nits → Prompt 3; split verdict → deeper review
@@ -171,7 +171,7 @@ prompts:
     prompt: |
       Group the Prompt 5 work units by independence. Dispatch one `Agent` per
       independent group; each receives the diagnosis, the plan, its work units,
-      and `docs/CLAUDE.md` conventions.
+      and `docs/AGENTS.md` conventions.
 
       Each agent also receives the book's `goal` statements — the Outcome, the
       Evidence, and the Constraint. A dispatch passes them forward verbatim, or
@@ -243,7 +243,7 @@ prompts:
       full cycle diff. **Three quality dimensions:** (a) Correctness — re-run the
       Prompt 7 gates, then read the diff for behavior bugs + confirm the fix
       actually resolves the diagnosed root cause; (b) Consistency — vs ADRs,
-      `docs/CLAUDE.md`, adjacent patterns; (c) Clarity. **PLUS a dedicated
+      `docs/AGENTS.md`, adjacent patterns; (c) Clarity. **PLUS a dedicated
       multi-subagent security review** — one `Agent` per threat class (S1
       injection, S2 secrets incl. `~/.crux/`, S3 authz, S4 supply-chain, S5
       unsafe file/shell/resource), scope-adaptive with MANDATORY N/A reports. A
@@ -361,8 +361,8 @@ prompts:
       1. **Changelog**: update the repo-root `CHANGELOG.md` `## [Unreleased]` with
          a 1–3 line entry. Link the verify journal entry / the fixed issue.
       2. **Documentation**: run `audit-docs`; address every BROKEN finding. If the
-         fix changed a documented contract, update `docs/CLAUDE.md` (and the
-         `CLAUDE.md.tmpl` twin) in lock-step.
+         fix changed a documented contract, update `docs/AGENTS.md` (and the
+         `AGENTS.md.tmpl` twin) in lock-step.
       3. **Journal**: invoke `log-work` with a reflective entry — what the fix
          was, what the reproduction taught you, what to watch for next time.
       4. **Prose review**: run `prose-review` over the prose this prompt just

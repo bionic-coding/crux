@@ -28,7 +28,7 @@ This skill is portable across Claude Code, Codex, and OpenCode. This section ove
 
 The **machine half** of batch ratification for the observations concern. It reads the candidate state file, filters it to the candidates no receipt has disposed and no live record already holds, allocates the next `SVY-NNNN` from the monotonic `observation.next_survey_number`, and writes one review sheet at `<docs_dir>/observations/survey-SVY-NNNN.yml`.
 
-**The protocol's source of truth is `docs/CLAUDE.md` §17.5** — the sheet and receipt schemas, the layout, the batch-identity rule, and the state table that governs the sign-off. Read it there; this skill restates none of it and never carries a second copy.
+**The protocol's source of truth is `docs/AGENTS.md` §17.5** — the sheet and receipt schemas, the layout, the batch-identity rule, and the state table that governs the sign-off. Read it there; this skill restates none of it and never carries a second copy.
 
 **It fills no human cell.** Each row is seeded with `anchor_id` and `proposed_domain` and leaves `verdict`, `domain` and `rationale` empty. That is the boundary this skill sits on: a machine may scaffold a row and may never author a verdict, a domain override, or a rationale. The sign-off refuses an empty verdict, so a sheet this skill wrote publishes nothing until a human has authored every one of those cells.
 
@@ -140,6 +140,6 @@ The batch is not unrecorded in the meantime. Its id, its rows and its scaffold p
 - `transition-observation` — the only single-record route past `observed`; unchanged by batch ratification.
 - `recover-decisions` — the miner whose candidates fill the state file this skill reads.
 - `propose-observation` — the reconstructed on-ramp that writes `observed` records by hand.
-- `audit-docs` — the CHK-OBS-SURVEY-* rules (`docs/CLAUDE.md` §17.3) that read the batch surfaces.
-- `docs/CLAUDE.md` §17.5 — the batch-ratification protocol: sheet and receipt schemas, layout, batch identity, and the state table. The source of truth.
+- `audit-docs` — the CHK-OBS-SURVEY-* rules (`docs/AGENTS.md` §17.3) that read the batch surfaces.
+- `docs/AGENTS.md` §17.5 — the batch-ratification protocol: sheet and receipt schemas, layout, batch identity, and the state table. The source of truth.
 - The batch-ratification decision this implements (see the ADR log).

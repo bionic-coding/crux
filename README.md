@@ -1,4 +1,4 @@
-<!-- generated-from: README.md@sha256:d2686d694d90de31ea60f158dab2caeb125dcbc2605caf491f232941647cd4a4; model: claude-fable-5.1; date: 2026-09-18 -->
+<!-- generated-from: README.md@sha256:845e96084553481862252c8e548cea42df633f2de9821fbc8976f22565f89198; model: claude-fable-5.1; date: 2026-09-21 -->
 # Crux
 
 An Agentic Harness plugin that maintains a `./bionic/` tree inside any software project — so that Claude can navigate, query, and update project knowledge without anyone having to remember where things go. Everything runs locally — no server, no accounts, no background service: just skills, scripts, and your repo.
@@ -20,17 +20,19 @@ That's the whole flow — the second command installs the plugin named `crux` fr
 
 > **init docs**
 
-That bootstraps the seven-concern `bionic/` tree plus the default-on arch spine, seeds `bionic/CLAUDE.md` (the operational schema Claude reads on every session), `bionic/manifest.yml`, and the meta-ADR `ADR-0000`.
+That bootstraps the seven-concern `bionic/` tree plus the default-on arch spine, seeds `bionic/AGENTS.md` (the operational schema the three supported harnesses share), `bionic/manifest.yml`, and the meta-ADR `ADR-0000`.
+
+Codex and OpenCode instructions are further down under [Other harnesses](#other-harnesses).
 
 ## About this repository
 
-This repository is **generated** from a private development repo on every release (see `.generated`). Each release lands here as a single squash commit. Please **file issues** — they are welcome and read. Pull requests against this repo cannot be merged: the next release would overwrite them.
+This repository is **generated** from a private development repo on every release (see `.generated`). Each release lands here as a single squash commit. Please **file issues** here — they are welcome and read. Pull requests against this repo cannot be merged: the next release would overwrite them.
 
 ---
 
-## What lives in the tree
+## What crux manages
 
-**60 skills** across seven concerns — plus a default-on, derived **arch** surface (the current-state architecture map, built on demand by `derive-arch`) and the default-on **observations** concern (what the code already does, evidenced and ratified rather than decided) — plus a **10-agent operator layer** (see **Agents** below), under a single naming convention with no `crux-` prefix.
+**60 skills** across seven concerns — plus a default-on, derived **arch** surface (the current-state architecture map, built on demand by `derive-arch`) and the default-on **observations** concern (what the code already does, evidenced and ratified rather than decided) — plus a **10-agent operator layer** (see **Agents** below), under a single naming convention — no `crux-` prefix. `crux/catalog/bundles.yml` records the bundle organization: docs suite, core agent-team, verification, infrastructure.
 
 | Concern | What lives there | Who writes it |
 |---|---|---|
@@ -50,7 +52,7 @@ To learn how a project is shaped *right now*, start with `bionic/arch/` — the 
 
 To learn what a project currently holds to be true — and whether that belief is live or only on paper — start with `bionic/adrs/doctrine/` instead: a derived, per-domain, plain-language view compiled from the ADR summaries and reconciled against ratified invariants. Doctrine holds zero authority; when it disagrees with an ADR body, the ADR body is the record and wins. This is a different question from the shape question `bionic/arch/` answers — arch says what exists, doctrine says what's currently believed.
 
-The full mental model and conventions live in the [Crux guide](https://bionic-coding.com/crux/). The operational schema Claude follows lives in `bionic/CLAUDE.md` (created on first run). The tree's location is recorded in `.bionic.yml`; an existing `docs/` tree keeps working unchanged.
+The full mental model and conventions live in the [Crux guide](https://bionic-coding.com/crux/). The operational schema Claude follows lives in `bionic/AGENTS.md` (created on first run). The tree's location is recorded in `.bionic.yml`; an existing `docs/` tree keeps working unchanged.
 
 ---
 
@@ -70,7 +72,7 @@ Claude allocates the next `PB-NNNN`, assembles a promptbook from modular buildin
 | **Prep (fixed)** | 1 | Changelog entry, docs updates, journal entry, PR notes |
 | **Summary (fixed)** | 1 | Completion report (stats, key decisions, links) **and archival** — the cycle ends with `archive-promptbook` so finished books don't straggle in `active/` |
 
-`total_prompts = 4·(ADRs) + 4·(dev loops) + 3·(review cycles) + 2`. The **minimum cycle** is 1 + 1 + 1 → **13 prompts**. Bigger cycles are valid when the work needs them — two ADRs for a feature with two distinct architectural commitments, two dev loops when the implementation splits cleanly (backend + UI, schema + migration), or an extra review cycle in the middle of a multi-loop dev phase.
+`total_prompts = 4·(ADRs) + 4·(dev loops) + 3·(review cycles) + 2`. The **minimum cycle** is 1 + 1 + 1 → **13 prompts** (matching the canonical `cycle-promptbook-template.yaml`). Bigger cycles are valid when the work needs them — two ADRs for a feature with two distinct architectural commitments, two dev loops when the implementation splits cleanly (backend + UI, schema + migration), or an extra review cycle in the middle of a multi-loop dev phase.
 
 **Three invariants every cycle MUST satisfy:**
 
@@ -108,11 +110,9 @@ crux bundles a **role-based agent layer**: **ten** Claude Code subagents that *o
 
 Two choices make the layer portable and safe. Agents are **self-contained** — the `superpowers`-style craft disciplines (TDD with its proof-mechanism, verification-before-completion, systematic debugging, two-stage review) are embedded in each agent's prompt rather than depending on separately-installed skills. And they're **first-class catalog citizens** — agent frontmatter is regenerated into `catalog/agents.json` exactly like skills, with an `agents:` array in `plugin.json`. The agents register once the plugin is installed/upgraded to a version that ships `crux/agents/` and the session is restarted.
 
-Codex installs the same ten roles as namespaced `crux_*` agents. Each installed
-role pins its catalog model and reasoning effort. It also binds every declared
-skill to the selected Crux plugin. Codex runtime verification remains
-`unverified` until fresh-session host evidence confirms discovery, settings,
-skill availability, and representative workflows for that client version.
+Codex installs the same ten roles as namespaced `crux_*` agents. Each installed role pins its catalog model and reasoning effort. It also binds every declared skill to the selected Crux plugin. Codex runtime verification remains `unverified` until fresh-session host evidence confirms discovery, settings, skill availability, and representative workflows for that client version.
+
+**Reaching for an agent directly:** you rarely name an agent — the cycle and the `commander` dispatch them for you. But you can: *"have the architect propose an ADR for X"*, *"send this design to the council"*, *"have the reviewer check the diff"*, *"ask the librarian what we decided about Y"*.
 
 ---
 
@@ -123,7 +123,7 @@ You never type a slash command — each skill is triggered by natural-language p
 ### Getting set up
 | Skill | Say this / when | What it does |
 |---|---|---|
-| `init-docs` | "init docs" — first run in a repo | Bootstraps the seven-concern `bionic/` tree plus the default-on arch spine + `bionic/CLAUDE.md` + `manifest.yml` + the meta-ADR. |
+| `init-docs` | "init docs" — first run in a repo | Bootstraps the seven-concern `bionic/` tree plus the default-on arch spine + `bionic/AGENTS.md` + `manifest.yml` + the meta-ADR. |
 | `install-docs-skills` | "install docs skills" / "upgrade the docs suite" / "what version is installed?" | Reports the installed plugin version + manifest and prints the marketplace install/upgrade commands. |
 | `install-runtime` | "install the crux runtime" | Deploys the runtime (scripts + LLM router) into a target repo. |
 | `install-codex-agents` | "install the Crux agents in Codex" / "refresh Codex agents" — Codex users only | Installs or refreshes the ten generated Crux roles in `~/.codex/agents/` by default. `--repo-root` selects one project. `--check` reports canonical expectations, parsed installed state, drift, shadows, and runtime status. |
@@ -227,11 +227,9 @@ These power the council + agent layer; you mostly invoke them indirectly (a cycl
 | `author-runbook` | "generate a runbook for X" | Builds a 50–100-prompt autonomous runbook from one goal. |
 | `serve-llm` | non-Python clients | FastAPI HTTP wrapper around the LLM caller + tracer. |
 
-**Reaching for an agent directly:** you rarely name an agent — the cycle and the `commander` dispatch them for you (see [Agents](#agents--the-role-layer) above). But you can: *"have the architect propose an ADR for X"*, *"send this design to the council"*, *"have the reviewer check the diff"*, *"ask the librarian what we decided about Y"*.
-
 ---
 
-## Other hosts
+## Other harnesses
 
 ### Codex
 
@@ -268,7 +266,7 @@ Codex host constraints.
 See [OPENCODE.md](./OPENCODE.md) for complete machine-wide and project
 installation instructions for humans and agents.
 
-There is **no native Crux OpenCode marketplace package yet** — OpenCode support is a **manual, preview-grade setup** for now (a public OpenCode distribution channel is a deliberately deferred future decision). The steps below wire the full 60-skill + 10-agent set into OpenCode 2.x from a public clone, and work from the published repo — no dev checkout required. Install OpenCode 2.x with `curl -fsSL https://opencode.ai/v2/install | bash`, which leaves a binary named `opencode`.
+There is **no native Crux OpenCode marketplace package yet** — OpenCode support is a **manual, preview-grade setup** for now (a public OpenCode distribution channel is a deliberately deferred future decision). The steps below wire the full 60-skill + 10-agent set into OpenCode 2.x from a public clone, and work from this published repo. Install OpenCode 2.x with `curl -fsSL https://opencode.ai/v2/install | bash`, which leaves a binary named `opencode`.
 
 1. **Clone to a stable path** (the config below uses absolute paths, so pick a permanent home — moving it later breaks the setup):
 
@@ -362,7 +360,7 @@ See the [Crux guide](https://bionic-coding.com/crux/) for the full surface.
 
 ### Optional: per-project configuration
 
-A repo can commit an optional `.bionic.yml` file at its root (distinct from the `~/.crux/` secrets directory — never put secrets in it) to relocate the tree (`docs_dir`) or brand artifact ids with a prefix (`artifact_prefix: "CRX"` → `CRX-PB-0040`). It supersedes the legacy `.crux` file, which is still read for back-compat. Copy `crux/templates/bionic-yml.tmpl` to get started; see the [Crux guide](https://bionic-coding.com/crux/) for details.
+A repo can commit an optional `.bionic.yml` file at its root (distinct from the `~/.crux/` secrets directory — never put secrets in it) to relocate the tree (`docs_dir`) or brand artifact ids with a prefix (`artifact_prefix: "CRX"` → `CRX-PB-0040`). It supersedes the legacy `.crux` file, which is still read for back-compat. Copy `crux/templates/bionic-yml.tmpl` to get started; see the [Crux guide](https://bionic-coding.com/crux/) for the per-project configuration reference.
 
 ---
 
@@ -422,20 +420,25 @@ Editing the plan mid-run isn't allowed: abandon the run, then author a successor
 
 ### 6. Read the schema before deep work
 
-`bionic/CLAUDE.md` (created by `init-docs`) is what Claude reads on every session to know how to operate under the tree. If you find yourself wondering "wait, should Claude be writing here?" — that file has the answer. Skim §1–§7 once.
+`bionic/AGENTS.md` (created by `init-docs`) is the operational schema the three supported harnesses share. If you find yourself wondering "wait, should an agent be writing here?" — that file has the answer. Skim §1–§7 once.
 
 ### 7. Don't hand-edit; ask Claude to fix it
 
 If you spot something wrong — a stale page, a contradiction, a broken link — tell Claude. The whole point is that the bookkeeping is automated. Hand-edits to managed files can leak through audits and quietly desynchronize counters or indexes.
 
+### 8. The `crux/` directory in this repo IS the plugin
+
+`crux/` is what the marketplace (`/plugin install crux@crux`) distributes into other projects: the skills live in `crux/skills/*/SKILL.md`, the agents in `crux/agents/`, and the scripts in `crux/scripts/`. The catalog files under `crux/catalog/` are regenerated from that source — don't hand-edit them.
+
 ---
 
 ## Where to go next
 
-- **[Crux guide](https://bionic-coding.com/crux/)** — the human-facing guide. Mental model, phrase reference, secrets, troubleshooting.
-- **`bionic/CLAUDE.md`** (after `init docs`) — the operational schema Claude reads. Authoritative.
-- **[CODEX.md](./CODEX.md)** and **[OPENCODE.md](./OPENCODE.md)** — host-specific install instructions for Codex and OpenCode.
+- **[Crux guide](https://bionic-coding.com/crux/)** — the deep human-facing guide. Mental model, phrase reference, secrets, troubleshooting.
+- **`bionic/AGENTS.md`** (after `init docs`) — the operational schema Claude reads. Authoritative.
+- **[CODEX.md](./CODEX.md)** and **[OPENCODE.md](./OPENCODE.md)** — harness-specific installation for humans and agents.
+- **[CHANGELOG.md](./CHANGELOG.md)** — what each release added.
 
 ## License & status
 
-MIT licensed (see [LICENSE](./LICENSE)). v3.18.1 — see [CHANGELOG.md](./CHANGELOG.md) for the per-release breakdown. Issues welcome; the public repo is regenerated on every release, so pull requests there cannot be merged.
+MIT licensed (see [LICENSE](./LICENSE)). v3.19.0 — see [CHANGELOG.md](./CHANGELOG.md) for the per-release breakdown. Issues welcome; the public repo is regenerated on every release, so pull requests there cannot be merged.

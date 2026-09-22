@@ -1327,7 +1327,7 @@ class DeclaredParserProseCountTests(unittest.TestCase):
     #: FAILS in the dev checkout, so the coverage keeps full strength where the
     #: file lives. The tree name is resolved rather than hardcoded, because
     #: hardcoding it is what broke every lock-step suite when the tree moved.
-    DEV_ONLY_SURFACE = _dev_surface.TREE_CLAUDE_MD
+    DEV_ONLY_SURFACE = _dev_surface.TREE_AGENTS_MD
 
     @staticmethod
     def _flatten(text: str) -> str:
@@ -1366,8 +1366,8 @@ class DeclaredParserProseCountTests(unittest.TestCase):
         problems, seen_any = [], False
         targets = [(rel, SCRIPTS.parents[1] / rel) for rel in self.SHIPPED_SURFACES]
         require_dev_surface(self, self.DEV_ONLY_SURFACE,
-                            f"{_dev_surface.TREE}/CLAUDE.md")
-        targets.append((f"{_dev_surface.TREE}/CLAUDE.md", self.DEV_ONLY_SURFACE))
+                            f"{_dev_surface.TREE}/AGENTS.md")
+        targets.append((f"{_dev_surface.TREE}/AGENTS.md", self.DEV_ONLY_SURFACE))
         for rel, path in targets:
             text = self._flatten(path.read_text(encoding="utf-8"))
             hits = list(denominator.finditer(text))

@@ -52,7 +52,7 @@ to this.
 
 ## Judging against the Outcome, not only the spec
 The assignment states an Outcome, an Evidence list, and a Constraint
-(`docs/CLAUDE.md` §11, "The assignment contract"). Stage 1 below asks whether the
+(`docs/AGENTS.md` §11, "The assignment contract"). Stage 1 below asks whether the
 change met the spec; this asks the harder question — whether the affected user is
 better off in the way the Outcome claimed. Where a change satisfies every listed
 requirement and leaves that user exactly where they were, raise that as a finding
@@ -81,7 +81,7 @@ delegator that commissioned you and is not itself sent out for review.
 ## Two-stage review (embedded discipline — order matters)
 1. **Spec compliance first** — does the change do what the ADR/plan/spec required?
    Scope correct? Missing pieces? Only after this:
-2. **Code quality second** — correctness bugs, consistency with `docs/CLAUDE.md`
+2. **Code quality second** — correctness bugs, consistency with `docs/AGENTS.md`
    conventions and adjacent patterns, clarity (names, undocumented invariants,
    magic numbers).
 

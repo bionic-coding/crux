@@ -13,7 +13,7 @@ Four rules live only in skill prose, so their regression tests read the prose:
 
 Beside the prose pins, `ReviewsWriteSetParityClauseTests` pins the EXISTENCE of
 the parity-manifest clause that binds the write-set sentence across the
-`CLAUDE.md` twin pair — deleting that clause has to turn a test red here, not
+`AGENTS.md` twin pair — deleting that clause has to turn a test red here, not
 leave the suite green.
 """
 
@@ -34,10 +34,10 @@ SCRIPTS = REPO_ROOT / "crux" / "scripts"
 PARITY_MANIFEST = SCRIPTS / "template_parity_manifest.json"
 
 try:  # package-relative when run as a module, flat when run by discovery
-    from ._dev_surface import TREE, TREE_CLAUDE_MD, require_dev_surface
+    from ._dev_surface import TREE, TREE_AGENTS_MD, require_dev_surface
 except ImportError:  # pragma: no cover
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from _dev_surface import TREE, TREE_CLAUDE_MD, require_dev_surface
+    from _dev_surface import TREE, TREE_AGENTS_MD, require_dev_surface
 
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
@@ -820,7 +820,7 @@ class _ReviewsParityClauseMixin:
 
     def _twin_edit_drifts(self, old: str, new: str) -> None:
         """Seed a TWIN-ONLY edit on a scratch copy; the clause must go DRIFT."""
-        require_dev_surface(self, TREE_CLAUDE_MD, f"{TREE}/CLAUDE.md")
+        require_dev_surface(self, TREE_AGENTS_MD, f"{TREE}/AGENTS.md")
         clause = self._clause()
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -846,7 +846,7 @@ class _ReviewsParityClauseMixin:
         also pass if the COPY were what turned the clause red — a broken
         harness would read as full positive-control coverage.
         """
-        require_dev_surface(self, TREE_CLAUDE_MD, f"{TREE}/CLAUDE.md")
+        require_dev_surface(self, TREE_AGENTS_MD, f"{TREE}/AGENTS.md")
         clause = self._clause()
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -861,13 +861,13 @@ class _ReviewsParityClauseMixin:
 
     def test_the_clause_exists_and_binds_the_twin_pair(self):
         clause = self._clause()
-        self.assertEqual(clause["canonical"], f"{TREE}/CLAUDE.md")
-        self.assertEqual(clause["twin"], "crux/templates/CLAUDE.md.tmpl")
+        self.assertEqual(clause["canonical"], f"{TREE}/AGENTS.md")
+        self.assertEqual(clause["twin"], "crux/templates/AGENTS.md.tmpl")
         self.assertIn("adrs (append-only history)", clause["anchor"])
         self.assertIn("pattern", clause)
 
     def test_the_clause_is_live_and_in_parity_against_the_real_repo(self):
-        require_dev_surface(self, TREE_CLAUDE_MD, f"{TREE}/CLAUDE.md")
+        require_dev_surface(self, TREE_AGENTS_MD, f"{TREE}/AGENTS.md")
         results = {
             r["id"]: r for r in self.ctp.check_parity(PARITY_MANIFEST, REPO_ROOT)
         }

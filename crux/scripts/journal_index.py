@@ -58,7 +58,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from md_fences import closes_fence, fence_marker, split_lines  # noqa: E402
 
-# The journal's closed category enum, in the order bionic/CLAUDE.md §4 states
+# The journal's closed category enum, in the order bionic/AGENTS.md §4 states
 # it. The rollup cell is anchored on it, so a forged heading cannot place an
 # arbitrary token in the "top categories" cell.
 CATEGORIES = (

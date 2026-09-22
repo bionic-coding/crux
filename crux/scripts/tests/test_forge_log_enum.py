@@ -30,7 +30,7 @@ Operative guarantees (per ADR-0041):
 
   (e) The §10.B evaluation-duty sentence fragment
       "writes one `evaluated` forge-log entry"
-      MUST appear in BOTH docs/CLAUDE.md and crux/templates/CLAUDE.md.tmpl
+      MUST appear in BOTH docs/AGENTS.md and crux/templates/AGENTS.md.tmpl
       (the always-in-context seat for the session-end evaluation discipline).
 
 Uses only stdlib (unittest, pathlib).  No mocks needed — everything resolves
@@ -43,9 +43,9 @@ import unittest
 from pathlib import Path
 
 try:
-    from ._dev_surface import TREE, TREE_CLAUDE_MD, require_dev_surface
+    from ._dev_surface import TREE, TREE_AGENTS_MD, require_dev_surface
 except ImportError:  # unittest discover imports test modules top-level
-    from _dev_surface import TREE, TREE_CLAUDE_MD, require_dev_surface
+    from _dev_surface import TREE, TREE_AGENTS_MD, require_dev_surface
 
 # ─── repo paths ──────────────────────────────────────────────────────────────
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
@@ -53,8 +53,8 @@ FORGE_SKILL = REPO_ROOT / "crux" / "skills" / "forge-skill" / "SKILL.md"
 RETRO_SKILL = REPO_ROOT / "crux" / "skills" / "retrospective" / "SKILL.md"
 CLEANUP_SKILL = REPO_ROOT / "crux" / "skills" / "cleanup-campsite" / "SKILL.md"
 FORGE_LOG_MD = REPO_ROOT / ".claude" / "skills" / "forge-log.md"
-DOCS_CLAUDE_MD = TREE_CLAUDE_MD
-TMPL_CLAUDE_MD = REPO_ROOT / "crux" / "templates" / "CLAUDE.md.tmpl"
+DOCS_CLAUDE_MD = TREE_AGENTS_MD
+TMPL_CLAUDE_MD = REPO_ROOT / "crux" / "templates" / "AGENTS.md.tmpl"
 
 # ADR-0046 cycle/iterate forge-log recording surfaces.
 CYCLE_REVIEW_MODULE = REPO_ROOT / "crux" / "templates" / "cycle-module-review.yaml"
@@ -132,8 +132,8 @@ SECTION_10B_CYCLE_SEATS_CLAUSE: str = (
 
 # ─── CLAUDE-surface pair ─────────────────────────────────────────────────────
 _CLAUDE_SURFACES = [
-    (DOCS_CLAUDE_MD, f"{TREE}/CLAUDE.md"),
-    (TMPL_CLAUDE_MD, "crux/templates/CLAUDE.md.tmpl"),
+    (DOCS_CLAUDE_MD, f"{TREE}/AGENTS.md"),
+    (TMPL_CLAUDE_MD, "crux/templates/AGENTS.md.tmpl"),
 ]
 
 
@@ -632,7 +632,7 @@ class TestVerdictTokensInSummaryPromptSurfaces(unittest.TestCase):
 
 class TestCycleSeatsClauseInClaudeSurfaces(unittest.TestCase):
     """(ADR-0046 N3) The §10.B clause naming the dev-cycle/iterate seats MUST
-    appear byte-identically in BOTH docs/CLAUDE.md and crux/templates/CLAUDE.md.tmpl.
+    appear byte-identically in BOTH docs/AGENTS.md and crux/templates/AGENTS.md.tmpl.
 
     The clause is owned by the historian (added in parallel to both §10.B
     surfaces); this test pins it. If only this assertion is RED, the historian's

@@ -6,12 +6,16 @@
 """generate-writing-rules.py — the vendored regenerator for the writing-rules block.
 
 The eighth regenerative output (per ADR-0056's enrollment discipline, established
-by ADR-0058). One canonical text, three generated projections:
+by ADR-0058). One canonical text, two generated projections:
 
-    canonical   CLAUDE.md            between BEGIN/END CANONICAL: writing-rules
-    projection  AGENTS.md            between BEGIN/END GENERATED: writing-rules
-    projection  docs/CLAUDE.md       between BEGIN/END GENERATED: writing-rules
+    canonical   AGENTS.md            between BEGIN/END CANONICAL: writing-rules
+    projection  docs/AGENTS.md       between BEGIN/END GENERATED: writing-rules
     projection  crux/skills/prose-review/SKILL.md   (ships downstream)
+
+The repo-root file was BOTH the projection target and, after the instruction-file
+migration collapsed the two root instruction files into one, the canonical source.
+It is the source and no longer a target: a generator whose source and target are
+one path either overwrites its own input or drifts forever.
 
 The projected region is BYTE-EQUIVALENT to the canonical region, and only the
 bytes between the markers are touched.
@@ -62,7 +66,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-CANONICAL_FILE = "CLAUDE.md"
+CANONICAL_FILE = "AGENTS.md"
 CANONICAL_BEGIN = "<!-- BEGIN CANONICAL: writing-rules -->"
 CANONICAL_END = "<!-- END CANONICAL: writing-rules -->"
 
@@ -70,7 +74,7 @@ PROJECTION_BEGIN = "<!-- BEGIN GENERATED: writing-rules -->"
 PROJECTION_END = "<!-- END GENERATED: writing-rules -->"
 
 def _tree_name(root: Path) -> str:
-    """Resolve the tree directory; the schema's CLAUDE.md lives inside it."""
+    """Resolve the tree directory; the schema's AGENTS.md lives inside it."""
     _PATH = Path(__file__).resolve().parent / "bionic_config.py"
     import importlib.util as _ilu
     import sys as _sys
@@ -85,12 +89,16 @@ def _tree_name(root: Path) -> str:
 
 
 def projections(root: Path) -> tuple[str, ...]:
-    """The three targets. The schema file's directory is resolved, not hardcoded."""
-    return ("AGENTS.md", f"{_tree_name(root)}/CLAUDE.md", "crux/skills/prose-review/SKILL.md")
+    """The two targets. The schema file's directory is resolved, not hardcoded.
+
+    The repo-root AGENTS.md is deliberately ABSENT: it is CANONICAL_FILE. Adding it
+    back makes this generator read and write one path.
+    """
+    return (f"{_tree_name(root)}/AGENTS.md", "crux/skills/prose-review/SKILL.md")
 
 
 # Back-compat for tests and readers that want the shape without a root.
-PROJECTIONS = ("AGENTS.md", "bionic/CLAUDE.md", "crux/skills/prose-review/SKILL.md")
+PROJECTIONS = ("bionic/AGENTS.md", "crux/skills/prose-review/SKILL.md")
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))

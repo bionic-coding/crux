@@ -25,7 +25,7 @@ This skill is portable across Claude Code, Codex, and OpenCode. This section ove
 
 ## Overview
 
-The scaffolding operation for an **observation** — a record of what the code already does, written by a human who read the code (see `docs/CLAUDE.md` §17). An observation describes; it does not decide. This is the **reconstructed on-ramp**: the human read the code and wants the fact recorded. The mined on-ramp is `transition-decision ratify --as observation`, which writes the same record shape from a `recover-decisions` candidate.
+The scaffolding operation for an **observation** — a record of what the code already does, written by a human who read the code (see `docs/AGENTS.md` §17). An observation describes; it does not decide. This is the **reconstructed on-ramp**: the human read the code and wants the fact recorded. The mined on-ramp is `transition-decision ratify --as observation`, which writes the same record shape from a `recover-decisions` candidate.
 
 Each call: allocates the next zero-padded `OBS-NNNN` from `docs/manifest.yml`, computes the record's `anchor_id`, drops a templated file under `docs/observations/` with `status: observed` and `provenance: reconstructed`, adds the concern index row, bumps the `docs/index.md` rollup count, and logs the operation. The human writes the body — this skill provides the scaffolding only.
 
@@ -63,7 +63,7 @@ Execute in order. Never reorder, never skip. Number allocation must be atomic.
 
 ### 0. Resolve per-repo configuration
 
-Run `python3 "${CRUX_PLUGIN_ROOT}/scripts/bionic-config.py"` (compat: `crux-config.py`) from the repo root, or pass `--repo-root <repo-root>`. Confirm the returned `repo_root` is the repo you are operating in. On exit 1, **STOP** and surface the `{"error": ...}` payload — never fall back to defaults. Use the returned `docs_dir` wherever this skill says `docs/` (per the `docs/CLAUDE.md` §14 normative definition clause). When `artifact_prefix` is non-empty, the prefixed string (e.g. `CRX-OBS-NNNN`) **IS** `${ID}` for every subsequent step — the filename, the frontmatter `id:`, the index row, wiki-links, and the `log.md` subject all carry it verbatim (§14.3); only the `NNNN` allocation is prefix-blind.
+Run `python3 "${CRUX_PLUGIN_ROOT}/scripts/bionic-config.py"` (compat: `crux-config.py`) from the repo root, or pass `--repo-root <repo-root>`. Confirm the returned `repo_root` is the repo you are operating in. On exit 1, **STOP** and surface the `{"error": ...}` payload — never fall back to defaults. Use the returned `docs_dir` wherever this skill says `docs/` (per the `docs/AGENTS.md` §14 normative definition clause). When `artifact_prefix` is non-empty, the prefixed string (e.g. `CRX-OBS-NNNN`) **IS** `${ID}` for every subsequent step — the filename, the frontmatter `id:`, the index row, wiki-links, and the `log.md` subject all carry it verbatim (§14.3); only the `NNNN` allocation is prefix-blind.
 
 ### 1. Read `docs/manifest.yml`
 
@@ -75,11 +75,11 @@ Run `python3 "${CRUX_PLUGIN_ROOT}/scripts/bionic-config.py"` (compat: `crux-conf
 ### 2. Compute the id, slug, and path
 
 - `${ID}` = `OBS-` + zero-padded 4-digit `${N}` (e.g. `${N}`=7 → `OBS-0007`), prefixed per §0.
-- `${SLUG}` = kebab-case of `${title}`, ASCII only, truncated to 50 chars. Trim trailing hyphens after truncation (`docs/CLAUDE.md` §9).
+- `${SLUG}` = kebab-case of `${title}`, ASCII only, truncated to 50 chars. Trim trailing hyphens after truncation (`docs/AGENTS.md` §9).
 - **The slug grammar is the two grammars intersected: `^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$`.** The value is the filename stem AND the slug half of the `governs` handle, so it must satisfy both — a lowercase letter, then lowercase letters, digits and single hyphens. A title opening with a number kebab-cases to a digit-led slug such as `3-way-merge`: the filename grammar admits it, the handle anchor refuses it, and the summaries projection then fails closed for the whole tree. If the derived slug is empty or digit-led, **STOP** and ask the user for one this grammar admits. Never repair it silently.
 - `${FILE}` = `docs/observations/${ID}-${SLUG}.md`.
 - **Collision scan:** glob `docs/observations/*.md` and match each filename against the dual-form regex `([A-Z][A-Z0-9]{1,9}-)?OBS-(\d{4})`. Take the max over the digits capture across bare and prefixed spellings. If that max is ≥ `${N}`, **STOP** with a BROKEN error — the manifest counter is desynced from the directory. Tell the user to run `audit-docs` to reconcile.
-- **Slug collision check (different number, same slug): STOP.** The slug half of every live handle is unique across the whole resolver, and a retired slug is never reused either, because a citation of it must keep resolving to the rules that displaced it. Read `docs/adrs/summaries/resolver.json` and refuse when `${SLUG}` is a key of its `slugs` map or of its `retired_slugs` map; when that file does not exist, read the `governs` handles under `docs/observations/*.md` and `docs/adrs/*.md` directly. Name the holder and ask the user for a different slug. Proceeding writes a second live handle on a taken slug, and the projection then refuses to render for every record in the tree — `summarize-adrs` and `compile-doctrine` both stop, not this record alone. The batch sign-off refuses on the same conditions (`docs/CLAUDE.md` §17.5), and the single-record ramp is not the lenient one.
+- **Slug collision check (different number, same slug): STOP.** The slug half of every live handle is unique across the whole resolver, and a retired slug is never reused either, because a citation of it must keep resolving to the rules that displaced it. Read `docs/adrs/summaries/resolver.json` and refuse when `${SLUG}` is a key of its `slugs` map or of its `retired_slugs` map; when that file does not exist, read the `governs` handles under `docs/observations/*.md` and `docs/adrs/*.md` directly. Name the holder and ask the user for a different slug. Proceeding writes a second live handle on a taken slug, and the projection then refuses to render for every record in the tree — `summarize-adrs` and `compile-doctrine` both stop, not this record alone. The batch sign-off refuses on the same conditions (`docs/AGENTS.md` §17.5), and the single-record ramp is not the lenient one.
 
 ### 3. Compute the `anchor_id`
 
@@ -91,12 +91,12 @@ cd "${CRUX_PLUGIN_ROOT}/scripts" && CRUX_ANCHOR_KIND="${ANCHOR_KIND}" CRUX_ANCHO
 
 **The anchor text reaches this command through the environment, never through the program string, and that is not a style choice.** `${ANCHOR}` is repo-derived for the `api-contract`, `system-of-record`, and `cross-cutting-policy` kinds — it is scanned content, not something the human typed. Substituted into a `python3 -c` program it is executable code: a crafted anchor closes the quote, runs anything under your permissions, and still prints a plausible 16-hex id, so the run looks ordinary. That single substitution voids the entire writer boundary, because every control in §17.2 is prose you follow and injected code writes `status: ratified` straight into a record. Passed through the environment the same text is inert data. `crux/scripts/tests/test_skill_prose_safety.py` fails any `SKILL.md` that interpolates a shell placeholder into an inline program string.
 
-Hold the printed value as `${ANCHOR_ID}`. **Duplicate check:** the uniqueness rule and the `anchor_id` shape are stated in `docs/CLAUDE.md` §17.2/§17.3 (CHK-OBS-ANCHOR) and checked by `check_observations.py`; read them there rather than from memory. Apply the rule here before writing: if any record under `docs/observations/` already carries this `anchor_id` in `observed` or `ratified`, **STOP** and name it — the fact is already recorded. A changed claim on the same anchor is a successor record, and the human ratifies the successor and retires its predecessor through `transition-observation`; it is never an edit of the existing record.
+Hold the printed value as `${ANCHOR_ID}`. **Duplicate check:** the uniqueness rule and the `anchor_id` shape are stated in `docs/AGENTS.md` §17.2/§17.3 (CHK-OBS-ANCHOR) and checked by `check_observations.py`; read them there rather than from memory. Apply the rule here before writing: if any record under `docs/observations/` already carries this `anchor_id` in `observed` or `ratified`, **STOP** and name it — the fact is already recorded. A changed claim on the same anchor is a successor record, and the human ratifies the successor and retires its predecessor through `transition-observation`; it is never an edit of the existing record.
 
 ### 4. Read the observation template
 
 - Read `${CRUX_PLUGIN_ROOT}/templates/OBS-template.md`. The template carries the full frontmatter shape — substitute into it; do not re-author the field list from memory.
-- **The canonical frontmatter contract — which fields exist, their types, and required/optional — lives in the tree's operational schema, `docs/CLAUDE.md` §17.1 "Canonical observation frontmatter schema"** (the single source of truth). This skill does NOT restate the field list (it would drift); read §17.1. The three constraints §17.1 places on the `governs` entries — provenance agreement, the id-namespaced handle, and the unused `anchor` sub-field — are enforced there; apply them by reading them, not from memory.
+- **The canonical frontmatter contract — which fields exist, their types, and required/optional — lives in the tree's operational schema, `docs/AGENTS.md` §17.1 "Canonical observation frontmatter schema"** (the single source of truth). This skill does NOT restate the field list (it would drift); read §17.1. The three constraints §17.1 places on the `governs` entries — provenance agreement, the id-namespaced handle, and the unused `anchor` sub-field — are enforced there; apply them by reading them, not from memory.
 - Substitute the values for the new record: `id` → `${ID}`, `title` → `${title}`, `status` → `observed`, `provenance` → `reconstructed`, `anchor_id` → `${ANCHOR_ID}`, `evidence` → the passed references, the `governs` entry from the passed domain/rule/scope with its handle namespaced as `${ID}/<rule-slug>`, `date` and the first-written date → `${TODAY}`, and the passed tags and related invariants (default `[]`). Every lifecycle date that §17.1 marks as set on a later transition is `null`; `decided_by` is `null`. For the exact field set, defer to §17.1 and the template — they are authoritative.
 - Substitute the body heading `# OBS-NNNN — <Title>` → `# ${ID} — ${title}`.
 - Leave the body sections with their stub content from the template. The human fills them in. The body carries no code excerpt; a `path:line-range` in `evidence` is the pointer.
@@ -121,12 +121,12 @@ Hold the printed value as `${ANCHOR_ID}`. **Duplicate check:** the uniqueness ru
 ### 8. Update the `docs/index.md` rollup
 
 - Bump the count: `## Observations (N)` where `N` is the number of files matching `OBS-*.md` under `docs/observations/` (count files, not the index).
-- If no `## Observations` section exists yet, create it after the `## Invariants` section when one exists, else after `## Briefs` (see `docs/CLAUDE.md` §5).
+- If no `## Observations` section exists yet, create it after the `## Invariants` section when one exists, else after `## Briefs` (see `docs/AGENTS.md` §5).
 - Update the `_Last updated:_` line to `${TODAY}`.
 
 ### 9. Append to `docs/log.md`
 
-Prepended (newest first), using the `observation` op from the `docs/CLAUDE.md` §6 canonical enum:
+Prepended (newest first), using the `observation` op from the `docs/AGENTS.md` §6 canonical enum:
 
 ```
 ## [${TODAY}] observation | ${ID}: created (observed)
@@ -143,7 +143,7 @@ Body, 1–2 lines: the title, the file path, `provenance: reconstructed`, the `a
 ## Verification checklist
 
 - [ ] `docs/observations/${ID}-${SLUG}.md` exists.
-- [ ] Frontmatter parses as YAML and its keyset matches the template's, which matches `docs/CLAUDE.md` §17.1.
+- [ ] Frontmatter parses as YAML and its keyset matches the template's, which matches `docs/AGENTS.md` §17.1.
 - [ ] `id:` matches the filename's `${ID}`.
 - [ ] `status: observed` and `provenance: reconstructed` — no other status was written.
 - [ ] `anchor_id` equals the value `candidate_id` printed in §3, and no other non-terminal record carries it.
@@ -201,7 +201,7 @@ Body, 1–2 lines: the title, the file path, `provenance: reconstructed`, the `a
 - `transition-decision` — the mined on-ramp (`ratify --as observation`) that writes the same record shape from a `recover-decisions` candidate.
 - `recover-decisions` — the miner whose `anchor_id` function this skill reuses.
 - `propose-adr` — the decision artifact; an observation that earns one moves to `decided`.
-- `audit-docs` — the CHK-OBS rules (`docs/CLAUDE.md` §17.3) that read what this skill writes.
-- `docs/CLAUDE.md` §17 — the observations-concern contract (§17.1 frontmatter schema, §17.2 lifecycle and writer boundary, §17.3 audit rules).
+- `audit-docs` — the CHK-OBS rules (`docs/AGENTS.md` §17.3) that read what this skill writes.
+- `docs/AGENTS.md` §17 — the observations-concern contract (§17.1 frontmatter schema, §17.2 lifecycle and writer boundary, §17.3 audit rules).
 - The observation-record decision this implements (see the ADR log).
 - Template: `crux/templates/OBS-template.md`.

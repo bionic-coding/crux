@@ -277,7 +277,7 @@ class RunEndToEndTestCase(unittest.TestCase):
             json.dumps(skills), encoding="utf-8"
         )
         (tmp / "bionic").mkdir()
-        claude = tmp / "bionic" / "CLAUDE.md"
+        claude = tmp / "bionic" / "AGENTS.md"
         claude.write_text(f"HEAD LINE\n{B}\n{body}\n{E}\nTAIL LINE\n", encoding="utf-8")
         return claude
 
@@ -299,7 +299,7 @@ class RunEndToEndTestCase(unittest.TestCase):
             claude = self._make_tree(tmp, "STALE", self.SKILLS)
             code, payload = grt.run(tmp, dry_run=False)
             self.assertEqual(code, 0)
-            self.assertEqual(payload["written"], ["bionic/CLAUDE.md"])
+            self.assertEqual(payload["written"], ["bionic/AGENTS.md"])
             after = claude.read_text(encoding="utf-8")
             # Bytes outside the markers are untouched.
             self.assertTrue(after.startswith("HEAD LINE\n"))
@@ -332,10 +332,10 @@ class ExitAndEnrollmentTestCase(unittest.TestCase):
             self.assertIn('"error"', proc.stdout)
 
     def test_enrolled_in_the_regenerative_outputs_table(self):
-        claude = REPO_ROOT / "CLAUDE.md"
+        claude = REPO_ROOT / "AGENTS.md"
         if not claude.is_file():
             self.skipTest(
-                "repo-root CLAUDE.md absent (staged public artifact) — the "
+                "repo-root AGENTS.md absent (staged public artifact) — the "
                 "regenerative-outputs roster is dev-repo only"
             )
         self.assertIn("generate-routing-table.py", claude.read_text(encoding="utf-8"))

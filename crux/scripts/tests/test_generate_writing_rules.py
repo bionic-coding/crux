@@ -30,7 +30,7 @@ except ImportError:  # pragma: no cover
     from _dev_surface import IS_STAGED_ARTIFACT
 
 # The canonical text and two of the three projections are DEV-ONLY surfaces:
-# the repo-root CLAUDE.md, AGENTS.md, and the tree's CLAUDE.md never cross the
+# the repo-root AGENTS.md and the tree's AGENTS.md never cross the
 # sync boundary (ADR-0036 §3). sync.sh runs this package as a release gate
 # against the STAGED tree, where they legitimately do not exist — so every test
 # that reads them skips there and keeps full strength in the dev checkout.
@@ -38,7 +38,7 @@ except ImportError:  # pragma: no cover
 # covered by the release-content scan.
 _dev_only = unittest.skipIf(
     IS_STAGED_ARTIFACT,
-    "reads dev-only surfaces (CLAUDE.md / AGENTS.md / <tree>/CLAUDE.md) absent from a staged artifact",
+    "reads dev-only surfaces (AGENTS.md / <tree>/AGENTS.md) absent from a staged artifact",
 )
 
 
@@ -346,7 +346,7 @@ class ExitCodeTestCase(unittest.TestCase):
         error, and stays exit 1.
 
         rule:out-of-scope-is-surface-absent draws the line at presence: a missing
-        `CLAUDE.md` is an absent surface, which the staged release artifact and every
+        `AGENTS.md` is an absent surface, which the staged release artifact and every
         public clone have, and calling that BROKEN filed a defect against a tree that
         owns no projection. A file that exists and lacks its marker is a real defect
         in a tree that does own it. The two cases are covered separately -- this one,
@@ -365,7 +365,7 @@ class ExitCodeTestCase(unittest.TestCase):
 
     def test_an_absent_canonical_file_is_surface_absent_not_broken(self):
         """The public clone and the staged artifact: `crux/scripts/` present, the
-        repo-root `CLAUDE.md` absent. Exit 1 there filed BROKEN against a tree that
+        repo-root `AGENTS.md` absent. Exit 1 there filed BROKEN against a tree that
         ships no projection of the block."""
         with tempfile.TemporaryDirectory() as d:
             seed_authoring_probe(d, SCRIPT)
@@ -395,7 +395,7 @@ class ShippedSurfaceTestCase(unittest.TestCase):
         )
 
     def test_enrolled_in_the_regenerative_outputs_table(self):
-        claude_md = (REPO_ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+        claude_md = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")
         self.assertIn("generate-writing-rules.py", claude_md)
 
 

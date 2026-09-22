@@ -196,7 +196,7 @@ def load_yaml(text: str) -> Any:
         # Python objects from a crafted document. See module docstring.
         return _normalize(yaml.safe_load(text))
     except ImportError:
-        # PARITY CONTRACT (ADR-0023 §3 / docs/CLAUDE.md §13.2): the fallback path
+        # PARITY CONTRACT (ADR-0023 §3 / docs/AGENTS.md §13.2): the fallback path
         # must return the SAME Python value PyYAML+_normalize does, so the
         # book_content_hash lock-step holds whether or not PyYAML is installed.
         # Both paths funnel through _normalize for the date/datetime coercion;
@@ -983,7 +983,7 @@ def _strip_comment(line: str) -> str:
 
 
 def _parse_scalar(value: str) -> Any:
-    # PARITY CONTRACT (ADR-0023 §3 / docs/CLAUDE.md §13.2): this hand-rolled
+    # PARITY CONTRACT (ADR-0023 §3 / docs/AGENTS.md §13.2): this hand-rolled
     # coercion must agree with ``yaml.safe_load``'s YAML-1.1 resolution for every
     # value reachable in a promptbook/run document, because both parse paths feed
     # the same ``book_content_hash``. We mirror the cases that matter:

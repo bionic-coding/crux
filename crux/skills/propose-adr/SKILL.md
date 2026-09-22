@@ -60,7 +60,7 @@ Execute in order. Never reorder, never skip. Number allocation must be atomic.
 
 ### 0. Resolve per-repo configuration (.crux)
 
-Run `python3 "${CRUX_PLUGIN_ROOT}/scripts/crux-config.py"` from the repo root (or pass `--repo-root <repo-root>`), and confirm the returned `repo_root` is the repo you are operating in — `source: "discovery:<dir>"` with an unexpected `repo_root` means you resolved the wrong directory, not that no config exists. On exit 1, **STOP** and surface the `{"error": ...}` payload — never fall back to defaults. Use the returned `docs_dir` wherever this skill says `docs/` (per the docs/CLAUDE.md §14 normative definition clause). When `artifact_prefix` is non-empty, the prefixed string (e.g. `CRX-ADR-NNNN`) **IS** `${ID}` for every subsequent step — the filename, the frontmatter `id:`, the index row, wiki-links, and the `log.md` subject all carry it verbatim (per docs/CLAUDE.md §14.3, "verbatim on every surface"); only the `NNNN` allocation is prefix-blind (it still comes from the manifest counter exactly as below).
+Run `python3 "${CRUX_PLUGIN_ROOT}/scripts/crux-config.py"` from the repo root (or pass `--repo-root <repo-root>`), and confirm the returned `repo_root` is the repo you are operating in — `source: "discovery:<dir>"` with an unexpected `repo_root` means you resolved the wrong directory, not that no config exists. On exit 1, **STOP** and surface the `{"error": ...}` payload — never fall back to defaults. Use the returned `docs_dir` wherever this skill says `docs/` (per the docs/AGENTS.md §14 normative definition clause). When `artifact_prefix` is non-empty, the prefixed string (e.g. `CRX-ADR-NNNN`) **IS** `${ID}` for every subsequent step — the filename, the frontmatter `id:`, the index row, wiki-links, and the `log.md` subject all carry it verbatim (per docs/AGENTS.md §14.3, "verbatim on every surface"); only the `NNNN` allocation is prefix-blind (it still comes from the manifest counter exactly as below).
 
 ### 1. Read `docs/manifest.yml`
 
@@ -79,11 +79,11 @@ Run `python3 "${CRUX_PLUGIN_ROOT}/scripts/crux-config.py"` from the repo root (o
 ### 3. Read the ADR template
 
 - Read `${CRUX_PLUGIN_ROOT}/templates/ADR-template.md`. The template carries the full frontmatter shape — substitute into it; do not re-author the field list from memory.
-- **The canonical frontmatter contract — which fields exist, their types, and required/optional — lives in `docs/CLAUDE.md` §11.A "Canonical ADR frontmatter schema"** (the single source of truth). This skill does NOT restate the field list (it would drift); read §11.A. `audit-docs` CHK-ADR-1a enforces that the template and §11.A stay in lock-step.
+- **The canonical frontmatter contract — which fields exist, their types, and required/optional — lives in `docs/AGENTS.md` §11.A "Canonical ADR frontmatter schema"** (the single source of truth). This skill does NOT restate the field list (it would drift); read §11.A. `audit-docs` CHK-ADR-1a enforces that the template and §11.A stay in lock-step.
 - Substitute the values for the new ADR: `id` → `${ID}`, `title` → `${title}`, `status` → `Proposed`, `date`/`proposed_date` → `${TODAY}`, the remaining `*_date` fields → `null`, `supersedes` → `[]`, `superseded_by` → `null`, `deciders`/`tags`/`related_briefs`/`related_research` → the passed values (default `[]` / the runtime-resolved user handle, as documented under Inputs). For the exact field set and any optional fields (e.g. `amends`), defer to §11.A and the template — they are authoritative.
 - Substitute the body heading `# ADR-NNNN — <Title>` → `# ${ID} — ${title}`.
 - Leave the five body sections (`## Context`, `## Decision`, `## Alternatives Considered`, `## Consequences`, `## References`) with their stub content from the template. The user fills these in.
-- **The body content rule — what a body may contain — lives in `docs/CLAUDE.md` §11.D "ADR body content rule"** (the single source of truth). A body states requirements and postconditions, never implementation recipe; it names a source of truth rather than restating a shape; and its four narrative sections carry a line budget as a tripwire for that rule. This skill does NOT restate the rule or the budget's value (it would drift); read §11.D. `audit-docs` `CHK-ADR-SPEC` reports against it, prospectively only, over the cohort `docs/manifest.yml` `adr.spec_rule_from` names. The template carries the same pointer as an HTML comment under its H1; leave that comment in place — the author deletes it when the body is written.
+- **The body content rule — what a body may contain — lives in `docs/AGENTS.md` §11.D "ADR body content rule"** (the single source of truth). A body states requirements and postconditions, never implementation recipe; it names a source of truth rather than restating a shape; and its four narrative sections carry a line budget as a tripwire for that rule. This skill does NOT restate the rule or the budget's value (it would drift); read §11.D. `audit-docs` `CHK-ADR-SPEC` reports against it, prospectively only, over the cohort `docs/manifest.yml` `adr.spec_rule_from` names. The template carries the same pointer as an HTML comment under its H1; leave that comment in place — the author deletes it when the body is written.
 
 ### 4. Write the ADR file
 
@@ -151,7 +151,7 @@ longer than the recommended maximum; the row carries the handle, the actual leng
 and the guidance for shortening it. **It is advisory.** It never changes the exit code, it blocks
 nothing, and it is not a waiver you record — there is no waiver field and no approval step.
 
-**The principle the row serves is `docs/CLAUDE.md` §11.D rule 7. Read it there; this skill does not
+**The principle the row serves is `docs/AGENTS.md` §11.D rule 7. Read it there; this skill does not
 restate it, for the reason step 6 gives.** Act on the row in one of two ways: shorten the rule as
 that rule and the row's own message direct, or leave it and say in one line, in the hand-off
 below, why the length is what precision costs here. Never truncate or rewrite a rule mechanically
@@ -170,8 +170,8 @@ the advisory is inert; that is a tree-configuration matter, not a finding about 
 
 - Tell the user: ADR id assigned, file path, current status (`Proposed`).
 - Explicitly instruct: edit the five body sections (`Context`, `Decision`, `Alternatives Considered`, `Consequences`, `References`) — do NOT change the frontmatter.
-- If step 9a reported a row for this ADR, name the rule and say whether it was shortened or why its length is what precision costs. Do NOT restate `docs/CLAUDE.md` §11.D rule 7 in the hand-off; name it.
-- Point the author at `docs/CLAUDE.md` §11.D before they write: requirements and postconditions, not recipe; name a source of truth rather than restating a shape; measurements go in a footnote marked informative; the four narrative sections carry a line budget, and going over it on purpose means declaring why. Naming the section is the whole instruction — do not paraphrase the rule here.
+- If step 9a reported a row for this ADR, name the rule and say whether it was shortened or why its length is what precision costs. Do NOT restate `docs/AGENTS.md` §11.D rule 7 in the hand-off; name it.
+- Point the author at `docs/AGENTS.md` §11.D before they write: requirements and postconditions, not recipe; name a source of truth rather than restating a shape; measurements go in a footnote marked informative; the four narrative sections carry a line budget, and going over it on purpose means declaring why. Naming the section is the whole instruction — do not paraphrase the rule here.
 - If accepted-immediately, tell the user the body is now frozen except via supersession.
 - Optionally call `log-work --silent --category decision --subject "ADR-NNNN proposed: <title>"` if the user opted into auto-journaling for ADRs.
 
@@ -185,7 +185,7 @@ the advisory is inert; that is a tree-configuration matter, not a finding about 
 - [ ] `accepted_date`, `deprecated_date`, `superseded_date` are all `null`.
 - [ ] `supersedes: []`, `superseded_by: null`.
 - [ ] Body has all five required H2 sections in order: Context, Decision, Alternatives Considered, Consequences, References.
-- [ ] The template's body-content-rule HTML comment survived the substitution (it points the author at `docs/CLAUDE.md` §11.D; this skill scaffolds, so the comment is handed over intact, not resolved).
+- [ ] The template's body-content-rule HTML comment survived the substitution (it points the author at `docs/AGENTS.md` §11.D; this skill scaffolds, so the comment is handed over intact, not resolved).
 - [ ] `docs/manifest.yml` `adr.next_number` is `${N} + 1`.
 - [ ] `docs/adrs/index.md` has a new row at the top with this ADR's `${ID}`, status `Proposed`, date `${TODAY}`.
 - [ ] `docs/adrs/index.md` `_Last updated:_` is `${TODAY}`.
@@ -213,8 +213,8 @@ the advisory is inert; that is a tree-configuration matter, not a finding about 
 | "An ADR was deleted last week — I'll reuse its number." | Numbers are never reused. Allocate the next from `manifest.yml`, full stop. |
 | "The title is too long for the slug — I'll abbreviate by hand." | Kebab-case the title and truncate to 50 chars. Hand-abbreviation is non-deterministic and unaudittable. |
 | "I'll fill in `Context` and `Decision` from the discussion to save the user time." | The ADR body is the user's voice. Provide the scaffolding; let them write. Pre-fills become wrong-but-shipped content. |
-| "There's no template — I'll improvise the frontmatter." | The frontmatter contract is the canonical schema in `docs/CLAUDE.md` §11.A. Missing fields break `audit-docs` and `transition-adr`. Refuse if the template is missing; tell the user to reinstall the plugin. |
-| "The decision needs the exact call signature to be reviewable." | Then it is being reviewed by the wrong instrument — prose review is not a type checker. State the requirement and the postcondition; the dev module's tests review the signature. See `docs/CLAUDE.md` §11.D, and its carve-out for when the mechanism IS the decision. |
+| "There's no template — I'll improvise the frontmatter." | The frontmatter contract is the canonical schema in `docs/AGENTS.md` §11.A. Missing fields break `audit-docs` and `transition-adr`. Refuse if the template is missing; tell the user to reinstall the plugin. |
+| "The decision needs the exact call signature to be reviewable." | Then it is being reviewed by the wrong instrument — prose review is not a type checker. State the requirement and the postcondition; the dev module's tests review the signature. See `docs/AGENTS.md` §11.D, and its carve-out for when the mechanism IS the decision. |
 | "The body is over the line budget, so I'll trim the Alternatives section." | The budget is a tripwire, not a cap. An over-budget body is a prompt to re-read for embedded recipe — remove the recipe, or declare the justification in the form §11.D states. Cutting a real alternative to hit a number is the wrong repair. |
 | "The index update is bookkeeping — I'll do it on the next ADR." | The index is queried before the file system on most reads. Drift here means downstream skills see stale state. Update on every write. |
 | "I'll skip the log entry because `propose-adr` is implicit." | Every op gets a `log.md` entry. The chronology is the audit; no exceptions. |

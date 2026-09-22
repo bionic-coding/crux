@@ -78,7 +78,7 @@ This skill takes no required arguments. Optional behavior:
   - The normal `cleanup-campsite` log op is STILL emitted to `docs/log.md` on every `--only` run (the regenerate-and-propose + log contract is not bypassed). The log entry body names the scoped rule(s): `N open (X P1, Y P2, Z P3) [--only CLN-TMPL-1], M closed, K dismissed`.
   - **Unknown rule id → loud error (NOT a silent no-op).** If any rule id in the list is not a recognized CLN-* id, cleanup refuses to run and prints: `ERROR: unknown rule id '<ID>'. Known rule ids: CLN-PJ-1a, CLN-PJ-1b, …`. Exit non-zero. This prevents a silent empty-output run from masking a typo.
   - **Rule-harness isolation:** each named rule runs in isolation over the shared checker / scan logic without missing required setup state (thresholds and dismissals are loaded in step 1/2 even under `--only`) and without causing side effects on unscoped rules.
-  - `cleanup-campsite --only CLN-TMPL-1` is the documented **on-demand fast-path** for immediate parity feedback right after editing `docs/CLAUDE.md` — fast because only one rule runs against two files, no full vault walk.
+  - `cleanup-campsite --only CLN-TMPL-1` is the documented **on-demand fast-path** for immediate parity feedback right after editing `docs/AGENTS.md` — fast because only one rule runs against two files, no full vault walk.
 
 - **Configuration in `docs/manifest.yml`** under an optional `cleanup:` block:
   - `adr_proposed_stale_days` — default 14. Used by `CLN-ADR-2`.
@@ -124,7 +124,7 @@ Rules — all are file-scoped; no skill invocations:
 
 #### CLN-PJ-1b — plugin.json `len(skills)` vs. "N skills" claims
 
-- **Reads:** `crux/plugin.json`, `README.md`, `USER_GUIDE.md`, `CLAUDE.md` (root).
+- **Reads:** `crux/plugin.json`, `README.md`, `USER_GUIDE.md`, `AGENTS.md` (root).
 - **Looks for:** patterns like `\d+ skills` or `\bfifteen\b skills?`, `\bsixteen\b skills?`, etc., that don't match `len(plugin.json.skills)`.
 - **Stable id:** `cleanup-CLN-PJ-1b-skill-count`
 - **Category:** `version-drift`. **Severity:** P2.
@@ -178,7 +178,7 @@ The id is not reused. This stub exists so a future reader finds the reasoning in
 
 #### CLN-ADR-4 — Phantom ADR-id references in human-facing docs
 
-- **Reads:** `README.md`, `USER_GUIDE.md`, `CLAUDE.md` (repo root). Also enumerate existing ADRs by globbing `docs/adrs/ADR-NNNN-*.md`.
+- **Reads:** `README.md`, `USER_GUIDE.md`, `AGENTS.md` (repo root). Also enumerate existing ADRs by globbing `docs/adrs/ADR-NNNN-*.md`.
 - **Looks for:** ADR-id pattern `\bADR-\d{4}\b` in prose (NOT inside `[[wiki-links]]` — those are audit-docs's domain). For each match, check whether `docs/adrs/<id>-*.md` exists. Missing → finding.
 - **Stable id:** `cleanup-CLN-ADR-4-<ADR-id>-in-<file-basename>` (one per phantom ref per file).
 - **Category:** `adr-followon`. **Severity:** P2.
@@ -188,7 +188,7 @@ The id is not reused. This stub exists so a future reader finds the reasoning in
 
 `CLN-ADR-3` reported an Accepted ADR whose body prose cited a file path absent from disk. The id is **retired** and the rule is gone. Reading a frozen body against the present tree asks the wrong question: a body past `Proposed` is frozen by contract, so a path it cites records what was true when the decision was made. That is history, not drift.
 
-The rule read exactly one surface — Accepted ADR bodies — so exempting them retired it outright rather than narrowing it. The standing dismissals it accumulated stay in `docs/whats_next.md` as history; they are not migrated and not re-raised. `docs/CLAUDE.md` §11.D states the rule this retirement implements, and the pointer-durability postcondition that keeps NEW bodies safe going forward. `CLN-ADR-4` is unaffected: it reports a phantom ADR **id** in human-facing docs, a live surface, not a path inside a frozen body.
+The rule read exactly one surface — Accepted ADR bodies — so exempting them retired it outright rather than narrowing it. The standing dismissals it accumulated stay in `docs/whats_next.md` as history; they are not migrated and not re-raised. `docs/AGENTS.md` §11.D states the rule this retirement implements, and the pointer-durability postcondition that keeps NEW bodies safe going forward. `CLN-ADR-4` is unaffected: it reports a phantom ADR **id** in human-facing docs, a live surface, not a path inside a frozen body.
 
 The id is not reused. This stub exists so a future reader finds the reasoning instead of the gap, and so nobody re-adds the rule from the dismissal ledger.
 
@@ -208,8 +208,8 @@ The id is not reused. This stub exists so a future reader finds the reasoning in
 - **Looks for:** the file is missing, or its frontmatter says `maturity: placeholder`. Any other `maturity` value is silent here — the `audit-docs` CHK-OBJ rules own the file's shape and its review age.
 - **Stable id:** `cleanup-CLN-OBJ-1-objectives` (singleton — one file, one finding).
 - **Category:** `objectives`. **Severity:** P2.
-- **Proposed action:** "Populate `docs/objectives.md` per `docs/CLAUDE.md` §5.B, then set `maturity`." With no file on disk, name the gap the same way; `init-docs` seeds the placeholder.
-- **Actor boundary:** proposes only. This rule is the objectives nudge that `docs/CLAUDE.md` §5.B names under its populate gate. It never seeds, edits, or bumps the file, because humans own its content.
+- **Proposed action:** "Populate `docs/objectives.md` per `docs/AGENTS.md` §5.B, then set `maturity`." With no file on disk, name the gap the same way; `init-docs` seeds the placeholder.
+- **Actor boundary:** proposes only. This rule is the objectives nudge that `docs/AGENTS.md` §5.B names under its populate gate. It never seeds, edits, or bumps the file, because humans own its content.
 
 #### CLN-PB-1 — promptbooks with stale run-snapshot mtime
 
@@ -231,7 +231,7 @@ The id is not reused. This stub exists so a future reader finds the reasoning in
 #### CLN-PB-3 — promptbooks eligible for archive
 
 - **Reads:** every active promptbook's `current_run` snapshot (enumerate active books by globbing **both** `PB-NNNN-*.yaml` and `PB-NNNN-*.md` — format coexistence; the snapshot itself may be `.yaml` or `.md`). `current_run` stays pointed at the terminal run until `archive-promptbook` nulls it, so the completed branch is reachable here.
-- **Looks for:** the run is archive-eligible by one of the two run-level paths — either `status: completed` with every prompt terminal (`prompts[].state` ∈ {`done`, `skipped`, `blocked`}; on a `.md` run, the per-prompt `State:` field), or `status: abandoned` with `abandonment.kind: deliberate`. A run that is `in_progress`, or `abandoned` with `kind: superseded` or with no `abandonment` mapping, is NOT eligible. Eligibility is a run-level property; there is no per-prompt flag. (See `archive-promptbook/SKILL.md` and `docs/CLAUDE.md` §11.B for the definition.)
+- **Looks for:** the run is archive-eligible by one of the two run-level paths — either `status: completed` with every prompt terminal (`prompts[].state` ∈ {`done`, `skipped`, `blocked`}; on a `.md` run, the per-prompt `State:` field), or `status: abandoned` with `abandonment.kind: deliberate`. A run that is `in_progress`, or `abandoned` with `kind: superseded` or with no `abandonment` mapping, is NOT eligible. Eligibility is a run-level property; there is no per-prompt flag. (See `archive-promptbook/SKILL.md` and `docs/AGENTS.md` §11.B for the definition.)
 - **Stable id:** `cleanup-CLN-PB-3-<book-id>`.
 - **Category:** `promptbook-hygiene`. **Severity:** P3 (the user may have a reason to leave it active).
 - **Proposed action:** "PB-NNNN is eligible for archive (<completed, all prompts terminal | deliberately abandoned>). Invoke `archive-promptbook PB-NNNN` when ready. For a `cycle_kind: patch` book, archival also runs the blast-radius containment check."
@@ -318,8 +318,8 @@ The id is not reused. This stub exists so a future reader finds the reasoning in
 
 #### CLN-TMPL-1 — dogfood↔template clause parity
 
-- **Reads:** `crux/scripts/template_parity_manifest.json` and, per manifest entry, the declared canonical file (e.g. `docs/CLAUDE.md`) plus the declared twin template file (e.g. `crux/templates/CLAUDE.md.tmpl`). Invokes the shared checker `crux/scripts/check_template_parity.py`, which carries forward the fence-aware section extractor from the forged-skill predecessor.
-- **Existence gate / self-detection (per manifest entry):** the trigger predicate is the existence of the manifest entry's OWN declared twin template path — NOT a coarse glob. An entry whose declared twin template is absent (e.g., every downstream install that received the rendered `docs/CLAUDE.md` but not `crux/templates/CLAUDE.md.tmpl`) is **skipped entirely** — neither the parity check nor the stale-manifest guard runs for that entry. Therefore with no templates present the rule is a guaranteed clean **no-op (0 findings)** — inert, not dead code. The stale-manifest guard (which keys on the canonical file) is also gated behind twin-presence: guard evaluation runs ONLY in a tree where the twin exists, so it cannot fire downstream and cannot undermine the 0-finding-downstream promise. `cleanup-campsite --only CLN-TMPL-1` on a tree with no twin templates is a clean no-op, not an error.
+- **Reads:** `crux/scripts/template_parity_manifest.json` and, per manifest entry, the declared canonical file (e.g. `docs/AGENTS.md`) plus the declared twin template file (e.g. `crux/templates/AGENTS.md.tmpl`). Invokes the shared checker `crux/scripts/check_template_parity.py`, which carries forward the fence-aware section extractor from the forged-skill predecessor.
+- **Existence gate / self-detection (per manifest entry):** the trigger predicate is the existence of the manifest entry's OWN declared twin template path — NOT a coarse glob. An entry whose declared twin template is absent (e.g., every downstream install that received the rendered `docs/AGENTS.md` but not `crux/templates/AGENTS.md.tmpl`) is **skipped entirely** — neither the parity check nor the stale-manifest guard runs for that entry. Therefore with no templates present the rule is a guaranteed clean **no-op (0 findings)** — inert, not dead code. The stale-manifest guard (which keys on the canonical file) is also gated behind twin-presence: guard evaluation runs ONLY in a tree where the twin exists, so it cannot fire downstream and cannot undermine the 0-finding-downstream promise. `cleanup-campsite --only CLN-TMPL-1` on a tree with no twin templates is a clean no-op, not an error.
 - **Looks for (two sub-checks per manifest entry whose twin is present):**
   - **(drift)** A designated clause that drifted between the canonical file and the twin template — the checker reads the clause live from the canonical via anchor + pattern, then asserts the same text in the twin. Drifted clause → finding.
   - **(stale anchor/pattern)** A manifest entry's anchor or pattern no longer resolves in its canonical file (twin present). Stale entry → **P3 finding, emitted INSTEAD OF a vacuous clean result** — a stale entry reads "needs attention", never "in parity". The stale guard exists because a non-resolving anchor would otherwise make the rule pass vacuously, which is exactly the silent-failure mode the rule exists to prevent.
@@ -330,10 +330,10 @@ The id is not reused. This stub exists so a future reader finds the reasoning in
 - **Category:** `template-parity`.
 - **Severity:** drift → **P2** (a drifted clause in a shipped template reaches every install — more than visibility-only); stale anchor/pattern → **P3** (maintenance signal about the checker, not evidence of shipped-template drift).
 - **Proposed action:**
-  - Drift: "Sync the `<clause-id>` clause in `crux/templates/CLAUDE.md.tmpl` to match `docs/CLAUDE.md` (the canonical surface)."
+  - Drift: "Sync the `<clause-id>` clause in `crux/templates/AGENTS.md.tmpl` to match `docs/AGENTS.md` (the canonical surface)."
   - Stale: "Manifest entry `<clause-id>` anchor/pattern no longer resolves in `<canonical-file>`; update `crux/scripts/template_parity_manifest.json` to reflect the current anchor/pattern."
-- **Actor boundary:** proposes only; never edits `docs/CLAUDE.md`, `crux/templates/CLAUDE.md.tmpl`, or `crux/scripts/template_parity_manifest.json`. The fix is a human/Claude-under-direction edit. This honors the `audit-docs` / `cleanup-campsite` boundary (template drift is process-state, not graph integrity).
-- **On-demand fast-path:** `cleanup-campsite --only CLN-TMPL-1` — runs only this rule, scopes `docs/whats_next.md` output to its findings, emits the normal `cleanup-campsite` log op. Use immediately after editing `docs/CLAUDE.md` to confirm no parity regression before committing.
+- **Actor boundary:** proposes only; never edits `docs/AGENTS.md`, `crux/templates/AGENTS.md.tmpl`, or `crux/scripts/template_parity_manifest.json`. The fix is a human/Claude-under-direction edit. This honors the `audit-docs` / `cleanup-campsite` boundary (template drift is process-state, not graph integrity).
+- **On-demand fast-path:** `cleanup-campsite --only CLN-TMPL-1` — runs only this rule, scopes `docs/whats_next.md` output to its findings, emits the normal `cleanup-campsite` log op. Use immediately after editing `docs/AGENTS.md` to confirm no parity regression before committing.
 
 #### CLN-XR-1 — RESERVED for v0.2
 
@@ -491,7 +491,7 @@ excuse→reality mapping and the recurring-mistake catalog, read
 [`references/pitfalls.md`](references/pitfalls.md).
 ## See also
 
-- `docs/CLAUDE.md` §5.A (the whats_next.md schema) and §11 (the audit-docs boundary); the scan-rule roster is in this file's Overview (20 implemented + 2 retired + 1 reserved, for 23 ids).
+- `docs/AGENTS.md` §5.A (the whats_next.md schema) and §11 (the audit-docs boundary); the scan-rule roster is in this file's Overview (20 implemented + 2 retired + 1 reserved, for 23 ids).
 - `audit-docs/SKILL.md` — the boundary partner. Cleanup CHECKS whether audit ran recently; it does NOT invoke it.
 - `log-work/SKILL.md` (v0.2.0) — establishes the journal-as-reflection contract that cleanup honors (CLN-JR-1 surfaces missing entries as suggestions; never auto-drafts the entry itself).
 - `archive-promptbook/SKILL.md` — what users invoke after a CLN-PB-3 finding.

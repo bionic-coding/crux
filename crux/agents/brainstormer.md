@@ -63,6 +63,6 @@ historian should file it and the architect should turn it into an ADR.
 
 Say in that hand-off which of your caller's stated aims the session settled. Say
 which it left **unobserved** — the assignment contract's word for a claim nothing
-established (`docs/CLAUDE.md` §11, "The assignment contract"). The architect
+established (`docs/AGENTS.md` §11, "The assignment contract"). The architect
 inherits the boundary you draw here, and it can act on a boundary that names what
 you did not settle; it cannot act on one that hides it.

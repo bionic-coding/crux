@@ -2,7 +2,7 @@
 """base_commit_pin.py — one implementation of the pin on a run snapshot's `base_commit`.
 
 `base_commit` is the single value the `patch` tier's containment check reads out of a
-run snapshot (docs/CLAUDE.md §11.C). Every other input to that check comes from the
+run snapshot (docs/AGENTS.md §11.C). Every other input to that check comes from the
 repository's own change record, so this one value is the only place a run can speak
 about itself — and moving it forward shrinks the diff the check proves.
 

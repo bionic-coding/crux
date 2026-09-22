@@ -1,4 +1,4 @@
-"""The summaries projection's observation widening (docs/CLAUDE.md §17;
+"""The summaries projection's observation widening (docs/AGENTS.md §17;
 ADR-0095 requirement 4 and requirement 6's declared input domain).
 
 Pins, one named test per claim:

@@ -15,7 +15,7 @@ writes. This script:
 
   1. Walks ${CRUX_PLUGIN_ROOT}/skills/*/SKILL.md.
   2. Parses YAML frontmatter (the block between the first two `---` lines).
-  3. Validates required keys and enum values per docs/CLAUDE.md §7.A.
+  3. Validates required keys and enum values per docs/AGENTS.md §7.A.
   4. Regenerates catalog/skills.json deterministically (sorted by `id`,
      fixed key order, 2-space indent, trailing newline).
   5. Validates every hand-authored catalog file named in CATALOG_TARGETS:
@@ -1670,7 +1670,7 @@ CATALOG_TARGETS: dict[str, Callable[[Path, dict], list[dict]]] = {
 # `.json` files this validator writes, which must exist in a conforming tree.
 #
 # It ships here, in code, for one reason. The audit rule used to derive this
-# list from the repo-root CLAUDE.md's regenerative-output roster — a file that
+# list from the repo-root AGENTS.md's regenerative-output roster — a file that
 # exists in THIS repo and in no repo the plugin is installed into. Downstream,
 # the rule therefore derived an EMPTY list and the "skills.json exists"
 # guarantee degraded silently to nothing. A constant beside CATALOG_TARGETS

@@ -28,7 +28,7 @@ This skill is portable across Claude Code, Codex, and OpenCode. This section ove
 
 The **human sign-off** that publishes one batch of observation records. The user has filled in a review sheet scaffolded by `survey-sheet`; this skill signs it, driven by `scripts/signoff-survey.py`. It is the observations concern's sibling of `backfill-signoff` and `reconcile-signoff`: one human gate, an audited write, and a refusal for every state it does not recognize.
 
-**The protocol's source of truth is `docs/CLAUDE.md` §17.5** — the sheet and receipt schemas, the layout, the batch-identity rule, and the state table the script implements cell for cell. Read it there; this skill restates none of it and never carries a second copy.
+**The protocol's source of truth is `docs/AGENTS.md` §17.5** — the sheet and receipt schemas, the layout, the batch-identity rule, and the state table the script implements cell for cell. Read it there; this skill restates none of it and never carries a second copy.
 
 **This sign-off is equivalent to N individual ratifications under one signature.** The human reads N claims and states N verdicts on the sheet; the signature covers all of them. `transition-observation` remains the only single-record route, and this skill is the only batch route.
 
@@ -160,6 +160,6 @@ Report the batch id, the record ids published, the rows deferred, and the rows r
 - `backfill-signoff` — the human-gate skill whose render-confirm-write shape this one mirrors.
 - `reconcile-signoff` — the doctrine-layer sibling: one pairing, one reading, one verdict.
 - `summarize-adrs` / `compile-doctrine` — the projections a publish drifts; regenerate both, in that order.
-- `audit-docs` — the CHK-OBS-SURVEY-* rules (`docs/CLAUDE.md` §17.3) that read the receipts this skill writes.
-- `docs/CLAUDE.md` §17.5 — the batch-ratification protocol: sheet and receipt schemas, layout, batch identity, and the state table. The source of truth.
+- `audit-docs` — the CHK-OBS-SURVEY-* rules (`docs/AGENTS.md` §17.3) that read the receipts this skill writes.
+- `docs/AGENTS.md` §17.5 — the batch-ratification protocol: sheet and receipt schemas, layout, batch identity, and the state table. The source of truth.
 - The batch-ratification decision this implements (see the ADR log).

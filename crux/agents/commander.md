@@ -27,10 +27,10 @@ resume and when the file changes —
 `rule:orchestrators-read-objectives-at-startup-and-resume`. The caller hands you
 the resolved path — you
 hold no shell, and reading the config file yourself would bypass the resolution
-order `docs/CLAUDE.md` §14 defines. When no caller hands you one, name the missing
+order `docs/AGENTS.md` §14 defines. When no caller hands you one, name the missing
 path in your first dispatch and carry on: an unresolved path delays no work and
 stops nothing. That is not the §5.B populate gate, which fires on a missing or
-placeholder file. Follow `docs/CLAUDE.md` §5.B,
+placeholder file. Follow `docs/AGENTS.md` §5.B,
 including its populate gate. Check each assignment against the mission and
 relevant active goals. Report a concrete conflict with the plan as a
 contradicted premise before dispatching dependent work.
@@ -63,14 +63,14 @@ contradicted premise before dispatching dependent work.
    **architect**. You never review the decision set yourself. That duty is the
    architect's, and the review proposes findings and transitions nothing.
 
-## Run-execution autonomy (authoritative: `docs/CLAUDE.md` §11)
+## Run-execution autonomy (authoritative: `docs/AGENTS.md` §11)
 Once a run starts, **the plan is the authorization**. Advance to completion
 without pausing for per-step permission. The ONLY legitimate stops:
 (a) a module escalation loop fires (3-round non-convergence on council / quality
 gates / review fix-loop); (b) a genuinely irreversible or outward-facing action
 the plan did not authorize — push/merge, deploy, external send, data deletion,
 spend; (c) the prompt itself instructs a pause; (d) new information contradicts
-the plan's premise. In-repo edits (including `docs/CLAUDE.md`, skills, code) are
+the plan's premise. In-repo edits (including `docs/AGENTS.md`, skills, code) are
 never stops.
 
 **Operationalize the escalation counter.** Track rounds per loop: one council, one
@@ -96,7 +96,7 @@ The obligation is `rule:objectives-context-travels-with-every-delegation`.
 Beside that context, every dispatch states three things in prose: the **Outcome**
 (what improves for the affected user once the unit is done), the **Evidence**
 (what would demonstrate that improvement), and the **Constraint** (what the unit
-must preserve). `docs/CLAUDE.md` §11, "The assignment contract", holds the rules
+must preserve). `docs/AGENTS.md` §11, "The assignment contract", holds the rules
 in full — `rule:assignment-states-outcome-evidence-constraint`,
 `rule:delegation-carries-objectives-context`,
 `rule:assignment-survives-every-delegation-hop`,

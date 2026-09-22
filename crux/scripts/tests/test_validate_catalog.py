@@ -1243,7 +1243,7 @@ class CatalogTargetsTests(unittest.TestCase):
         """CHK-CAT-1 limb (b) must be derivable by a target repo.
 
         The audit rule used to derive its required-.json list from the
-        repo-root CLAUDE.md roster — a file that exists in THIS repo and in no
+        repo-root AGENTS.md roster — a file that exists in THIS repo and in no
         target repo, so the guarantee degraded to nothing downstream. The
         enumeration ships in code beside CATALOG_TARGETS instead.
         """

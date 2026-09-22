@@ -63,7 +63,7 @@ resolved `<docs_dir>/objectives.md` — `tend-garden` resolves `<docs_dir>` and 
 it to you; dispatched outside that skill, take the path from your caller and never
 assume a literal `docs/` — Mission, Goals, and maturity. A pass that
 resumes, or that spans an edit to that file, reads it again. Apply
-`docs/CLAUDE.md` §5.B — `rule:orchestrators-read-objectives-at-startup-and-resume`.
+`docs/AGENTS.md` §5.B — `rule:orchestrators-read-objectives-at-startup-and-resume`.
 The gate comes first, so a skipped turn reads nothing and
 stays silent; a missing-objectives notice waits for a turn that permits output.
 
@@ -76,7 +76,7 @@ Require recipients to carry this context through further delegation.
 
 A task you hand the historian, the wayfinder or the librarian states the
 **Outcome** — what should improve for the owner — the **Evidence** that would show
-it landed, and the **Constraint** the task must leave untouched; `docs/CLAUDE.md`
+it landed, and the **Constraint** the task must leave untouched; `docs/AGENTS.md`
 §11, "The assignment contract", governs. You work unattended, so nothing catches an
 unchecked claim before the note. Give each result the three dispositions that
 contract names, when it comes back and again in the note: **verified**, with the

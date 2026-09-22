@@ -1,6 +1,6 @@
 ---
 # The field set, its types, and which fields the record must carry are stated
-# once, in `docs/CLAUDE.md` §17.1. Read it there — this template carries the
+# once, in `docs/AGENTS.md` §17.1. Read it there — this template carries the
 # keyset and a pointer, not a copy.
 id: OBS-NNNN
 title: "<What the code does, in declarative present tense, e.g., 'Retries a failed provider seat exactly once'>"

@@ -171,7 +171,7 @@ class TrustedModuleShadowingTests(unittest.TestCase):
     # ── late-import (confinement-setup) stdlib shadow ────────────────────────
     #
     # M1 fix (ADR-0075 decision 7): the former `resource`-named test passed
-    # VACUOUSLY. On the uv / python-build-standalone toolchain CLAUDE.md
+    # VACUOUSLY. On the uv / python-build-standalone toolchain AGENTS.md
     # mandates, `resource` is a statically-linked builtin (in
     # `sys.builtin_module_names`), so `BuiltinImporter` resolves it before
     # `sys.path` and a `resource`-named package can never shadow it — the test

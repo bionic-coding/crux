@@ -1,6 +1,6 @@
 """Cell 17: the per-batch receipts join the summaries input domain.
 
-ADR-0098 clause 2 and docs/CLAUDE.md §17.5 row 17 — while a batch is below S9,
+ADR-0098 clause 2 and docs/AGENTS.md §17.5 row 17 — while a batch is below S9,
 `summarize-adrs.py` and `compile-doctrine.py` refuse, write nothing, and say
 why. That is leg 2 of the atomic-publish resolution: a multi-file promote
 cannot make postcondition (a) true by write ordering, so it is enforced at the

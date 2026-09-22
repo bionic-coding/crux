@@ -58,7 +58,7 @@ you **return the session as your result**. The **historian** files it into
 `docs/inbox/`, where `process-inbox` classifies it as exploration and dispatches
 `propose-brief --from-inbox <session-path>`, which carries this session's content
 into the brief **body** under `docs/briefs/` (the sanctioned machine-authored
-exception, per `docs/CLAUDE.md` §2(b)) — the frontmatter is `propose-brief`'s, the
+exception, per `docs/AGENTS.md` §2(b)) — the frontmatter is `propose-brief`'s, the
 body is your session. The **architect** then consumes that brief to author the ADR
 — the explorer never records the decision.
 

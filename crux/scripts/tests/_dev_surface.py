@@ -1,7 +1,7 @@
 """Staged-artifact guard for lock-step tests that read dev-only surfaces.
 
 Several lock-step suites pin phrases across BOTH plugin surfaces (crux/**,
-which crosses the sync boundary) AND dev-repo-only surfaces (docs/CLAUDE.md,
+which crosses the sync boundary) AND dev-repo-only surfaces (docs/AGENTS.md,
 docs/log.md, .claude/skills/*.md — which never cross, per ADR-0036 §3).
 sync.sh runs this whole test package as a release gate against the STAGED
 tree, where the dev-only surfaces legitimately do not exist.
@@ -43,7 +43,7 @@ def _resolve_tree() -> str:
 
 
 TREE = _resolve_tree()
-TREE_CLAUDE_MD = REPO_ROOT / TREE / "CLAUDE.md"
+TREE_AGENTS_MD = REPO_ROOT / TREE / "AGENTS.md"
 TREE_LOG_MD = REPO_ROOT / TREE / "log.md"
 
 

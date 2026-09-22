@@ -375,7 +375,7 @@ class AsyncCouncil:
     @staticmethod
     def _redact_error(error: "BaseException | str") -> str:
         """Summarize a provider failure as a CLOSED-VOCABULARY string, for a vote
-        that can reach a persisted surface (ADR-0054 follow-on, docs/CLAUDE.md §13).
+        that can reach a persisted surface (ADR-0054 follow-on, docs/AGENTS.md §13).
 
         NON-LEAKAGE (absolute, structural). No substring of `error` is ever
         copied into the return value. The output is built only from source

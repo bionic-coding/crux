@@ -166,7 +166,7 @@ class ComputeBookHashTests(unittest.TestCase):
 class FallbackParserParityTests(unittest.TestCase):
     """(f) PLAUSIBLE-2: the hand-rolled fallback parser (PyYAML unavailable) must
     agree byte-for-byte with the PyYAML fast-path, so the book_content_hash
-    lock-step (ADR-0023 §3 / docs/CLAUDE.md §13.2) holds regardless of whether
+    lock-step (ADR-0023 §3 / docs/AGENTS.md §13.2) holds regardless of whether
     PyYAML is installed.
 
     We force the fallback by making ``import yaml`` raise ImportError inside

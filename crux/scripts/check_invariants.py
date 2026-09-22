@@ -3,7 +3,7 @@
 # requires-python = ">=3.11"
 # dependencies = ["pyyaml>=6.0"]
 # ///
-"""check_invariants.py — reference checker for the invariants concern (docs/CLAUDE.md §15).
+"""check_invariants.py — reference checker for the invariants concern (docs/AGENTS.md §15).
 
 Implements the pin-level aggregation and the five CHK-INV audit rules against
 the ledger (`<docs_dir>/invariants/<slug>.md` frontmatter) + the reconciliation
@@ -30,7 +30,7 @@ except ImportError:  # pragma: no cover
 
 RATIFICATIONS = {"observed", "ratified", "rejected", "retired"}
 RESULTS = {"pass", "fail", "stale", "none"}
-# Aggregation precedence (docs/CLAUDE.md §15.4): fail > stale > pass > none.
+# Aggregation precedence (docs/AGENTS.md §15.4): fail > stale > pass > none.
 _PRECEDENCE = ["fail", "stale", "pass", "none"]
 
 

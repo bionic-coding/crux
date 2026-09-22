@@ -1,6 +1,6 @@
-# docs/CLAUDE.md
+# docs/AGENTS.md
 
-Operational schema for the `docs/` tree in **{{repo_name}}**. The repo-root `CLAUDE.md` references this file with a single line: "See `docs/CLAUDE.md` for documentation operations." This file is the single source of truth for everything Claude does under `docs/`.
+Operational schema for the `docs/` tree in **{{repo_name}}**. The repo-root `AGENTS.md` references this file with a single line: "See `docs/AGENTS.md` for documentation operations." This file is the single source of truth for everything Claude does under `docs/`.
 
 ## 1. What this `docs/` directory is
 
@@ -22,7 +22,7 @@ Everything else — `code/`, `research/`, `adrs/` (after Proposed is reviewed), 
 
 ```
 bionic/
-  CLAUDE.md                Schema layer (this file).
+  AGENTS.md                Schema layer (this file).
   README.md                One-page human explainer.
   index.md                 Master catalog. Sectioned by concern. Updated by every write skill.
   log.md                   Operational journal. Append-only. Newest entries at top.
@@ -767,7 +767,7 @@ Concretely:
 `cleanup-campsite` MUST NOT invoke `audit-docs` internally (different cadence: session-start vs. before-release). `cleanup-campsite` CHECKS whether audit ran recently (within `audit_stale_days`) and emits a P1 suggestion if not.
 
 ### inbox is staging, not a concern
-`docs/inbox/` (schema_version 3+) is deliberately **absent from `concerns_enabled`** — it is cross-concern staging, not a concern. That absence is load-bearing: `audit-docs` CHK-MI-1 demands a `docs/index.md` section per enabled concern, so keeping the inbox out of `concerns_enabled` is exactly what keeps CHK-MI-1 silent about it (the inbox has no catalogued residents to index). The inbox is excluded from the concern-section walk like `CLAUDE.md`/`README.md`; its only audit coverage is CHK-INBOX-1/2/3 + CHK-SCHEMA-1.
+`docs/inbox/` (schema_version 3+) is deliberately **absent from `concerns_enabled`** — it is cross-concern staging, not a concern. That absence is load-bearing: `audit-docs` CHK-MI-1 demands a `docs/index.md` section per enabled concern, so keeping the inbox out of `concerns_enabled` is exactly what keeps CHK-MI-1 silent about it (the inbox has no catalogued residents to index). The inbox is excluded from the concern-section walk like `AGENTS.md`/`README.md`; its only audit coverage is CHK-INBOX-1/2/3 + CHK-SCHEMA-1.
 
 ### Citation conventions
 - ADRs may cite research sources via `[[research/sources/<slug>]]` (and synthesis pages via `[[research/<category>/<slug>]]`), with the matching `related_research: [<slug>]` (bare source slug) or `related_research: [<category>/<slug>]` (synthesis page) in frontmatter.
@@ -835,7 +835,7 @@ Once a run is started (`run-promptbook start` against an approved book), the run
 The **only** legitimate mid-run stops are:
 
 1. **A module escalation loop fires** — 3-round non-convergence on a council, a quality-gate loop, or a review fix-loop. STOP and escalate to the user per the module contract.
-2. **A genuinely irreversible or outward-facing action the plan did NOT already authorize** — pushing/merging git, deploying, sending an external message, deleting data outside the repo, spending money, publishing. Editing in-repo files — **including `docs/CLAUDE.md`, skill files, and code** — is **not** this, however important the file feels: it is version-controlled, internal, and reversible.
+2. **A genuinely irreversible or outward-facing action the plan did NOT already authorize** — pushing/merging git, deploying, sending an external message, deleting data outside the repo, spending money, publishing. Editing in-repo files — **including `docs/AGENTS.md`, skill files, and code** — is **not** this, however important the file feels: it is version-controlled, internal, and reversible.
 3. **The prompt's own instructions explicitly say to pause** for the user.
 4. **New information contradicts the plan's premise** (e.g. a cited ADR turns out to be Superseded) — surface it; don't silently proceed.
 
@@ -1416,3 +1416,94 @@ Row 17 is the projections' side of the same state: the per-batch receipts are on
 **Why this order.** Completion precedes visibility. Records stage where no walk sees them, and the receipt's completion lands before any record becomes visible, so no visible record ever has a receipt recording no completion. The reverse order trips CHK-OBS-SURVEY-VISIBLE on every healthy publish, which would make the rule useless. One window survives: the receipt is complete, some records are promoted, and the index is stale. CHK-OBS-BIJECTION already reports it, and the projections already refuse to render it.
 
 **Why `defer` writes nothing to the candidate state file.** The candidate state file suppresses a `deferred` candidate unconditionally, so writing `defer` there would make the deferral permanent. Recording `defer` in the receipt alone is what makes "`defer` is the only re-scaffoldable verdict" hold mechanically rather than by convention.
+
+## 18. Repository instruction files
+
+`AGENTS.md` is the canonical instruction file at every managed instruction scope:
+the repository root, the configured documentation-tree root, repo-controlled nested
+project scopes, and `init-docs` output. A managed scope carries no committed
+`CLAUDE.md` sibling.[^instr-canonical] This section is the single source of truth for
+the concern; `audit-docs` (the CHK-INSTR rules), `migrate-instructions.py`, and
+`instruction_migration.py` reference it by name and restate none of it.
+
+### 18.1 Two sets, and they are not the same set
+
+| set | what it holds | what may happen to it |
+|---|---|---|
+| **mutation** | the tracked files of THIS checkout, minus the exclusions below | renamed, collapsed, merged |
+| **suppression** | every `CLAUDE.md`, `.claude/CLAUDE.md` and `CLAUDE.local.md` under the checkout, tracked or not | reported only, never written |
+
+The mutation set is bounded by the checkout's tracked files, resolved from an explicit
+repository root and never from the tool's own path. A vendored dependency cache and a
+linked worktree fall outside it by construction, because neither is tracked here.
+
+The suppression set is wider **on purpose**, and this is the clause most easily
+lost.[^instr-suppression] Under the host's default mode a Claude-named file anywhere
+from the repository root to the working directory suppresses `AGENTS.md` entirely, so
+a single leftover file silences the canonical one rather than competing with it. Some
+of those files are private and uncommitted, and crux must not touch them. Reporting a
+suppressor and failing a compatibility check on one are therefore **two different
+acts**: every suppressor under the checkout is reported, and only one on the chain
+from the root to the working directory, under a mode in which it suppresses, fails
+the check.
+
+The suppression scan skips any directory **below the root** carrying its own `.git`
+entry, which is what a nested or linked checkout is. The qualifier is load-bearing:
+the root carries one too, and a scan that skipped it would scan nothing. The rule
+cannot key on the ignore file instead, because a `.claude/CLAUDE.md` and a linked
+worktree commonly share one ignore rule while only the worktree is a separate checkout.
+
+### 18.2 Exclusions, declared rather than recognised
+
+Never mutated, each reported with a named disposition: `CLAUDE.local.md`; a `CLAUDE.md`
+under a `.claude/` directory, **even when tracked**, because no host is known to load
+`.claude/AGENTS.md` and renaming it would silence it while the receipt recorded a clean
+migration; templates; symlinks, which are never followed; and every path named by the
+`instruction_migration_denylist` key in the tree's configuration — the one declaration
+surface for a test fixture or a generated runtime copy. `init-docs` creates that key and
+defaults it to empty. An absent key, and an absent configuration, are both an empty
+denylist rather than an error, so a project audited before initialization still reports.
+
+### 18.3 The merge, and what it refuses to infer
+
+A block is a heading-delimited span at any level, plus the span above the first heading,
+which carries the empty heading path and participates in every rule as a headed block
+does. A `#` opens no block where it is not a heading — inside a fenced code block, an
+indented code block, or an HTML comment.
+
+**A block's identity is its full heading path together with its bytes**, so two
+byte-identical blocks under different parents are two blocks and deduplication requires
+both to match.[^instr-dedupe] Matching on bytes alone permits a silent REPARENTING:
+deduplicate a shared parent, append its child after some later sibling, and the child
+moves to a different parent while every block still records as retained or
+deduplicated. An unmatched block is emitted under its own source ancestry; a placement
+that would change that ancestry escalates to a reviewed resolution rather than being
+taken.
+
+The tool detects three conditions and resolves none of them: a block identical in bytes
+and ancestry, a heading path present in both sources with differing bodies, and a
+reparenting. **Semantic similarity is never duplication**, and judging a contradiction
+is a human step over the full preview. A flagged scope keeps both sources on disk and
+blocks its own scope and no other.
+
+### 18.4 Accounting, staging, and the honest limit
+
+The receipt records every source block as retained, deduplicated, or superseded by a
+recorded resolution, and pairs each block's source heading path with its resulting one.
+The result balances as retained plus synthesized headings plus the blocks a reviewed
+resolution supplies, and nothing else; a migration whose accounting does not balance
+refuses and writes nothing.[^instr-accounting] Counting blocks alone would balance
+across a reparenting, which is why the pairing rather than the count is the check.
+
+The whole plan validates before any mutation. A reviewed resolution is bound to the
+source bytes it was reviewed against, and a source that moved after the preview
+invalidates the plan rather than applying it. Staging is per file, and a rerun
+converges — after a partial run the tracked list still names a path that is already
+gone, and discovery steps over it. **No multi-file filesystem atomicity is claimed.**
+
+A migration writes one `schema` op, never one entry per file.
+
+[^instr-canonical]: rule:one-canonical-agents-file
+[^instr-suppression]: rule:discovery-is-tracked-files-of-one-checkout
+[^instr-dedupe]: rule:dedupe-is-exact-match-only, rule:merge-never-reparents-a-block
+[^instr-accounting]: rule:merge-accounting-balances

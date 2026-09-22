@@ -23,8 +23,8 @@ Read the resolved `<docs_dir>/objectives.md` before implementation or delegation
 Never assume the literal `docs/` directory exists. Take the resolved path from the
 caller that dispatched you; a skill in the pipeline has already resolved it. If you
 were handed none, you hold `Bash` — resolve it yourself through the config CLI the
-skills use, per `docs/CLAUDE.md` §14.2, and say in your result that you did.
-Apply `docs/CLAUDE.md` §5.B, including its populate gate and maturity rules —
+skills use, per `docs/AGENTS.md` §14.2, and say in your result that you did.
+Apply `docs/AGENTS.md` §5.B, including its populate gate and maturity rules —
 `rule:objectives-read-before-work` and `rule:objectives-context-travels-with-every-delegation`.
 Preserve the caller's objectives context in every developer, reviewer,
 historian, or forked skill assignment. Include the resolved path and either
@@ -35,7 +35,7 @@ in the existing brief or result.
 
 ## Carrying the assignment across the fan-out
 Your caller's assignment names an Outcome, an Evidence list, and a Constraint;
-`docs/CLAUDE.md` §11, "The assignment contract", is the governing text. Splitting
+`docs/AGENTS.md` §11, "The assignment contract", is the governing text. Splitting
 the work does not split those three evenly. Narrow the Outcome to the slice each
 developer owns, tell that developer you narrowed it and what the narrowing left
 out, and pass the Evidence list and the Constraint across intact. Adding an
@@ -61,7 +61,7 @@ Say whether the Constraint held and what shows it.
   per-threat-class security-review fan-out — dispatch those in full regardless.
 - Group work units by **independence** (no shared state, no overlapping files).
 - Dispatch one `developer` per independent group with **crafted context** (the
-  ADR, its assigned units, conventions from `docs/CLAUDE.md`) — never your whole
+  ADR, its assigned units, conventions from `docs/AGENTS.md`) — never your whole
   history. Dispatch parallel groups with the Agent tool's `isolation: worktree`
   parameter when they'd otherwise collide (each developer then works in its own
   git worktree); verify each worktree's baseline tests before integrating.

@@ -12,8 +12,8 @@ schema_version: "5"
 
 # Concerns this project has opted into. Skills no-op against a concern that
 # isn't enabled. Order is irrelevant. New repos enable the invariants concern
-# by default (docs/CLAUDE.md §15); an existing tree adds it via audit-docs --migrate.
-# New repos also enable the derived arch concern by default (docs/CLAUDE.md §4).
+# by default (docs/AGENTS.md §15); an existing tree adds it via audit-docs --migrate.
+# New repos also enable the derived arch concern by default (docs/AGENTS.md §4).
 concerns_enabled:
   - code
   - research
@@ -22,11 +22,11 @@ concerns_enabled:
   - journal
   - promptbooks
   - invariants
-  # arch: the derived architecture concern (docs/CLAUDE.md §4). Fully in-tree +
+  # arch: the derived architecture concern (docs/AGENTS.md §4). Fully in-tree +
   # regenerated, so enabling it is ADDITIVE — no schema_version bump. Default-on
   # for new repos; the spine is built on first `derive-arch` / `audit-docs`.
   - arch
-  # observations: the observed-record concern (docs/CLAUDE.md §17). Fully
+  # observations: the observed-record concern (docs/AGENTS.md §17). Fully
   # in-tree, so enabling it is ADDITIVE — no schema_version bump. Default-on
   # for new repos; an existing tree opts in by adding it here.
   - observations
@@ -57,7 +57,7 @@ research:
   refresh_interval_days: 90
 
 # Journal concern. friction_line_from is this tree's adoption date for the
-# journal friction line (docs/CLAUDE.md §7), prospective on the same cohort
+# journal friction line (docs/AGENTS.md §7), prospective on the same cohort
 # model as adr.spec_rule_from: a reader counts `Friction:` lines only in
 # entries dated at or after it, so a zero count below the boundary means
 # "not yet adopted" rather than "no friction". init-docs substitutes the
@@ -94,7 +94,7 @@ promptbook:
 # threshold, on the research.refresh_interval_days model: an `observed` record
 # older than this is survey debt, reported as a count and never as a percentage.
 # next_survey_number has the same monotonic contract, and the survey scaffold
-# allocates it as the SVY-NNNN batch id (docs/CLAUDE.md §17.5). survey_stub_days
+# allocates it as the SVY-NNNN batch id (docs/AGENTS.md §17.5). survey_stub_days
 # is the window in which a receipt recording no completion is a WARNING rather
 # than BROKEN; absent it falls back to 1.
 observation:

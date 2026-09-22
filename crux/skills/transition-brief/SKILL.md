@@ -29,9 +29,9 @@ This skill is portable across Claude Code, Codex, and OpenCode. This section ove
 
 The status state machine for **briefs** — the pre-decision exploration documents `propose-brief` scaffolds. This skill closes the lifecycle that `propose-brief` opens: a brief is born `draft`, and it ends either `published` (the exploration is preserved as a standing reference) or `abandoned` (the exploration was dropped without becoming a decision). Two named transitions — `publish` and `abandon` — each enforcing the single allowed transition out of `draft`.
 
-Why a dedicated skill: `propose-brief` opens the lifecycle but nothing else closes it, and without a closer the only path to publish/abandon would be hand-editing frontmatter — which the docs schema otherwise forbids. This skill is the sanctioned closer, mirroring `transition-adr` for ADRs. `docs/CLAUDE.md` §6's `brief` op names `transition-brief` as a second writer.
+Why a dedicated skill: `propose-brief` opens the lifecycle but nothing else closes it, and without a closer the only path to publish/abandon would be hand-editing frontmatter — which the docs schema otherwise forbids. This skill is the sanctioned closer, mirroring `transition-adr` for ADRs. `docs/AGENTS.md` §6's `brief` op names `transition-brief` as a second writer.
 
-Core principle: **the state machine is the contract, and the body is frozen.** A brief's body is human-authored (per `docs/CLAUDE.md` §2 ownership); this skill mutates ONLY the `status` and `updated_at` frontmatter between the `---` fences and rewrites the body byte-for-byte. Every transition that isn't explicitly allowed is refused with a clear error.
+Core principle: **the state machine is the contract, and the body is frozen.** A brief's body is human-authored (per `docs/AGENTS.md` §2 ownership); this skill mutates ONLY the `status` and `updated_at` frontmatter between the `---` fences and rewrites the body byte-for-byte. Every transition that isn't explicitly allowed is refused with a clear error.
 
 ```
 draft ──publish──▶ published
@@ -115,7 +115,7 @@ If the target brief is already in the requested destination state, refuse with "
 
 ### 5. Append to `docs/log.md`
 
-Prepended (newest first), using the `brief` op (`docs/CLAUDE.md` §6 names `transition-brief` as that op's second writer):
+Prepended (newest first), using the `brief` op (`docs/AGENTS.md` §6 names `transition-brief` as that op's second writer):
 
 ```markdown
 ## [${TODAY}] brief | BRIEF-${slug}: ${old_status} → ${new_status}
@@ -165,7 +165,7 @@ The body is the transition format `BRIEF-<slug>: <old-status> → <new-status>`.
 | "The slug has a slash in it pointing at a sibling dir — I'll resolve it anyway." | A slug with `/` fails `^[a-z0-9-]+$` and/or escapes `docs/briefs/`. STOP with a BROKEN error; never follow a traversal path. |
 | "BRIEF-foo is already `abandoned`; I'll just confirm and exit silently." | Silent no-op is indistinguishable from success. Refuse explicitly so the user notices their model is wrong. |
 | "I'll re-emit the frontmatter through a YAML library to tidy it." | A lossy YAML round-trip reorders keys and changes quoting — diff noise that destroys git-blame and risks the body. Parse-then-mutate-then-byte-merge only the two keys. |
-| "I'll log this under `journal` since there's narrative." | Brief transitions are a `brief` op, not a `journal` op (per `docs/CLAUDE.md` §6). |
+| "I'll log this under `journal` since there's narrative." | Brief transitions are a `brief` op, not a `journal` op (per `docs/AGENTS.md` §6). |
 
 ## Common mistakes
 
@@ -183,4 +183,4 @@ The body is the transition format `BRIEF-<slug>: <old-status> → <new-status>`.
 - `transition-adr` — the symmetric ADR state machine this skill mirrors (body-freeze, frontmatter-only mutation, clear refusals).
 - `propose-adr` — the decision artifact that may cite a published brief (`--related-briefs BRIEF-<slug>`).
 - `audit-docs` — enforces brief↔ADR consistency; CHK-ADR-11 cross-checks brief draft-states.
-- `docs/CLAUDE.md` §2 (ownership — briefs are human-authored), §4 (briefs write rules), §5 (index brief rollup format), §6 (`brief` log op), §7.A (SKILL.md frontmatter contract), §9 (slug rule), §10 (skill-invocation table).
+- `docs/AGENTS.md` §2 (ownership — briefs are human-authored), §4 (briefs write rules), §5 (index brief rollup format), §6 (`brief` log op), §7.A (SKILL.md frontmatter contract), §9 (slug rule), §10 (skill-invocation table).

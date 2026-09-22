@@ -1,5 +1,5 @@
 """Handle retirement: the `retires` governs sub-field and what it does to the
-projections (docs/CLAUDE.md §11.A; ADR-0097 part 6).
+projections (docs/AGENTS.md §11.A; ADR-0097 part 6).
 
 Pins, one named test per claim:
 

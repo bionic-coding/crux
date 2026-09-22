@@ -34,7 +34,7 @@ Deterministic + byte-stable: rows in DESCENDING ADR id order (newest first,
 matching the established docs/index.md convention). No timestamps in the body.
 
 DELIBERATELY NOT UPDATED: the file's `_Last updated: YYYY-MM-DD` line. docs/
-CLAUDE.md §5 asks authors to bump it on every change, but a regenerator that
+AGENTS.md §5 asks authors to bump it on every change, but a regenerator that
 stamped today's date would not be byte-stable — the `--dry-run` gate would then
 fail on every day after the last regeneration, for no drift. That is ADR-0056's
 "regenerated-but-time-varying" trap. Keeping the timestamp out of this script's
@@ -85,7 +85,7 @@ def _tree_name(root) -> str:
 
 def load_adrs(adrs_dir: Path, rel=None) -> list[dict]:
     """Read every ADR-NNNN-*.md frontmatter. The filename stem is the wiki-link
-    target (docs/CLAUDE.md §9 cites ADRs by page name, not by id alone)."""
+    target (docs/AGENTS.md §9 cites ADRs by page name, not by id alone)."""
     recs: list[dict] = []
     # REFUSAL BEFORE WRITING: every file matching the glob, in both tiers, is
     # validated before a single record is built. `rel` renders the reported

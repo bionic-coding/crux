@@ -22,7 +22,7 @@ DOMAIN broken. This gate fails (exit 1) when any domain is broken.
 
 This is a thin CLI wrapper over the pairing/rollup logic in
 `doctrine_projection.py` — a GATE, not a regenerator. It writes nothing, so it
-carries NO row in the repo-root CLAUDE.md regenerative-outputs roster and is
+carries NO row in the repo-root AGENTS.md regenerative-outputs roster and is
 deliberately NOT named compile-*.py or generate-*.py, mirroring
 check-governs-coverage.py.
 

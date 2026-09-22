@@ -119,7 +119,7 @@ Body, 1 line: node count, edge counts (supersedes / amends).
 - About to add an "Open questions from Proposed ADRs" section. Out of scope (that's status reporting, not lineage).
 - About to render an image (SVG/PNG). Out of scope — Mermaid markdown only; a render dependency was deliberately rejected.
 - About to edit an ADR to "fix" a missing back-pointer you noticed while walking. NOT this skill's job — that's `audit-docs` / `transition-adr --repair`. Surface it, don't fix it here.
-- About to introduce a new log op (e.g. `lineage`). Reuse `adr` — the `docs/CLAUDE.md` §6 enum is closed.
+- About to introduce a new log op (e.g. `lineage`). Reuse `adr` — the `docs/AGENTS.md` §6 enum is closed.
 - About to hand-edit `lineage.md` to tweak the rendering. It's regenerated; edit the generation logic (this skill), not the output.
 
 ## Rationalization table
@@ -144,4 +144,4 @@ Body, 1 line: node count, edge counts (supersedes / amends).
 
 - `propose-adr` / `transition-adr` — create and transition the ADRs this skill renders.
 - `audit-docs` — checks the graph's integrity (the complement to this skill's rendering).
-- `docs/CLAUDE.md` §4 (adrs), §11 (cross-concern bidirectional consistency rules).
+- `docs/AGENTS.md` §4 (adrs), §11 (cross-concern bidirectional consistency rules).

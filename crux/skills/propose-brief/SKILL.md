@@ -26,11 +26,11 @@ This skill is portable across Claude Code, Codex, and OpenCode. This section ove
 
 ## Overview
 
-The scaffolding operation for a **brief** — the short, pre-decision exploration document that an ADR later compresses into a chosen path. Briefs are the one concern whose **body is human-authored** (per `docs/CLAUDE.md` §2 ownership) — with the single §2(b) exception of a whiteboarding-authored session carried in via `--from-inbox`: this skill creates the file, populates the frontmatter, wires the indexes, and logs the operation — then stops, leaving the body for the user to write (or, on the `--from-inbox` path, populating the body from the session).
+The scaffolding operation for a **brief** — the short, pre-decision exploration document that an ADR later compresses into a chosen path. Briefs are the one concern whose **body is human-authored** (per `docs/AGENTS.md` §2 ownership) — with the single §2(b) exception of a whiteboarding-authored session carried in via `--from-inbox`: this skill creates the file, populates the frontmatter, wires the indexes, and logs the operation — then stops, leaving the body for the user to write (or, on the `--from-inbox` path, populating the body from the session).
 
 Pairs with `propose-adr` (an ADR cites a brief via `related_briefs:`; `audit-docs` back-populates the brief's `related_adrs:`).
 
-Core principle: **scaffold, don't author** — with one sanctioned exception. A brief's value is the human's framing of the problem; a pre-filled body is wrong-but-shipped content, so by default this skill leaves the body a stub. The **sole exception** (per `docs/CLAUDE.md` §2(b)) is a **whiteboarding-authored session brief** carried in via `--from-inbox`: that content was already machine-authored through the `whiteboarding` dialogue, so it becomes the body. In every other case: provide the structure; let the user write.
+Core principle: **scaffold, don't author** — with one sanctioned exception. A brief's value is the human's framing of the problem; a pre-filled body is wrong-but-shipped content, so by default this skill leaves the body a stub. The **sole exception** (per `docs/AGENTS.md` §2(b)) is a **whiteboarding-authored session brief** carried in via `--from-inbox`: that content was already machine-authored through the `whiteboarding` dialogue, so it becomes the body. In every other case: provide the structure; let the user write.
 
 ## When to use
 
@@ -51,7 +51,7 @@ Do **not** use this skill for:
 - `--authors <comma-list>` — optional. Defaults to the actual user's handle, resolved at runtime (e.g. from `git config user.name` or the session user) — never a hardcoded name.
 - `--related-adrs <comma-list>` — optional. ADR ids that already reference this brief (usually empty at creation; `audit-docs` back-populates as ADRs cite it).
 - `--related-research <comma-list>` — optional. Research-source slugs (under `docs/research/sources/`) to pre-link. Populates a `related_research:` frontmatter field IF the template carries one. **If `--related-research` is passed but `BRIEF-template.md` has no `related_research:` field, do NOT silently drop it — emit a WARN** ("`--related-research` was provided but `BRIEF-template.md` has no `related_research:` field; the values were not recorded. Add the field to the template, or capture these sources in the brief body / the consuming ADR's `related_research:`.") and proceed with the rest of the scaffold. Default empty.
-- `--from-inbox <session-path>` — optional. Path to a **whiteboarding session** dropped in `docs/inbox/` (usually supplied by `process-inbox` when it dispatches a whiteboarding-authored item). This is the **one sanctioned exception** to scaffold-only (per `docs/CLAUDE.md` §2(b)): the session was machine-authored by the `whiteboarding` skill / `brainstormer` agent, so its content becomes the brief **body** (a "machine-authored session brief") rather than being left as the stub. Used ONLY for whiteboarding sessions; never to pre-fill a human-authored brief. Default: absent (scaffold-only).
+- `--from-inbox <session-path>` — optional. Path to a **whiteboarding session** dropped in `docs/inbox/` (usually supplied by `process-inbox` when it dispatches a whiteboarding-authored item). This is the **one sanctioned exception** to scaffold-only (per `docs/AGENTS.md` §2(b)): the session was machine-authored by the `whiteboarding` skill / `brainstormer` agent, so its content becomes the brief **body** (a "machine-authored session brief") rather than being left as the stub. Used ONLY for whiteboarding sessions; never to pre-fill a human-authored brief. Default: absent (scaffold-only).
 
 ## The pipeline
 
@@ -59,7 +59,7 @@ Execute in order.
 
 ### 1. Compute the slug and path
 
-- `${SLUG}` = kebab-case of `${title}`, ASCII only, truncated to ~50 chars (per `docs/CLAUDE.md` §9 slug rule). Trim trailing hyphens.
+- `${SLUG}` = kebab-case of `${title}`, ASCII only, truncated to ~50 chars (per `docs/AGENTS.md` §9 slug rule). Trim trailing hyphens.
 - `${FILE}` = `docs/briefs/BRIEF-${SLUG}.md`.
 - **Collision check:** if `${FILE}` already exists, **STOP** — do not overwrite. Tell the user to pick a different title or edit the existing brief. (Briefs have no monotonic counter; the slug IS the key.)
 
@@ -87,12 +87,12 @@ Execute in order.
 
 - Under the `## Briefs (N)` section, add a row: `- [[briefs/BRIEF-${SLUG}]] — \`draft\` — \`updated_at: ${TODAY}\``.
 - Bump the `(N)` count to the actual number of `docs/briefs/BRIEF-*.md` files.
-- If no `## Briefs` section exists yet (first brief), create it in the correct concern order (after ADRs, before Journal — see `docs/CLAUDE.md` §5).
+- If no `## Briefs` section exists yet (first brief), create it in the correct concern order (after ADRs, before Journal — see `docs/AGENTS.md` §5).
 - Update the `_Last updated:_` line to `${TODAY}`.
 
 ### 5. Append to `docs/log.md`
 
-Prepended (newest first), using the `brief` op from the `docs/CLAUDE.md` §6 canonical enum:
+Prepended (newest first), using the `brief` op from the `docs/AGENTS.md` §6 canonical enum:
 
 ```
 ## [${TODAY}] brief | scaffolded BRIEF-${SLUG}
@@ -123,7 +123,7 @@ Body, 1–2 lines: the title, the file path, `status: draft`. Note the body is h
 - About to write exploration content into the brief body **without `--from-inbox`**. NEVER — a human-authored brief's body is the user's; provide the stub only. (WITH `--from-inbox`, carrying a whiteboarding session's content into the body is the sanctioned §2(b) exception — that is the ONE case where the body is machine-authored.)
 - About to overwrite an existing `BRIEF-${SLUG}.md`. Briefs are not regenerated; refuse and surface the collision.
 - About to transition a brief's `status` (e.g. to `published` or `abandoned`). Out of scope for this skill — use `transition-brief`. Do NOT hand-edit the `status:` frontmatter.
-- About to use the `journal` op (or any op other than `brief`) for the log entry. The `brief` op is the canonical op for brief scaffolding (per `docs/CLAUDE.md` §6).
+- About to use the `journal` op (or any op other than `brief`) for the log entry. The `brief` op is the canonical op for brief scaffolding (per `docs/AGENTS.md` §6).
 - About to skip the `docs/index.md` brief-rollup update. Downstream `audit-docs` count checks depend on it; update on every write.
 - About to populate `related_adrs:` with an ADR that doesn't exist yet. Leave it `[]` unless a real ADR already cites the brief — `audit-docs` back-populates.
 
@@ -151,5 +151,5 @@ Body, 1–2 lines: the title, the file path, `status: draft`. Note the body is h
 
 - `propose-adr` — the decision artifact that consumes a brief (`--related-briefs BRIEF-<slug>`).
 - `audit-docs` — enforces the brief↔ADR bidirectional consistency (`related_briefs:` ↔ `related_adrs:`).
-- `docs/CLAUDE.md` §2 (ownership — briefs are human-authored), §4 (briefs concern), §9 (slug rule), §10 (skill-invocation table).
+- `docs/AGENTS.md` §2 (ownership — briefs are human-authored), §4 (briefs concern), §9 (slug rule), §10 (skill-invocation table).
 - Template: `crux/templates/BRIEF-template.md`.

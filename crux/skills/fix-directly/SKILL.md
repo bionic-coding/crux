@@ -45,7 +45,7 @@ A defect is a direct fix when every answer is yes. One no routes it to a tier.
 1. **Can you name every file the fix touches, now, before starting?** If not → `iterate`.
 2. **Can you write the failing test before the fix?** A failing test is a complete reproduction
    of a bug. If the failure cannot be pinned in a test → `iterate` (the diagnosis is open).
-3. **Does the fix change no contract?** No ADR, no schema, no rule in the tree's `CLAUDE.md`, no
+3. **Does the fix change no contract?** No ADR, no schema, no rule in the tree's `AGENTS.md`, no
    regenerated-output roster row. If it does → `dev-cycle`.
 4. **Is one instance all the evidence there is?** One instance is a bug. A *class* earns a design
    when a second, independent instance exists — the same recurrence floor `retrospective` holds
@@ -175,7 +175,7 @@ process that mines finished work.
   class is an open question until a second instance exists.
 - About to widen the fix because the finding was called a bypass or a forgery. The label sets
   priority, not size. Re-answer the sizing test.
-- About to edit a schema, a template, a `CLAUDE.md` rule, or a roster row. That is a contract
+- About to edit a schema, a template, a `AGENTS.md` rule, or a roster row. That is a contract
   change; question 3 said no.
 - About to commit when an Evidence item was observed and did not hold. That is a contradicted
   item and a finding, not an unobserved one; re-answer the sizing test before going further.
@@ -202,4 +202,4 @@ process that mines finished work.
 - `dev-cycle` — the tier for work that changes a contract.
 - `log-work` — writes the one journal entry a direct fix owes.
 - `check-drift` — the drift gates step 4 runs.
-- `docs/CLAUDE.md` §11.C — the three cycle tiers this rung sits below.
+- `docs/AGENTS.md` §11.C — the three cycle tiers this rung sits below.

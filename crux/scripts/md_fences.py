@@ -216,7 +216,7 @@ def split_lines(text: str) -> list[str]:
     flip the exit code. Measured on a canonical/twin pair whose twin had
     genuinely dropped the governed value, the control exited 1 with a P2
     DRIFT and one U+000B exited 0 with a P3 stale. No attacker is needed:
-    a stray character pasted into either CLAUDE.md twin silently disables
+    a stray character pasted into either AGENTS.md twin silently disables
     the clause and the drift ships. A split copied per caller is a split
     that gets fixed per caller, so it is shared here instead.
     """

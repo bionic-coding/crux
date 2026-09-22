@@ -41,7 +41,7 @@ The terminal-state operation for a promptbook's lifecycle. A book is born in `do
 
 A legacy `.md` book/run still mid-flight MUST finalize via the legacy path untouched — its frontmatter `status`/`completed_at` and `## Archive note` section work exactly as they did before this loop. A book and its run share a format (a `.yaml` run is created only for a `.yaml` book — a run's format is fixed at its own start from the book's format as of that start); detect the book's extension and the run snapshot's extension independently, but in practice they match.
 
-**Archived books are immutable.** Once a book lives under `docs/promptbooks/archive/`, no skill — including this one — may rewrite, re-archive, or un-archive it. To pursue further work, author a successor book that names this one in its prose (per the abandon rule in `docs/CLAUDE.md` §4) — never re-open an archived one.
+**Archived books are immutable.** Once a book lives under `docs/promptbooks/archive/`, no skill — including this one — may rewrite, re-archive, or un-archive it. To pursue further work, author a successor book that names this one in its prose (per the abandon rule in `docs/AGENTS.md` §4) — never re-open an archived one.
 
 Pairs with: `author-promptbook` (creates the book), `run-promptbook` (executes prompts and writes run snapshots). Distinct from `audit-docs` (catches drift, never archives) and from `log-work` (journals progress, never moves files).
 
@@ -66,7 +66,7 @@ Refuse to archive unless **all** of the following hold:
 2. The book's `current_run` value (top-level YAML key on `.yaml` books; frontmatter field on legacy `.md` books) points to an existing run snapshot under `docs/promptbooks/runs/<id>-<slug>/run-<RUN-NNN>.{yaml,md}`. **Only the book's CURRENT run can authorize its archive** — never scan the other runs in the directory for a terminal one. The pointer resolves on BOTH eligibility paths below: a run that completed keeps `current_run` exactly as an abandoned one does, so this precondition is checkable against the pointer rather than vacuous.
 3. That run is archive-eligible by one of exactly two paths:
 
-   **Path 1 — DELIVERED.** The run has `status: completed` AND every prompt is in a terminal state: `done`, `skipped`, or `blocked`. The per-prompt states are defined canonically in **`run.schema.json` / `docs/CLAUDE.md` §11.B** (the run-format SSOT — read §11.B). A `blocked` prompt is terminal: a run that reached `completed` while holding one archives as delivered, and the block is recorded in the archive note's terminal-state counts.
+   **Path 1 — DELIVERED.** The run has `status: completed` AND every prompt is in a terminal state: `done`, `skipped`, or `blocked`. The per-prompt states are defined canonically in **`run.schema.json` / `docs/AGENTS.md` §11.B** (the run-format SSOT — read §11.B). A `blocked` prompt is terminal: a run that reached `completed` while holding one archives as delivered, and the block is recorded in the archive note's terminal-state counts.
 
    **Path 2 — ABANDONED.** The run has `status: abandoned` AND carries `abandonment.kind: deliberate`. The prompts may be `pending`, `running`, or `blocked` — an abandoned run is archived precisely because it did not finish, and the non-terminal prompt left behind is the record of how far it got.
 
@@ -104,7 +104,7 @@ uv run "${CRUX_PLUGIN_ROOT}/scripts/check-blast-radius.py" \
 
 The evidence is the repository's own change record, and not the run's account of itself: neither the snapshot's `artifacts` nor its `notes` is consulted. One value does come from the run — `base_commit`, the boundary `run-promptbook` stamped at run start — and it is **pinned rather than trusted**: the check refuses when it diverges from the value in that snapshot's own committed version, because a run that overshoots can commit its work and hand-edit the value forward to shrink the diff proved here.
 
-**`docs/CLAUDE.md` §11.C is the single source of truth for the exact command and its flags** — including the `--no-renames` that is load-bearing for correctness, not tidiness. They are not restated here. This line previously carried a partial copy of that command, and a partial copy of a security-load-bearing command reads as complete.
+**`docs/AGENTS.md` §11.C is the single source of truth for the exact command and its flags** — including the `--no-renames` that is load-bearing for correctness, not tidiness. They are not restated here. This line previously carried a partial copy of that command, and a partial copy of a security-load-bearing command reads as complete.
 
 **Read the exit code as a gate, in three lanes — never conflate them:**
 
@@ -126,7 +126,7 @@ Execute in order. Never reorder, never skip.
 
 ### 0. Resolve per-repo configuration (.crux)
 
-Run `python3 "${CRUX_PLUGIN_ROOT}/scripts/crux-config.py"` from the repo root (or pass `--repo-root <repo-root>`), and confirm the returned `repo_root` is the repo you are operating in — `source: "discovery:<dir>"` with an unexpected `repo_root` means you resolved the wrong directory, not that no config exists. On exit 1, **STOP** and surface the `{"error": ...}` payload — never fall back to defaults. Use the returned `docs_dir` to resolve the docs root wherever this skill says `docs/` (per the docs/CLAUDE.md §14 normative definition clause), and accept prefixed book ids (e.g. `CRX-PB-0040`) anywhere this skill says `PB-NNNN` or `<id>` — the prefixed string is the id, verbatim, in paths and frontmatter.
+Run `python3 "${CRUX_PLUGIN_ROOT}/scripts/crux-config.py"` from the repo root (or pass `--repo-root <repo-root>`), and confirm the returned `repo_root` is the repo you are operating in — `source: "discovery:<dir>"` with an unexpected `repo_root` means you resolved the wrong directory, not that no config exists. On exit 1, **STOP** and surface the `{"error": ...}` payload — never fall back to defaults. Use the returned `docs_dir` to resolve the docs root wherever this skill says `docs/` (per the docs/AGENTS.md §14 normative definition clause), and accept prefixed book ids (e.g. `CRX-PB-0040`) anywhere this skill says `PB-NNNN` or `<id>` — the prefixed string is the id, verbatim, in paths and frontmatter.
 
 ### 1. Verify preconditions
 

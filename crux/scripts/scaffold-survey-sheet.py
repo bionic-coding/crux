@@ -16,7 +16,7 @@
 """scaffold-survey-sheet.py — write the batch review sheet a human then signs.
 
 The machine half of batch ratification (ADR-0098; the protocol is
-docs/CLAUDE.md §17.5). It reads the candidate state file, filters it to the
+docs/AGENTS.md §17.5). It reads the candidate state file, filters it to the
 candidates no receipt has disposed and no live record already holds, allocates
 the next `SVY-NNNN` batch id, and writes one sheet with `anchor_id`,
 `proposed_domain`, `rule` and `evidence` seeded, `slug` PROPOSED (the

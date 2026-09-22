@@ -237,6 +237,28 @@ def gateway_timeout_seconds() -> float:
     return float(value) if value is not None else DEFAULT_TIMEOUT_SECONDS
 
 
+def provider_object(cfg: ModelConfig) -> Dict[str, Any]:
+    """Build the gateway's per-request `provider` object for one registry entry.
+
+    ONE implementation, for the same reason `build_gateway_request` is one: the
+    retention control lives here, and a second copy is how a route comes to omit
+    it. The `provider` object is emitted on EVERY request, because the retention
+    control it carries applies to every request; only the `only` pin is
+    conditional, so an entry with no serving-provider set still denies data
+    collection and simply lets the gateway choose the host.
+
+    Hoisted out of `build_gateway_request` so a non-chat-completions route can
+    send the identical denial without rebuilding it. That route is the reason
+    this is a function rather than four lines inline: the denial previously rode
+    inside a conditional, and every entry without a host pin routed with data
+    collection allowed.
+    """
+    provider: Dict[str, Any] = {"data_collection": cfg.data_collection}
+    if cfg.serving_providers:
+        provider["only"] = list(cfg.serving_providers)
+    return provider
+
+
 def build_gateway_request(
     cfg: ModelConfig,
     prompt: Union[str, List[Dict[str, Any]]],
@@ -288,14 +310,7 @@ def build_gateway_request(
     if cfg.effort:
         payload["reasoning_effort"] = cfg.effort
 
-    # The `provider` object is emitted on EVERY request, because the retention
-    # control it carries applies to every request. Only the `only` pin is
-    # conditional: an entry with no serving-provider set still denies data
-    # collection and simply lets the gateway choose the host.
-    provider: Dict[str, Any] = {"data_collection": cfg.data_collection}
-    if cfg.serving_providers:
-        provider["only"] = list(cfg.serving_providers)
-    payload["provider"] = provider
+    payload["provider"] = provider_object(cfg)
 
     if response_format is not None:
         payload["response_format"] = response_format
@@ -578,6 +593,7 @@ __all__ = [
     "ConfidenceRejectedError",
     "validated_confidence",
     "build_gateway_request",
+    "provider_object",
     "raise_for_gateway_status",
     "parse_gateway_response",
     "call_gateway",

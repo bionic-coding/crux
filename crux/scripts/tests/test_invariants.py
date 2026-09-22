@@ -20,9 +20,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 SCRIPTS_DIR = REPO_ROOT / "crux" / "scripts"
 
 try:
-    from ._dev_surface import TREE, TREE_CLAUDE_MD, require_dev_surface
+    from ._dev_surface import TREE, TREE_AGENTS_MD, require_dev_surface
 except ImportError:  # unittest discover imports test modules top-level
-    from _dev_surface import TREE, TREE_CLAUDE_MD, require_dev_surface
+    from _dev_surface import TREE, TREE_AGENTS_MD, require_dev_surface
 
 try:
     import yaml  # noqa: F401
@@ -172,8 +172,8 @@ class ConcernWiringTests(unittest.TestCase):
         self.assertIn('schema_version == "5"', a)
 
     def test_claude_md_defines_invariants_contract(self):
-        p = REPO_ROOT / TREE / "CLAUDE.md"
-        require_dev_surface(self, p, f"{TREE}/CLAUDE.md")
+        p = REPO_ROOT / TREE / "AGENTS.md"
+        require_dev_surface(self, p, f"{TREE}/AGENTS.md")
         c = p.read_text()
         self.assertIn("## 15. The invariants concern", c)
         self.assertIn("machine proposes, human disposes", c)

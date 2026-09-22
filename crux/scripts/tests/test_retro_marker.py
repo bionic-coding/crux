@@ -16,7 +16,7 @@ section of retrospective/SKILL.md):
   (c) The archived-op pattern used by CLN-RETRO-1 MUST match real headings
       in docs/log.md.
 
-  (d) docs/CLAUDE.md and crux/templates/CLAUDE.md.tmpl MUST both carry
+  (d) docs/AGENTS.md and crux/templates/AGENTS.md.tmpl MUST both carry
       `retro_due_runs` (the manifest key governing CLN-RETRO-1's threshold)
       and the `retro-cadence` category token (the §5.A cleanup category
       that CLN-RETRO-1 falls under).  These are the CLAUDE-surface mirrors
@@ -45,9 +45,9 @@ import unittest
 from pathlib import Path
 
 try:
-    from ._dev_surface import TREE, TREE_CLAUDE_MD, require_dev_surface
+    from ._dev_surface import TREE, TREE_AGENTS_MD, require_dev_surface
 except ImportError:  # unittest discover imports test modules top-level
-    from _dev_surface import TREE, TREE_CLAUDE_MD, require_dev_surface
+    from _dev_surface import TREE, TREE_AGENTS_MD, require_dev_surface
 
 # ─── repo paths ──────────────────────────────────────────────────────────────
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
@@ -55,8 +55,8 @@ CLEANUP_SKILL = REPO_ROOT / "crux" / "skills" / "cleanup-campsite" / "SKILL.md"
 RETRO_SKILL = REPO_ROOT / "crux" / "skills" / "retrospective" / "SKILL.md"
 LOG_WORK_SKILL = REPO_ROOT / "crux" / "skills" / "log-work" / "SKILL.md"
 LOG_MD = REPO_ROOT / TREE / "log.md"
-DOCS_CLAUDE_MD = TREE_CLAUDE_MD
-TMPL_CLAUDE_MD = REPO_ROOT / "crux" / "templates" / "CLAUDE.md.tmpl"
+DOCS_CLAUDE_MD = TREE_AGENTS_MD
+TMPL_CLAUDE_MD = REPO_ROOT / "crux" / "templates" / "AGENTS.md.tmpl"
 
 # ─── canonical strings (single source of truth for THIS test) ────────────────
 #
@@ -284,8 +284,8 @@ class TestArchivedOpPatternAgainstLogMd(unittest.TestCase):
 
 
 _CLAUDE_SURFACES = [
-    (DOCS_CLAUDE_MD, "bionic/CLAUDE.md"),
-    (TMPL_CLAUDE_MD, "crux/templates/CLAUDE.md.tmpl"),
+    (DOCS_CLAUDE_MD, "bionic/AGENTS.md"),
+    (TMPL_CLAUDE_MD, "crux/templates/AGENTS.md.tmpl"),
 ]
 
 
@@ -296,7 +296,7 @@ class TestClaudeSurfaceRetroTokens(unittest.TestCase):
     govern downstream installations.
 
     Follows the test_reflex_blocks precedent: surface-level structural tokens
-    that are defined in both docs/CLAUDE.md and crux/templates/CLAUDE.md.tmpl
+    that are defined in both docs/AGENTS.md and crux/templates/AGENTS.md.tmpl
     are asserted on both surfaces simultaneously so drift between the two is
     caught immediately.
     """

@@ -76,7 +76,7 @@ about your work, so it never turns `DONE` into `DONE_WITH_CONCERNS` — that sta
 is reserved for something you distrust. If the assignment states no Outcome, no
 Evidence, or no Constraint, name each missing statement in your report and carry on
 with what you were handed; do not invent one and do not stall on it. The rules
-behind all of this are `docs/CLAUDE.md` §11, "The assignment contract".
+behind all of this are `docs/AGENTS.md` §11, "The assignment contract".
 
 Then return: files changed, tests added (with the failing-then-passing evidence),
 the exact gate commands you ran + their result tokens, the ADR/spec section you

@@ -13,7 +13,7 @@
 # is tested. `survey.py` carries the same declaration for the same reason.
 """signoff-survey.py — the human sign-off that publishes one batch.
 
-ADR-0098; the protocol's source of truth is docs/CLAUDE.md §17.5, whose state
+ADR-0098; the protocol's source of truth is docs/AGENTS.md §17.5, whose state
 table this file implements cell for cell. It is the ONLY batch route past
 `observed`, and it is equivalent to N individual ratifications under one signed
 receipt. `transition-observation` remains the only single-record route.
@@ -520,7 +520,7 @@ def build_index(ctx: dict, plan: list[dict], receipt: dict, existing: str) -> st
         existing = (
             "# Observations\n\n"
             f"_Last updated: {ctx['date']}_\n\n"
-            "The observations concern (per `docs/CLAUDE.md` §17): "
+            "The observations concern (per `docs/AGENTS.md` §17): "
             "`governs`-shaped records of\n*what the code already does*, each "
             "evidenced by a `path:line-range`.\n\n"
             "## Records (0)\n\n"

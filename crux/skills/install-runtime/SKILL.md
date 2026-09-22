@@ -75,7 +75,7 @@ the variable — e.g. `/path/to/checkout/crux/scripts` — and when writing the
 temp driver, substitute the variable with its actual value.
 Without `uv` this fails at the shell (`command not found: uv`, exit 127) —
 install uv (https://docs.astral.sh/uv/). See `council/SKILL.md` and
-`docs/CLAUDE.md` §10.A for the canonical reference.
+`docs/AGENTS.md` §10.A for the canonical reference.
 
 ## Quick Spawn (function)
 
@@ -145,7 +145,7 @@ target-repo/
 
 API keys are NOT written by the spawner. Run the `crux-env` CLI (stdlib-only:
 `python3 "${CRUX_PLUGIN_ROOT}/scripts/crux-env.py" init`) in the target repo
-to populate `~/.crux/env`. See `docs/CLAUDE.md` §13.6 for the CLI surface.
+to populate `~/.crux/env`. See `docs/AGENTS.md` §13.6 for the CLI surface.
 
 ## RepoAnalysis Fields
 - `tech_stack` — detected technologies

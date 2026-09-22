@@ -25,7 +25,7 @@ This skill is portable across Claude Code, Codex, and OpenCode. This section ove
 
 ## Overview
 
-The **lifecycle** state machine for observation records — the human gate of the machine-proposes/human-disposes model (see `docs/CLAUDE.md` §17.2). `propose-observation` and `transition-decision ratify --as observation` write records as `status: observed`; **nothing but a human disposes of them**, through one of exactly two routes: this skill, the only single-record route, and `survey-signoff`, the only batch route (`docs/CLAUDE.md` §17.5). It is the observations-concern sibling of `transition-invariant`: it operates ONLY on the lifecycle frontmatter of an existing record, and it never touches the record's claim or its body.
+The **lifecycle** state machine for observation records — the human gate of the machine-proposes/human-disposes model (see `docs/AGENTS.md` §17.2). `propose-observation` and `transition-decision ratify --as observation` write records as `status: observed`; **nothing but a human disposes of them**, through one of exactly two routes: this skill, the only single-record route, and `survey-signoff`, the only batch route (`docs/AGENTS.md` §17.5). It is the observations-concern sibling of `transition-invariant`: it operates ONLY on the lifecycle frontmatter of an existing record, and it never touches the record's claim or its body.
 
 Core principle: **the state machine is the contract, and nothing but a human sets a state past `observed`.** Every transition that is not explicitly allowed is refused with a clear error.
 
@@ -47,7 +47,7 @@ Allowed transitions, exhaustively (the §17.2 table):
 
 Everything else is **REFUSED** with an error naming the current status and the requested op. The lifecycle is forward-only: there is no path back into `observed` (that is the on-ramps' entry state only), and no `rejected`/`retired`/`decided` → anything. A revived observation is a new record.
 
-**The immutable claim.** A ratified record's claim never changes; `docs/CLAUDE.md` §17.2 names exactly which fields the claim spans, and this skill reads that list there rather than carrying a second copy. When a re-mine finds the same `anchor_id` carrying different text or different evidence, it opens a successor candidate; the human ratifies the successor and retires its predecessor here, or rejects it. Revision is not a state this gate admits.
+**The immutable claim.** A ratified record's claim never changes; `docs/AGENTS.md` §17.2 names exactly which fields the claim spans, and this skill reads that list there rather than carrying a second copy. When a re-mine finds the same `anchor_id` carrying different text or different evidence, it opens a successor candidate; the human ratifies the successor and retires its predecessor here, or rejects it. Revision is not a state this gate admits.
 
 ## When to use
 
@@ -58,8 +58,8 @@ Everything else is **REFUSED** with an error naming the current status and the r
 
 Do **not** use this skill for:
 - Creating a record — that is `propose-observation` (reconstructed ramp) or `transition-decision ratify --as observation` (mined ramp).
-- Editing a record's claim (the fields `docs/CLAUDE.md` §17.2 names), its `id`, its `title`, or its body — refuse. A changed claim is a successor record, never an edit.
-- Auto-ratifying on the machine's behalf. `ratified` is reachable ONLY by explicit, per-record human instruction; a batch or automatic "ratify all observed" is refused. A human who wants to dispose of many records in one reading uses `survey-signoff`, the batch sign-off over a sheet they filled in (`docs/CLAUDE.md` §17.5) — a separate human gate, never this skill in a loop.
+- Editing a record's claim (the fields `docs/AGENTS.md` §17.2 names), its `id`, its `title`, or its body — refuse. A changed claim is a successor record, never an edit.
+- Auto-ratifying on the machine's behalf. `ratified` is reachable ONLY by explicit, per-record human instruction; a batch or automatic "ratify all observed" is refused. A human who wants to dispose of many records in one reading uses `survey-signoff`, the batch sign-off over a sheet they filled in (`docs/AGENTS.md` §17.5) — a separate human gate, never this skill in a loop.
 - Transitioning an ADR (`transition-adr`), a brief (`transition-brief`), an invariant pin (`transition-invariant`), or a decision candidate (`transition-decision`).
 
 ## Inputs
@@ -76,7 +76,7 @@ Run `python3 "${CRUX_PLUGIN_ROOT}/scripts/bionic-config.py"` (compat: `crux-conf
 ### 1. Resolve the record
 - Locate the file under `<docs_dir>/observations/` whose frontmatter `id` equals `<id>` (glob the concern dir; match on `id`, not filename guesswork; accept the dual-form spelling `([A-Z][A-Z0-9]{1,9}-)?OBS-(\d{4})`). Zero or multiple matches → STOP with a BROKEN error.
 - Read the file. Parse frontmatter. Read the current `status`.
-- The frontmatter contract is `docs/CLAUDE.md` §17.1; this skill reads the fields it mutates by name from there and restates none of it.
+- The frontmatter contract is `docs/AGENTS.md` §17.1; this skill reads the fields it mutates by name from there and restates none of it.
 
 ### 2. Validate the transition
 Look up `(current_status, op)` in the allowed table. If absent → REFUSE with a message naming the current status and the requested op. Specific refusals:
@@ -87,7 +87,7 @@ Look up `(current_status, op)` in the allowed table. If absent → REFUSE with a
 - a batch or wildcard id, or an instruction to ratify more than one record → REFUSE. Ratification is a per-record human act. Name the alternative in the refusal: a batch is reviewed on a sheet and signed by `survey-signoff`, never approximated by repeating this gate.
 
 Op-specific preconditions:
-- `ratify`: every `evidence` entry must resolve on disk. A ratified record that cites an unresolvable path is BROKEN under `docs/CLAUDE.md` §17.3 CHK-OBS-EVIDENCE, so refuse rather than ratify into a defect; name the path.
+- `ratify`: every `evidence` entry must resolve on disk. A ratified record that cites an unresolvable path is BROKEN under `docs/AGENTS.md` §17.3 CHK-OBS-EVIDENCE, so refuse rather than ratify into a defect; name the path.
 - `decide`: `--decided-by` is required. Resolve it under `<docs_dir>/adrs/` **and** `<docs_dir>/adrs/archive/` by frontmatter `id` (dual-form spelling accepted). If no file resolves → REFUSE: "`decide` requires an ADR that exists on disk; `${decided_by}` does not resolve." This gate never creates the ADR — that is `propose-adr`.
 
 ### 3. Mutate ONLY the lifecycle frontmatter
@@ -102,7 +102,7 @@ Op-specific preconditions:
 ### 4. Successor consistency (audited write)
 - On `retire`, check whether a record in `observed` or `ratified` carries the same `anchor_id`. If one does, name it in the hand-off: the retirement makes it the sole live record on that anchor.
 - On `ratify`, if another `ratified` record carries the same `anchor_id`, STOP and surface it: two live claims on one anchor is the drift the immutable-claim rule exists to prevent. The human retires the predecessor first, then ratifies the successor.
-- The rule these two steps enforce is **CHK-OBS-ANCHOR**, stated in `docs/CLAUDE.md` §17.2/§17.3 and checked by `check_observations.py`: `anchor_id` matches `^[0-9a-f]{16}$`, and no two `observed`/`ratified` records share one. This skill applies it at write time; it does not own it, and it carries no second copy of it. The audit finds after the fact what this gate refuses beforehand — the same relationship `transition-invariant` has with its reconciliation check. If the write would leave two live claims on one anchor, STOP.
+- The rule these two steps enforce is **CHK-OBS-ANCHOR**, stated in `docs/AGENTS.md` §17.2/§17.3 and checked by `check_observations.py`: `anchor_id` matches `^[0-9a-f]{16}$`, and no two `observed`/`ratified` records share one. This skill applies it at write time; it does not own it, and it carries no second copy of it. The audit finds after the fact what this gate refuses beforehand — the same relationship `transition-invariant` has with its reconciliation check. If the write would leave two live claims on one anchor, STOP.
 
 ### 5. Update indexes
 - `<docs_dir>/observations/index.md`: update the record's row (new status; `decided_by` where the index carries it). The index **visibly marks** non-`ratified` records (observed/rejected/retired/decided are not hidden — survey debt must be legible).
@@ -112,10 +112,10 @@ Op-specific preconditions:
 ```
 ## [YYYY-MM-DD] observation | OBS-NNNN: <old> → <new>
 ```
-Body: record id, the transition, one line; on `decide`, the `decided_by` id. The `observation` op is a member of the `docs/CLAUDE.md` §6 op enum (both the current-writer and historical-reader regexes) — emit it directly.
+Body: record id, the transition, one line; on `decide`, the `decided_by` id. The `observation` op is a member of the `docs/AGENTS.md` §6 op enum (both the current-writer and historical-reader regexes) — emit it directly.
 
 ### 7. Hand off
-Confirm the new status + file path. Remind: no scan, scaffold, or re-mine reaches `ratified`. Two human routes reach it and no third does — this skill is the only **single-record** route, and `survey-signoff` is the only **batch** route (`docs/CLAUDE.md` §17.5). For `ratify`, note the record's claim is now immutable.
+Confirm the new status + file path. Remind: no scan, scaffold, or re-mine reaches `ratified`. Two human routes reach it and no third does — this skill is the only **single-record** route, and `survey-signoff` is the only **batch** route (`docs/AGENTS.md` §17.5). For `ratify`, note the record's claim is now immutable.
 
 Then tell the user to regenerate both projections, in this order:
 
@@ -124,7 +124,7 @@ uv run "${CRUX_PLUGIN_ROOT}/scripts/summarize-adrs.py"
 uv run "${CRUX_PLUGIN_ROOT}/scripts/compile-doctrine.py"
 ```
 
-Both projections read the ratified observation records (field contract: `docs/CLAUDE.md` §17.1) and hash them, so `ratify`, `retire`, and `decide` each drift `<docs_dir>/adrs/summaries/` and `<docs_dir>/adrs/doctrine/`. The order is fixed because doctrine is compiled from the summaries projection. Skipping a step leaves drift that the matching `--dry-run` gate reports and that CI fails on — both jobs watch the observations concern.
+Both projections read the ratified observation records (field contract: `docs/AGENTS.md` §17.1) and hash them, so `ratify`, `retire`, and `decide` each drift `<docs_dir>/adrs/summaries/` and `<docs_dir>/adrs/doctrine/`. The order is fixed because doctrine is compiled from the summaries projection. Skipping a step leaves drift that the matching `--dry-run` gate reports and that CI fails on — both jobs watch the observations concern.
 
 For `retire` or `decide`, note the record's disposition; on `decide`, the summaries projection resolves the record's handle onto the deciding ADR's handles. For `retire`, name any successor candidate awaiting ratification.
 
@@ -171,6 +171,6 @@ For `retire` or `decide`, note the record's disposition; on `decide`, the summar
 - `survey-sheet` — the scaffold that writes the review sheet `survey-signoff` signs.
 - `transition-invariant` — the invariants state machine this mirrors (frontmatter-only mutation, clear refusals, audited write).
 - `propose-adr` — creates the ADR a `decide` transition names.
-- `audit-docs` — the CHK-OBS rules (`docs/CLAUDE.md` §17.3) that read the status this skill sets.
-- `docs/CLAUDE.md` §17 — the observations-concern contract (§17.1 frontmatter schema, §17.2 lifecycle, writer boundary, and immutable claim, §17.3 audit rules).
+- `audit-docs` — the CHK-OBS rules (`docs/AGENTS.md` §17.3) that read the status this skill sets.
+- `docs/AGENTS.md` §17 — the observations-concern contract (§17.1 frontmatter schema, §17.2 lifecycle, writer boundary, and immutable claim, §17.3 audit rules).
 - The observation-record decision this implements (see the ADR log).

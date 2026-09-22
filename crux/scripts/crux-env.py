@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """CLI for managing the crux runtime-state directory (~/.crux/).
 
-Implements the CLI surface locked in docs/CLAUDE.md §13 per
+Implements the CLI surface locked in docs/AGENTS.md §13 per
 ADR-0002-rename-to-crux-and-manage-env-and-secrets (Accepted 2026-05-26),
 fulfilling promptbook PB-0002 (crux runtime-state implementation).
 
@@ -459,7 +459,7 @@ def cmd_check(args: argparse.Namespace) -> int:
                 "project": args.project,
                 "known_projects": sorted(projects.keys()),
                 # Additive first-run UX hint (existing keys are locked per
-                # docs/CLAUDE.md §13.6 and must never be renamed).
+                # docs/AGENTS.md §13.6 and must never be renamed).
                 "hint": _UNKNOWN_PROJECT_HINT,
             }
             print(json.dumps(payload, indent=2))
@@ -596,7 +596,7 @@ def cmd_set(args: argparse.Namespace) -> int:
         lines.append(new_line)
 
     write_env_file(lines)
-    # Per CLAUDE.md §13.4: replacing an existing value is logged as `rotate`
+    # Per AGENTS.md §13.4: replacing an existing value is logged as `rotate`
     # so audit trails distinguish a value swap from a remove-then-add.
     op = "rotate" if replaced else "set"
     log_op(op, key=key, reason="")
@@ -652,7 +652,7 @@ def cmd_list(args: argparse.Namespace) -> int:
                 "project": args.project,
                 "known_projects": sorted(projects.keys()),
                 # Additive first-run UX hint (existing keys are locked per
-                # docs/CLAUDE.md §13.6 and must never be renamed).
+                # docs/AGENTS.md §13.6 and must never be renamed).
                 "hint": _UNKNOWN_PROJECT_HINT,
             }
             print(json.dumps(payload, indent=2))
@@ -692,7 +692,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="crux-env",
         description=(
             "Manage ~/.crux/ runtime state (env vars, required.yml, "
-            "secrets, op log). Per docs/CLAUDE.md §13 and ADR-0002."
+            "secrets, op log). Per docs/AGENTS.md §13 and ADR-0002."
         ),
     )
     sub = parser.add_subparsers(dest="command", required=True, metavar="<command>")

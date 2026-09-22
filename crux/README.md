@@ -17,7 +17,7 @@ Restart the session so the skills and agents register, then say **"init docs"** 
 
 ```
 bionic/
-  CLAUDE.md            Schema layer (operations doc for Claude).
+  AGENTS.md            Schema layer (operations doc for Claude).
   README.md            One-page human explainer.
   index.md             Catalog, sectioned by concern.
   log.md               Operational journal (append-only, newest-first).
@@ -35,7 +35,7 @@ bionic/
   observations/        Ratified records of what the code already does, each evidenced by path:line-range.
 ```
 
-See `templates/CLAUDE.md.tmpl` for the full operational schema that gets dropped into a target project.
+See `templates/AGENTS.md.tmpl` for the full operational schema that gets dropped into a target project.
 
 ## Use
 

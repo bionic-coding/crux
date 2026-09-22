@@ -24,14 +24,14 @@ This skill is portable across Claude Code, Codex, and OpenCode. This section ove
 
 ## Overview
 
-The **machine** side of the invariants concern (`docs/CLAUDE.md` §15.3) — the Span-2 sibling of `extract-code-docs`. It mines source code for **candidate** invariants and lands them as:
+The **machine** side of the invariants concern (`docs/AGENTS.md` §15.3) — the Span-2 sibling of `extract-code-docs`. It mines source code for **candidate** invariants and lands them as:
 - a **ledger stub** per candidate at `<docs_dir>/invariants/<slug>.md`, always `provenance: recovered, ratification: observed`, created **at recovery time** so no candidate is invisible;
 - zero-or-more **candidate checks** in the `invariants/checks/` subdirectory;
 - **reconciliation entries** mapping each check to its pin with an initial `last_result`.
 
 **The hard safety boundary: this skill NEVER sets `ratification: ratified`.** Everything it emits is a candidate marked `observed`; only a human, via `transition-invariant`, disposes of it. This is the machine-proposes/human-disposes model — the exact shape crux already ships for ADRs (`propose-adr` never auto-accepts).
 
-> **v1 is deliberately THIN.** This skill fixes the *emit contract* — the ledger-stub shape, the candidate-check placement, the reconciliation write, and per-class honesty — NOT deep per-language mining. The **recovery-extractor internals** (per-language characterization/shape/contract mining, how candidate checks are shaped, where per-class confidence is recorded mechanically) are an explicit **deferred follow-on** (`docs/CLAUDE.md` §15). Do not mistake this v1 for a full extractor; when the extractor-design decision lands, this skill grows a scripted backend like `extract-code-docs`'s plugins.
+> **v1 is deliberately THIN.** This skill fixes the *emit contract* — the ledger-stub shape, the candidate-check placement, the reconciliation write, and per-class honesty — NOT deep per-language mining. The **recovery-extractor internals** (per-language characterization/shape/contract mining, how candidate checks are shaped, where per-class confidence is recorded mechanically) are an explicit **deferred follow-on** (`docs/AGENTS.md` §15). Do not mistake this v1 for a full extractor; when the extractor-design decision lands, this skill grows a scripted backend like `extract-code-docs`'s plugins.
 
 ## When to use
 
@@ -45,7 +45,7 @@ Do **not** use this skill for:
 
 ## Per-class recovery confidence (report honestly)
 
-The five invariant classes (`docs/CLAUDE.md` §15.2) recover at very different confidence; state it per candidate, never inflate:
+The five invariant classes (`docs/AGENTS.md` §15.2) recover at very different confidence; state it per candidate, never inflate:
 - **shape / contract** — near-mechanical (types, signatures, schema shape). High-confidence candidates.
 - **data** — often mechanical (ranges, non-null, referential) but sometimes inferred. Medium.
 - **behavior** — recoverable only as *characterization* candidates at scale (a check that pins "what the code currently does", which may include bugs). Low — explicitly candidate.
@@ -69,7 +69,7 @@ For each candidate, write `<docs_dir>/invariants/<slug>.md` with the §15.2 fron
 For each check idea, write a candidate check into `<docs_dir>/invariants/checks/` (a runnable artifact — a small test/script/schema assertion appropriate to the class). Mark it, in the reconciliation (§5), as belonging to a `recovered/observed` pin so the suite can tell candidate scratch from ratified-durable core. `experience` candidates may have no check.
 
 ### 5. Write reconciliation entries
-For each emitted check, add a reconciliation entry `{check_id, pin_id, last_result, last_checked}` (`docs/CLAUDE.md` §15.4). Initial `last_result` is the check's first recorded outcome if you ran it, else `none`; `last_checked` accordingly. Never fabricate a `pass`.
+For each emitted check, add a reconciliation entry `{check_id, pin_id, last_result, last_checked}` (`docs/AGENTS.md` §15.4). Initial `last_result` is the check's first recorded outcome if you ran it, else `none`; `last_checked` accordingly. Never fabricate a `pass`.
 
 ### 6. Index + log
 - `<docs_dir>/invariants/index.md`: add each new pin's row, **visibly marked `observed`**.
@@ -110,5 +110,5 @@ Report the candidates as **observed** and name `transition-invariant` as the hum
 
 - `transition-invariant` — the human gate that disposes of the `observed` pins this skill proposes.
 - `extract-code-docs` — the Span-1 regenerative sibling (docs from source); this is Span-2 (invariant candidates from source).
-- `audit-docs` — the CHK-INV rules that read what this skill emits (`docs/CLAUDE.md` §15.5).
-- `docs/CLAUDE.md` §15 — the invariants-concern contract.
+- `audit-docs` — the CHK-INV rules that read what this skill emits (`docs/AGENTS.md` §15.5).
+- `docs/AGENTS.md` §15 — the invariants-concern contract.

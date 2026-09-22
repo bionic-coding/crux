@@ -28,17 +28,17 @@ This skill is portable across Claude Code, Codex, and OpenCode. This section ove
 
 The **owner sign-off** for one governs backfill batch — the owner half of the two-layer review gate. The reviewer-agent has already recorded a per-block verdict in `<docs_dir>/adrs/summaries/backfill-reviews.yml`; **only this skill, driven by the owner, turns an unsigned batch into a signed one**. It is the backfill machinery's sibling of `transition-invariant`: one human gate, an audited write, and a refusal for every state it does not recognize.
 
-Core principle: **the sign-off approves enumerated spans, never a count.** The script renders each receipt's rule verbatim from live frontmatter and each anchor span in the entry's own shape; the owner reads that rendering; only then does the write happen. The single-write-path claim is enforced, not conventional: receipts written any other way fail the receipts↔log↔journal cross-validation (docs/CLAUDE.md §6) for want of their corroborating surfaces.
+Core principle: **the sign-off approves enumerated spans, never a count.** The script renders each receipt's rule verbatim from live frontmatter and each anchor span in the entry's own shape; the owner reads that rendering; only then does the write happen. The single-write-path claim is enforced, not conventional: receipts written any other way fail the receipts↔log↔journal cross-validation (docs/AGENTS.md §6) for want of their corroborating surfaces.
 
 One invocation signs **one** batch. The write set, all under one threaded date:
 
 1. the batch's `signed` date flips in the reviews manifest (receipt history is append-only, never touched);
 2. the admitted handles append to `adr.governs_backfilled` in `<docs_dir>/manifest.yml` (append-only per handle; a tombstoned handle is retained);
-3. the `backfill` log op prepends to `<docs_dir>/log.md` (per docs/CLAUDE.md §6);
+3. the `backfill` log op prepends to `<docs_dir>/log.md` (per docs/AGENTS.md §6);
 4. the journal hook appends to `<docs_dir>/journal/<YYYY-MM>.md` (category `review`, subject `backfill sign-off <batch-id>`);
 5. `adr.governs_backfill_complete: true` is set **iff** the simulated post-sign arithmetic has zero pending cohort ADRs — absent otherwise, never false.
 
-**Excluded from run-execution autonomy.** This is a human-gate skill: the owner reading the enumerated spans (step 3) IS the review the two-layer gate provides. Like `escalate-arch-runtime`, a running promptbook or dev-cycle must NOT invoke it unattended. Its writes are in-repo edits, which `docs/CLAUDE.md` §11 otherwise treats as pre-authorized inside a started run — but that default does not reach here, because the authorization this skill needs is a human reading a rendering, and no run plan can pre-supply that. A run that reaches a "sign off backfill batch" step STOPS and hands the batch to the owner; it is never auto-approved or allowlisted for auto-approval. The gate is prose, not a flag — the same trust model as `transition-invariant`; a broader §11 amendment naming every human-gate skill as a stop point is a follow-on.
+**Excluded from run-execution autonomy.** This is a human-gate skill: the owner reading the enumerated spans (step 3) IS the review the two-layer gate provides. Like `escalate-arch-runtime`, a running promptbook or dev-cycle must NOT invoke it unattended. Its writes are in-repo edits, which `docs/AGENTS.md` §11 otherwise treats as pre-authorized inside a started run — but that default does not reach here, because the authorization this skill needs is a human reading a rendering, and no run plan can pre-supply that. A run that reaches a "sign off backfill batch" step STOPS and hands the batch to the owner; it is never auto-approved or allowlisted for auto-approval. The gate is prose, not a flag — the same trust model as `transition-invariant`; a broader §11 amendment naming every human-gate skill as a stop point is a follow-on.
 
 ## When to use
 
@@ -131,6 +131,6 @@ Report the batch id, the signed date, the derived ADR ids, and the marker state 
 ## See also
 
 - `<docs_dir>/adrs/summaries/backfill-reviews.yml` — the reviews manifest; its header documents the receipt and batch schema.
-- `docs/CLAUDE.md` §6 — the `backfill` log op's grammar; §7 — the three `adr.governs_backfill*` manifest keys; §11.A — the `anchor` sub-field contract.
+- `docs/AGENTS.md` §6 — the `backfill` log op's grammar; §7 — the three `adr.governs_backfill*` manifest keys; §11.A — the `anchor` sub-field contract.
 - The governs coverage gate (`scripts/check-governs-coverage.py`) — the contract the post-gates run.
 - `transition-invariant` — the human-gate skill whose shape this one mirrors.

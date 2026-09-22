@@ -55,7 +55,7 @@
     and a class earns its own reproduction only when the Goal cites a second,
     independent instance. A security label on the issue sets its priority, not
     its size. If the diagnosis shows a fix that passes `fix-directly`'s sizing
-    test, say so in the Diagnosis — that is a `docs/CLAUDE.md` §11
+    test, say so in the Diagnosis — that is a `docs/AGENTS.md` §11
     premise-contradiction stop, and the owner decides whether the cycle
     continues.
 
@@ -89,14 +89,14 @@
           change? Any scope creep (refactors, features) that doesn't belong in
           a fix? Regression risk?
       (4) Consistency — does the approach fit existing behavior, ADRs, and the
-          conventions in `docs/CLAUDE.md`?
+          conventions in `docs/AGENTS.md`?
       (5) **Security** — does the fix introduce a security risk (new attack
           surface, secret/credential handling incl. `~/.crux/`, injection/
           authz, supply-chain/external-fetch)? `REQUEST_CHANGES` if unmitigated.
 
     **Escape verdict (the iterate-specific stop).** If the council concludes the
     work is ACTUALLY ARCHITECTURAL — it requires a new decision, not a fix —
-    treat this as a `docs/CLAUDE.md` §11 run-autonomy **premise-contradiction
+    treat this as a `docs/AGENTS.md` §11 run-autonomy **premise-contradiction
     stop**: mark this prompt `blocked` and **escalate to the user**,
     recommending they abandon this `iterate` run (`run-promptbook abandon
     PB-NNNN --reason "<why>"`) and start a `dev-cycle` whose book cites this one

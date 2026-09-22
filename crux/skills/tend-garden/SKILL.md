@@ -128,7 +128,7 @@ Resolve the documentation tree with `python3 "${CRUX_PLUGIN_ROOT}/scripts/bionic
 STOP and surface the `{"error": ...}` payload rather than falling back to a default, and if the
 CLI cannot be invoked at all, STOP rather than guessing `bionic` — then read
 `<docs_dir>/objectives.md` before selecting work. Repeat on resume and when it changes.
-Apply `docs/CLAUDE.md` §5.B for maturity, alignment, and the populate gate.
+Apply `docs/AGENTS.md` §5.B for maturity, alignment, and the populate gate.
 Defer any missing-objectives notice until the turn gate permits output;
 a skipped turn stays silent.
 
@@ -158,7 +158,7 @@ She never re-derives the predicates that cleanup-campsite already computed.
 
 ### Step 4 — Ground with diagnostics
 Read-only measurement only. Run the target repo's **documented test and
-validation commands** — found in that repo's own `CLAUDE.md` and `docs/`
+validation commands** — found in that repo's own `AGENTS.md` and `docs/`
 — each with a stated timeout and non-mutating flags only (e.g. `--dry-run`,
 `--check`). No mutating commands here.
 

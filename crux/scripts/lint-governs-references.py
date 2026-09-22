@@ -62,7 +62,7 @@ Three token classes, told apart by shape alone (ADR-0099 clause 1):
     key is likewise a non-token (a space follows the colon).
 
   Both ledger prefixes are matched because the resolver holds ONE namespace
-  across both sources (docs/CLAUDE.md §17.1: an observation handle is
+  across both sources (docs/AGENTS.md §17.1: an observation handle is
   namespaced `OBS-NNNN/<rule-slug>`). A matcher that saw `ADR-` alone could
   not see an observation-derived citation at all, so an unresolvable one
   would pass silently — a false green rather than a narrower check.
@@ -858,7 +858,7 @@ def main(argv=None) -> int:
         manifest = sp.read_manifest(root)
         governs_from = sp.governs_from(manifest)
         # The input domain is active ADRs UNION ratified observations
-        # (docs/CLAUDE.md §4, ADR-0095 requirement 4). `observations_source`
+        # (docs/AGENTS.md §4, ADR-0095 requirement 4). `observations_source`
         # is THE one resolution of that half, shared with `summarize-adrs.py`
         # and `compile-doctrine.py`. Omitting it built a resolver holding zero
         # OBS handles while the on-disk resolver held three, so every

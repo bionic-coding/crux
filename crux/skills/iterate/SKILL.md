@@ -54,7 +54,7 @@ The dev + review module partials are **reused unedited from `dev-cycle`** —
 (which has no rule citation to carry here) is substituted with **"the verified Diagnosis
 (run notes) + the verify module's commit-approach journal entry."** The review
 module's ADR-consistency clause gracefully no-ops (it still checks pre-existing
-ADRs + `docs/CLAUDE.md`).
+ADRs + `docs/AGENTS.md`).
 
 Total prompts:
 
@@ -148,7 +148,7 @@ When called interactively (no flags), elicit counts:
 
 ### 0. Resolve per-repo configuration (.crux)
 
-Run `python3 "${CRUX_PLUGIN_ROOT}/scripts/crux-config.py"` from the repo root (or pass `--repo-root <repo-root>`), and confirm the returned `repo_root` is the repo you are operating in — `source: "discovery:<dir>"` with an unexpected `repo_root` means you resolved the wrong directory, not that no config exists. On exit 1, **STOP** and surface the `{"error": ...}` payload — never fall back to defaults. Use the returned `docs_dir` wherever this skill says `docs/` (per the docs/CLAUDE.md §14 normative definition clause). When `artifact_prefix` is non-empty, format the newly allocated book id with it (e.g. `CRX-PB-0040`) — the `NNNN` still comes from the manifest counter exactly as below; the prefix only changes the formatting.
+Run `python3 "${CRUX_PLUGIN_ROOT}/scripts/crux-config.py"` from the repo root (or pass `--repo-root <repo-root>`), and confirm the returned `repo_root` is the repo you are operating in — `source: "discovery:<dir>"` with an unexpected `repo_root` means you resolved the wrong directory, not that no config exists. On exit 1, **STOP** and surface the `{"error": ...}` payload — never fall back to defaults. Use the returned `docs_dir` wherever this skill says `docs/` (per the docs/AGENTS.md §14 normative definition clause). When `artifact_prefix` is non-empty, format the newly allocated book id with it (e.g. `CRX-PB-0040`) — the `NNNN` still comes from the manifest counter exactly as below; the prefix only changes the formatting.
 
 ### 1. Confirm inputs
 
@@ -209,7 +209,7 @@ modules: { verify: <V>, dev_loops: <D>, review_cycles: <R> }
 goal: |
   <the user's goal paragraph>
 # strategy + run_autonomy: carry from the canonical template (run_autonomy MUST
-# be present and reference docs/CLAUDE.md §11).
+# be present and reference docs/AGENTS.md §11).
 ```
 
 `tags` MUST contain `cycle` (the schema's `tags:cycle → required: modules`
@@ -283,7 +283,7 @@ Body: id, title, `total_prompts`, modules `(V×verify, D×dev, R×review)`, note
       IS the confirmation, **unless the book sets `cycle_grandfathered: true`,
       which short-circuits the whole pass**; a grandfathered book gets no
       cycle-coverage checking and still exits 0.
-- [ ] Top-level `run_autonomy` present and references `docs/CLAUDE.md` §11.
+- [ ] Top-level `run_autonomy` present and references `docs/AGENTS.md` §11.
       (NOT covered by the validator's cycle-coverage pass — check it yourself.)
 - [ ] `docs/promptbooks/index.md` lists the book `0/<T> (0%)`; `docs/index.md`
       Promptbooks count bumped; `docs/log.md` has the `promptbook | authored …
@@ -309,7 +309,7 @@ Body: id, title, `total_prompts`, modules `(V×verify, D×dev, R×review)`, note
 - About to increment `manifest.yml` before the book file lands. Write-then-
   increment.
 - Mid-run (once `run-promptbook` is driving it): about to pause to confirm a step
-  the prompt authorizes. Don't — the plan is the authorization (`docs/CLAUDE.md`
+  the prompt authorizes. Don't — the plan is the authorization (`docs/AGENTS.md`
   §11). The genuine stops are the module escalation loops, the verify council's
   architectural-escape verdict, and irreversible/outward-facing actions. When an
   escalation traces to a missing capability rather than a genuine disagreement,

@@ -86,7 +86,7 @@ Substitute `${CRUX_PLUGIN_ROOT}` (crux's portable plugin-root name — in Claude
 its actual value when writing the temp file; in a source checkout substitute
 the checkout's `crux/` directory. Without `uv` this fails at the shell
 (`command not found: uv`, exit 127) — install uv (https://docs.astral.sh/uv/).
-See `council/SKILL.md` and `docs/CLAUDE.md` §10.A for the canonical reference.
+See `council/SKILL.md` and `docs/AGENTS.md` §10.A for the canonical reference.
 
 ## Task Decomposition
 
