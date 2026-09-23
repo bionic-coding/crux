@@ -172,15 +172,15 @@ class ShippedCatalogTests(unittest.TestCase):
         touching this test — which is the whole reason the alias table exists.
         """
         expected = {
-            "architect":      ("opus",   "kimi-latest",   "gpt-6-sol",     "high"),
-            "brainstormer":   ("opus",   "kimi-latest",   "gpt-6-sol",     "high"),
+            "architect":      ("opus",   "opus-latest",   "gpt-6-sol",     "high"),
+            "brainstormer":   ("opus",   "opus-latest",   "gpt-6-sol",     "high"),
             "commander":      ("claude-opus-5-5", "glm-latest", "gpt-6-astra", "high"),
-            "dev-lead":       ("opus",   "kimi-latest",   "gpt-6-sol",     "high"),
+            "dev-lead":       ("opus",   "sol-latest",    "gpt-6-sol",     "high"),
             "developer":      ("sonnet", "deepseek-flash", "gpt-6-sol",     "high"),
             "historian":      ("sonnet", "glm-latest",    "gpt-6-sol",     "high"),
             "librarian":      ("sonnet", "glm-latest",    "gpt-6-sol",     "high"),
-            "night-gardener": ("claude-opus-5-5", "kimi-latest", "gpt-6-astra", "high"),
-            "reviewer":       ("fable",   "kimi-latest",   "gpt-6-sol",     "xhigh"),
+            "night-gardener": ("claude-opus-5-5", "opus-latest", "gpt-6-astra", "high"),
+            "reviewer":       ("fable",  "sol-latest",    "gpt-6-sol",     "xhigh"),
             "wayfinder":      ("sonnet", "glm-latest",    "gpt-6-sol",     "high"),
         }
         catalog = MC.load()
@@ -193,6 +193,27 @@ class ShippedCatalogTests(unittest.TestCase):
                 self.assertEqual(resolved.opencode, catalog.aliases[alias])
                 self.assertEqual(resolved.codex.model, model)
                 self.assertEqual(resolved.codex.reasoning_effort, effort)
+
+    def test_opencode_assignments_follow_the_owner_lineup(self):
+        """The OpenCode column: flagship defaults to Opus, three agents override.
+
+        architect and brainstormer carry no override, so they inherit the
+        flagship default. kimi-latest stays declared as a parked alternate that
+        no agent resolves through.
+        """
+        catalog = MC.load()
+        self.assertEqual(catalog.aliases["opus-latest"], "openrouter/anthropic/claude-opus-5.5")
+        self.assertEqual(catalog.aliases["sol-latest"], "openrouter/openai/gpt-6-sol")
+        self.assertEqual(catalog.aliases["kimi-latest"], "openrouter/moonshotai/kimi-k3")
+        self.assertEqual(catalog.levels["flagship"].opencode, "opus-latest")
+        for name in ("architect", "brainstormer"):
+            with self.subTest(agent=name):
+                self.assertEqual(catalog.agents[name].level, "flagship")
+                self.assertIsNone(catalog.agents[name].opencode)
+        self.assertEqual(catalog.agents["dev-lead"].opencode, "sol-latest")
+        self.assertEqual(catalog.agents["night-gardener"].opencode, "opus-latest")
+        self.assertEqual(catalog.agents["reviewer"].opencode, "sol-latest")
+        self.assertNotIn("kimi-latest", {catalog.opencode_alias(n) for n in catalog.agents})
 
     def test_apex_uses_astra_while_flagship_keeps_sol_at_high_effort(self):
         catalog = MC.load()

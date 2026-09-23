@@ -1002,7 +1002,7 @@ class ModelsCatalogNegativeTests(unittest.TestCase):
 
     def test_v9_raw_model_id_in_a_level_cell(self):
         self._assert_rule("V9", lambda t: t.replace(
-            "  flagship:\n    claude: opus\n    opencode: kimi-latest",
+            "  flagship:\n    claude: opus\n    opencode: opus-latest",
             "  flagship:\n    claude: opus\n    opencode: anthropic/claude-opus-5"))
 
     def test_v9_raw_model_id_in_levels_claude(self):
@@ -1022,7 +1022,9 @@ class ModelsCatalogNegativeTests(unittest.TestCase):
 
     def test_v9_raw_model_id_in_agents_opencode(self):
         self._assert_rule("V9", lambda t: t.replace(
-            "    opencode: kimi-latest", "    opencode: anthropic/claude-opus-4-8", 1))
+            "  night-gardener:\n    level: apex\n    claude: claude-opus-5-5\n    opencode: opus-latest",
+            "  night-gardener:\n    level: apex\n    claude: claude-opus-5-5\n"
+            "    opencode: anthropic/claude-opus-4-8"))
 
     def test_v9_declares_exactly_the_positions_it_inspects(self):
         # The docstring is load-bearing here: it is what a later reader trusts
@@ -1046,7 +1048,7 @@ class AgentCodexOverrideValidationTests(unittest.TestCase):
     REVIEWER_CODEX = (
         "  reviewer:\n"
         "    level: apex\n"
-        "    opencode: kimi-latest\n"
+        "    opencode: sol-latest\n"
         "    codex:\n"
         "      model: gpt-6-sol\n"
         "      reasoning_effort: xhigh\n"
@@ -1322,7 +1324,7 @@ class AliasPatternAnchorTests(unittest.TestCase):
         # retired provider there, V5 fires on "provider not in the table" and the
         # assertion below passes without the slug pattern ever being consulted —
         # green, and blind to the `\Z` anchor this class exists to pin.
-        anchor = "  opus-latest: openrouter/anthropic/claude-opus-5"
+        anchor = "  opus-latest: openrouter/anthropic/claude-opus-5.5\n"
         original = SHIPPED_MODELS.read_text(encoding="utf-8")
         # `assertNotEqual(text, original)` would pass on almost any mutation
         # of the fixture, including one that landed nowhere near `anchor` —

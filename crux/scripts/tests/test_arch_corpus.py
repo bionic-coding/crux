@@ -404,12 +404,15 @@ class CorpusGoldenTests(unittest.TestCase):
                 # below. Per-file, all `len(cached) * len(GOLDEN_FILES)`
                 # comparisons are attempted and each moved file reports itself.
                 with self.subTest(repo=name, file=rel):
-                    golden = GOLDEN / name / rel
+                    # The base golden, or this interpreter's declared overlay
+                    # (see `InterpreterOverlayTests` for what bounds it).
+                    golden = _derive_corpus.golden_path(name, rel)
                     compared += 1
                     self.assertTrue(golden.is_file(), f"{name}/{rel}: no golden")
                     self.assertEqual(
                         got[rel], golden.read_text(encoding="utf-8"),
-                        f"{name}/{rel} moved [scope: {scope}]. If the change is "
+                        f"{name}/{rel} moved against "
+                        f"{golden.relative_to(CORPUS_DIR)} [scope: {scope}]. If the change is "
                         "intended, re-bless with `uv run python3 "
                         "crux/scripts/tests/arch-corpus/derive_corpus.py --bless` "
                         "and review the diff; a pure refactor must not move a single byte.",
@@ -480,6 +483,118 @@ class CorpusGoldenTests(unittest.TestCase):
         uncached = [r["name"] for r in self.repos if r not in self.cached]
         if uncached:
             self.skipTest(f"not fetched, so not measured: {', '.join(uncached)} — {FETCH_HINT}")
+
+
+class InterpreterOverlayTests(unittest.TestCase):
+    """The per-interpreter golden overlay is bounded by what it declares.
+
+    `golden-by-python/<minor>/<name>/<rel>` replaces one base golden on one
+    interpreter minor. Unbounded, it would be a second place to re-bless a
+    regression. These checks read committed files only, so they run on every
+    machine and every interpreter, with or without the corpus cache.
+    """
+
+    def setUp(self):
+        if _derive_corpus is None:
+            self.skipTest("arch-corpus helpers need PyYAML; run under `uv run`")
+        self.dc = _derive_corpus
+        self.overlays = sorted(
+            p for p in self.dc.OVERLAY_ROOT.rglob("*") if p.is_file()
+        ) if self.dc.OVERLAY_ROOT.is_dir() else []
+
+    def _split(self, path: Path) -> tuple[tuple[int, int], str, str]:
+        minor, name, *rest = path.relative_to(self.dc.OVERLAY_ROOT).parts
+        major_s, minor_s = minor.split(".")
+        return (int(major_s), int(minor_s)), name, "/".join(rest)
+
+    def test_the_base_interpreter_constant_is_shared(self):
+        self.assertEqual(_GOLDEN_INTERPRETER, self.dc.BASE_INTERPRETER)
+
+    def test_every_overlay_file_is_declared_and_differs_from_its_base(self):
+        # Not vacuous: the 3.14 fastapi-fullstack overlay exists today.
+        self.assertTrue(self.overlays, "no overlay files; the test measures nothing")
+        for path in self.overlays:
+            version, name, rel = self._split(path)
+            with self.subTest(overlay=str(path.relative_to(CORPUS_DIR))):
+                self.assertNotEqual(version, self.dc.BASE_INTERPRETER)
+                self.assertIn(name, self.dc.INTERPRETER_DELTAS.get(version, {}),
+                              "overlay repository not declared in INTERPRETER_DELTAS")
+                self.assertIn(rel, GOLDEN_FILES)
+                base = GOLDEN / name / rel
+                self.assertTrue(base.is_file(), "overlay has no base golden")
+                self.assertNotEqual(path.read_bytes(), base.read_bytes(),
+                                    "overlay is identical to its base; delete it")
+
+    def test_every_declared_delta_has_an_overlay(self):
+        for version, repos in self.dc.INTERPRETER_DELTAS.items():
+            for name, spec in repos.items():
+                with self.subTest(version=version, repo=name):
+                    self.assertTrue(spec.get("paths"))
+                    self.assertTrue(spec.get("because"))
+                    directory = self.dc.overlay_dir(version) / name
+                    self.assertTrue(
+                        directory.is_dir() and any(p.is_file() for p in directory.rglob("*")),
+                        "declared delta has no overlay file; `--bless` removes an overlay "
+                        "file that stops differing, so delete the INTERPRETER_DELTAS entry")
+
+    @staticmethod
+    def _stray(base: list[str], over: list[str], paths: list[str]) -> list[str]:
+        """Changed lines that name no declared path and are no `n_sources` count."""
+        import difflib
+        counter = re.compile(r'^\s*"n_sources": \d+,?$')
+        return [
+            line for line in difflib.ndiff(base, over)
+            if line[:2] in ("- ", "+ ")
+            and not any(p in line for p in paths)
+            and not counter.match(line[2:])
+        ]
+
+    def test_an_overlay_differs_only_on_lines_naming_a_declared_path(self):
+        """Every changed line names a declared source, or is an `n_sources` count."""
+        for path in self.overlays:
+            version, name, rel = self._split(path)
+            paths = self.dc.INTERPRETER_DELTAS[version][name]["paths"]
+            base = (GOLDEN / name / rel).read_text(encoding="utf-8").splitlines()
+            over = path.read_text(encoding="utf-8").splitlines()
+            with self.subTest(overlay=str(path.relative_to(CORPUS_DIR))):
+                self.assertEqual(self._stray(base, over, paths), [],
+                                 "overlay moves a line no declared path explains")
+
+    def test_positive_control_a_stray_line_is_reported(self):
+        """The bound fires on a change no declared path explains."""
+        base = ["| User | email |", '  "n_sources": 7,']
+        over = ["| User | e-mail |", '  "n_sources": 6,']
+        self.assertEqual(self._stray(base, over, ["backend/app/api/deps.py"]),
+                         ["- | User | email |", "+ | User | e-mail |"])
+
+    def test_coverage_overlays_keep_every_verdict_and_entity_count(self):
+        """The delta is a hashing and residual change, never an extraction one."""
+        coverage = [p for p in self.overlays if p.name == "coverage.json"]
+        self.assertTrue(coverage, "no coverage overlay; the test measures nothing")
+        for path in coverage:
+            version, name, rel = self._split(path)
+            paths = set(self.dc.INTERPRETER_DELTAS[version][name]["paths"])
+            base = json.loads((GOLDEN / name / rel).read_text(encoding="utf-8"))
+            over = json.loads(path.read_text(encoding="utf-8"))
+            for b, o in zip(base["concerns"], over["concerns"], strict=True):
+                with self.subTest(overlay=name, concern=b["concern"]):
+                    self.assertEqual(o["concern"], b["concern"])
+                    self.assertEqual(o["verdict"], b["verdict"])
+                    self.assertEqual(o.get("n_entities"), b.get("n_entities"))
+                    moved = set(b.get("inputs_found", [])) ^ set(o.get("inputs_found", []))
+                    self.assertLessEqual(moved, paths)
+                    self.assertEqual(
+                        b.get("n_sources", 0) - o.get("n_sources", 0),
+                        len(set(b.get("inputs_found", [])) - set(o.get("inputs_found", [])))
+                        - len(set(o.get("inputs_found", [])) - set(b.get("inputs_found", []))))
+
+    def test_the_base_interpreter_resolves_to_the_base_golden(self):
+        for path in self.overlays:
+            version, name, rel = self._split(path)
+            with self.subTest(overlay=str(path.relative_to(CORPUS_DIR))):
+                self.assertEqual(self.dc.golden_path(name, rel, version), path)
+                self.assertEqual(self.dc.golden_path(name, rel, self.dc.BASE_INTERPRETER),
+                                 GOLDEN / name / rel)
 
 
 class CorpusConfinementTests(unittest.TestCase):

@@ -20,6 +20,16 @@ Two jobs, one code path:
   * without `--bless` it derives and compares, printing a JSON report with the
     per-repo, per-concern numbers the baseline report is built from.
 
+The goldens under `golden/` are derived on `BASE_INTERPRETER`. A parser that
+reads the same source differently on another supported minor version produces
+different bytes for a reason that is not a pack change. Those files, and only
+those, live in an overlay at `golden-by-python/<major>.<minor>/<name>/<rel>`,
+and every overlay repository must be declared in `INTERPRETER_DELTAS` with the
+source paths that cause it. `golden_path` resolves one file for the running
+interpreter. `--bless` on the base interpreter writes `golden/`; on another
+minor it writes only the files that differ from the base golden into the
+overlay, and removes an overlay file that no longer differs.
+
 The dependency set mirrors `crux/scripts/derive-arch.py`: httpx because
 importing `crux.arch` pulls the eager package `__init__`, pyyaml because the
 frontmatter parser it selects decides the spine bytes, and the four tree-sitter
@@ -63,6 +73,31 @@ import fetch as corpus_fetch  # noqa: E402
 
 CACHE = HERE / ".cache"
 GOLDEN = HERE / "golden"
+OVERLAY_ROOT = HERE / "golden-by-python"
+
+#: The interpreter the goldens under `golden/` are derived on. Older minors are
+#: not compared at all (the 3.11 parser refuses a djangoproject-com source).
+BASE_INTERPRETER = (3, 13)
+
+#: Interpreter-dependent inputs, by minor version, then by corpus repository.
+#: `paths` are the sources whose parse outcome differs from BASE_INTERPRETER;
+#: an overlay golden may differ from its base golden only on lines naming one
+#: of them, plus the `n_sources` counters their hashing moves.
+#: `test_arch_corpus.InterpreterOverlayTests` enforces that bound without the
+#: corpus cache.
+INTERPRETER_DELTAS: dict[tuple[int, int], dict[str, dict]] = {
+    (3, 14): {
+        "fastapi-fullstack": {
+            "paths": ["backend/app/api/deps.py"],
+            "because": (
+                "PEP 758: 3.14 parses the unparenthesized `except "
+                "InvalidTokenError, ValidationError:` on line 36 that 3.13 "
+                "refuses, so the file is no longer a refused source. It "
+                "contributes no column and no route either way."
+            ),
+        },
+    },
+}
 SCRATCH_DOCS = ".crux-arch-scratch"
 
 # A `source: self` entry derives THIS repository in place, at its own root —
@@ -82,6 +117,25 @@ GOLDEN_FILES = (
     "decision-index.md",
     "_meta/coverage.json",
 )
+
+def overlay_dir(version: tuple[int, int]) -> Path:
+    """The overlay root for one interpreter minor version."""
+    return OVERLAY_ROOT / f"{version[0]}.{version[1]}"
+
+
+def golden_path(name: str, rel: str, version: tuple[int, int] | None = None) -> Path:
+    """The golden one file is compared against on `version` (default: running).
+
+    The base golden, unless `version` is not the base interpreter and an
+    overlay file exists for it.
+    """
+    version = tuple(version or sys.version_info[:2])
+    if version != BASE_INTERPRETER:
+        overlay = overlay_dir(version) / name / rel
+        if overlay.is_file():
+            return overlay
+    return GOLDEN / name / rel
+
 
 _TABLE_SEP_RE = re.compile(r"\A\|[\s:|-]+\|\Z")
 
@@ -226,6 +280,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"no cached corpus repos under {CACHE}; run fetch.py first", file=sys.stderr)
         return 2
 
+    version = sys.version_info[:2]
+    if version < BASE_INTERPRETER:
+        print(f"refusing: the goldens are derived on {BASE_INTERPRETER[0]}."
+              f"{BASE_INTERPRETER[1]} or later; this is {version[0]}.{version[1]}",
+              file=sys.stderr)
+        return 2
+    on_base = version == BASE_INTERPRETER
+
     reports, mismatches = [], []
     for entry in cached:
         name = entry["name"]
@@ -240,11 +302,23 @@ def main(argv: list[str] | None = None) -> int:
         # `test_arch_pack_acceptance.py`'s never-skipped self case.
         if not is_self:
             for rel, text in got["tree"].items():
-                path = dest / rel
-                if args.bless:
+                if args.bless and on_base:
+                    path = dest / rel
                     path.parent.mkdir(parents=True, exist_ok=True)
                     path.write_text(text, encoding="utf-8")
-                elif not path.exists():
+                    continue
+                if args.bless:
+                    base = dest / rel
+                    overlay = overlay_dir(version) / name / rel
+                    if base.is_file() and base.read_text(encoding="utf-8") == text:
+                        if overlay.exists():
+                            overlay.unlink()
+                    else:
+                        overlay.parent.mkdir(parents=True, exist_ok=True)
+                        overlay.write_text(text, encoding="utf-8")
+                    continue
+                path = golden_path(name, rel, version)
+                if not path.exists():
                     mismatches.append(f"{name}/{rel}: no golden")
                 elif path.read_text(encoding="utf-8") != text:
                     mismatches.append(f"{name}/{rel}: differs from golden")

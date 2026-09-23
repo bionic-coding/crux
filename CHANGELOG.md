@@ -1,9 +1,27 @@
-<!-- generated-from: CHANGELOG.md@sha256:6f9c9c49ca4107edfb087546202db3325ef69216d489666fba155758e396ed36; model: claude-opus-5.5; date: 2026-09-22 -->
+<!-- generated-from: CHANGELOG.md@sha256:b62365823da3dd606a56010962492fb5a644e64f7405009b4f66dc0c5d18909f; model: claude-opus-5.5; date: 2026-09-23 -->
 # Changelog
 
 All notable changes to crux. The format roughly follows [Keep a Changelog](https://keepachangelog.com/) and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+
+## [3.23.0] — 2026-09-23
+
+### Added
+
+- crux now supports Python 3.14 as well as Python 3.13. Each release is tested on both supported versions before it ships.
+
+### Changed
+
+- On Python 3.14, the arch Python pack now parses unparenthesized `except A, B:` handlers, which Python 3.14 made legal. A file whose only defect was such a handler is no longer reported as a refused source, and it also leaves `inputs_found`.
+- **Note:** a spine derived on Python 3.14 can therefore differ from one derived on Python 3.13 for a repository with such files. Entity counts do not change.
+
+## [3.22.0] — 2026-09-23
+
+### Changed
+
+- When running under OpenCode, several agents now use different models. The default flagship model is now `opus-latest` (`openrouter/anthropic/claude-opus-5.5`), so `architect` and `brainstormer` run on Claude Opus 5.5.
+- Under OpenCode, `dev-lead` and `reviewer` now use the new `sol-latest` alias (`openrouter/openai/gpt-6-sol`), and `night-gardener` uses `opus-latest`. The `kimi-latest` alias remains available as an alternate but no agent uses it by default. Model assignments for Claude Code and Codex are unchanged.
 
 ## [3.21.0] — 2026-09-23
 

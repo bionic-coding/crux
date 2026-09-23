@@ -174,6 +174,9 @@ repos:
             passing unseen. The 12 does not move: the file declares
             `Annotated`/`Depends` helpers and no `table=True` class, so it
             contributed no column before the refusal and contributes none now.
+            CPython 3.14 parses that line (PEP 758), so on 3.14 there is no
+            residual and the path leaves `inputs_found`. The 3.14 golden
+            overlay records exactly that difference, and the 12 holds on both.
         api-surface:
           populated: {min_entities: 23}
           because: >-
@@ -194,6 +197,9 @@ repos:
             `inputs_found` rather than skipping it silently. The 23 does not
             move: the file declares dependency helpers and no route decorator,
             so it registered no row before the refusal and registers none now.
+            On CPython 3.14 the line parses (PEP 758), so that second residual
+            is absent there; the 3.14 golden overlay records it, and the 23
+            holds on both.
         module-graph:
           populated: {min_entities: 36}
           because: >-

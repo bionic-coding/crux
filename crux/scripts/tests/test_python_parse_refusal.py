@@ -15,7 +15,11 @@ nothing — not the drift gate, not the staleness check — reports the edit.
 The measured case is `fastapi-fullstack`'s `backend/app/api/deps.py`, a Python 2
 `except A, B:` that CPython 3.13 refuses. Before this contract held, that path
 appeared in `data-model.md` and `api-surface.md` prose and in NEITHER concern's
-`inputs_found`.
+`inputs_found`. CPython 3.14 ACCEPTS that exact line (PEP 758 allows an
+unparenthesized exception list when no `as` follows), so the fixtures below use
+the `except A, B as exc:` form, which every supported interpreter refuses.
+`test_the_bare_exception_list_is_refused_only_before_3_14` pins the difference,
+because the corpus goldens for that repository depend on it.
 
 `module-graph` is the deliberate asymmetry, and it is honest rather than a gap:
 `core._extract_module_graph` never calls `ast.parse` at all — it is a regex pass
@@ -44,14 +48,15 @@ sys.path.insert(0, str(SCRIPTS))
 
 P = importlib.import_module("crux.arch.packs.python")
 
-#: A Python 2 `except A, B:` — the exact shape `fastapi-fullstack` carries.
-#: Genuinely refused by CPython 3.13's parser, which
+#: An unparenthesized exception list with an `as` target. The bare
+#: `except A, B:` that `fastapi-fullstack` carries is refused by 3.13 but
+#: accepted by 3.14 (PEP 758); the `as` form stays a SyntaxError on both, which
 #: `test_the_fixture_is_genuinely_unparseable` asserts rather than assumes.
 BROKEN_SOURCE = (
     "def get_db():\n"
     "    try:\n"
     "        yield 1\n"
-    "    except ValueError, TypeError:\n"
+    "    except ValueError, TypeError as exc:\n"
     "        raise\n"
 )
 
@@ -61,7 +66,7 @@ FIXED_SOURCE = (
     "def get_db():\n"
     "    try:\n"
     "        yield 1\n"
-    "    except (ValueError, TypeError):\n"
+    "    except (ValueError, TypeError) as exc:\n"
     "        raise\n"
 )
 
@@ -76,7 +81,7 @@ BROKEN_MIGRATION = (
     "down_revision = '0001'\n"
     "try:\n"
     "    pass\n"
-    "except ValueError, TypeError:\n"
+    "except ValueError, TypeError as exc:\n"
     "    pass\n"
 )
 
@@ -156,6 +161,20 @@ class ParseRefusalFixtureTests(unittest.TestCase):
             ast.parse(BROKEN_SOURCE)
         with self.assertRaises(SyntaxError):
             ast.parse(BROKEN_MIGRATION)
+
+    def test_the_bare_exception_list_is_refused_only_before_3_14(self):
+        """PEP 758: 3.14 accepts `except A, B:`; 3.13 refuses it.
+
+        This is why the fixtures carry `as exc`. It is also why the
+        `fastapi-fullstack` corpus spine differs by interpreter: its `deps.py`
+        is a refused source on 3.13 and an ordinary parsed one on 3.14.
+        """
+        bare = "try:\n    pass\nexcept ValueError, TypeError:\n    pass\n"
+        if sys.version_info >= (3, 14):
+            ast.parse(bare)
+        else:
+            with self.assertRaises(SyntaxError):
+                ast.parse(bare)
 
     def test_the_mutated_fixture_parses(self):
         # If this ever raised, the control lane below would be asserting the

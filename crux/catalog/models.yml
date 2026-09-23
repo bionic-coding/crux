@@ -31,11 +31,12 @@ providers:
 # model id may appear.
 aliases:
   fable-latest: openrouter/anthropic/claude-fable-5.1
-  opus-latest: openrouter/anthropic/claude-opus-5
+  opus-latest: openrouter/anthropic/claude-opus-5.5
   opus-stable: openrouter/anthropic/claude-opus-4.8
   sonnet-latest: openrouter/anthropic/claude-sonnet-5
   haiku-latest: openrouter/anthropic/claude-haiku-4.5
   kimi-latest: openrouter/moonshotai/kimi-k3
+  sol-latest: openrouter/openai/gpt-6-sol
   qwen-max: openrouter/qwen/qwen3.8-2.4t-a95b
   deepseek-flash: openrouter/deepseek/deepseek-v4.1-flash
 
@@ -71,7 +72,9 @@ agents:
     level: apex
     claude: claude-opus-5-5
     opencode: glm-latest
-  dev-lead: flagship
+  dev-lead:
+    level: flagship
+    opencode: sol-latest
   developer:
     level: standard
     opencode: deepseek-flash
@@ -82,12 +85,12 @@ agents:
   night-gardener:
     level: apex
     claude: claude-opus-5-5
-    opencode: kimi-latest
+    opencode: opus-latest
   # reviewer: Codex override re-pointed from GPT-5.6 Sol to its successor,
   # GPT-6 Sol, by owner instruction, 2026-09-22. Effort stays xhigh.
   reviewer:
     level: apex
-    opencode: kimi-latest
+    opencode: sol-latest
     codex:
       model: gpt-6-sol
       reasoning_effort: xhigh
@@ -134,7 +137,7 @@ levels:
       source: "Codex 0.155.1 models_cache.json fetched 2026-09-22"
   flagship:
     claude: opus
-    opencode: kimi-latest
+    opencode: opus-latest
     codex:
       model: gpt-6-sol
       reasoning_effort: high

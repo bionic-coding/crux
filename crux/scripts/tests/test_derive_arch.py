@@ -831,13 +831,14 @@ class ArchDriftTriggerTests(unittest.TestCase):
     # test pins it.
     def test_deeply_nested_manifest_is_drift_not_a_crash(self):
         import json
+        from _json_depth import overflowing_json
         scratch = self._derived_repo()
-        payload = "[" * 100_000 + "]" * 100_000
         # Precondition, asserted rather than assumed: this input must really
         # reach the RecursionError path. Without it the test degenerates into
-        # another "unparseable is drift" case and proves nothing new. Measured:
-        # `json.loads` returns normally at depth 2000 and raises from 10000 up,
-        # so 100000 carries margin across interpreters.
+        # another "unparseable is drift" case and proves nothing new. The depth
+        # that overflows differs by interpreter (3.13 raises below 10 000, 3.14
+        # parses 100 000), so `overflowing_json` measures it on this one.
+        payload = overflowing_json()
         with self.assertRaises(RecursionError):
             json.loads(payload)
         self._manifest_path(scratch).write_text(payload, encoding="utf-8")

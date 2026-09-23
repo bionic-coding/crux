@@ -532,15 +532,15 @@ class CatalogResolutionTests(unittest.TestCase):
         still holds.
         """
         expected = {
-            "architect":      ("opus",   "kimi-latest",   "gpt-6-sol",     "high"),
-            "brainstormer":   ("opus",   "kimi-latest",   "gpt-6-sol",     "high"),
+            "architect":      ("opus",   "opus-latest",   "gpt-6-sol",     "high"),
+            "brainstormer":   ("opus",   "opus-latest",   "gpt-6-sol",     "high"),
             "commander":      ("claude-opus-5-5", "glm-latest", "gpt-6-astra", "high"),
-            "dev-lead":       ("opus",   "kimi-latest",   "gpt-6-sol",     "high"),
+            "dev-lead":       ("opus",   "sol-latest",    "gpt-6-sol",     "high"),
             "developer":      ("sonnet", "deepseek-flash", "gpt-6-sol",     "high"),
             "historian":      ("sonnet", "glm-latest",    "gpt-6-sol",     "high"),
             "librarian":      ("sonnet", "glm-latest",    "gpt-6-sol",     "high"),
-            "night-gardener": ("claude-opus-5-5", "kimi-latest", "gpt-6-astra", "high"),
-            "reviewer":       ("fable",   "kimi-latest",   "gpt-6-sol",     "xhigh"),
+            "night-gardener": ("claude-opus-5-5", "opus-latest", "gpt-6-astra", "high"),
+            "reviewer":       ("fable",  "sol-latest",    "gpt-6-sol",     "xhigh"),
             "wayfinder":      ("sonnet", "glm-latest",    "gpt-6-sol",     "high"),
         }
         self.assertEqual(set(expected), EXPECTED_AGENTS)

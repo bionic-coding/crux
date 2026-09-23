@@ -41,17 +41,42 @@ def _write(path: Path, text: str) -> Path:
     return path
 
 
+#: A Claude Code version at or above the 2.1.277 floor for AGENTS.md support.
+SUPPORTED_CLAUDE_VERSION = "2.1.280 (Claude Code)"
+
+
 class CliFixture(unittest.TestCase):
+    """Drive the CLI on a SUPPORTED host that this fixture defines.
+
+    `build-claude-adapter.py` asks `check-claude-compat.evaluate` whether the
+    host reads AGENTS.md, and that reads the `claude` on PATH, the user's
+    `~/.claude/settings.json` and the `CLAUDE_CODE_USE_*` variables. Left to the
+    real machine, a CI runner with no `claude` reported `host_supported: False`
+    and two tests here failed. The CLI therefore runs with a stub `claude`
+    reporting `SUPPORTED_CLAUDE_VERSION`, a scratch HOME, and those variables
+    removed.
+    """
+
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
         _write(self.root / "AGENTS.md", "# AGENTS.md\n\nroot instructions\n")
         _write(self.root / "bionic" / "AGENTS.md", "# tree\n\ntree schema\n")
+        host = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, host, ignore_errors=True)
+        stub = _write(host / "bin" / "claude",
+                      f"#!/bin/sh\necho '{SUPPORTED_CLAUDE_VERSION}'\n")
+        stub.chmod(0o755)
+        (host / "home").mkdir()
+        self.env = {k: v for k, v in os.environ.items()
+                    if not k.startswith("CLAUDE_CODE_USE_")}
+        self.env["PATH"] = f"{host / 'bin'}{os.pathsep}{os.environ.get('PATH', '')}"
+        self.env["HOME"] = str(host / "home")
 
     def run_cli(self, *args):
         r = subprocess.run(
             [sys.executable, str(CLI), "--repo-root", str(self.root), *args],
-            capture_output=True, text=True)
+            capture_output=True, text=True, env=self.env)
         payload = json.loads(r.stdout) if r.stdout.strip() else {}
         return r.returncode, payload, r.stderr
 
@@ -173,6 +198,11 @@ class SymlinkRefusalTests(CliFixture):
 
 
 class SupportedHostRefusalTests(CliFixture):
+    def test_the_fixture_host_is_supported(self):
+        """Precondition for this class and the next: the stub host is supported."""
+        _, payload, _ = self.run_cli()
+        self.assertIs(payload["host_supported"], True, payload)
+
     def test_generate_refuses_on_a_supported_host_without_force(self):
         code, payload, _ = self.run_cli("--generate")
         self.assertEqual(code, 1)

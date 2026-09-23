@@ -138,8 +138,8 @@ class HealthTests(unittest.TestCase):
             catalog = plugin / "catalog" / "models.yml"
             catalog.write_text(
                 catalog.read_text(encoding="utf-8").replace(
-                    "  flagship:\n    claude: opus\n    opencode: kimi-latest\n    codex:\n      model: gpt-6-sol",
-                    "  flagship:\n    claude: opus\n    opencode: kimi-latest\n    codex:\n      model: fixture-model",
+                    "  flagship:\n    claude: opus\n    opencode: opus-latest\n    codex:\n      model: gpt-6-sol",
+                    "  flagship:\n    claude: opus\n    opencode: opus-latest\n    codex:\n      model: fixture-model",
                     1,
                 ),
                 encoding="utf-8",

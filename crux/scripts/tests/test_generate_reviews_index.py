@@ -23,6 +23,8 @@ import unittest
 from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parent.parent / "generate-reviews-index.py"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _json_depth import overflowing_json  # noqa: E402
 
 
 def _load_script():
@@ -1623,8 +1625,13 @@ class HandleSurfaceTestCase(_Harness):
         reader had nothing to open. Caught beside the two value errors, it
         takes the same environment lane and names `resolver.json`.
         """
-        (self.resolver_dir() / "resolver.json").write_text(
-            "[" * 20000 + "]" * 20000, encoding="utf-8")
+        # The probe runs under `sys.executable`, so the depth that overflows
+        # this interpreter's decoder is the depth that overflows the probe's.
+        # A fixed 20 000 overflowed 3.13 and parsed on 3.14.
+        payload = overflowing_json()
+        with self.assertRaises(RecursionError):
+            json.loads(payload)
+        (self.resolver_dir() / "resolver.json").write_text(payload, encoding="utf-8")
         self.record("rule:some-slug")
         self.assert_environment(self.run_probe(), "resolver.json",
                                 "does not parse as JSON (RecursionError)")
