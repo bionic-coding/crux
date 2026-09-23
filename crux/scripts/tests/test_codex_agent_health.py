@@ -87,7 +87,7 @@ class HealthTests(unittest.TestCase):
             health.codex_agents.write(target, generated)
             architect = target / "crux-architect.toml"
             text = architect.read_text(encoding="utf-8").replace(
-                'model = "gpt-5.6-sol"', 'model = "locally-pinned"'
+                'model = "gpt-6-sol"', 'model = "locally-pinned"'
             )
             first = text.index("\n[[skills.config]]")
             second = text.index("\n[[skills.config]]", first + 1)
@@ -96,7 +96,7 @@ class HealthTests(unittest.TestCase):
             report = health.inspect_install(target=target, plugin_root=plugin, scope="personal")
         expected = next(role for role in report["roles"] if role["role"] == "architect")
         installed = next(role for role in report["installed"]["roles"] if role["role"] == "architect")
-        self.assertEqual(expected["model"], "gpt-5.6-sol")
+        self.assertEqual(expected["model"], "gpt-6-sol")
         self.assertEqual(installed["model"], "locally-pinned")
         self.assertIn("missing", {binding["status"] for binding in installed["skill_bindings"]})
         self.assertIn("disabled", {binding["status"] for binding in installed["skill_bindings"]})
@@ -138,7 +138,7 @@ class HealthTests(unittest.TestCase):
             catalog = plugin / "catalog" / "models.yml"
             catalog.write_text(
                 catalog.read_text(encoding="utf-8").replace(
-                    "  flagship:\n    claude: opus\n    opencode: kimi-latest\n    codex:\n      model: gpt-5.6-sol",
+                    "  flagship:\n    claude: opus\n    opencode: kimi-latest\n    codex:\n      model: gpt-6-sol",
                     "  flagship:\n    claude: opus\n    opencode: kimi-latest\n    codex:\n      model: fixture-model",
                     1,
                 ),
@@ -164,7 +164,7 @@ class HealthTests(unittest.TestCase):
                 target=Path(temporary) / "agents", plugin_root=REPO_ROOT / "crux", scope="personal"
             )
         reviewer = next(role for role in report["roles"] if role["role"] == "reviewer")
-        self.assertEqual(reviewer["model"], "gpt-5.6-sol")
+        self.assertEqual(reviewer["model"], "gpt-6-sol")
         self.assertEqual(reviewer["model_reasoning_effort"], "xhigh")
 
     def test_health_reports_managed_symlink_fifo_and_invalid_utf8_without_blocking(self):

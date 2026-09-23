@@ -1,17 +1,62 @@
-<!-- generated-from: CHANGELOG.md@sha256:3d7b24d050965d683efc6f60313a571a3d17f2be0125c908bfc5f24f74e9e7dc; model: claude-fable-5.1; date: 2026-09-21 -->
+<!-- generated-from: CHANGELOG.md@sha256:6f9c9c49ca4107edfb087546202db3325ef69216d489666fba155758e396ed36; model: claude-opus-5.5; date: 2026-09-22 -->
 # Changelog
 
 All notable changes to crux. The format roughly follows [Keep a Changelog](https://keepachangelog.com/) and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.21.0] — 2026-09-23
+
+### Changed
+- **The developer and dev-lead agents now count a test as proof only once they have seen it fail.** Test-first is still the default. A test proves a behaviour change once it has failed, for the reason the change addresses, against the code without that change. If a test has not been seen to fail, the agent disables the change, confirms the test fails, then restores the change and confirms it passes. The agents never delete working code for that reason alone, and the patch template's implement prompt states the same rule.
+- **Three failed fixes to the same problem now trigger a reassessment.** Previously this produced an automatic verdict that the architecture was wrong. Now the developer or dev-lead agent re-examines its hypothesis, its environment and the architecture, and records the evidence for each. It fixes problems within its own scope and continues. Anything outside its scope is reported, within the run, to whoever assigned the work.
+- **Developers now report capability gaps outside their unit to their lead.** They invoke `forge-skill` only when building that capability is their assigned unit. The shared capability-gap guidance is otherwise unchanged.
+- **The dev-lead now runs, for each unit, the tests the change can affect instead of the full suite.** It still runs the full suite for a unit when it cannot determine that set, and runs it once more after integration. At the exit gate, a passing full-suite run still counts as long as no file has changed since. `fix-directly` and the release gates still require the full suite.
+
+### Fixed
+- **`fix-directly`'s sizing questions no longer contradict each other.** The skill treats a defect as a direct fix only when every answer is yes, but question 5 asked whether the fix *needs* an independent review gate, so a yes sent it elsewhere. Question 5 now asks whether the fix can ship *without* one. A no still routes to `patch-cycle`, and the example about signed or digest-bound surfaces is kept.
+- **Text-only calls now reject image models with an error instead of losing their output.** `call_model`, `call_gateway`, council seats and the server's `/chat` endpoint return only reply text. Previously, an image model either returned an empty answer (`gpt-image-2.5-sunburst`) or lost its image (the three Gemini image models). These calls now raise `NotATextModelError`, naming the model and its registry type, for any non-text model before any credential is read. **Behaviour change:** `/chat` now returns this error instead of an empty 200 response. `/models` still lists image models, but crux does not support image generation or image responses.
+
+## [3.20.0] — 2026-09-22
+
 ### Added
+
+- New `claude-opus-5.5` model-registry entry, verified against live OpenRouter metadata. The new `release_docs` router role resolves to this model.
+- Four new OpenAI model-registry entries, verified against live OpenRouter metadata:
+  - `gpt-6-sol`
+  - `gpt-6-sol-low`, which is the same model pinned to low reasoning effort
+  - `gpt-6-luna`
+  - the image model `gpt-image-2.5-sunburst`
 
 ### Changed
 
+- The commander and night-gardener agents now run Claude Opus 5.5 on Claude Code.
+  - Each of these agents has an override that names the full model ID `claude-opus-5-5` instead of a family alias.
+  - The agent-model catalog schema moves to version 4 to support the override.
+  - **Running these agents on Opus 5.5 requires Claude Code v2.1.280 or later.**
+  - The reviewer agent continues to use Fable.
+- The council's Anthropic seats continue to use Fable for now. This covers the async text and visual seat, the sync member, and the sync arbiter. Council weights are unchanged.
+- OpenAI assignments move to GPT-6 with unchanged reasoning efforts.
+  - These assignments now resolve to `gpt-6-sol`:
+    - the router roles `openai_chat`, `think_medium` and `vision`
+    - the OpenAI members of the `council_default`, `council_code` and `recursive_improve` roles
+    - the flagship and standard Codex levels
+  - GPT-6 has no Terra tier, so every former Terra assignment now uses Sol.
+  - The apex Codex level and `openai_top` stay on `gpt-6-astra`.
+- The reviewer agent's Codex override now uses `gpt-6-sol` at `xhigh` effort.
+- Codex agent files you have already installed keep their GPT-5.6 models. Re-run `install-codex-agents` after upgrading to pick up the new models.
+
 ### Fixed
 
+- The council skill no longer claims that the agent-model catalog forbids `fable`. `fable` is a valid agent model, and the reviewer agent uses it.
+
 ### Removed
+
+- **Breaking:** The model-registry entries `gpt-5.6-sol`, `gpt-5.6-sol-low`, `gpt-5.6-terra`, `gpt-5.6-luna` and `gpt-image-2` have been removed.
+  - No old key is aliased to a GPT-6 model.
+  - Code that names a removed key now fails with `ValueError: Unknown model`.
+- The image model no longer returns text. `gpt-image-2.5-sunburst` returns only an image, whereas `gpt-image-2` returned both an image and text. No part of crux used that text.
+- `openai_chat`, `think_medium` and the OpenAI members of `council_default` and `council_code` now pin the OpenAI serving host, as `gpt-6-sol` does. These roles no longer fall back to Amazon Bedrock.
 
 ## [3.19.0] — 2026-09-22
 

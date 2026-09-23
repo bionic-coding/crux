@@ -6,12 +6,13 @@ validator, and the dev-repo smoke test. The catalog is hand-authored, validated,
 and NEVER regenerated, so this module only ever reads it.
 
 Resolution is ``agent -> level -> harness column``, with per-agent
-short-circuits on the OpenCode and Codex columns::
+short-circuits on each of the three columns::
 
     level(agent)    = agents[agent]                            if that value is a string
                     = agents[agent].level                      otherwise
 
-    claude(agent)   = levels[level(agent)].claude
+    claude(agent)   = agents[agent].claude                     if the agent row carries one
+                    = levels[level(agent)].claude              otherwise
     codex(agent)    = agents[agent].codex                      if the agent row carries one
                     = levels[level(agent)].codex               otherwise
     opencode(agent) = aliases[ agents[agent].opencode ]        if the agent row carries one
@@ -125,18 +126,18 @@ AGENTS_DIR = PLUGIN_ROOT / "agents"
 # Each of these is pinned by rule V0: the file cannot widen itself. Changing
 # one is a deliberate validator edit as well as a file edit.
 
-SCHEMA_VERSION = "3"
+SCHEMA_VERSION = "4"
 
 TOP_LEVEL_KEYS = frozenset(
     {"schema_version", "providers", "aliases", "agents", "levels", "claude_aliases"}
 )
 LEVEL_NAMES = ("apex", "flagship", "standard")
-CLAUDE_ALIASES = ["fable", "opus", "sonnet", "haiku", "inherit"]
+CLAUDE_ALIASES = ["fable", "opus", "sonnet", "haiku", "inherit", "claude-opus-5-5"]
 CODEX_KEYS = frozenset({"model", "reasoning_effort", "verified", "source"})
 REASONING_EFFORTS = frozenset({"low", "medium", "high", "xhigh"})
 
 AGENT_ROW_REQUIRED = frozenset({"level"})
-AGENT_ROW_OPTIONAL = frozenset({"opencode", "codex"})
+AGENT_ROW_OPTIONAL = frozenset({"opencode", "codex", "claude"})
 LEVEL_ROW_REQUIRED = frozenset({"claude", "codex"})
 LEVEL_ROW_OPTIONAL = frozenset({"opencode"})
 
@@ -171,11 +172,14 @@ class Level:
 
 @dataclass(frozen=True)
 class AgentRow:
-    """One roster row: a level with optional OpenCode and Codex overrides."""
+    """One roster row: a level with optional Claude Code, OpenCode and Codex
+    overrides. Each override replaces one column and leaves the other two
+    resolving from the level."""
 
     level: str
     opencode: str | None = None
     codex: CodexRuntime | None = None
+    claude: str | None = None
 
 
 @dataclass(frozen=True)
@@ -226,7 +230,8 @@ class ModelsCatalog:
         if model_id is None:  # pragma: no cover - V2a makes this unreachable post-load
             raise SpecViolation(f"{agent!r}: alias {alias!r} is not declared in `aliases`")
         codex = row.codex if row.codex is not None else level.codex
-        return Resolution(claude=level.claude, opencode=model_id, codex=codex)
+        claude = row.claude if row.claude is not None else level.claude
+        return Resolution(claude=claude, opencode=model_id, codex=codex)
 
     def opencode_alias(self, agent: str) -> str:
         """The alias NAME an agent resolves through (not its expansion).
@@ -328,12 +333,12 @@ def check_shape(raw: dict) -> list[str]:
             if unknown:
                 findings.append(
                     f"agents.{name!r}: unknown key(s) {unknown} — the override key set is "
-                    "{'opencode', 'codex'}; a `claude` key here would be silently ignored "
-                    "by the resolver"
+                    f"{sorted(AGENT_ROW_OPTIONAL)}; the resolver reads no other key, so this one "
+                    "is refused rather than ignored"
                 )
             if "level" not in keys:
                 findings.append(f"agents.{name!r}: missing required key 'level'")
-            for key in ("level", "opencode"):
+            for key in ("level", "opencode", "claude"):
                 if key in keys and not isinstance(value[key], str):
                     findings.append(f"agents.{name!r}.{key} must be a string")
             codex = value.get("codex")
@@ -503,6 +508,13 @@ def check_reference_graph(raw: dict) -> list[str]:
                     f"levels.{level_name}.codex: every agent at this level overrides it — "
                     "a default within a rung that nothing inherits"
                 )
+        if isinstance(level, dict) and "claude" in level:
+            inheritors = [n for n in users if rows[n] is not None and rows[n].claude is None]
+            if not inheritors:
+                findings.append(
+                    f"levels.{level_name}.claude: every agent at this level overrides it — "
+                    "a default within a rung that nothing inherits"
+                )
 
     # (c) Totality: opencode(agent) is defined for every agent.
     for name, row in sorted(rows.items(), key=lambda kv: repr(kv[0])):
@@ -523,6 +535,7 @@ def _coerce_row(value: Any) -> AgentRow | None:
         return AgentRow(level=value)
     if isinstance(value, dict) and isinstance(value.get("level"), str):
         opencode = value.get("opencode")
+        claude = value.get("claude")
         codex = value.get("codex")
         runtime = None
         if (
@@ -535,6 +548,7 @@ def _coerce_row(value: Any) -> AgentRow | None:
             level=value["level"],
             opencode=opencode if isinstance(opencode, str) else None,
             codex=runtime,
+            claude=claude if isinstance(claude, str) else None,
         )
     return None
 

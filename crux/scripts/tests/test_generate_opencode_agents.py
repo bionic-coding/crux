@@ -532,16 +532,16 @@ class CatalogResolutionTests(unittest.TestCase):
         still holds.
         """
         expected = {
-            "architect":      ("opus",   "kimi-latest",   "gpt-5.6-sol",   "high"),
-            "brainstormer":   ("opus",   "kimi-latest",   "gpt-5.6-sol",   "high"),
-            "commander":      ("fable",  "glm-latest",    "gpt-6-astra",   "high"),
-            "dev-lead":       ("opus",   "kimi-latest",   "gpt-5.6-sol",   "high"),
-            "developer":      ("sonnet", "deepseek-flash", "gpt-5.6-terra", "high"),
-            "historian":      ("sonnet", "glm-latest",    "gpt-5.6-terra", "high"),
-            "librarian":      ("sonnet", "glm-latest",    "gpt-5.6-terra", "high"),
-            "night-gardener": ("fable",  "kimi-latest",   "gpt-6-astra",   "high"),
-            "reviewer":       ("fable",   "kimi-latest",   "gpt-5.6-sol",   "xhigh"),
-            "wayfinder":      ("sonnet", "glm-latest",    "gpt-5.6-terra", "high"),
+            "architect":      ("opus",   "kimi-latest",   "gpt-6-sol",     "high"),
+            "brainstormer":   ("opus",   "kimi-latest",   "gpt-6-sol",     "high"),
+            "commander":      ("claude-opus-5-5", "glm-latest", "gpt-6-astra", "high"),
+            "dev-lead":       ("opus",   "kimi-latest",   "gpt-6-sol",     "high"),
+            "developer":      ("sonnet", "deepseek-flash", "gpt-6-sol",     "high"),
+            "historian":      ("sonnet", "glm-latest",    "gpt-6-sol",     "high"),
+            "librarian":      ("sonnet", "glm-latest",    "gpt-6-sol",     "high"),
+            "night-gardener": ("claude-opus-5-5", "kimi-latest", "gpt-6-astra", "high"),
+            "reviewer":       ("fable",   "kimi-latest",   "gpt-6-sol",     "xhigh"),
+            "wayfinder":      ("sonnet", "glm-latest",    "gpt-6-sol",     "high"),
         }
         self.assertEqual(set(expected), EXPECTED_AGENTS)
         for name, (claude, alias, codex_model, effort) in sorted(expected.items()):

@@ -76,7 +76,7 @@ class ShippedCatalogParityTests(unittest.TestCase):
 
     def test_models_yml_parses_the_same_on_both_paths(self):
         parsed = self._assert_parity(MODELS_YML)
-        self.assertEqual(parsed["schema_version"], "3")
+        self.assertEqual(parsed["schema_version"], "4")
 
     def test_bundles_yml_parses_the_same_on_both_paths(self):
         parsed = self._assert_parity(BUNDLES_YML)

@@ -117,7 +117,7 @@ class AsyncCouncilSeatRequestTests(unittest.TestCase):
             return asyncio.run(coro_factory())
 
     def test_text_seat_hits_the_gateway_and_forwards_effort(self):
-        ac = self._council(openai="gpt-5.6-sol-low")  # same SKU, pins effort: low
+        ac = self._council(openai="gpt-6-sol-low")  # same SKU, pins effort: low
         vote = self._run(
             lambda: ac._call_seat_async("openai", "Question?", "Be terse."),
             _content_body('{"decision": "APPROVE", "confidence": 0.9, '
@@ -127,7 +127,7 @@ class AsyncCouncilSeatRequestTests(unittest.TestCase):
         self.assertEqual(self.rec["url"], GATEWAY_URL)
         self.assertEqual(self.rec["headers"].get("Authorization"), "Bearer sk-or-test-dummy")
         payload = self.rec["payload"]
-        self.assertEqual(payload["model"], "openai/gpt-5.6-sol")   # verbatim id
+        self.assertEqual(payload["model"], "openai/gpt-6-sol")   # verbatim id
         self.assertEqual(payload["reasoning_effort"], "low")        # effort forwarded
         self.assertEqual(payload["response_format"], {"type": "json_object"})
         self.assertNotIn("temperature", payload)                    # reasoning model
@@ -139,7 +139,7 @@ class AsyncCouncilSeatRequestTests(unittest.TestCase):
         self.assertEqual(vote.decision, "APPROVE")
         self.assertEqual(vote.confidence, 0.9)
         self.assertEqual(vote.provider, "openai")
-        self.assertEqual(vote.model, "OpenAI/gpt-5.6-sol-low")
+        self.assertEqual(vote.model, "OpenAI/gpt-6-sol-low")
 
     def test_seat_pins_its_serving_provider(self):
         """The response-integrity control: each seat names the host it will
@@ -179,7 +179,7 @@ class AsyncCouncilSeatRequestTests(unittest.TestCase):
         self.assertEqual(vote.dissenting_points, ["no"])
 
     def test_client_timeout_comes_from_the_council_config(self):
-        ac = self._council(openai="gpt-5.6-sol")
+        ac = self._council(openai="gpt-6-sol")
         ac.config.timeout_seconds = 42.0
         self._run(
             lambda: ac._call_seat_async("openai", "Question?"),
@@ -189,7 +189,7 @@ class AsyncCouncilSeatRequestTests(unittest.TestCase):
         self.assertEqual(self.rec["client_kwargs"].get("timeout"), 42.0)
 
     def test_unparseable_body_degrades_to_an_errored_seat(self):
-        ac = self._council(openai="gpt-5.6-sol")
+        ac = self._council(openai="gpt-6-sol")
         vote = self._run(
             lambda: ac._call_seat_async("openai", "Question?"),
             _content_body("not json at all"),

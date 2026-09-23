@@ -15,6 +15,7 @@ Stdlib only. Run: uv run python3 -m unittest crux.scripts.tests.test_models_cata
 
 from __future__ import annotations
 
+import re
 import shutil
 import sys
 import tempfile
@@ -110,6 +111,43 @@ def _catalog_copy(tmp: Path, transform=None) -> Path:
     return path
 
 
+# The two agents the Claude Code override exception covers, and the model it
+# selects. Named once so a re-point of the override moves one line here.
+CLAUDE_OVERRIDES = {"commander": "claude-opus-5-5", "night-gardener": "claude-opus-5-5"}
+
+
+def _agent_row_re(agent: str) -> re.Pattern[str]:
+    """An agent row's head, anchored on STRUCTURE: its name and its `level:` line.
+
+    Never on a model value. The owner picks those, and a fixture that spells
+    one out goes inert the next time it changes. An optional `claude:` line
+    directly under `level:` is captured so a fixture can replace or drop it.
+    """
+    return re.compile(
+        rf"^(  {re.escape(agent)}:\n    level: \S+\n)(    claude: \S+\n)?", re.M
+    )
+
+
+def _set_agent_claude(text: str, agent: str, value: str | None) -> str:
+    """Set (or, with None, remove) one agent row's Claude Code override.
+
+    Refuses a fixture whose anchor no longer occurs: a silent zero-match
+    substitution would validate the pristine catalog and pass for nothing.
+    """
+    line = "" if value is None else f"    claude: {value}\n"
+    out, count = _agent_row_re(agent).subn(lambda m: m.group(1) + line, text)
+    if count != 1:
+        raise AssertionError(f"fixture inert: agent row {agent!r} not found as a mapping row")
+    return out
+
+
+def _strip_claude_overrides(text: str) -> str:
+    """The shipped catalog with every agent's Claude Code override removed."""
+    for agent in sorted(CLAUDE_OVERRIDES):
+        text = _set_agent_claude(text, agent, None)
+    return text
+
+
 class ShippedCatalogTests(unittest.TestCase):
     def test_shipped_catalog_passes_every_loader_rule(self):
         raw = MC.load_raw()
@@ -134,16 +172,16 @@ class ShippedCatalogTests(unittest.TestCase):
         touching this test — which is the whole reason the alias table exists.
         """
         expected = {
-            "architect":      ("opus",   "kimi-latest",   "gpt-5.6-sol",   "high"),
-            "brainstormer":   ("opus",   "kimi-latest",   "gpt-5.6-sol",   "high"),
-            "commander":      ("fable",  "glm-latest",    "gpt-6-astra",   "high"),
-            "dev-lead":       ("opus",   "kimi-latest",   "gpt-5.6-sol",   "high"),
-            "developer":      ("sonnet", "deepseek-flash", "gpt-5.6-terra", "high"),
-            "historian":      ("sonnet", "glm-latest",    "gpt-5.6-terra", "high"),
-            "librarian":      ("sonnet", "glm-latest",    "gpt-5.6-terra", "high"),
-            "night-gardener": ("fable",  "kimi-latest",   "gpt-6-astra",   "high"),
-            "reviewer":       ("fable",   "kimi-latest",   "gpt-5.6-sol",   "xhigh"),
-            "wayfinder":      ("sonnet", "glm-latest",    "gpt-5.6-terra", "high"),
+            "architect":      ("opus",   "kimi-latest",   "gpt-6-sol",     "high"),
+            "brainstormer":   ("opus",   "kimi-latest",   "gpt-6-sol",     "high"),
+            "commander":      ("claude-opus-5-5", "glm-latest", "gpt-6-astra", "high"),
+            "dev-lead":       ("opus",   "kimi-latest",   "gpt-6-sol",     "high"),
+            "developer":      ("sonnet", "deepseek-flash", "gpt-6-sol",     "high"),
+            "historian":      ("sonnet", "glm-latest",    "gpt-6-sol",     "high"),
+            "librarian":      ("sonnet", "glm-latest",    "gpt-6-sol",     "high"),
+            "night-gardener": ("claude-opus-5-5", "kimi-latest", "gpt-6-astra", "high"),
+            "reviewer":       ("fable",   "kimi-latest",   "gpt-6-sol",     "xhigh"),
+            "wayfinder":      ("sonnet", "glm-latest",    "gpt-6-sol",     "high"),
         }
         catalog = MC.load()
         self.assertEqual(set(expected), EXPECTED_AGENTS)
@@ -164,7 +202,12 @@ class ShippedCatalogTests(unittest.TestCase):
         self.assertEqual(apex.claude, "fable")
         self.assertEqual(flagship.claude, "opus")
         self.assertEqual(apex.codex.model, "gpt-6-astra")
-        self.assertEqual(flagship.codex.model, "gpt-5.6-sol")
+        self.assertEqual(flagship.codex.model, "gpt-6-sol")
+        # GPT-6 has no Terra, so standard selects Sol too; the two rungs stay
+        # distinct on their Claude and OpenCode cells (rule V8).
+        standard = catalog.levels["standard"]
+        self.assertEqual(standard.codex.model, "gpt-6-sol")
+        self.assertEqual(standard.codex.reasoning_effort, "high")
         self.assertEqual(apex.codex.reasoning_effort, "high")
         self.assertEqual(flagship.codex.reasoning_effort, "high")
         self.assertIsNone(apex.opencode)
@@ -176,10 +219,10 @@ class ShippedCatalogTests(unittest.TestCase):
         overrides = {name for name, row in catalog.agents.items() if row.codex is not None}
         self.assertEqual(overrides, {"reviewer"})
         expected = MC.CodexRuntime(
-            model="gpt-5.6-sol",
+            model="gpt-6-sol",
             reasoning_effort="xhigh",
-            verified="2026-09-11",
-            source="OpenAI GPT-5.6 Sol model documentation checked 2026-09-11",
+            verified="2026-09-22",
+            source="OpenAI GPT-6 Sol model documentation and Codex 0.155.1 models_cache.json checked 2026-09-22",
         )
         self.assertEqual(catalog.agents["reviewer"].codex, expected)
         self.assertEqual(catalog.resolve("reviewer").codex, expected)
@@ -188,6 +231,75 @@ class ShippedCatalogTests(unittest.TestCase):
         catalog = MC.load()
         self.assertIsNone(catalog.agents["commander"].codex)
         self.assertEqual(catalog.resolve("commander").codex, catalog.levels["apex"].codex)
+
+
+class ClaudeOverrideResolutionTests(unittest.TestCase):
+    """A per-agent `claude` key wins over the level's Claude cell, and moves nothing else."""
+
+    def test_the_overrides_are_exactly_the_authorized_agents(self):
+        catalog = MC.load()
+        overrides = {name: row.claude for name, row in catalog.agents.items() if row.claude is not None}
+        self.assertEqual(overrides, CLAUDE_OVERRIDES)
+
+    def test_an_override_wins_over_the_level_cell(self):
+        catalog = MC.load()
+        self.assertEqual(catalog.levels["apex"].claude, "fable")
+        for agent, value in sorted(CLAUDE_OVERRIDES.items()):
+            with self.subTest(agent=agent):
+                self.assertEqual(catalog.agents[agent].level, "apex")
+                self.assertEqual(catalog.resolve(agent).claude, value)
+
+    def test_an_agent_without_an_override_resolves_from_its_level(self):
+        # The reviewer shares the apex level with both overridden agents and
+        # carries no `claude` key, so it keeps the level cell.
+        catalog = MC.load()
+        self.assertIsNone(catalog.agents["reviewer"].claude)
+        self.assertEqual(catalog.resolve("reviewer").claude, "fable")
+        self.assertEqual(catalog.resolve("reviewer").claude, catalog.levels["apex"].claude)
+
+    def test_removing_an_override_returns_the_agent_to_its_level_cell(self):
+        # The same agent, with and without the key: the discriminating pair.
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            path = _catalog_copy(tmp, lambda t: _set_agent_claude(t, "commander", None))
+            catalog = MC.load(catalog_path=path, agents_dir=_agents_fixture(tmp))
+        self.assertIsNone(catalog.agents["commander"].claude)
+        self.assertEqual(catalog.resolve("commander").claude, "fable")
+        self.assertEqual(catalog.resolve("night-gardener").claude, "claude-opus-5-5")
+
+    def test_an_inherit_override_resolves_to_inherit(self):
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            path = _catalog_copy(tmp, lambda t: _set_agent_claude(t, "night-gardener", "inherit"))
+            catalog = MC.load(catalog_path=path, agents_dir=_agents_fixture(tmp))
+        self.assertEqual(catalog.resolve("night-gardener").claude, "inherit")
+
+    def test_overrides_move_only_the_claude_column_for_all_ten_roles(self):
+        """The Codex and OpenCode matrix, pinned against the override-free catalog.
+
+        Stripping every `claude` key reproduces the catalog as it stood before
+        the override existed. Every role's Codex runtime and OpenCode model must
+        match across the two, and only the overridden agents' Claude value may
+        differ. The literal lineup above pins the same cells by value.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            before = MC.load(
+                catalog_path=_catalog_copy(tmp, _strip_claude_overrides),
+                agents_dir=_agents_fixture(tmp),
+            )
+        after = MC.load()
+        self.assertEqual(set(after.agents), EXPECTED_AGENTS)
+        changed_claude = set()
+        for agent in sorted(EXPECTED_AGENTS):
+            with self.subTest(agent=agent):
+                old, new = before.resolve(agent), after.resolve(agent)
+                self.assertEqual(new.codex, old.codex)
+                self.assertEqual(new.opencode, old.opencode)
+                self.assertEqual(after.opencode_alias(agent), before.opencode_alias(agent))
+                if new.claude != old.claude:
+                    changed_claude.add(agent)
+        self.assertEqual(changed_claude, set(CLAUDE_OVERRIDES))
 
 
 class FailClosedTests(unittest.TestCase):
@@ -200,15 +312,46 @@ class FailClosedTests(unittest.TestCase):
                 MC.load(catalog_path=path, agents_dir=MC.AGENTS_DIR)
         self.assertIn("schema_version", str(ctx.exception))
 
-    def test_v2_schema_is_refused_without_migration_or_defaults(self):
+    def _refuse_version(self, version: str) -> str:
+        current = f'schema_version: "{MC.SCHEMA_VERSION}"'
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
+            text = MC.CATALOG_PATH.read_text(encoding="utf-8")
+            self.assertIn(current, text, "fixture inert: the version line moved")
             path = _catalog_copy(
-                tmp, lambda text: text.replace('schema_version: "3"', 'schema_version: "2"', 1)
+                tmp, lambda t: t.replace(current, f'schema_version: "{version}"', 1)
             )
             with self.assertRaises(MC.SpecViolation) as ctx:
                 MC.load(catalog_path=path, agents_dir=_agents_fixture(tmp))
-        self.assertIn("schema_version must be '3'", str(ctx.exception))
+        return str(ctx.exception)
+
+    def test_the_reader_is_at_schema_version_4(self):
+        self.assertEqual(MC.SCHEMA_VERSION, "4")
+
+    def test_v2_schema_is_refused_without_migration_or_defaults(self):
+        self.assertIn("schema_version must be '4'", self._refuse_version("2"))
+
+    def test_v3_schema_is_refused_without_migration(self):
+        # A version-3 reader refused anything but "3"; a version-4 reader
+        # refuses "3" in turn. The body is otherwise the shipped catalog, so
+        # the version is the only defect.
+        self.assertIn("schema_version must be '4', got '3'", self._refuse_version("3"))
+
+    def test_load_rejects_a_non_string_claude_override(self):
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            path = _catalog_copy(tmp, lambda t: _set_agent_claude(t, "commander", "5"))
+            with self.assertRaises(MC.SpecViolation) as ctx:
+                MC.load(catalog_path=path, agents_dir=_agents_fixture(tmp))
+        self.assertIn("agents.'commander'.claude must be a string", str(ctx.exception))
+
+    def test_load_rejects_a_level_claude_cell_every_agent_overrides(self):
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            path = _catalog_copy(tmp, lambda t: _set_agent_claude(t, "reviewer", "fable"))
+            with self.assertRaises(MC.SpecViolation) as ctx:
+                MC.load(catalog_path=path, agents_dir=_agents_fixture(tmp))
+        self.assertIn("levels.apex.claude: every agent at this level overrides it", str(ctx.exception))
 
     def test_load_rejects_a_non_mapping_reviewer_codex_override(self):
         with tempfile.TemporaryDirectory() as td:
@@ -217,11 +360,11 @@ class FailClosedTests(unittest.TestCase):
                 tmp,
                 lambda text: text.replace(
                     "    codex:\n"
-                    "      model: gpt-5.6-sol\n"
+                    "      model: gpt-6-sol\n"
                     "      reasoning_effort: xhigh\n"
-                    '      verified: "2026-09-11"\n'
-                    '      source: "OpenAI GPT-5.6 Sol model documentation checked 2026-09-11"',
-                    "    codex: gpt-5.6-sol",
+                    '      verified: "2026-09-22"\n'
+                    '      source: "OpenAI GPT-6 Sol model documentation and Codex 0.155.1 models_cache.json checked 2026-09-22"',
+                    "    codex: gpt-6-sol",
                     1,
                 ),
             )
@@ -305,16 +448,36 @@ class RuleFindingTests(unittest.TestCase):
             for f in MC.check_shape(raw)
         ))
 
-    def test_shape_rejects_an_agent_row_carrying_a_claude_key(self):
+    def test_shape_accepts_an_agent_row_carrying_a_string_claude_key(self):
         raw = MC.load_raw()
         raw["agents"]["architect"] = {"level": "flagship", "claude": "opus"}
-        # The row name is interpolated with `!r` — a whitespace-only or empty
-        # roster key is otherwise invisible in the finding.
-        self.assertTrue(any("agents.'architect'" in f for f in MC.check_shape(raw)))
+        self.assertEqual(MC.check_shape(raw), [])
+
+    def test_shape_rejects_a_non_string_claude_override(self):
+        for value in (5, ["opus"], {"model": "opus"}, None, True):
+            with self.subTest(value=value):
+                raw = MC.load_raw()
+                raw["agents"]["architect"] = {"level": "flagship", "claude": value}
+                # The row name is interpolated with `!r` — a whitespace-only or
+                # empty roster key is otherwise invisible in the finding.
+                self.assertIn(
+                    "agents.'architect'.claude must be a string", MC.check_shape(raw)
+                )
+
+    def test_shape_rejects_an_unknown_agent_row_key_and_names_the_override_set(self):
+        raw = MC.load_raw()
+        raw["agents"]["architect"] = {"level": "flagship", "claude_model": "opus"}
+        findings = MC.check_shape(raw)
+        self.assertTrue(any(
+            "agents.'architect': unknown key(s) ['claude_model']" in f
+            and "'claude', 'codex', 'opencode'" in f
+            for f in findings
+        ), findings)
+        self.assertFalse(any("silently ignored" in f for f in findings), findings)
 
     def test_shape_rejects_a_partial_agent_codex_override(self):
         raw = MC.load_raw()
-        raw["agents"]["reviewer"]["codex"] = {"model": "gpt-5.6-sol"}
+        raw["agents"]["reviewer"]["codex"] = {"model": "gpt-6-sol"}
         findings = MC.check_shape(raw)
         self.assertTrue(any(
             "agents.'reviewer'.codex key set must be exactly" in finding
@@ -324,10 +487,10 @@ class RuleFindingTests(unittest.TestCase):
     def test_shape_rejects_an_agent_codex_override_with_an_extra_field(self):
         raw = MC.load_raw()
         raw["agents"]["reviewer"]["codex"] = {
-            "model": "gpt-5.6-sol",
+            "model": "gpt-6-sol",
             "reasoning_effort": "xhigh",
-            "verified": "2026-09-11",
-            "source": "OpenAI GPT-5.6 Sol model documentation checked 2026-09-11",
+            "verified": "2026-09-22",
+            "source": "OpenAI GPT-6 Sol model documentation and Codex 0.155.1 models_cache.json checked 2026-09-22",
             "unexpected": "value",
         }
         findings = MC.check_shape(raw)
@@ -374,6 +537,25 @@ class RuleFindingTests(unittest.TestCase):
             "levels.standard.codex: every agent at this level overrides it" in finding
             for finding in findings
         ))
+
+    def test_reference_graph_rejects_an_uninherited_claude_level_default(self):
+        raw = MC.load_raw()
+        raw["agents"]["reviewer"]["claude"] = "fable"
+        findings = MC.check_reference_graph(raw)
+        self.assertIn(
+            "levels.apex.claude: every agent at this level overrides it — "
+            "a default within a rung that nothing inherits",
+            findings,
+        )
+
+    def test_reference_graph_accepts_a_claude_cell_one_agent_still_inherits(self):
+        # The positive control for the clause above: the shipped apex level has
+        # two overridden agents and one inheritor, and that is legal.
+        raw = MC.load_raw()
+        self.assertEqual(
+            [f for f in MC.check_reference_graph(raw) if ".claude" in f], []
+        )
+        self.assertNotIn("claude", raw["agents"]["reviewer"])
 
 
 class NonStringKeyTests(unittest.TestCase):

@@ -694,6 +694,34 @@ def _undeclare_developer_opencode(text: str) -> str:
     return _DEVELOPER_OPENCODE.sub(r"\1not-declared", text)
 
 
+def _set_agent_claude(text: str, agent: str, value: str | None) -> str:
+    """Set (or, with None, remove) one agent row's Claude Code override.
+
+    The same structural anchor as `_DEVELOPER_OPENCODE`: the agent name and its
+    `level:` line, never a model value, so the next re-point of an override
+    moves no fixture. A zero-match substitution raises rather than returning
+    the pristine catalog for a negative test to pass on.
+    """
+    pattern = re.compile(
+        rf"^(  {re.escape(agent)}:\n    level: \S+\n)(    claude: \S+\n)?", re.M
+    )
+    line = "" if value is None else f"    claude: {value}\n"
+    out, count = pattern.subn(lambda m: m.group(1) + line, text)
+    if count != 1:
+        raise AssertionError(f"fixture inert: agent row {agent!r} not found as a mapping row")
+    return out
+
+
+def _set_agent_model(plugin: Path, agent: str, value: str) -> None:
+    """Rewrite one agent file's `model:` line, whatever value it holds now."""
+    path = plugin / "agents" / f"{agent}.md"
+    text = path.read_text(encoding="utf-8")
+    out, count = re.subn(r"^model: \S+$", f"model: {value}", text, count=1, flags=re.M)
+    if count != 1:
+        raise AssertionError(f"fixture inert: agents/{agent}.md has no `model:` line")
+    path.write_text(out, encoding="utf-8")
+
+
 class ModelsCatalogPositiveTests(unittest.TestCase):
     def test_shipped_catalog_passes_every_rule(self):
         with tempfile.TemporaryDirectory() as td:
@@ -751,7 +779,7 @@ class ModelsCatalogNegativeTests(unittest.TestCase):
         "    claude: sonnet\n"
         "    opencode: haiku-latest\n"
         "    codex:\n"
-        "      model: gpt-5.6-terra\n"
+        "      model: gpt-6-sol\n"
         "      reasoning_effort: low\n"
         '      verified: "2026-08-21"\n'
         '      source: "fixture"\n'
@@ -776,10 +804,16 @@ class ModelsCatalogNegativeTests(unittest.TestCase):
         # V0 refuses, not a value edit inside a recognized table.
         self._assert_rule("V0", lambda t: t + "\nclaude_disabled:\n  - fable\n")
 
-    def test_v0_agent_row_carrying_a_claude_key(self):
+    def test_v0_agent_row_carrying_an_unknown_key(self):
         self._assert_rule("V0", lambda t: t.replace(
             "  architect: flagship",
-            "  architect:\n    level: flagship\n    claude: opus"))
+            "  architect:\n    level: flagship\n    claude_model: opus"))
+
+    def test_v0_non_string_claude_override(self):
+        self._assert_rule("V0", lambda t: _set_agent_claude(t, "commander", "42"))
+
+    def test_v0_version_3_catalog(self):
+        self._assert_rule("V0", lambda t: t.replace('schema_version: "4"', 'schema_version: "3"', 1))
 
     # ── V1 ─────────────────────────────────────────────────────────────────
     def test_v1_roster_stem_naming_no_agent_file(self):
@@ -808,6 +842,9 @@ class ModelsCatalogNegativeTests(unittest.TestCase):
     def test_v2b_level_no_agent_names(self):
         self._assert_rule("V2", self._drop_apex_agents)
 
+    def test_v2_claude_cell_every_agent_at_its_level_overrides(self):
+        self._assert_rule("V2", lambda t: _set_agent_claude(t, "reviewer", "fable"))
+
     def test_v2c_apex_agent_with_no_override(self):
         """An apex agent collapsed to a bare level, so it names no OpenCode override."""
         self._assert_rule("V2", lambda t: re.sub(
@@ -821,22 +858,52 @@ class ModelsCatalogNegativeTests(unittest.TestCase):
     def test_v3_invented_alias(self):
         self._assert_rule("V3", lambda t: t.replace("  standard:\n    claude: sonnet", "  standard:\n    claude: invented"))
 
+    def test_v3_override_outside_claude_aliases(self):
+        # `claude-opus-5.5` is the ROUTER's spelling of the model; the Claude
+        # Code enum holds `claude-opus-5-5`. The two spellings belong to two
+        # surfaces, and the override takes only the Claude Code one.
+        with tempfile.TemporaryDirectory() as td:
+            findings = _rules(_plugin_fixture(
+                Path(td), _set_agent_claude(SHIPPED_MODELS.read_text(encoding="utf-8"),
+                                            "commander", "claude-opus-5.5")))
+        v3 = [f["error"] for f in findings if f["field"] == "V3"]
+        self.assertEqual(
+            v3,
+            ["agents.commander.claude='claude-opus-5.5' is not a member of claude_aliases"],
+            findings,
+        )
+
     # ── V4 ─────────────────────────────────────────────────────────────────
+    # Every Codex cell carries the same verification date, so a bare-date
+    # anchor would mutate whichever cell comes first. These tests anchor on the
+    # apex cell's whole indented row, so each mutates one known cell.
+    APEX_VERIFIED = (
+        "      model: gpt-6-astra\n"
+        "      reasoning_effort: high\n"
+        '      verified: "2026-09-22"'
+    )
+
+    def _apex_verified(self, text: str, date: str) -> str:
+        self.assertIn(self.APEX_VERIFIED, text,
+                      "apex Codex cell fixture is inert: the anchored row is absent")
+        return text.replace(
+            self.APEX_VERIFIED,
+            self.APEX_VERIFIED.replace('"2026-09-22"', f'"{date}"'), 1)
+
     def test_v4_impossible_date(self):
         # Anchored on the INDENTED data row. An unanchored replace matched the
         # first occurrence in the file, which is now inside a header comment
         # that quotes the field — so the fixture silently stopped mutating any
         # data and the rule stopped being tested while the test stayed green.
-        self._assert_rule("V4", lambda t: t.replace(
-            '      verified: "2026-08-21"', '      verified: "2026-99-99"', 1))
+        self._assert_rule("V4", lambda t: self._apex_verified(t, "2026-99-99"))
 
     def test_v4_effort_outside_the_enum(self):
         self._assert_rule("V4", lambda t: t.replace("reasoning_effort: high", "reasoning_effort: extreme", 1))
 
     def test_v4_stale_verified_date_warns_without_failing(self):
         with tempfile.TemporaryDirectory() as td:
-            text = SHIPPED_MODELS.read_text(encoding="utf-8").replace(
-                '      verified: "2026-08-21"', '      verified: "2020-01-01"')
+            text = self._apex_verified(
+                SHIPPED_MODELS.read_text(encoding="utf-8"), "2020-01-01")
             findings = _rules(_plugin_fixture(Path(td), text))
         warnings = [f for f in findings if f.get("severity") == "warning"]
         errors = [f for f in findings if f.get("severity") != "warning"]
@@ -854,7 +921,7 @@ class ModelsCatalogNegativeTests(unittest.TestCase):
         self._assert_rule("V5", lambda t: t.replace(_OPUS_STABLE_ROW, "opus-stable: PENDING"))
 
     def test_v5_codex_model_absent_from_the_router_registry(self):
-        self._assert_rule("V5", lambda t: t.replace("model: gpt-5.6-terra", "model: gpt-5.6"))
+        self._assert_rule("V5", lambda t: t.replace("model: gpt-6-sol", "model: gpt-5.6"))
 
     # ── V6 ─────────────────────────────────────────────────────────────────
     def test_v6_frontmatter_disagrees_with_its_level(self):
@@ -864,6 +931,46 @@ class ModelsCatalogNegativeTests(unittest.TestCase):
             agent.write_text(agent.read_text(encoding="utf-8").replace("model: sonnet", "model: opus", 1), encoding="utf-8")
             findings = _rules(plugin)
         self.assertIn("V6", _fields(findings))
+
+    def test_v6_compares_an_overridden_agent_with_its_resolved_value(self):
+        # commander.md declaring its LEVEL's value is now the defect: the
+        # catalog resolves it to the override, not to `fable`.
+        with tempfile.TemporaryDirectory() as td:
+            plugin = _plugin_fixture(Path(td))
+            _set_agent_model(plugin, "commander", "fable")
+            findings = _rules(plugin)
+        v6 = [f["error"] for f in findings if f["field"] == "V6"]
+        self.assertEqual(
+            v6,
+            ["agents/commander.md declares model='fable' but its resolved Claude Code "
+             "value is 'claude-opus-5-5' (agents.commander.claude override)"],
+            findings,
+        )
+
+    def test_v6_resolves_an_agent_without_an_override_from_its_level(self):
+        with tempfile.TemporaryDirectory() as td:
+            plugin = _plugin_fixture(Path(td))
+            _set_agent_model(plugin, "reviewer", "claude-opus-5-5")
+            findings = _rules(plugin)
+        v6 = [f["error"] for f in findings if f["field"] == "V6"]
+        self.assertEqual(
+            v6,
+            ["agents/reviewer.md declares model='claude-opus-5-5' but its resolved Claude "
+             "Code value is 'fable' (level 'apex')"],
+            findings,
+        )
+
+    def test_v6_accepts_an_inherit_override_with_model_inherit(self):
+        # Positive and negative on one fixture pair: the override alone trips
+        # V6 (the file still says the old value), and the file edit clears it.
+        text = _set_agent_claude(SHIPPED_MODELS.read_text(encoding="utf-8"), "night-gardener", "inherit")
+        with tempfile.TemporaryDirectory() as td:
+            plugin = _plugin_fixture(Path(td), text)
+            before = _rules(plugin)
+            _set_agent_model(plugin, "night-gardener", "inherit")
+            after = _rules(plugin)
+        self.assertIn("V6", _fields(before), before)
+        self.assertEqual([f for f in after if f.get("severity") != "warning"], [], after)
 
     # ── V7 ─────────────────────────────────────────────────────────────────
     def test_v7_alias_name_containing_a_slash(self):
@@ -881,8 +988,8 @@ class ModelsCatalogNegativeTests(unittest.TestCase):
             before, rest = t.split("  apex:\n", 1)
             _, flagship = rest.split("  flagship:\n", 1)
             body, _ = flagship.split("  standard:\n", 1)
-            duplicate = body.replace('verified: "2026-08-21"',
-                                     'verified: "2026-08-20"')
+            duplicate = body.replace('verified: "2026-09-22"',
+                                     'verified: "2026-09-21"')
             return before + "  apex:\n" + duplicate + "  flagship:\n" + flagship
         self._assert_rule("V8", transform)
 
@@ -910,6 +1017,9 @@ class ModelsCatalogNegativeTests(unittest.TestCase):
         self._assert_rule("V9", lambda t: t.replace(
             "  architect: flagship", "  architect:\n    level: anthropic/x"))
 
+    def test_v9_raw_model_id_in_agents_claude(self):
+        self._assert_rule("V9", lambda t: _set_agent_claude(t, "commander", "anthropic/claude-opus-5.5"))
+
     def test_v9_raw_model_id_in_agents_opencode(self):
         self._assert_rule("V9", lambda t: t.replace(
             "    opencode: kimi-latest", "    opencode: anthropic/claude-opus-4-8", 1))
@@ -923,6 +1033,7 @@ class ModelsCatalogNegativeTests(unittest.TestCase):
                 "agents.<name>",
                 "agents.<name>.level",
                 "agents.<name>.opencode",
+                "agents.<name>.claude",
                 "levels.<level>.claude",
                 "levels.<level>.opencode",
             ],
@@ -937,10 +1048,10 @@ class AgentCodexOverrideValidationTests(unittest.TestCase):
         "    level: apex\n"
         "    opencode: kimi-latest\n"
         "    codex:\n"
-        "      model: gpt-5.6-sol\n"
+        "      model: gpt-6-sol\n"
         "      reasoning_effort: xhigh\n"
-        '      verified: "2026-09-11"\n'
-        '      source: "OpenAI GPT-5.6 Sol model documentation checked 2026-09-11"'
+        '      verified: "2026-09-22"\n'
+        '      source: "OpenAI GPT-6 Sol model documentation and Codex 0.155.1 models_cache.json checked 2026-09-22"'
     )
 
     def _findings(self, transform) -> list[dict]:
@@ -976,7 +1087,7 @@ class AgentCodexOverrideValidationTests(unittest.TestCase):
             lambda t: self._replace_override(
                 t,
                 self.REVIEWER_CODEX.replace(
-                    'source: "OpenAI GPT-5.6 Sol model documentation checked 2026-09-11"',
+                    'source: "OpenAI GPT-6 Sol model documentation and Codex 0.155.1 models_cache.json checked 2026-09-22"',
                     'source: ""',
                 ),
             )
@@ -986,7 +1097,7 @@ class AgentCodexOverrideValidationTests(unittest.TestCase):
     def test_v4_rejects_agent_override_impossible_verified_date(self):
         findings = self._findings(
             lambda t: self._replace_override(
-                t, self.REVIEWER_CODEX.replace('verified: "2026-09-11"', 'verified: "2026-99-99"')
+                t, self.REVIEWER_CODEX.replace('verified: "2026-09-22"', 'verified: "2026-99-99"')
             )
         )
         self.assertIn("V4", _fields(findings), findings)
@@ -994,7 +1105,7 @@ class AgentCodexOverrideValidationTests(unittest.TestCase):
     def test_v4_rejects_agent_override_future_verified_date(self):
         findings = self._findings(
             lambda t: self._replace_override(
-                t, self.REVIEWER_CODEX.replace('verified: "2026-09-11"', 'verified: "2999-01-01"')
+                t, self.REVIEWER_CODEX.replace('verified: "2026-09-22"', 'verified: "2999-01-01"')
             )
         )
         self.assertIn("V4", _fields(findings), findings)
@@ -1002,7 +1113,7 @@ class AgentCodexOverrideValidationTests(unittest.TestCase):
     def test_v4_warns_for_agent_override_stale_verified_date(self):
         findings = self._findings(
             lambda t: self._replace_override(
-                t, self.REVIEWER_CODEX.replace('verified: "2026-09-11"', 'verified: "2020-01-01"')
+                t, self.REVIEWER_CODEX.replace('verified: "2026-09-22"', 'verified: "2020-01-01"')
             )
         )
         warnings = [f for f in findings if f.get("severity") == "warning"]
@@ -1013,7 +1124,7 @@ class AgentCodexOverrideValidationTests(unittest.TestCase):
     def test_v5_rejects_agent_override_model_absent_from_router_registry(self):
         findings = self._findings(
             lambda t: self._replace_override(
-                t, self.REVIEWER_CODEX.replace("model: gpt-5.6-sol", "model: gpt-5.6")
+                t, self.REVIEWER_CODEX.replace("model: gpt-6-sol", "model: gpt-5.6")
             )
         )
         self.assertIn("V5", _fields(findings), findings)

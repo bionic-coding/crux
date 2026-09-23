@@ -1278,7 +1278,7 @@ VERIFIED_STALE_DAYS = 180
 # Rule V9 inspects exactly these positions — the ones that SELECT a model.
 # `codex.model` holds a Codex slug by design, `codex.source` holds a path, and
 # comments are not inspected.
-_CONFINED_POSITIONS = "agents.<name>, agents.<name>.level, agents.<name>.opencode, levels.<level>.claude, levels.<level>.opencode"
+_CONFINED_POSITIONS = "agents.<name>, agents.<name>.level, agents.<name>.opencode, agents.<name>.claude, levels.<level>.claude, levels.<level>.opencode"
 
 
 def _is_confined_roster_key(name: Any) -> bool:
@@ -1360,7 +1360,7 @@ def _confinement_findings(agents: Any, levels: Any) -> list[dict]:
                 continue
             if not isinstance(row, dict):
                 continue  # V0 owns the shape verdict.
-            for key in ("level", "opencode"):
+            for key in ("level", "opencode", "claude"):
                 value = row.get(key)
                 if isinstance(value, str) and "/" in value:
                     findings.append(
@@ -1483,11 +1483,21 @@ def validate_models_yml(models_path: Path, plugin_dir: Path) -> list[dict]:
     # The `claude_disabled` deny-list table was removed from the shipped
     # catalog, so this rule is membership-only again. Reintroducing the table
     # is a V0 defect (unknown top-level key), never a V3 value edit.
+    # An agent's `claude` override is a Claude cell like a level's, and passes
+    # the same membership test.
     for name, row in sorted(levels.items()):
         value = row["claude"]
         if value not in claude_aliases:
             findings.append(
                 _finding("V3", f"levels.{name}.claude={value!r} is not a member of claude_aliases")
+            )
+    for name, row in sorted(agents.items()):
+        if isinstance(row, dict) and "claude" in row and row["claude"] not in claude_aliases:
+            findings.append(
+                _finding(
+                    "V3",
+                    f"agents.{name}.claude={row['claude']!r} is not a member of claude_aliases",
+                )
             )
 
     # ── V4 Codex value legality ────────────────────────────────────────────
@@ -1564,8 +1574,10 @@ def validate_models_yml(models_path: Path, plugin_dir: Path) -> list[dict]:
         if not ALIAS_SLUG_RE.match(slug):
             findings.append(_finding("V5", f"aliases.{alias}: slug {slug!r} is malformed"))
 
-    # ── V6 frontmatter/level agreement ─────────────────────────────────────
+    # ── V6 frontmatter/resolution agreement ────────────────────────────────
     # The only rule that reads a file named by the catalog. See THE GATE above.
+    # The comparison is against the RESOLVED Claude Code value: the agent's own
+    # `claude` override when the row carries one, and its level's cell otherwise.
     for agent_name in sorted(agents) if roster_and_graph_clean else ():
         row = agents[agent_name]
         level_name = row if isinstance(row, str) else row.get("level")
@@ -1595,12 +1607,16 @@ def validate_models_yml(models_path: Path, plugin_dir: Path) -> list[dict]:
             findings.append(_finding("V6", f"{agent_name}: cannot read agent frontmatter ({err})"))
             continue
         declared = fm.get("model")
-        if declared != level["claude"]:
+        if isinstance(row, dict) and "claude" in row:
+            resolved, basis = row["claude"], f"agents.{agent_name}.claude override"
+        else:
+            resolved, basis = level["claude"], f"level {level_name!r}"
+        if declared != resolved:
             findings.append(
                 _finding(
                     "V6",
-                    f"agents/{agent_name}.md declares model={declared!r} but its level "
-                    f"{level_name!r} resolves claude={level['claude']!r}",
+                    f"agents/{agent_name}.md declares model={declared!r} but its resolved "
+                    f"Claude Code value is {resolved!r} ({basis})",
                 )
             )
 

@@ -60,6 +60,10 @@
       "domain": "skill-trigger-declaration",
       "rule": "A description is prose for a human reader and for model-driven selection, and is not a trigger list. It states what the skill does and what distinguishes it from its neighbours, and its length is bounded by what a discovery surface renders without truncating. Restoring triggers by lengthening a description past that bound is forbidden."
     },
+    "developer-reports-gaps-outside-its-unit": {
+      "domain": "capability-forging",
+      "rule": "A developer reports a capability gap to its lead instead of invoking forge-skill, unless the unit it was assigned is to build that capability."
+    },
     "discovery-is-tracked-files-of-one-checkout": {
       "domain": "repository-instructions",
       "rule": "Instruction discovery enumerates the tracked files of the checkout it is given and mutates nothing outside that set."
@@ -91,6 +95,10 @@
     "friction-signal-counts-friction-lines": {
       "domain": "decision-review",
       "rule": "Every machine reader of journal friction counts lines beginning `Friction:` over the entries dated at or after the tree's recorded friction-line adoption date, skips a line whose remainder is empty, counts no `### ` heading, and names that date in its basis; where the tree records no adoption date, or the window asked about lies wholly before it, the reader reports unmeasurable rather than a count, and where the window merely starts before it the basis says the window was truncated."
+    },
+    "full-suite-at-integration-and-exit": {
+      "domain": "agent-embedded-disciplines",
+      "rule": "The dev-lead runs the full suite after integration before handing the work to review; at the exit gate before offering merge, a green full-suite result that is still valid, with no file in the tree added, removed or edited since that run, satisfies the gate, and the dev-lead re-runs the full suite only when a file has changed."
     },
     "gate-count-reads-the-roster-header-row": {
       "domain": "decision-review",
@@ -128,6 +136,10 @@
       "domain": "decision-review",
       "rule": "Every mined value the review renders into the report, the adr-review log op or the journal entry passes the repo's bound-and-redact rendering, and every mined quote the report carries is fenced with treat-as-data framing at write time."
     },
+    "missing-failure-is-obtained-not-deleted": {
+      "domain": "agent-embedded-disciplines",
+      "rule": "A test offered as evidence of a behaviour change that has no observed failure is completed by obtaining one against the code with the change absent or disabled, then a pass against the restored change; a missing observation is never a reason to delete the work, the test's Evidence item is unobserved until both observations exist, and a failure for the addressed reason against the restored change is contradicted."
+    },
     "objectives-context-travels-with-every-delegation": {
       "domain": "objectives-alignment",
       "rule": "Every delegation, including a forked skill invocation, carries the resolved objectives path and either the mission with the relevant goal statements and measures, or an explicit instruction to read the file before work. It includes known tensions and requires recipients to preserve this context in further delegation. Session history and a role's installed prompt are not assumed to supply it."
@@ -147,6 +159,10 @@
     "observation-backed-publication-is-denied-for-now": {
       "domain": "rule-citation",
       "rule": "A rule sourced from an observation record is refused at the publication boundary, as an interim denial this decision adopts rather than as a policy it settles. The denial is this decision's own choice, made because an observation describes what the code does and decides nothing, so its ratification affirms the description and is not by itself a warrant to publish it as a rule the plugin follows; what the eventual policy should be stays open for an owner to decide, and a successor may reverse this denial without disturbing anything else here. The denial changes no observation's disposition, authority or lifecycle, removes no observation from any projection's input, and leaves every citation of an observation-backed rule on a reader-owned surface resolving exactly as before."
+    },
+    "observed-failure-is-the-proof": {
+      "domain": "agent-embedded-disciplines",
+      "rule": "A test counts as evidence that a change alters behaviour only after it has been observed failing, for the reason the change addresses, against the code without that change; writing the test first remains the default way to observe that failure."
     },
     "one-canonical-agents-file": {
       "domain": "repository-instructions",
@@ -175,6 +191,14 @@
     "parity-counts-match-on-both-sides": {
       "domain": "template-parity",
       "rule": "A template-parity clause matches every top-level alternation of its pattern the same number of times in the canonical section and in the twin section. A count that differs between the sides is a finding of that clause, and the finding names the alternation, both counts, and the side that holds fewer. Equal counts of zero are not a pass: an alternation matching neither section names text the manifest guards and neither file carries, and it is stale at the lower severity. This subsumes the weaker question of whether an alternation resolves at all, and it sits beside the value comparison the clause already performs, which alone catches a value reworded behind an open-ended pattern tail."
+    },
+    "per-unit-gate-runs-reachable-tests": {
+      "domain": "agent-embedded-disciplines",
+      "rule": "Before the dev-lead marks a work unit done, it runs the tests that bear on the unit and every test the change could reach, and runs the full suite where it cannot bound that set; a unit is not done on red or when those tests cannot run."
+    },
+    "reassessment-routes-by-its-finding": {
+      "domain": "agent-embedded-disciplines",
+      "rule": "A reassessment that names a hypothesis or environment fault inside the agent's own scope lets it correct that fault and continue; one that implicates the architecture, names no fault, or follows a second run of three failed fixes on the same problem hands the problem to the party that assigned the work, as a report inside the run rather than a stop."
     },
     "regenerator-declares-its-scope": {
       "domain": "regenerator-scope",
@@ -239,6 +263,10 @@
     "span-and-prep-are-different-counts": {
       "domain": "decision-review",
       "rule": "The signal set carries three delivery signals — release_cadence, schema_growth and gate_count — and this rule governs release_cadence. It reads the release record from the changelog's dated version headings, and names in its filter the rejected markers with their measured coverage. GIT-DEPENDENCE IS PER MEMBER, not per signal: the changelog alone supplies `releases` and the interval members `intervals_days`, `mean_interval_days` and `median_interval_days`, which compute with no git leg at all; the two per-release members below rest on the mark predicate, which is a first-parent commit test, so they and only they require git. Where the contained git session cannot be established those two members are null and the changelog-only members still compute, and the signal's verdict stays computed, because an absent git session is an absent input for two members rather than for the signal. The release-cadence signal reports two per-release members over the half-open interval that EXCLUDES the previous release's mark and INCLUDES this release's own mark, so consecutive intervals partition the history without overlap and both members read the same interval, and names each for what it counts. `span_commits` counts first-parent commits in that interval; it establishes that those commits lie between two release boundaries and establishes nothing about whether any of them was preparation, concerned that version, or was work that version required. `prep_commits` counts the commits in that same interval whose subject matches the declared preparation prefix; it counts DECLARATIONS and never the span. Zero and null are different values with different meanings on both members: zero means the interval is bounded and the count inside it is zero, and on `prep_commits` that establishes that nobody declared preparation rather than that the release had none; null means the interval is not bounded, and a null is never rendered as a zero. `prep_commits` is keyed by the version string and stays injective because the changelog carries at most one dated heading for a version at any commit, which a heading removed and later restored does not violate; it is never re-keyed on the publication event, because the repository holds no evidence of either event and an event-keyed map would be fabricated."
+    },
+    "three-failed-fixes-stop-and-reassess": {
+      "domain": "agent-embedded-disciplines",
+      "rule": "After three failed fixes to one problem, the agent stops fixing and reassesses its hypothesis, its environment and the architecture, recording the evidence for each, before any further fix; no one of the three is presumed to be the cause."
     },
     "triggers-are-declared-in-frontmatter": {
       "domain": "skill-trigger-declaration",

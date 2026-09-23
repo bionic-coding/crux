@@ -44,6 +44,19 @@ CANONICAL_ESCAPE = (
     "report the gap to your lead instead of working around it."
 )
 
+# The developer-only tail (ADR-0128 Decision 4). It governs where a developer
+# sends a capability gap, and must live in developer.md alone: the precedence
+# sentence, the routing sentence, and the forge-skill exception, each exactly
+# once there and nowhere else.
+DEVELOPER_TAIL = [
+    "This tail governs where a gap goes; the block above still names the trigger.",
+    "A capability gap outside your assigned unit goes to your lead: report it "
+    "`BLOCKED` if it stops the unit, otherwise name it in your report and leave "
+    "the status unchanged.",
+    "Invoke `forge-skill` only when the unit you were assigned is to build that "
+    "capability.",
+]
+
 # Heading for the §10.B section in docs/AGENTS.md and the tmpl.
 SECTION_HEADING = "## 10.B"
 
@@ -138,6 +151,41 @@ class AgentReflexBlockTests(unittest.TestCase):
                     f"once, found {count} time(s).\n"
                     f"Canonical escape: {CANONICAL_ESCAPE!r}",
                 )
+
+
+class DeveloperTailTests(unittest.TestCase):
+    """The developer tail lives exactly once in developer.md and in no other
+    agent file or instruction surface. Matching collapses whitespace so a
+    re-wrapped tail still counts."""
+
+    @staticmethod
+    def _norm(text: str) -> str:
+        return " ".join(text.replace("**", "").split())
+
+    def _count_norm(self, text: str, needle: str) -> int:
+        return self._norm(text).count(self._norm(needle))
+
+    def test_tail_present_exactly_once_in_developer(self):
+        text = _read(AGENTS_DIR / "developer.md")
+        for sentence in DEVELOPER_TAIL:
+            with self.subTest(sentence=sentence):
+                self.assertEqual(self._count_norm(text, sentence), 1)
+
+    def test_tail_absent_from_every_other_surface(self):
+        others = [(AGENTS_DIR / f, f) for f in AGENT_FILES if f != "developer.md"]
+        others.append((TMPL_CLAUDE_MD, "crux/templates/AGENTS.md.tmpl"))
+        if DOCS_CLAUDE_MD.exists():
+            others.append((DOCS_CLAUDE_MD, f"{TREE}/AGENTS.md"))
+        for path, label in others:
+            text = _read(path)
+            for sentence in DEVELOPER_TAIL:
+                with self.subTest(surface=label, sentence=sentence):
+                    self.assertEqual(self._count_norm(text, sentence), 0)
+
+    def test_absence_detector_control(self):
+        """Positive control: the detector finds a re-wrapped tail sentence."""
+        sample = "  " + DEVELOPER_TAIL[1].replace(" report it ", "\n  report it ")
+        self.assertEqual(self._count_norm(sample, DEVELOPER_TAIL[1]), 1)
 
 
 _DOC_SURFACES = [

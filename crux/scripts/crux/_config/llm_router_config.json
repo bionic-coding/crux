@@ -1,6 +1,6 @@
 {
   "version": "2.1.0",
-  "updated": "2026-09-04",
+  "updated": "2026-09-22",
   "providers": {
     "openrouter": {
       "base_url": "https://openrouter.ai/api/v1",
@@ -16,7 +16,7 @@
         "openai"
       ],
       "display_name": "GPT-6 Astra",
-      "_note": "OpenRouter model and endpoint catalogs verified 2026-09-04: https://openrouter.ai/api/v1/models/openai/gpt-6-astra/endpoints. Replaces Sol in the async text and visual council OpenAI seat through openai_top. No effort pin: the gateway default is medium. The separate Codex apex tier pins high effort.",
+      "_note": "OpenRouter model and endpoint catalogs re-verified 2026-09-22: https://openrouter.ai/api/v1/models/openai/gpt-6-astra/endpoints; canonical slug openai/gpt-6-astra-20260903. Reasoning is mandatory, with efforts max, xhigh, high, medium and low, and the default is medium. Holds the openai_top seat for the async text and visual councils. No effort pin: the gateway default is medium. The separate Codex apex tier pins high effort.",
       "supports_temperature": false,
       "type": "text",
       "tier": "frontier_max",
@@ -27,21 +27,21 @@
         "output_per_1m": 50.0,
         "cached_input_per_1m": 1.0
       },
-      "_pricing_note": "Above 272000 input tokens, input is $20, output is $75, and cached input is $2 per 1M tokens. Verified 2026-09-04 against the OpenRouter model catalog.",
+      "_pricing_note": "Cache write is $12.50 per 1M tokens. Above 272000 input tokens, input is $20, output is $75, cached input is $2 and cache write is $25 per 1M tokens. Verified 2026-09-22 against the OpenRouter model catalog.",
       "judge_eligible": true,
       "judge_tier": 0,
       "can_judge": [
         "*"
       ]
     },
-    "gpt-5.6-sol": {
+    "gpt-6-sol": {
       "provider": "openrouter",
-      "api_string": "openai/gpt-5.6-sol",
+      "api_string": "openai/gpt-6-sol",
       "serving_providers": [
         "openai"
       ],
-      "display_name": "GPT-5.6 Sol",
-      "_note": "Alias `gpt-5.6` resolves to Sol. Frontier flagship for complex reasoning + coding; replaces gpt-5.2-pro AND o3. Reached over OpenRouter chat-completions (PB-0077); the /v1/responses path is retired. Reasoning effort is request-controlled (none/low/medium/high/xhigh/max) and rides the gateway's top-level reasoning_effort field; this entry pins no effort, so the model's own default applies — gpt-5.6-sol-low is the pinned-LOW alias. Rejects non-default temperature. Tools: functions, web_search, file_search, computer_use. Knowledge cutoff 2026-02-16. Pricing VERIFIED against the OpenRouter catalog 2026-08-26: $2 per 1M input / $10 per 1M output (correcting the earlier unverified $5/$30); cached-input pricing omitted pending verification.",
+      "display_name": "GPT-6 Sol",
+      "_note": "Replaces gpt-5.6-sol and gpt-5.6-terra: GPT-6 has no Terra, so every former Terra role resolves here. Endpoints verified 2026-09-22 against the OpenRouter catalog: OpenAI and Amazon Bedrock; canonical slug openai/gpt-6-sol-20260922. The serving_providers pin keeps every request on the OpenAI host. Reasoning is optional, with efforts none, low, medium, high, xhigh and max, and the default is medium. This entry pins no effort; gpt-6-sol-low is the pinned-LOW alias. Rejects temperature. Chat Completions allows function calling only at reasoning_effort none, and the gateway sends no tools. Knowledge cutoff 2026-04-20. The capability scores are estimates copied from gpt-5.6-sol.",
       "supports_temperature": false,
       "type": "text",
       "tier": "frontier_max",
@@ -62,8 +62,10 @@
       "max_output_tokens": 128000,
       "cost": {
         "input_per_1m": 2.0,
-        "output_per_1m": 10.0
+        "output_per_1m": 10.0,
+        "cached_input_per_1m": 0.2
       },
+      "_pricing_note": "Cache write is $2.50 per 1M tokens. Above 272000 input tokens, input is $4, output is $15, cached input is $0.40 and cache write is $5 per 1M tokens. Verified 2026-09-22 against the OpenRouter model catalog.",
       "latency_profile": "slow",
       "judge_eligible": true,
       "judge_tier": 0,
@@ -85,11 +87,11 @@
         ]
       }
     },
-    "gpt-5.6-sol-low": {
+    "gpt-6-sol-low": {
       "provider": "openrouter",
-      "api_string": "openai/gpt-5.6-sol",
-      "display_name": "GPT-5.6 Sol (low effort)",
-      "_note": "Same SKU as gpt-5.6-sol, pinned to LOW reasoning effort, for a fast lane where a flagship judgment at reduced latency and cost beats a full-effort deliberation. Mirrors the claude-fable-5.1 / claude-fable-5.1-medium effort-alias pattern. No model_roles entry resolves here today — the fast_council role this note once named does not exist — so the pin is reachable only by naming this key directly. The caller emits the pin as the top-level reasoning_effort field on OpenRouter chat-completions (PB-0077), so the LOW pin is live. Rejects non-default temperature. Pricing VERIFIED against the OpenRouter catalog 2026-08-26: $2 per 1M input / $10 per 1M output (correcting the earlier unverified $5/$30); cached-input pricing omitted pending verification.",
+      "api_string": "openai/gpt-6-sol",
+      "display_name": "GPT-6 Sol (low effort)",
+      "_note": "Same SKU as gpt-6-sol, pinned to LOW reasoning effort. No model_roles entry resolves here: the entry exists by owner instruction and is reachable only by naming this key. The gateway emits the pin as the top-level reasoning_effort field. Rejects temperature. Verified 2026-09-22 against the OpenRouter model catalog.",
       "effort": "low",
       "supports_temperature": false,
       "type": "text",
@@ -111,8 +113,10 @@
       "max_output_tokens": 128000,
       "cost": {
         "input_per_1m": 2.0,
-        "output_per_1m": 10.0
+        "output_per_1m": 10.0,
+        "cached_input_per_1m": 0.2
       },
+      "_pricing_note": "Cache write is $2.50 per 1M tokens. Above 272000 input tokens, input is $4, output is $15, cached input is $0.40 and cache write is $5 per 1M tokens. Verified 2026-09-22 against the OpenRouter model catalog.",
       "latency_profile": "medium",
       "judge_eligible": true,
       "judge_tier": 0,
@@ -129,60 +133,11 @@
         ]
       }
     },
-    "gpt-5.6-terra": {
+    "gpt-6-luna": {
       "provider": "openrouter",
-      "api_string": "openai/gpt-5.6-terra",
-      "display_name": "GPT-5.6 Terra",
-      "_note": "Balances intelligence and cost; replaces the retired 5.5-generation mid-tier model, gpt-5.2, gpt-5.2-chat-latest. Reached over OpenRouter chat-completions (PB-0077); the /v1/responses path is retired. Rejects non-default temperature. Effort request-controlled; the caller emits it as the top-level reasoning_effort field, and this entry pins no effort. Tools: functions, web_search, file_search, computer_use. Knowledge cutoff 2026-02-16. Pricing UNVERIFIED — no authoritative local source; cached-input pricing omitted pending verification.",
-      "supports_temperature": false,
-      "type": "text",
-      "tier": "frontier",
-      "capabilities": {
-        "reasoning": 0.93,
-        "coding": 0.95,
-        "creative": 0.9,
-        "math": 0.92,
-        "vision": true,
-        "function_calling": true,
-        "structured_output": true,
-        "extended_thinking": true,
-        "agentic": true,
-        "computer_use": true,
-        "web_search": true
-      },
-      "context_window": 1050000,
-      "max_output_tokens": 128000,
-      "cost": {
-        "input_per_1m": 2.5,
-        "output_per_1m": 15.0
-      },
-      "latency_profile": "fast",
-      "judge_eligible": true,
-      "judge_tier": 1,
-      "can_judge": [
-        "tier_2",
-        "tier_3",
-        "tier_4",
-        "worker"
-      ],
-      "routing_hints": {
-        "use_for": [
-          "balanced_tasks",
-          "coding",
-          "agentic_workflows",
-          "general_purpose",
-          "standard_judge"
-        ],
-        "avoid_for": [
-          "extreme_reasoning"
-        ]
-      }
-    },
-    "gpt-5.6-luna": {
-      "provider": "openrouter",
-      "api_string": "openai/gpt-5.6-luna",
-      "display_name": "GPT-5.6 Luna",
-      "_note": "Cost-sensitive / high-volume. Replaces o4-mini. Reached over OpenRouter chat-completions (PB-0077); the /v1/responses path is retired. Rejects non-default temperature. Effort request-controlled; the caller emits it as the top-level reasoning_effort field, and this entry pins no effort. Tools: functions, web_search, file_search, computer_use. Knowledge cutoff 2026-02-16. Pricing UNVERIFIED — no authoritative local source; cached-input pricing omitted pending verification.",
+      "api_string": "openai/gpt-6-luna",
+      "display_name": "GPT-6 Luna",
+      "_note": "Replaces gpt-5.6-luna. Canonical slug openai/gpt-6-luna-20260922; served by OpenAI and Amazon Bedrock, verified 2026-09-22 against the OpenRouter catalog. Reasoning efforts match gpt-6-sol, the default is medium, and this entry pins none. Rejects temperature. Chat Completions allows function calling only at reasoning_effort none, and the gateway sends no tools. Knowledge cutoff 2026-05-18. No model_roles entry resolves here: the entry exists by owner instruction. The capability scores are estimates copied from gpt-5.6-luna.",
       "supports_temperature": false,
       "type": "text",
       "tier": "fast",
@@ -202,9 +157,11 @@
       "context_window": 1050000,
       "max_output_tokens": 128000,
       "cost": {
-        "input_per_1m": 1.0,
-        "output_per_1m": 6.0
+        "input_per_1m": 0.1,
+        "output_per_1m": 0.5,
+        "cached_input_per_1m": 0.01
       },
+      "_pricing_note": "Cache write is $0.125 per 1M tokens. Above 272000 input tokens, input is $0.20, output is $0.75, cached input is $0.02 and cache write is $0.25 per 1M tokens. Verified 2026-09-22 against the OpenRouter model catalog.",
       "latency_profile": "very_fast",
       "judge_eligible": true,
       "judge_tier": 3,
@@ -225,11 +182,12 @@
         ]
       }
     },
-    "gpt-image-2": {
+    "gpt-image-2.5-sunburst": {
       "provider": "openrouter",
-      "api_string": "openai/gpt-5.4-image-2",
-      "display_name": "GPT Image 2",
-      "_note": "Re-pointed at the fused OpenRouter SKU openai/gpt-5.4-image-2 — GPT-5.4 with GPT Image 2 generation fused into one chat-completions model; OpenRouter serves no standalone gpt-image-2 slug (PB-0077, verified against openrouter.ai/api/v1/models 2026-08-26). Snapshot lineage: gpt-image-2-2026-04-21, replacing gpt-image-1 (GPT Image 1.5).",
+      "api_string": "openai/gpt-image-2.5-sunburst",
+      "display_name": "GPT Image 2.5 Sunburst",
+      "_note": "Replaces gpt-image-2, which called the fused SKU openai/gpt-5.4-image-2. Verified 2026-09-22 against /api/v1/models?output_modalities=image and the model's endpoints; canonical slug openai/gpt-image-2.5-sunburst-20260908. OpenAI serves it on chat completions. Input is text and image. Output is IMAGE ONLY with no text part, whereas the fused SKU returned image and text. No crux role or script names an image entry, and the text callers (call_model, call_gateway, the council seats and /chat) refuse it by type with NotATextModelError, because they return only the reply text: image generation has no crux caller. The entry exists by owner instruction. Reasoning is unsupported and temperature is supported. The capability scores are estimates copied from gpt-image-2.",
+      "supports_temperature": true,
       "type": "image_generation",
       "tier": "image_gen",
       "capabilities": {
@@ -240,16 +198,14 @@
         "outpainting": true,
         "variations": true
       },
-      "output_formats": [
-        "png",
-        "webp"
-      ],
-      "max_resolution": "4096x4096",
+      "context_window": 400000,
+      "max_output_tokens": 360000,
       "cost": {
-        "standard_per_image": 0.04,
-        "hd_per_image": 0.08
+        "input_per_1m": 8.0,
+        "output_per_1m": 8.0,
+        "cached_input_per_1m": 2.0
       },
-      "latency_profile": "medium",
+      "_pricing_note": "Image output is $30 per 1M tokens. Verified 2026-09-22 against the OpenRouter model catalog.",
       "judge_eligible": false,
       "routing_hints": {
         "use_for": [
@@ -352,6 +308,57 @@
         "use_for": [
           "council_member",
           "balanced_reasoning"
+        ],
+        "avoid_for": [
+          "simple_tasks",
+          "high_volume"
+        ]
+      }
+    },
+    "claude-opus-5.5": {
+      "provider": "openrouter",
+      "api_string": "anthropic/claude-opus-5.5",
+      "serving_providers": [
+        "anthropic"
+      ],
+      "display_name": "Claude Opus 5.5",
+      "_note": "OpenRouter model and endpoint catalogs verified 2026-09-22 against https://openrouter.ai/api/v1/models. Canonical slug anthropic/claude-opus-5.5-20260921. Reasoning is mandatory; efforts max/xhigh/high/medium/low, default high. Capability scores are copied from the claude-fable-5.1 entry; they are estimates, not Opus 5.5 measurements. Pins HIGH effort for release_docs. No claude-opus-5.5-medium entry exists — nothing reads it.",
+      "effort": "high",
+      "supports_temperature": false,
+      "type": "text",
+      "tier": "frontier_max",
+      "capabilities": {
+        "reasoning": 0.995,
+        "coding": 0.99,
+        "creative": 0.99,
+        "math": 0.98,
+        "vision": true,
+        "function_calling": true,
+        "structured_output": true,
+        "extended_thinking": true,
+        "extended_thinking_mode": "adaptive_only",
+        "agentic": true,
+        "computer_use": true,
+        "web_search": true
+      },
+      "context_window": 1000000,
+      "max_output_tokens": 128000,
+      "cost": {
+        "input_per_1m": 4.0,
+        "output_per_1m": 20.0,
+        "cached_input_per_1m": 0.2
+      },
+      "latency_profile": "medium",
+      "judge_eligible": true,
+      "judge_tier": 0,
+      "can_judge": [
+        "*"
+      ],
+      "routing_hints": {
+        "use_for": [
+          "release_documents",
+          "nuanced_analysis",
+          "complex_reasoning"
         ],
         "avoid_for": [
           "simple_tasks",
@@ -740,30 +747,31 @@
     "anthropic_fast": "claude-sonnet-5",
     "anthropic_council": "claude-opus-5",
     "openai_top": "gpt-6-astra",
-    "openai_chat": "gpt-5.6-terra",
+    "openai_chat": "gpt-6-sol",
     "council_default": [
-      "gpt-5.6-terra",
+      "gpt-6-sol",
       "gemini-3.1-pro-preview",
       "claude-fable-5.1-medium"
     ],
     "council_code": [
-      "gpt-5.6-terra",
+      "gpt-6-sol",
       "claude-sonnet-5",
       "gemini-3.1-pro-preview"
     ],
     "council_arbiter": "claude-fable-5.1",
+    "release_docs": "claude-opus-5.5",
     "code_review": "claude-opus-5",
-    "vision": "gpt-5.6-sol",
+    "vision": "gpt-6-sol",
     "think_shallow": "gemini-3.5-flash",
-    "think_medium": "gpt-5.6-terra",
+    "think_medium": "gpt-6-sol",
     "think_deep": "claude-fable-5.1",
     "plan": "gemini-3.1-pro-preview",
     "reflect": "claude-opus-5",
     "recursive_improve": [
-      "gpt-5.6-sol",
+      "gpt-6-sol",
       "claude-opus-5",
       "gemini-3.1-pro-preview"
     ]
   },
-  "_changelog": "2026-09-04: Register openai/gpt-6-astra from the live OpenRouter catalog and move openai_top to Astra for async text and visual councils. Preserve the synchronous Terra seat and the separate Sol/low-effort entries. | 2.1.0 (2026-09-03): Upgrade the Fable council seats and shared Fable roles to claude-fable-5.1. Preserve high/medium effort pins. Verify model metadata against the live OpenRouter catalog; cached input is $0.25 per 1M tokens. | 2.0.0 (2026-08-26): OpenRouter is the single inference gateway (PB-0077). providers collapses to one openrouter entry (https://openrouter.ai/api/v1, Authorization: Bearer). Every model's provider is openrouter and its api_string is the verbatim OpenRouter id, pinned as-is and never normalized; the bare registry keys are UNCHANGED, so model_roles and every downstream reference need no edit. gpt-5.6-sol / gpt-5.6-sol-low pricing corrected to $2/$10 per 1M against the OpenRouter catalog. gemini-3-pro-image-preview-edit is FOLDED INTO gemini-3-pro-image-preview (OpenRouter serves one Nano Banana Pro slug for generation and editing) and gpt-image-2 is re-pointed at the fused SKU openai/gpt-5.4-image-2 (no standalone gpt-image-2 slug exists). claude-haiku-4-5-20251001 keeps its bare key but addresses anthropic/claude-haiku-4.5. The three council seats (gpt-5.6-sol, claude-fable-5, gemini-3.1-pro-preview) carry serving_providers, the provider.only allowlist that keeps the seats on three distinct serving hosts. openai_endpoint is DELETED from every entry — the gateway is OpenAI-compatible chat-completions only, and reasoning effort now rides the top-level reasoning_effort field. The eight reader-less blocks (judge_hierarchy, council_configurations, fallback_chains, routing_rules, pipelines, playbook_model_affinity, quality_metrics, recursive_improvement) are DELETED: nothing read them, and re-pinning them under renamed ids would be silent drift. performance_tracking is retained. | 1.5.0 (2026-07-24): Renamed the Anthropic Opus seat claude-opus-4-8 -> claude-opus-5 (Opus 5 released as the drop-in successor; identical $5/$25 per 1M pricing, cached $0.50, 1M context, 128K output, adaptive-only thinking that is now on by default). Every Opus routing seat now points at claude-opus-5: model_roles anthropic_balanced/anthropic_council/code_review/reflect/recursive_improve, judge_hierarchy, council_configurations, routing_rules, fallback chains, and pipelines (complex_refactor/documentation/architecture_decision/creative_generation reviewers). claude-fable-5 remains the flagship tier above Opus, and the sonnet/haiku cost tiers are unchanged. Pricing/context were carried over from Opus 4.8 (which Opus 5 matches) and are flagged for re-verification against a fresh anthropic-models-overview capture. Flagship hierarchy UNCHANGED: claude-fable-5 stays anthropic_top/council_arbiter/think_deep (Opus 5 kept in-place at the balanced/council/review seats). claude-opus-4-8 is REMOVED from the registry entirely — a fallback-only entry plus a `refusal_fallback` mapping were prototyped and then deliberately dropped before release because NO code read them: shipping a declarative-only mapping would have read as a live safety net that did not exist. Anthropic's server-side `fallbacks: \"default\"` beta is the real mechanism; wiring it is tracked as a follow-on. | 1.4.0 (2026-07-09): GPT-5.6 Sol/Sol-low/Terra/Luna is now the active OpenAI baseline (per PB-0037/PB-0038). GPT-5.5 and GPT-5.5-pro active identifiers were INTENTIONALLY REMOVED as part of this baseline switch — a deliberate compatibility break; they are NEVER aliased to any GPT-5.6 SKU. Imported Gemini 3.5 Flash (new model) and corrected Gemini 3.1 Pro (Preview) metadata/pricing (context_window, max_output_tokens, tiered cost, _pricing_note) from the production line's research-verified corrections (research/sources/gemini-api-pricing, gemini-3-1-pro-preview, gemini-3-5-flash); gemini-2.5-pro and gemini-2.5-flash (text) are retired in favor of these two across judge_hierarchy, council_configurations, routing_rules, and fallback_chains. claude-opus-4-8 and claude-sonnet-5 cross-verified against research/sources/anthropic-models-overview (2026-06-12); claude-sonnet-5 max_output_tokens corrected to 64000. GPT-5.6 SKU (Sol/Sol-low/Terra/Luna) cached_input_per_1m pricing was OMITTED — no authoritative local source exists for GPT-5.6 cache pricing — and each carries a Pricing UNVERIFIED note pending confirmation. claude-fable-5 and claude-fable-5-medium remain ACTIVE (not disabled) as the Anthropic flagship tier above Opus 4.8. Image models untouched."
+  "_changelog": "2026-09-22 (GPT-6): Register gpt-6-sol (pinned to the OpenAI serving provider), gpt-6-sol-low (effort low), gpt-6-luna and gpt-image-2.5-sunburst from the live OpenRouter catalog. Move openai_chat, think_medium, council_default[0], council_code[0], vision and recursive_improve[0] to gpt-6-sol. GPT-6 has no Terra, and no role moves to gpt-6-luna. openai_chat, think_medium and the OpenAI members of council_default and council_code now pin the OpenAI host and lose Amazon Bedrock as a fallback. gpt-5.6-sol, gpt-5.6-sol-low, gpt-5.6-terra, gpt-5.6-luna and gpt-image-2 are REMOVED as a deliberate compatibility break; they are never aliased to any GPT-6 SKU. gpt-image-2.5-sunburst returns an image with no text part, where the fused gpt-5.4-image-2 SKU returned both. gpt-6-sol-low, gpt-6-luna and gpt-image-2.5-sunburst have no reader and exist by owner instruction. gpt-6-astra is re-verified and openai_top stays on it. No effort pin and no council weight changes. The registry version is held at 2.1.0 because this patch bumps no version. | 2026-09-22: Register anthropic/claude-opus-5.5 ($4/$20 per 1M, high effort, pinned to the Anthropic serving provider) and add the release_docs role, which resolves to it; tools/generate-public-docs.py reads release_docs instead of anthropic_top. anthropic_top, think_deep, council_arbiter, council_default and every council seat and weight are unchanged; no claude-opus-5.5-medium entry is added. | 2026-09-04: Register openai/gpt-6-astra from the live OpenRouter catalog and move openai_top to Astra for async text and visual councils. Preserve the synchronous Terra seat and the separate Sol/low-effort entries. | 2.1.0 (2026-09-03): Upgrade the Fable council seats and shared Fable roles to claude-fable-5.1. Preserve high/medium effort pins. Verify model metadata against the live OpenRouter catalog; cached input is $0.25 per 1M tokens. | 2.0.0 (2026-08-26): OpenRouter is the single inference gateway (PB-0077). providers collapses to one openrouter entry (https://openrouter.ai/api/v1, Authorization: Bearer). Every model's provider is openrouter and its api_string is the verbatim OpenRouter id, pinned as-is and never normalized; the bare registry keys are UNCHANGED, so model_roles and every downstream reference need no edit. gpt-5.6-sol / gpt-5.6-sol-low pricing corrected to $2/$10 per 1M against the OpenRouter catalog. gemini-3-pro-image-preview-edit is FOLDED INTO gemini-3-pro-image-preview (OpenRouter serves one Nano Banana Pro slug for generation and editing) and gpt-image-2 is re-pointed at the fused SKU openai/gpt-5.4-image-2 (no standalone gpt-image-2 slug exists). claude-haiku-4-5-20251001 keeps its bare key but addresses anthropic/claude-haiku-4.5. The three council seats (gpt-5.6-sol, claude-fable-5, gemini-3.1-pro-preview) carry serving_providers, the provider.only allowlist that keeps the seats on three distinct serving hosts. openai_endpoint is DELETED from every entry — the gateway is OpenAI-compatible chat-completions only, and reasoning effort now rides the top-level reasoning_effort field. The eight reader-less blocks (judge_hierarchy, council_configurations, fallback_chains, routing_rules, pipelines, playbook_model_affinity, quality_metrics, recursive_improvement) are DELETED: nothing read them, and re-pinning them under renamed ids would be silent drift. performance_tracking is retained. | 1.5.0 (2026-07-24): Renamed the Anthropic Opus seat claude-opus-4-8 -> claude-opus-5 (Opus 5 released as the drop-in successor; identical $5/$25 per 1M pricing, cached $0.50, 1M context, 128K output, adaptive-only thinking that is now on by default). Every Opus routing seat now points at claude-opus-5: model_roles anthropic_balanced/anthropic_council/code_review/reflect/recursive_improve, judge_hierarchy, council_configurations, routing_rules, fallback chains, and pipelines (complex_refactor/documentation/architecture_decision/creative_generation reviewers). claude-fable-5 remains the flagship tier above Opus, and the sonnet/haiku cost tiers are unchanged. Pricing/context were carried over from Opus 4.8 (which Opus 5 matches) and are flagged for re-verification against a fresh anthropic-models-overview capture. Flagship hierarchy UNCHANGED: claude-fable-5 stays anthropic_top/council_arbiter/think_deep (Opus 5 kept in-place at the balanced/council/review seats). claude-opus-4-8 is REMOVED from the registry entirely — a fallback-only entry plus a `refusal_fallback` mapping were prototyped and then deliberately dropped before release because NO code read them: shipping a declarative-only mapping would have read as a live safety net that did not exist. Anthropic's server-side `fallbacks: \"default\"` beta is the real mechanism; wiring it is tracked as a follow-on. | 1.4.0 (2026-07-09): GPT-5.6 Sol/Sol-low/Terra/Luna is now the active OpenAI baseline (per PB-0037/PB-0038). GPT-5.5 and GPT-5.5-pro active identifiers were INTENTIONALLY REMOVED as part of this baseline switch — a deliberate compatibility break; they are NEVER aliased to any GPT-5.6 SKU. Imported Gemini 3.5 Flash (new model) and corrected Gemini 3.1 Pro (Preview) metadata/pricing (context_window, max_output_tokens, tiered cost, _pricing_note) from the production line's research-verified corrections (research/sources/gemini-api-pricing, gemini-3-1-pro-preview, gemini-3-5-flash); gemini-2.5-pro and gemini-2.5-flash (text) are retired in favor of these two across judge_hierarchy, council_configurations, routing_rules, and fallback_chains. claude-opus-4-8 and claude-sonnet-5 cross-verified against research/sources/anthropic-models-overview (2026-06-12); claude-sonnet-5 max_output_tokens corrected to 64000. GPT-5.6 SKU (Sol/Sol-low/Terra/Luna) cached_input_per_1m pricing was OMITTED — no authoritative local source exists for GPT-5.6 cache pricing — and each carries a Pricing UNVERIFIED note pending confirmation. claude-fable-5 and claude-fable-5-medium remain ACTIVE (not disabled) as the Anthropic flagship tier above Opus 4.8. Image models untouched."
 }

@@ -134,6 +134,23 @@ class ConfidenceRejectedError(ValueError):
     """
 
 
+class NotATextModelError(ValueError):
+    """A registry entry whose `type` is not a text type reached the text path.
+
+    The chat-completions path returns only `message.content`. An image entry
+    therefore answers empty (image-only output) or loses its image (image and
+    text output), and nothing tells the caller. Refusing by type turns that
+    silent loss into a named error. No image-response contract exists.
+    """
+
+
+# Registry `type` values the chat-completions text path serves. Every text
+# model in the registry carries `text`; the image entries carry
+# `image_generation` / `image_generation_and_editing`, and `decisions` is
+# reachable only through its own route. Anything else is refused.
+TEXT_MODEL_TYPES = frozenset({"text"})
+
+
 @dataclass
 class ModelConfig:
     """Configuration for a specific model, addressed through the gateway."""
@@ -161,6 +178,11 @@ class ModelConfig:
     # and pinning "allow" on that single entry is the deliberate, reviewable way
     # to say so. Absent key means deny.
     data_collection: str = "deny"
+    # Registry key and `type`. A config built directly (tests, fixtures) is a
+    # text config; one loaded from the registry carries the entry's own type,
+    # and an entry with no type is refused on the text path rather than assumed.
+    name: str = ""
+    model_type: Optional[str] = "text"
 
 
 # The only two values OpenRouter's `provider.data_collection` accepts. Anything
@@ -219,6 +241,8 @@ def get_model_config(model_name: str) -> ModelConfig:
         supports_temperature=model.get('supports_temperature', True),
         serving_providers=tuple(model.get('serving_providers', ())),
         data_collection=data_collection,
+        name=model_name,
+        model_type=model.get('type'),
     )
 
 
@@ -281,7 +305,19 @@ def build_gateway_request(
     `provider` object pinning `data_collection` (the entry's value, "deny" unless
     the registry overrides it); `serving_providers`, when set, adds the
     `provider.only` host pin beside it.
+
+    Every text caller builds its request here, so this is where an entry whose
+    registry `type` is not in `TEXT_MODEL_TYPES` is refused, before the
+    credential is read: `NotATextModelError`.
     """
+    if cfg.model_type not in TEXT_MODEL_TYPES:
+        raise NotATextModelError(
+            f"model {cfg.name or cfg.api_string!r} has type {cfg.model_type!r}, "
+            f"which is not a text type {sorted(TEXT_MODEL_TYPES)}. The text "
+            "callers return only the reply text, so this entry would answer "
+            "empty or lose its output; image generation has no crux caller."
+        )
+
     (api_key,) = require("OPENROUTER_API_KEY")
 
     url = f"{cfg.base_url.rstrip('/')}/chat/completions"
@@ -583,6 +619,8 @@ __all__ = [
     "ModelConfig",
     "ModelRefusedError",
     "GatewayError",
+    "NotATextModelError",
+    "TEXT_MODEL_TYPES",
     "GatewayInsufficientCreditError",
     "GatewayUpstreamError",
     "GatewayTimeoutError",

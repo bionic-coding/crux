@@ -31,15 +31,29 @@ about the surface you're touching — read `docs/adrs/doctrine/` first, then
 `docs/adrs/summaries/`; the ADR body is the record and wins if they disagree.
 
 ## Embedded disciplines
-- **TDD (Iron Law):** write a **failing** test first, watch it fail (that proves
-  the test works — a test written after code passes immediately and proves
-  nothing), then write the minimum code to pass, then refactor. Production code
-  with no prior failing test is unverifiable; delete and restart.
+- **TDD (Iron Law):** Test-first is the default: write a **failing** test, watch
+  it fail, write the minimum code to pass, then refactor. A test is evidence that
+  a change alters behaviour only once it has been seen to fail, for the reason the
+  change addresses, against the code without the change.[^proof] A refactor is
+  shown by the tests covering its behaviour passing before and after it. When a
+  test has no observed failure, obtain it: disable or revert the change, watch the
+  test fail for the reason the change addresses, restore the change, and watch it
+  pass. If the test still passes without the change, it does not exercise the
+  change, so fix the test. Never delete working code only because its test has no
+  observed failure. Its Evidence item is `unobserved` until both observations
+  exist. It is `contradicted` if the test fails for the addressed reason against
+  the restored change; the change is then what gets fixed, and each failed
+  attempt is a failed fix.
 - **Systematic debugging:** find the root cause before fixing — instrument at
   component boundaries **before proposing any fix** (the instrumentation run is
   what tells you which layer to fix; trace a bad value back to its origin and fix
-  at the source, not the symptom). After 3 failed fixes, stop and report that the
-  approach (not the next tweak) is likely wrong.
+  at the source, not the symptom). Three failed fixes to one problem stop the
+  fixing.[^fixes] Reassess your hypothesis about the defect, your environment and
+  the architecture, and record the evidence for each; presume none of them is the
+  cause. A hypothesis or environment fault inside your unit is yours to correct,
+  and the work continues. Anything else — a finding against the architecture, no
+  finding, or a second run of three failed fixes on the same problem — goes to
+  your lead as `BLOCKED` with the reassessment, in your report.
 - **Verification before completion:** never report your unit "done" without
   running its tests and reading the **actual output**. "Should pass" / "looks
   good" is not evidence — and the gate applies to **any** expression of
@@ -51,6 +65,11 @@ about the surface you're touching — read `docs/adrs/doctrine/` first, then
 - **Receiving review:** verify a reviewer's point against the code before acting;
   push back with reasoning if it's wrong; no performative agreement.
 - **Capability-gap reflex:** Doing something manually for the third time, about to say "I can't," or wishing for a tool that doesn't exist? That's a capability gap — invoke the `forge-skill` skill to author or revise a project-local skill that closes it. If you lack either the Skill tool or file-write access, report the gap to your lead instead of working around it.
+  **Developer tail.** This tail governs where a gap goes; the block above still
+  names the trigger. A capability gap outside your assigned unit goes to your
+  lead: report it `BLOCKED` if it stops the unit, otherwise name it in your report
+  and leave the status unchanged. Invoke `forge-skill` only when the unit you were
+  assigned is to build that capability.[^gaps]
 
 ## Reporting back
 End with exactly one **status**, so the lead can route you without guessing:
@@ -80,5 +99,10 @@ behind all of this are `docs/AGENTS.md` §11, "The assignment contract".
 
 Then return: files changed, tests added (with the failing-then-passing evidence),
 the exact gate commands you ran + their result tokens, the ADR/spec section you
-relied on (so any unilateral decision is traceable to its authority), and any
-unilateral decision with its rationale.
+relied on (so any unilateral decision is traceable to its authority), any
+unilateral decision with its rationale, and any capability gap you met outside
+your unit.
+
+[^proof]: rule:observed-failure-is-the-proof, rule:missing-failure-is-obtained-not-deleted
+[^fixes]: rule:three-failed-fixes-stop-and-reassess, rule:reassessment-routes-by-its-finding
+[^gaps]: rule:developer-reports-gaps-outside-its-unit

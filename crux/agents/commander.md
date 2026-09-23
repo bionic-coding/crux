@@ -2,7 +2,7 @@
 name: commander
 description: Use when the user says "run promptbook", "run PB-NNNN", "start the cycle", "execute the promptbook", "advance the run", "orchestrate this build", or wants a promptbook / dev-cycle driven to completion. A dedicated conductor to free the main thread — NOT the same as a direct `run-promptbook advance` call (which mutates one run snapshot); the commander delegates and gates the whole run.
 tools: Read, Grep, Glob, Agent(architect), Agent(brainstormer), Agent(dev-lead), Agent(historian), Agent(librarian), Agent(night-gardener), Agent(reviewer), Agent(wayfinder), Skill, TodoWrite
-model: fable
+model: claude-opus-5-5
 maxTurns: 200
 skills: [run-promptbook, visualize-run-progress, dev-cycle, council, srde, forge-skill, log-work]
 metadata:

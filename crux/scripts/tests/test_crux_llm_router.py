@@ -6,15 +6,15 @@ rather than of three per-provider branches. What is locked in here:
 
 1. Reasoning-effort pinning — the two `claude-fable-5.1*` registry entries share
    one api_string but pin different efforts (high vs medium for council seats),
-   and `gpt-5.6-sol-low` is the same effort-alias pattern on the OpenAI side.
+   and `gpt-6-sol-low` is the same effort-alias pattern on the OpenAI side.
    The pin rides the gateway's top-level `reasoning_effort` field, so no call
    depends on a provider-specific response branch.
 2. `supports_temperature: false` — the nine reject-set models (Fable 5.1 x2,
-   Opus 5, Sonnet 5, GPT-6 Astra, and the GPT-5.6 SKUs Sol/Sol-low/Terra/Luna) reject the
-   `temperature` param; the builder must omit it for them and keep sending it
+   Opus 5, Sonnet 5, Opus 5.5, GPT-6 Astra, GPT-6 Sol, Sol-low and Luna) reject
+   the `temperature` param; the builder must omit it for them and keep sending it
    for models that accept it (Haiku 4.5). NOTE: Sonnet 5 REJECTS temperature —
    a behavior change from the retired Sonnet 4.6, which accepted it.
-3. One address for every model — every entry posts to the same
+3. One address for every text model — every `type: text` entry posts to the same
    `/chat/completions` URL under `Authorization: Bearer`. The per-endpoint
    `openai_endpoint` split is gone; a second URL appearing here would mean a
    second inference path survived the consolidation.
@@ -25,7 +25,12 @@ rather than of three per-provider branches. What is locked in here:
 NOTE: the GPT-5.5 and GPT-5.5-pro identifiers that briefly existed on an
 incoming branch were intentionally REMOVED as part of the GPT-5.6 baseline
 switch — a deliberate compatibility break. They are never aliased to any
-GPT-5.6 SKU and do not appear anywhere in this suite.
+GPT-5.6 SKU and do not appear anywhere in this suite. The GPT-5.6 keys
+(`gpt-5.6-sol`, `gpt-5.6-sol-low`, `gpt-5.6-terra`, `gpt-5.6-luna`) and
+`gpt-image-2` were in turn REMOVED by the GPT-6 switch, the same deliberate
+compatibility break: they are never aliased, and GPT-6 has no Terra. They
+appear in this suite only as the removed keys `RemovedGpt56KeysTests` asserts
+raise.
 
 Run under uv (httpx required): uv run python3 -m unittest discover crux/scripts/tests
 """
@@ -45,11 +50,12 @@ try:
 except ImportError:
     HAVE_HTTPX = False
 
-# The nine registry entries whose API rejects a non-default temperature.
+# Registry entries whose API rejects a non-default temperature. jev-1.13 also
+# rejects one and is covered by its own suite.
 TEMPERATURE_REJECT_SET = (
     'claude-fable-5.1', 'claude-fable-5.1-medium', 'claude-opus-5',
-    'claude-sonnet-5', 'gpt-5.6-sol', 'gpt-5.6-sol-low',
-    'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-6-astra',
+    'claude-sonnet-5', 'gpt-6-sol', 'gpt-6-sol-low', 'gpt-6-luna',
+    'gpt-6-astra', 'claude-opus-5.5',
 )
 
 # Serving-provider slugs read from each seat's OpenRouter endpoints data
@@ -82,7 +88,7 @@ class LlmRouterRegistryTests(unittest.TestCase):
 
     def test_fable_entries_share_sku_with_distinct_effort(self):
         # claude-fable-5.1 and claude-fable-5.1-medium are both ACTIVE (not
-        # disabled) in the GPT-5.6 baseline lineup and share one api_string
+        # disabled) in the GPT-6 baseline lineup and share one api_string
         # but pin different reasoning efforts (high vs medium).
         high = self.llm.get_model_config('claude-fable-5.1')
         medium = self.llm.get_model_config('claude-fable-5.1-medium')
@@ -94,10 +100,10 @@ class LlmRouterRegistryTests(unittest.TestCase):
     def test_sol_low_shares_sku_with_low_effort(self):
         # The fast-lane arbiter is Sol pinned to low effort (effort-alias, same
         # SKU) — the OpenAI analogue of the claude-fable-5.1 / -medium pattern.
-        sol = self.llm.get_model_config('gpt-5.6-sol')
-        sol_low = self.llm.get_model_config('gpt-5.6-sol-low')
-        self.assertEqual(sol.api_string, 'openai/gpt-5.6-sol')
-        self.assertEqual(sol_low.api_string, 'openai/gpt-5.6-sol')
+        sol = self.llm.get_model_config('gpt-6-sol')
+        sol_low = self.llm.get_model_config('gpt-6-sol-low')
+        self.assertEqual(sol.api_string, 'openai/gpt-6-sol')
+        self.assertEqual(sol_low.api_string, 'openai/gpt-6-sol')
         self.assertEqual(sol_low.effort, 'low')
         self.assertIsNone(sol.effort)
 
@@ -145,7 +151,7 @@ class LlmRouterRegistryTests(unittest.TestCase):
         self.assertEqual(len(set(hosts)), 3, f"seats share a serving provider: {hosts}")
 
     def test_council_weight_covers_weighted_seats(self):
-        # Weighted council seats resolve against the GPT-5.6 baseline lineup:
+        # Weighted council seats resolve against the GPT-6 baseline lineup:
         # anthropic_council -> claude-opus-5 (1.5), openai_top -> gpt-6-astra
         # (1.4, replacing the stale/removed gpt-5.5), google_top ->
         # gemini-3.1-pro-preview (1.3).
@@ -153,6 +159,231 @@ class LlmRouterRegistryTests(unittest.TestCase):
         self.assertEqual(_get_model_weight('claude-opus-5'), 1.5)
         self.assertEqual(_get_model_weight('gpt-6-astra'), 1.4)
         self.assertEqual(_get_model_weight('gemini-3.1-pro-preview'), 1.3)
+
+
+# The five keys the GPT-6 switch removed. A deliberate compatibility break:
+# none is aliased, and a caller naming one gets `ValueError: Unknown model`.
+REMOVED_GPT56_KEYS = (
+    'gpt-5.6-sol', 'gpt-5.6-sol-low', 'gpt-5.6-terra', 'gpt-5.6-luna',
+    'gpt-image-2',
+)
+
+
+def _role_names(value):
+    return value if isinstance(value, list) else [value]
+
+
+@unittest.skipUnless(HAVE_HTTPX, "httpx not installed — run under uv")
+class Gpt6RoleAndRegistryTests(unittest.TestCase):
+    """The GPT-6 switch re-points roles and never renames a key.
+
+    Every former Terra role and every former Sol role resolves to `gpt-6-sol`,
+    because GPT-6 has no Terra and no Terra workload moves to Luna.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        from crux.core import llm_caller
+        cls.llm = llm_caller
+        cls.cfg = llm_caller.load_router_config()
+
+    # (a) the six moved role slots
+    def test_single_openai_roles_resolve_to_gpt_6_sol(self):
+        for role in ('openai_chat', 'think_medium', 'vision'):
+            with self.subTest(role=role):
+                self.assertEqual(self.llm.get_default_model(role), 'gpt-6-sol')
+
+    def test_list_roles_carry_gpt_6_sol_first(self):
+        expected = {
+            'council_default': ['gpt-6-sol', 'gemini-3.1-pro-preview',
+                                'claude-fable-5.1-medium'],
+            'council_code': ['gpt-6-sol', 'claude-sonnet-5',
+                             'gemini-3.1-pro-preview'],
+            'recursive_improve': ['gpt-6-sol', 'claude-opus-5',
+                                  'gemini-3.1-pro-preview'],
+        }
+        for role, models in expected.items():
+            with self.subTest(role=role):
+                self.assertEqual(list(self.llm.get_default_models(role)), models)
+
+    def test_openai_top_stays_on_astra(self):
+        self.assertEqual(self.llm.get_default_model('openai_top'), 'gpt-6-astra')
+
+    # (b) nothing moves to Luna
+    def test_no_role_resolves_to_gpt_6_luna(self):
+        for role, value in self.cfg['model_roles'].items():
+            if role.startswith('_'):
+                continue
+            with self.subTest(role=role):
+                self.assertNotIn('gpt-6-luna', _role_names(value))
+
+    # (c) the removed keys are gone, not aliased
+    def test_removed_keys_raise_unknown_model(self):
+        for key in REMOVED_GPT56_KEYS:
+            with self.subTest(key=key):
+                with self.assertRaisesRegex(ValueError, 'Unknown model'):
+                    self.llm.get_model_config(key)
+
+    def test_no_role_names_a_removed_key(self):
+        for role, value in self.cfg['model_roles'].items():
+            if role.startswith('_'):
+                continue
+            for key in REMOVED_GPT56_KEYS:
+                with self.subTest(role=role, key=key):
+                    self.assertNotIn(key, _role_names(value))
+
+    # (d) every OpenAI entry names its own slug: no key redirects to another model
+    def test_every_openai_entry_names_its_own_slug(self):
+        openai_keys = [k for k, v in self.cfg['models'].items()
+                       if v['api_string'].startswith('openai/')]
+        self.assertIn('gpt-6-sol', openai_keys)  # the filter selects something
+        for key in openai_keys:
+            with self.subTest(key=key):
+                self.assertEqual(self.cfg['models'][key]['api_string'],
+                                 'openai/' + key.removesuffix('-low'))
+
+    # (e) the new entries carry the verified metadata
+    def _assert_entry(self, key, expected, absent=()):
+        entry = self.llm.get_model_info(key)
+        for field, value in expected.items():
+            with self.subTest(key=key, field=field):
+                self.assertEqual(entry.get(field), value)
+        for field in absent:
+            with self.subTest(key=key, absent=field):
+                self.assertNotIn(field, entry)
+
+    def test_gpt_6_sol_entry_metadata(self):
+        self._assert_entry('gpt-6-sol', {
+            'api_string': 'openai/gpt-6-sol',
+            'serving_providers': ['openai'],
+            'display_name': 'GPT-6 Sol',
+            'supports_temperature': False,
+            'type': 'text',
+            'tier': 'frontier_max',
+            'latency_profile': 'slow',
+            'context_window': 1050000,
+            'max_output_tokens': 128000,
+            'cost': {'input_per_1m': 2.0, 'output_per_1m': 10.0,
+                     'cached_input_per_1m': 0.2},
+        }, absent=('effort',))
+        cfg = self.llm.get_model_config('gpt-6-sol')
+        self.assertEqual(cfg.serving_providers, ('openai',))
+        self.assertIsNone(cfg.effort)
+
+    def test_gpt_6_sol_low_entry_metadata(self):
+        self._assert_entry('gpt-6-sol-low', {
+            'api_string': 'openai/gpt-6-sol',
+            'display_name': 'GPT-6 Sol (low effort)',
+            'effort': 'low',
+            'supports_temperature': False,
+            'type': 'text',
+            'tier': 'frontier_max',
+            'context_window': 1050000,
+            'max_output_tokens': 128000,
+            'cost': {'input_per_1m': 2.0, 'output_per_1m': 10.0,
+                     'cached_input_per_1m': 0.2},
+        }, absent=('serving_providers',))
+
+    def test_gpt_6_luna_entry_metadata(self):
+        self._assert_entry('gpt-6-luna', {
+            'api_string': 'openai/gpt-6-luna',
+            'display_name': 'GPT-6 Luna',
+            'supports_temperature': False,
+            'type': 'text',
+            'tier': 'fast',
+            'context_window': 1050000,
+            'max_output_tokens': 128000,
+            'cost': {'input_per_1m': 0.1, 'output_per_1m': 0.5,
+                     'cached_input_per_1m': 0.01},
+        }, absent=('effort', 'serving_providers'))
+
+    def test_gpt_image_2_5_sunburst_entry_metadata(self):
+        self._assert_entry('gpt-image-2.5-sunburst', {
+            'api_string': 'openai/gpt-image-2.5-sunburst',
+            'display_name': 'GPT Image 2.5 Sunburst',
+            'type': 'image_generation',
+            'tier': 'image_gen',
+            'supports_temperature': True,
+            'context_window': 400000,
+            'max_output_tokens': 360000,
+            'cost': {'input_per_1m': 8.0, 'output_per_1m': 8.0,
+                     'cached_input_per_1m': 2.0},
+            'judge_eligible': False,
+        }, absent=('output_formats', 'max_resolution', 'latency_profile',
+                   'effort', 'serving_providers'))
+
+    def test_no_entry_pins_reasoning_effort_none(self):
+        # GPT-6 allows function calling on Chat Completions only at effort
+        # `none`; crux sends no tools, so no entry may pin `none` to unlock it.
+        for key, entry in self.cfg['models'].items():
+            with self.subTest(key=key):
+                self.assertNotEqual(entry.get('effort'), 'none')
+
+
+@unittest.skipUnless(HAVE_HTTPX, "httpx not installed — run under uv")
+class ReleaseDocsRoleTests(unittest.TestCase):
+    """ADR-0127 point 6: release-document generation resolves through its own
+    router role, `release_docs`, independent of `anthropic_top`. The Claude
+    seats that keep Fable (`anthropic_top`, `think_deep`, `council_arbiter`)
+    and the sync `council_default` Anthropic member must not move."""
+
+    @classmethod
+    def setUpClass(cls):
+        from crux.core import llm_caller
+        cls.llm = llm_caller
+        cls.cfg = llm_caller.load_router_config()
+
+    def test_release_docs_role_resolves_to_opus_5_5(self):
+        self.assertEqual(self.llm.get_default_model('release_docs'), 'claude-opus-5.5')
+
+    def test_fable_seats_are_unchanged(self):
+        self.assertEqual(self.llm.get_default_model('anthropic_top'), 'claude-fable-5.1')
+        self.assertEqual(self.llm.get_default_model('think_deep'), 'claude-fable-5.1')
+        self.assertEqual(self.llm.get_default_model('council_arbiter'), 'claude-fable-5.1')
+
+    def test_sync_council_default_anthropic_seat_is_unchanged(self):
+        self.assertEqual(
+            list(self.llm.get_default_models('council_default')),
+            ['gpt-6-sol', 'gemini-3.1-pro-preview', 'claude-fable-5.1-medium'],
+        )
+        self.assertEqual(self.llm.get_default_model('anthropic_council'), 'claude-opus-5')
+
+    def test_async_council_and_weighted_vote_weights_are_unchanged(self):
+        from crux.council.council import _get_model_weight, MODEL_WEIGHTS
+        self.assertEqual(MODEL_WEIGHTS, {
+            'anthropic_top': 1.5, 'anthropic_council': 1.5,
+            'google_top': 1.3, 'openai_top': 1.4,
+        })
+        # The weights key on roles, so the resolved model is what a vote sees:
+        # Fable keeps the anthropic_top weight, and Opus 5.5 earns none.
+        self.assertEqual(_get_model_weight('claude-fable-5.1'), 1.5)
+        self.assertEqual(_get_model_weight('claude-opus-5'), 1.5)
+        self.assertEqual(_get_model_weight('claude-opus-5.5'), 1.0)
+
+    def test_async_council_anthropic_seat_stays_on_fable(self):
+        # The async text council and its visual subclass share one config, and
+        # its Anthropic seat resolves through anthropic_top.
+        from crux.council.async_council import AsyncCouncilConfig
+        self.assertEqual(AsyncCouncilConfig().anthropic_model, 'claude-fable-5.1')
+
+    def test_no_medium_effort_opus_5_5_entry_exists(self):
+        self.assertNotIn('claude-opus-5.5-medium', self.cfg['models'])
+
+    def test_opus_5_5_registry_entry_fields(self):
+        cfg = self.llm.get_model_config('claude-opus-5.5')
+        self.assertEqual(cfg.api_string, 'anthropic/claude-opus-5.5')
+        self.assertEqual(cfg.effort, 'high')
+        self.assertEqual(list(cfg.serving_providers), ['anthropic'])
+        self.assertFalse(cfg.supports_temperature)
+
+    def test_release_docs_is_the_only_new_role(self):
+        # No council role is added for Opus 5.5 (ADR-0127 postcondition).
+        for role, value in self.cfg['model_roles'].items():
+            if role.startswith('_'):
+                continue
+            names = value if isinstance(value, list) else [value]
+            if role != 'release_docs':
+                self.assertNotIn('claude-opus-5.5', names, f"{role} unexpectedly resolves opus-5.5")
 
 
 @unittest.skipUnless(HAVE_HTTPX, "httpx not installed — run under uv")
@@ -212,8 +443,13 @@ class LlmRouterPayloadTests(unittest.TestCase):
     # -- address + auth ------------------------------------------------------
 
     def test_every_model_posts_to_one_gateway_url(self):
+        # Non-text entries are refused before any request is built; see
+        # test_image_entries_are_refused_before_any_request.
+        cfg = self.llm.load_router_config()
         urls = set()
         for model in self.llm.list_available_models():
+            if cfg['models'][model].get('type') not in self.llm.TEXT_MODEL_TYPES:
+                continue
             urls.add(self._request(model)[0])
         self.assertEqual(urls, {'https://openrouter.ai/api/v1/chat/completions'},
                          "every model must post to the one gateway endpoint")
@@ -228,7 +464,8 @@ class LlmRouterPayloadTests(unittest.TestCase):
     def test_effort_pinned_entries_send_reasoning_effort(self):
         for model, effort in (('claude-fable-5.1', 'high'),
                               ('claude-fable-5.1-medium', 'medium'),
-                              ('gpt-5.6-sol-low', 'low')):
+                              ('gpt-6-sol-low', 'low'),
+                              ('claude-opus-5.5', 'high')):
             with self.subTest(model=model):
                 payload = self._payload(model)
                 self.assertEqual(payload.get('reasoning_effort'), effort)
@@ -236,13 +473,13 @@ class LlmRouterPayloadTests(unittest.TestCase):
     def test_unpinned_entries_omit_reasoning_effort(self):
         """Plain Sol and Opus 5 pin no effort — the server default stands, and
         an emitted field would silently override it."""
-        for model in ('gpt-5.6-sol', 'claude-opus-5'):
+        for model in ('gpt-6-sol', 'claude-opus-5'):
             with self.subTest(model=model):
                 self.assertNotIn('reasoning_effort', self._payload(model))
 
     def test_effort_aliases_send_the_same_model_id(self):
-        self.assertEqual(self._payload('gpt-5.6-sol')['model'], 'openai/gpt-5.6-sol')
-        self.assertEqual(self._payload('gpt-5.6-sol-low')['model'], 'openai/gpt-5.6-sol')
+        self.assertEqual(self._payload('gpt-6-sol')['model'], 'openai/gpt-6-sol')
+        self.assertEqual(self._payload('gpt-6-sol-low')['model'], 'openai/gpt-6-sol')
 
     # -- temperature ---------------------------------------------------------
 
@@ -253,6 +490,13 @@ class LlmRouterPayloadTests(unittest.TestCase):
 
     def test_accepting_model_still_sends_temperature(self):
         self.assertIn('temperature', self._payload('claude-haiku-4-5-20251001'))
+
+    def test_opus_5_5_built_request_pins_high_effort_anthropic_no_temperature(self):
+        payload = self._payload('claude-opus-5.5')
+        self.assertEqual(payload.get('reasoning_effort'), 'high')
+        self.assertNotIn('temperature', payload)
+        self.assertEqual(payload.get('provider'),
+                          {'only': ['anthropic'], 'data_collection': 'deny'})
 
     # -- serving-provider pinning -------------------------------------------
 
@@ -275,6 +519,35 @@ class LlmRouterPayloadTests(unittest.TestCase):
         provider = self._payload('gemini-3.5-flash').get('provider')
         self.assertEqual(provider, {'data_collection': 'deny'})
 
+    # -- GPT-6 payloads (f) and host/retention controls ---------------------
+
+    def test_gpt_6_payloads_send_no_tool_fields(self):
+        """GPT-6 Sol and Luna allow function calling on Chat Completions only at
+        reasoning effort `none`. The gateway sends no tools, so the restriction
+        reaches no call path; a tool field appearing here would break that."""
+        for model in ('gpt-6-sol', 'gpt-6-sol-low', 'gpt-6-luna'):
+            payload = self._payload(model)
+            for field in ('tools', 'tool_choice', 'functions'):
+                with self.subTest(model=model, field=field):
+                    self.assertNotIn(field, payload)
+
+    def test_gpt_6_effort_fields(self):
+        self.assertNotIn('reasoning_effort', self._payload('gpt-6-sol'))
+        self.assertNotIn('reasoning_effort', self._payload('gpt-6-luna'))
+        self.assertEqual(self._payload('gpt-6-sol-low').get('reasoning_effort'), 'low')
+
+    def test_gpt_6_sol_pins_the_openai_host_and_denies_collection(self):
+        self.assertEqual(self._payload('gpt-6-sol').get('provider'),
+                         {'only': ['openai'], 'data_collection': 'deny'})
+
+    def test_other_gpt_6_entries_deny_collection_without_a_host_pin(self):
+        # gpt-image-2.5-sunburst left this list: the text path now refuses it
+        # before any request exists to carry a provider object.
+        for model in ('gpt-6-sol-low', 'gpt-6-luna'):
+            with self.subTest(model=model):
+                self.assertEqual(self._payload(model).get('provider'),
+                                 {'data_collection': 'deny'})
+
     # -- body shape + return -------------------------------------------------
 
     def test_messages_carry_system_and_user_roles(self):
@@ -287,8 +560,45 @@ class LlmRouterPayloadTests(unittest.TestCase):
         self.assertEqual(payload['max_tokens'], 64)
 
     def test_response_text_is_surfaced(self):
-        self._request('gpt-5.6-sol')
+        self._request('gpt-6-sol')
         self.assertEqual(self._last_return, 'ok')
+
+    # -- text-only call path refuses non-text entries ------------------------
+
+    def _non_text_models(self):
+        cfg = self.llm.load_router_config()
+        return {k: v.get('type') for k, v in cfg['models'].items()
+                if v.get('type') != 'text'}
+
+    def test_image_entries_are_refused_before_any_request(self):
+        """The text path returns only `message.content`, so an image entry
+        either answers empty (image-only output) or loses its image. Every
+        image entry must be refused by name and type, and nothing is posted."""
+        image_models = {k: t for k, t in self._non_text_models().items()
+                        if t and t.startswith('image_')}
+        self.assertEqual(set(image_models), {
+            'gpt-image-2.5-sunburst', 'gemini-3-pro-image-preview',
+            'gemini-3.1-flash-image-preview', 'gemini-2.5-flash-image'})
+        for model, model_type in image_models.items():
+            with self.subTest(model=model):
+                self.captured.clear()
+                with self.assertRaises(self.llm.NotATextModelError) as ctx:
+                    self.llm.call_model(model, 'hi', max_tokens=64)
+                message = str(ctx.exception)
+                self.assertIn(model, message)
+                self.assertIn(model_type, message)
+                self.assertIn('image generation has no crux caller', message)
+                self.assertEqual(self.captured, [], 'a refused entry posted a request')
+
+    def test_every_text_entry_still_builds_a_request(self):
+        cfg = self.llm.load_router_config()
+        text_models = [k for k, v in cfg['models'].items() if v.get('type') == 'text']
+        self.assertTrue(text_models)
+        for model in text_models:
+            with self.subTest(model=model):
+                url, _, payload = self._request(model)
+                self.assertEqual(url, 'https://openrouter.ai/api/v1/chat/completions')
+                self.assertEqual(self._last_return, 'ok')
 
 
 @unittest.skipUnless(HAVE_HTTPX, "httpx not installed — run under uv")

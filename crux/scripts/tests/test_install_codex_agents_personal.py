@@ -63,7 +63,7 @@ class PersonalInstallTests(unittest.TestCase):
             reviewer = tomllib.loads(
                 (codex_home / "agents" / "crux-reviewer.toml").read_text(encoding="utf-8")
             )
-        self.assertEqual(reviewer["model"], "gpt-5.6-sol")
+        self.assertEqual(reviewer["model"], "gpt-6-sol")
         self.assertEqual(reviewer["model_reasoning_effort"], "xhigh")
 
     def test_installed_skill_bindings_map_each_declared_skill_to_its_exact_resource(self):

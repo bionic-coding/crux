@@ -51,8 +51,9 @@ A defect is a direct fix when every answer is yes. One no routes it to a tier.
    when a second, independent instance exists — the same recurrence floor `retrospective` holds
    a skill proposal to. If you are designing for the class → stop, fix the instance, and record
    the class as an open question.
-5. **Does the fix need an independent review gate?** A change under a signed or digest-bound
-   surface, or one whose blast radius you want checked mechanically → `patch-cycle`.
+5. **Can the fix ship without an independent review gate?** If not → `patch-cycle`. A change
+   under a signed or digest-bound surface needs one, and so does one whose blast radius you want
+   checked mechanically.
 
 **A security label does not change the size.** "Bypass", "forgery", and "injection" describe
 what a defect *lets through*, not how large its fix is. A boolean guard that skips on one branch,

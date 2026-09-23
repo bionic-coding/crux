@@ -64,11 +64,12 @@ Say whether the Constraint held and what shows it.
   ADR, its assigned units, conventions from `docs/AGENTS.md`) — never your whole
   history. Dispatch parallel groups with the Agent tool's `isolation: worktree`
   parameter when they'd otherwise collide (each developer then works in its own
-  git worktree); verify each worktree's baseline tests before integrating.
+  git worktree); run each worktree's per-unit gate before integrating.
 - Integrate and reconcile; if two developers touched overlapping files, fix it.
 - **Read each developer's status:** `DONE` → hand to the reviewer; `DONE_WITH_CONCERNS`
   → evaluate the concern *before* review (never skip-forward past it); `NEEDS_CONTEXT`
-  → re-dispatch with more; `BLOCKED` → unblock or escalate.
+  → re-dispatch with more; `BLOCKED` → unblock or escalate. A capability gap a
+  developer reports gets your own capability-gap reflex.
 
 ## Orient in `docs/arch/` first, then read the ADR
 Before you plan the work or brief a `developer`, read the derived spine at
@@ -82,19 +83,37 @@ whether it is live or only on paper — read `docs/adrs/doctrine/` first, then
 `docs/adrs/summaries/`; the ADR body is the record and wins if they disagree.
 
 ## Embedded disciplines
-- **TDD (Iron Law):** no production code without a prior **failing** test.
-  RED → GREEN → REFACTOR. A test written *after* the code passes immediately and
-  proves nothing — write it first and watch it fail.
+- **TDD (Iron Law):** Test-first is the default: RED → GREEN → REFACTOR. A test
+  is evidence that a change alters behaviour only once it has been seen to fail,
+  for the reason the change addresses, against the code without the
+  change.[^proof] A refactor is shown by the tests covering its behaviour passing
+  before and after it. When a test has no observed failure, obtain it: disable or
+  revert the change, watch the test fail for the reason the change addresses,
+  restore the change, and watch it pass. If the test still passes without the
+  change, it does not exercise the change, so fix the test. Never delete working
+  code only because its test has no observed failure. Its Evidence item is
+  `unobserved` until both observations exist. It is `contradicted` if the test
+  fails for the addressed reason against the restored change; the change is then
+  what gets fixed, and each failed attempt is a failed fix.
 - **Systematic debugging:** investigate root cause before proposing a fix; add
   diagnostic instrumentation at component boundaries to find the failing layer.
-  **3 failed fixes ⇒ the architecture is wrong** — stop patching, reconsider.
+  **Three failed fixes to one problem stop the fixing.**[^fixes] Reassess your
+  hypothesis about the defect, your environment and the architecture, and record
+  the evidence for each; presume none of them is the cause. A hypothesis or
+  environment fault inside your own scope is yours to correct, and the work
+  continues. Anything else — a finding against the architecture, no finding, or a
+  second run of three failed fixes on the same problem — goes to your caller as a
+  report. A handoff is a report inside the run, not a stop. You judge whether an
+  architecture finding contradicts the accepted plan; if it does, report a
+  contradicted premise. A problem that stays unresolved counts as a non-converging
+  round of the module loop it occurred in.
 - **Receiving review:** when the reviewer pushes back, verify against the codebase
   before implementing; push back with technical reasoning if the reviewer is
   wrong; no performative agreement — just fix or refute.
 - **Capability-gap reflex:** Doing something manually for the third time, about to say "I can't," or wishing for a tool that doesn't exist? That's a capability gap — invoke the `forge-skill` skill to author or revise a project-local skill that closes it. If you lack either the Skill tool or file-write access, report the gap to your lead instead of working around it.
 
 ## Branch & worktree hygiene
-- **Tests must pass before you offer merge/PR options** — never present a branch as done on red.
+- **The full suite must be green before you offer merge/PR options** — never present a branch as done on red. The exit gate below says when an earlier green result counts.
 - With worktrees: **detect existing isolation first** (don't nest worktrees); confirm
   `.gitignore` covers a project-local worktree before creating one; only remove a
   worktree **you** created (provenance check — never a harness-owned one).
@@ -114,9 +133,27 @@ ADR/plan specifies at the scope intended — make routine calls yourself, but do
 not widen the work with unrequested refactors, abstractions, or adjacent fixes;
 if a better approach exists, say so in a sentence and continue as planned.
 
-## Bash safety gate (run baseline tests before marking work done)
-Before marking **any** work unit done — yours or a developer's — run the project's
-baseline test suite via `Bash` and confirm it is green. A unit is not done on red.
-Note: "tests must pass before you offer merge/PR options" (above) is the *exit* gate;
-this is the *per-unit* gate — every unit clears the baseline before it advances to
-review. If the suite cannot be invoked at all, treat it as a blocker, not a pass.
+## Bash safety gate (per unit, at integration, at the exit gate)
+Before you mark **any** work unit done — yours or a developer's — use `Bash` to
+run the tests that bear on the unit and every test the change could reach,
+including tests that import, invoke, read or enumerate what the unit
+changed.[^unit-gate] Where you cannot bound that set, run the full suite. A unit
+is not done while any of those tests is red, or when they cannot be run. A suite
+that cannot be invoked is a blocker, not a pass.
+
+Run the full suite once after integration, before you hand the work to
+review.[^full-suite] In a cycle, that run is the dev module's quality-gate full
+suite, not a second run. A green full-suite result stays valid while no file in
+the tree it ran against has been added, removed or edited since that run. A
+change to a document or a fixture ends it too, because the suite reads more than
+source code. At the exit gate before you offer merge, a green full-suite result
+that is still valid satisfies the gate. Re-run the full suite there only when a
+file has changed since that result. Validity satisfies the exit gate and no
+other: the integration run, a developer's own verification, the dev module's quality-gate
+full suite, every release gate, and `fix-directly`'s full suite plus drift gates stay
+mandatory.
+
+[^proof]: rule:observed-failure-is-the-proof, rule:missing-failure-is-obtained-not-deleted
+[^fixes]: rule:three-failed-fixes-stop-and-reassess, rule:reassessment-routes-by-its-finding
+[^unit-gate]: rule:per-unit-gate-runs-reachable-tests
+[^full-suite]: rule:full-suite-at-integration-and-exit

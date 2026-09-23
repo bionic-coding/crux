@@ -193,16 +193,12 @@ Models are configured in `crux/scripts/crux/_config/llm_router_config.json`:
 - `claude-fable-5.1-medium` — Same SKU at medium effort; the default Fable council seat
 - `gemini-3.1-pro-preview` — 1M context, analysis
 - `gpt-6-astra` — OpenAI async text and visual council seat
-- `gpt-5.6-terra` — OpenAI synchronous council seat
+- `gpt-6-sol` — OpenAI synchronous council seat
 
-Fable is suspended on a DIFFERENT surface, and the two must not be confused. The
-agent-model catalog forbids `fable` as a value for the `model:` key in a crux agent
-file, because Claude Code cannot route it under a US-government suspension directive
-and silently falls back to the best available Opus. What is checkable here is the
-config: this router keeps its Fable seats, and it reaches Anthropic through the
-OpenRouter gateway rather than through Claude Code. What the directive does to that
-gateway path is not verified in this repo. If a council run ever returns Opus output from a Fable
-seat, that is the provider-side fallback, not this config.
+The Anthropic seat in the default councils runs on Fable: `claude-fable-5.1`
+for the async council and the sync arbiter, `claude-fable-5.1-medium` for the
+sync member. This router reaches Anthropic through the OpenRouter gateway, not
+through Claude Code.
 
 API keys are read via `crux_env.require(...)` from `~/.crux/env` (managed by `crux-env`).
 

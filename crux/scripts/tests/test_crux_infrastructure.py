@@ -130,6 +130,23 @@ class TestCruxInfrastructureImports(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json(), {"status": "ok"})
 
+    def test_server_chat_refuses_an_image_model(self):
+        """`/chat` returns only text, so an image model must be an error, not
+        an empty 200. The refusal fires before any credential read or request."""
+        try:
+            from crux.server import app
+            from fastapi.testclient import TestClient
+        except ImportError as exc:
+            self.skipTest(f"crux-infrastructure extra not installed: {exc}")
+
+        client = TestClient(app)
+        resp = client.post("/chat", json={"message": "draw a cat",
+                                          "model": "gpt-image-2.5-sunburst"})
+        self.assertNotEqual(resp.status_code, 200)
+        detail = resp.json().get("detail", "")
+        self.assertIn("gpt-image-2.5-sunburst", detail)
+        self.assertIn("image_generation", detail)
+
 
 class TestRenameInvariants(unittest.TestCase):
     """Source files must not retain legacy identifiers.

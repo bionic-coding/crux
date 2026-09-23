@@ -175,8 +175,11 @@ prompts:
       Land the approved change.
     prompt: |
       Implement the work units from the plan. Write the failing test first, watch
-      it fail, then make it pass — a test written after the code passes
-      immediately and proves nothing.
+      it fail, then make it pass. A test is evidence of a change only once it has
+      been seen to fail, for the reason the change addresses, against the code
+      without the change. If a test has no observed failure, disable the change,
+      watch the test fail for that reason, then restore the change and watch it
+      pass.
 
       Stay inside the declared blast radius and inside the approved scope. Record
       files changed, tests added or updated, and any unilateral decision with its
