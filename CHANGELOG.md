@@ -1,9 +1,15 @@
-<!-- generated-from: CHANGELOG.md@sha256:b62365823da3dd606a56010962492fb5a644e64f7405009b4f66dc0c5d18909f; model: claude-opus-5.5; date: 2026-09-23 -->
+<!-- generated-from: CHANGELOG.md@sha256:75771727129ef0caf7789ee392e72f96be144f8c68effd0089fc2ebf87f5e738; model: claude-opus-5.5; date: 2026-09-23 -->
 # Changelog
 
 All notable changes to crux. The format roughly follows [Keep a Changelog](https://keepachangelog.com/) and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+
+## [3.23.1] — 2026-09-23
+
+### Fixed
+
+- Restored two notes in the README's OpenCode setup section that were accidentally dropped in 3.23.0. One explains why populating both the plural and the legacy singular agent directory makes it unclear which copy is live. The other advises checking the OpenCode runner's version rather than its executable name.
 
 ## [3.23.0] — 2026-09-23
 
