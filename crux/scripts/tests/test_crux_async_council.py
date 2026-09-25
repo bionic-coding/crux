@@ -144,7 +144,7 @@ class AsyncCouncilSeatRequestTests(unittest.TestCase):
     def test_seat_pins_its_serving_provider(self):
         """The response-integrity control: each seat names the host it will
         accept, so the three seats cannot silently collapse onto one."""
-        ac = self._council(anthropic="claude-fable-5.1")
+        ac = self._council()
         self._run(
             lambda: ac._call_seat_async("anthropic", "Question?"),
             _content_body('{"decision": "REJECT", "confidence": 0.4, '
@@ -152,6 +152,8 @@ class AsyncCouncilSeatRequestTests(unittest.TestCase):
         )
         self.assertEqual(self.rec["payload"]["provider"],
                          {"only": ["anthropic"], "data_collection": "deny"})
+        self.assertEqual(self.rec["payload"]["model"], "anthropic/claude-opus-5.5")
+        self.assertEqual(self.rec["payload"]["reasoning_effort"], "xhigh")
 
     def test_default_openai_seat_calls_astra(self):
         ac = self._council()
@@ -217,6 +219,20 @@ class AsyncCouncilSeatRequestTests(unittest.TestCase):
         self.assertNotIn("reasoning_effort", self.rec["payload"])  # gateway default effort
         self.assertTrue(result.passed)
         self.assertEqual(result.model_name, "OpenAI-vision")
+
+    def test_default_anthropic_visual_seat_emits_xhigh_opus_request(self):
+        ac = self._council(cls_name="AsyncVisualCouncil")
+        result = self._run(
+            lambda: ac._analyze_seat_async("anthropic", "Anthropic-vision", "aGVsbG8=", "Inspect."),
+            _content_body('{"passed": true, "confidence": 0.8, '
+                          '"observations": "clean", "anomalies": []}'),
+        )
+        payload = self.rec["payload"]
+        self.assertEqual(payload["model"], "anthropic/claude-opus-5.5")
+        self.assertEqual(payload["reasoning_effort"], "xhigh")
+        self.assertEqual(payload["provider"],
+                         {"only": ["anthropic"], "data_collection": "deny"})
+        self.assertTrue(result.passed)
 
 
 @unittest.skipUnless(HAVE_HTTPX, "httpx not installed — run under uv")

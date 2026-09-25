@@ -86,8 +86,8 @@ agents:
     level: apex
     claude: claude-opus-5-5
     opencode: opus-latest
-  # reviewer: Codex override re-pointed from GPT-5.6 Sol to its successor,
-  # GPT-6 Sol, by owner instruction, 2026-09-22. Effort stays xhigh.
+  # reviewer: Claude inherits the apex cell, pinned to Opus 5.5. Codex
+  # overrides to GPT-6 Sol by owner instruction; effort stays xhigh.
   reviewer:
     level: apex
     opencode: sol-latest
@@ -129,7 +129,7 @@ agents:
 # effort for `gpt-6-sol`.
 levels:
   apex:
-    claude: fable
+    claude: claude-opus-5-5
     codex:
       model: gpt-6-astra
       reasoning_effort: high

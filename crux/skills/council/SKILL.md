@@ -173,9 +173,9 @@ from crux.council import council_vote, quick_council
 decision = council_vote(
     question="Should we use approach A or B?",
     context="Full context here",
-    models=["claude-fable-5.1-medium", "gemini-3.1-pro-preview"],
+    models=["claude-opus-5.5-xhigh", "gemini-3.1-pro-preview"],
     voting_method=VotingMethod.ARBITER,
-    arbiter="claude-fable-5.1",
+    arbiter="claude-opus-5.5-xhigh",
     tracer=None,  # optional Tracer instance
 )
 
@@ -183,22 +183,21 @@ decision = council_vote(
 answer = quick_council("Should we cache at the API or DB layer?")
 
 # Get a single model's opinion
-opinion = get_opinion("claude-fable-5.1-medium", "question", context="...")
+opinion = get_opinion("claude-opus-5.5-xhigh", "question", context="...")
 ```
 
 ## Model Config
 
 Models are configured in `crux/scripts/crux/_config/llm_router_config.json`:
-- `claude-fable-5.1` — Anthropic top tier; high reasoning effort (arbiter, deep analysis)
-- `claude-fable-5.1-medium` — Same SKU at medium effort; the default Fable council seat
+- `claude-opus-5.5-xhigh` — Anthropic council seats and arbiter at extra-high reasoning effort
+- `claude-opus-5.5` — Same SKU at high effort for release-document generation
 - `gemini-3.1-pro-preview` — 1M context, analysis
 - `gpt-6-astra` — OpenAI async text and visual council seat
 - `gpt-6-sol` — OpenAI synchronous council seat
 
-The Anthropic seat in the default councils runs on Fable: `claude-fable-5.1`
-for the async council and the sync arbiter, `claude-fable-5.1-medium` for the
-sync member. This router reaches Anthropic through the OpenRouter gateway, not
-through Claude Code.
+The Anthropic seat in the default councils runs on `claude-opus-5.5-xhigh`.
+The async text and visual councils, sync member, and sync arbiter use this entry.
+The router reaches Anthropic through the OpenRouter gateway.
 
 API keys are read via `crux_env.require(...)` from `~/.crux/env` (managed by `crux-env`).
 

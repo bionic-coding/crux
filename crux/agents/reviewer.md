@@ -2,7 +2,7 @@
 name: reviewer
 description: Use when the user says "review this code", "review the diff", "verify this is correct", "is this ready to ship", "security review", or a change authored by a *different* agent/session needs independent verification before it advances. Not for self-verifying your own work (that is the developer's own completion gate).
 tools: Read, Grep, Glob, Bash, Skill
-model: fable
+model: claude-opus-5-5
 maxTurns: 150
 effort: high
 skills: [prose-review, council, srde, forge-skill, log-work]

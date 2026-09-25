@@ -21,8 +21,8 @@ still times out under real load. This phase runs ONE seat at exactly those
 parameters and reports the wall-clock time against the deadline.
 
 The seat is the Anthropic one deliberately: `anthropic_top` resolves to
-claude-fable-5.1 pinned at effort HIGH, so it is the slowest of the three and the
-one that would breach the deadline first.
+claude-opus-5.5-xhigh pinned at effort XHIGH. It is the seat most likely to
+breach the deadline.
 
 Deliberately NOT named `test_*`: it spends money and needs the network, so it
 must never be swept up by `unittest discover` or `pytest`. Two independent gates
@@ -90,7 +90,7 @@ SEAT_ROLES = (("openai", "openai_top"),
               ("anthropic", "anthropic_top"),
               ("gemini", "google_top"))
 
-# Phase 2 runs the slowest seat: effort HIGH, so it breaches first if any does.
+# Phase 2 runs the xhigh Anthropic seat to test the deadline at its full effort.
 FULL_SIZE_SEAT = ("anthropic", "anthropic_top")
 
 # A real deliberation-shaped request. The council's own workload is a reasoned

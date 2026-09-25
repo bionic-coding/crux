@@ -316,7 +316,7 @@
       "Bash",
       "Skill"
     ],
-    "model": "fable",
+    "model": "claude-opus-5-5",
     "tags": [
       "agents",
       "review",

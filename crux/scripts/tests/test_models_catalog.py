@@ -180,7 +180,7 @@ class ShippedCatalogTests(unittest.TestCase):
             "historian":      ("sonnet", "glm-latest",    "gpt-6-sol",     "high"),
             "librarian":      ("sonnet", "glm-latest",    "gpt-6-sol",     "high"),
             "night-gardener": ("claude-opus-5-5", "opus-latest", "gpt-6-astra", "high"),
-            "reviewer":       ("fable",  "sol-latest",    "gpt-6-sol",     "xhigh"),
+            "reviewer":       ("claude-opus-5-5", "sol-latest", "gpt-6-sol", "xhigh"),
             "wayfinder":      ("sonnet", "glm-latest",    "gpt-6-sol",     "high"),
         }
         catalog = MC.load()
@@ -218,9 +218,8 @@ class ShippedCatalogTests(unittest.TestCase):
     def test_apex_uses_astra_while_flagship_keeps_sol_at_high_effort(self):
         catalog = MC.load()
         apex, flagship = catalog.levels["apex"], catalog.levels["flagship"]
-        # Apex runs Fable on Claude; flagship keeps Opus. The two tiers differ
-        # on every provider now, which is the point of having two.
-        self.assertEqual(apex.claude, "fable")
+        # Apex pins Opus 5.5 on Claude; flagship retains its family alias.
+        self.assertEqual(apex.claude, "claude-opus-5-5")
         self.assertEqual(flagship.claude, "opus")
         self.assertEqual(apex.codex.model, "gpt-6-astra")
         self.assertEqual(flagship.codex.model, "gpt-6-sol")
@@ -264,19 +263,19 @@ class ClaudeOverrideResolutionTests(unittest.TestCase):
 
     def test_an_override_wins_over_the_level_cell(self):
         catalog = MC.load()
-        self.assertEqual(catalog.levels["apex"].claude, "fable")
+        self.assertEqual(catalog.levels["apex"].claude, "claude-opus-5-5")
         for agent, value in sorted(CLAUDE_OVERRIDES.items()):
             with self.subTest(agent=agent):
                 self.assertEqual(catalog.agents[agent].level, "apex")
                 self.assertEqual(catalog.resolve(agent).claude, value)
 
-    def test_an_agent_without_an_override_resolves_from_its_level(self):
-        # The reviewer shares the apex level with both overridden agents and
-        # carries no `claude` key, so it keeps the level cell.
+    def test_reviewer_inherits_the_apex_opus_assignment(self):
         catalog = MC.load()
         self.assertIsNone(catalog.agents["reviewer"].claude)
-        self.assertEqual(catalog.resolve("reviewer").claude, "fable")
-        self.assertEqual(catalog.resolve("reviewer").claude, catalog.levels["apex"].claude)
+        self.assertEqual(catalog.levels["apex"].claude, "claude-opus-5-5")
+        self.assertEqual(catalog.resolve("reviewer").claude, "claude-opus-5-5")
+        self.assertEqual(catalog.resolve("reviewer").opencode, catalog.aliases["sol-latest"])
+        self.assertEqual(catalog.resolve("reviewer").codex.model, "gpt-6-sol")
 
     def test_removing_an_override_returns_the_agent_to_its_level_cell(self):
         # The same agent, with and without the key: the discriminating pair.
@@ -285,7 +284,7 @@ class ClaudeOverrideResolutionTests(unittest.TestCase):
             path = _catalog_copy(tmp, lambda t: _set_agent_claude(t, "commander", None))
             catalog = MC.load(catalog_path=path, agents_dir=_agents_fixture(tmp))
         self.assertIsNone(catalog.agents["commander"].claude)
-        self.assertEqual(catalog.resolve("commander").claude, "fable")
+        self.assertEqual(catalog.resolve("commander").claude, "claude-opus-5-5")
         self.assertEqual(catalog.resolve("night-gardener").claude, "claude-opus-5-5")
 
     def test_an_inherit_override_resolves_to_inherit(self):
@@ -295,18 +294,19 @@ class ClaudeOverrideResolutionTests(unittest.TestCase):
             catalog = MC.load(catalog_path=path, agents_dir=_agents_fixture(tmp))
         self.assertEqual(catalog.resolve("night-gardener").claude, "inherit")
 
-    def test_overrides_move_only_the_claude_column_for_all_ten_roles(self):
-        """The Codex and OpenCode matrix, pinned against the override-free catalog.
-
-        Stripping every `claude` key reproduces the catalog as it stood before
-        the override existed. Every role's Codex runtime and OpenCode model must
-        match across the two, and only the overridden agents' Claude value may
-        differ. The literal lineup above pins the same cells by value.
-        """
+    def test_apex_repoint_moves_only_reviewers_claude_assignment(self):
+        """Compare the prior apex cell with the new cell across all ten roles."""
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             before = MC.load(
-                catalog_path=_catalog_copy(tmp, _strip_claude_overrides),
+                catalog_path=_catalog_copy(
+                    tmp,
+                    lambda text: text.replace(
+                        "  apex:\n    claude: claude-opus-5-5\n",
+                        "  apex:\n    claude: fable\n",
+                        1,
+                    ),
+                ),
                 agents_dir=_agents_fixture(tmp),
             )
         after = MC.load()
@@ -320,7 +320,7 @@ class ClaudeOverrideResolutionTests(unittest.TestCase):
                 self.assertEqual(after.opencode_alias(agent), before.opencode_alias(agent))
                 if new.claude != old.claude:
                     changed_claude.add(agent)
-        self.assertEqual(changed_claude, set(CLAUDE_OVERRIDES))
+        self.assertEqual(changed_claude, {"reviewer"})
 
 
 class FailClosedTests(unittest.TestCase):

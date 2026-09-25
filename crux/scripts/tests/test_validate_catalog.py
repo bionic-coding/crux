@@ -947,16 +947,16 @@ class ModelsCatalogNegativeTests(unittest.TestCase):
             findings,
         )
 
-    def test_v6_resolves_an_agent_without_an_override_from_its_level(self):
+    def test_v6_resolves_the_reviewer_from_its_apex_level(self):
         with tempfile.TemporaryDirectory() as td:
             plugin = _plugin_fixture(Path(td))
-            _set_agent_model(plugin, "reviewer", "claude-opus-5-5")
+            _set_agent_model(plugin, "reviewer", "fable")
             findings = _rules(plugin)
         v6 = [f["error"] for f in findings if f["field"] == "V6"]
         self.assertEqual(
             v6,
-            ["agents/reviewer.md declares model='claude-opus-5-5' but its resolved Claude "
-             "Code value is 'fable' (level 'apex')"],
+            ["agents/reviewer.md declares model='fable' but its resolved Claude "
+             "Code value is 'claude-opus-5-5' (level 'apex')"],
             findings,
         )
 

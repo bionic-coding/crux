@@ -222,7 +222,7 @@
         "anthropic"
       ],
       "display_name": "Claude Fable 5.1",
-      "_note": "Fable 5.1 replaces Fable 5. OpenRouter id, context, output limit, pricing, reasoning efforts, and temperature omission verified 2026-09-03 against https://openrouter.ai/api/v1/models. Capability scores are inherited estimates, not Fable 5.1 measurements. Pins HIGH effort for anthropic_top, council_arbiter, and think_deep. The async text and visual councils and the sync arbiter resolve here.",
+      "_note": "Fable 5.1 replaces Fable 5. OpenRouter id, context, output limit, pricing, reasoning efforts, and temperature omission verified 2026-09-03 against https://openrouter.ai/api/v1/models. Capability scores are inherited estimates, not Fable 5.1 measurements. Pins HIGH effort for the parked think_deep role; the council and anthropic_top roles now resolve to Opus 5.5.",
       "effort": "high",
       "supports_temperature": false,
       "type": "text",
@@ -272,7 +272,7 @@
       "provider": "openrouter",
       "api_string": "anthropic/claude-fable-5.1",
       "display_name": "Claude Fable 5.1 (medium effort)",
-      "_note": "Fable 5.1 replaces Fable 5. OpenRouter id, context, output limit, pricing, reasoning efforts, and temperature omission verified 2026-09-03 against https://openrouter.ai/api/v1/models. Capability scores are inherited estimates, not Fable 5.1 measurements. Same API model as claude-fable-5.1, pinned to MEDIUM effort for the synchronous council_default seat.",
+      "_note": "Fable 5.1 replaces Fable 5. OpenRouter id, context, output limit, pricing, reasoning efforts, and temperature omission verified 2026-09-03 against https://openrouter.ai/api/v1/models. Capability scores are inherited estimates, not Fable 5.1 measurements. Same API model as claude-fable-5.1, pinned to MEDIUM effort; retained as a parked registry entry after the synchronous council moved to Opus 5.5.",
       "effort": "medium",
       "supports_temperature": false,
       "type": "text",
@@ -357,6 +357,58 @@
       "routing_hints": {
         "use_for": [
           "release_documents",
+          "nuanced_analysis",
+          "complex_reasoning"
+        ],
+        "avoid_for": [
+          "simple_tasks",
+          "high_volume"
+        ]
+      }
+    },
+    "claude-opus-5.5-xhigh": {
+      "provider": "openrouter",
+      "api_string": "anthropic/claude-opus-5.5",
+      "serving_providers": [
+        "anthropic"
+      ],
+      "display_name": "Claude Opus 5.5 (extra-high effort)",
+      "_note": "Same verified Opus 5.5 SKU and Anthropic serving provider as claude-opus-5.5, with XHIGH effort for the council seats, arbiter, and anthropic_top convenience role. The high-effort entry remains dedicated to release_docs.",
+      "effort": "xhigh",
+      "supports_temperature": false,
+      "type": "text",
+      "tier": "frontier_max",
+      "capabilities": {
+        "reasoning": 0.995,
+        "coding": 0.99,
+        "creative": 0.99,
+        "math": 0.98,
+        "vision": true,
+        "function_calling": true,
+        "structured_output": true,
+        "extended_thinking": true,
+        "extended_thinking_mode": "adaptive_only",
+        "agentic": true,
+        "computer_use": true,
+        "web_search": true
+      },
+      "context_window": 1000000,
+      "max_output_tokens": 128000,
+      "cost": {
+        "input_per_1m": 4.0,
+        "output_per_1m": 20.0,
+        "cached_input_per_1m": 0.2
+      },
+      "latency_profile": "medium",
+      "judge_eligible": true,
+      "judge_tier": 0,
+      "can_judge": [
+        "*"
+      ],
+      "routing_hints": {
+        "use_for": [
+          "council_member",
+          "council_arbiter",
           "nuanced_analysis",
           "complex_reasoning"
         ],
@@ -742,7 +794,7 @@
     "_comment": "Single source of truth for default model selection. String roles return one model, list roles return a council.",
     "google_top": "gemini-3.1-pro-preview",
     "google_fast": "gemini-3.5-flash",
-    "anthropic_top": "claude-fable-5.1",
+    "anthropic_top": "claude-opus-5.5-xhigh",
     "anthropic_balanced": "claude-opus-5",
     "anthropic_fast": "claude-sonnet-5",
     "anthropic_council": "claude-opus-5",
@@ -751,14 +803,14 @@
     "council_default": [
       "gpt-6-sol",
       "gemini-3.1-pro-preview",
-      "claude-fable-5.1-medium"
+      "claude-opus-5.5-xhigh"
     ],
     "council_code": [
       "gpt-6-sol",
       "claude-sonnet-5",
       "gemini-3.1-pro-preview"
     ],
-    "council_arbiter": "claude-fable-5.1",
+    "council_arbiter": "claude-opus-5.5-xhigh",
     "release_docs": "claude-opus-5.5",
     "code_review": "claude-opus-5",
     "vision": "gpt-6-sol",
@@ -773,5 +825,5 @@
       "gemini-3.1-pro-preview"
     ]
   },
-  "_changelog": "2026-09-22 (GPT-6): Register gpt-6-sol (pinned to the OpenAI serving provider), gpt-6-sol-low (effort low), gpt-6-luna and gpt-image-2.5-sunburst from the live OpenRouter catalog. Move openai_chat, think_medium, council_default[0], council_code[0], vision and recursive_improve[0] to gpt-6-sol. GPT-6 has no Terra, and no role moves to gpt-6-luna. openai_chat, think_medium and the OpenAI members of council_default and council_code now pin the OpenAI host and lose Amazon Bedrock as a fallback. gpt-5.6-sol, gpt-5.6-sol-low, gpt-5.6-terra, gpt-5.6-luna and gpt-image-2 are REMOVED as a deliberate compatibility break; they are never aliased to any GPT-6 SKU. gpt-image-2.5-sunburst returns an image with no text part, where the fused gpt-5.4-image-2 SKU returned both. gpt-6-sol-low, gpt-6-luna and gpt-image-2.5-sunburst have no reader and exist by owner instruction. gpt-6-astra is re-verified and openai_top stays on it. No effort pin and no council weight changes. The registry version is held at 2.1.0 because this patch bumps no version. | 2026-09-22: Register anthropic/claude-opus-5.5 ($4/$20 per 1M, high effort, pinned to the Anthropic serving provider) and add the release_docs role, which resolves to it; tools/generate-public-docs.py reads release_docs instead of anthropic_top. anthropic_top, think_deep, council_arbiter, council_default and every council seat and weight are unchanged; no claude-opus-5.5-medium entry is added. | 2026-09-04: Register openai/gpt-6-astra from the live OpenRouter catalog and move openai_top to Astra for async text and visual councils. Preserve the synchronous Terra seat and the separate Sol/low-effort entries. | 2.1.0 (2026-09-03): Upgrade the Fable council seats and shared Fable roles to claude-fable-5.1. Preserve high/medium effort pins. Verify model metadata against the live OpenRouter catalog; cached input is $0.25 per 1M tokens. | 2.0.0 (2026-08-26): OpenRouter is the single inference gateway (PB-0077). providers collapses to one openrouter entry (https://openrouter.ai/api/v1, Authorization: Bearer). Every model's provider is openrouter and its api_string is the verbatim OpenRouter id, pinned as-is and never normalized; the bare registry keys are UNCHANGED, so model_roles and every downstream reference need no edit. gpt-5.6-sol / gpt-5.6-sol-low pricing corrected to $2/$10 per 1M against the OpenRouter catalog. gemini-3-pro-image-preview-edit is FOLDED INTO gemini-3-pro-image-preview (OpenRouter serves one Nano Banana Pro slug for generation and editing) and gpt-image-2 is re-pointed at the fused SKU openai/gpt-5.4-image-2 (no standalone gpt-image-2 slug exists). claude-haiku-4-5-20251001 keeps its bare key but addresses anthropic/claude-haiku-4.5. The three council seats (gpt-5.6-sol, claude-fable-5, gemini-3.1-pro-preview) carry serving_providers, the provider.only allowlist that keeps the seats on three distinct serving hosts. openai_endpoint is DELETED from every entry — the gateway is OpenAI-compatible chat-completions only, and reasoning effort now rides the top-level reasoning_effort field. The eight reader-less blocks (judge_hierarchy, council_configurations, fallback_chains, routing_rules, pipelines, playbook_model_affinity, quality_metrics, recursive_improvement) are DELETED: nothing read them, and re-pinning them under renamed ids would be silent drift. performance_tracking is retained. | 1.5.0 (2026-07-24): Renamed the Anthropic Opus seat claude-opus-4-8 -> claude-opus-5 (Opus 5 released as the drop-in successor; identical $5/$25 per 1M pricing, cached $0.50, 1M context, 128K output, adaptive-only thinking that is now on by default). Every Opus routing seat now points at claude-opus-5: model_roles anthropic_balanced/anthropic_council/code_review/reflect/recursive_improve, judge_hierarchy, council_configurations, routing_rules, fallback chains, and pipelines (complex_refactor/documentation/architecture_decision/creative_generation reviewers). claude-fable-5 remains the flagship tier above Opus, and the sonnet/haiku cost tiers are unchanged. Pricing/context were carried over from Opus 4.8 (which Opus 5 matches) and are flagged for re-verification against a fresh anthropic-models-overview capture. Flagship hierarchy UNCHANGED: claude-fable-5 stays anthropic_top/council_arbiter/think_deep (Opus 5 kept in-place at the balanced/council/review seats). claude-opus-4-8 is REMOVED from the registry entirely — a fallback-only entry plus a `refusal_fallback` mapping were prototyped and then deliberately dropped before release because NO code read them: shipping a declarative-only mapping would have read as a live safety net that did not exist. Anthropic's server-side `fallbacks: \"default\"` beta is the real mechanism; wiring it is tracked as a follow-on. | 1.4.0 (2026-07-09): GPT-5.6 Sol/Sol-low/Terra/Luna is now the active OpenAI baseline (per PB-0037/PB-0038). GPT-5.5 and GPT-5.5-pro active identifiers were INTENTIONALLY REMOVED as part of this baseline switch — a deliberate compatibility break; they are NEVER aliased to any GPT-5.6 SKU. Imported Gemini 3.5 Flash (new model) and corrected Gemini 3.1 Pro (Preview) metadata/pricing (context_window, max_output_tokens, tiered cost, _pricing_note) from the production line's research-verified corrections (research/sources/gemini-api-pricing, gemini-3-1-pro-preview, gemini-3-5-flash); gemini-2.5-pro and gemini-2.5-flash (text) are retired in favor of these two across judge_hierarchy, council_configurations, routing_rules, and fallback_chains. claude-opus-4-8 and claude-sonnet-5 cross-verified against research/sources/anthropic-models-overview (2026-06-12); claude-sonnet-5 max_output_tokens corrected to 64000. GPT-5.6 SKU (Sol/Sol-low/Terra/Luna) cached_input_per_1m pricing was OMITTED — no authoritative local source exists for GPT-5.6 cache pricing — and each carries a Pricing UNVERIFIED note pending confirmation. claude-fable-5 and claude-fable-5-medium remain ACTIVE (not disabled) as the Anthropic flagship tier above Opus 4.8. Image models untouched."
+  "_changelog": "2026-09-25: Move the default async and synchronous Anthropic council seats and arbiter to a scoped Opus 5.5 xhigh entry; repoint anthropic_top and council_arbiter. Keep release_docs on its existing high-effort entry and think_deep on Fable. | 2026-09-22 (GPT-6): Register gpt-6-sol (pinned to the OpenAI serving provider), gpt-6-sol-low (effort low), gpt-6-luna and gpt-image-2.5-sunburst from the live OpenRouter catalog. Move openai_chat, think_medium, council_default[0], council_code[0], vision and recursive_improve[0] to gpt-6-sol. GPT-6 has no Terra, and no role moves to gpt-6-luna. openai_chat, think_medium and the OpenAI members of council_default and council_code now pin the OpenAI host and lose Amazon Bedrock as a fallback. gpt-5.6-sol, gpt-5.6-sol-low, gpt-5.6-terra, gpt-5.6-luna and gpt-image-2 are REMOVED as a deliberate compatibility break; they are never aliased to any GPT-6 SKU. gpt-image-2.5-sunburst returns an image with no text part, where the fused gpt-5.4-image-2 SKU returned both. gpt-6-sol-low, gpt-6-luna and gpt-image-2.5-sunburst have no reader and exist by owner instruction. gpt-6-astra is re-verified and openai_top stays on it. No effort pin and no council weight changes. The registry version is held at 2.1.0 because this patch bumps no version. | 2026-09-22: Register anthropic/claude-opus-5.5 ($4/$20 per 1M, high effort, pinned to the Anthropic serving provider) and add the release_docs role, which resolves to it; tools/generate-public-docs.py reads release_docs instead of anthropic_top. anthropic_top, think_deep, council_arbiter, council_default and every council seat and weight are unchanged; no claude-opus-5.5-medium entry is added. | 2026-09-04: Register openai/gpt-6-astra from the live OpenRouter catalog and move openai_top to Astra for async text and visual councils. Preserve the synchronous Terra seat and the separate Sol/low-effort entries. | 2.1.0 (2026-09-03): Upgrade the Fable council seats and shared Fable roles to claude-fable-5.1. Preserve high/medium effort pins. Verify model metadata against the live OpenRouter catalog; cached input is $0.25 per 1M tokens. | 2.0.0 (2026-08-26): OpenRouter is the single inference gateway (PB-0077). providers collapses to one openrouter entry (https://openrouter.ai/api/v1, Authorization: Bearer). Every model's provider is openrouter and its api_string is the verbatim OpenRouter id, pinned as-is and never normalized; the bare registry keys are UNCHANGED, so model_roles and every downstream reference need no edit. gpt-5.6-sol / gpt-5.6-sol-low pricing corrected to $2/$10 per 1M against the OpenRouter catalog. gemini-3-pro-image-preview-edit is FOLDED INTO gemini-3-pro-image-preview (OpenRouter serves one Nano Banana Pro slug for generation and editing) and gpt-image-2 is re-pointed at the fused SKU openai/gpt-5.4-image-2 (no standalone gpt-image-2 slug exists). claude-haiku-4-5-20251001 keeps its bare key but addresses anthropic/claude-haiku-4.5. The three council seats (gpt-5.6-sol, claude-fable-5, gemini-3.1-pro-preview) carry serving_providers, the provider.only allowlist that keeps the seats on three distinct serving hosts. openai_endpoint is DELETED from every entry — the gateway is OpenAI-compatible chat-completions only, and reasoning effort now rides the top-level reasoning_effort field. The eight reader-less blocks (judge_hierarchy, council_configurations, fallback_chains, routing_rules, pipelines, playbook_model_affinity, quality_metrics, recursive_improvement) are DELETED: nothing read them, and re-pinning them under renamed ids would be silent drift. performance_tracking is retained. | 1.5.0 (2026-07-24): Renamed the Anthropic Opus seat claude-opus-4-8 -> claude-opus-5 (Opus 5 released as the drop-in successor; identical $5/$25 per 1M pricing, cached $0.50, 1M context, 128K output, adaptive-only thinking that is now on by default). Every Opus routing seat now points at claude-opus-5: model_roles anthropic_balanced/anthropic_council/code_review/reflect/recursive_improve, judge_hierarchy, council_configurations, routing_rules, fallback chains, and pipelines (complex_refactor/documentation/architecture_decision/creative_generation reviewers). claude-fable-5 remains the flagship tier above Opus, and the sonnet/haiku cost tiers are unchanged. Pricing/context were carried over from Opus 4.8 (which Opus 5 matches) and are flagged for re-verification against a fresh anthropic-models-overview capture. Flagship hierarchy UNCHANGED: claude-fable-5 stays anthropic_top/council_arbiter/think_deep (Opus 5 kept in-place at the balanced/council/review seats). claude-opus-4-8 is REMOVED from the registry entirely — a fallback-only entry plus a `refusal_fallback` mapping were prototyped and then deliberately dropped before release because NO code read them: shipping a declarative-only mapping would have read as a live safety net that did not exist. Anthropic's server-side `fallbacks: \"default\"` beta is the real mechanism; wiring it is tracked as a follow-on. | 1.4.0 (2026-07-09): GPT-5.6 Sol/Sol-low/Terra/Luna is now the active OpenAI baseline (per PB-0037/PB-0038). GPT-5.5 and GPT-5.5-pro active identifiers were INTENTIONALLY REMOVED as part of this baseline switch — a deliberate compatibility break; they are NEVER aliased to any GPT-5.6 SKU. Imported Gemini 3.5 Flash (new model) and corrected Gemini 3.1 Pro (Preview) metadata/pricing (context_window, max_output_tokens, tiered cost, _pricing_note) from the production line's research-verified corrections (research/sources/gemini-api-pricing, gemini-3-1-pro-preview, gemini-3-5-flash); gemini-2.5-pro and gemini-2.5-flash (text) are retired in favor of these two across judge_hierarchy, council_configurations, routing_rules, and fallback_chains. claude-opus-4-8 and claude-sonnet-5 cross-verified against research/sources/anthropic-models-overview (2026-06-12); claude-sonnet-5 max_output_tokens corrected to 64000. GPT-5.6 SKU (Sol/Sol-low/Terra/Luna) cached_input_per_1m pricing was OMITTED — no authoritative local source exists for GPT-5.6 cache pricing — and each carries a Pricing UNVERIFIED note pending confirmation. claude-fable-5 and claude-fable-5-medium remain ACTIVE (not disabled) as the Anthropic flagship tier above Opus 4.8. Image models untouched."
 }

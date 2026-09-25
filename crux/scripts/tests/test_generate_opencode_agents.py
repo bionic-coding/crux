@@ -540,7 +540,7 @@ class CatalogResolutionTests(unittest.TestCase):
             "historian":      ("sonnet", "glm-latest",    "gpt-6-sol",     "high"),
             "librarian":      ("sonnet", "glm-latest",    "gpt-6-sol",     "high"),
             "night-gardener": ("claude-opus-5-5", "opus-latest", "gpt-6-astra", "high"),
-            "reviewer":       ("fable",  "sol-latest",    "gpt-6-sol",     "xhigh"),
+            "reviewer":       ("claude-opus-5-5", "sol-latest", "gpt-6-sol", "xhigh"),
             "wayfinder":      ("sonnet", "glm-latest",    "gpt-6-sol",     "high"),
         }
         self.assertEqual(set(expected), EXPECTED_AGENTS)

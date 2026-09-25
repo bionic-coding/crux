@@ -4,13 +4,13 @@ Every model resolves through one OpenAI-compatible gateway at OpenRouter
 (ADR-0087), so the shaping rules are now properties of ONE request builder
 rather than of three per-provider branches. What is locked in here:
 
-1. Reasoning-effort pinning — the two `claude-fable-5.1*` registry entries share
-   one api_string but pin different efforts (high vs medium for council seats),
-   and `gpt-6-sol-low` is the same effort-alias pattern on the OpenAI side.
+1. Reasoning-effort pinning — the Opus 5.5 registry entries share one API model
+   while councils use xhigh and release documents use high effort. Fable's
+   retained high and medium entries and `gpt-6-sol-low` use the same pattern.
    The pin rides the gateway's top-level `reasoning_effort` field, so no call
    depends on a provider-specific response branch.
-2. `supports_temperature: false` — the nine reject-set models (Fable 5.1 x2,
-   Opus 5, Sonnet 5, Opus 5.5, GPT-6 Astra, GPT-6 Sol, Sol-low and Luna) reject
+2. `supports_temperature: false` — the reject-set models (Fable 5.1 x2,
+   Opus 5, Sonnet 5, Opus 5.5 x2, GPT-6 Astra, Sol, Sol-low and Luna) reject
    the `temperature` param; the builder must omit it for them and keep sending it
    for models that accept it (Haiku 4.5). NOTE: Sonnet 5 REJECTS temperature —
    a behavior change from the retired Sonnet 4.6, which accepted it.
@@ -55,14 +55,14 @@ except ImportError:
 TEMPERATURE_REJECT_SET = (
     'claude-fable-5.1', 'claude-fable-5.1-medium', 'claude-opus-5',
     'claude-sonnet-5', 'gpt-6-sol', 'gpt-6-sol-low', 'gpt-6-luna',
-    'gpt-6-astra', 'claude-opus-5.5',
+    'gpt-6-astra', 'claude-opus-5.5', 'claude-opus-5.5-xhigh',
 )
 
 # Serving-provider slugs read from each seat's OpenRouter endpoints data
 # (Astra verified 2026-09-04). Three seats, three distinct hosts.
 COUNCIL_SEAT_SERVING_PROVIDERS = {
     'gpt-6-astra': ['openai'],
-    'claude-fable-5.1': ['anthropic'],
+    'claude-opus-5.5-xhigh': ['anthropic'],
     'gemini-3.1-pro-preview': ['google-ai-studio'],
 }
 
@@ -196,7 +196,7 @@ class Gpt6RoleAndRegistryTests(unittest.TestCase):
     def test_list_roles_carry_gpt_6_sol_first(self):
         expected = {
             'council_default': ['gpt-6-sol', 'gemini-3.1-pro-preview',
-                                'claude-fable-5.1-medium'],
+                                'claude-opus-5.5-xhigh'],
             'council_code': ['gpt-6-sol', 'claude-sonnet-5',
                              'gemini-3.1-pro-preview'],
             'recursive_improve': ['gpt-6-sol', 'claude-opus-5',
@@ -321,11 +321,8 @@ class Gpt6RoleAndRegistryTests(unittest.TestCase):
 
 
 @unittest.skipUnless(HAVE_HTTPX, "httpx not installed — run under uv")
-class ReleaseDocsRoleTests(unittest.TestCase):
-    """ADR-0127 point 6: release-document generation resolves through its own
-    router role, `release_docs`, independent of `anthropic_top`. The Claude
-    seats that keep Fable (`anthropic_top`, `think_deep`, `council_arbiter`)
-    and the sync `council_default` Anthropic member must not move."""
+class OpusRoutingTests(unittest.TestCase):
+    """Councils use Opus 5.5 at xhigh; release documents retain high effort."""
 
     @classmethod
     def setUpClass(cls):
@@ -336,35 +333,31 @@ class ReleaseDocsRoleTests(unittest.TestCase):
     def test_release_docs_role_resolves_to_opus_5_5(self):
         self.assertEqual(self.llm.get_default_model('release_docs'), 'claude-opus-5.5')
 
-    def test_fable_seats_are_unchanged(self):
-        self.assertEqual(self.llm.get_default_model('anthropic_top'), 'claude-fable-5.1')
+    def test_anthropic_top_routes_to_xhigh_opus(self):
+        self.assertEqual(self.llm.get_default_model('anthropic_top'), 'claude-opus-5.5-xhigh')
+        self.assertEqual(self.llm.get_default_model('council_arbiter'), 'claude-opus-5.5-xhigh')
         self.assertEqual(self.llm.get_default_model('think_deep'), 'claude-fable-5.1')
-        self.assertEqual(self.llm.get_default_model('council_arbiter'), 'claude-fable-5.1')
 
-    def test_sync_council_default_anthropic_seat_is_unchanged(self):
+    def test_sync_council_default_anthropic_seat_uses_xhigh_opus(self):
         self.assertEqual(
             list(self.llm.get_default_models('council_default')),
-            ['gpt-6-sol', 'gemini-3.1-pro-preview', 'claude-fable-5.1-medium'],
+            ['gpt-6-sol', 'gemini-3.1-pro-preview', 'claude-opus-5.5-xhigh'],
         )
         self.assertEqual(self.llm.get_default_model('anthropic_council'), 'claude-opus-5')
 
-    def test_async_council_and_weighted_vote_weights_are_unchanged(self):
+    def test_weighted_vote_follows_the_repointed_role(self):
         from crux.council.council import _get_model_weight, MODEL_WEIGHTS
         self.assertEqual(MODEL_WEIGHTS, {
             'anthropic_top': 1.5, 'anthropic_council': 1.5,
             'google_top': 1.3, 'openai_top': 1.4,
         })
-        # The weights key on roles, so the resolved model is what a vote sees:
-        # Fable keeps the anthropic_top weight, and Opus 5.5 earns none.
-        self.assertEqual(_get_model_weight('claude-fable-5.1'), 1.5)
+        self.assertEqual(_get_model_weight('claude-fable-5.1'), 1.0)
         self.assertEqual(_get_model_weight('claude-opus-5'), 1.5)
-        self.assertEqual(_get_model_weight('claude-opus-5.5'), 1.0)
+        self.assertEqual(_get_model_weight('claude-opus-5.5-xhigh'), 1.5)
 
-    def test_async_council_anthropic_seat_stays_on_fable(self):
-        # The async text council and its visual subclass share one config, and
-        # its Anthropic seat resolves through anthropic_top.
+    def test_async_text_and_visual_councils_use_xhigh_opus(self):
         from crux.council.async_council import AsyncCouncilConfig
-        self.assertEqual(AsyncCouncilConfig().anthropic_model, 'claude-fable-5.1')
+        self.assertEqual(AsyncCouncilConfig().anthropic_model, 'claude-opus-5.5-xhigh')
 
     def test_no_medium_effort_opus_5_5_entry_exists(self):
         self.assertNotIn('claude-opus-5.5-medium', self.cfg['models'])
@@ -376,14 +369,15 @@ class ReleaseDocsRoleTests(unittest.TestCase):
         self.assertEqual(list(cfg.serving_providers), ['anthropic'])
         self.assertFalse(cfg.supports_temperature)
 
-    def test_release_docs_is_the_only_new_role(self):
-        # No council role is added for Opus 5.5 (ADR-0127 postcondition).
-        for role, value in self.cfg['model_roles'].items():
-            if role.startswith('_'):
-                continue
-            names = value if isinstance(value, list) else [value]
-            if role != 'release_docs':
-                self.assertNotIn('claude-opus-5.5', names, f"{role} unexpectedly resolves opus-5.5")
+    def test_xhigh_variant_shares_the_opus_sku_and_provider(self):
+        cfg = self.llm.get_model_config('claude-opus-5.5-xhigh')
+        self.assertEqual(cfg.api_string, 'anthropic/claude-opus-5.5')
+        self.assertEqual(cfg.effort, 'xhigh')
+        self.assertEqual(list(cfg.serving_providers), ['anthropic'])
+        self.assertFalse(cfg.supports_temperature)
+
+    def test_release_docs_keeps_high_effort(self):
+        self.assertEqual(self.llm.get_model_config(self.llm.get_default_model('release_docs')).effort, 'high')
 
 
 @unittest.skipUnless(HAVE_HTTPX, "httpx not installed — run under uv")
@@ -465,7 +459,8 @@ class LlmRouterPayloadTests(unittest.TestCase):
         for model, effort in (('claude-fable-5.1', 'high'),
                               ('claude-fable-5.1-medium', 'medium'),
                               ('gpt-6-sol-low', 'low'),
-                              ('claude-opus-5.5', 'high')):
+                              ('claude-opus-5.5', 'high'),
+                              ('claude-opus-5.5-xhigh', 'xhigh')):
             with self.subTest(model=model):
                 payload = self._payload(model)
                 self.assertEqual(payload.get('reasoning_effort'), effort)
@@ -495,8 +490,31 @@ class LlmRouterPayloadTests(unittest.TestCase):
         payload = self._payload('claude-opus-5.5')
         self.assertEqual(payload.get('reasoning_effort'), 'high')
         self.assertNotIn('temperature', payload)
-        self.assertEqual(payload.get('provider'),
-                          {'only': ['anthropic'], 'data_collection': 'deny'})
+
+    def test_default_council_opus_request_pins_xhigh_and_anthropic_provider(self):
+        payload = self._payload('claude-opus-5.5-xhigh')
+        self.assertEqual(payload['model'], 'anthropic/claude-opus-5.5')
+        self.assertEqual(payload['reasoning_effort'], 'xhigh')
+        self.assertEqual(payload['provider'], {'only': ['anthropic'], 'data_collection': 'deny'})
+        self.assertNotIn('temperature', payload)
+
+    def test_sync_member_and_arbiter_emit_xhigh_opus_requests(self):
+        from crux.council import council
+        council.council_vote('Question?', tracer=mock.Mock())
+        self.assertEqual(len(self.captured), 4)
+        member_payload = self.captured[2][2]
+        arbiter_payload = self.captured[3][2]
+        for payload in (member_payload, arbiter_payload):
+            self.assertEqual(payload['model'], 'anthropic/claude-opus-5.5')
+            self.assertEqual(payload['reasoning_effort'], 'xhigh')
+            self.assertEqual(payload['provider'],
+                             {'only': ['anthropic'], 'data_collection': 'deny'})
+
+    def test_opus_convenience_helper_emits_opus_5_5_request(self):
+        self.llm.call_claude_opus('Question?')
+        payload = self.captured[-1][2]
+        self.assertEqual(payload['model'], 'anthropic/claude-opus-5.5')
+        self.assertEqual(payload['reasoning_effort'], 'xhigh')
 
     # -- serving-provider pinning -------------------------------------------
 

@@ -1,9 +1,15 @@
-<!-- generated-from: CHANGELOG.md@sha256:75771727129ef0caf7789ee392e72f96be144f8c68effd0089fc2ebf87f5e738; model: claude-opus-5.5; date: 2026-09-23 -->
+<!-- generated-from: CHANGELOG.md@sha256:21c1c105708d6dbcbf758ed0bf1de89f6d3698f4ff07b7dc377deb23a9a1c6e2; model: claude-opus-5.5; date: 2026-09-25 -->
 # Changelog
 
 All notable changes to crux. The format roughly follows [Keep a Changelog](https://keepachangelog.com/) and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+
+## [3.23.2] — 2026-09-25
+
+### Changed
+
+- Councils now use Claude Opus 5.5 at extra-high effort. Both the Claude reviewer and `anthropic_top` now select Opus 5.5.
 
 ## [3.23.1] — 2026-09-23
 
