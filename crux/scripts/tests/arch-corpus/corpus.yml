@@ -111,8 +111,19 @@
 #           ...                          # populated (see below)
 #
 # `packages` is the set the RESOLVED pack's package detection reports. Package
-# detection is landed for the python pack alone, so every other pack reports the
-# empty list — that is a statement about the pack, not about the repository.
+# detection is landed for the python pack and the swift pack; every other pack
+# reports the empty list — that is a statement about the pack, not about the
+# repository. The swift pack reports its containers by repo-relative marker
+# path: every `Package.swift` and every `*.xcodeproj` holding `project.pbxproj`.
+#
+# `facts:` (optional, ADR-0129 clause 9(a)) names a hashed expectations file,
+# `{path: expectations/<name>.yml, sha256: <64 hex>}`. The file lists facts
+# written before the pack was implemented, each `must-render`,
+# `limitation-expected` or `out-of-scope`. `test_arch_facts.py` holds the digest
+# to the file's bytes and checks every fact against the entry's committed
+# goldens, so editing a facts file is this reviewed edit plus a recorded
+# amendment. Floors on an entry with `facts:` count in the pack's own units:
+# model types, interface-shaped rows and in-tree dependency pairs.
 #
 # `because:` is required on every `stubbed` expectation and must name one of two
 # things: a surface the repository does not have, or an open follow-on probe.
@@ -759,3 +770,108 @@ repos:
           because: >-
             A surface the repository does not have — no crux documentation tree,
             so no ADR index to project.
+
+  # ── swift ─────────────────────────────────────────────────────────────────
+  # The package half of the Swift acceptance gate. The app half (below,
+  # NetNewsWire) lands with the Xcode project reader per ADR-0130 clause 18.
+  - name: swift-argument-parser
+    pack: swift
+    url: https://github.com/apple/swift-argument-parser
+    sha: cdc5f0c6e836de848699ae11f6480f2d99ac5ef1
+    license: Apache-2.0
+    why: >-
+      Apple's command-line argument parser: one literal `Package.swift` with
+      21 targets across library, executable, test and command-plugin kinds, 26
+      inter-target dependencies, public protocols with requirements, and ten
+      `@main` declarations. Two executable targets are appended under
+      `#if os(macOS)`, the manifest's one non-literal construct.
+    expect:
+      pack: swift
+      packages: [Package.swift]
+      facts:
+        path: expectations/swift-argument-parser.yml
+        sha256: 78e94ed254d6ca492a57a9c07ebfc9257273cac6d4d5ceb9326b776915febf9d
+      concerns:
+        data-model:
+          populated: {min_entities: 11}
+          because: >-
+            11 is the facts file's must-render model types. The rendered table
+            holds every struct, enum, class and actor the walk reaches, test
+            sources included, so the count far exceeds the floor.
+        api-surface:
+          populated: {min_entities: 27}
+          because: >-
+            27 is the facts file's must-render public symbols, protocol
+            requirements and `@main` declarations: 14 + 3 + 10. The rendered
+            interface table holds every public, package or open declaration and
+            every protocol.
+        module-graph:
+          populated: {min_entities: 24}
+          because: >-
+            24 is the distinct in-tree pairs the facts file's must-render
+            target dependencies name. The two targets appended under
+            `#if os(macOS)` draw their edges too, as conditional rows covered by
+            the manifest's `non-literal-manifest` line, so the graph exceeds
+            the floor.
+        decision-index:
+          stubbed: {reason: precondition_missing}
+          because: >-
+            A surface the repository does not have — no crux documentation tree,
+            so no ADR index to project.
+
+  - name: netnewswire
+    pack: swift
+    url: https://github.com/Ranchero-Software/NetNewsWire
+    sha: b4361413fc1850110f9f42652f0f84e7a51e9d64
+    license: MIT
+    why: >-
+      The pinned Apple app half of the Swift acceptance gate (ADR-0130 clause
+      18): a real, maintained multi-platform RSS reader, one `NetNewsWire.xcodeproj`
+      at the repository root plus 17 `Modules/*/Package.swift` local packages it
+      draws dependency edges to. Classic Sources-phase membership, folder-synced
+      membership with exception sets, remote and local package-product
+      dependencies, and `@main` declarations owned by more than one target are
+      all exercised by this one checkout, per this entry's facts file.
+    expect:
+      pack: swift
+      packages: [Modules/Account/Package.swift, Modules/ActivityLog/Package.swift,
+                 Modules/Articles/Package.swift, Modules/ArticlesDatabase/Package.swift,
+                 Modules/CloudKitSync/Package.swift, Modules/ErrorLog/Package.swift,
+                 Modules/FeedFinder/Package.swift, Modules/HTMLMetadata/Package.swift,
+                 Modules/Images/Package.swift, Modules/NewsBlur/Package.swift,
+                 Modules/RSCore/Package.swift, Modules/RSDatabase/Package.swift,
+                 Modules/RSParser/Package.swift, Modules/RSTree/Package.swift,
+                 Modules/RSWeb/Package.swift, Modules/Secrets/Package.swift,
+                 Modules/SyncDatabase/Package.swift, NetNewsWire.xcodeproj]
+      facts:
+        path: expectations/netnewswire.yml
+        sha256: e27a3b177c7b4043e4d7dde7fb5baf1d9cca05add3792e33623e6c5f0bffe3fd
+      concerns:
+        data-model:
+          populated: {min_entities: 15}
+          because: >-
+            15 is ADR-0129 clause 6's unit (model types) as a floor over the
+            facts file's must-render data-model facts; the rendered table
+            carries every struct, enum, class and actor the walk reaches
+            across the app targets and every local package, so the count far
+            exceeds the floor.
+        api-surface:
+          populated: {min_entities: 35}
+          because: >-
+            35 is ADR-0129 clause 6's unit (interface-shaped rows) as a floor
+            over the facts file's must-render api-surface facts: public
+            symbols, protocol requirements and `@main` declarations across
+            the app targets and every local package.
+        module-graph:
+          populated: {min_entities: 45}
+          because: >-
+            45 is ADR-0129 clause 6's unit (in-tree dependency pairs) as a
+            floor over the facts file's must-render module-graph facts:
+            targets, target dependencies and package dependencies, including
+            the local-package edges the Xcode project draws to `Modules/*`.
+        decision-index:
+          stubbed: {reason: precondition_missing}
+          because: >-
+            A surface the repository does not have. It carries no crux
+            documentation tree, so there is no ADR index to project. True of
+            every corpus repository.

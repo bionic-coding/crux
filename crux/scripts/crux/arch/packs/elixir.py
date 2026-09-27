@@ -413,10 +413,10 @@ def _elixir_ts_parser():
 
     The import is inside the function, deliberately. The core imports every
     pack module to read its registry, so a module-scope `import tree_sitter`
-    would make a python, ruby, node or crux derive fail on a machine with no
-    Elixir grammar — the four packs that declare no ELIXIR parser, consult none,
-    and record none in the provenance manifest. (Each declares `yaml`, and ruby
-    and node each declare their own grammar; the scoping word is what makes this
+    would make a python, ruby, node, crux or swift derive fail on a machine with
+    no Elixir grammar — the five packs that declare no ELIXIR parser, consult
+    none, and record none in the provenance manifest. (Each declares `yaml`, and
+    ruby, node and swift each declare their own grammar; the scoping word is what makes this
     sentence true, exactly as `packs/ruby.py` and `packs/node.py` scope theirs.) `core.resolve_declared_parsers`
     has already refused, before any extraction, if the grammar is absent for a
     pack that DOES declare it, so reaching here means the import resolves.
@@ -1732,6 +1732,11 @@ def extract_elixir_module_graph(root: Path, docs_dir: str) -> tuple[str, dict]:
     if notes:
         out += ["## Residuals", ""] + [f"- {n}" for n in notes] + [""]
     return _canon(out), sources
+
+#: Empty: the core's marker scan prunes no directory from this pack's own
+#: `detect` calls, so this pack's marker semantics are unchanged.
+DETECT_EXCLUDE: frozenset[str] = frozenset()
+
 
 def detect(root: Path) -> DetectResult:
     """The elixir stack detector (ADR-0096 clause 6/12).

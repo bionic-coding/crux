@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 # /// script
-# requires-python = ">=3.11"
+# requires-python = ">=3.13"
 # dependencies = [
 #     "httpx>=0.27",
 #     "pyyaml==6.0.3",
 #     "tree-sitter==0.26.0",
 #     "tree-sitter-elixir==0.3.5",
 #     "tree-sitter-ruby==0.23.1",
+#     "tree-sitter-swift==0.7.3",
 #     "tree-sitter-typescript==0.23.2",
 # ]
 # ///
@@ -32,7 +33,7 @@ overlay, and removes an overlay file that no longer differs.
 
 The dependency set mirrors `crux/scripts/derive-arch.py`: httpx because
 importing `crux.arch` pulls the eager package `__init__`, pyyaml because the
-frontmatter parser it selects decides the spine bytes, and the four tree-sitter
+frontmatter parser it selects decides the spine bytes, and the five tree-sitter
 lines because the elixir, node and ruby packs declare the input class `parser`
 (ADR-0096 clause 1) and those grammars decide the routes seven corpus
 repositories render. Mirroring is required, not tidy: derive twice with two

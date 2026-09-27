@@ -763,7 +763,15 @@ class TestExtractCodeDocsWiring(CruxConfigTestCase):
             "--dry-run", "--verbose",
             cwd=repo_a,
         )
-        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        # ADR-mandated (ADR-0131 clause 14 D4): drift means "a write would change
+        # a byte". repo_b has no code/ output yet, so a write would create
+        # index.md and _meta/manifest.json: the dry run reports drift and exits
+        # 1, where it used to exit 0 on an empty manifest diff. The assertion this
+        # test exists for is the repo_root one below.
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertTrue(payload["drift"])
+        self.assertTrue(payload["index_drift"])
         self.assertIn(f"repo_root={repo_b.resolve()}", proc.stderr)
         self.assertNotIn(f"repo_root={repo_a.resolve()}", proc.stderr)
 

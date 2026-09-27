@@ -1,9 +1,39 @@
-<!-- generated-from: CHANGELOG.md@sha256:21c1c105708d6dbcbf758ed0bf1de89f6d3698f4ff07b7dc377deb23a9a1c6e2; model: claude-opus-5.5; date: 2026-09-25 -->
+<!-- generated-from: CHANGELOG.md@sha256:ef1f552b7c339c29d1731920a5284b9b9a93bc88d444028a9761bd4d06526af5; model: claude-opus-5.5; date: 2026-09-27 -->
 # Changelog
 
 All notable changes to crux. The format roughly follows [Keep a Changelog](https://keepachangelog.com/) and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+
+## [3.24.1] — 2026-09-27
+
+### Changed
+
+- This release does not change how the plugin behaves. In the development repository, the release checks now run the plugin's test suite in parallel, which cuts release validation time roughly threefold. The full suite still passes with the same results on Python 3.13 and 3.14.
+
+## [3.24.0] — 2026-09-26
+
+### Added
+
+- **Swift stack pack for the architecture map.** It covers Apple apps and the Swift packages they use as dependencies and local modules, rendering targets, their dependencies, model types, interfaces and `@main` entry declarations. It reads Swift sources, `Package.swift` manifests and Xcode projects without running any Swift toolchain.
+- **Xcode project reading in the Swift pack.** Each target renders with its product type, its target and package-product dependencies, and each `.swift` file's membership as the project file declares it. A `@main` row names every target that compiles its file. The reader executes nothing. An XcodeGen or Tuist manifest with no committed project renders as missing input, and a conditional build setting renders as a `conditional-setting` residual.
+- **`extract code docs` now handles Python.** A new `python` extractor key reads sources statically through Griffe, pinned to `griffelib==2.3.0` and run under `uv run --no-config`. It never imports or runs target code, installs the target's dependencies, or executes documentation examples. Module, class, function and method docstrings render with their signatures.
+- **`include_private` for the Python extractor.** It defaults to on and is the only extra key the extractor honors, alongside `extractor` and `glob`. Any other key at that level refuses the run. When `include_private` is on, a `def` or `class` nested inside a function is documented under a qualified name containing a `<locals>` segment.
+- **Two new refusals in the `extract-code-docs` dispatcher, for every language key.** It refuses an output root that contains Markdown but no `_meta/manifest.json` with a `pages` list proving the dispatcher wrote it. It also refuses an extractor name that isn't a module shipped with the plugin. Both refusals happen before any write and name the offending output root or extractor.
+- **Bounded Xcode project reading in the Swift pack.** The pack now caps the Xcode project reading it does for one architecture file. Past the bound, later project references are skipped, and a single `scan-cap` residual states the bound.
+- **UTF-16 surrogate pairs in project files.** `\U` escapes that spell a surrogate pair now render as the single character they encode. A lone or reversed surrogate renders the project as `project-unreadable` (`malformed`). A surrogate in a `Package.swift` `\u{…}` escape renders `non-literal-manifest`. Neither stops the derive.
+- **Symlink escapes.** A classic member or exception path that passes through a symlink resolving outside the checkout now renders `path-escape`, the same residual as a lexical escape. A `/Localized/` entry whose `.lproj` directory is such a symlink renders `unresolved-reference` instead.
+
+### Changed
+
+- **Breaking: architecture derives now require Python 3.13 or later (previously 3.11).** `uv run` selects an installed 3.13+ interpreter, or downloads one if none is installed and uv's Python downloads are enabled. An interpreter forced via `--python` or `UV_PYTHON` still takes precedence: uv warns and runs the derive on it, even if it is older than 3.13.
+- **`tree-sitter-swift` on every architecture derive.** Every derive now installs the `tree-sitter-swift` wheel, regardless of the project's stack. On platforms without a published wheel, the grammar is built from source, which requires a C compiler.
+- **Write scoping in `extract-code-docs`.** A `--lang` run now writes and prunes only the pages, metadata rows and provenance block owned by its own language key, leaving everything else untouched. The page index lists only pages the run wrote or preserved.
+- **Drift reporting in `extract-code-docs`.** `--dry-run` now reports edited, missing or unexpected pages. It reports index or provenance drift separately from page-content differences.
+
+### Known limitations
+
+- **Swift pack parse time is not bounded.** A file that repeats blocks of type declarations the pinned grammar fails to parse can take parse time that grows quadratically with its size. A parse timeout is planned, which would add a new outcome for files whose parse times out.
 
 ## [3.23.2] — 2026-09-25
 

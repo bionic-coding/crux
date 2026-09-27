@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 # /// script
-# requires-python = ">=3.11"
+# requires-python = ">=3.13"
 # dependencies = [
 #     "httpx>=0.27",
 #     "pyyaml==6.0.3",
 #     "tree-sitter==0.26.0",
 #     "tree-sitter-elixir==0.3.5",
 #     "tree-sitter-ruby==0.23.1",
+#     "tree-sitter-swift==0.7.3",
 #     "tree-sitter-typescript==0.23.2",
 # ]
 # ///
@@ -38,9 +39,10 @@
 # so the dependency that decides the parse branch belongs in the dependency
 # list.
 #
-# The four `tree-sitter` lines are pinned for the same reason as `pyyaml` and
-# under ADR-0096 clause 1: the elixir pack's api-surface concern declares the
-# input class `parser`, and the grammar is what decides the routes it renders.
+# The five `tree-sitter` lines are pinned for the same reason as `pyyaml` and
+# under ADR-0096 clause 1: concerns of the ruby, node, elixir and swift packs
+# declare the input class `parser`, and each grammar decides what its pack
+# renders.
 # A machine that cannot resolve a declared grammar takes clause 2's environment
 # lane — exit 2 with nothing written — rather than a degraded spine, so the
 # canonical `uv run` invocation has to supply it. The pins are EXACT, not

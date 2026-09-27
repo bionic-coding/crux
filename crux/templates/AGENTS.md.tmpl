@@ -437,7 +437,7 @@ code:
     <language>:
       extractor: <plugin-name>     # matches scripts/extractors/<name>.py
       glob: "<glob>"               # string or list of strings
-      options: {}                  # per-language options
+      include_private: true        # python only; any other key refuses the python run
 
 research:
   refresh_interval_days: 90        # source-staleness threshold for refresh-research-sources
@@ -629,7 +629,7 @@ staleness clock on a `models.yml` `verified:` date is the current member. Read
 `warnings` when reporting validator state; a run with `warnings` non-empty and exit 0
 is a passing run with something worth looking at, not a failure.
 
-Same exit-code semantics as `${CRUX_PLUGIN_ROOT}/scripts/extract-code-docs.py --dry-run`. The two scripts are sibling validators.
+Same exit-code semantics as `uv run --no-config "${CRUX_PLUGIN_ROOT}/scripts/extract-code-docs.py" --dry-run`. The two scripts are sibling validators.
 
 ## 8. The code-doc model is regenerative
 

@@ -26,7 +26,9 @@ import importlib
 import json
 import sys
 import tempfile
+import types
 import unittest
+import unittest.mock
 from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parents[1]      # crux/scripts
@@ -499,6 +501,122 @@ class RequirementsTxtMarkerTests(_RepoCase):
         self.assertIn("requirements.txt", pack._PYTHON_MARKERS)
 
 
+class DetectExcludeSeamTests(_RepoCase):
+    """`DETECT_EXCLUDE` is a REQUIRED pack attribute, and `_scan_candidates`
+    never calls a pack's `detect` on a directory whose repo-relative path has a
+    component that pack's own exclusion set names."""
+
+    _FAKE_NAME = "fakepack"
+
+    def _install_fake_pack(self, module: types.SimpleNamespace):
+        """Register `module` as pack `_FAKE_NAME`, restored on test teardown."""
+        real_pack_module = core._pack_module
+
+        def fake_pack_module(name):
+            if name == self._FAKE_NAME:
+                return module
+            return real_pack_module(name)
+
+        patches = [
+            unittest.mock.patch.object(core, "_pack_module", fake_pack_module),
+            unittest.mock.patch.object(
+                core, "PACK_NAMES", core.PACK_NAMES + (self._FAKE_NAME,)
+            ),
+        ]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+
+    def _recording_detect(self, calls: list):
+        def fake_detect(directory):
+            calls.append(directory)
+            return core.DetectResult(matched=False)
+        return fake_detect
+
+    def test_a_seeded_exclusion_prunes_the_named_directory(self):
+        calls: list = []
+        module = types.SimpleNamespace(
+            DETECT_EXCLUDE=frozenset({"Vendored", "*.bundle"}),
+            detect=self._recording_detect(calls),
+        )
+        self._install_fake_pack(module)
+        self.write("Vendored/inner/marker.txt", "x")
+        self.write("Sibling/inner/marker.txt", "x")
+
+        core._scan_candidates(self.root)
+
+        visited = {p.relative_to(self.root).as_posix() for p in calls if p != self.root}
+        self.assertNotIn("Vendored", visited, "detect ran inside the excluded directory")
+        self.assertNotIn("Vendored/inner", visited,
+                          "detect ran inside a descendant of the excluded directory")
+        self.assertIn("Sibling", visited, "detect did not run at a sibling directory")
+        self.assertIn("Sibling/inner", visited)
+
+    def test_name_suffix_matching_prunes_a_suffixed_directory(self):
+        calls: list = []
+        module = types.SimpleNamespace(
+            DETECT_EXCLUDE=frozenset({"*.xcodeproj"}),
+            detect=self._recording_detect(calls),
+        )
+        self._install_fake_pack(module)
+        self.write("App.xcodeproj/project.pbxproj", "x")
+        self.write("App/main.swift", "x")
+
+        core._scan_candidates(self.root)
+
+        visited = {p.relative_to(self.root).as_posix() for p in calls if p != self.root}
+        self.assertNotIn("App.xcodeproj", visited)
+        self.assertIn("App", visited)
+
+    def test_matching_is_against_the_repo_relative_path_only(self):
+        """A repository whose ABSOLUTE path contains a component equal to an
+        excluded name must still detect at the root and at an unrelated child —
+        the exclusion set names REPO-RELATIVE components, never the absolute
+        path a temp directory happens to sit under."""
+        outer = tempfile.TemporaryDirectory()
+        self.addCleanup(outer.cleanup)
+        root = Path(outer.name) / "Pods"
+        root.mkdir()
+        (root / "App").mkdir()
+        (root / "App" / "main.swift").write_text("x", encoding="utf-8")
+
+        calls: list = []
+        module = types.SimpleNamespace(
+            DETECT_EXCLUDE=frozenset({"Pods"}),
+            detect=self._recording_detect(calls),
+        )
+        self._install_fake_pack(module)
+
+        core._scan_candidates(root)
+
+        self.assertIn(root, calls,
+                       "the root's own absolute path containing 'Pods' excluded it")
+        self.assertIn(root / "App", calls,
+                       "'App' has no component equal to 'Pods' and must be scanned")
+
+    def test_existing_packs_declare_an_empty_exclude_set(self):
+        for name in ("crux", "python", "ruby", "node", "elixir"):
+            with self.subTest(pack=name):
+                self.assertEqual(core._pack_detect_exclude(name), frozenset())
+
+    def test_a_missing_detect_exclude_attribute_is_an_error(self):
+        module = types.SimpleNamespace(detect=lambda d: core.DetectResult(matched=False))
+        self._install_fake_pack(module)
+        with self.assertRaises((AttributeError, TypeError)):
+            core._pack_detect_exclude(self._FAKE_NAME)
+        with self.assertRaises((AttributeError, TypeError)):
+            core._scan_candidates(self.root)
+
+    def test_a_non_frozenset_detect_exclude_is_an_error(self):
+        module = types.SimpleNamespace(
+            DETECT_EXCLUDE={"Vendored"},   # a plain set, not a frozenset
+            detect=lambda d: core.DetectResult(matched=False),
+        )
+        self._install_fake_pack(module)
+        with self.assertRaises((AttributeError, TypeError)):
+            core._pack_detect_exclude(self._FAKE_NAME)
+
+
 class ThisRepositoryTests(unittest.TestCase):
     """The one real repository these tests may read: this checkout."""
 
@@ -506,6 +624,143 @@ class ThisRepositoryTests(unittest.TestCase):
         repo_root = SCRIPTS.parents[1]
         self.assertEqual(core.detect_stack(repo_root, None), "crux")
         self.assertIsNone(core.resolve_stack(repo_root, None).ambiguity)
+
+
+_PBX = "// !$*UTF8*$!\n{\n}\n"
+_MANIFEST = ('// swift-tools-version:5.9\nimport PackageDescription\n\n'
+             'let package = Package(name: "Kit", targets: [.target(name: "Kit")])\n')
+_CORPUS_CACHE = SCRIPTS / "tests" / "arch-corpus" / ".cache"
+_FETCH_HINT = ("the pinned Swift corpus checkout is absent — run "
+               "`uv run python3 crux/scripts/tests/arch-corpus/fetch.py`")
+
+
+class SwiftResolutionTests(_RepoCase):
+    """ADR-0129 clause 3: the eight resolution postconditions and the marker
+    negatives, one test each."""
+
+    def xcodeproj(self, rel: str) -> None:
+        self.write(f"{rel}/project.pbxproj", _PBX)
+
+    def test_pinned_swift_corpus_trees_resolve_to_swift(self):
+        pins = {"netnewswire": "b4361413fc1850110f9f42652f0f84e7a51e9d64",
+                "swift-argument-parser": "cdc5f0c6e836de848699ae11f6480f2d99ac5ef1"}
+        for name, sha in pins.items():
+            tree = _CORPUS_CACHE / name
+            with self.subTest(repo=name):
+                head = tree / ".git" / "HEAD"
+                if not head.is_file():
+                    self.skipTest(f"{name}: {_FETCH_HINT}")
+                self.assertEqual(head.read_text().strip(), sha)
+                resolution = core.resolve_stack(tree, None)
+                self.assertEqual(resolution.pack_name, "swift")
+                self.assertIsNone(resolution.ambiguity)
+
+    def test_synthetic_app_and_package_shapes_resolve_to_swift(self):
+        self.xcodeproj("App.xcodeproj")
+        self.write("App.xcodeproj/project.xcworkspace/contents.xcworkspacedata", "<Workspace/>")
+        self.write("Modules/Kit/Package.swift", _MANIFEST)
+        self.assertEqual(core.detect_stack(self.root, None), "swift")
+
+    def test_root_package_json_beats_a_depth_two_package_swift(self):
+        self.write("package.json", "{}")
+        self.write("native/kit/Package.swift", _MANIFEST)
+        self.assertEqual(core.detect_stack(self.root, None), "node")
+
+    def test_react_native_shape_resolves_to_node(self):
+        self.write("package.json", "{}")
+        self.xcodeproj("ios/App.xcodeproj")
+        self.assertEqual(core.detect_stack(self.root, None), "node")
+
+    def test_root_package_swift_beats_a_depth_two_package_json(self):
+        self.write("Package.swift", _MANIFEST)
+        self.write("web/app/package.json", "{}")
+        self.assertEqual(core.detect_stack(self.root, None), "swift")
+
+    def test_co_located_package_swift_and_package_json_are_ambiguous(self):
+        self.write("Package.swift", _MANIFEST)
+        self.write("package.json", "{}")
+        resolution = core.resolve_stack(self.root, None)
+        self.assertEqual(resolution.pack_name, core.STUB_PACK_NAME)
+        self.assertEqual(resolution.ambiguity.candidates, ("node", "swift"))
+        self.assertEqual(resolution.ambiguity.markers["swift"], ("Package.swift",))
+
+    def test_co_located_xcodeproj_and_gemfile_are_ambiguous(self):
+        self.xcodeproj("App.xcodeproj")
+        self.write("Gemfile", 'source "https://rubygems.org"\n')
+        resolution = core.resolve_stack(self.root, None)
+        self.assertEqual(resolution.pack_name, core.STUB_PACK_NAME)
+        self.assertEqual(resolution.ambiguity.candidates, ("ruby", "swift"))
+
+    def test_xcodeproj_with_podfile_resolves_to_swift(self):
+        self.xcodeproj("App.xcodeproj")
+        self.write("Podfile", "platform :ios, '17.0'\n")
+        self.assertEqual(core.detect_stack(self.root, None), "swift")
+
+    def test_embedded_project_xcworkspace_is_not_a_marker(self):
+        self.xcodeproj("App.xcodeproj")
+        self.write("App.xcodeproj/project.xcworkspace/contents.xcworkspacedata", "<Workspace/>")
+        markers = core.detect_candidates(self.root)["swift"]
+        self.assertEqual(markers, ("App.xcodeproj",))
+
+    def test_xcodeproj_without_pbxproj_is_not_a_marker(self):
+        (self.root / "App.xcodeproj").mkdir()
+        self.assertEqual(core.detect_stack(self.root, None), core.STUB_PACK_NAME)
+
+    def test_stray_swift_file_is_not_a_marker(self):
+        self.write("main.swift", "print(1)\n")
+        self.assertEqual(core.detect_stack(self.root, None), core.STUB_PACK_NAME)
+
+    def test_bare_project_yml_is_not_a_marker(self):
+        self.write("project.yml", "name: App\n")
+        self.assertEqual(core.detect_stack(self.root, None), core.STUB_PACK_NAME)
+
+    def test_positive_control_a_standalone_workspace_is_a_marker(self):
+        self.write("App.xcworkspace/contents.xcworkspacedata", "<Workspace/>")
+        self.assertEqual(core.detect_stack(self.root, None), "swift")
+
+
+class SwiftExcludedDirectoryTests(_RepoCase):
+    """ADR-0129 clause 8's postconditions that detection and the walk carry.
+
+    The ten existing goldens staying byte-identical is the corpus gate's
+    postcondition (`derive_corpus.py` without `--bless`), not this class's.
+    """
+
+    def test_a_tree_yields_the_same_spine_with_or_without_derived_data(self):
+        self.write("Package.swift", _MANIFEST)
+        self.write("Sources/Kit/Model.swift", "public struct Model {\n    let id: Int\n}\n")
+        before = core._build(self.root, "docs")
+        self.write("DerivedData/Build/Package.swift", _MANIFEST)
+        self.write("DerivedData/Build/Generated.swift", "public struct Generated {}\n")
+        self.write("DerivedData/Build/X.xcodeproj/project.pbxproj", _PBX)
+        after = core._build(self.root, "docs")
+        self.assertEqual(before, after)
+
+    def test_positive_control_a_non_excluded_sibling_moves_the_spine(self):
+        self.write("Package.swift", _MANIFEST)
+        self.write("Sources/Kit/Model.swift", "public struct Model {\n    let id: Int\n}\n")
+        before = core._build(self.root, "docs")
+        self.write("Generated/Generated.swift", "public struct Generated {}\n")
+        self.assertNotEqual(before, core._build(self.root, "docs"))
+
+    def test_committed_pods_xcodeproj_is_neither_marker_nor_container(self):
+        self.write("Package.swift", _MANIFEST)
+        self.write("Pods/Pods.xcodeproj/project.pbxproj", _PBX)
+        self.assertEqual(core.detect_candidates(self.root)["swift"], ("Package.swift",))
+        swift = importlib.import_module("crux.arch.packs.swift")
+        self.assertEqual(swift.detect_containers(self.root), ("Package.swift",))
+
+    def test_node_repo_with_a_vendored_pods_package_resolves_to_node(self):
+        self.write("package.json", "{}")
+        self.write("Pods/X/Package.swift", _MANIFEST)
+        self.assertEqual(core.detect_stack(self.root, None), "node")
+        self.assertNotIn("swift", core.detect_candidates(self.root))
+
+    def test_a_checkout_whose_absolute_path_contains_pods_still_detects(self):
+        inner = self.root / "Pods" / "checkout"
+        inner.mkdir(parents=True)
+        (inner / "Package.swift").write_text(_MANIFEST, encoding="utf-8")
+        self.assertEqual(core.detect_stack(inner, None), "swift")
 
 
 if __name__ == "__main__":

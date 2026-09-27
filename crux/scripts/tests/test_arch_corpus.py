@@ -99,8 +99,8 @@ FETCH_HINT = (
     "pinned corpus into crux/scripts/tests/arch-corpus/.cache/"
 )
 
-#: How many entries are FETCHED third-party clones. The corpus is eleven
-#: entries: these ten, plus the one `source: self` entry (`crux-repo`, ADR-0096
+#: How many entries are FETCHED third-party clones. The corpus is thirteen
+#: entries: these twelve, plus the one `source: self` entry (`crux-repo`, ADR-0096
 #: clause 12), which derives this checkout in place and carries no
 #: `golden/<name>/`.
 #:
@@ -110,11 +110,11 @@ FETCH_HINT = (
 #:   * it keys on the `source: self` FIELD, never on the entry's name — a name
 #:     match would exempt any future entry that happened to be called the same
 #:     thing, and would not exempt a second self-hosted entry at all;
-#:   * it asserts, in the same unit, that the ten fetched entries still took the
+#:   * it asserts, in the same unit, that the twelve fetched entries still took the
 #:     FULL path. A carve-out that silently widened — a manifest bug, a typo in
 #:     the predicate, a refactor that inverted it — would otherwise turn the
 #:     gate green by exempting everything it was built to check.
-N_FETCHED = 10
+N_FETCHED = 12
 
 
 def _manifest() -> list[dict]:
@@ -224,12 +224,13 @@ class CorpusManifestTests(unittest.TestCase):
         repos = _manifest()
         self.assertGreaterEqual(len(repos), 8, "the corpus lost entries")
         packs = {r["pack"] for r in repos}
-        self.assertEqual(packs, {"python", "node", "ruby", "elixir"},
+        self.assertEqual(packs, {"python", "node", "ruby", "elixir", "swift"},
                          "every language pack must have corpus entries")
 
     def test_every_pack_has_at_least_two_repositories(self):
+        repos = _manifest()
         counts: dict[str, int] = {}
-        for entry in _manifest():
+        for entry in repos:
             counts[entry["pack"]] = counts.get(entry["pack"], 0) + 1
         thin = sorted(p for p, n in counts.items() if n < 2)
         self.assertEqual(thin, [], f"packs with fewer than 2 corpus repos: {thin}")
@@ -242,7 +243,7 @@ class CorpusManifestTests(unittest.TestCase):
         expected to.
 
         The carve-out is bounded in the same unit: `_assert_full_path` asserts
-        the ten fetched entries all still took the golden check.
+        the twelve fetched entries all still took the golden check.
         """
         repos = _manifest()
         missing, took = [], []
@@ -264,7 +265,7 @@ class CorpusManifestTests(unittest.TestCase):
 
         Note which direction the carve-out runs here. It does not exempt the
         self entry from a check; it makes the check STRICTER for it, and the
-        `_assert_full_path` call still pins the ten fetched names that are
+        `_assert_full_path` call still pins the twelve fetched names that are
         allowed a directory.
         """
         repos = _manifest()
@@ -329,6 +330,102 @@ class CorpusManifestTests(unittest.TestCase):
                           "test_backticked_route_paths_are_rendered_in_the_golden")
 
 
+def _enrolled_facts_paths(repos: list[dict]) -> set[str]:
+    """Every `expect.facts.path` a corpus entry names, repo-relative to
+    `arch-corpus/` (e.g. `expectations/netnewswire.yml`)."""
+    return {
+        e["expect"]["facts"]["path"]
+        for e in repos
+        if isinstance(e.get("expect"), dict) and isinstance(e["expect"].get("facts"), dict)
+    }
+
+
+def _unenrolled_expectations_files(present: set[str], enrolled: set[str]) -> list[str]:
+    """Every expectations FILENAME in `present` that no path in `enrolled` names.
+
+    Pure and cache-free, so a positive control can drive it directly with no
+    filesystem write, real or temporary.
+    """
+    return sorted(present - enrolled)
+
+
+class CorpusFactsEnrollmentTests(unittest.TestCase):
+    """Every file under `expectations/` is enrolled by exactly one corpus
+    entry's `facts:` (path + sha256) — ADR-0130 clause 18.
+
+    An expectations file no `facts:` block names is dead weight: neither
+    `test_arch_facts.py`'s digest gate nor its matcher gate ever reaches a
+    file nothing points at, so an unenrolled file passes every gate in this
+    suite silently. This is the enrollment half; `test_arch_facts.py`'s
+    `CorpusFactsDigestTests` is the content half (the digest a `facts:` block
+    DOES name matches the file's bytes).
+
+    Cache-free: reads `corpus.yml` and the `expectations/` directory listing
+    only, so it runs everywhere with no network and no clones.
+    """
+
+    def test_every_expectations_file_is_enrolled(self):
+        present = {p.name for p in (CORPUS_DIR / "expectations").glob("*.yml")}
+        enrolled = {Path(p).name for p in _enrolled_facts_paths(_manifest())}
+        missing = _unenrolled_expectations_files(present, enrolled)
+        self.assertEqual(
+            missing, [],
+            "expectations file(s) with no corpus entry `facts:` block naming them: "
+            + ", ".join(missing) + " — add a `facts: {path, sha256}` block to the "
+            "entry that should enroll it, or delete the stray file.",
+        )
+
+    def test_positive_control_a_stray_expectations_file_is_reported(self):
+        """The check fires on a file present but named by no `facts:` block."""
+        present = {"netnewswire.yml", "swift-argument-parser.yml", "stray.yml"}
+        enrolled = {Path(p).name for p in {
+            "expectations/netnewswire.yml", "expectations/swift-argument-parser.yml",
+        }}
+        missing = _unenrolled_expectations_files(present, enrolled)
+        self.assertEqual(missing, ["stray.yml"])
+
+
+class CorpusLicenseTests(unittest.TestCase):
+    """Only permissively licensed repositories may enter the corpus.
+
+    Their derived facts are committed under `crux/**` and ship publicly, so a
+    copyleft or unknown license is refused by manifest validation, before any
+    fetch. Cache-free: these read the committed manifest and temp copies only.
+    """
+
+    def setUp(self):
+        if _fetch is None:
+            self.skipTest("arch-corpus helpers need PyYAML; run under `uv run`")
+        self.text = (CORPUS_DIR / "corpus.yml").read_text(encoding="utf-8")
+
+    def _load_with_license(self, value: str):
+        import yaml
+        doc = yaml.safe_load(self.text)
+        entry = next(e for e in doc["repos"] if e.get("source") != "self")
+        entry["license"] = value
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "corpus.yml"
+            path.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
+            return _fetch.load_manifest(path)
+
+    def test_every_committed_entry_is_permissive(self):
+        repos = _fetch.load_manifest()
+        self.assertTrue(repos)
+        for entry in repos:
+            with self.subTest(repo=entry["name"]):
+                self.assertIn(entry["license"], _fetch.PERMISSIVE_LICENSES)
+
+    def test_a_copyleft_license_is_refused(self):
+        for value in ("AGPL-3.0", "GPL-3.0", "LGPL-2.1", "SSPL-1.0", "NOASSERTION"):
+            with self.subTest(license=value):
+                with self.assertRaises(_fetch.ManifestError) as ctx:
+                    self._load_with_license(value)
+                self.assertIn("is not permissive", str(ctx.exception))
+
+    def test_positive_control_a_permissive_license_loads(self):
+        self.assertTrue(self._load_with_license("Apache-2.0"))
+
+
 class CorpusGoldenTests(unittest.TestCase):
     """Re-derive every cached repository; assert byte-equality with its golden.
 
@@ -358,7 +455,7 @@ class CorpusGoldenTests(unittest.TestCase):
         A `source: self` entry has no `sha` to be stale against — it derives
         this checkout, which is not frozen at a commit — so it is carved out,
         by field. The assertion below bounds that: every entry this test sees
-        must be a fetched one, and the ten of them are what `self.repos` holds.
+        must be a fetched one, and the twelve of them are what `self.repos` holds.
         """
         self.assertEqual([e["name"] for e in self.repos if _is_self_hosted(e)], [],
                          "a `source: self` entry reached the pinned-SHA check; it has no "

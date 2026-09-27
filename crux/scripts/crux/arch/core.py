@@ -28,6 +28,7 @@ carry the claim forward as a standing property of this file.
 from __future__ import annotations
 
 import enum
+import errno
 import functools
 import hashlib
 import importlib.metadata
@@ -175,7 +176,7 @@ def _is_empty_but_valid(content: str) -> bool:
 
     Written over non-blank lines rather than over exact bytes because the marker
     is emitted by `_stub_extract` here and by twenty-odd self-degrading probes
-    across the five packs, and they do not all agree on the title text — only on
+    across the packs, and they do not all agree on the title text — only on
     the shape.
     """
     lines = [ln for ln in content.splitlines() if ln.strip()]
@@ -257,6 +258,22 @@ _ENTITY_NOUN = {
     "module-graph": "graph edge",
     "decision-index": "indexed decision",
 }
+
+
+def _entity_noun(pack_name: str, concern: str) -> str:
+    """The noun a `no_entities` stub line counts for `concern`: the per-pack
+    entity-noun seam (ADR-0129 clause 6).
+
+    A registered pack may declare `ENTITY_NOUNS: dict[str, str]` — an optional
+    module attribute overriding the core default for the concerns it names.
+    Every other concern, and every unregistered pack, gets the unchanged core
+    default from `_ENTITY_NOUN`.
+    """
+    if pack_name in REGISTERED_PACKS:
+        nouns = getattr(_pack_module(pack_name), "ENTITY_NOUNS", {})
+        if concern in nouns:
+            return nouns[concern]
+    return _ENTITY_NOUN[concern]
 
 
 class Verdict(NamedTuple):
@@ -386,8 +403,13 @@ _TABLE_SEP_RE = re.compile(r"\A\|[\s:|-]+\|\Z")
 #   data-model    `| table | column | …`   ruby, elixir, all three node probes,
 #                                          and the python SQLAlchemy table
 #                 `| field | type | …`     the crux pack, one table per entity
+#                 `| type | kind | …`      the Swift pack's type table
 #   api-surface   `| method | path | …`    ruby, elixir, node, and OpenAPI
 #                 `| skill | description`  the crux pack
+#                 `| interface | kind | …`         the Swift pack's interface table
+#                 `| requirement | protocol | …`   the Swift pack's protocol requirements
+#                 `| product | product kind | …`   the Swift pack's SwiftPM products
+#                 `| @main type | kind | …`        the Swift pack's app entry points
 #   decision-index `| # | decision | …`    the universal probe
 #
 # A table this does not recognize contributes nothing, which UNDER-counts rather
@@ -396,9 +418,25 @@ _TABLE_SEP_RE = re.compile(r"\A\|[\s:|-]+\|\Z")
 # `populated` over a table of something else — which is the reading clause 3
 # exists to refuse. A new renderer earns a row here, and the corpus expectation
 # record is what catches one that did not get it.
+#
+# The Swift pack ALSO renders tables this set deliberately excludes — a
+# data-model property table (`| owner | property | … |`) and a relationship
+# table (`| from type | relation | … |`), and a module-graph container/target
+# roster (`| container | container kind | … |`, `| target | container | … |`,
+# `| from | dependency | … |`, `| file | module | … |`, `| file | target | … |`).
+# None of those is this concern's OWN entity — a data-model property belongs to
+# a type already counted once, and a module-graph container is a grouping, not
+# an edge — so registering them would double-count or count the wrong noun.
+# `HeaderRegistryDisciplineTests` in `test_arch_verdicts.py` pins both halves of
+# this: the five Swift pairs registered above, and that none of these seven stays
+# uncounted only by omission.
 _ENTITY_TABLE_HEADERS = {
-    "data-model": {("table", "column"), ("field", "type")},
-    "api-surface": {("method", "path"), ("skill", "description")},
+    "data-model": {("table", "column"), ("field", "type"), ("type", "kind")},
+    "api-surface": {
+        ("method", "path"), ("skill", "description"),
+        ("interface", "kind"), ("requirement", "protocol"),
+        ("product", "product kind"), ("@main type", "kind"),
+    },
     "decision-index": {("#", "decision")},
 }
 
@@ -562,15 +600,16 @@ class InputClass(NamedTuple):
     #: meets the declaration — the class docstring above owns that question, and
     #: names it a pack-review residual rather than something this table asserts.
     #:
-    #: Empty was once every pack's position. It no longer is: TWELVE of the
-    #: twenty shipped pack-concern pairs name a parser.
+    #: Empty was once every pack's position. It no longer is: SIXTEEN of the
+    #: twenty-four shipped pack-concern pairs name a parser.
     #:
-    #: Five name tree-sitter modules — the ruby api-surface, and both the
-    #: data-model and api-surface of node and elixir. Two name `yaml` on the
+    #: Eight name tree-sitter modules — the ruby api-surface, both the
+    #: data-model and api-surface of node and elixir, and all three of the
+    #: swift pack's non-universal concerns. Two name `yaml` on the
     #: crux pack: its data-model, which parses `<docs_dir>/manifest.yml` with
     #: `yaml.safe_load` and SKILL.md frontmatter through `_frontmatter`, and its
     #: api-surface, which parses SKILL.md frontmatter through `_frontmatter` and
-    #: reads no manifest at all. The remaining five are one per pack: `decision-index` is the
+    #: reads no manifest at all. The remaining six are one per pack: `decision-index` is the
     #: universal concern and declares `yaml` for every pack, because it reads ADR
     #: frontmatter through the same `_frontmatter`, whose regex fallback answers
     #: differently and would otherwise move the spine hash on a machine without
@@ -619,7 +658,7 @@ class InputClass(NamedTuple):
 
 #: `decision-index` is the UNIVERSAL concern: the ADR tree is stack-independent,
 #: so the core binds its probe for every pack and declares its input class here
-#: rather than making five packs repeat one sentence. `input_classes()` merges
+#: rather than making six packs repeat one sentence. `input_classes()` merges
 #: it in, so every registered pack answers for all four concerns. `kind` is
 #: absent here — like every `InputClass`, it is DERIVED — and both the
 #: `complete` and `curated` decision-index probe bindings declare
@@ -633,8 +672,8 @@ class InputClass(NamedTuple):
 #: folded-scalar ADR `title`, the derive produced two `spine_hash` values, both
 #: at exit 0, with identical `tool_pins`, and wrote the tree both times. The
 #: crux pack declaring `yaml` for its own two concerns did not reach this one,
-#: so the identical defect stayed live on the four packs downstream repositories
-#: use. Declaring it on the UNIVERSAL concern is what routes every pack to
+#: so the identical defect stayed live on every other pack downstream
+#: repositories use. Declaring it on the UNIVERSAL concern is what routes every pack to
 #: ADR-0096 clause 2's environment lane — exit 2, nothing written — instead of a
 #: quieter spine, and it is why `parser_pins` now records `parser:yaml` for every
 #: pack rather than only for crux.
@@ -725,12 +764,20 @@ def resolve_declared_parsers(pack_name: str) -> None:
     application code, and checking a dependency must not become the exception.
 
     A concern whose `parser` tuple is empty names no third-party module, so
-    nothing is import-checked for it. Eight of the twenty shipped pack-concern
-    pairs are in that position. The other twelve are the ones this function can
-    raise for: five name tree-sitter modules, two name `yaml` on the crux pack,
-    and five are the universal `decision-index`, once per pack. Because that
+    nothing is import-checked for it. Eight of the twenty-four shipped pack-concern
+    pairs are in that position. The other sixteen are the ones this function can
+    raise for: eight name tree-sitter modules, two name `yaml` on the crux pack,
+    and six are the universal `decision-index`, once per pack. Because that
     last one is universal, EVERY pack can raise here — which is the point of
     declaring it there rather than on one pack's own concerns.
+
+    **The load-check seam (ADR-0129 clause 2).** After every `find_spec`
+    check has passed, a registered pack's
+    optional `verify_parser_load()` hook is called once. ANY exception it
+    raises becomes `ParserUnavailable` naming the pack and the exception type,
+    raised in the same place and before the same nothing-written-yet moment as
+    the `find_spec` refusal above. A pack without the hook resolves exactly as
+    it did before this hook existed.
     """
     missing: list[str] = []
     for concern, ic in sorted(input_classes(pack_name).items()):
@@ -746,6 +793,16 @@ def resolve_declared_parsers(pack_name: str) -> None:
             f"the {pack_name} pack declares parsers this machine cannot resolve: "
             + "; ".join(missing)
         )
+    if pack_name in REGISTERED_PACKS:
+        verify = getattr(_pack_module(pack_name), "verify_parser_load", None)
+        if verify is not None:
+            try:
+                verify()
+            except Exception as exc:
+                raise ParserUnavailable(
+                    f"the {pack_name} pack's verify_parser_load() failed: "
+                    f"{type(exc).__name__}: {exc}"
+                ) from exc
 
 
 @functools.lru_cache(maxsize=1)
@@ -798,7 +855,7 @@ def parser_pins(pack_name: str) -> dict[str, str]:
 
     No pack declares NO parser any more, so the scoping argument is now entirely
     about the grammars: every pack records `parser:yaml` through the universal
-    `decision-index`, and only the three tree-sitter packs record a grammar
+    `decision-index`, and only the four tree-sitter packs record a grammar
     beside it.
 
     A declared parser that resolves but whose version cannot be read raises
@@ -911,6 +968,15 @@ PACK_REGISTRY: tuple[PackEntry, ...] = (
         "`mix.exs` at the root, `assets/package.json` one down — so depth alone "
         "already resolves it and this pair only covers the co-located case, an "
         "umbrella application declaring both at one level.",
+    ),
+    # Registered last with an empty `beats` set, and no other entry names it
+    # (ADR-0129 clause 3). Neither pinned Swift corpus repository carries
+    # another pack's marker, so no pair was measured. A co-located Swift and
+    # Ruby or Node marker is therefore `ambiguous_stack` until a pin settles it.
+    PackEntry(
+        "swift",
+        frozenset(),
+        "",
     ),
 )
 
@@ -1041,6 +1107,10 @@ def _prose_cell(s) -> str:
 #: many call sites rather than one handler — filed as a follow-on instead of
 #: rushed in beside an unrelated fix.
 #:
+#: The Swift pack is not a further site of this residual: it catches every
+#: exception at its own per-file boundary and renders the file as a residual
+#: there, so nothing from its tree-sitter parse reaches this constant at all.
+#:
 #: Three sites have no residual channel and no `sources` of their own —
 #: `packs/python.py::_setup_py_pkg_name` and `packs/python.py::_pyproject_pkg_name`,
 #: which each answer one yes/no question, and `packs/crux.py::_cli_verbs`, whose
@@ -1060,7 +1130,7 @@ def _iter_py_files(root: Path):
     dot-directory. Deterministic ordering is the caller's concern.
 
     `followlinks=False` is `os.walk`'s default and is stated explicitly, as the
-    other four packs' walkers state it: ADR-0068 and ADR-0069 clause 6 name the
+    other five packs' walkers state it: ADR-0068 and ADR-0069 clause 6 name the
     behaviour, so it is spelled rather than inherited. A symlinked FILE is still
     yielded — containment is `_safe_read_bytes`'s job at the read, which is why
     every caller of this generator goes through it."""
@@ -1079,20 +1149,55 @@ _MAX_FILE_BYTES = 2 * 1024 * 1024      # 2 MB per-file size bound (point 8).
 def _contained(root: Path, p: Path) -> bool:
     """True when `p`, fully resolved, stays under the resolved repo root (point 8).
     A symlink whose target escapes the root resolves outside and returns False, so
-    it is neither read nor hashed."""
+    it is neither read nor hashed.
+
+    A path that cannot be resolved is not contained. `Path.resolve()` raises
+    `OSError` on an unreadable component, and before Python 3.13 it raises
+    `RuntimeError` on a symlink loop, which a committed file can create."""
     try:
         rp = p.resolve()
-    except OSError:
+        root_r = root.resolve()
+    except (OSError, RuntimeError):
         return False
-    root_r = root.resolve()
     return rp == root_r or rp.is_relative_to(root_r)
 
 
-def _safe_read_bytes(root: Path, path: Path, oversize: list) -> bytes | None:
-    """Read `path` iff it is a REGULAR file contained under `root` and within the
-    2 MB bound (point 8). An oversize file's repo-relative path is appended to
-    `oversize` (a recorded residual) and None returned; an escaping, non-regular
-    or unreadable path yields None silently (not read, not hashed).
+def _safe_read_bytes(
+    root: Path,
+    path: Path,
+    oversize: list,
+    *,
+    max_bytes: int = _MAX_FILE_BYTES,
+    refusal: list | None = None,
+) -> bytes | None:
+    """Read `path` iff it is a REGULAR file contained under `root` and within
+    `max_bytes` (point 8; default `_MAX_FILE_BYTES`, the existing 2 MB bound).
+    An oversize file's repo-relative path is appended to `oversize` (a
+    recorded residual) and None returned; an escaping, non-regular or
+    unreadable path yields None silently (not read, not hashed).
+
+    `max_bytes` and `refusal` are keyword-only, additive parameters: the
+    Swift pack's Xcode reader passes them for ADR-0130 clause 2's
+    dedicated `project.pbxproj` bound and its refusal kinds. A caller that
+    passes only `root`, `path` and `oversize` positionally, as every other
+    pack does, sees byte-identical behaviour: `max_bytes` defaults to the
+    existing bound and `refusal` defaults to `None`, under which nothing is
+    recorded, exactly as before.
+
+    `refusal` is an OUT-parameter, in the same shape as `oversize`: the
+    caller passes a list and this function appends exactly one reason to it
+    on refusal, never on success. The closed reason set:
+
+    * `escape` — `path` is not contained under `root` (`_contained` refused
+      it), including a symlinked component that resolves outside;
+    * `not-regular` — the final component is not a regular file: a symlink
+      (`O_NOFOLLOW` raises `ELOOP`, which counts here), a FIFO, a device, a
+      socket or a directory;
+    * `read-failed` — any other OS error opening, stat-ing or reading the
+      file;
+    * `oversize` — over `max_bytes`, checked both from `st_size` before any
+      byte is read and from the bytes actually read, exactly as the
+      existing two-point size check already did.
 
     **Every read in this engine goes through here, so the three guarantees below
     are the engine's, not this function's.**
@@ -1124,47 +1229,62 @@ def _safe_read_bytes(root: Path, path: Path, oversize: list) -> bytes | None:
     file being appended to can outrun it.
     """
     if not _contained(root, path):
+        if refusal is not None:
+            refusal.append("escape")
         return None
     flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
     try:
         fd = os.open(path, flags)
-    except OSError:
+    except OSError as exc:
+        if refusal is not None:
+            refusal.append("not-regular" if exc.errno == errno.ELOOP else "read-failed")
         return None
     try:
         try:
             st = os.fstat(fd)
         except OSError:
+            if refusal is not None:
+                refusal.append("read-failed")
             return None
         if not stat.S_ISREG(st.st_mode):
+            if refusal is not None:
+                refusal.append("not-regular")
             return None
-        if st.st_size > _MAX_FILE_BYTES:
+        if st.st_size > max_bytes:
             _note_oversize(root, path, oversize)
+            if refusal is not None:
+                refusal.append("oversize")
             return None
         try:
             os.set_blocking(fd, True)
             chunks: list[bytes] = []
             total = 0
-            while total <= _MAX_FILE_BYTES:
+            while total <= max_bytes:
                 block = os.read(fd, 1 << 20)
                 if not block:
                     break
                 chunks.append(block)
                 total += len(block)
         except OSError:
+            if refusal is not None:
+                refusal.append("read-failed")
             return None
     finally:
         os.close(fd)
-    if total > _MAX_FILE_BYTES:
+    if total > max_bytes:
         _note_oversize(root, path, oversize)
+        if refusal is not None:
+            refusal.append("oversize")
         return None
     return b"".join(chunks)
 
 
 def _note_oversize(root: Path, path: Path, oversize: list) -> None:
-    """Record an over-bound path once, as a repo-relative residual."""
+    """Record an over-bound path once, as a repo-relative residual. A path that
+    cannot be resolved records nothing (see `_contained`)."""
     try:
         rel = _rel(root, path)
-    except (OSError, ValueError):
+    except (OSError, RuntimeError, ValueError):
         return
     if rel not in oversize:
         oversize.append(rel)
@@ -2073,6 +2193,56 @@ def _pack_detect(name: str, root: Path) -> bool:
     return _pack_module(name).detect(root).matched
 
 
+def _pack_detect_exclude(name: str) -> frozenset[str]:
+    """A registered pack's `DETECT_EXCLUDE` set: the pack seam's exclusion
+    set (ADR-0129 clause 3).
+
+    REQUIRED on every registered pack module — a pack that declares no walk
+    exclusions still declares an empty one, one line, so the scan never has to
+    ask "did this pack forget the attribute or mean to exclude nothing". A
+    missing attribute raises `AttributeError`; a value that is not a
+    `frozenset` raises `TypeError`. Both fire at the scan, before any
+    directory is visited, so a malformed declaration never partially prunes.
+    """
+    module = _pack_module(name)
+    if not hasattr(module, "DETECT_EXCLUDE"):
+        raise AttributeError(
+            f"pack {name!r} declares no DETECT_EXCLUDE (every pack needs one, "
+            "even if empty: DETECT_EXCLUDE = frozenset())"
+        )
+    value = module.DETECT_EXCLUDE
+    if not isinstance(value, frozenset):
+        raise TypeError(
+            f"pack {name!r}'s DETECT_EXCLUDE must be a frozenset, got "
+            f"{type(value).__name__}"
+        )
+    return value
+
+
+def _dir_excluded(prefix: str, exclude: frozenset[str]) -> bool:
+    """True when `prefix` (a repo-relative scan path, `""` at the root) has a
+    path component one of `exclude`'s entries names (ADR-0129 clause 3).
+
+    An entry is either an exact directory name (`Pods`) or a `*`-prefixed name
+    suffix (`*.xcodeproj`, matched by `component.endswith(".xcodeproj")`).
+    Matching reads REPO-RELATIVE components only — never the absolute path —
+    so a checkout sitting under a directory that happens to share an excluded
+    name is unaffected: the root's own relative path is empty and carries no
+    component at all.
+    """
+    if not prefix or not exclude:
+        return False
+    components = prefix.split("/")
+    for component in components:
+        for entry in exclude:
+            if entry.startswith("*"):
+                if component.endswith(entry[1:]):
+                    return True
+            elif component == entry:
+                return True
+    return False
+
+
 # The per-pack marker detectors, addressed by pack name. Bound through
 # `_pack_detect` so the mapping itself imports nothing: the pack module loads on
 # the first call, not at import time. Keyed off the registry, so registering a
@@ -2116,8 +2286,8 @@ def _scan_dirs(root: Path, max_depth: int = DETECTION_MAX_DEPTH):
     and dot-directories are pruned: a marker inside `node_modules/` or a
     vendored `deps/` tree describes a dependency, not this repository.
 
-    A symlinked directory is pruned too, matching what the four pack walkers
-    already do with `followlinks=False`. `is_dir()` FOLLOWS, so without the
+    A symlinked directory is pruned too, matching what every pack's walker
+    already does with `followlinks=False`. `is_dir()` FOLLOWS, so without the
     `is_symlink()` test this scan descended through a link and reported markers
     from wherever it pointed — including outside the repository — as markers of
     this one.
@@ -2159,12 +2329,22 @@ def _scan_candidates(root: Path, max_depth: int = DETECTION_MAX_DEPTH):
     semantics survive the depth change unaltered — the crux pack still requires
     both of its directories, the ruby pack still globs `*.gemspec` — and this
     function never learns what any pack's markers are.
+
+    **A pack's own `DETECT_EXCLUDE` prunes its OWN calls only (ADR-0129
+    clause 3).** Computed
+    once, before the scan starts, so a malformed declaration (see
+    `_pack_detect_exclude`) fails before any directory is visited rather than
+    mid-scan. A directory excluded for one pack is still scanned for every
+    other — the exclusion is per-pack, not a shared skip list.
     """
     hits: dict[str, set] = {}
     depths: dict[str, int] = {}
+    excludes = {name: _pack_detect_exclude(name) for name in PACK_NAMES}
     for directory, prefix in _scan_dirs(Path(root), max_depth):
         depth = prefix.count("/") + 1 if prefix else 0
         for name in PACK_NAMES:
+            if _dir_excluded(prefix, excludes[name]):
+                continue
             result = _pack_module(name).detect(directory)
             if not result.matched:
                 continue
@@ -2301,6 +2481,39 @@ def pack_ambiguity(pack_name: str, concern: str, root: Path):
     if hook is None:
         return None
     return hook(concern, Path(root))
+
+
+def _concern_decode_verdict(
+    pack_name: str, concern: str, content: str, sources: dict
+) -> "Verdict | None":
+    """A pack's own decode-failure verdict for one already-stubbed concern
+    (ADR-0129 clause 7).
+
+    The seam for `parse_failed`: a registered pack may expose
+    `concern_decode_verdict(concern, content, sources)`, called by `_build`
+    over a concern `concern_verdict` already called `stubbed`, before
+    `pack_ambiguity`. A `None` return (or no hook at all) changes nothing. A
+    non-`None` return MUST be a stubbed `Verdict` with reason
+    `StubReason.PARSE_FAILED` — anything else, a populated verdict or another
+    stub reason, raises `ValueError`, so a pack cannot mint a verdict this seam
+    was never meant to grant it.
+    """
+    if pack_name not in REGISTERED_PACKS:
+        return None
+    hook = getattr(_pack_module(pack_name), "concern_decode_verdict", None)
+    if hook is None:
+        return None
+    result = hook(concern, content, sources)
+    if result is None:
+        return None
+    if not (isinstance(result, Verdict) and result.kind == "stubbed"
+            and result.reason is StubReason.PARSE_FAILED):
+        raise ValueError(
+            f"the {pack_name} pack's concern_decode_verdict({concern!r}) must "
+            "return None or a stubbed Verdict with reason PARSE_FAILED, got "
+            f"{result!r}"
+        )
+    return result
 
 
 def detect_stack(root: Path, cfg=None) -> str:
@@ -2883,7 +3096,7 @@ def concern_verdict(
     which is not landed. It is declared rather than invented later so the set
     stays closed.
     """
-    noun = _ENTITY_NOUN[concern]
+    noun = _entity_noun(pack_name, concern)
     n_entities = count_concern_entities(concern, content)
     if n_entities >= 1:
         return Verdict.populated(len(sources), n_entities)
@@ -2975,13 +3188,25 @@ def _build(
         # whose stack is undecided still has whatever ADR index it has. Saying
         # the decision index is ambiguous because two stacks matched would be the
         # same false sentence clause 4 removed from the other 20 stubs.
+        # The decode-failure seam (`_concern_decode_verdict`, ADR-0129 clause
+        # 7) sits between the two: called only when the
+        # STACK resolved with no ambiguity at all (not merely "not ambiguous
+        # for this concern" — `resolution.ambiguity is None`), and always
+        # before `pack_ambiguity` so a pack's own `parse_failed` verdict is
+        # never shadowed by an ambiguous-package check that runs after it.
         if verdict.kind == "stubbed":
             if resolution.ambiguity is not None and concern != "decision-index":
                 verdict = ambiguous_stack_verdict(resolution.ambiguity)
             else:
-                by_pack = pack_ambiguity(pack_name, concern, root)
-                if by_pack is not None:
-                    verdict = by_pack
+                decoded = None
+                if resolution.ambiguity is None:
+                    decoded = _concern_decode_verdict(pack_name, concern, content, sources)
+                if decoded is not None:
+                    verdict = decoded
+                else:
+                    by_pack = pack_ambiguity(pack_name, concern, root)
+                    if by_pack is not None:
+                        verdict = by_pack
 
         spine[fname] = _apply_stub_line(content, verdict)
 

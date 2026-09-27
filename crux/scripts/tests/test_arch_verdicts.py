@@ -27,6 +27,8 @@ import json
 import re
 import shutil
 import sys
+import tempfile
+import types
 import unittest
 import unittest.mock
 from pathlib import Path
@@ -1300,7 +1302,8 @@ class DeclaredParserProseCountTests(unittest.TestCase):
     #: to the measured integers. Digits are accepted for the same quantities.
     WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
              "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11,
-             "twelve": 12, "fifteen": 15, "twenty": 20}
+             "twelve": 12, "fifteen": 15, "sixteen": 16, "twenty": 20,
+             "twenty-four": 24}
 
     #: Every surface that states one of the pinned counts. A file listed here
     #: and carrying no match fails: a surface that stopped stating the count is
@@ -1358,10 +1361,14 @@ class DeclaredParserProseCountTests(unittest.TestCase):
     def test_every_stated_pack_concern_pair_count_matches_the_registry(self):
         measured = self._measured()
         pattern = re.compile(
-            r"(?P<num>\b[A-Za-z]+\b|\d+)\s+of\s+the\s+(?P<den>\b[A-Za-z]+\b|\d+)\s+"
+            r"(?P<num>\b[A-Za-z]+(?:-[A-Za-z]+)?\b|\d+)\s+of\s+the\s+"
+            r"(?P<den>\b[A-Za-z]+(?:-[A-Za-z]+)?\b|\d+)\s+"
             r"shipped\s+pack-concern\s+pairs", re.IGNORECASE)
+        # One hyphen is admitted so a compound number ("twenty-four") reads as
+        # one token rather than as its last half.
         denominator = re.compile(
-            r"of\s+the\s+(?P<den>\b[A-Za-z]+\b|\d+)\s+shipped\s+pack-concern\s+pairs",
+            r"of\s+the\s+(?P<den>\b[A-Za-z]+(?:-[A-Za-z]+)?\b|\d+)\s+"
+            r"shipped\s+pack-concern\s+pairs",
             re.IGNORECASE)
         problems, seen_any = [], False
         targets = [(rel, SCRIPTS.parents[1] / rel) for rel in self.SHIPPED_SURFACES]
@@ -1519,6 +1526,415 @@ class SkillProseNamesLiveFieldsTests(unittest.TestCase):
                         "a model reading this is told to report a field "
                         "`coverage.json` does not carry",
                     )
+
+
+class _FakeCfg:
+    """Minimal stand-in for a BionicConfig — only the attributes the seam reads."""
+
+    def __init__(self, arch_stack=None, arch_extractors=None, source=".bionic.yml"):
+        self.arch_stack = arch_stack
+        self.arch_extractors = arch_extractors or {}
+        self.source = source
+
+
+class _FakePackCase(unittest.TestCase):
+    """Registers a synthetic pack module as `_FAKE_NAME`, restored on teardown.
+    The pack seams are exercised by stubbing a pack module through
+    `_pack_module` rather than shipping a real one, so no real pack is touched."""
+
+    _FAKE_NAME = "fakepack"
+
+    def _install_fake_pack(self, module: types.SimpleNamespace):
+        real_pack_module = core._pack_module
+
+        def fake_pack_module(name):
+            if name == self._FAKE_NAME:
+                return module
+            return real_pack_module(name)
+
+        patches = [
+            unittest.mock.patch.object(core, "_pack_module", fake_pack_module),
+            unittest.mock.patch.object(
+                core, "REGISTERED_PACKS", core.REGISTERED_PACKS | {self._FAKE_NAME}
+            ),
+            unittest.mock.patch.object(
+                core, "PACK_NAMES", core.PACK_NAMES + (self._FAKE_NAME,)
+            ),
+        ]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+
+    @staticmethod
+    def _bare_module(**kw) -> types.SimpleNamespace:
+        base = dict(probes=lambda: {})
+        base.update(kw)
+        return types.SimpleNamespace(**base)
+
+
+class EntityNounHookTests(_FakePackCase):
+    """`_entity_noun` prefers a pack's own `ENTITY_NOUNS` declaration and
+    falls back to the core default `_ENTITY_NOUN` table otherwise."""
+
+    def test_a_declared_noun_overrides_the_core_default(self):
+        module = self._bare_module(ENTITY_NOUNS={"api-surface": "interface row"})
+        self._install_fake_pack(module)
+        self.assertEqual(
+            core._entity_noun(self._FAKE_NAME, "api-surface"), "interface row")
+
+    def test_a_pack_with_no_hook_keeps_the_core_default(self):
+        module = self._bare_module()
+        self._install_fake_pack(module)
+        self.assertEqual(
+            core._entity_noun(self._FAKE_NAME, "api-surface"),
+            core._ENTITY_NOUN["api-surface"])
+
+    def test_a_concern_the_pack_does_not_override_keeps_the_core_default(self):
+        module = self._bare_module(ENTITY_NOUNS={"api-surface": "interface row"})
+        self._install_fake_pack(module)
+        self.assertEqual(
+            core._entity_noun(self._FAKE_NAME, "data-model"),
+            core._ENTITY_NOUN["data-model"])
+
+    def test_an_unregistered_pack_name_always_gets_the_core_default(self):
+        self.assertEqual(
+            core._entity_noun("no-such-pack", "api-surface"),
+            core._ENTITY_NOUN["api-surface"])
+
+    def test_the_declared_noun_appears_in_a_no_entities_stub_line(self):
+        module = self._bare_module(ENTITY_NOUNS={"api-surface": "interface row"})
+        self._install_fake_pack(module)
+        verdict = core.concern_verdict(
+            "api-surface", self._FAKE_NAME, "probe",
+            "# API surface\n\nprose, no recognized table\n",
+            {"Foo.swift": "deadbeef"},
+        )
+        self.assertEqual(verdict.kind, "stubbed")
+        self.assertEqual(verdict.reason, core.StubReason.NO_ENTITIES)
+        line = core.render_stub_line(verdict)
+        self.assertIn("interface row", line)
+
+    def test_a_pack_without_the_hook_still_renders_the_core_default_noun(self):
+        module = self._bare_module()
+        self._install_fake_pack(module)
+        verdict = core.concern_verdict(
+            "api-surface", self._FAKE_NAME, "probe",
+            "# API surface\n\nprose, no recognized table\n",
+            {"Foo.rb": "deadbeef"},
+        )
+        line = core.render_stub_line(verdict)
+        self.assertIn(core._ENTITY_NOUN["api-surface"], line)
+
+
+class DecodeVerdictHookTests(_FakePackCase):
+    """`_concern_decode_verdict` dispatches to a pack's own
+    `concern_decode_verdict(concern, content, sources)` hook, validating its
+    return under the ValueError guard the hook contract requires."""
+
+    def test_no_hook_at_all_returns_none(self):
+        module = self._bare_module()
+        self._install_fake_pack(module)
+        result = core._concern_decode_verdict(
+            self._FAKE_NAME, "data-model", "content", {})
+        self.assertIsNone(result)
+
+    def test_a_none_return_changes_nothing(self):
+        module = self._bare_module(
+            concern_decode_verdict=lambda concern, content, sources: None)
+        self._install_fake_pack(module)
+        result = core._concern_decode_verdict(
+            self._FAKE_NAME, "data-model", "content", {})
+        self.assertIsNone(result)
+
+    def test_a_parse_failed_stub_is_returned_as_is(self):
+        decoded = core.Verdict.stubbed(
+            core.StubReason.PARSE_FAILED, expected="a clean parse", found="an error")
+        module = self._bare_module(
+            concern_decode_verdict=lambda concern, content, sources: decoded)
+        self._install_fake_pack(module)
+        result = core._concern_decode_verdict(
+            self._FAKE_NAME, "data-model", "content", {})
+        self.assertIs(result, decoded)
+
+    def test_a_populated_verdict_raises_value_error(self):
+        populated = core.Verdict.populated(1, 1)
+        module = self._bare_module(
+            concern_decode_verdict=lambda concern, content, sources: populated)
+        self._install_fake_pack(module)
+        with self.assertRaises(ValueError):
+            core._concern_decode_verdict(self._FAKE_NAME, "data-model", "content", {})
+
+    def test_a_different_stub_reason_raises_value_error(self):
+        other = core.Verdict.stubbed(
+            core.StubReason.NO_ENTITIES, expected="x", found="y")
+        module = self._bare_module(
+            concern_decode_verdict=lambda concern, content, sources: other)
+        self._install_fake_pack(module)
+        with self.assertRaises(ValueError):
+            core._concern_decode_verdict(self._FAKE_NAME, "data-model", "content", {})
+
+    def test_the_hook_receives_the_concern_content_and_sources(self):
+        seen = {}
+
+        def hook(concern, content, sources):
+            seen["concern"] = concern
+            seen["content"] = content
+            seen["sources"] = sources
+            return None
+
+        module = self._bare_module(concern_decode_verdict=hook)
+        self._install_fake_pack(module)
+        core._concern_decode_verdict(
+            self._FAKE_NAME, "data-model", "the-content", {"a": "b"})
+        self.assertEqual(
+            seen, {"concern": "data-model", "content": "the-content",
+                   "sources": {"a": "b"}})
+
+
+class DecodeVerdictBuildIntegrationTests(_FakePackCase):
+    """`_build` calls the decode hook only over an already-stubbed concern, and
+    never over a concern `concern_verdict` already called `populated`."""
+
+    def setUp(self):
+        self._d = tempfile.TemporaryDirectory()
+        self.addCleanup(self._d.cleanup)
+        self.root = Path(self._d.name)
+
+    def test_a_parse_failed_decode_replaces_a_stubbed_verdict(self):
+        decoded = core.Verdict.stubbed(
+            core.StubReason.PARSE_FAILED, expected="a clean parse",
+            found="a syntax error")
+        module = self._bare_module(
+            concern_decode_verdict=lambda concern, content, sources: (
+                decoded if concern == "data-model" else None))
+        self._install_fake_pack(module)
+        cfg = _FakeCfg(arch_stack=self._FAKE_NAME)
+        tree = core._build(self.root, "bionic", "complete", cfg)
+        cov = {r["concern"]: r
+               for r in json.loads(tree["_meta/coverage.json"])["concerns"]}
+        self.assertEqual(cov["data-model"]["stub_reason"], "parse_failed")
+
+    def test_the_hook_is_not_called_for_a_populated_concern(self):
+        calls = []
+
+        def probes():
+            def extract(root, docs_dir):
+                md = "# Data model\n\n| field | type |\n|---|---|\n| x | int |\n"
+                return md, {"a.py": "deadbeef"}
+            return {"data-model": [core.Probe(core._always, extract, kind="parser")]}
+
+        def hook(concern, content, sources):
+            calls.append(concern)
+            return None
+
+        module = self._bare_module(probes=probes, concern_decode_verdict=hook)
+        self._install_fake_pack(module)
+        cfg = _FakeCfg(arch_stack=self._FAKE_NAME)
+        tree = core._build(self.root, "bionic", "complete", cfg)
+        cov = {r["concern"]: r
+               for r in json.loads(tree["_meta/coverage.json"])["concerns"]}
+        self.assertEqual(cov["data-model"]["verdict"], "populated")
+        self.assertNotIn("data-model", calls)
+
+
+class VerifyParserLoadHookTests(_FakePackCase):
+    """`resolve_declared_parsers` calls a registered pack's
+    `verify_parser_load()` once, after every declared parser's `find_spec`
+    check passes, and ANY exception becomes `ParserUnavailable` naming the pack
+    and the exception type — raised before any byte is written or compared."""
+
+    def test_a_raising_hook_becomes_parser_unavailable(self):
+        def raising_hook():
+            raise RuntimeError("grammar load failed")
+        module = self._bare_module(verify_parser_load=raising_hook)
+        self._install_fake_pack(module)
+        with self.assertRaises(core.ParserUnavailable) as caught:
+            core.resolve_declared_parsers(self._FAKE_NAME)
+        self.assertIn(self._FAKE_NAME, str(caught.exception))
+        self.assertIn("RuntimeError", str(caught.exception))
+
+    def test_a_clean_hook_does_not_raise(self):
+        module = self._bare_module(verify_parser_load=lambda: None)
+        self._install_fake_pack(module)
+        core.resolve_declared_parsers(self._FAKE_NAME)          # must not raise
+
+    def test_a_pack_without_the_hook_resolves_exactly_as_today(self):
+        module = self._bare_module()
+        self._install_fake_pack(module)
+        core.resolve_declared_parsers(self._FAKE_NAME)          # must not raise
+
+    def test_the_hook_raising_leaves_nothing_written(self):
+        def raising_hook():
+            raise RuntimeError("grammar load failed")
+        module = self._bare_module(verify_parser_load=raising_hook)
+        self._install_fake_pack(module)
+        cfg = _FakeCfg(arch_stack=self._FAKE_NAME)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with self.assertRaises(core.ParserUnavailable):
+                core.derive(root, "bionic", "complete", cfg)
+            self.assertFalse(
+                (root / "bionic" / "arch").exists(),
+                "the arch tree was written before the hook's refusal was raised")
+
+
+def _all_table_header_pairs(markdown: str) -> set:
+    """Every markdown table's first-two-header-cells pair in `markdown`, same
+    detection `_entity_table_rows` uses but over EVERY table, not one concern's
+    registered set — the scan `HeaderRegistryDisciplineTests` needs to answer
+    "does anything already emit a Swift pair"."""
+    lines = markdown.split("\n")
+    pairs = set()
+    for i, raw in enumerate(lines):
+        s = raw.strip()
+        if not (s.startswith("|") and s.endswith("|")):
+            continue
+        nxt = lines[i + 1].strip() if i + 1 < len(lines) else ""
+        if core._TABLE_SEP_RE.match(nxt):
+            pairs.add(core._header_cells(s)[:2])
+    return pairs
+
+
+class HeaderRegistryDisciplineTests(unittest.TestCase):
+    """The Swift header pairs are registered exactly once each, appear in
+    no existing golden or pack-module source today, and the deliberately
+    UNCOUNTED Swift pairs sit in no concern's registered set."""
+
+    SWIFT_PAIRS = {
+        ("type", "kind"),
+        ("interface", "kind"),
+        ("requirement", "protocol"),
+        ("product", "product kind"),
+        ("@main type", "kind"),
+    }
+
+    UNCOUNTED_PAIRS = {
+        "data-model": {("owner", "property"), ("from type", "relation")},
+        "module-graph": {
+            ("container", "container kind"),
+            ("target", "container"),
+            ("from", "dependency"),
+            ("file", "module"),
+            ("file", "target"),
+        },
+    }
+
+    def test_each_registered_pair_belongs_to_exactly_one_concern(self):
+        owner = {}
+        for concern, pairs in core._ENTITY_TABLE_HEADERS.items():
+            for pair in pairs:
+                self.assertNotIn(
+                    pair, owner,
+                    f"{pair} is registered under both {owner.get(pair)!r} and "
+                    f"{concern!r}")
+                owner[pair] = concern
+
+    def test_the_swift_pairs_are_registered(self):
+        all_registered = set().union(*core._ENTITY_TABLE_HEADERS.values())
+        for pair in self.SWIFT_PAIRS:
+            with self.subTest(pair=pair):
+                self.assertIn(pair, all_registered)
+
+    @staticmethod
+    def _swift_entry_names() -> frozenset:
+        """The corpus entries whose pack is `swift`, read from `corpus.yml`.
+
+        Their goldens are the Swift pack's own output and are MEANT to carry
+        the Swift pairs; the check below is about every other entry. Read
+        with a line pattern so this test needs no YAML parser."""
+        text = (GOLDEN.parent / "corpus.yml").read_text(encoding="utf-8")
+        return frozenset(re.findall(
+            r"^  - name: ([a-z0-9-]+)\n    pack: swift$", text, re.MULTILINE))
+
+    def test_the_swift_golden_carries_the_swift_pairs(self):
+        """Positive control for the absence check below: the header-pair
+        reader finds every registered Swift pair in the Swift entry's own
+        golden, so an empty result below is a measurement, not a blind spot."""
+        names = self._swift_entry_names()
+        self.assertTrue(names, "corpus.yml names no swift entry")
+        for name in sorted(names):
+            seen = set()
+            for md in sorted((GOLDEN / name).glob("*.md")):
+                seen |= _all_table_header_pairs(md.read_text(encoding="utf-8"))
+            with self.subTest(entry=name):
+                self.assertEqual(self.SWIFT_PAIRS - seen, set())
+
+    def test_no_existing_golden_or_pack_source_emits_a_swift_pair(self):
+        found = []
+        swift_entries = self._swift_entry_names()
+        for base in (GOLDEN, GOLDEN.parent / "golden-by-python"):
+            if not base.exists():
+                continue
+            for md in sorted(base.rglob("*.md")):
+                if swift_entries & set(md.relative_to(base).parts[:-1]):
+                    continue
+                hit = _all_table_header_pairs(md.read_text(encoding="utf-8")) & self.SWIFT_PAIRS
+                if hit:
+                    found.append((str(md), sorted(hit)))
+        packs_dir = SCRIPTS / "crux" / "arch" / "packs"
+        for name in ("crux", "python", "ruby", "node", "elixir"):
+            text = (packs_dir / f"{name}.py").read_text(encoding="utf-8")
+            hit = _all_table_header_pairs(text) & self.SWIFT_PAIRS
+            if hit:
+                found.append((name, sorted(hit)))
+        self.assertEqual(found, [], f"a Swift header pair already appears: {found}")
+
+    def test_the_uncounted_swift_pairs_are_registered_nowhere(self):
+        all_registered = set().union(*core._ENTITY_TABLE_HEADERS.values())
+        for concern, pairs in self.UNCOUNTED_PAIRS.items():
+            for pair in pairs:
+                with self.subTest(concern=concern, pair=pair):
+                    self.assertNotIn(pair, all_registered)
+
+    def test_positive_control_the_detector_catches_a_planted_pair(self):
+        """The check turns red when a Swift pair is planted — proving the
+        header-pair scan over golden/source text is not vacuous."""
+        synthetic = "| type | kind | access |\n|---|---|---|\n| Foo | class | public |\n"
+        hit = _all_table_header_pairs(synthetic) & self.SWIFT_PAIRS
+        self.assertTrue(hit, "the detector missed a deliberately planted Swift pair")
+
+
+class SwiftEntityCountingTests(unittest.TestCase):
+    """`count_concern_entities` counts a Swift-shaped data-model table by its
+    rows, ignoring the property and relationship tables beside it, and counts
+    every one of api-surface's four registered Swift tables."""
+
+    def test_counts_the_type_table_rows_and_ignores_property_and_relation_tables(self):
+        md = (
+            "# Data model\n\n"
+            "## Types\n\n"
+            "| type | kind | access | declared at | conditional |\n"
+            "|---|---|---|---|---|\n"
+            "| Foo | class | public | Foo.swift:1 | no |\n"
+            "| Bar | struct | internal | Bar.swift:5 | no |\n\n"
+            "## Properties\n\n"
+            "| owner | property | type | access | declared at |\n"
+            "|---|---|---|---|---|\n"
+            "| Foo | x | Int | public | Foo.swift:2 |\n\n"
+            "## Relationships\n\n"
+            "| from type | relation | to type |\n"
+            "|---|---|---|\n"
+            "| Foo | conforms | Codable |\n"
+        )
+        self.assertEqual(core.count_concern_entities("data-model", md), 2)
+
+    def test_counts_all_four_swift_api_surface_tables(self):
+        md = (
+            "# API surface\n\n"
+            "| interface | kind | access | declared at |\n"
+            "|---|---|---|---|\n"
+            "| Foo | class | public | Foo.swift:1 |\n\n"
+            "| requirement | protocol | declared at |\n"
+            "|---|---|---|\n"
+            "| bar() | Bazable | Baz.swift:3 |\n\n"
+            "| product | product kind | declared at |\n"
+            "|---|---|---|\n"
+            "| MyApp | app | Package.swift:1 |\n\n"
+            "| @main type | kind | declared at |\n"
+            "|---|---|---|\n"
+            "| AppMain | struct | main.swift:1 |\n"
+        )
+        self.assertEqual(core.count_concern_entities("api-surface", md), 4)
 
 
 if __name__ == "__main__":

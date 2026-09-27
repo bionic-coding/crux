@@ -1809,6 +1809,11 @@ def _detect_python(root: Path) -> bool:
     return any((root / rel).exists() for rel in _PYTHON_MARKERS)
 
 
+#: Empty: the core's marker scan prunes no directory from this pack's own
+#: `detect` calls, so this pack's marker semantics are unchanged.
+DETECT_EXCLUDE: frozenset[str] = frozenset()
+
+
 def detect(root: Path) -> DetectResult:
     """Does this repository look like a Python project? (ADR-0096 clause 6.)
 

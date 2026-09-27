@@ -676,8 +676,8 @@ def _ruby_ts_parser():
     The import is inside the function, deliberately, for the reason the elixir
     and node packs give: the core imports every pack module to read its probe
     registry, so a module-scope `import tree_sitter_ruby` would make a python,
-    node, elixir or crux derive fail on a machine carrying no Ruby grammar —
-    four packs that declare no Ruby parser, consult none, and record none in the
+    node, elixir, crux or swift derive fail on a machine carrying no Ruby
+    grammar — five packs that declare no Ruby parser, consult none, and record none in the
     provenance manifest. `core.resolve_declared_parsers` has already refused,
     before any extraction, if the grammar is absent for a pack that DOES declare
     it, so reaching here means the import resolves.
@@ -1330,6 +1330,11 @@ def extract_ruby_data_model(root: Path, docs_dir: str) -> tuple[str, dict]:
 
 
 # ─────────────────────── pack interface (ADR-0096 clause 12) ─────────────────
+
+#: Empty: the core's marker scan prunes no directory from this pack's own
+#: `detect` calls, so this pack's marker semantics are unchanged.
+DETECT_EXCLUDE: frozenset[str] = frozenset()
+
 
 def detect(root: Path) -> DetectResult:
     """Does this repository look like a Ruby project? Wraps the pre-split marker

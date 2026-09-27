@@ -164,8 +164,10 @@ validation commands** — found in that repo's own `AGENTS.md` and `docs/`
 
 In this plugin's private dev repo those are:
 
-- **Test suite:** `uv run python3 -m unittest discover -s crux/scripts/tests`,
-  timeout 120 s. (The `uv run` prefix is load-bearing: the arch and
+- **Test suite:** `uv run python3 crux/scripts/tests/parallel_suite.py crux/scripts/tests`,
+  timeout 180 s. The driver runs the tests `unittest discover -s crux/scripts/tests`
+  runs, across worker processes. The serial form takes about four times as long,
+  past this timeout. (The `uv run` prefix is load-bearing: the arch and
   opencode-agent tests import PyYAML, so a bare `python3` on a machine whose
   interpreter lacks it reports phantom errors on an otherwise-green tree — the
   PB-0026 rule of thumb.)

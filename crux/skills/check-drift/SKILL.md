@@ -64,7 +64,7 @@ Run each command below from the repo root — **both tables**: the roster gates 
 | Gate (output) | Scope | Dry-run command | Regenerator that fixes it |
 |---|---|---|---|
 | `crux/catalog/skills.json` + `agents.json` | plugin-authoring | `validate-catalog.py --dry-run` | `validate-catalog.py` |
-| `docs/code/` | project | `extract-code-docs.py --dry-run --config <docs_dir>/manifest.yml` | `extract-code-docs.py --config <docs_dir>/manifest.yml` (skill `extract-code-docs`) |
+| `docs/code/` | project | `uv run --no-config extract-code-docs.py --dry-run --config <docs_dir>/manifest.yml` | `uv run --no-config extract-code-docs.py --config <docs_dir>/manifest.yml` (skill `extract-code-docs`) |
 | `<docs_dir>/arch/` spine | project | `derive-arch.py --dry-run --docs-dir <docs_dir>` | `derive-arch.py --docs-dir <docs_dir>` (skill `derive-arch`) |
 | `<docs_dir>/adrs/summaries/` | project | `summarize-adrs.py --dry-run` | `summarize-adrs.py` |
 | `<docs_dir>/adrs/doctrine/` | project | `compile-doctrine.py --dry-run` | `compile-doctrine.py` (skill `compile-doctrine`) |

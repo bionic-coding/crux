@@ -38,14 +38,14 @@ one — stated rather than implied.
 
 Which tests need the corpus cache:
 
-  * (a) re-derives the ten pinned clones and is SKIPPED when the cache is
+  * (a) re-derives the twelve pinned clones and is SKIPPED when the cache is
     absent, for the reason `test_arch_corpus.py` gives: the only honest verdict
     without the corpus is "not measured".
   * (b) reads the record only, (d) reads the committed goldens only, and (e)
     builds its own scratch fixture repository. All three run on any machine
     with no network and no cache.
 
-**The eleventh entry, and why it is gated differently.** `crux-repo` carries
+**The self-hosted entry, and why it is gated differently.** `crux-repo` carries
 `source: self` (ADR-0096 clause 12): it derives THIS checkout in place under a
 forced `arch_stack: python`, with no clone and no network, so
 `ClauseEightSelfHostedTests` NEVER skips. It carries no `golden/<name>/`, and
@@ -179,10 +179,15 @@ def _self_derive(entry: dict) -> dict:
 def _detected_packages(pack_name: str, root: Path) -> list[str]:
     """The package set the RESOLVED pack's package detection reports.
 
-    Package detection is landed for the python pack alone, so every other pack
-    reports the empty list. That is a statement about the pack, not about the
-    repository, and the record says so.
+    Package detection is landed for the python pack and the swift pack. The
+    swift pack reports its container set: every `Package.swift` and every
+    `*.xcodeproj` holding `project.pbxproj` the Swift walk reaches, by
+    repo-relative marker path. Every other pack reports the empty list. That is
+    a statement about the pack, not about the repository, and the record says so.
     """
+    if pack_name == "swift":
+        from crux.arch.packs import swift as swift_pack   # noqa: PLC0415
+        return list(swift_pack.detect_containers(root))
     if pack_name != "python":
         return []
     from crux.arch.packs import python as python_pack   # noqa: PLC0415
@@ -267,7 +272,7 @@ class ClauseEightRecordTests(unittest.TestCase):
     """(b) and the record's shape. Cache-free: these run everywhere."""
 
     def test_every_repository_carries_a_complete_expectation_record(self):
-        """The record covers all eleven entries and all four concerns each.
+        """The record covers all thirteen entries and all four concerns each.
 
         A partially-written record would let (a) and (d) pass by iterating over
         the entries that happen to have one.

@@ -763,11 +763,12 @@ class ShippedScriptContractTests(unittest.TestCase):
         # with the other declaration sites; asserting a floor here would have let
         # the two disagree.
         self.assertIn("pyyaml==6.0.3", head)
-        # The four grammars the deriver pins, for the same inheritance reason:
-        # without them `survey derive` on a Ruby, Node or Elixir target exits 2
+        # The five grammars the deriver pins, for the same inheritance reason:
+        # without them `survey derive` on a Ruby, Node, Elixir or Swift target exits 2
         # with `ParserUnavailable`.
         for grammar in ("tree-sitter==", "tree-sitter-elixir==",
-                        "tree-sitter-ruby==", "tree-sitter-typescript=="):
+                        "tree-sitter-ruby==", "tree-sitter-swift==",
+                        "tree-sitter-typescript=="):
             with self.subTest(grammar=grammar):
                 self.assertIn(grammar, head)
 

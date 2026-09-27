@@ -413,6 +413,11 @@ def _detect_crux(root: Path) -> bool:
     return (root / "crux" / "skills").exists() and (root / "crux" / "schemas").exists()
 
 
+#: Empty: the core's marker scan prunes no directory from this pack's own
+#: `detect` calls, so this pack's marker semantics are unchanged.
+DETECT_EXCLUDE: frozenset[str] = frozenset()
+
+
 def detect(root: Path) -> DetectResult:
     """Does this repository look like the crux monorepo? (ADR-0096 clause 6.)
 

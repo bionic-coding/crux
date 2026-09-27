@@ -7,9 +7,12 @@ Covers the regressions fixed in this pass:
   2. `build_manifest` no longer stamps a per-row `extracted_at` field.
   3. `write_pages` prune does NOT touch files outside `output_dir` (even
      when a symlink under output_dir points at an outside file).
-  4. `write_pages` prune handles `.md` files reachable only through a
-     symlink: the symlink itself can be unlinked, the real target outside
-     the tree is preserved.
+  4. `write_pages` prune reports, and never deletes, any `.md` file under
+     `output_dir` that is itself a symlink -- whether it resolves inside or
+     outside the tree (ADR-0131 clause 14 D1, amended from the earlier
+     behavior of unlinking an in-tree link while preserving its outside
+     target: a link's target is never this dispatcher's page to have
+     written, so the link is never this dispatcher's to delete either).
 
 Stdlib only (unittest, tempfile, os, importlib, pathlib, json, sys).
 """
@@ -267,8 +270,10 @@ class WritePagesPruneTests(unittest.TestCase):
 
     def test_prune_does_not_touch_files_outside_output_dir(self):
         """A symlink under output_dir pointing OUTSIDE must not cause unlink
-        of the outside target. We unlink the symlink itself (it's inside),
-        but never reach through to delete the real outside file."""
+        of the outside target -- and, per ADR-0131 clause 14 D1, the symlink
+        itself is now reported and left standing rather than unlinked (an
+        ADR-mandated change from the earlier behavior, which deleted the
+        in-tree link while preserving its outside target)."""
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "code"
             out.mkdir()
@@ -299,6 +304,13 @@ class WritePagesPruneTests(unittest.TestCase):
                 outside_file.read_text(encoding="utf-8"),
                 "# precious\n",
                 "outside target contents must be untouched",
+            )
+            # ADR-mandated change (ADR-0131 clause 14 D1): the symlink itself
+            # is now reported, never deleted -- it is not this run's page to
+            # have written, and its target is not this dispatcher's to prune.
+            self.assertTrue(
+                link.is_symlink(),
+                "the symlink under output_dir must be reported and left standing, not unlinked",
             )
 
     def test_prune_respects_resolved_kept_set_for_index_and_meta(self):

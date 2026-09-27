@@ -77,11 +77,12 @@ class DetectStackTests(unittest.TestCase):
 
         `STACK_PRECEDENCE` survives on the facade because the pre-split
         namespace gate binds the name, but it is REGISTRATION ORDER now, not the
-        precedence — that lives in `PackEntry.beats`, pairwise. The order is
-        unchanged, so the value is the same tuple it always was; what changed is
-        that nothing reads it as a ranking.
+        precedence — that lives in `PackEntry.beats`, pairwise. The swift pack
+        is appended last, so the five earlier names keep their order; nothing
+        reads the tuple as a ranking.
         """
-        self.assertEqual(D.STACK_PRECEDENCE, ("crux", "python", "ruby", "node", "elixir"))
+        self.assertEqual(D.STACK_PRECEDENCE,
+                         ("crux", "python", "ruby", "node", "elixir", "swift"))
         self.assertEqual(D.STACK_PRECEDENCE, D.PACK_NAMES)
         self.assertEqual(D.PACK_NAMES, tuple(e.name for e in D.PACK_REGISTRY))
 
@@ -286,6 +287,56 @@ class PinConfigHashingTests(unittest.TestCase):
         # file is not force-added to sources by the pin mechanism.
         srcs = self._sources(_Cfg(arch_stack=None, source=".bionic.yml"))
         self.assertNotIn(".bionic.yml", srcs)
+
+
+class SwiftRegistrationTests(unittest.TestCase):
+    """The swift pack's registration (ADR-0129 clauses 2 and 3)."""
+
+    def setUp(self):
+        self.core = importlib.import_module("crux.arch.core")
+
+    def test_swift_is_registered_last_with_an_empty_precedence_set(self):
+        self.assertEqual(self.core.PACK_NAMES[-1], "swift")
+        entry = {e.name: e for e in self.core.PACK_REGISTRY}["swift"]
+        self.assertEqual(entry.beats, frozenset())
+
+    def test_no_registered_pack_names_swift_in_its_precedence_set(self):
+        for entry in self.core.PACK_REGISTRY:
+            with self.subTest(pack=entry.name):
+                self.assertNotIn("swift", entry.beats)
+
+    def test_every_swift_probe_declares_the_parser_class(self):
+        kinds = self.core.probe_kinds("swift")
+        concerns = self.core.probe_concerns("swift")
+        own = {n: k for n, k in kinds.items() if concerns[n] != "decision-index"}
+        self.assertEqual(sorted(concerns[n] for n in own),
+                         ["api-surface", "data-model", "module-graph"])
+        for name, kind in own.items():
+            with self.subTest(probe=name):
+                self.assertEqual(kind, "parser")
+
+    def test_swift_concerns_name_the_pinned_grammar(self):
+        declared = self.core.input_classes("swift")
+        # module-graph also names `yaml`: it checks an XcodeGen `project.yml`
+        # with PyYAML, scanning the event stream before a safe load (ADR-0130
+        # clause 13), so its declared set is the grammar pair plus `yaml`.
+        expected = {
+            "data-model": ("tree_sitter", "tree_sitter_swift"),
+            "api-surface": ("tree_sitter", "tree_sitter_swift"),
+            "module-graph": ("tree_sitter", "tree_sitter_swift", "yaml"),
+        }
+        for concern, parser in expected.items():
+            with self.subTest(concern=concern):
+                self.assertEqual(declared[concern].parser, parser)
+                self.assertEqual(declared[concern].kind, "parser")
+        self.assertEqual(declared["decision-index"].parser, ("yaml",))
+
+    def test_the_regex_roster_names_no_swift_probe(self):
+        rows = self.core.load_regex_roster()
+        named = [r for r in rows
+                 if r.get("pack") == "swift" or "packs.swift:" in str(r.get("probe", ""))]
+        self.assertEqual(named, [])
+        self.assertTrue(rows, "the roster loaded no rows, so the check read nothing")
 
 
 if __name__ == "__main__":

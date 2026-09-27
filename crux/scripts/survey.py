@@ -6,6 +6,7 @@
 #     "tree-sitter==0.26.0",
 #     "tree-sitter-elixir==0.3.5",
 #     "tree-sitter-ruby==0.23.1",
+#     "tree-sitter-swift==0.7.3",
 #     "tree-sitter-typescript==0.23.2",
 # ]
 # ///

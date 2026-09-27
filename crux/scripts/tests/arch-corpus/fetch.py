@@ -72,6 +72,15 @@ SHA_RE = re.compile(r"\A[0-9a-f]{40}\Z")
 
 REQUIRED_KEYS = ("name", "pack", "url", "sha", "license", "why", "expect")
 
+# Corpus repositories must carry a permissive license. Their derived facts —
+# expectation records and goldens — are committed under `crux/**`, which the
+# public artifact ships, so a copyleft license (GPL, LGPL, AGPL, SSPL) or an
+# unknown one disqualifies a repository outright: it is refused here, before
+# anything is fetched, and never deferred as a later release decision. The
+# value is the SPDX id GitHub reports; check it from repository metadata before
+# adding an entry. Widening this set is an owner decision.
+PERMISSIVE_LICENSES = frozenset({"MIT", "BSD-2-Clause", "BSD-3-Clause", "Apache-2.0", "ISC"})
+
 # A `source: self` entry derives THIS repository rather than a fetched clone:
 # it carries no `url`/`sha` (there is nothing to shallow-clone) and instead
 # pins `arch_stack:` — the pack the derive is forced to resolve, since this
@@ -87,6 +96,16 @@ ARCH_STACK_RE = re.compile(r"\A[a-z][a-z0-9_-]{0,31}\Z")
 # malformed record is an unusable manifest — the same class of fault as a bad
 # SHA — instead of a test that skips or reads `None` and passes.
 CONCERNS = ("data-model", "api-surface", "module-graph", "decision-index")
+
+# ADR-0129 clause 9(a): a Swift entry's expectation record also names its
+# facts file and SHA-256 in `corpus.yml`. `path` stays inside the
+# `expectations/` directory (no escape, no absolute path) and is a plain
+# lowercase-kebab `.yml` name; `sha256` is a full 64-character lowercase hex
+# digest so a truncated or re-cased value is refused rather than silently
+# under-checked.
+FACTS_PATH_RE = re.compile(r"\Aexpectations/[a-z0-9-]+\.yml\Z")
+FACTS_SHA256_RE = re.compile(r"\A[0-9a-f]{64}\Z")
+FACTS_KEYS = frozenset({"path", "sha256"})
 
 # The closed reason set (clause 3). Duplicated from `core.StubReason` rather
 # than imported: this script runs standalone under `uv run --no-project` before
@@ -151,6 +170,33 @@ def _validate_expect(expect: object, where: str) -> list[str]:
             if not isinstance(because, str) or not because.strip():
                 problems.append(f"{at}: a `stubbed` expectation requires a `because:` "
                                 "(ADR-0096 clause 8 postcondition (b))")
+
+    # `facts` is absent for the five pre-Swift packs and required for a Swift
+    # entry (ADR-0129 clause 9(a)): without it the digest test and the matcher
+    # would never see that entry.
+    if "facts" not in expect and expect.get("pack") == "swift":
+        problems.append(f"{where}.expect: a `pack: swift` entry requires a `facts` block "
+                        "naming its facts file and SHA-256 (ADR-0129 clause 9(a))")
+    if "facts" in expect:
+        facts = expect["facts"]
+        at = f"{where}.expect.facts"
+        if not isinstance(facts, dict):
+            problems.append(f"{at}: must be a mapping")
+        else:
+            extra = sorted(set(facts) - FACTS_KEYS)
+            if extra:
+                problems.append(f"{at}: unknown key(s) {', '.join(extra)}")
+            missing = sorted(FACTS_KEYS - set(facts))
+            if missing:
+                problems.append(f"{at}: missing key(s) {', '.join(missing)}")
+            path = facts.get("path")
+            if "path" in facts and (not isinstance(path, str) or not FACTS_PATH_RE.match(path)):
+                problems.append(f"{at}.path: {path!r} must match "
+                                "^expectations/[a-z0-9-]+\\.yml$")
+            sha256 = facts.get("sha256")
+            if "sha256" in facts and (not isinstance(sha256, str)
+                                       or not FACTS_SHA256_RE.match(sha256)):
+                problems.append(f"{at}.sha256: {sha256!r} must be 64 lowercase hex characters")
     return problems
 
 
@@ -191,6 +237,10 @@ def load_manifest(path: Path = MANIFEST) -> list[dict]:
                     f"{where}: source: self must not carry {', '.join(carried)} "
                     "(nothing is cloned for a self-hosted entry)")
         name = entry["name"]
+        if entry["license"] not in PERMISSIVE_LICENSES:
+            problems.append(
+                f"{where}: license {entry['license']!r} is not permissive; a corpus "
+                f"repository must carry one of {', '.join(sorted(PERMISSIVE_LICENSES))}")
         if not NAME_RE.match(str(name)):
             problems.append(f"{where}: name {name!r} is not [a-z0-9-]+")
         if name in seen:

@@ -290,8 +290,8 @@ def _js_ts_parser(dialect: str):
 
     The import is inside the function, deliberately, exactly as the elixir pack
     does it. The core imports every pack module to read its registry, so a
-    module-scope `import tree_sitter` would make a python, ruby, elixir or crux
-    derive fail on a machine with no TypeScript grammar — packs that declare no
+    module-scope `import tree_sitter` would make a python, ruby, elixir, crux or
+    swift derive fail on a machine with no TypeScript grammar — packs that declare no
     such parser, consult none, and record none in the provenance manifest.
     `core.resolve_declared_parsers` has already refused, before any extraction,
     if the grammar is absent for a pack that DOES declare it, so reaching here
@@ -2119,6 +2119,11 @@ def extract_node_module_graph(root: Path, docs_dir: str) -> tuple[str, dict]:
 
 
 # ─────────────────────── pack interface (ADR-0096 clause 12) ────────────────
+
+#: Empty: the core's marker scan prunes no directory from this pack's own
+#: `detect` calls, so this pack's marker semantics are unchanged.
+DETECT_EXCLUDE: frozenset[str] = frozenset()
+
 
 def detect(root: Path) -> DetectResult:
     """The node stack-marker detector: a `package.json` at the repository root.

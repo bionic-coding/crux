@@ -36,6 +36,42 @@
       "domain": "rule-citation",
       "rule": "A rule citation resolves by the surface it sits on. A citation on a shipped surface is a binding reference to a rule the plugin ships and resolves against the shipped catalog, whatever the reader's own projection holds, so a project cannot redefine a rule inside the plugin's own instructions by minting the same slug. A citation on a reader-owned surface resolves against the reader's projection first and the shipped catalog second, so the reader's own rules keep their meaning and the plugin's stay reachable. A slug both sides hold is reported wherever the citation lint runs, because a silent substitution and a deliberate override are not the same act. A citation that resolves against neither source is a finding. A surface is shipped when it is part of the artifact the release stages and reader-owned otherwise; the citing file's location decides which rule applies, and the rule being cited never does."
     },
+    "code-doc-callers-invoke-through-uv": {
+      "domain": "code-docs-dispatcher",
+      "rule": "Every skill or gate that invokes the code-doc dispatcher, and every command a skill prints for the reader to run it, uses uv run --no-config."
+    },
+    "code-doc-capability-mismatch-exits-2": {
+      "domain": "code-docs-dispatcher",
+      "rule": "Before any output is read, written or pruned, a dispatcher run on Python older than 3.13, or a run enabling a Python language key without griffelib at exactly the declared version, exits 2 with a message on stderr, empty stdout and every output byte-unchanged."
+    },
+    "code-doc-content-refusal-is-a-validation-error": {
+      "domain": "code-docs-dispatcher",
+      "rule": "Under --dry-run, a refusal caused by tree content exits 1 with one validation_errors row per refusal on stdout naming the path and the cause, carries no drift key, and names no regenerator as its remedy."
+    },
+    "code-doc-drift-means-a-write-would-change-bytes": {
+      "domain": "code-docs-dispatcher",
+      "rule": "A --dry-run reports drift exactly when the same invocation without --dry-run would change a byte on disk, so a --lang dry run compares only that key's pages, metadata rows and provenance block and the full index, and reports unowned files without counting them as drift."
+    },
+    "code-doc-dry-run-compares-output-bytes": {
+      "domain": "code-docs-dispatcher",
+      "rule": "The dispatcher's --dry-run renders the expected pages, index and metadata in memory, compares them with the bytes on disk, reports edited, missing and unexpected pages and index and metadata drift under a drift boolean, and writes nothing."
+    },
+    "code-doc-extractor-name-is-a-shipped-module": {
+      "domain": "code-docs-dispatcher",
+      "rule": "The code-doc dispatcher imports an extractor only when its name, the target manifest's extractor value, which must be a string when present, or the language key when that value is absent, matches ^[a-z][a-z0-9_]*$ as a whole string and names an entry spelled exactly <name>.py that is a regular file and not a link, directly inside the shipped extractors directory located from the dispatcher's own installation; it loads that file and no other, and any other name the run selects refuses the run before any extractor import or output write."
+    },
+    "code-doc-index-lists-written-and-preserved-pages": {
+      "domain": "code-docs-dispatcher",
+      "rule": "Every write, full or filtered, renders the code-doc index from the pages the run wrote plus every page it preserved, taking a preserved page's title from its own first-line H1; a preserved page without one refuses the --lang write and names one full run. The index is not divided by owner. A stray or unowned file a --lang run leaves in place is neither written nor preserved and is not indexed."
+    },
+    "code-doc-output-root-pruned-only-when-owned": {
+      "domain": "code-docs-dispatcher",
+      "rule": "Before any directory creation, write or prune, a code-doc dispatcher run, full or filtered and in either admission branch, refuses when the resolved output root holds a regular *.md file, found at any depth in the scope the full-run prune scans without following a link, unless the root's _meta/manifest.json is a regular file inside it, reached without following a link, that passes the dispatcher's metadata shape check."
+    },
+    "code-doc-write-refusal-reports-on-stderr": {
+      "domain": "code-docs-dispatcher",
+      "rule": "Outside --dry-run, a refusal caused by tree content exits 1 with its message on stderr, nothing on stdout, and every output byte-unchanged."
+    },
     "completion-separates-verified-from-unobserved": {
       "domain": "agent-assignment",
       "rule": "A completion report names the assignment's Outcome and gives every Evidence item one of three dispositions: verified, where the claim was observed to hold, with the command and the result token behind it or, where no command produced it, the observation and where it is recorded; contradicted, where the claim was observed and did not hold, which is a finding; and unobserved, where the claim is not established because no observation was made or one was attempted and settled nothing, naming what was attempted, what limited it, and what would settle it. An Evidence item carrying no disposition is a finding. The report states whether the Constraint held and what shows that. Three labels applied to items the assignment already named is not a form: it adds no artifact and no field, it asks for nothing the report was not already claiming, and a direct fix says all of it in one sentence. Evidence is classified by what it observed rather than by the tool that produced it: a test exercising a component establishes that component's behaviour and establishes a user outcome only where it observes that outcome, and instruction text containing an instruction is no evidence that the instruction worked. A result token is the value that settles the claim, such as an exit code, a pass count or a named verdict, and never raw output, an environment value or a secret. A delegator consolidating a worker's report carries a verified item forward only by citing that worker's result token or recorded observation; an item it can neither cite nor re-derive is unobserved. The assignment's three statements and the report's dispositions land in a durable record the tree already holds, so a later reader recovers the acceptance bar without the dispatch or the session: for a cycle, the book's goal and the run snapshot; for a direct fix, the journal entry the direct-fix rung already requires. A task sized for that rung states all of this in one sentence. An unobserved outcome is a stated limit rather than a concern, so the existing concern status keeps meaning a doubt about the work."
@@ -88,6 +124,14 @@
       "domain": "decision-review",
       "rule": "Evidence availability and the alignment conclusion are two fields, never one. Availability is resolved, partial, unavailable or not-attempted; alignment is serves, gap, inconclusive or not-assessed. Six of the sixteen pairs are legal and the other ten are refused: resolved admits serves or gap, partial admits gap or inconclusive, unavailable admits inconclusive alone, and not-attempted admits not-assessed alone. Resolved with inconclusive is a skipped judgment; unavailable with gap is absence of evidence read as evidence of absence. Falsification is asymmetric: a part reaches serves only on resolved evidence covering the whole claim, while one counterexample reaches gap, so partial evidence can establish a gap and can never establish alignment. A computed signal enters a locator cell only for the part its value bears on, written with the member actually read."
     },
+    "filtered-extraction-writes-only-its-owner": {
+      "domain": "code-docs-dispatcher",
+      "rule": "A --lang run writes and rewrites only the pages, metadata rows and provenance block the selected language key owns, deletes only its own pages whose sources no longer exist, preserves every other owner's bytes, and reports unowned files without pruning them; only a full run prunes an unowned file."
+    },
+    "filtered-write-refuses-an-ownerless-or-deconfigured-tree": {
+      "domain": "code-docs-dispatcher",
+      "rule": "A --lang write or a --dry-run --lang against ownerless metadata refuses before any mutation, naming each unconfigured owner key with its affected row count and one full run as the remedy, and never escalates itself into a full run; metadata is ownerless when any row's owner is absent, empty, or names a language key not present in the manifest the invocation reads."
+    },
     "footnote-definition-names-the-rule": {
       "domain": "writing-rules",
       "rule": "Human-facing prose cites a decision by a footnote whose definition names the rule and carries no ADR number."
@@ -103,6 +147,10 @@
     "gate-count-reads-the-roster-header-row": {
       "domain": "decision-review",
       "rule": "This rule governs gate_count, one of the three delivery signals, and restates its predecessor's clauses without changing them, because retiring one rule that covered three signals would otherwise drop the clauses of a signal this amendment does not touch. gate_count reads no git at all. It finds the regenerator roster by its four-column header row rather than by the heading above it, because that heading spells its count as an English word, so that header row is the input whose absence forces unmeasurable, while a roster the header row locates carrying no enrolled row below it is a count of zero."
+    },
+    "griffe-is-declared-in-the-dispatcher-metadata": {
+      "domain": "code-docs-python",
+      "rule": "The code-doc dispatcher's inline script metadata declares griffelib at one exact version with no extras and requires Python 3.13 or later, and the dispatcher never re-executes itself to obtain griffe or an interpreter."
     },
     "journal-friction-line": {
       "domain": "journal-contract",
@@ -196,6 +244,42 @@
       "domain": "agent-embedded-disciplines",
       "rule": "Before the dev-lead marks a work unit done, it runs the tests that bear on the unit and every test the change could reach, and runs the full suite where it cannot bound that set; a unit is not done on red or when those tests cannot run."
     },
+    "python-duplicate-binding-carries-a-gap-note": {
+      "domain": "code-docs-python",
+      "rule": "When one scope binds a name with more than one def or class statement, other than an overload chain or an accessor chain, the page keeps the last binding in source order and renders a deterministic gap note naming the qualified binding, the shadowed and retained kinds and lines, and the branch context."
+    },
+    "python-export-gaps-are-visible": {
+      "domain": "code-docs-python",
+      "rule": "A wildcard import, an __all__ that Griffe 2.3.0 cannot evaluate statically, and an export that does not resolve inside the selection, including a cyclic alias, each render as a named gap on the page and in the metadata, and are counted in the run summary and compared by --dry-run."
+    },
+    "python-extraction-runs-no-target-code": {
+      "domain": "code-docs-python",
+      "rule": "The Python extractor reads target sources statically, with Griffe's inspection disabled on every path and no Griffe extension loaded except the Crux extension, and never imports or executes target code, installs the target's dependencies, or runs documentation examples or directives."
+    },
+    "python-function-local-declarations-are-documented": {
+      "domain": "code-docs-python",
+      "rule": "When include_private is true, the Python extractor documents every def and class that has a function ancestor, recursively, under a qualified name carrying a <locals> segment, except one that a later def or class statement binding the same name in the same scope shadows, which the duplicate-binding gap note names instead; a node it cannot place refuses the whole run with output byte-unchanged."
+    },
+    "python-private-exclusion-is-by-scope": {
+      "domain": "code-docs-python",
+      "rule": "When include_private is false, the Crux adapter excludes private-named members and every function-local declaration by scope, and never consults Griffe's public-name heuristic to decide either."
+    },
+    "python-rebinding-carries-a-gap-note": {
+      "domain": "code-docs-python",
+      "rule": "When a later assignment, import or other binding operation in the same scope rebinds the name of a def or class, the page renders the member Griffe 2.3.0 and the Crux extension build for that name, reconstructs no shadowed def or class, and renders the duplicate-binding gap note naming the def or class, its line, and the rebinding's kind and line."
+    },
+    "python-renders-only-exported-aliases": {
+      "domain": "code-docs-python",
+      "rule": "The Python extractor renders an imported name only when the module exports it through a static __all__, as Griffe 2.3.0 evaluates it, or a redundant-alias import."
+    },
+    "python-stub-renders-its-own-page": {
+      "domain": "code-docs-python",
+      "rule": "A .pyi stub renders as its own page, loaded separately from any .py source of the same module, and a stub-only module still gets a page."
+    },
+    "python-target-strings-cannot-forge-structure": {
+      "domain": "code-docs-python",
+      "rule": "Every target-derived string on a Python page or in a Python page's index entry renders in a fence sized for it or escaped for its context, with line breaks and control characters outside a fence rendered as visible escapes and link destinations percent-encoded, so no target byte opens or closes page structure."
+    },
     "reassessment-routes-by-its-finding": {
       "domain": "agent-embedded-disciplines",
       "rule": "A reassessment that names a hypothesis or environment fault inside the agent's own scope lets it correct that fault and continue; one that implicates the architecture, names no fault, or follows a second run of three failed fixes on the same problem hands the problem to the party that assigned the work, as a report inside the run rather than a stop."
@@ -263,6 +347,10 @@
     "span-and-prep-are-different-counts": {
       "domain": "decision-review",
       "rule": "The signal set carries three delivery signals — release_cadence, schema_growth and gate_count — and this rule governs release_cadence. It reads the release record from the changelog's dated version headings, and names in its filter the rejected markers with their measured coverage. GIT-DEPENDENCE IS PER MEMBER, not per signal: the changelog alone supplies `releases` and the interval members `intervals_days`, `mean_interval_days` and `median_interval_days`, which compute with no git leg at all; the two per-release members below rest on the mark predicate, which is a first-parent commit test, so they and only they require git. Where the contained git session cannot be established those two members are null and the changelog-only members still compute, and the signal's verdict stays computed, because an absent git session is an absent input for two members rather than for the signal. The release-cadence signal reports two per-release members over the half-open interval that EXCLUDES the previous release's mark and INCLUDES this release's own mark, so consecutive intervals partition the history without overlap and both members read the same interval, and names each for what it counts. `span_commits` counts first-parent commits in that interval; it establishes that those commits lie between two release boundaries and establishes nothing about whether any of them was preparation, concerned that version, or was work that version required. `prep_commits` counts the commits in that same interval whose subject matches the declared preparation prefix; it counts DECLARATIONS and never the span. Zero and null are different values with different meanings on both members: zero means the interval is bounded and the count inside it is zero, and on `prep_commits` that establishes that nobody declared preparation rather than that the release had none; null means the interval is not bounded, and a null is never rendered as a zero. `prep_commits` is keyed by the version string and stays injective because the changelog carries at most one dated heading for a version at any commit, which a heading removed and later restored does not violate; it is never re-keyed on the publication event, because the repository holds no evidence of either event and an event-keyed map would be fabricated."
+    },
+    "swift-dependency-location-strips-credentials": {
+      "domain": "arch-stack-pack-swift",
+      "rule": "The Swift pack renders every dependency location with its userinfo, query and fragment removed."
     },
     "three-failed-fixes-stop-and-reassess": {
       "domain": "agent-embedded-disciplines",

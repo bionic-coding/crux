@@ -225,14 +225,25 @@ def _discover_via_regex(repo_root: Path, config: dict) -> list[SourceUnit]:
     units: list[SourceUnit] = []
     for path in unique:
         try:
-            text = path.read_text(encoding="utf-8")
+            rel = str(path.relative_to(repo_root))
+        except ValueError:
+            rel = str(path)
+        # D6 source containment (ADR-0131 clause 14): resolve the source
+        # and read through the dispatcher's helpers, in the same pass, so a
+        # symlink to a target outside the repository -- or a source that
+        # stops being a regular file between the check and the read --
+        # refuses the run instead of being silently parsed or skipped.
+        # ExtractionRefusal is NOT caught here; it propagates to the
+        # dispatcher. A genuine read/decode failure keeps today's silent
+        # skip.
+        try:
+            resolved = _dispatch.resolve_source(repo_root, Path(rel))
+            text = _dispatch.read_source_bytes(repo_root, resolved).decode("utf-8")
+        except _dispatch.ExtractionRefusal:
+            raise
         except (OSError, UnicodeDecodeError):
             continue
         for module_block in _parse_elixir_modules(text):
-            try:
-                rel = str(path.relative_to(repo_root))
-            except ValueError:
-                rel = str(path)
             units.append(
                 SourceUnit(
                     language="elixir",

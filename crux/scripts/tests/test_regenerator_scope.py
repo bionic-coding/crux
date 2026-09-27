@@ -87,7 +87,7 @@ def _sibling_modules() -> set[str]:
 
 
 # Import name -> distribution name, where they differ.
-_DISTRIBUTION = {"yaml": "pyyaml"}
+_DISTRIBUTION = {"yaml": "pyyaml", "griffe": "griffelib"}
 
 
 def _third_party_imports(tree_or_path) -> set[str]:
@@ -196,6 +196,55 @@ class DependencyDeclarationTests(unittest.TestCase):
                 "        return None\n    return yaml\n", encoding="utf-8")
             self.assertEqual(set(), _third_party_imports(guarded),
                              "a guarded import degrades or reports; it is not undeclared")
+
+
+class ExtractorImportDeclarationTests(unittest.TestCase):
+    """rule:regenerator-declares-its-third-party-imports, extended to the extractors.
+
+    The code-doc dispatcher loads every module under `crux/scripts/extractors/` into its
+    own process, so an extractor's third-party import is the dispatcher's import. ADR-0131
+    clause 5 extends the scanner there: every such import must be declared in the
+    dispatcher's PEP 723 block, or `uv run` resolves nothing for it.
+    """
+
+    EXTRACTORS = SCRIPTS / "extractors"
+    DISPATCHER = SCRIPTS / "extract-code-docs.py"
+
+    def _extractor_imports(self, path: Path) -> set[str]:
+        local = {p.stem for p in self.EXTRACTORS.glob("*.py")}
+        return {i for i in _third_party_imports(path) if i not in local}
+
+    def _undeclared(self, path: Path, declared: set[str]) -> list[str]:
+        lowered = {d.lower() for d in declared}
+        return sorted(i for i in self._extractor_imports(path)
+                      if i not in lowered and _DISTRIBUTION.get(i, i) not in lowered)
+
+    def test_every_extractor_import_is_declared_by_the_dispatcher(self):
+        declared = _declared_dependencies(self.DISPATCHER) or set()
+        scanned = sorted(self.EXTRACTORS.glob("*.py"))
+        self.assertTrue(scanned, "no extractor module found; the scanner has no subject")
+        for path in scanned:
+            with self.subTest(extractor=path.name):
+                self.assertEqual(
+                    [], self._undeclared(path, declared),
+                    f"{path.name} imports a third-party module the dispatcher's PEP 723 "
+                    f"block does not declare (declared: {sorted(declared)})",
+                )
+
+    def test_the_python_extractor_imports_griffe_and_the_dispatcher_declares_it(self):
+        """Non-vacuity: the scan above has at least one real third-party import to judge."""
+        found = set()
+        for path in self.EXTRACTORS.glob("*.py"):
+            found |= self._extractor_imports(path)
+        self.assertIn("griffe", found)
+        self.assertIn("griffelib", {d.lower() for d in _declared_dependencies(self.DISPATCHER) or set()})
+
+    def test_positive_control_an_undeclared_extractor_import_is_flagged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            probe = Path(tmp) / "probe.py"
+            probe.write_text("import griffe\nimport attrs\n", encoding="utf-8")
+            self.assertEqual(["attrs"], self._undeclared(probe, {"griffelib==2.3.0".split("=")[0]}))
+            self.assertEqual(["attrs", "griffe"], self._undeclared(probe, set()))
 
 
 class RepoRootResolutionTests(unittest.TestCase):

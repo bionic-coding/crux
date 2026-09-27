@@ -114,19 +114,27 @@ def discover(repo_root: Path, config: dict) -> list[SourceUnit]:
                 language="fallback",
                 identifier=rel,
                 source_path=rel,
-                payload={"abs_path": str(path)},
+                payload={"abs_path": str(path), "repo_root": str(repo_root)},
             )
         )
     return units
 
 
 def extract(unit: SourceUnit) -> DocPage:
-    path = Path(unit.payload["abs_path"])
+    # D6 source containment (ADR-0131 clause 14): read the source through
+    # the dispatcher's resolve_source/read_source_bytes rather than a plain
+    # Path.read_text, so a source that resolves outside the repository, or
+    # stops being a regular file between the check and the read, refuses the
+    # run instead of being silently read. ExtractionRefusal is NOT caught
+    # here -- it propagates to the dispatcher, which reports it and writes
+    # nothing for the run.
+    repo_root = Path(unit.payload["repo_root"])
+    resolved = _dispatch.resolve_source(repo_root, Path(unit.source_path))
     try:
-        text = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
+        text = _dispatch.read_source_bytes(repo_root, resolved).decode("utf-8")
+    except UnicodeDecodeError:
         text = ""
-    header = _extract_header(text, path.suffix)
+    header = _extract_header(text, resolved.suffix)
     title = unit.source_path
     parts = [f"# {title}", "", f"_Source: `{unit.source_path}` (header-comment fallback)_", ""]
     if header:
