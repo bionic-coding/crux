@@ -366,7 +366,7 @@ class CliContractTests(unittest.TestCase):
         payload = json.loads(result.stdout)
         self.assertEqual(payload["drifted"], [])
         # A gate that measured nothing would also print an empty drift list.
-        self.assertEqual(payload["targets"], 56)
+        self.assertEqual(payload["targets"], 48)
 
     def test_seeded_drift_makes_the_cli_exit_one_with_json_on_stdout(self):
         """Positive control for the row above, through the same CLI."""
@@ -430,11 +430,11 @@ class CliContractTests(unittest.TestCase):
 class RealTreeTests(unittest.TestCase):
     """Facts about THIS checkout, which the synthetic lanes cannot assert."""
 
-    def test_the_projection_covers_56_of_the_60_catalogued_skills(self):
+    def test_the_projection_covers_48_of_the_52_catalogued_skills(self):
         targets = gen.resolve_targets(REPO_ROOT)
         catalogued = gen._catalogued_skills(REPO_ROOT)
-        self.assertEqual(len(catalogued), 60)
-        self.assertEqual(len(targets), 56)
+        self.assertEqual(len(catalogued), 52)
+        self.assertEqual(len(targets), 48)
         self.assertEqual(len(gen.EXEMPT_SKILLS), 4)
         self.assertEqual(len(targets) + len(gen.EXEMPT_SKILLS), len(catalogued))
 
@@ -469,7 +469,7 @@ class RealTreeTests(unittest.TestCase):
 
         Provenance for this output lives in the regenerator's docstring
         because `crux/scripts/` is not a scanned root; the canonical file and
-        all 56 projections are, and the scan is line-based with no carve-out
+        all 48 projections are, and the scan is line-based with no carve-out
         for an HTML comment.
         """
         token = re.compile(r"ADR-\d{4}")

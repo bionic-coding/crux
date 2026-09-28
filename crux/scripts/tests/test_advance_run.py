@@ -18,6 +18,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 ADVANCE = REPO_ROOT / "crux" / "scripts" / "advance-run.py"
 VALIDATE = REPO_ROOT / "crux" / "scripts" / "validate-promptbook.py"
+PROGRESS = REPO_ROOT / "crux" / "scripts" / "visualize-run-progress.py"
+CHECK_INDEX = REPO_ROOT / "crux" / "scripts" / "check-promptbook-index.py"
+FIXTURES = REPO_ROOT / "crux" / "scripts" / "tests" / "fixtures"
 
 try:
     import yaml  # noqa: F401
@@ -241,6 +244,108 @@ class AbandonCliTests(unittest.TestCase):
             proc = _cli([str(run)])
             self.assertEqual(proc.returncode, 1)
             self.assertIn("required", proc.stdout)
+
+    def test_markdown_run_refuses_both_modes_before_any_write_with_recovery_route(self):
+        import json
+        for mode in (["--outcome", "done"], ["--abandon", "--reason", "stopping"]):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as td:
+                tmp = Path(td)
+                run = tmp / "run-RUN-001.md"
+                run_bytes = b"---\nstatus: in_progress\n---\n## Prompt 1\n"
+                run.write_bytes(run_bytes)
+                book = tmp / "PB-9001-x.yaml"
+                book_bytes = b"id: PB-9001\ncurrent_run: RUN-001\ncurrent_prompt: 1\n"
+                book.write_bytes(book_bytes)
+                proc = _cli([str(run), *mode, "--book", str(book)])
+                self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+                self.assertNotIn("Traceback", proc.stderr)
+                error = json.loads(proc.stdout)["error"]
+                self.assertIn(str(run), error)
+                self.assertIn("v3.23.2", error)
+                self.assertIn("finish", error)
+                self.assertIn("non-retryable", error)
+                self.assertNotIn("finish or abandon", error)
+                self.assertEqual(run.read_bytes(), run_bytes)
+                self.assertEqual(book.read_bytes(), book_bytes)
+
+    def test_markdown_book_refuses_before_yaml_run_write_with_recovery_route(self):
+        import json
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            run = self._write_run(tmp)
+            run_bytes = run.read_bytes()
+            book = tmp / "PB-9001-x.md"
+            book_bytes = b"---\nid: PB-9001\ncurrent_run: RUN-001\n---\n"
+            book.write_bytes(book_bytes)
+            proc = _cli([str(run), "--outcome", "done", "--book", str(book)])
+            self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+            error = json.loads(proc.stdout)["error"]
+            self.assertIn(str(book), error)
+            self.assertIn("v3.23.2", error)
+            self.assertEqual(run.read_bytes(), run_bytes)
+            self.assertEqual(book.read_bytes(), book_bytes)
+
+    def test_stranded_markdown_remains_readable_while_yaml_run_advances(self):
+        """A stranded live Markdown record must not freeze unrelated YAML work."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / ".bionic.yml").write_text('config_version: "1"\ndocs_dir: bionic\n')
+            docs = root / "bionic"
+            books = docs / "promptbooks"
+            active = books / "active"
+            old_runs = books / "runs" / "PB-9002-stranded"
+            new_runs = books / "runs" / "PB-9001-new"
+            for directory in (active, old_runs, new_runs):
+                directory.mkdir(parents=True)
+            (docs / "manifest.yml").write_text(
+                'schema_version: "5"\nconcerns_enabled: [promptbooks]\n')
+            old_book = active / "PB-9002-stranded.md"
+            old_book.write_text(
+                "---\nid: PB-9002\ntitle: Stranded\nstatus: active\n"
+                "current_run: RUN-001\ncurrent_prompt: 1\n---\n"
+                "## Prompts\n### Prompt 1 — unfinished\n")
+            old_run = old_runs / "run-RUN-001.md"
+            old_run.write_text(
+                "---\nrun_id: RUN-001\nbook_id: PB-9002\n"
+                "status: in_progress\ncurrent_prompt: 1\n---\n"
+                "## Prompt 1 — unfinished\n- **State:** running\n")
+            old_book_bytes, old_run_bytes = old_book.read_bytes(), old_run.read_bytes()
+
+            new_book = active / "PB-9001-new.yaml"
+            new_book.write_bytes((FIXTURES / "promptbook-valid.yaml").read_bytes())
+            new_run = new_runs / "run-RUN-001.yaml"
+            new_run.write_bytes((FIXTURES / "run-valid.yaml").read_bytes())
+            (books / "index.md").write_text(
+                "# Promptbooks\n\n_Last updated: 2026-09-27_\n\n"
+                "## Active (2)\n\n"
+                "| id | title | status | current_run | progress | tags | created_at |\n"
+                "|---|---|---|---|---|---|---|\n"
+                "| [[promptbooks/PB-9001-new]] | New | active | RUN-001 | 1/13 | x | 2026-09-27 |\n"
+                "| [[promptbooks/PB-9002-stranded]] | Old | active | RUN-001 | 0/1 | x | 2026-09-27 |\n"
+                "## Recent runs (last 20)\n\n## Archived (0)\n")
+            (docs / "index.md").write_text("# Tree\n\n## Promptbooks (2 active, 0 archived)\n")
+
+            refusal = _cli([str(old_run), "--outcome", "done", "--book", str(old_book)])
+            self.assertEqual(refusal.returncode, 1, refusal.stdout + refusal.stderr)
+            self.assertIn("non-retryable", refusal.stdout)
+            advance = _cli([str(new_run), "--outcome", "done", "--book", str(new_book)])
+            self.assertEqual(advance.returncode, 0, advance.stdout + advance.stderr)
+            for kind, path in (("promptbook", new_book), ("run", new_run)):
+                validation = subprocess.run(
+                    [sys.executable, str(VALIDATE), "--kind", kind, str(path)],
+                    cwd=root, capture_output=True, text=True)
+                self.assertEqual(validation.returncode, 0, validation.stdout + validation.stderr)
+            for path in (old_run, new_run):
+                status = subprocess.run(
+                    [sys.executable, str(PROGRESS), str(path), "--no-color"],
+                    cwd=root, capture_output=True, text=True)
+                self.assertEqual(status.returncode, 0, status.stdout + status.stderr)
+            index = subprocess.run(
+                [sys.executable, str(CHECK_INDEX), "--root", str(root)],
+                capture_output=True, text=True)
+            self.assertEqual(index.returncode, 0, index.stdout + index.stderr)
+            self.assertEqual(old_book.read_bytes(), old_book_bytes)
+            self.assertEqual(old_run.read_bytes(), old_run_bytes)
 
     def test_abandon_keeps_the_books_current_run_pointer(self):
         import yaml

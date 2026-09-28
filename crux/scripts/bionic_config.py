@@ -451,26 +451,42 @@ def _is_crux_manifest(path: Path) -> bool:
     return has_version and has_concerns
 
 
-def _read_migration_marker(root: Path) -> str | None:
-    """Return the source directory recorded by an in-flight migration, or None.
+def _parse_migration_marker(marker: Path) -> str:
+    """Read the shape written by the tagged 4→5 migrator, without changing it.
 
-    ADR-0059: a marker **accounts for** a dual-manifest state only when it
-    parses and its recorded source is one of the candidate directories. A marker
-    that does not parse, or that names a third directory, accounts for nothing
-    and the refusal stands.
+    Its writer emits source, step, then inventory lines. A lone ``source:``
+    line is not a recovery receipt and must not resolve two real trees.
     """
+    if marker.is_symlink():
+        raise BionicConfigError(f"invalid migration marker {marker}: symlink")
+    try:
+        lines = marker.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError) as exc:
+        raise BionicConfigError(f"invalid migration marker {marker}: unreadable") from exc
+    if (len(lines) < 3
+            or not re.fullmatch(r"source: [^\s]+", lines[0])
+            or not re.fullmatch(r"step: [1-6]", lines[1])
+            or lines[2] != "inventory:"
+            or any(not re.fullmatch(r"  - .+", line) for line in lines[3:])):
+        raise BionicConfigError(f"invalid migration marker {marker}: malformed tagged receipt")
+    source = lines[0].removeprefix("source: ")
+    try:
+        _validate_docs_dir_text(source)
+    except BionicConfigError as exc:
+        raise BionicConfigError(f"invalid migration marker {marker}: {exc}") from exc
+    return source
+
+
+def _read_migration_marker(root: Path) -> str | None:
+    """Return a recorded source, refusing malformed or conflicting receipts."""
+    found: list[str] = []
     for candidate in (DEFAULT_DOCS_DIR, LEGACY_DOCS_DIR):
         marker = root / candidate / ".migrating"
-        if not marker.is_file():
-            continue
-        try:
-            text = marker.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
-        m = re.search(r"^source\s*:\s*(\S+)\s*$", text, re.MULTILINE)
-        if m:
-            return m.group(1).strip().strip("'\"")
-    return None
+        if marker.exists() or marker.is_symlink():
+            found.append(_parse_migration_marker(marker))
+    if len(found) > 1:
+        raise BionicConfigError("multiple migration markers found; refusing to choose a source")
+    return found[0] if found else None
 
 
 def discover_docs_dir(root: Path) -> str:
@@ -487,9 +503,9 @@ def discover_docs_dir(root: Path) -> str:
     """
     valid = [d for d in (LEGACY_DOCS_DIR, DEFAULT_DOCS_DIR)
              if _is_crux_manifest(root / d / "manifest.yml")]
+    marked = _read_migration_marker(root)
 
     if len(valid) > 1:
-        marked = _read_migration_marker(root)
         if marked in valid:
             # An in-flight migration: resolution returns the recorded source —
             # the tree the migration has not yet finished leaving, which is the
@@ -498,9 +514,10 @@ def discover_docs_dir(root: Path) -> str:
         raise BionicConfigError(
             "two crux trees found: "
             + " and ".join(f"{d}/manifest.yml" for d in valid)
-            + ". Refusing to guess which is authoritative. Resolve by finishing or "
-            "abandoning a migration (`audit-docs --migrate` / `--abandon`), or by "
-            "naming the tree explicitly in .bionic.yml (docs_dir:)."
+            + ". Refusing to guess which is authoritative. A valid partial "
+            "migration must be resumed or abandoned with crux v3.23.2; "
+            "otherwise reconcile the trees or name the tree explicitly in "
+            ".bionic.yml (docs_dir:)."
         )
     if len(valid) == 1:
         # The legacy tree wins when it is the only one — an established docs/
@@ -610,6 +627,8 @@ def load_config(repo_root: str | Path | None = None, *, require_tree: bool = Fal
 
 SUPPORTED_SCHEMA_VERSION = "5"  # ADR-0059: bionic/ tree + unified invariants concern
 KNOWN_OLDER_SCHEMA_VERSIONS = ("2", "3", "4")
+RECOVERY_TAG = "v3.23.2"
+RECOVERY_COMMIT = "08ee30ec2f1d1b4b0ce970f2e1582bb4f83cd20d"
 
 
 class SchemaVersionError(BionicConfigError):
@@ -631,14 +650,26 @@ def read_schema_version(docs_root: Path) -> str | None:
 
 
 def require_schema_version(docs_root: Path) -> str:
-    """Refuse unless the tree is at the supported schema version (ADR-0059).
+    """Refuse unless the tree is at the supported schema version (ADR-0137).
 
     Every command that reads the tree calls this before reading, writing, or
-    reporting; the migrate rung is the only exemption. The point is that an
-    unmigrated tree is LOUDLY blocked rather than silently half-served — an
-    invariants audit reporting clean because it cannot find its own
-    reconciliation surface is the outcome this refusal exists to prevent.
+    reporting. An in-flight marker is old migration state even if its manifest
+    already says 5. Keep the marker intact for the tagged recovery tool.
     """
+    docs_root = Path(docs_root)
+    marker_paths = [docs_root / ".migrating"]
+    if docs_root.name in (DEFAULT_DOCS_DIR, LEGACY_DOCS_DIR):
+        sibling = (LEGACY_DOCS_DIR if docs_root.name == DEFAULT_DOCS_DIR
+                   else DEFAULT_DOCS_DIR)
+        marker_paths.append(docs_root.parent / sibling / ".migrating")
+    for marker in marker_paths:
+        if marker.exists() or marker.is_symlink():
+            _parse_migration_marker(marker)
+            raise SchemaVersionError(
+                f"in-flight migration marker {marker} remains. Use crux "
+                f"{RECOVERY_TAG} ({RECOVERY_COMMIT}) to resume or abandon "
+                "that migration on a copy before using this version."
+            )
     found = read_schema_version(docs_root)
     if found == SUPPORTED_SCHEMA_VERSION:
         return found
@@ -650,14 +681,14 @@ def require_schema_version(docs_root: Path) -> str:
     if found in KNOWN_OLDER_SCHEMA_VERSIONS:
         raise SchemaVersionError(
             f"tree schema_version is {found!r}; this plugin requires "
-            f"{SUPPORTED_SCHEMA_VERSION!r}. Run `audit-docs --migrate` to upgrade. "
-            "Refusing to operate on an unmigrated tree rather than reporting "
-            "results that would be wrong."
+            f"{SUPPORTED_SCHEMA_VERSION!r}. Recover schemas 2–4 with crux "
+            f"{RECOVERY_TAG} ({RECOVERY_COMMIT}) on a copy, then validate and "
+            "upgrade. This version cannot migrate that tree."
         )
     raise SchemaVersionError(
         f"tree schema_version is {found!r}, which this plugin does not recognize "
-        f"(supported: {SUPPORTED_SCHEMA_VERSION!r}). The tree may have been written "
-        "by a newer plugin; align plugin versions before migrating."
+        f"(supported: {SUPPORTED_SCHEMA_VERSION!r}). Inspect the tree and align "
+        "plugin versions before proceeding; no migration route is known."
     )
 
 

@@ -5,7 +5,7 @@ tools: Read, Grep, Glob, Edit, Write, Bash, Skill, TodoWrite
 model: sonnet
 maxTurns: 50
 effort: medium
-skills: [init-docs, audit-docs, cleanup-campsite, link-adr-graph, migrate-promptbooks, check-drift, transition-adr, ingest-research, process-inbox, propose-adr, propose-brief, log-work, archive-promptbook, extract-code-docs, verify-code-docs, run-promptbook, forge-skill]
+skills: [init-docs, audit-docs, cleanup-campsite, link-adr-graph, check-drift, transition-adr, ingest-research, process-inbox, propose-adr, propose-brief, log-work, archive-promptbook, extract-code-docs, verify-code-docs, run-promptbook, forge-skill]
 memory: project
 metadata:
   tags: "agents, docs, maintenance, custodian"
@@ -22,7 +22,7 @@ code (your writes stay under `docs/`).
 ## What you do (always via the owning skill, never raw freehand)
 - **Setup:** `init-docs`.
 - **Maintenance:** `audit-docs` (graph integrity), `cleanup-campsite`
-  (forward-looking hygiene), `link-adr-graph`, `migrate-promptbooks`.
+  (forward-looking hygiene), `link-adr-graph`.
 - **Intake / preservation:** `ingest-research`, `process-inbox` (you are
   *dispatched* by this pipeline to file a brainstormer's session into a brief —
   you don't field "file the session" as a direct user trigger, so the inbox →

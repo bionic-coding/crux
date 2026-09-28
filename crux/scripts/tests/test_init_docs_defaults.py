@@ -482,9 +482,11 @@ class InstallDocsSkillsProseTests(unittest.TestCase):
     existing installation)."""
 
     SKILL_MD = REPO_ROOT / "crux" / "skills" / "install-docs-skills" / "SKILL.md"
+    DETAIL_MD = SKILL_MD.parent / "references" / "install-and-upgrade.md"
 
     def test_detection_never_keys_on_literal_docs_absence(self):
-        t = self.SKILL_MD.read_text()
+        self.assertIn("references/install-and-upgrade.md", self.SKILL_MD.read_text())
+        t = self.DETAIL_MD.read_text()
         self.assertNotIn(
             "If `docs/` does NOT exist in the target repo (fresh install)", t)
         for marker in ("`.bionic.yml`", "`bionic/` tree", "legacy `docs/` tree"):

@@ -10,8 +10,9 @@ grammar (reserved tokens rejected), the CLI JSON contract, the schema widening
 regression (prefixed ids validate in books AND runs, forked_from included;
 reserved double-token ids rejected), the dot-crux.tmpl template pin, the
 prefixed()-output-vs-schema-pattern cross-check, and consumer wiring
-(subprocess-level) for extract-code-docs / visualize-run-progress /
-migrate-promptbooks against a relocated docs_dir and a malformed .crux.
+(subprocess-level) for extract-code-docs / visualize-run-progress against a
+relocated docs_dir and a malformed .crux. Historical Markdown progress
+remains readable after format conversion leaves the current distribution.
 
 Uses only stdlib (unittest, tempfile, subprocess, json, os, sys, pathlib,
 shutil). Every test uses a tempfile.TemporaryDirectory as the repo root —
@@ -35,7 +36,6 @@ CLI = SCRIPTS_DIR / "crux-config.py"
 VALIDATE_PROMPTBOOK = SCRIPTS_DIR / "validate-promptbook.py"
 EXTRACT_CODE_DOCS = SCRIPTS_DIR / "extract-code-docs.py"
 VISUALIZE_RUN_PROGRESS = SCRIPTS_DIR / "visualize-run-progress.py"
-MIGRATE_PROMPTBOOKS = SCRIPTS_DIR / "migrate-promptbooks.py"
 SCHEMAS_DIR = REPO_ROOT / "crux" / "schemas"
 TEMPLATES_DIR = REPO_ROOT / "crux" / "templates"
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -49,7 +49,7 @@ import crux_config  # noqa: E402  type: ignore
 from crux_config import CruxConfigError, load_config  # noqa: E402
 
 # Sibling convention (test_yaml_capability.py): some subprocess consumers
-# invoked below (validate-promptbook.py, migrate-promptbooks.py) REQUIRE a
+# invoked below (validate-promptbook.py, visualize-run-progress.py) REQUIRE a
 # real YAML parser and refuse the minimal fallback outright when
 # CRUX_NO_UV_REEXEC=1 blocks the uv re-exec lane. Their wiring tests are
 # gated on PyYAML actually being importable in *this* interpreter so the
@@ -677,7 +677,7 @@ class TestPrefixedMatchesSchemaPattern(CruxConfigTestCase):
 
 # ───────────────────────── consumer wiring (ADR-0032) ────────────────────────
 #
-# Subprocess-level tests (cwd = a temp repo) proving the three script consumers
+# Subprocess-level tests (cwd = a temp repo) proving retained script consumers
 # actually honor the repo-root .crux: relocated docs_dir resolution, fail-loud
 # on a malformed .crux, and the explicit-flag precedence rules. Subprocess
 # invocation sidesteps the per-process resolve-once caches entirely
@@ -830,65 +830,26 @@ class TestVisualizeRunProgressWiring(CruxConfigTestCase):
         self.assertIn(".crux configuration error", proc.stderr)
         self.assertNotIn("Traceback", proc.stderr)
 
-
-@unittest.skipUnless(
-    HAVE_PYYAML, "requires PyYAML for the strict-YAML subprocess consumers"
-)
-class TestMigratePromptbooksWiring(CruxConfigTestCase):
-    def test_malformed_crux_reports_json_despite_explicit_legacy_root(self):
-        # main() pre-warms the .crux resolution unconditionally, so even with
-        # --legacy-root explicit a config error surfaces through the
-        # {"errors": [...]} JSON contract (exit 1) — never a raw traceback.
-        self.write_crux(_MALFORMED_CRUX)
-        proc = _run_script(
-            MIGRATE_PROMPTBOOKS,
-            "does-not-matter.md",
-            "--legacy-root", str(self.root / "elsewhere"),
-            cwd=self.root,
-        )
-        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
-        payload = json.loads(proc.stdout)
-        self.assertTrue(payload.get("errors"))
-        self.assertIn(".crux configuration error", payload["errors"][0]["error"])
-
-    def test_dry_run_with_relocated_docs_dir_succeeds(self):
-        self.write_crux('config_version: "1"\ndocs_dir: documentation\n')
-        (self.root / "documentation" / "promptbooks").mkdir(parents=True)
-        legacy = self.root / "legacy-book.md"
-        legacy.write_text(
-            (FIXTURES / "legacy-book.md").read_text(encoding="utf-8"), encoding="utf-8"
-        )
-        proc = _run_script(
-            MIGRATE_PROMPTBOOKS, "legacy-book.md", "--dry-run", cwd=self.root
-        )
-        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-        self.assertIn("format_version", proc.stdout)
-
-    def test_default_legacy_root_lands_under_relocated_docs_dir(self):
-        self.write_crux('config_version: "1"\ndocs_dir: documentation\n')
+    def test_historical_markdown_progress_reads_relocated_tree_without_rewrite(self):
+        active = self.root / "documentation" / "promptbooks" / "active"
+        runs = self.root / "documentation" / "promptbooks" / "runs" / "PB-9001-test"
+        (active / "PB-9001-test.yaml").unlink()
+        (runs / "run-RUN-001.yaml").unlink()
         archive = self.root / "documentation" / "promptbooks" / "archive"
-        archive.mkdir(parents=True)
-        src = archive / "PB-9001-fixture.md"
-        src.write_text(
-            (FIXTURES / "legacy-book.md").read_text(encoding="utf-8"), encoding="utf-8"
-        )
+        archive.mkdir()
+        book = archive / "PB-9001-test.md"
+        run = runs / "run-RUN-001.md"
+        book.write_bytes((FIXTURES / "legacy-book.md").read_bytes())
+        run.write_bytes((FIXTURES / "legacy-run.md").read_bytes())
+        before = book.read_bytes(), run.read_bytes()
         proc = _run_script(
-            MIGRATE_PROMPTBOOKS,
-            "documentation/promptbooks/archive/PB-9001-fixture.md",
-            "--relocate",
-            cwd=self.root,
+            VISUALIZE_RUN_PROGRESS, "PB-9001", "--no-color", cwd=self.root
         )
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-        # The migrated .yaml landed beside the source...
-        self.assertTrue((archive / "PB-9001-fixture.yaml").is_file())
-        # ...and the original was relocated into the DEFAULT legacy root
-        # (<docs_dir>/promptbooks/legacy), derived from the relocated .crux.
-        relocated = (
-            self.root / "documentation" / "promptbooks" / "legacy"
-            / "archive" / "PB-9001-fixture.md"
-        )
-        self.assertTrue(relocated.is_file(), proc.stdout + proc.stderr)
-        self.assertFalse(src.exists())
+        self.assertIn("RUN-001", proc.stdout)
+        self.assertEqual((book.read_bytes(), run.read_bytes()), before)
+
+
 
 
 if __name__ == "__main__":

@@ -168,6 +168,12 @@ class RendererTests(unittest.TestCase):
         self.assertNotRegex(md, r"\d{4}-\d{2}-\d{2}", "artifact body must carry no date")
         self.assertNotRegex(md, r"\d{2}:\d{2}", "artifact body must carry no time")
 
+    def test_markdown_names_the_surviving_status_owner(self):
+        md = viz.render_markdown(_model(self._rows()))
+        self.assertIn("`run-promptbook` status", md)
+        self.assertNotIn("`visualize-run-progress` skill", md)
+        self.assertNotIn("[[adrs/", md, "consumer artifacts cannot link to dev-repo ADRs")
+
     def test_markdown_escapes_pipe(self):
         rows = [{"n": 1, "title": "has | a pipe", "module_tag": "—", "state": "done"}]
         md = viz.render_markdown(_model(rows, tag_joined=False))
@@ -240,11 +246,25 @@ class CliTests(unittest.TestCase):
     def test_cli_pb_id_resolution(self):
         self.assertEqual(self._main(["PB-9001", "--no-color"]), 0)
 
+    def test_terminal_render_changes_no_files(self):
+        before = {p.relative_to(self.tmp): p.read_bytes() for p in self.tmp.rglob("*") if p.is_file()}
+        self.assertEqual(self._main(["PB-9001", "--no-color"]), 0)
+        after = {p.relative_to(self.tmp): p.read_bytes() for p in self.tmp.rglob("*") if p.is_file()}
+        self.assertEqual(before, after)
+
     def test_cli_markdown_writes_sibling_artifact(self):
         self.assertEqual(self._main(["PB-9001", "--markdown"]), 0)
         artifact = self.run.with_name("run-RUN-001-progress.md")
         self.assertTrue(artifact.exists())
         self.assertIn("Run progress", artifact.read_text(encoding="utf-8"))
+
+    def test_cli_markdown_only_writes_artifact_so_skill_can_log_once(self):
+        before = {p.relative_to(self.tmp): p.read_bytes() for p in self.tmp.rglob("*") if p.is_file()}
+        self.assertEqual(self._main(["PB-9001", "--markdown"]), 0)
+        after = {p.relative_to(self.tmp): p.read_bytes() for p in self.tmp.rglob("*") if p.is_file()}
+        new = set(after) - set(before)
+        self.assertEqual(new, {self.run.relative_to(self.tmp).with_name("run-RUN-001-progress.md")})
+        self.assertEqual({path: after[path] for path in before}, before)
 
     def test_pb_resolution_falls_back_to_highest_when_current_run_null(self):
         book = self.tmp / "docs/promptbooks/active/PB-9001-test.yaml"

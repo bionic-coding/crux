@@ -298,10 +298,14 @@ class SchemaVersionGateTests(unittest.TestCase):
         )
         self.assertEqual(require_schema_version(self.tmp), "5")
 
-    def test_older_version_refuses_with_the_migrate_remediation(self):
-        with self.assertRaises(SchemaVersionError) as cm:
-            require_schema_version(self._manifest("4"))
-        self.assertIn("audit-docs --migrate", str(cm.exception))
+    def test_supported_old_versions_refuse_with_pinned_recovery(self):
+        for version in ("2", "3", "4"):
+            with self.subTest(version=version):
+                with self.assertRaises(SchemaVersionError) as cm:
+                    require_schema_version(self._manifest(version))
+                self.assertIn("v3.23.2", str(cm.exception))
+                self.assertIn("08ee30ec2f1d1b4b0ce970f2e1582bb4f83cd20d", str(cm.exception))
+                self.assertNotIn("audit-docs --migrate", str(cm.exception))
 
     def test_unknown_newer_version_refuses_without_promising_a_migration(self):
         with self.assertRaises(SchemaVersionError) as cm:
@@ -309,10 +313,19 @@ class SchemaVersionGateTests(unittest.TestCase):
         msg = str(cm.exception)
         self.assertIn("does not recognize", msg)
         self.assertNotIn("audit-docs --migrate", msg)
+        self.assertNotIn("v3.23.2", msg)
+
+    def test_earlier_and_unrecognized_versions_do_not_promise_the_ladder(self):
+        for version in ("1", "unexpected"):
+            with self.subTest(version=version):
+                with self.assertRaises(SchemaVersionError) as cm:
+                    require_schema_version(self._manifest(version))
+                self.assertNotIn("v3.23.2", str(cm.exception))
 
     def test_missing_manifest_refuses(self):
-        with self.assertRaises(SchemaVersionError):
+        with self.assertRaises(SchemaVersionError) as cm:
             require_schema_version(self._manifest(None))
+        self.assertNotIn("v3.23.2", str(cm.exception))
 
     def test_manifest_without_schema_version_refuses(self):
         (self.tmp / "manifest.yml").write_text("concerns_enabled:\n  - adrs\n", encoding="utf-8")
@@ -364,6 +377,54 @@ class ResolverDoesNotFailOpenTests(unittest.TestCase):
     def test_legacy_tree_still_resolves_without_raising(self):
         self._tree("docs")
         self.assertEqual(bionic_config.resolve_tree_name(self.root), "docs")
+
+
+class MigrationMarkerRecoveryTests(ResolverDoesNotFailOpenTests):
+    """Current readers recognize tagged migration state but never resume it."""
+
+    def _marker(self, body: str) -> Path:
+        marker = self.root / "bionic" / ".migrating"
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text(body, encoding="utf-8")
+        return marker
+
+    def test_tagged_marker_selects_recorded_source_then_blocks_current_operation(self):
+        self._tree("docs", "4")
+        self._tree("bionic", "5")
+        marker = self._marker("source: docs\nstep: 3\ninventory:\n  - manifest.yml\n")
+        before = marker.read_bytes()
+        cfg = load_config(self.root, require_tree=True)
+        self.assertEqual(cfg.docs_dir, "docs")
+        with self.assertRaises(SchemaVersionError) as cm:
+            require_schema_version(cfg.docs_root)
+        self.assertIn("v3.23.2", str(cm.exception))
+        self.assertIn("resume or abandon", str(cm.exception))
+        self.assertEqual(marker.read_bytes(), before)
+
+    def test_partial_marker_on_single_current_tree_blocks_current_operation(self):
+        self._tree("bionic")
+        marker = self._marker("source: bionic\nstep: 4\ninventory:\n  - manifest.yml\n")
+        with self.assertRaises(SchemaVersionError) as cm:
+            require_schema_version(self.root / "bionic")
+        self.assertIn("v3.23.2", str(cm.exception))
+        self.assertTrue(marker.exists())
+
+    def test_truncated_marker_does_not_authorize_ambiguous_tree(self):
+        self._tree("docs", "4")
+        self._tree("bionic", "5")
+        self._marker("source: docs\n")
+        with self.assertRaises(BionicConfigError) as cm:
+            load_config(self.root, require_tree=True)
+        self.assertIn("invalid migration marker", str(cm.exception))
+
+    def test_invalid_marker_on_single_tree_refuses_without_modifying_it(self):
+        self._tree("bionic")
+        marker = self._marker("source: ../outside\nstep: 3\ninventory:\n  - manifest.yml\n")
+        before = marker.read_bytes()
+        with self.assertRaises(BionicConfigError) as cm:
+            load_config(self.root, require_tree=True)
+        self.assertIn("invalid migration marker", str(cm.exception))
+        self.assertEqual(marker.read_bytes(), before)
 
 
 class DeclaredButAbsentTreeTests(unittest.TestCase):

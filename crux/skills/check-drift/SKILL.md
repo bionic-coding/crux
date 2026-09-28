@@ -74,7 +74,7 @@ Run each command below from the repo root — **both tables**: the roster gates 
 | `<docs_dir>/index.md` `## ADRs` rollup | project | `generate-index-rollup.py --dry-run` | `generate-index-rollup.py` |
 | `README.md` version footer | plugin-authoring | `generate-readme-footer.py --dry-run` | `generate-readme-footer.py` |
 | writing-rules block (3 surfaces) | plugin-authoring | `generate-writing-rules.py --dry-run` | `generate-writing-rules.py` |
-| runtime-compatibility block (56 skills) | plugin-authoring | `generate-runtime-compat.py --dry-run` | `generate-runtime-compat.py` |
+| runtime-compatibility block (48 skills) | plugin-authoring | `generate-runtime-compat.py --dry-run` | `generate-runtime-compat.py` |
 | `<tree>/AGENTS.md` §10 routing-table region | plugin-authoring | `generate-routing-table.py --dry-run` | `generate-routing-table.py` |
 | `<docs_dir>/adrs/reviews/index.md` | project | `generate-reviews-index.py --dry-run` | `generate-reviews-index.py` |
 | `<docs_dir>/journal/index.md` | project | `generate-journal-index.py --dry-run` | `generate-journal-index.py` |

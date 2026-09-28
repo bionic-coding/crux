@@ -113,8 +113,8 @@ def ensure_real_yaml(argv0: str | None = None) -> None:
     """Guarantee PyYAML for correctness-critical parsing, or die honestly.
 
     Correctness-critical consumers (anything producing validation verdicts or
-    content hashes: validate-promptbook, migrate-promptbooks,
-    visualize-run-progress) call this at entry. The fallback parser is NOT an
+    content hashes: validate-promptbook, visualize-run-progress) call this at
+    entry. The fallback parser is NOT an
     acceptable substitute there: it has empirically diverged from PyYAML on
     valid documents (silently, in ways that poison ``book_content_hash``), so
     best-effort parsing is banned wherever verdicts/hashes are produced.

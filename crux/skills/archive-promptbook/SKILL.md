@@ -31,15 +31,15 @@ This skill is portable across Claude Code, Codex, and OpenCode. This section ove
 
 The terminal-state operation for a promptbook's lifecycle. A book is born in `docs/promptbooks/active/` (created by `author-promptbook`), executed across one or more runs (driven by `run-promptbook`), and finally archived here when all of its prompts have reached a terminal state.
 
-**Format-detect first (load-bearing).** This skill is a **reader** of an existing book + its current run, so it carries a coexistence branch. Detect the on-disk format BEFORE reading or writing anything, then route:
+**Check both paths before mutation.** This skill reads the existing book and its current run, then changes both. Identify their exact paths before the first write. Only structured YAML may be archived by the current version:
 
 | extension | `format_version` | route |
 |---|---|---|
-| `.yaml` | present | **new-format** — top-level YAML keys (`status`, `completed_at`, `archive_note`) per `promptbook.schema.json` / `run.schema.json`. |
-| `.yaml` | absent | **error** — a malformed new-format book/run; do NOT send it to the legacy parser. |
-| `.md` | (ignored) | **legacy-markdown** — the existing frontmatter + `## Archive note` body path, unchanged. |
+| `.yaml` | present | validate and continue with top-level YAML keys (`status`, `completed_at`, `archive_note`) per `promptbook.schema.json` / `run.schema.json` |
+| `.yaml` | absent | malformed YAML; refuse before mutation |
+| `.md` | (ignored) | refuse before mutation, naming the book and run paths |
 
-A legacy `.md` book/run still mid-flight MUST finalize via the legacy path untouched — its frontmatter `status`/`completed_at` and `## Archive note` section work exactly as they did before this loop. A book and its run share a format (a `.yaml` run is created only for a `.yaml` book — a run's format is fixed at its own start from the book's format as of that start); detect the book's extension and the run snapshot's extension independently, but in practice they match.
+For a `.md` book or run, refuse before mutation and name both affected paths: `<book>` and `<run>`. If every remaining prompt can be truthfully completed, use public Crux `v3.23.2` (tag `v3.23.2`, commit `08ee30ec2f1d1b4b0ce970f2e1582bb4f83cd20d`) on a copy to finish and archive the Markdown run. Then convert the book before the run, validate YAML, and upgrade. An already archived eligible run can convert there. The tag has no verified deliberate Markdown-abandon route. If the run cannot finish, preserve its `in_progress` state and original bytes as stranded, non-retryable history; start separate YAML work. Never mark unfinished prompts terminal merely to migrate, and never convert an in-progress run in place. The upgrade guide gives acquisition steps. Historical Markdown remains readable and indexable; this skill does not mutate it.
 
 **Archived books are immutable.** Once a book lives under `docs/promptbooks/archive/`, no skill — including this one — may rewrite, re-archive, or un-archive it. To pursue further work, author a successor book that names this one in its prose (per the abandon rule in `docs/AGENTS.md` §4) — never re-open an archived one.
 
@@ -62,8 +62,8 @@ Do **not** use this skill for:
 
 Refuse to archive unless **all** of the following hold:
 
-1. The book file exists under `docs/promptbooks/active/<id>-<slug>.{yaml,md}` (never `archive/`). Format-detect the extension per the Overview table.
-2. The book's `current_run` value (top-level YAML key on `.yaml` books; frontmatter field on legacy `.md` books) points to an existing run snapshot under `docs/promptbooks/runs/<id>-<slug>/run-<RUN-NNN>.{yaml,md}`. **Only the book's CURRENT run can authorize its archive** — never scan the other runs in the directory for a terminal one. The pointer resolves on BOTH eligibility paths below: a run that completed keeps `current_run` exactly as an abandoned one does, so this precondition is checkable against the pointer rather than vacuous.
+1. The book file exists under `docs/promptbooks/active/<id>-<slug>.yaml` (never `archive/`). If only a `.md` book exists, apply the Markdown refusal above.
+2. The book's top-level `current_run` points to an existing YAML run snapshot under `docs/promptbooks/runs/<id>-<slug>/run-<RUN-NNN>.yaml`. If it points to a `.md` snapshot, apply the Markdown refusal above. **Only the book's CURRENT run can authorize its archive** — never scan other runs for a terminal one. A completed or deliberately abandoned run retains the pointer until archive.
 3. That run is archive-eligible by one of exactly two paths:
 
    **Path 1 — DELIVERED.** The run has `status: completed` AND every prompt is in a terminal state: `done`, `skipped`, or `blocked`. The per-prompt states are defined canonically in **`run.schema.json` / `docs/AGENTS.md` §11.B** (the run-format SSOT — read §11.B). A `blocked` prompt is terminal: a run that reached `completed` while holding one archives as delivered, and the block is recorded in the archive note's terminal-state counts.
@@ -126,14 +126,14 @@ Execute in order. Never reorder, never skip.
 
 ### 0. Resolve per-repo configuration (.crux)
 
-Run `python3 "${CRUX_PLUGIN_ROOT}/scripts/crux-config.py"` from the repo root (or pass `--repo-root <repo-root>`), and confirm the returned `repo_root` is the repo you are operating in — `source: "discovery:<dir>"` with an unexpected `repo_root` means you resolved the wrong directory, not that no config exists. On exit 1, **STOP** and surface the `{"error": ...}` payload — never fall back to defaults. Use the returned `docs_dir` to resolve the docs root wherever this skill says `docs/` (per the docs/AGENTS.md §14 normative definition clause), and accept prefixed book ids (e.g. `CRX-PB-0040`) anywhere this skill says `PB-NNNN` or `<id>` — the prefixed string is the id, verbatim, in paths and frontmatter.
+Run `uv run "${CRUX_PLUGIN_ROOT}/scripts/crux-config.py"` from the repo root (or pass `--repo-root <repo-root>`), and confirm the returned `repo_root` is the repo you are operating in — `source: "discovery:<dir>"` with an unexpected `repo_root` means you resolved the wrong directory, not that no config exists. On exit 1, **STOP** and surface the `{"error": ...}` payload — never fall back to defaults. Use the returned `docs_dir` to resolve the docs root wherever this skill says `docs/` (per the docs/AGENTS.md §14 normative definition clause), and accept prefixed book ids (e.g. `CRX-PB-0040`) anywhere this skill says `PB-NNNN` or `<id>` — the prefixed string is the id, verbatim, in paths and frontmatter.
 
 ### 1. Verify preconditions
 
-- Locate and **format-detect** the book at `docs/promptbooks/active/<id>-<slug>.yaml` (new-format) or `docs/promptbooks/active/<id>-<slug>.md` (legacy). Route per the Overview table. Confirm `status` is `active` and path is in `active/` (not `archive/`).
-- Read the current run snapshot at `docs/promptbooks/runs/<id>-<slug>/run-<current_run>.{yaml,md}` — same format-detect (a `.yaml` book's run is `.yaml`; a `.md` book's run is `.md`).
+- Identify the book's exact path under `docs/promptbooks/active/` and its pointed-to run path. Apply the Markdown refusal above if either is `.md`, before reading archive eligibility or changing any file. Confirm the YAML book has `status: active` and is in `active/` (not `archive/`).
+- Read the current YAML run snapshot at `docs/promptbooks/runs/<id>-<slug>/run-<current_run>.yaml`.
 - Determine which eligibility path applies. For Path 1, walk every prompt and confirm each state is `done`, `skipped`, or `blocked`. For Path 2, read the run's `abandonment.kind` and confirm it is `deliberate`.
-- **Validate the book BEFORE branching on `cycle_kind`** (new-format `.yaml` books only — a legacy `.md` book has no schema to validate against):
+- **Validate the YAML book BEFORE branching on `cycle_kind`:**
 
   ```bash
   uv run "${CRUX_PLUGIN_ROOT}/scripts/validate-promptbook.py" --kind promptbook \
@@ -146,29 +146,28 @@ Run `python3 "${CRUX_PLUGIN_ROOT}/scripts/crux-config.py"` from the repo root (o
 
 ### 2. Finalize the current run snapshot
 
-In `docs/promptbooks/runs/<id>-<slug>/run-<current_run>.{yaml,md}`:
+In `docs/promptbooks/runs/<id>-<slug>/run-<current_run>.yaml`:
 
-- **New-format `.yaml` run:** set the **top-level YAML key** `status: completed` (if it isn't already) and `completed_at: <ISO-8601 UTC timestamp for now>` ONLY IF it is currently `null`. These are real YAML mapping keys (per `run.schema.json`), not frontmatter prose.
+- Set the top-level YAML key `status: completed` (if it isn't already) and `completed_at: <ISO-8601 UTC timestamp for now>` ONLY IF it is currently `null`. These are real YAML mapping keys (per `run.schema.json`).
 - **NEVER overwrite `status: abandoned` with `completed`.** An abandoned run archives AS abandoned; rewriting its status would erase the reason the book closed and turn an honest record into a claim of delivery. On Path 2 leave `status` and `abandonment` exactly as they are, and fill `completed_at` only if it is null.
-- **Legacy `.md` run:** set the **frontmatter** fields `status: completed` and `completed_at: <ISO-8601 UTC>` (only if currently `null`) exactly as before — unchanged legacy path.
 - Either way: do not overwrite a previously-set `completed_at`.
-- Do not edit any per-prompt entries (the `prompts[]` array on `.yaml`, the `## Prompt N` blocks on `.md`). Their states, timestamps, results, and artifacts are immutable.
+- Do not edit any `prompts[]` elements. Their states, timestamps, results, and artifacts are immutable.
 
 ### 3. Move the active book file to archive
 
-- `git mv` (or `mv`) `docs/promptbooks/active/<id>-<slug>.<ext>` → `docs/promptbooks/archive/<id>-<slug>.<ext>`, where `<ext>` is the detected extension (`yaml` for new-format, `md` for legacy). The move target keeps the same extension — a `.yaml` book moves to `archive/<id>-<slug>.yaml`; a `.md` book to `archive/<id>-<slug>.md`. Archival never converts format — converting a legacy `.md` book/run to `.yaml` is the `migrate-promptbooks` skill's job, which an archived `.md` book is eligible for after archival.
-- The filename — including `<id>`, `<slug>`, and the extension — does not change. Only the directory.
+- `git mv` (or `mv`) `docs/promptbooks/active/<id>-<slug>.yaml` → `docs/promptbooks/archive/<id>-<slug>.yaml`.
+- The filename — including `<id>`, `<slug>`, and `.yaml` — does not change. Only the directory.
 - The book's run snapshots under `docs/promptbooks/runs/<id>-<slug>/` **stay where they are**. They are referenced by both active and archived paths via (extension-less) wiki-links; moving them would break references.
 
 ### 4. Update archived book + write the archive note
 
-In `docs/promptbooks/archive/<id>-<slug>.<ext>`:
+In `docs/promptbooks/archive/<id>-<slug>.yaml`:
 
 - Set `status: archived` (was `active`).
 - Set `current_run: null` and `current_prompt: null` — there is no active run against an archived book. This skill is the SOLE writer that nulls `current_run`; `run-promptbook` leaves the book's pointer untouched on both a completed and an abandoned advance.
-- Leave `created_at`, `total_prompts`, `forked_from`, `tags`, `title`, `id` (and, on `.yaml`, `format_version`, `cycle_kind`, `blast_radius`, `goal`, `strategy`, `prompts` — including each prompt's `phase` — plus `modules`/`run_autonomy` if present) untouched.
+- Leave `created_at`, `total_prompts`, `forked_from`, `tags`, `title`, `id`, `format_version`, `cycle_kind`, `blast_radius`, `goal`, `strategy`, `prompts` (including each prompt's `phase`), and `modules`/`run_autonomy` if present untouched.
 
-**New-format `.yaml` book — write the `archive_note` mapping field** (per the `promptbook.schema.json` `archive_note` object). `status` / `current_run` / `current_prompt` are top-level YAML keys (not frontmatter prose); the archive note becomes a top-level `archive_note` **mapping**, NOT a `## Archive note` Markdown section:
+**Write the `archive_note` mapping field** (per the `promptbook.schema.json` `archive_note` object). `status` / `current_run` / `current_prompt` are top-level YAML keys; the archive note becomes a top-level `archive_note` mapping:
 
   ```yaml
   archive_note:
@@ -179,16 +178,6 @@ In `docs/promptbooks/archive/<id>-<slug>.<ext>`:
   ```
 
   If `archive_note` is already present (non-null), do not overwrite it — refuse and surface this as a precondition failure (the book was already archived).
-
-**Legacy `.md` book — unchanged path.** `status` / `current_run` / `current_prompt` are frontmatter fields; append a one-line `## Archive note` Markdown section at the bottom of the body:
-
-  ```markdown
-  ## Archive note
-
-  Archived <YYYY-MM-DD>. Final run: [[promptbooks/runs/<id>-<slug>/run-<final-run>]] (<N>/<total_prompts> prompts terminal).
-  ```
-
-  If the body already has an `## Archive note` section, do not add a second one — refuse and surface this as a precondition failure (the book was already archived).
 
 ### 5. Regenerate `docs/promptbooks/index.md`
 
@@ -230,14 +219,14 @@ Body, 1–3 lines:
 ### 8. Hand-off
 
 Report to the user:
-1. `PB-NNNN-<slug>` archived → `docs/promptbooks/archive/<id>-<slug>.<ext>` (`.yaml` for new-format, `.md` for legacy).
+1. `PB-NNNN-<slug>` archived → `docs/promptbooks/archive/<id>-<slug>.yaml`.
 2. Final run snapshot path.
 3. Whether it archived as delivered or abandoned, plus prompt-state counts (`N done / M skipped / K blocked`, and any non-terminal remainder on the abandoned path) out of `total_prompts`.
 4. Reminder: the archived book is immutable. To continue this thread of work, invoke `author-promptbook` for a successor book that names this one in its `goal` or `strategy` prose. `forked_from:` stays `null` — it is an accepted vestige and nothing writes it.
 
 ## Verification checklist
 
-- [ ] Format-detected the book + run BEFORE reading/writing; legacy `.md` finalized via the legacy path, new-format via the `.yaml` path.
+- [ ] Identified the book and run paths before the first write; a `.md` path was refused with the pinned recovery route.
 - [ ] Source path was `docs/promptbooks/active/<id>-<slug>.<ext>` BEFORE the move (not already in `archive/`).
 - [ ] Eligibility came from the book's CURRENT run, by exactly one of the two paths — `completed` with every prompt terminal, or `abandoned` with `abandonment.kind: deliberate`.
 - [ ] A `superseded` abandonment, or an `abandoned` run with no `abandonment` mapping, was REFUSED.
@@ -246,9 +235,9 @@ Report to the user:
 - [ ] For a `cycle_kind: patch` book: `check-blast-radius.py` exited 0, and its exit code was read as a three-lane gate (1 = finding, 2 = fail-closed), not as a log line.
 - [ ] No per-prompt entries in the run snapshot were modified.
 - [ ] Book file is now at `docs/promptbooks/archive/<id>-<slug>.<ext>` (same extension as source); nothing remains at the active path.
-- [ ] Book `status: archived`, `current_run: null`, `current_prompt: null` (top-level YAML keys on `.yaml`; frontmatter on `.md`).
+- [ ] Book `status: archived`, `current_run: null`, `current_prompt: null` as top-level YAML keys.
 - [ ] Run snapshots remain under `docs/promptbooks/runs/<id>-<slug>/` (NOT moved).
-- [ ] Archive note written exactly once (refused if it already existed): `archive_note` mapping field on `.yaml`; `## Archive note` Markdown section on `.md`.
+- [ ] YAML `archive_note` mapping written exactly once (refused if it already existed).
 - [ ] `docs/promptbooks/index.md` regenerated: active count decremented, archived count incremented, `_Last updated:_` bumped.
 - [ ] `docs/index.md` row counts and `_Last updated:_` updated.
 - [ ] One `promptbook` op entry appended to top of `docs/log.md`, naming whether the book archived as delivered or as abandoned.
@@ -259,15 +248,15 @@ Report to the user:
 - About to archive a book that has a `pending` or `running` prompt in its current run. **Never.** Refuse.
 - About to archive a book that already lives in `docs/promptbooks/archive/`. **Never re-archive.** Refuse.
 - About to overwrite an existing `completed_at` timestamp on the run snapshot. The original timestamp is the truth.
-- About to edit per-prompt entries in the run snapshot during finalization. Snapshots are immutable post-creation; only the run-level frontmatter changes here (status, completed_at).
+- About to edit per-prompt entries in the run snapshot during finalization. Prompt entries are immutable; only the run-level YAML fields change here (status, completed_at).
 - About to delete or move the `docs/promptbooks/runs/<id>-<slug>/` directory. Snapshots stay where they are forever.
 - About to assign a NEW promptbook id during archival. No — the id is permanent. Archival preserves it.
-- About to send a `.yaml` book/run that lacks `format_version` to the legacy `.md` parser. NEVER — `.yaml` without `format_version` is a malformed new-format document; that route is **error**, not legacy. The legacy path is for `.md` files only.
+- About to parse a `.yaml` book/run without `format_version` as Markdown. NEVER — that YAML document is malformed and must be refused.
 - About to treat `status: abandoned` with `abandonment.kind: superseded` as eligible. NEVER — that value marks a stale run a later start rolled over, and it confers no eligibility. Only `kind: deliberate` does.
 - About to write an `abandonment` record here so the book becomes eligible. NEVER — abandonment is recorded when it is taken, by `run-promptbook abandon`, not manufactured at archive time. That is backdating a decision nobody made.
 - About to overwrite an abandoned run's `status` with `completed` "to tidy it up". NEVER — it would convert an honest record of unfinished work into a claim of delivery.
 - About to wave through a `patch` book's blast-radius check because it exited non-zero "for environment reasons". Read the lanes: exit 1 is a real finding, exit 2 is fail-closed. Neither is a pass.
-- About to write a `## Archive note` Markdown section into a new-format `.yaml` book. NEVER — on `.yaml` the note is the structured top-level `archive_note` mapping field (`{archived_at, final_run, note}`), not a Markdown section. The `## Archive note` section is the legacy `.md` form only.
+- About to write a `## Archive note` Markdown section into a `.yaml` book. The note is the top-level `archive_note` mapping (`{archived_at, final_run, note}`).
 - About to add a second archive note (an `archive_note` mapping or a `## Archive note` section) because "the prior one looks wrong". The presence of an existing archive note means the book is already archived; this is a refusal, not a re-archival.
 - About to remove the book from `docs/promptbooks/index.md`'s Active section without adding it to the Archived section. Both edits land in the same write.
 
@@ -294,6 +283,6 @@ Report to the user:
 - **Adding the book to the Archived index list without removing it from the Active table.** Both edits go together.
 - **Using a `journal` op (or any op other than `promptbook`) in the log entry.** The op enum is fixed (`promptbook` is the right op for any active/archive promptbook movement).
 - **Looking for a per-prompt archive-eligibility flag.** There isn't one. `blocked` is a terminal prompt state, and eligibility is a property of the RUN (`status` plus `abandonment.kind`), not of any prompt.
-- **Modifying per-prompt state inside the run snapshot during archival.** Those entries (the `prompts[]` array on `.yaml`, the `## Prompt N` blocks on `.md`) are written by `run-promptbook` and frozen at that moment.
-- **Renaming the book file during the move** (e.g., reslug because the title was cleaner, or "upgrading" a `.md` book to `.yaml`). The **slug** is permanent through archival, and *this skill* never converts the extension. The extension is not permanent forever, though: `migrate-promptbooks` converts an archived legacy `.md` book/run to `.yaml` as a separate, sanctioned step (preserving the `.md` original under `docs/promptbooks/legacy/`). The narrow rule here is just: archival itself keeps the extension; it is not the place to migrate format.
-- **Skipping the archive note** because "the index already records it". The in-file archive note (`archive_note` mapping on `.yaml`, `## Archive note` section on `.md`) is the in-file record; the index is the catalog. Both exist on purpose.
+- **Modifying per-prompt state inside the run snapshot during archival.** The `prompts[]` array is written by `run-promptbook` and frozen at that moment.
+- **Renaming the book file during the move** (e.g., reslug because the title was cleaner). The slug and `.yaml` extension remain fixed through archival.
+- **Skipping the archive note** because "the index already records it". The YAML `archive_note` is the in-file record; the index is the catalog.

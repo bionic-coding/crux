@@ -21,7 +21,9 @@ try:
     from pydantic import BaseModel, Field
 except Exception as e:  # pragma: no cover - import-time guard
     raise ImportError(
-        "serve-llm requires FastAPI dependencies.\n" "Install: uv sync --extra infrastructure\n" f"Import error: {e}"
+        "Crux HTTP service requires FastAPI dependencies.\n"
+        "Launch with the dependencies in box/operator-services.md.\n"
+        f"Import error: {e}"
     ) from e
 
 from crux.core.llm_caller import (

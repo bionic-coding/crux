@@ -44,7 +44,7 @@ through this script. Both call `base_commit_pin.divergence` — one implementati
 the two ends cannot disagree about what the committed record is.
 
 New-format `.yaml` only (a `.yaml` without `format_version`, or a `.md` snapshot, is
-refused — format conversion is `migrate-promptbooks`' job). It does NOT schema-validate
+refused with the pinned recovery route). It does NOT schema-validate
 the snapshot against `run.schema.json` (that is `audit-docs`' job); it guards only the
 fields it mutates.
 
@@ -94,6 +94,21 @@ def _now() -> str:
 def _fail(msg: str) -> "NoReturn":  # type: ignore[name-defined]
     print(json.dumps({"error": msg}))
     raise SystemExit(1)
+
+
+def _legacy_refusal(path: Path) -> "NoReturn":  # type: ignore[name-defined]
+    _fail(
+        f"legacy Markdown promptbook execution is unavailable for {path}. "
+        "If every remaining prompt can be truthfully completed, use public "
+        "Crux v3.23.2 (tag v3.23.2, commit "
+        "08ee30ec2f1d1b4b0ce970f2e1582bb4f83cd20d) on a copy to finish "
+        "and archive the Markdown run, then convert its book before its run, "
+        "validate the YAML, and upgrade. An already archived eligible run can "
+        "be converted there. The tag has no verified Markdown abandon route. "
+        "If the run cannot truthfully finish, it remains in_progress and "
+        "non-retryable on this version: preserve its original bytes and state "
+        "as readable history, and start separate YAML work."
+    )
 
 
 def _dump(doc: dict) -> str:
@@ -252,7 +267,12 @@ def main(argv: list[str]) -> int:
     if not run_path.is_file():
         _fail(f"run snapshot not found: {run_path}")
     if run_path.suffix != ".yaml":
-        _fail("only new-format .yaml run snapshots are supported (a .md run stays on the legacy path)")
+        if run_path.suffix == ".md":
+            _legacy_refusal(run_path)
+        _fail(f"only .yaml run snapshots are supported: {run_path}")
+
+    if args.book and Path(args.book).suffix == ".md":
+        _legacy_refusal(Path(args.book))
 
     run = yaml.safe_load(run_path.read_text())
     if not isinstance(run, dict) or "format_version" not in run:

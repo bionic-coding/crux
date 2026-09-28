@@ -420,14 +420,14 @@ class AgentSkillDeclarationTests(unittest.TestCase):
         ],
         "brainstormer": ["whiteboarding", "query-docs", "forge-skill", "log-work"],
         "commander": [
-            "run-promptbook", "visualize-run-progress", "dev-cycle", "council", "srde",
+            "run-promptbook", "dev-cycle", "council", "srde",
             "forge-skill", "log-work",
         ],
         "dev-lead": ["forge-skill", "log-work"],
         "developer": ["forge-skill", "log-work"],
         "historian": [
             "init-docs", "audit-docs", "cleanup-campsite", "link-adr-graph",
-            "migrate-promptbooks", "check-drift", "transition-adr", "ingest-research", "process-inbox", "propose-adr",
+            "check-drift", "transition-adr", "ingest-research", "process-inbox", "propose-adr",
             "propose-brief", "log-work",
             "archive-promptbook", "extract-code-docs", "verify-code-docs",
             "run-promptbook", "forge-skill",
@@ -450,14 +450,14 @@ class AgentSkillDeclarationTests(unittest.TestCase):
         },
         "brainstormer": {"whiteboarding", "query-docs", "forge-skill"},
         "commander": {
-            "run-promptbook", "visualize-run-progress", "dev-cycle", "council", "srde",
+            "run-promptbook", "dev-cycle", "council", "srde",
             "forge-skill",
         },
         "dev-lead": {"forge-skill"},
         "developer": {"forge-skill"},
         "historian": {
             "init-docs", "audit-docs", "cleanup-campsite", "link-adr-graph",
-            "migrate-promptbooks", "ingest-research", "process-inbox", "log-work",
+            "ingest-research", "process-inbox", "log-work",
             "archive-promptbook", "extract-code-docs", "verify-code-docs",
             "run-promptbook", "forge-skill",
         },

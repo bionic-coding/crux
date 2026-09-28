@@ -77,7 +77,6 @@ RETIRED_SDK_ENTRY_SCRIPTS = SUBSTRATE_ENTRY_SCRIPTS + ("derive-arch.py",)
 # The PB-0026 YAML validators: real-YAML is a hard dependency.
 YAML_VALIDATOR_SCRIPTS = (
     "validate-promptbook.py",
-    "migrate-promptbooks.py",
     "visualize-run-progress.py",
 )
 

@@ -8,7 +8,7 @@ recurring-mistake catalog.
 
 | Excuse | Reality |
 |--------|---------|
-| "The user has an existing tree — I'll merge into it." | Merging is `audit-docs --migrate`'s job. `init-docs` refuses without `--force`; partial bootstrap creates ambiguous state. |
+| "The user has an existing tree — I'll merge into it." | The current `audit-docs --migrate` handles instruction files, not tree schemas. `init-docs` refuses without `--force`; schemas 2–4 use the pinned public `v3.23.2` recovery ladder on a copy. Partial bootstrap creates ambiguous state. |
 | "Language detection found nothing — I'll guess." | Guessing wrong locks the project to a useless extractor. Surface the empty case as a WARNING and let the user populate. |
 | "I'll skip the meta-ADR because the user said 'just give me the tree'." | The bootstrap ADR is the meta-commitment to ADRs. Skipping it makes future `propose-adr` runs feel ungrounded. Require `--no-adr-0000` explicitly. |
 | "The project isn't a git repo — I can't init docs." | Git is an enhancement, never a requirement. Use the current working directory as the project root (confirm it with the user) and proceed; the tree works identically untracked. |

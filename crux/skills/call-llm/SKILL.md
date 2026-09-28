@@ -202,7 +202,7 @@ Do not load dotenv files manually and do not read the key from the process envir
 
 ## Rules
 
-- ALWAYS trace LLM calls via the Tracer (see the `trace-runtime-ops` skill).
+- Trace multi-step LLM workflows through the Tracer when a reasoning trajectory needs to survive the session. See `${CRUX_PLUGIN_ROOT}/box/runtime-apis.md` for the retained API and its source contract.
 - For council decisions, use the `council` skill rather than raw LLM calls.
 - Name a **role**, not a model key, wherever the choice outlives the call site.
 - Reach for `build_gateway_request` when you need to assert on a request without sending it; that is the seam tests are meant to use.

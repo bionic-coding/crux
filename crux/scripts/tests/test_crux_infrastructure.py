@@ -195,10 +195,9 @@ class TestRenameInvariants(unittest.TestCase):
 
 
 class TestSkillFilesPresent(unittest.TestCase):
-    """All 2 SKILL.md files exist in crux/skills/."""
+    """The runtime installer skill remains available."""
 
     EXPECTED_SKILLS = [
-        "serve-llm",
         "install-runtime",
     ]
 

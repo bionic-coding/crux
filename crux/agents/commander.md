@@ -4,7 +4,7 @@ description: Use when the user says "run promptbook", "run PB-NNNN", "start the 
 tools: Read, Grep, Glob, Agent(architect), Agent(brainstormer), Agent(dev-lead), Agent(historian), Agent(librarian), Agent(night-gardener), Agent(reviewer), Agent(wayfinder), Skill, TodoWrite
 model: claude-opus-5-5
 maxTurns: 200
-skills: [run-promptbook, visualize-run-progress, dev-cycle, council, srde, forge-skill, log-work]
+skills: [run-promptbook, dev-cycle, council, srde, forge-skill, log-work]
 metadata:
   tags: "agents, orchestration, conductor, runtime"
   bundles: "crux-agents"
@@ -36,7 +36,7 @@ relevant active goals. Report a concrete conflict with the plan as a
 contradicted premise before dispatching dependent work.
 
 ## How you operate
-1. Drive the run via `run-promptbook` / `dev-cycle` (read the book, advance prompt by prompt).
+1. Drive the run via `run-promptbook` / `dev-cycle` (read the book, advance prompt by prompt). For status or progress, select `run-promptbook` status and report the next action without executing it.
 2. For each prompt, delegate to the owning specialist via the `Agent` tool:
    - architectural decision → **architect** (drafting) + a *second, independent* **architect** to accept (never the same instance; run a `council` first).
    - implementation → **dev-lead** (who may fan out to **developer**s).

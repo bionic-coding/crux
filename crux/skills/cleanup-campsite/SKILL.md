@@ -218,7 +218,7 @@ The id is not reused. This stub exists so a future reader finds the reasoning in
 - **Exemption — self-stuck guard:** If cleanup is being invoked as part of an active cycle run (i.e., the current cleanup invocation's session has the book id in its parent context), the book is exempt from CLN-PB-1. Without conversation context, fall back to: if the book's latest in-body timestamp is within the past `stuck_promptbook_days/2` (default 7 days), assume the book is actively progressing and exempt. This prevents long single-phase cycles (e.g., a 21-day council deliberation) from tripping themselves.
 - **Stable id:** `cleanup-CLN-PB-1-<book-id>`.
 - **Category:** `promptbook-hygiene`. **Severity:** P1.
-- **Proposed action:** "PB-NNNN's run snapshot hasn't advanced since <date>. Either resume via `run-promptbook`, mark the current prompt blocked/skipped and continue, or abandon the run (`run-promptbook abandon PB-NNNN --reason \"<why>\"`) and author a successor book that cites it in prose."
+- **Proposed action:** For a YAML run, resume with `run-promptbook`, truthfully mark the current prompt blocked/skipped, or deliberately abandon the YAML run and author a successor. For a Markdown run, use pinned public `v3.23.2` only if the remaining prompts can truthfully finish, then archive and convert book before run. If it cannot finish, preserve its bytes as readable, unresolved history and start separate YAML work; neither version has a verified deliberate Markdown-abandon route.
 
 #### CLN-PB-2 — promptbooks with escalation text and no journal follow-up
 
@@ -226,7 +226,7 @@ The id is not reused. This stub exists so a future reader finds the reasoning in
 - **Looks for:** matches of regex `/STOP and escalate|3-round|3 full loops/` in run snapshot text. For each match, check whether any journal entry in the last 30 days contains the book id. If no follow-up, finding.
 - **Stable id:** `cleanup-CLN-PB-2-<book-id>`.
 - **Category:** `promptbook-hygiene`. **Severity:** P1.
-- **Proposed action:** "PB-NNNN hit a 3-round escalation but no journal entry references it. Either resolve and journal the resolution, or abandon the run via `run-promptbook abandon`."
+- **Proposed action:** Journal the escalation and its resolution. A YAML run may then resume or be deliberately abandoned. A Markdown run may finish truthfully through pinned public `v3.23.2`; if it cannot, preserve it unresolved and begin separate YAML work. Do not promise Markdown abandonment.
 
 #### CLN-PB-3 — promptbooks eligible for archive
 
@@ -234,7 +234,7 @@ The id is not reused. This stub exists so a future reader finds the reasoning in
 - **Looks for:** the run is archive-eligible by one of the two run-level paths — either `status: completed` with every prompt terminal (`prompts[].state` ∈ {`done`, `skipped`, `blocked`}; on a `.md` run, the per-prompt `State:` field), or `status: abandoned` with `abandonment.kind: deliberate`. A run that is `in_progress`, or `abandoned` with `kind: superseded` or with no `abandonment` mapping, is NOT eligible. Eligibility is a run-level property; there is no per-prompt flag. (See `archive-promptbook/SKILL.md` and `docs/AGENTS.md` §11.B for the definition.)
 - **Stable id:** `cleanup-CLN-PB-3-<book-id>`.
 - **Category:** `promptbook-hygiene`. **Severity:** P3 (the user may have a reason to leave it active).
-- **Proposed action:** "PB-NNNN is eligible for archive (<completed, all prompts terminal | deliberately abandoned>). Invoke `archive-promptbook PB-NNNN` when ready. For a `cycle_kind: patch` book, archival also runs the blast-radius containment check."
+- **Proposed action:** For a YAML run, invoke `archive-promptbook PB-NNNN` when ready; a `cycle_kind: patch` book also runs the blast-radius check. For an eligible Markdown run, use pinned public `v3.23.2` to archive it on a copy, then convert its book before its run. The current `archive-promptbook` refuses Markdown before mutation.
 
 #### CLN-PB-4 — duplicate `### Prompt N` headings in run snapshots
 

@@ -46,7 +46,7 @@ Codex's `read-only` sandbox; writer roles default to `workspace-write`.
 
 <!-- Provenance: this skill assumes the crux plugin is already installed in
 Codex via `codex plugin marketplace add bionic-coding/crux` then `codex plugin add
-crux@crux` (documented in install-docs-skills/SKILL.md). That CLI syntax is
+crux@crux` (documented in install-docs-skills/references/install-and-upgrade.md). That CLI syntax is
 an external Codex contract owned by OpenAI, not by crux — track it against
 upstream, don't assume it. Verified 2026-07-09 against the official docs
 (https://developers.openai.com/codex/plugins/build) and against the local

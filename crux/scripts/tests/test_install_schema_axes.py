@@ -23,6 +23,7 @@ from pathlib import Path
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1].parent
 SKILL = PLUGIN_ROOT / "skills" / "install-docs-skills" / "SKILL.md"
+DETAIL = SKILL.parent / "references" / "install-and-upgrade.md"
 TEMPLATE = PLUGIN_ROOT / "templates" / "manifest.yml.tmpl"
 MANIFEST = PLUGIN_ROOT / "plugin.json"
 
@@ -40,7 +41,8 @@ class SchemaAxisTests(unittest.TestCase):
         self.assertTrue(_template_tree_schema())
 
     def test_the_skill_reads_the_tree_schema_from_the_template_not_the_manifest(self):
-        text = SKILL.read_text(encoding="utf-8")
+        self.assertIn("references/install-and-upgrade.md", SKILL.read_text(encoding="utf-8"))
+        text = DETAIL.read_text(encoding="utf-8")
         self.assertIn("templates/manifest.yml.tmpl", text,
                       "the skill must name the template as the supported-tree-value source")
         self.assertNotIn("the tree schema version this plugin supports", text,

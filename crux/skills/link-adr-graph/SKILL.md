@@ -34,7 +34,7 @@ Output is `docs/adrs/lineage.md`, a regenerated artifact governed by the contrac
 
 > **Derive, don't decide; regenerate byte-stably.** A derive-only renderer reads an upstream source of truth and emits a view of it — it **never mutates** the source (no proposing, transitioning, advancing, or "fixing" the upstream while rendering). Its output is a **regenerated artifact** on the same model as `docs/code/` and `catalog/skills.json`: the body is wholly rewritten on every run; hand-edits are blown away. The body carries **no timestamps and no per-run-varying values**, so the artifact is **byte-identical across runs** given the same input (deterministic ordering throughout); "when it ran" lives only in the `docs/log.md` entry, never in the body.
 
-This is the canonical wording the sibling read-only renderer `visualize-run-progress` references (kept identical in both, deliberately in sync). For `link-adr-graph` specifically: the upstream source is ADR frontmatter (read-only), and the regenerated artifact is `docs/adrs/lineage.md`.
+For `link-adr-graph`, the upstream source is ADR frontmatter (read-only), and the regenerated artifact is `docs/adrs/lineage.md`. Promptbook progress uses the same derive-only principle through `run-promptbook` status and its retained renderer.
 
 ## When to use
 

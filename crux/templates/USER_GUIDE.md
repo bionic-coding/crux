@@ -140,6 +140,8 @@ When upstream sources may have changed:
 
 Categories: `decision | implementation | bug | learning | blocker | refactor | meeting | review | misc | release`.
 
+`log-work` selects one procedure before writing. An interactive journal request adds a reflective monthly entry, regenerates the journal index, and records one `journal` operation. A silent call defaults to log-only: it requires a valid operation and writes only `bionic/log.md`. The bundled writer checks the request before writing and reports `complete`, `refused`, or `partial`. Keep the original request and its explicit local UTC offset for retry. A month-only partial entry cannot prove that offset; the writer warns `offset unverified`. If the offset was lost, stop automated replay and resolve it from evidence. A journal body allows 1–10 authored lines; an optional `Refs:` line is separate from that limit.
+
 ### Planning multi-step work — promptbooks & cycles
 
 Four ways to drive multi-step work, in increasing rigor:
@@ -150,6 +152,21 @@ Four ways to drive multi-step work, in increasing rigor:
 - **"New promptbook for X"** (`author-promptbook`) — a bespoke multi-prompt plan you co-author, with **no** enforced council/review. For sequences that don't need the ceremony.
 
 Then drive any of them: **"run it"** starts an immutable run snapshot under `bionic/promptbooks/runs/PB-NNNN-<slug>/run-RUN-NNN.yaml`; **"advance"** / **"next prompt"** marks the current prompt done and moves on; **"abandon this run"** closes a run that will not finish; **"archive promptbook"** closes the book once its run has either completed with every prompt terminal (done / skipped / blocked) or been deliberately abandoned.
+
+**"Promptbook status"** reads the current run through the existing progress renderer. The `run-promptbook` status procedure owns the read-only view. A terminal view or status answer writes nothing; a Markdown progress artifact requires an explicit `--markdown` request. Advancing changes the run snapshot and active book pointer only; it writes no per-prompt log entry.
+
+
+For installations upgrading from the seven retired entries, use these routes:
+
+| Former entry | Current route |
+|---|---|
+| `task-planner` | `whiteboarding` for exploration; `author-promptbook` or a cycle for a tracked plan. The Python task-planner API remains in `box/runtime-apis.md`. |
+| `author-runbook` | Tracked planning by default; explicit generator instructions in `box/operator-services.md`. |
+| `visualize-run-progress` | `run-promptbook` status; the renderer script remains available. |
+| `trace-runtime-ops`, `semantic-bridge`, `agent-identity` | Python APIs in `box/runtime-apis.md`. |
+| `serve-llm` | HTTP service instructions in `box/operator-services.md`. |
+
+These names no longer select installed skills. Existing runs, runbooks, identities, and Python modules remain in place.
 
 Books and runs are structured `.yaml` documents validated against a JSON Schema (the cycle kinds also pass the cycle-coverage invariants). Edit the prompts list mid-run? You can't — abandon the run, then author a successor book that names its predecessor. Numbers are never reused.
 
@@ -192,8 +209,8 @@ Everything Claude does is backed by Python under the plugin's `scripts/` directo
 | `extract-code-docs.py` | `extract-code-docs` / `verify-code-docs` | Regenerates `bionic/code/` from source docstrings, via per-language plugins under `scripts/extractors/`. |
 | `web-to-markdown.py` | `ingest-research` / `refresh-research-sources` | Fetches a URL into audited markdown. |
 | `transcribe-video.py` | `ingest-research` | Transcribes a video source to text. |
-| `migrate-promptbooks.py` | `migrate-promptbooks` | Translates legacy `.md` books/runs → structured `.yaml`. |
-| `visualize-run-progress.py` | `visualize-run-progress` | Renders a run snapshot as a terminal progress bar + a byte-stable markdown artifact. |
+| `visualize-run-progress.py` | `run-promptbook` status | Reads run progress; writes a byte-stable Markdown artifact only on explicit `--markdown`. |
+| `write-journal.py` | `log-work` | Validates and writes a journal entry plus derived index and log operation, or one log-only operation. Reports partial writes for replay. |
 
 **Validators (run on demand or in CI — they never publish):**
 
@@ -206,7 +223,7 @@ Everything Claude does is backed by Python under the plugin's `scripts/` directo
 
 **Release tooling** (`promote-changelog.py`, `build-skill-zips.py`) packages and versions the plugin itself — used by crux's own release workflow, not something you run in a downstream project.
 
-**The multi-model substrate** lives under the plugin's `scripts/crux/` directory: the LLM router (`call-llm`), the multi-model `council`, `srde`, the tracer, and the identity / knowledge / task-planning modules that power the agent layer. These need API keys (next section) and run under `uv` (Python ≥3.11, per each script's PEP 723 header); `serve-llm` exposes the router over HTTP for non-Python clients. The **`forge-skill` capability-gap loop** (below) is a prose workflow — it needs no API keys of its own.
+**The multi-model substrate** lives under the plugin's `scripts/crux/` directory: the LLM router (`call-llm`), the multi-model `council`, `srde`, the tracer, and the identity / knowledge / task-planning modules that power the agent layer. These need API keys (next section) and run under `uv` (Python ≥3.11, per each script's PEP 723 header); The retained HTTP service exposes the router to non-Python clients; see the shipped `box/operator-services.md` reference. For tracing, probe coordination, identity, and task-planning APIs, see `box/runtime-apis.md`. The **`forge-skill` capability-gap loop** (below) is a prose workflow — it needs no API keys of its own.
 
 **`forge-skill`** closes a capability gap mid-task by autonomously authoring or revising a project-local skill under `.claude/skills/`. Trigger phrases: *"forge a skill"*, *"author a skill for this"*, *"close this capability gap"*. It runs autonomously and reports after the fact — propose-first (wait for approval) applies only when the capability is outward-facing or irreversible (external sends, spend, publishing), would touch anything outside the repo or any secrets, or when the gap would change project structure or external surfaces (those take the brief/ADR path instead). Every forge act is recorded in the append-only **forge log at `.claude/skills/forge-log.md`** — a reviewable history of what was authored, when, and why.
 
@@ -373,6 +390,93 @@ resolution file that copies `source_hashes` from `.instruction-migration-receipt
 then say *"audit docs --migrate using the resolution file at `<path>`"*. It reports
 untracked and private suppressors without editing them. Codex users can install the
 ten Crux role agents personally with the `install-codex-agents` skill.
+
+### Recover older trees and Markdown promptbooks
+
+The current plugin operates on tree schema 5 and executes YAML promptbooks only.
+For a schema-2, schema-3, or schema-4 tree, work on a copy or backup with the
+public `v3.23.2` release. Verify its annotated tag and commit before using its
+schema ladder:
+
+```bash
+recovery_dir="$(mktemp -d)"
+git clone --branch v3.23.2 --single-branch https://github.com/bionic-coding/crux.git "$recovery_dir/crux"
+git -C "$recovery_dir/crux" rev-parse refs/tags/v3.23.2
+git -C "$recovery_dir/crux" rev-parse HEAD
+```
+
+The two results must be `c1298c4a9229ed41ae7017c25321d27e5b3f6e4d`
+and `08ee30ec2f1d1b4b0ce970f2e1582bb4f83cd20d`, respectively. Read that
+release's `crux/skills/audit-docs/SKILL.md` and use its 2→3→4→5 ladder in order.
+A valid `.migrating` marker follows its recorded resume or abandon procedure;
+an invalid marker or two ambiguous trees require investigation. The current
+plugin does not run the ladder. Its `audit-docs --migrate` handles instruction
+files on a schema-5 tree.
+
+The tagged release can finish a Markdown run when its remaining prompts can
+truthfully be completed. Archive it there, then convert its book before its
+run with that release's `migrate-promptbooks` skill. It preserves Markdown
+originals. Validate the YAML files and their content-hash binding before
+returning to the current plugin. The tag cannot deliberately abandon a
+Markdown run. If one cannot finish, keep its bytes unchanged as stranded,
+readable history. Continue separate work in new YAML books; do not mark that
+run complete, skip unfinished prompts to migrate, or convert it in place.
+
+Use a separate project copy for recovery. Before starting any host, inspect
+that copy's project-level Crux registrations and disable only the current
+version there: Claude Code's project settings and `.claude/skills/`, Codex's
+`.agents/plugins/marketplace.json`, `.agents/skills/`, and `.codex/config.toml`,
+and OpenCode's project `opencode.json`, `.opencode/skills/`, and
+`.opencode/skill/`. Keep unrelated entries and the original project
+unchanged. OpenCode merges project `skills` arrays with XDG settings, so an
+isolated XDG directory alone does not remove a current project skill path.
+If you cannot verify that only the tagged Crux skills are active, stop before
+mutating the copy.
+
+Use only the tagged plugin during recovery. In Claude Code, disable the
+currently installed Crux plugin in its installation scope with
+`claude plugin disable crux@crux`, then start a separate session with
+`claude --plugin-dir "$recovery_dir/crux/crux"`. The `--plugin-dir` flag adds
+that source for the session; verify that the current plugin is disabled.
+After recovery, run `claude plugin enable crux@crux` and restart.
+
+In Codex, use an isolated home so the normal plugin installation is absent.
+The tagged checkout contains a local marketplace named `crux` whose source
+is `./crux`. Codex's local-marketplace command accepts a directory path:
+
+```bash
+mkdir -p "$recovery_dir/codex-home"
+CODEX_HOME="$recovery_dir/codex-home" codex plugin marketplace add "$recovery_dir/crux"
+CODEX_HOME="$recovery_dir/codex-home" codex plugin add crux@crux
+```
+
+Start the recovery Codex session with that same `CODEX_HOME`, in a project
+copy without another project-scoped Crux plugin. Verify the tagged skill is
+available before mutation. End that session and return to your normal Codex
+home to resume the current plugin. [Codex's local-marketplace instructions](https://developers.openai.com/plugins/build/plugins)
+explain the path form; these commands have been checked against local CLI
+help, not exercised as a fresh-session recovery.
+
+In OpenCode, use an isolated XDG config for a separate recovery session. Put
+this file at `$recovery_dir/opencode-config/opencode/opencode.json`, replacing
+`TAGGED_CHECKOUT` with the absolute path of `$recovery_dir/crux`:
+
+```json
+{"skills": ["TAGGED_CHECKOUT/crux/skills"]}
+```
+
+Create the config directory and start OpenCode with isolated paths:
+
+```bash
+mkdir -p "$recovery_dir/opencode-config/opencode" "$recovery_dir/opencode-data" "$recovery_dir/opencode-cache"
+XDG_CONFIG_HOME="$recovery_dir/opencode-config" XDG_DATA_HOME="$recovery_dir/opencode-data" XDG_CACHE_HOME="$recovery_dir/opencode-cache" opencode
+```
+
+Verify that only tagged Crux skills load; quit and restore the normal XDG
+settings after recovery. This follows this repository's OpenCode `skills`
+array contract. The local tagged-script and fixture checks do not establish
+fresh-session execution in Claude Code, Codex, or OpenCode; publication still
+requires those three host observations.
 
 ---
 

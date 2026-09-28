@@ -253,11 +253,10 @@ class EveryUserFacingRowHasPhrasesTestCase(unittest.TestCase):
         self.assertNotIn('"inline phrase"', region)
 
     def test_internal_only_skills_are_exempt_via_the_declared_mechanism(self):
-        """The four `user-invocable: false` skills are routed, never counted here."""
+        """The remaining `user-invocable: false` skills are routed, never counted here."""
         skills = self._skills()
         internal = sorted(s["id"] for s in skills if s.get("user-invocable") is False)
-        self.assertEqual(internal, ["agent-identity", "call-llm", "semantic-bridge",
-                                    "trace-runtime-ops"])
+        self.assertEqual(internal, ["call-llm"])
         region, no_triggers = grt.build_region(skills)
         for sid in internal:
             # Present in the Claude-only table, and never reported as missing.
@@ -456,9 +455,9 @@ class TriggerDataQualityTests(unittest.TestCase):
     a single-quoted span on the apostrophe in `what's new in the ecosystem`);
     `derive-arch` declared `why`, lifted from the parenthetical "ADRs are the secondary
     'why'"; `run-promptbook` declared a phrase from the sentence that sends a read-only
-    status query AWAY to `visualize-run-progress`, inverting the inspection/mutation
+    status query AWAY from its status branch, inverting the inspection/mutation
     split; and `patch-cycle` lost a 71-character sizing phrase to a length ceiling.
-    These are the mechanical residues of that class.
+    The status branch now owns progress queries directly.
     """
 
     def _skills(self) -> list[dict]:
@@ -512,9 +511,8 @@ class TriggerDataQualityTests(unittest.TestCase):
         self.assertIn(
             "this is too small for a cycle but it still needs a council and a review",
             by_id["patch-cycle"])
-        for phrase in by_id["run-promptbook"]:
-            self.assertNotIn("how do I resume", phrase)
-        self.assertIn("where am I", by_id["visualize-run-progress"])
+        self.assertIn("how do I resume", by_id["run-promptbook"])
+        self.assertIn("where am I", by_id["run-promptbook"])
 
 
 if __name__ == "__main__":

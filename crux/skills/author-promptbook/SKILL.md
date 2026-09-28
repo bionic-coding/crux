@@ -28,20 +28,20 @@ This skill is portable across Claude Code, Codex, and OpenCode. This section ove
 
 A promptbook is the plan; a run snapshot under `docs/promptbooks/runs/<id>-<slug>/` is the state. This skill creates the plan only. State lives next door — see `run-promptbook`.
 
-**Format.** A new book is written as a **single structured YAML document** at `docs/promptbooks/active/PB-NNNN-<slug>.yaml` whose long-form fields (`goal`, `strategy`, `run_autonomy`) are Markdown block scalars and whose `prompts:` is a structured array — NOT the legacy frontmatter + free-form Markdown body. **This skill is an emitter: it ALWAYS writes new-format `.yaml`.** The only legacy contact point is the successor path, which may *read* a legacy `.md` predecessor (§1) — it still writes a `.yaml` book. Legacy `.md` books that already exist (e.g. a pre-migration book still mid-run) are never rewritten by this skill; the readers (`run-promptbook`, `archive-promptbook`, `audit-docs`, `cleanup-campsite`) format-detect and keep them on the legacy path.
+**Format.** A new book is written as a **single structured YAML document** at `docs/promptbooks/active/PB-NNNN-<slug>.yaml` whose long-form fields (`goal`, `strategy`, `run_autonomy`) are Markdown block scalars and whose `prompts:` is a structured array — NOT the legacy frontmatter + free-form Markdown body. **This skill is an emitter: it ALWAYS writes new-format `.yaml`.** The only legacy contact point is the successor path, which may *read* a legacy `.md` predecessor (§1) — it still writes a `.yaml` book. Legacy `.md` books that already exist are never rewritten by this skill. Historical readers format-detect them; the current `run-promptbook` and `archive-promptbook` refuse live Markdown operations before mutation. An unfinished Markdown run that cannot truthfully finish remains readable and unresolved.
 
 Each book gets a fresh `PB-NNNN` id, monotonic and never reused. The id is allocated atomically from `docs/manifest.yml`'s `promptbook.next_number`. A successor book always gets a new id (never reuse, never edit the prior book's prompts mid-run).
 
 A book is mutable while it has no current run. Once a run starts (`current_run` is non-null), the `prompts:` list freezes — and stays frozen until `archive-promptbook` nulls the pointer, which is after the run reaches a terminal status, not at the moment it does — `book_content_hash` binds the run to that plan.
 
-**To change the plan mid-run, abandon the run and author a successor.** Run `run-promptbook abandon PB-NNNN --reason "<why>"`, then invoke this skill for a fresh book. The mid-run fork path is deleted.
+**To change a YAML plan mid-run, abandon the YAML run and author a successor.** Run `run-promptbook abandon PB-NNNN --reason "<why>"`, then invoke this skill for a fresh book. For a Markdown run, the current version cannot abandon it; preserve its bytes as history and author separate YAML work without claiming closure. The mid-run fork path is deleted.
 
 The successor **names its predecessor in prose** — in its `goal` or `strategy` — because that is now the only place the relation lives. `forked_from:` remains an accepted book field that is always `null`, and nothing writes it. State the consequence when it matters: the successor relation no longer resolves mechanically, so a reader follows the prose or nothing.
 
 ## When to use
 
 - User says: "new promptbook", "draft a plan-of-prompts", "formalize this workflow", "capture this as a promptbook".
-- User attempts to edit the `prompts:` list (legacy `## Prompts`) while a run is in progress — `run-promptbook` refuses, the user abandons the run, and routes here for a successor book.
+- User attempts to edit the `prompts:` list while a YAML run is in progress — `run-promptbook` refuses, the user abandons the YAML run, and routes here for a successor book. A legacy `## Prompts` book stays unchanged; a stranded Markdown run is not abandoned by the current version.
 - After a brainstorming session that yielded a clear multi-step plan worth tracking.
 
 Do **not** use this skill for:
@@ -76,7 +76,7 @@ If the user is re-authoring after an abandoned run, read the predecessor book an
 | `.yaml` | absent | **error** — a malformed new-format book. Refuse; do NOT send it to the legacy parser. |
 | `.md` | (ignored) | **legacy-markdown** — parse the legacy frontmatter + Markdown body; translate `## Goal` → `goal`, `## Strategy` → `strategy`, and each `### Prompt N — <title>` block (its `**Purpose:**` / `**Prompt:**` blockquote / `**Expected output:**` / `**Side effects:**`) into a structured `prompts[]` element. |
 
-Either way, the **new** book is written as `.yaml` (step 4). The source book is never modified — a legacy `.md` source stays exactly as it was.
+Either way, the **new** book is written as `.yaml` (step 4). The source book is never modified — a legacy `.md` source stays exactly as it was. Reading a historical predecessor here never starts, advances, abandons, or archives its Markdown run in the current version; those live operations use the pinned recovery route in `run-promptbook`.
 
 Otherwise this is a fresh authoring pass. Confirm title and goal with the user before allocating an id.
 
@@ -224,7 +224,7 @@ Body: title, id, total_prompts, and the predecessor's id when this book succeeds
 - About to skip `validate-promptbook.py` (step 5b) and regenerate the index against an unvalidated book. Refuse — validate first; a malformed `.yaml` book breaks every reader.
 - About to increment `manifest.yml` before the book file lands on disk. Order matters: write the book file first, then increment, matching `propose-adr`. A failed write should not burn a `PB-NNNN`.
 - About to reuse a previously-used id (e.g. user manually deleted `PB-0005-...` and asked to "use 5 again"). NEVER. Allocate fresh.
-- About to edit the `prompts:` list of an existing book whose `current_run` is non-null. Refuse — and give the remedy that fits the pointed-to run's `status`, because the wrong one dead-ends. Run still `in_progress` → tell the user to abandon it (`run-promptbook abandon`), then offer to author the successor here. Run already terminal (`completed`, or `abandoned`) → abandonment is NOT available (`advance-run.py --abandon` refuses a run that is already terminal, and abandonment is never retrofitted); the remedy is `archive-promptbook`, which closes the book and nulls the pointer, after which the successor is authored here.
+- About to edit the `prompts:` list of an existing book whose `current_run` is non-null. Refuse — and give the remedy that fits the pointed-to run's `status`, because the wrong one dead-ends. YAML run still `in_progress` → tell the user to abandon it (`run-promptbook abandon`), then offer to author the successor here. Markdown run still `in_progress` → do not promise abandonment; preserve it as readable history and offer separate YAML work. YAML run already terminal (`completed`, or `abandoned`) → abandonment is NOT available (`advance-run.py --abandon` refuses a terminal run); use current `archive-promptbook`. An eligible terminal Markdown run still requires pinned public `v3.23.2` archival on a copy, then book-before-run conversion before returning to the current version. A stranded Markdown run remains unresolved; author separate YAML work without changing it.
 - About to append to `docs/promptbooks/index.md`. Rewrite from a directory walk instead — patching is bug-prone. The walk globs BOTH `*.yaml` and `*.md` so coexisting legacy books aren't dropped.
 - About to write the book file before incrementing `manifest.yml`. Wrong order.
 - About to forget the `created_at` top-level key (silent breakage in progress reporting).

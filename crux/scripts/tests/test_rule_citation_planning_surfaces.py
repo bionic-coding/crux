@@ -54,6 +54,7 @@ BRIEF_TEMPLATE = TEMPLATES / "BRIEF-template.md"
 ITERATE_SKILL = SKILLS / "iterate" / "SKILL.md"
 DEV_CYCLE_SKILL = SKILLS / "dev-cycle" / "SKILL.md"
 LOG_WORK_SKILL = SKILLS / "log-work" / "SKILL.md"
+LOG_WORK_JOURNAL = SKILLS / "log-work" / "references" / "journal.md"
 WHITEBOARDING_SKILL = SKILLS / "whiteboarding" / "SKILL.md"
 
 #: The surfaces this unit owns. Every citation-grammar assertion below runs
@@ -242,12 +243,13 @@ class ReviewModuleTests(unittest.TestCase):
 
 
 class LogWorkTests(unittest.TestCase):
-    """Clause 5: `log-work` accepts a `rule:` citation as a ref."""
+    """Clause 5: the selected journal procedure accepts rule citations."""
 
     def _refs_flag(self) -> str:
-        t = _read(LOG_WORK_SKILL)
-        lines = [ln for ln in t.splitlines() if ln.lstrip().startswith("- `--refs")]
-        self.assertEqual(len(lines), 1, "exactly one --refs flag bullet")
+        self.assertIn("`references/journal.md`", _read(LOG_WORK_SKILL))
+        t = _read(LOG_WORK_JOURNAL)
+        lines = [ln for ln in t.splitlines() if "Supply refs through `--refs`" in ln]
+        self.assertEqual(len(lines), 1, "the selected procedure must define --refs once")
         return lines[0]
 
     def test_refs_flag_accepts_a_rule_citation(self):
@@ -256,30 +258,26 @@ class LogWorkTests(unittest.TestCase):
         self.assertIn("[[", flag, "wiki-links remain accepted beside citations")
 
     def test_entry_format_admits_a_rule_citation_on_the_refs_line(self):
-        t = _read(LOG_WORK_SKILL)
-        fmt = _section(t, "### 4. Compose the entry", "### 5.")
-        self.assertIn("rule:<slug>", fmt)
+        t = _read(LOG_WORK_JOURNAL)
+        self.assertIn("`Refs: <wiki-links and rule:<slug> citations>`", t)
+        self.assertIn("Omit the `Refs:` line when there are no refs", t)
 
     def test_checklist_no_longer_demands_wiki_link_syntax_on_every_ref(self):
-        t = _read(LOG_WORK_SKILL)
-        checklist = _section(t, "## Verification checklist", "## Red flags")
+        checklist = _read(LOG_WORK_JOURNAL)
         self.assertNotIn("every link uses `[[...]]` syntax", checklist)
-        # Positive control: the checklist still has a Refs item, and it admits the citation.
-        # Anchored on the item's opening clause, not a bare `Refs:` substring: other
-        # checklist items (the `Friction:` placement item) legitimately name `Refs:`.
-        refs_items = [
-            ln for ln in checklist.splitlines() if ln.startswith("- [ ] If `Refs:` is present")
-        ]
+        # Positive control: final verification checks both accepted forms.
+        refs_items = [ln for ln in checklist.splitlines() if "If `Refs:` is present, verify" in ln]
         self.assertEqual(len(refs_items), 1)
         self.assertIn("rule:<slug>", refs_items[0])
+        self.assertIn("[[...]]", refs_items[0])
 
     def test_journal_carve_out_is_stated(self):
         """The journal cites rule:<slug> where a rule exists and ADR-NNNN where
         the ADR carries no governs block — both halves must be on the surface."""
-        t = _read(LOG_WORK_SKILL)
+        t = _read(LOG_WORK_JOURNAL)
         self.assertIn("rule:<slug>", t)
         self.assertIn("ADR-NNNN", t)
-        self.assertRegex(t, r"governs")
+        self.assertIn("no `governs` block", t)
 
 
 class WhiteboardingTests(unittest.TestCase):

@@ -25,7 +25,7 @@ section of retrospective/SKILL.md):
   (e) retrospective/SKILL.md MUST contain the future-dated-marker validity
       rule and the same-day `journal |` corroboration rule (planted anchor
       guards against corrupt or adversarially-authored cadence anchors).
-      log-work/SKILL.md MUST contain the body-lines-must-not-begin-with-`## [`
+      log-work/references/journal.md MUST contain the body-lines-must-not-begin-with-`## [`
       rule (the prose validity guard whose necessity is documented in (f)).
 
   (f) A line whose content happens to start with `## [` DOES match the
@@ -53,7 +53,7 @@ except ImportError:  # unittest discover imports test modules top-level
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 CLEANUP_SKILL = REPO_ROOT / "crux" / "skills" / "cleanup-campsite" / "SKILL.md"
 RETRO_SKILL = REPO_ROOT / "crux" / "skills" / "retrospective" / "SKILL.md"
-LOG_WORK_SKILL = REPO_ROOT / "crux" / "skills" / "log-work" / "SKILL.md"
+LOG_WORK_SKILL = REPO_ROOT / "crux" / "skills" / "log-work" / "references" / "journal.md"
 LOG_MD = REPO_ROOT / TREE / "log.md"
 DOCS_CLAUDE_MD = TREE_AGENTS_MD
 TMPL_CLAUDE_MD = REPO_ROOT / "crux" / "templates" / "AGENTS.md.tmpl"
@@ -348,7 +348,7 @@ class TestClaudeSurfaceRetroTokens(unittest.TestCase):
 class TestPlantedAnchorGuards(unittest.TestCase):
     """(e) retrospective/SKILL.md MUST contain the future-dated-marker validity
     rule and the same-day journal-op corroboration rule.
-    log-work/SKILL.md MUST contain the body-line guard against `## [` prefixes.
+    log-work/references/journal.md MUST contain the body-line guard against `## [` prefixes.
 
     These are the prose validity guards that protect window detection from
     corrupt or adversarially-authored cadence anchors.  The regex alone cannot
@@ -393,17 +393,17 @@ class TestPlantedAnchorGuards(unittest.TestCase):
         )
 
     def test_log_work_skill_contains_body_heading_guard(self) -> None:
-        """log-work/SKILL.md must contain the body-lines-must-not-begin-with-## [ rule."""
+        """The selected journal reference must guard against body headings."""
         self.assertTrue(
             LOG_WORK_SKILL.exists(),
-            msg=f"log-work/SKILL.md not found at {LOG_WORK_SKILL}.",
+            msg=f"log-work/references/journal.md not found at {LOG_WORK_SKILL}.",
         )
         text = LOG_WORK_SKILL.read_text(encoding="utf-8")
         self.assertIn(
             LOG_WORK_BODY_HEADING_GUARD,
             text,
             msg=(
-                f"log-work/SKILL.md does not contain the body-line guard "
+                f"log-work/references/journal.md lacks the body-line guard "
                 f"against `## [` prefixes.\n"
                 f"  expected substring: {LOG_WORK_BODY_HEADING_GUARD!r}\n"
                 f"  A body line beginning with `## [` is regex-indistinguishable "
@@ -419,7 +419,7 @@ class TestRegexBehaviorDoc(unittest.TestCase):
     A line whose content starts with `## [` followed by the full heading
     pattern DOES match the line-anchored detection regex — even when that
     line appears in entry body text.  This is exactly why the prose validity
-    guards in retrospective/SKILL.md and log-work/SKILL.md are load-bearing:
+    guards in retrospective/SKILL.md and log-work/references/journal.md are load-bearing:
     the regex cannot distinguish a real heading from planted body text with
     the heading prefix.
 
@@ -456,6 +456,6 @@ class TestRegexBehaviorDoc(unittest.TestCase):
                 f"  regex:        {RETRO_DETECTION_REGEX!r}\n"
                 f"  If the regex no longer matches this, re-evaluate whether "
                 f"the prose validity guards in retrospective/SKILL.md and "
-                f"log-work/SKILL.md are still necessary."
+                f"log-work/references/journal.md are still necessary."
             ),
         )

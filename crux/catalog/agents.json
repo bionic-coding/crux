@@ -105,7 +105,6 @@
     "maxTurns": 200,
     "skills": [
       "run-promptbook",
-      "visualize-run-progress",
       "dev-cycle",
       "council",
       "srde",
@@ -212,7 +211,6 @@
       "audit-docs",
       "cleanup-campsite",
       "link-adr-graph",
-      "migrate-promptbooks",
       "check-drift",
       "transition-adr",
       "ingest-research",

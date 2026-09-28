@@ -1,7 +1,7 @@
 """Tests for the PB-0026 YAML capability guards.
 
 Pins the contract that correctness-critical consumers (validate-promptbook,
-migrate-promptbooks, visualize-run-progress) NEVER produce verdicts/hashes via
+visualize-run-progress) NEVER produce verdicts/hashes via
 the minimal fallback parser:
 
   1. In-process ``_yaml_min`` semantics with PyYAML blocked: ``load_yaml`` on a
@@ -20,14 +20,13 @@ the minimal fallback parser:
      python3 <abs script> <args...>`` with CRUX_UV_REEXEC=1 set pre-exec, and
      the child's exit code passes through. CRUX_NO_UV_REEXEC=1 suppresses the
      re-exec entirely (exit 2, stub never runs).
-  4. The same entry guard on the siblings (migrate-promptbooks,
-     visualize-run-progress): exit 2 + stderr, no errors-JSON.
+  4. The same entry guard on visualize-run-progress: exit 2 + stderr, no errors-JSON.
   5. ``ensure_real_yaml``'s failure branches in-process: cause-specific,
      distinguishable messages (loop guard / opt-out / no-uv), plus the
      execv-OSError path (junk uv binary -> "failed to exec").
-  6. Defense-handler reachability: each consumer's main() except clause
+  6. Defense-handler reachability: each retained consumer's main() except clause
      actually catches the exception class its raise sites use (in-process,
-     monkeypatched) — including migrate-promptbooks' two-class tuple.
+     monkeypatched).
 
 The yaml-blocking tricks are kept leak-free: the in-process block is a
 try/finally restore of ``sys.modules['yaml']`` (the same technique as
@@ -55,7 +54,6 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 SCRIPTS_DIR = REPO_ROOT / "crux" / "scripts"
 VALIDATE_SCRIPT = SCRIPTS_DIR / "validate-promptbook.py"
-MIGRATE_SCRIPT = SCRIPTS_DIR / "migrate-promptbooks.py"
 VISUALIZE_SCRIPT = SCRIPTS_DIR / "visualize-run-progress.py"
 YAML_MIN_PATH = SCRIPTS_DIR / "_yaml_min.py"
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -392,30 +390,6 @@ class ValidatorReexecLaneTests(_SubprocessCapabilityBase):
         # The loop guard was set BEFORE the exec, so a second pass can't loop.
         self.assertEqual(self.envvar_file.read_text(encoding="utf-8"), "1")
 
-    def test_migrate_sibling_reexec_argv_carries_its_own_abs_script_path(self):
-        # Sibling pin: ensure_real_yaml(__file__) re-execs THE CALLING SCRIPT —
-        # for migrate-promptbooks the recorded argv must carry the absolute
-        # migrate-promptbooks.py path (not the validator's, not sys.argv[0]
-        # guesswork). Same intentional exact-argv contract pin as above.
-        legacy = FIXTURES / "legacy-book.md"
-        proc = self._run(
-            [sys.executable, str(MIGRATE_SCRIPT), str(legacy), "--dry-run"],
-            env=self._reexec_env(),
-        )
-        self.assertEqual(
-            proc.returncode, 7,
-            f"expected the stub uv's exit 7 to pass through, got {proc.returncode}; "
-            f"stdout={proc.stdout!r} stderr={proc.stderr!r}",
-        )
-        self.assertTrue(self.argv_file.is_file(), "stub uv never ran")
-        recorded = self.argv_file.read_text(encoding="utf-8").splitlines()
-        expected = [
-            "run", "--no-project", "--with", "pyyaml>=6.0", "python3",
-            str(MIGRATE_SCRIPT.resolve()),
-            str(legacy), "--dry-run",
-        ]
-        self.assertEqual(recorded, expected)
-
     def test_no_uv_reexec_optout_suppresses_the_stub(self):
         proc = self._run(
             [sys.executable, str(VALIDATE_SCRIPT), "--kind", "run",
@@ -433,14 +407,7 @@ class ValidatorReexecLaneTests(_SubprocessCapabilityBase):
 
 
 class SiblingCapabilityLaneTests(_SubprocessCapabilityBase):
-    """migrate-promptbooks + visualize-run-progress carry the same entry guard."""
-
-    def test_migrate_promptbooks_hits_crash_lane(self):
-        proc = self._run(
-            [sys.executable, str(MIGRATE_SCRIPT), str(FIXTURES / "legacy-book.md"), "--dry-run"],
-            env=self._blocked_env(CRUX_NO_UV_REEXEC="1"),
-        )
-        self.assert_capability_failure(proc, "migrate-promptbooks")
+    """visualize-run-progress carries the same entry guard."""
 
     def test_visualize_run_progress_hits_crash_lane(self):
         proc = self._run(
@@ -539,37 +506,6 @@ class DefenseHandlerReachabilityTests(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
         self.target = Path(self._tmp.name) / "somefile.md"
         self.target.write_text("---\nid: PB-9001\n---\n", encoding="utf-8")
-
-    def test_migrate_defense_handler_catches_both_capability_classes(self):
-        mod = _import_script_fresh("_migrate_defense_for_test", "migrate-promptbooks.py")
-        # Bypass the .crux resolution pre-warm — irrelevant to this pin.
-        mod._DOCS_PB_ROOT_CACHE = Path(self._tmp.name)
-        # Pin the TWO-CLASS tuple: the handler must catch the capability error
-        # from its own _yaml_min instance AND the one _VP (validate-promptbook,
-        # sibling-loaded by path) raises from — they can be distinct classes.
-        cases = [
-            ("own _yaml_min instance", mod._yaml_min_mod.YamlCapabilityError),
-            ("sibling _VP instance", mod._VP.YamlCapabilityError),
-        ]
-        for label, exc_cls in cases:
-            with self.subTest(source=label):
-                def boom(*args, _exc_cls=exc_cls, **kwargs):
-                    raise _exc_cls("synthetic capability failure")
-
-                original = mod.migrate_path
-                mod.migrate_path = boom
-                try:
-                    stderr = io.StringIO()
-                    with redirect_stderr(stderr):
-                        rc = mod.main([str(self.target)])
-                finally:
-                    mod.migrate_path = original
-                self.assertEqual(
-                    rc, 2,
-                    f"{label}: a capability error escaping migrate_path must hit "
-                    f"main()'s crash-lane handler (exit 2), got {rc}",
-                )
-                self.assertIn("migrate-promptbooks: synthetic capability failure", stderr.getvalue())
 
     def test_validate_defense_handler_catches_capability_error(self):
         mod = _import_script_fresh("_validate_defense_for_test", "validate-promptbook.py")

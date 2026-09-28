@@ -1,9 +1,60 @@
-<!-- generated-from: CHANGELOG.md@sha256:ef1f552b7c339c29d1731920a5284b9b9a93bc88d444028a9761bd4d06526af5; model: claude-opus-5.5; date: 2026-09-27 -->
+<!-- generated-from: CHANGELOG.md@sha256:ebc670718eb597f2d950df5d9f2831e5356be4bc0ba4237e48069e90e35599dd; model: claude-opus-5.5; date: 2026-09-28 -->
 # Changelog
 
 All notable changes to crux. The format roughly follows [Keep a Changelog](https://keepachangelog.com/) and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+
+## [3.24.4] — 2026-09-28
+
+### Changed
+
+- `install-docs-skills` can now be invoked automatically by the model when you ask which Crux version is active. It reports a version only when the selected skill or a host load trace confirms it. Otherwise it reports the active version as unverified. A cached or disabled copy does not count as evidence. Detailed installation, upgrade, and schema guidance loads only when you ask for it.
+
+### Fixed
+
+- Generated ADR lineage no longer links to a decision record that does not exist in your project's documentation tree.
+- The journal adoption-date check in the `init-docs` checklist no longer fails with an argument-parsing error.
+
+## [3.24.3] — 2026-09-28
+
+### Fixed
+
+- Generated run-progress Markdown no longer includes a link to a document that is not available to plugin users. When a run starts with every prompt pending, the promptbook index now shows `0/N (0%)`.
+- New journal entries now stay below a month file's introductory note. This applies to month files created by `init-docs` and to files with a custom preamble.
+- Install guidance now identifies the active plugin from the selected loaded skill or the host load trace. A marketplace cache entry is labeled as a candidate and is no longer treated as proof of which copy the session loaded.
+- In a consuming project, `init-docs` now reports the catalog authoring gate as not applicable when that gate returns `surface_absent: true`. A zero exit code alone no longer reports that the installed catalog was validated.
+
+## [3.24.2] — 2026-09-28
+
+### Added
+
+- A new bounded journal writer validates each request before changing anything. It reports whether a write completed, was refused, or was only partially applied.
+- The journal writer accepts a caller-supplied local timestamp with an explicit UTC offset, so replays produce stable results. A month-only partial retry warns you when the offset cannot be verified from what is already on disk.
+
+### Changed
+
+- **Breaking:** Live promptbook execution now accepts only YAML promptbooks and runs. Markdown promptbook records remain readable and indexable as history, but they can no longer be executed.
+- To finish a Markdown run, use the pinned public `v3.23.2` release. It can complete the run if its remaining prompts can truthfully finish, then archive and convert it. It cannot deliberately abandon a Markdown run, so an unfinishable one stays readable and unresolved.
+- The pinned `v3.23.2` release also provides a migration route for supported documentation-tree schemas 2–4. Run it on a copy of your documentation tree and validate the result. These documentation-tree schema versions are independent of promptbook format. If you have an invalid schema marker or an ambiguous tree, investigate it before migrating.
+- In the current release, `audit-docs --migrate` remains available for instruction-file migration on documentation-tree schema 5.
+- `log-work` and `run-promptbook` now send each operation to a dedicated local procedure.
+  - A journal request writes the month entry, the derived index, and the operation log.
+  - A log-only request writes only the operation log.
+  - Promptbook status is displayed with the existing progress renderer.
+  - Advancing a promptbook still changes only the run snapshot and the active-book pointer.
+
+### Removed
+
+- **Breaking:** Removed several migration tools:
+  - the `migrate-promptbooks` skill and its converter
+  - the migrator for older documentation-tree schemas
+  - the one-time skill-frontmatter migrator
+
+  Historical record readers and instruction-file migration remain available. The installed catalog now has 52 skills.
+- **Breaking:** Removed seven skill entry points: `task-planner`, `author-runbook`, `visualize-run-progress`, `trace-runtime-ops`, `semantic-bridge`, `agent-identity`, and `serve-llm`.
+  - Their underlying runtime APIs, progress renderer, runbook generator, HTTP service, and stored artifacts remain available.
+  - The user guide maps each former entry point to its current replacement.
 
 ## [3.24.1] — 2026-09-27
 

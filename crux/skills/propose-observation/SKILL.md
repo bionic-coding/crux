@@ -68,7 +68,7 @@ Run `python3 "${CRUX_PLUGIN_ROOT}/scripts/bionic-config.py"` (compat: `crux-conf
 ### 1. Read `docs/manifest.yml`
 
 - Verify the file exists. If not, **STOP** — `init-docs` was never run.
-- Verify `observations` is in `concerns_enabled`. If not, **STOP** and tell the user how to enable the concern: `audit-docs --migrate` on an existing tree, or `init-docs` on a new one. The concern is additive and needs no `schema_version` bump.
+- Verify `observations` is in `concerns_enabled`. If not, **STOP** and tell the user how to enable the additive concern by editing a current schema-5 manifest and creating its documented surfaces, or by running `init-docs` on a new tree. The concern needs no `schema_version` bump; `audit-docs --migrate` does not add it.
 - Parse YAML. Read `observation.next_number` (an integer ≥ 1).
 - Hold this value as `${N}` for the duration of this run.
 

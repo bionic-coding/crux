@@ -1,20 +1,5 @@
 [
   {
-    "id": "agent-identity",
-    "name": "agent-identity",
-    "description": "Maintain persistent agent identities and shared learnings during team sessions. Invoke directly only for custom team orchestration.",
-    "tags": [
-      "identity",
-      "learning",
-      "agent-teams"
-    ],
-    "bundles": [
-      "crux-core"
-    ],
-    "risk_level": "low",
-    "user-invocable": false
-  },
-  {
     "id": "archive-promptbook",
     "name": "archive-promptbook",
     "description": "Archive a promptbook after its current run completes or is deliberately abandoned. Refuse runs still in progress.",
@@ -80,30 +65,6 @@
       "new promptbook",
       "draft a plan-of-prompts",
       "formalize a workflow"
-    ]
-  },
-  {
-    "id": "author-runbook",
-    "name": "author-runbook",
-    "description": "Generate an autonomous, multi-phase prompt runbook from a goal, with hypothesis testing and review checkpoints.",
-    "tags": [
-      "planning",
-      "runbook",
-      "autonomous",
-      "codegen"
-    ],
-    "bundles": [
-      "crux-core"
-    ],
-    "risk_level": "medium",
-    "requires_env": [
-      "OPENROUTER_API_KEY"
-    ],
-    "triggers": [
-      "author a runbook",
-      "generate a runbook",
-      "build me a runbook",
-      "write an autonomous prompt runbook"
     ]
   },
   {
@@ -461,7 +422,7 @@
   {
     "id": "install-docs-skills",
     "name": "install-docs-skills",
-    "description": "Install or upgrade the crux plugin in Codex or Claude Code, check its installed version, and guide documentation schema migration.",
+    "description": "Identify which Crux plugin version is active in this session; provide read-only Crux installation, upgrade, and schema guidance when requested.",
     "tags": [
       "installation",
       "plugin",
@@ -471,14 +432,15 @@
       "crux-docs"
     ],
     "risk_level": "low",
-    "routing_note": "Re-runs the installer.",
+    "routing_note": "Read-only active identity; install and upgrade instructions load on request.",
     "triggers": [
+      "which crux version is active",
+      "what crux plugin is loaded",
       "install docs skills",
       "add this plugin",
       "set up crux",
       "upgrade docs suite"
-    ],
-    "disable-model-invocation": true
+    ]
   },
   {
     "id": "install-opencode-agents",
@@ -591,28 +553,6 @@
       "record progress",
       "log this"
     ]
-  },
-  {
-    "id": "migrate-promptbooks",
-    "name": "migrate-promptbooks",
-    "description": "Migrate legacy Markdown promptbooks and run snapshots to validated YAML, preserving originals and leaving active runs untouched.",
-    "tags": [
-      "promptbooks",
-      "migration",
-      "yaml"
-    ],
-    "bundles": [
-      "crux-docs"
-    ],
-    "risk_level": "low",
-    "routing_note": "Translates legacy `.md` books + runs to `.yaml`; preserves originals under `docs/promptbooks/legacy/`; recomputes each run's `book_content_hash`. Idempotent; never touches the in-flight active book.",
-    "triggers": [
-      "migrate promptbooks",
-      "convert legacy promptbooks to yaml",
-      "migrate the promptbook corpus",
-      "upgrade the .md promptbooks"
-    ],
-    "disable-model-invocation": true
   },
   {
     "id": "patch-cycle",
@@ -1000,7 +940,7 @@
   {
     "id": "run-promptbook",
     "name": "run-promptbook",
-    "description": "Start, advance, skip, block, or abandon a promptbook run and record results. Changes run state, not the plan.",
+    "description": "Start, advance, abandon, or inspect a promptbook run. Report status and progress without advancing it.",
     "tags": [
       "promptbooks",
       "execution",
@@ -1010,7 +950,7 @@
       "crux-docs"
     ],
     "risk_level": "low",
-    "routing_note": "Mutates run snapshot, not the book.",
+    "routing_note": "Start, advance, and abandon update run state and book pointers; status and terminal progress write nothing. Explicit Markdown writes a deterministic artifact and one promptbook log operation, without advancing.",
     "triggers": [
       "run promptbook",
       "start promptbook",
@@ -1018,50 +958,25 @@
       "next prompt",
       "skip prompt",
       "block on prompt",
-      "abandon this run"
+      "abandon this run",
+      "promptbook status",
+      "run status",
+      "visualize run progress",
+      "show run progress",
+      "how far along is PB-NNNN",
+      "progress of PB-NNNN",
+      "run progress bar/chart",
+      "where am I",
+      "where was I on PB-NNNN",
+      "resume my cycle",
+      "what's next on PB-NNNN",
+      "cycle status",
+      "how do I pick this run back up",
+      "how do I resume"
     ],
     "arguments": [
       "book"
     ]
-  },
-  {
-    "id": "semantic-bridge",
-    "name": "semantic-bridge",
-    "description": "Coordinate team verification: check existing probes before testing, then register results to avoid duplicate work.",
-    "tags": [
-      "reasoning",
-      "probes",
-      "deduplication"
-    ],
-    "bundles": [
-      "crux-core"
-    ],
-    "risk_level": "low",
-    "user-invocable": false
-  },
-  {
-    "id": "serve-llm",
-    "name": "serve-llm",
-    "description": "Expose crux's model caller over HTTP for external clients. Use the Python API directly for in-process calls.",
-    "tags": [
-      "server",
-      "fastapi",
-      "http",
-      "infrastructure"
-    ],
-    "bundles": [
-      "crux-infrastructure"
-    ],
-    "risk_level": "low",
-    "requires_env": [
-      "OPENROUTER_API_KEY"
-    ],
-    "triggers": [
-      "serve the llm",
-      "start the crux http server",
-      "expose crux over http"
-    ],
-    "disable-model-invocation": true
   },
   {
     "id": "srde",
@@ -1137,29 +1052,6 @@
     "disable-model-invocation": true
   },
   {
-    "id": "task-planner",
-    "name": "task-planner",
-    "description": "Break a complex goal into subtasks with dependencies, priorities, and acceptance criteria. Does not generate a prompt runbook.",
-    "tags": [
-      "planning",
-      "task-decomposition",
-      "gemini"
-    ],
-    "bundles": [
-      "crux-core"
-    ],
-    "risk_level": "medium",
-    "requires_env": [
-      "OPENROUTER_API_KEY"
-    ],
-    "triggers": [
-      "plan this task",
-      "break this down",
-      "decompose this goal",
-      "make a task plan"
-    ]
-  },
-  {
     "id": "tend-garden",
     "name": "tend-garden",
     "description": "Run the night gardener's strategic pass over recent work, diagnostics, and news; develop ideas and write a morning note.",
@@ -1183,22 +1075,6 @@
     ],
     "context": "fork",
     "model": "sonnet"
-  },
-  {
-    "id": "trace-runtime-ops",
-    "name": "trace-runtime-ops",
-    "description": "Instrument crux workflows with structured logs and Markdown traces of model calls and reasoning phases.",
-    "tags": [
-      "tracing",
-      "logging",
-      "observability"
-    ],
-    "bundles": [
-      "crux-core",
-      "crux-docs"
-    ],
-    "risk_level": "low",
-    "user-invocable": false
   },
   {
     "id": "transition-adr",
@@ -1336,38 +1212,6 @@
       "check code docs drift",
       "are the code docs in sync?",
       "lint docs"
-    ]
-  },
-  {
-    "id": "visualize-run-progress",
-    "name": "visualize-run-progress",
-    "description": "Show promptbook progress, the next pending prompt, and how to resume. Read-only; does not advance or resume the run.",
-    "tags": [
-      "promptbooks",
-      "visualization",
-      "regenerative",
-      "cli"
-    ],
-    "bundles": [
-      "crux-docs"
-    ],
-    "risk_level": "low",
-    "routing_note": "Read-only, and the single surface for both read-only questions a run raises. Renders a run snapshot as a terminal progress bar + per-prompt checklist plus an opt-in byte-stable `run-RUN-NNN-progress.md` artifact, and narrates the status query \u2014 which book and run, the current prompt, the next pending prompt verbatim from the book, and the resume command. Joins `module_tag` from the book (`\u2014` on hash mismatch / legacy `.md`). Never mutates; a status query writes nothing and logs nothing.",
-    "triggers": [
-      "visualize run progress",
-      "show run progress",
-      "how far along is PB-NNNN",
-      "progress of PB-NNNN",
-      "run progress bar/chart",
-      "where am I",
-      "where was I on PB-NNNN",
-      "resume my cycle",
-      "what's next on PB-NNNN",
-      "cycle status",
-      "how do I pick this run back up"
-    ],
-    "arguments": [
-      "book"
     ]
   },
   {

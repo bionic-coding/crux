@@ -9,26 +9,21 @@
 # this bundle, and only skills that exist — the audit checks both directions.
 crux-core:
   name: "crux core orchestration substrate"
-  description: "Single-gateway LLM caller, self-resolving dissent engine, semantic bridge, tracer, identity, task planner, runbook generator, capability-gap forge loop, retrospective harvest, nightly gardening, and Perplexity-backed news reading. The substrate everything else composes on top of."
+  description: "Skills for the LLM caller, dissent resolution, capability-gap forge loop, retrospective harvest, nightly gardening, and news reading. The retained tracer, probe, identity, task-planning, and runbook APIs are documented in the shipped box references."
   audiences:
     - "agent-team-operators"
     - "software-project-maintainers"
   default_provision: false
   skills:
-    - "agent-identity"
     - "call-llm"
     - "forge-skill"
     - "retrospective"
     - "tend-garden"
     - "read-news"
-    - "author-runbook"
-    - "semantic-bridge"
     - "srde"
-    - "task-planner"
-    - "trace-runtime-ops"
 crux-docs:
   name: "crux documentation suite"
-  description: "Skills for project documentation across seven concerns (code, research, ADRs, briefs, journal, promptbooks, invariants) plus the derived arch spine (the current-state architecture surface, built by `derive-arch`), the `dev-cycle` workflow (plan/develop/review for net-new work) and its non-architectural counterpart `iterate` (verify/develop/review for bug fixes, drift, and refinements — no ADR), and the `cleanup-campsite` hygiene scan. Carries the gate skills the default-on workflows depend on — the multi-model `council`, its `run-adr-council` runner, `forge-skill`, `retrospective`, and the LLM/tracing substrate (`call-llm`, `srde`, `trace-runtime-ops`) — so the bundle-closure rule holds. Default-on for any installed crux plugin."
+  description: "Skills for project documentation across seven concerns (code, research, ADRs, briefs, journal, promptbooks, invariants) plus the derived arch spine, development cycles, and hygiene scans. Includes the council, ADR council runner, capability-gap forge, retrospective, and LLM caller used by default workflows. Default-on for any installed crux plugin."
   audiences:
     - "software-project-maintainers"
   default_provision: true
@@ -56,7 +51,6 @@ crux-docs:
     - "iterate"
     - "link-adr-graph"
     - "log-work"
-    - "migrate-promptbooks"
     - "patch-cycle"
     - "process-inbox"
     - "propose-adr"
@@ -75,24 +69,21 @@ crux-docs:
     - "srde"
     - "survey-sheet"
     - "survey-signoff"
-    - "trace-runtime-ops"
     - "transition-adr"
     - "transition-brief"
     - "transition-decision"
     - "transition-invariant"
     - "transition-observation"
     - "verify-code-docs"
-    - "visualize-run-progress"
     - "whiteboarding"
 crux-infrastructure:
   name: "crux infrastructure & lifecycle"
-  description: "Spawn crux into a target repo (copies tools + writes the prime directive doc) and FastAPI HTTP server wrapping the LLM router + tracer for non-Python clients. Note: key bootstrap is owned by crux-env, not by any setup skill."
+  description: "Install the crux runtime or role agents in a target repository. The retained HTTP service for non-Python clients is documented in the shipped operator-services reference; key bootstrap remains owned by crux-env."
   audiences:
     - "software-project-maintainers"
     - "agent-team-operators"
   default_provision: false
   skills:
-    - "serve-llm"
     - "install-runtime"
     - "install-codex-agents"
     - "install-opencode-agents"

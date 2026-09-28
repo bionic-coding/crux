@@ -1,6 +1,6 @@
 # crux
 
-A Claude Code plugin that maintains a `./bionic/` tree inside a software project — **60 skills** and a **10-agent role layer** across seven concerns: **code docs**, **research wiki**, **ADRs**, **briefs**, **work journal**, **promptbooks**, **invariants**. You curate, decide, and discuss; Claude does the bookkeeping.
+A Claude Code plugin that maintains a `./bionic/` tree inside a software project — **52 skills** and a **10-agent role layer** across seven concerns: **code docs**, **research wiki**, **ADRs**, **briefs**, **work journal**, **promptbooks**, **invariants**. You curate, decide, and discuss; Claude does the bookkeeping.
 
 ## Install
 
@@ -60,7 +60,7 @@ The full catalog (skills + bundles + agents) lives in `catalog/`; the 10 agents 
 
 - The plugin follows semver. The current version is in `plugin.json`.
 - `bionic/manifest.yml` carries a separate `schema_version` that bumps only on breaking layout changes to the docs tree.
-- After upgrading the plugin, schema migrations (if any) are applied via `audit-docs --migrate`.
+- The current plugin supports tree schema 5. For schemas 2–4, use the pinned public `v3.23.2` recovery ladder on a copy before upgrading. The current `audit-docs --migrate` changes instruction files only.
 
 ## Status
 

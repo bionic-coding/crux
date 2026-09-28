@@ -4,15 +4,18 @@
 
 # Schema version. Bumps only on breaking layout changes. The installed plugin
 # refuses to operate on a tree whose schema_version is outside its supported
-# range (currently == "5"); run audit-docs --migrate after upgrading
-# the plugin. v3 retired research/new/ for the unified docs/inbox/; v4 adds the
+# range (currently == "5"). For tree schemas 2–4, use the pinned public
+# v3.23.2 recovery ladder on a copy before upgrading. Current audit-docs
+# --migrate changes instruction files only. v3 retired research/new/ for the unified docs/inbox/; v4 adds the
 # invariants concern; v5 unifies the tree under `bionic/` — the invariants
 # concern is one folder (invariants/ with checks/ + reconciliation.yml inside).
 schema_version: "5"
 
 # Concerns this project has opted into. Skills no-op against a concern that
 # isn't enabled. Order is irrelevant. New repos enable the invariants concern
-# by default (docs/AGENTS.md §15); an existing tree adds it via audit-docs --migrate.
+# by default (docs/AGENTS.md §15); an existing schema-5 tree enables it
+# additively with the documented surfaces and manifest entry. The current
+# audit-docs --migrate does not enable concerns.
 # New repos also enable the derived arch concern by default (docs/AGENTS.md §4).
 concerns_enabled:
   - code
