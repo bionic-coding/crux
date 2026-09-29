@@ -172,16 +172,16 @@ class ShippedCatalogTests(unittest.TestCase):
         touching this test — which is the whole reason the alias table exists.
         """
         expected = {
-            "architect":      ("opus",   "sol-latest",    "gpt-6-sol",     "high"),
-            "brainstormer":   ("opus",   "sol-latest",    "gpt-6-sol",     "high"),
+            "architect":      ("opus",   "sol-latest",    "gpt-6.1-sol",     "high"),
+            "brainstormer":   ("opus",   "sol-latest",    "gpt-6.1-sol",     "high"),
             "commander":      ("claude-opus-5-5", "glm-latest", "gpt-6-astra", "high"),
-            "dev-lead":       ("opus",   "sol-latest",    "gpt-6-sol",     "high"),
-            "developer":      ("claude-sonnet-5-5", "deepseek-flash", "gpt-6-sol",     "high"),
-            "historian":      ("claude-sonnet-5-5", "glm-latest",    "gpt-6-sol",     "high"),
-            "librarian":      ("claude-sonnet-5-5", "glm-latest",    "gpt-6-sol",     "high"),
+            "dev-lead":       ("opus",   "sol-latest",    "gpt-6.1-sol",     "high"),
+            "developer":      ("claude-sonnet-5-5", "deepseek-flash", "gpt-6.1-sol",     "high"),
+            "historian":      ("claude-sonnet-5-5", "glm-latest",    "gpt-6.1-sol",     "high"),
+            "librarian":      ("claude-sonnet-5-5", "glm-latest",    "gpt-6.1-sol",     "high"),
             "night-gardener": ("claude-opus-5-5", "opus-latest", "gpt-6-astra", "high"),
-            "reviewer":       ("claude-opus-5-5", "sol-latest", "gpt-6-sol", "xhigh"),
-            "wayfinder":      ("claude-sonnet-5-5", "glm-latest",    "gpt-6-sol",     "high"),
+            "reviewer":       ("claude-opus-5-5", "sol-latest", "gpt-6.1-sol", "xhigh"),
+            "wayfinder":      ("claude-sonnet-5-5", "glm-latest",    "gpt-6.1-sol",     "high"),
         }
         catalog = MC.load()
         self.assertEqual(set(expected), EXPECTED_AGENTS)
@@ -204,7 +204,7 @@ class ShippedCatalogTests(unittest.TestCase):
         """
         catalog = MC.load()
         self.assertEqual(catalog.aliases["opus-latest"], "openrouter/anthropic/claude-opus-5.5")
-        self.assertEqual(catalog.aliases["sol-latest"], "openrouter/openai/gpt-6-sol")
+        self.assertEqual(catalog.aliases["sol-latest"], "openrouter/openai/gpt-6.1-sol")
         self.assertEqual(catalog.aliases["kimi-latest"], "openrouter/moonshotai/kimi-k3")
         self.assertEqual(catalog.levels["flagship"].opencode, "sol-latest")
         self.assertEqual(catalog.levels["apex"].opencode, "opus-latest")
@@ -224,11 +224,11 @@ class ShippedCatalogTests(unittest.TestCase):
         self.assertEqual(apex.claude, "claude-opus-5-5")
         self.assertEqual(flagship.claude, "opus")
         self.assertEqual(apex.codex.model, "gpt-6-astra")
-        self.assertEqual(flagship.codex.model, "gpt-6-sol")
+        self.assertEqual(flagship.codex.model, "gpt-6.1-sol")
         # GPT-6 has no Terra, so standard selects Sol too; the two rungs stay
         # distinct on their Claude and OpenCode cells (rule V8).
         standard = catalog.levels["standard"]
-        self.assertEqual(standard.codex.model, "gpt-6-sol")
+        self.assertEqual(standard.codex.model, "gpt-6.1-sol")
         self.assertEqual(standard.codex.reasoning_effort, "high")
         self.assertEqual(apex.codex.reasoning_effort, "high")
         self.assertEqual(flagship.codex.reasoning_effort, "high")
@@ -241,10 +241,10 @@ class ShippedCatalogTests(unittest.TestCase):
         overrides = {name for name, row in catalog.agents.items() if row.codex is not None}
         self.assertEqual(overrides, {"reviewer"})
         expected = MC.CodexRuntime(
-            model="gpt-6-sol",
+            model="gpt-6.1-sol",
             reasoning_effort="xhigh",
-            verified="2026-09-22",
-            source="OpenAI GPT-6 Sol model documentation and Codex 0.155.1 models_cache.json checked 2026-09-22",
+            verified="2026-09-29",
+            source="OpenAI GPT-6.1 Sol model documentation and Codex 0.159.0 models_cache.json checked 2026-09-29",
         )
         self.assertEqual(catalog.agents["reviewer"].codex, expected)
         self.assertEqual(catalog.resolve("reviewer").codex, expected)
@@ -362,7 +362,7 @@ class ClaudeOverrideResolutionTests(unittest.TestCase):
         self.assertEqual(catalog.levels["apex"].claude, "claude-opus-5-5")
         self.assertEqual(catalog.resolve("reviewer").claude, "claude-opus-5-5")
         self.assertEqual(catalog.resolve("reviewer").opencode, catalog.aliases["sol-latest"])
-        self.assertEqual(catalog.resolve("reviewer").codex.model, "gpt-6-sol")
+        self.assertEqual(catalog.resolve("reviewer").codex.model, "gpt-6.1-sol")
 
     def test_removing_an_override_returns_the_agent_to_its_level_cell(self):
         # The same agent, with and without the key: the discriminating pair.
@@ -469,11 +469,11 @@ class FailClosedTests(unittest.TestCase):
                 tmp,
                 lambda text: text.replace(
                     "    codex:\n"
-                    "      model: gpt-6-sol\n"
+                    "      model: gpt-6.1-sol\n"
                     "      reasoning_effort: xhigh\n"
-                    '      verified: "2026-09-22"\n'
-                    '      source: "OpenAI GPT-6 Sol model documentation and Codex 0.155.1 models_cache.json checked 2026-09-22"',
-                    "    codex: gpt-6-sol",
+                    '      verified: "2026-09-29"\n'
+                    '      source: "OpenAI GPT-6.1 Sol model documentation and Codex 0.159.0 models_cache.json checked 2026-09-29"',
+                    "    codex: gpt-6.1-sol",
                     1,
                 ),
             )
@@ -586,7 +586,7 @@ class RuleFindingTests(unittest.TestCase):
 
     def test_shape_rejects_a_partial_agent_codex_override(self):
         raw = MC.load_raw()
-        raw["agents"]["reviewer"]["codex"] = {"model": "gpt-6-sol"}
+        raw["agents"]["reviewer"]["codex"] = {"model": "gpt-6.1-sol"}
         findings = MC.check_shape(raw)
         self.assertTrue(any(
             "agents.'reviewer'.codex key set must be exactly" in finding
@@ -596,10 +596,10 @@ class RuleFindingTests(unittest.TestCase):
     def test_shape_rejects_an_agent_codex_override_with_an_extra_field(self):
         raw = MC.load_raw()
         raw["agents"]["reviewer"]["codex"] = {
-            "model": "gpt-6-sol",
+            "model": "gpt-6.1-sol",
             "reasoning_effort": "xhigh",
-            "verified": "2026-09-22",
-            "source": "OpenAI GPT-6 Sol model documentation and Codex 0.155.1 models_cache.json checked 2026-09-22",
+            "verified": "2026-09-29",
+            "source": "OpenAI GPT-6.1 Sol model documentation and Codex 0.159.0 models_cache.json checked 2026-09-29",
             "unexpected": "value",
         }
         findings = MC.check_shape(raw)

@@ -41,22 +41,23 @@ INSTALLER = REPO_ROOT / "crux" / "skills" / "install-codex-agents" / "scripts" /
 # fallback. This table independently states the required values, so a catalog
 # edit fails here rather than passing silently. Provenance
 # (ADR-0046 clause 6a): these slugs are an OpenAI-owned external contract,
-# GPT-6 Sol and Astra, and the high and xhigh efforts, were verified
-# 2026-09-22 against the local Codex 0.155.1 model catalog. GPT-6 has no Terra,
+# GPT-6.1 Sol, and its high and xhigh efforts, were verified 2026-09-29
+# against the local Codex 0.159.0 model catalog. GPT-6 Astra and its high
+# effort were verified 2026-09-22 against the local Codex 0.155.1 catalog. GPT-6 has no Terra,
 # so the flagship and standard fallbacks both select Sol. The apex fallback
 # selects Astra. The reviewer override selects Sol at xhigh effort.
 # Exact expectations catch a wrong slug or a model leaking into another tier.
 EXPECTED_RUNTIME = {
-    "architect": ("gpt-6-sol", "high"),
-    "brainstormer": ("gpt-6-sol", "high"),
+    "architect": ("gpt-6.1-sol", "high"),
+    "brainstormer": ("gpt-6.1-sol", "high"),
     "commander": ("gpt-6-astra", "high"),
-    "dev-lead": ("gpt-6-sol", "high"),
-    "developer": ("gpt-6-sol", "high"),
-    "historian": ("gpt-6-sol", "high"),
-    "librarian": ("gpt-6-sol", "high"),
+    "dev-lead": ("gpt-6.1-sol", "high"),
+    "developer": ("gpt-6.1-sol", "high"),
+    "historian": ("gpt-6.1-sol", "high"),
+    "librarian": ("gpt-6.1-sol", "high"),
     "night-gardener": ("gpt-6-astra", "high"),
-    "reviewer": ("gpt-6-sol", "xhigh"),
-    "wayfinder": ("gpt-6-sol", "high"),
+    "reviewer": ("gpt-6.1-sol", "xhigh"),
+    "wayfinder": ("gpt-6.1-sol", "high"),
 }
 
 

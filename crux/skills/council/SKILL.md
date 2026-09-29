@@ -193,7 +193,7 @@ Models are configured in `crux/scripts/crux/_config/llm_router_config.json`:
 - `claude-opus-5.5` — Same SKU at high effort for release-document generation
 - `gemini-3.1-pro-preview` — 1M context, analysis
 - `gpt-6-astra` — OpenAI async text and visual council seat
-- `gpt-6-sol` — OpenAI synchronous council seat
+- `gpt-6.1-sol` — OpenAI synchronous council seat
 
 The Anthropic seat in the default councils runs on `claude-opus-5.5-xhigh`.
 The async text and visual councils, sync member, and sync arbiter use this entry.

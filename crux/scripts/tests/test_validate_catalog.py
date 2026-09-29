@@ -811,7 +811,7 @@ class ModelsCatalogNegativeTests(unittest.TestCase):
         "    claude: sonnet\n"
         "    opencode: haiku-latest\n"
         "    codex:\n"
-        "      model: gpt-6-sol\n"
+        "      model: gpt-6.1-sol\n"
         "      reasoning_effort: low\n"
         '      verified: "2026-08-21"\n'
         '      source: "fixture"\n'
@@ -971,7 +971,7 @@ class ModelsCatalogNegativeTests(unittest.TestCase):
         self._assert_rule("V5", lambda t: t.replace(_OPUS_STABLE_ROW, "opus-stable: PENDING"))
 
     def test_v5_codex_model_absent_from_the_router_registry(self):
-        self._assert_rule("V5", lambda t: t.replace("model: gpt-6-sol", "model: gpt-5.6"))
+        self._assert_rule("V5", lambda t: t.replace("model: gpt-6.1-sol", "model: gpt-5.6"))
 
     # ── V6 ─────────────────────────────────────────────────────────────────
     def test_v6_frontmatter_disagrees_with_its_level(self):
@@ -1037,8 +1037,8 @@ class ModelsCatalogNegativeTests(unittest.TestCase):
             before, rest = t.split("  apex:\n", 1)
             _, flagship = rest.split("  flagship:\n", 1)
             body, _ = flagship.split("  standard:\n", 1)
-            duplicate = body.replace('verified: "2026-09-22"',
-                                     'verified: "2026-09-21"')
+            duplicate = body.replace('verified: "2026-09-29"',
+                                     'verified: "2026-09-28"')
             return before + "  apex:\n" + duplicate + "  flagship:\n" + flagship
         self._assert_rule("V8", transform)
 
@@ -1098,10 +1098,10 @@ class AgentCodexOverrideValidationTests(unittest.TestCase):
         "    level: apex\n"
         "    opencode: sol-latest\n"
         "    codex:\n"
-        "      model: gpt-6-sol\n"
+        "      model: gpt-6.1-sol\n"
         "      reasoning_effort: xhigh\n"
-        '      verified: "2026-09-22"\n'
-        '      source: "OpenAI GPT-6 Sol model documentation and Codex 0.155.1 models_cache.json checked 2026-09-22"'
+        '      verified: "2026-09-29"\n'
+        '      source: "OpenAI GPT-6.1 Sol model documentation and Codex 0.159.0 models_cache.json checked 2026-09-29"'
     )
 
     def _findings(self, transform) -> list[dict]:
@@ -1137,7 +1137,7 @@ class AgentCodexOverrideValidationTests(unittest.TestCase):
             lambda t: self._replace_override(
                 t,
                 self.REVIEWER_CODEX.replace(
-                    'source: "OpenAI GPT-6 Sol model documentation and Codex 0.155.1 models_cache.json checked 2026-09-22"',
+                    'source: "OpenAI GPT-6.1 Sol model documentation and Codex 0.159.0 models_cache.json checked 2026-09-29"',
                     'source: ""',
                 ),
             )
@@ -1147,7 +1147,7 @@ class AgentCodexOverrideValidationTests(unittest.TestCase):
     def test_v4_rejects_agent_override_impossible_verified_date(self):
         findings = self._findings(
             lambda t: self._replace_override(
-                t, self.REVIEWER_CODEX.replace('verified: "2026-09-22"', 'verified: "2026-99-99"')
+                t, self.REVIEWER_CODEX.replace('verified: "2026-09-29"', 'verified: "2026-99-99"')
             )
         )
         self.assertIn("V4", _fields(findings), findings)
@@ -1155,7 +1155,7 @@ class AgentCodexOverrideValidationTests(unittest.TestCase):
     def test_v4_rejects_agent_override_future_verified_date(self):
         findings = self._findings(
             lambda t: self._replace_override(
-                t, self.REVIEWER_CODEX.replace('verified: "2026-09-22"', 'verified: "2999-01-01"')
+                t, self.REVIEWER_CODEX.replace('verified: "2026-09-29"', 'verified: "2999-01-01"')
             )
         )
         self.assertIn("V4", _fields(findings), findings)
@@ -1163,7 +1163,7 @@ class AgentCodexOverrideValidationTests(unittest.TestCase):
     def test_v4_warns_for_agent_override_stale_verified_date(self):
         findings = self._findings(
             lambda t: self._replace_override(
-                t, self.REVIEWER_CODEX.replace('verified: "2026-09-22"', 'verified: "2020-01-01"')
+                t, self.REVIEWER_CODEX.replace('verified: "2026-09-29"', 'verified: "2020-01-01"')
             )
         )
         warnings = [f for f in findings if f.get("severity") == "warning"]
@@ -1174,7 +1174,7 @@ class AgentCodexOverrideValidationTests(unittest.TestCase):
     def test_v5_rejects_agent_override_model_absent_from_router_registry(self):
         findings = self._findings(
             lambda t: self._replace_override(
-                t, self.REVIEWER_CODEX.replace("model: gpt-6-sol", "model: gpt-5.6")
+                t, self.REVIEWER_CODEX.replace("model: gpt-6.1-sol", "model: gpt-5.6")
             )
         )
         self.assertIn("V5", _fields(findings), findings)

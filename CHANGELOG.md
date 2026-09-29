@@ -1,9 +1,28 @@
-<!-- generated-from: CHANGELOG.md@sha256:dafa76a8a39fd9165b289da627d5e34766c4c2e590de76b916381ff6a632746e; model: claude-opus-5.5; date: 2026-09-29 -->
+<!-- generated-from: CHANGELOG.md@sha256:0446827075174e47155bcf3c6490a2a3159bdea308cde2b123c094e45fb950e9; model: claude-opus-5.5; date: 2026-09-29 -->
 # Changelog
 
 All notable changes to crux. The format roughly follows [Keep a Changelog](https://keepachangelog.com/) and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+
+## [3.24.8] — 2026-09-29
+
+### Added
+
+- New `gpt-6.1-sol` and `gpt-6.1-sol-low` model-registry entries for `openai/gpt-6.1-sol`. The model has a 1.05M-token context window and 128K-token output, and costs $2 input, $0.10 cached input and $10 output per 1M tokens (verified 2026-09-29).
+- `gpt-6.1-sol` pins the OpenAI serving host with no reasoning effort set. `gpt-6.1-sol-low` pins low reasoning effort.
+
+### Changed
+
+- Every GPT-6 Sol assignment now uses GPT-6.1 Sol:
+  - **Codex:** the flagship and standard levels use `gpt-6.1-sol` at high effort, and the reviewer uses it at xhigh effort. Both effort levels were verified against the Codex 0.159.0 model catalog.
+  - **OpenCode:** the `sol-latest` alias now resolves to `openrouter/openai/gpt-6.1-sol`, so the architect, brainstormer, dev-lead and reviewer agents run on it.
+  - **Council:** the default council's OpenAI seat is now `gpt-6.1-sol`.
+- The router config version is now 4.0.0 because registry keys were removed.
+
+### Removed
+
+- **Breaking:** The `gpt-6-sol` and `gpt-6-sol-low` registry entries have been removed, with no alias to a successor. Referencing either one now raises `ValueError: Unknown model`. Use `gpt-6.1-sol` or `gpt-6.1-sol-low` instead. GPT-6.1 Sol does not support `none` or `minimal` reasoning effort, so `low` is the lowest available pin.
 
 ## [3.24.7] — 2026-09-29
 

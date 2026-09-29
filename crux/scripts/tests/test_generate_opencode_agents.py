@@ -532,16 +532,16 @@ class CatalogResolutionTests(unittest.TestCase):
         still holds.
         """
         expected = {
-            "architect":      ("opus",   "sol-latest",    "gpt-6-sol",     "high"),
-            "brainstormer":   ("opus",   "sol-latest",    "gpt-6-sol",     "high"),
+            "architect":      ("opus",   "sol-latest",    "gpt-6.1-sol",     "high"),
+            "brainstormer":   ("opus",   "sol-latest",    "gpt-6.1-sol",     "high"),
             "commander":      ("claude-opus-5-5", "glm-latest", "gpt-6-astra", "high"),
-            "dev-lead":       ("opus",   "sol-latest",    "gpt-6-sol",     "high"),
-            "developer":      ("claude-sonnet-5-5", "deepseek-flash", "gpt-6-sol",     "high"),
-            "historian":      ("claude-sonnet-5-5", "glm-latest",    "gpt-6-sol",     "high"),
-            "librarian":      ("claude-sonnet-5-5", "glm-latest",    "gpt-6-sol",     "high"),
+            "dev-lead":       ("opus",   "sol-latest",    "gpt-6.1-sol",     "high"),
+            "developer":      ("claude-sonnet-5-5", "deepseek-flash", "gpt-6.1-sol",     "high"),
+            "historian":      ("claude-sonnet-5-5", "glm-latest",    "gpt-6.1-sol",     "high"),
+            "librarian":      ("claude-sonnet-5-5", "glm-latest",    "gpt-6.1-sol",     "high"),
             "night-gardener": ("claude-opus-5-5", "opus-latest", "gpt-6-astra", "high"),
-            "reviewer":       ("claude-opus-5-5", "sol-latest", "gpt-6-sol", "xhigh"),
-            "wayfinder":      ("claude-sonnet-5-5", "glm-latest",    "gpt-6-sol",     "high"),
+            "reviewer":       ("claude-opus-5-5", "sol-latest", "gpt-6.1-sol", "xhigh"),
+            "wayfinder":      ("claude-sonnet-5-5", "glm-latest",    "gpt-6.1-sol",     "high"),
         }
         self.assertEqual(set(expected), EXPECTED_AGENTS)
         for name, (claude, alias, codex_model, effort) in sorted(expected.items()):

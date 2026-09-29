@@ -30,6 +30,8 @@ providers:
 # the endpoint. See ADR-0072 §3 for why the alias table is the only place a
 # model id may appear.
 # `sonnet-latest` was re-read 2026-09-28 from https://openrouter.ai/api/v1/models.
+# `sol-latest` was re-read 2026-09-29 from the same endpoint: `openai/gpt-6.1-sol`,
+# canonical slug `openai/gpt-6.1-sol-20260929`.
 aliases:
   fable-latest: openrouter/anthropic/claude-fable-5.1
   opus-latest: openrouter/anthropic/claude-opus-5.5
@@ -37,7 +39,7 @@ aliases:
   sonnet-latest: openrouter/anthropic/claude-sonnet-5.5
   haiku-latest: openrouter/anthropic/claude-haiku-4.5
   kimi-latest: openrouter/moonshotai/kimi-k3
-  sol-latest: openrouter/openai/gpt-6-sol
+  sol-latest: openrouter/openai/gpt-6.1-sol
   qwen-max: openrouter/qwen/qwen3.8-2.4t-a95b
   deepseek-flash: openrouter/deepseek/deepseek-v4.1-flash
 
@@ -86,15 +88,15 @@ agents:
   night-gardener:
     level: apex
   # reviewer: Claude inherits the apex cell, pinned to Opus 5.5. Codex
-  # overrides to GPT-6 Sol by owner instruction; effort stays xhigh.
+  # overrides to GPT-6.1 Sol by owner instruction; effort stays xhigh.
   reviewer:
     level: apex
     opencode: sol-latest
     codex:
-      model: gpt-6-sol
+      model: gpt-6.1-sol
       reasoning_effort: xhigh
-      verified: "2026-09-22"
-      source: "OpenAI GPT-6 Sol model documentation and Codex 0.155.1 models_cache.json checked 2026-09-22"
+      verified: "2026-09-29"
+      source: "OpenAI GPT-6.1 Sol model documentation and Codex 0.159.0 models_cache.json checked 2026-09-29"
   wayfinder: standard
 
 # Table 4 — level -> per-harness resolution. `opencode` is optional; a level
@@ -115,17 +117,19 @@ agents:
 # `gpt-6-astra`. Codex availability does not establish OpenRouter availability.
 #
 # PROVENANCE for Sol. The slug is an external contract owned by OpenAI. It was
-# verified 2026-09-22 against two sources. (1) The official model page:
-#   https://developers.openai.com/api/docs/models/gpt-6-sol
-# (2) The local codex-cli 0.155.1 catalog, which lists `gpt-6-sol` with the
-# efforts low, medium, high, xhigh, max, ultra. Bare `gpt-6` is not a Codex
-# slug, so the concrete slug is pinned here. The GPT-5.6 slugs are retired from
-# this file and from the router registry.
+# verified 2026-09-29 against two sources. (1) The official model page:
+#   https://developers.openai.com/api/docs/models/gpt-6.1-sol
+# which lists the efforts low, medium (the default), high, xhigh and max, and
+# neither none nor minimal. (2) The local codex-cli 0.159.0 catalog, fetched
+# 2026-09-29, which lists `gpt-6.1-sol` with the efforts low, medium, high,
+# xhigh, max, ultra. Bare `gpt-6.1` is not a Codex slug, so the concrete slug is
+# pinned here. The GPT-6 Sol slug `gpt-6-sol` is retired from this file and from
+# the router registry.
 #
 # The reviewer is an approved per-agent exception. Its complete Codex runtime
-# block cites the official GPT-6 Sol model documentation and the Codex 0.155.1
-# catalog, both checked 2026-09-22. Both list `xhigh` as a supported reasoning
-# effort for `gpt-6-sol`.
+# block cites the official GPT-6.1 Sol model documentation and the Codex 0.159.0
+# catalog, both checked 2026-09-29. Both list `xhigh` as a supported reasoning
+# effort for `gpt-6.1-sol`.
 levels:
   apex:
     claude: claude-opus-5-5
@@ -139,18 +143,18 @@ levels:
     claude: opus
     opencode: sol-latest
     codex:
-      model: gpt-6-sol
+      model: gpt-6.1-sol
       reasoning_effort: high
-      verified: "2026-09-22"
-      source: "OpenAI GPT-6 Sol model documentation + Codex 0.155.1 models_cache.json fetched 2026-09-22"
+      verified: "2026-09-29"
+      source: "OpenAI GPT-6.1 Sol model documentation + Codex 0.159.0 models_cache.json fetched 2026-09-29"
   standard:
     claude: claude-sonnet-5-5
     opencode: glm-latest
     codex:
-      model: gpt-6-sol
+      model: gpt-6.1-sol
       reasoning_effort: high
-      verified: "2026-09-22"
-      source: "OpenAI GPT-6 Sol model documentation + Codex 0.155.1 models_cache.json fetched 2026-09-22"
+      verified: "2026-09-29"
+      source: "OpenAI GPT-6.1 Sol model documentation + Codex 0.159.0 models_cache.json fetched 2026-09-29"
 
 # Table 5 — legal values for the `model:` key in crux/agents/*.md frontmatter,
 # and for every Claude cell above: a level's `claude` and an agent's `claude`
