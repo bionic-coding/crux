@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -136,14 +137,15 @@ class HealthTests(unittest.TestCase):
             manifest_data["version"] = "fixture-version"
             manifest.write_text(json.dumps(manifest_data, indent=2) + "\n", encoding="utf-8")
             catalog = plugin / "catalog" / "models.yml"
-            catalog.write_text(
-                catalog.read_text(encoding="utf-8").replace(
-                    "  flagship:\n    claude: opus\n    opencode: opus-latest\n    codex:\n      model: gpt-6-sol",
-                    "  flagship:\n    claude: opus\n    opencode: opus-latest\n    codex:\n      model: fixture-model",
-                    1,
-                ),
-                encoding="utf-8",
+            text, count = re.subn(
+                r"^(  flagship:\n(?:    (?!codex:)\S.*\n)*    codex:\n      model: )\S+$",
+                r"\1fixture-model",
+                catalog.read_text(encoding="utf-8"),
+                count=1,
+                flags=re.M,
             )
+            self.assertEqual(count, 1, "fixture inert: the flagship codex model line moved")
+            catalog.write_text(text, encoding="utf-8")
             report = health.inspect_install(target=Path(temporary) / "agents", plugin_root=plugin, scope="personal")
         self.assertEqual(report["plugin"]["version"], "fixture-version")
         self.assertEqual(next(role for role in report["roles"] if role["role"] == "architect")["model"], "fixture-model")

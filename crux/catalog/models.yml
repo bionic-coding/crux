@@ -75,18 +75,16 @@ agents:
     opencode: glm-latest
   dev-lead:
     level: flagship
-    opencode: sol-latest
   developer:
     level: standard
     opencode: deepseek-flash
   historian: standard
   librarian: standard
-  # night-gardener: Claude Code override to Opus 5.5 by owner instruction,
-  # 2026-09-22. Untrialled: the trial above had no night-gardener arm.
+  # night-gardener: runs at apex by owner instruction, 2026-09-22, so it
+  # resolves to Opus 5.5 on Claude Code with no override. Untrialled: the
+  # trial above had no night-gardener arm.
   night-gardener:
     level: apex
-    claude: claude-opus-5-5
-    opencode: opus-latest
   # reviewer: Claude inherits the apex cell, pinned to Opus 5.5. Codex
   # overrides to GPT-6 Sol by owner instruction; effort stays xhigh.
   reviewer:
@@ -105,8 +103,8 @@ agents:
 # Apex selects Astra on Codex. Flagship and standard both select Sol, because
 # GPT-6 has no Terra. All three use high effort. Flagship and standard stay two
 # rungs: their Claude and OpenCode cells differ, and rule V8 compares the whole
-# tuple. Apex omits an OpenCode default, so each apex agent must name its own
-# alias.
+# tuple. Apex sets an OpenCode default of `opus-latest`; an apex agent that
+# names its own alias overrides it.
 #
 # `source` records where a Codex pair was READ FROM. `verified` records the
 # date the pair was last checked against that source — rule V4 warns past 180
@@ -131,6 +129,7 @@ agents:
 levels:
   apex:
     claude: claude-opus-5-5
+    opencode: opus-latest
     codex:
       model: gpt-6-astra
       reasoning_effort: high
@@ -138,7 +137,7 @@ levels:
       source: "Codex 0.155.1 models_cache.json fetched 2026-09-22"
   flagship:
     claude: opus
-    opencode: opus-latest
+    opencode: sol-latest
     codex:
       model: gpt-6-sol
       reasoning_effort: high

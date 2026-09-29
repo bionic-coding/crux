@@ -532,8 +532,8 @@ class CatalogResolutionTests(unittest.TestCase):
         still holds.
         """
         expected = {
-            "architect":      ("opus",   "opus-latest",   "gpt-6-sol",     "high"),
-            "brainstormer":   ("opus",   "opus-latest",   "gpt-6-sol",     "high"),
+            "architect":      ("opus",   "sol-latest",    "gpt-6-sol",     "high"),
+            "brainstormer":   ("opus",   "sol-latest",    "gpt-6-sol",     "high"),
             "commander":      ("claude-opus-5-5", "glm-latest", "gpt-6-astra", "high"),
             "dev-lead":       ("opus",   "sol-latest",    "gpt-6-sol",     "high"),
             "developer":      ("claude-sonnet-5-5", "deepseek-flash", "gpt-6-sol",     "high"),

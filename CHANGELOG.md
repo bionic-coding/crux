@@ -1,17 +1,16 @@
-<!-- generated-from: CHANGELOG.md@sha256:cc7ca12675b7044b79dd511dd0c8e1c6e471cad32f915143fb5e885812de78f8; model: claude-opus-5.5; date: 2026-09-28 -->
+<!-- generated-from: CHANGELOG.md@sha256:dafa76a8a39fd9165b289da627d5e34766c4c2e590de76b916381ff6a632746e; model: claude-opus-5.5; date: 2026-09-29 -->
 # Changelog
 
 All notable changes to crux. The format roughly follows [Keep a Changelog](https://keepachangelog.com/) and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### Added
+## [3.24.7] — 2026-09-29
 
 ### Changed
 
-### Fixed
-
-### Removed
+- Under OpenCode, the architect and brainstormer agents now run on GPT-6 Sol (`sol-latest`, `openrouter/openai/gpt-6-sol`) instead of Claude Opus 5.5, and the flagship level's OpenCode model is now `sol-latest`. Model assignments for Claude Code and Codex are unchanged.
+- The apex level now has an OpenCode default of `opus-latest`. The night-gardener and dev-lead agents no longer carry model overrides that duplicated their level's settings, so the models they run on are unchanged.
 
 ## [3.24.6] — 2026-09-29
 

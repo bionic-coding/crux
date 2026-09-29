@@ -113,7 +113,7 @@ def _catalog_copy(tmp: Path, transform=None) -> Path:
 
 # The two agents the Claude Code override exception covers, and the model it
 # selects. Named once so a re-point of the override moves one line here.
-CLAUDE_OVERRIDES = {"commander": "claude-opus-5-5", "night-gardener": "claude-opus-5-5"}
+CLAUDE_OVERRIDES = {"commander": "claude-opus-5-5"}
 
 
 def _agent_row_re(agent: str) -> re.Pattern[str]:
@@ -172,8 +172,8 @@ class ShippedCatalogTests(unittest.TestCase):
         touching this test — which is the whole reason the alias table exists.
         """
         expected = {
-            "architect":      ("opus",   "opus-latest",   "gpt-6-sol",     "high"),
-            "brainstormer":   ("opus",   "opus-latest",   "gpt-6-sol",     "high"),
+            "architect":      ("opus",   "sol-latest",    "gpt-6-sol",     "high"),
+            "brainstormer":   ("opus",   "sol-latest",    "gpt-6-sol",     "high"),
             "commander":      ("claude-opus-5-5", "glm-latest", "gpt-6-astra", "high"),
             "dev-lead":       ("opus",   "sol-latest",    "gpt-6-sol",     "high"),
             "developer":      ("claude-sonnet-5-5", "deepseek-flash", "gpt-6-sol",     "high"),
@@ -195,23 +195,25 @@ class ShippedCatalogTests(unittest.TestCase):
                 self.assertEqual(resolved.codex.reasoning_effort, effort)
 
     def test_opencode_assignments_follow_the_owner_lineup(self):
-        """The OpenCode column: flagship defaults to Opus, three agents override.
+        """The OpenCode column: flagship defaults to Sol, apex to Opus.
 
-        architect and brainstormer carry no override, so they inherit the
-        flagship default. kimi-latest stays declared as a parked alternate that
-        no agent resolves through.
+        architect, brainstormer and dev-lead carry no override, so they inherit
+        the flagship default. night-gardener inherits the apex default. The
+        reviewer names Sol over the apex default. kimi-latest stays declared as
+        a parked alternate that no agent resolves through.
         """
         catalog = MC.load()
         self.assertEqual(catalog.aliases["opus-latest"], "openrouter/anthropic/claude-opus-5.5")
         self.assertEqual(catalog.aliases["sol-latest"], "openrouter/openai/gpt-6-sol")
         self.assertEqual(catalog.aliases["kimi-latest"], "openrouter/moonshotai/kimi-k3")
-        self.assertEqual(catalog.levels["flagship"].opencode, "opus-latest")
-        for name in ("architect", "brainstormer"):
+        self.assertEqual(catalog.levels["flagship"].opencode, "sol-latest")
+        self.assertEqual(catalog.levels["apex"].opencode, "opus-latest")
+        for name in ("architect", "brainstormer", "dev-lead"):
             with self.subTest(agent=name):
                 self.assertEqual(catalog.agents[name].level, "flagship")
                 self.assertIsNone(catalog.agents[name].opencode)
-        self.assertEqual(catalog.agents["dev-lead"].opencode, "sol-latest")
-        self.assertEqual(catalog.agents["night-gardener"].opencode, "opus-latest")
+        self.assertEqual(catalog.agents["night-gardener"].level, "apex")
+        self.assertIsNone(catalog.agents["night-gardener"].opencode)
         self.assertEqual(catalog.agents["reviewer"].opencode, "sol-latest")
         self.assertNotIn("kimi-latest", {catalog.opencode_alias(n) for n in catalog.agents})
 
@@ -230,7 +232,7 @@ class ShippedCatalogTests(unittest.TestCase):
         self.assertEqual(standard.codex.reasoning_effort, "high")
         self.assertEqual(apex.codex.reasoning_effort, "high")
         self.assertEqual(flagship.codex.reasoning_effort, "high")
-        self.assertIsNone(apex.opencode)
+        self.assertIsNotNone(apex.opencode)
         self.assertIsNotNone(flagship.opencode)
 
     def test_reviewer_is_the_only_codex_override(self):
@@ -379,7 +381,7 @@ class ClaudeOverrideResolutionTests(unittest.TestCase):
             catalog = MC.load(catalog_path=path, agents_dir=_agents_fixture(tmp))
         self.assertEqual(catalog.resolve("night-gardener").claude, "inherit")
 
-    def test_apex_repoint_moves_only_reviewers_claude_assignment(self):
+    def test_apex_repoint_moves_only_the_inheritors_claude_assignment(self):
         """Compare the prior apex cell with the new cell across all ten roles."""
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
@@ -405,7 +407,7 @@ class ClaudeOverrideResolutionTests(unittest.TestCase):
                 self.assertEqual(after.opencode_alias(agent), before.opencode_alias(agent))
                 if new.claude != old.claude:
                     changed_claude.add(agent)
-        self.assertEqual(changed_claude, {"reviewer"})
+        self.assertEqual(changed_claude, {"night-gardener", "reviewer"})
 
 
 class FailClosedTests(unittest.TestCase):
@@ -454,7 +456,8 @@ class FailClosedTests(unittest.TestCase):
     def test_load_rejects_a_level_claude_cell_every_agent_overrides(self):
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
-            path = _catalog_copy(tmp, lambda t: _set_agent_claude(t, "reviewer", "fable"))
+            path = _catalog_copy(tmp, lambda t: _set_agent_claude(
+                _set_agent_claude(t, "reviewer", "fable"), "night-gardener", "fable"))
             with self.assertRaises(MC.SpecViolation) as ctx:
                 MC.load(catalog_path=path, agents_dir=_agents_fixture(tmp))
         self.assertIn("levels.apex.claude: every agent at this level overrides it", str(ctx.exception))
@@ -619,8 +622,12 @@ class RuleFindingTests(unittest.TestCase):
 
     def test_reference_graph_rejects_an_apex_agent_with_no_override(self):
         raw = MC.load_raw()
+        del raw["levels"]["apex"]["opencode"]
         raw["agents"]["commander"] = "apex"
-        self.assertTrue(any("commander" in f for f in MC.check_reference_graph(raw)))
+        self.assertTrue(any(
+            f.startswith("agents.commander:") and "omits its `opencode` cell" in f
+            for f in MC.check_reference_graph(raw)
+        ))
 
     def test_reference_graph_rejects_an_uninherited_level_default(self):
         raw = MC.load_raw()
@@ -647,6 +654,7 @@ class RuleFindingTests(unittest.TestCase):
     def test_reference_graph_rejects_an_uninherited_claude_level_default(self):
         raw = MC.load_raw()
         raw["agents"]["reviewer"]["claude"] = "fable"
+        raw["agents"]["night-gardener"]["claude"] = "fable"
         findings = MC.check_reference_graph(raw)
         self.assertIn(
             "levels.apex.claude: every agent at this level overrides it — "
@@ -656,7 +664,7 @@ class RuleFindingTests(unittest.TestCase):
 
     def test_reference_graph_accepts_a_claude_cell_one_agent_still_inherits(self):
         # The positive control for the clause above: the shipped apex level has
-        # two overridden agents and one inheritor, and that is legal.
+        # one overridden agent and two inheritors, and that is legal.
         raw = MC.load_raw()
         self.assertEqual(
             [f for f in MC.check_reference_graph(raw) if ".claude" in f], []

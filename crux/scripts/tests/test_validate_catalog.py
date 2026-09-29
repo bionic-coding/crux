@@ -874,14 +874,19 @@ class ModelsCatalogNegativeTests(unittest.TestCase):
     def test_v2b_level_no_agent_names(self):
         self._assert_rule("V2", self._drop_apex_agents)
 
+    def _override_claude_at_apex(self, text: str) -> str:
+        """Give every apex agent a Claude override, whichever ones carry one now."""
+        for name in re.findall(r"^  (\S+):\n    level: apex$", text, flags=re.M):
+            text = _set_agent_claude(text, name, "fable")
+        return text
+
     def test_v2_claude_cell_every_agent_at_its_level_overrides(self):
-        self._assert_rule("V2", lambda t: _set_agent_claude(t, "reviewer", "fable"))
+        self._assert_rule("V2", self._override_claude_at_apex)
 
     def test_v2c_apex_agent_with_no_override(self):
-        """An apex agent collapsed to a bare level, so it names no OpenCode override."""
+        """Apex loses its OpenCode default, so an apex agent without an override has none."""
         self._assert_rule("V2", lambda t: re.sub(
-            r"^  commander:\n    level: apex\n(?:    (?!level:)\S.*\n)*",
-            "  commander: apex\n", t, flags=re.M))
+            r"^(  apex:\n    claude: \S+\n)    opencode: \S+\n", r"\1", t, flags=re.M))
 
     # ── V3, one ────────────────────────────────────────────────────────────
     # The deny-list negative (`claude: fable` refused) is GONE with the
@@ -1045,9 +1050,9 @@ class ModelsCatalogNegativeTests(unittest.TestCase):
     # test per name, plus the roster KEY, which the rule did not inspect at all.
 
     def test_v9_raw_model_id_in_a_level_cell(self):
-        self._assert_rule("V9", lambda t: t.replace(
-            "  flagship:\n    claude: opus\n    opencode: opus-latest",
-            "  flagship:\n    claude: opus\n    opencode: anthropic/claude-opus-5"))
+        self._assert_rule("V9", lambda t: re.sub(
+            r"^(  flagship:\n    claude: \S+\n    opencode: )\S+$",
+            r"\1anthropic/claude-opus-5", t, flags=re.M))
 
     def test_v9_raw_model_id_in_levels_claude(self):
         self._assert_rule("V9", lambda t: t.replace(
@@ -1065,10 +1070,9 @@ class ModelsCatalogNegativeTests(unittest.TestCase):
         self._assert_rule("V9", lambda t: _set_agent_claude(t, "commander", "anthropic/claude-opus-5.5"))
 
     def test_v9_raw_model_id_in_agents_opencode(self):
-        self._assert_rule("V9", lambda t: t.replace(
-            "  night-gardener:\n    level: apex\n    claude: claude-opus-5-5\n    opencode: opus-latest",
-            "  night-gardener:\n    level: apex\n    claude: claude-opus-5-5\n"
-            "    opencode: anthropic/claude-opus-4-8"))
+        self._assert_rule("V9", lambda t: re.sub(
+            r"^(  commander:\n    level: \S+\n(?:    (?!opencode:)\S.*\n)*    opencode: )\S+$",
+            r"\1anthropic/claude-opus-4-8", t, flags=re.M))
 
     def test_v9_declares_exactly_the_positions_it_inspects(self):
         # The docstring is load-bearing here: it is what a later reader trusts
