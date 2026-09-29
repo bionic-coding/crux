@@ -176,12 +176,12 @@ class ShippedCatalogTests(unittest.TestCase):
             "brainstormer":   ("opus",   "opus-latest",   "gpt-6-sol",     "high"),
             "commander":      ("claude-opus-5-5", "glm-latest", "gpt-6-astra", "high"),
             "dev-lead":       ("opus",   "sol-latest",    "gpt-6-sol",     "high"),
-            "developer":      ("sonnet", "deepseek-flash", "gpt-6-sol",     "high"),
-            "historian":      ("sonnet", "glm-latest",    "gpt-6-sol",     "high"),
-            "librarian":      ("sonnet", "glm-latest",    "gpt-6-sol",     "high"),
+            "developer":      ("claude-sonnet-5-5", "deepseek-flash", "gpt-6-sol",     "high"),
+            "historian":      ("claude-sonnet-5-5", "glm-latest",    "gpt-6-sol",     "high"),
+            "librarian":      ("claude-sonnet-5-5", "glm-latest",    "gpt-6-sol",     "high"),
             "night-gardener": ("claude-opus-5-5", "opus-latest", "gpt-6-astra", "high"),
             "reviewer":       ("claude-opus-5-5", "sol-latest", "gpt-6-sol", "xhigh"),
-            "wayfinder":      ("sonnet", "glm-latest",    "gpt-6-sol",     "high"),
+            "wayfinder":      ("claude-sonnet-5-5", "glm-latest",    "gpt-6-sol",     "high"),
         }
         catalog = MC.load()
         self.assertEqual(set(expected), EXPECTED_AGENTS)
@@ -251,6 +251,91 @@ class ShippedCatalogTests(unittest.TestCase):
         catalog = MC.load()
         self.assertIsNone(catalog.agents["commander"].codex)
         self.assertEqual(catalog.resolve("commander").codex, catalog.levels["apex"].codex)
+
+
+def _set_standard_claude(text: str, value: str) -> str:
+    """Set the standard level's Claude cell, whatever value it holds now.
+
+    Anchored on structure, never on the current value, and refuses a
+    zero-match substitution so the fixture cannot pass on the pristine catalog.
+    """
+    out, count = re.subn(
+        r"^(  standard:\n    claude: )\S+$", lambda m: m.group(1) + value, text, flags=re.M
+    )
+    if count != 1:
+        raise AssertionError("fixture inert: the standard level's Claude cell was not found")
+    return out
+
+
+class SonnetStandardCellTests(unittest.TestCase):
+    """The standard level's Claude cell names Sonnet 5.5 by its full model ID.
+
+    The four standard-level agents move by the level cell, not by a per-agent
+    override, and the family alias `sonnet` stays a legal value.
+    """
+
+    STANDARD_AGENTS = ("developer", "historian", "librarian", "wayfinder")
+
+    def test_standard_cell_names_the_full_id_and_no_agent_overrides_it(self):
+        catalog = MC.load()
+        self.assertEqual(catalog.levels["standard"].claude, "claude-sonnet-5-5")
+        standard = sorted(n for n, row in catalog.agents.items() if row.level == "standard")
+        self.assertEqual(standard, sorted(self.STANDARD_AGENTS))
+        for name in standard:
+            with self.subTest(agent=name):
+                self.assertIsNone(catalog.agents[name].claude)
+                self.assertEqual(catalog.resolve(name).claude, "claude-sonnet-5-5")
+
+    def test_enum_appends_the_full_id_and_keeps_the_family_alias(self):
+        self.assertEqual(MC.CLAUDE_ALIASES[-1], "claude-sonnet-5-5")
+        self.assertIn("sonnet", MC.CLAUDE_ALIASES)
+        self.assertEqual(MC.load().claude_aliases, tuple(MC.CLAUDE_ALIASES))
+
+    def test_the_family_alias_still_resolves_when_the_cell_names_it(self):
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            path = _catalog_copy(tmp, lambda t: _set_standard_claude(t, "sonnet"))
+            catalog = MC.load(catalog_path=path, agents_dir=_agents_fixture(tmp))
+        self.assertEqual(catalog.levels["standard"].claude, "sonnet")
+        self.assertEqual(catalog.resolve("developer").claude, "sonnet")
+
+    def test_sonnet_latest_pins_the_openrouter_5_5_slug_and_stays_parked(self):
+        catalog = MC.load()
+        self.assertEqual(catalog.aliases["sonnet-latest"], "openrouter/anthropic/claude-sonnet-5.5")
+        self.assertNotIn("sonnet-latest", {catalog.opencode_alias(n) for n in catalog.agents})
+
+
+def _frontmatter_model(text: str) -> str | None:
+    """The top-level `model:` value of a SKILL.md frontmatter block, or None."""
+    lines = text.splitlines()
+    if not lines or lines[0] != "---":
+        return None
+    for line in lines[1:]:
+        if line == "---":
+            return None
+        m = re.match(r"^model:\s*(\S+)\s*$", line)
+        if m:
+            return m.group(1)
+    return None
+
+
+class SonnetSkillFrontmatterTests(unittest.TestCase):
+    """Four skills name Claude Sonnet 5.5 by its full model ID in `model:`.
+
+    Read from each shipped SKILL.md, which the staged artifact carries, so the
+    case passes unchanged against it.
+    """
+
+    SKILLS = ("derive-arch", "extract-code-docs", "read-news", "tend-garden")
+    SKILLS_DIR = SCRIPTS_DIR.parent / "skills"
+
+    def test_the_four_skills_name_the_full_sonnet_5_5_id(self):
+        for name in self.SKILLS:
+            with self.subTest(skill=name):
+                text = (self.SKILLS_DIR / name / "SKILL.md").read_text(encoding="utf-8")
+                self.assertEqual(_frontmatter_model(text), "claude-sonnet-5-5")
+                # The value is a legal Claude Code `model:` value.
+                self.assertIn(_frontmatter_model(text), MC.CLAUDE_ALIASES)
 
 
 class ClaudeOverrideResolutionTests(unittest.TestCase):

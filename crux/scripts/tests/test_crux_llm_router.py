@@ -10,10 +10,11 @@ rather than of three per-provider branches. What is locked in here:
    The pin rides the gateway's top-level `reasoning_effort` field, so no call
    depends on a provider-specific response branch.
 2. `supports_temperature: false` — the reject-set models (Fable 5.1 x2,
-   Opus 5, Sonnet 5, Opus 5.5 x2, GPT-6 Astra, Sol, Sol-low and Luna) reject
-   the `temperature` param; the builder must omit it for them and keep sending it
-   for models that accept it (Haiku 4.5). NOTE: Sonnet 5 REJECTS temperature —
-   a behavior change from the retired Sonnet 4.6, which accepted it.
+   Sonnet 5.5, Opus 5.5 x2, GPT-6 Astra, Sol, Sol-low and Luna) reject the
+   `temperature` param; the builder must omit it for them and keep sending it
+   for models that accept it (Haiku 4.5). NOTE: Sonnet 5.5 REJECTS
+   temperature — a behavior change from the retired Sonnet 4.6, which
+   accepted it.
 3. One address for every text model — every `type: text` entry posts to the same
    `/chat/completions` URL under `Authorization: Bearer`. The per-endpoint
    `openai_endpoint` split is gone; a second URL appearing here would mean a
@@ -30,7 +31,9 @@ GPT-5.6 SKU and do not appear anywhere in this suite. The GPT-5.6 keys
 `gpt-image-2` were in turn REMOVED by the GPT-6 switch, the same deliberate
 compatibility break: they are never aliased, and GPT-6 has no Terra. They
 appear in this suite only as the removed keys `RemovedGpt56KeysTests` asserts
-raise.
+raise. `claude-opus-5` and `claude-sonnet-5` were removed the same way, with
+the router roles nothing read; they appear only as the retired keys
+`UnreadRoleDeletionTests` asserts are gone.
 
 Run under uv (httpx required): uv run python3 -m unittest discover crux/scripts/tests
 """
@@ -53,9 +56,9 @@ except ImportError:
 # Registry entries whose API rejects a non-default temperature. jev-1.13 also
 # rejects one and is covered by its own suite.
 TEMPERATURE_REJECT_SET = (
-    'claude-fable-5.1', 'claude-fable-5.1-medium', 'claude-opus-5',
-    'claude-sonnet-5', 'gpt-6-sol', 'gpt-6-sol-low', 'gpt-6-luna',
-    'gpt-6-astra', 'claude-opus-5.5', 'claude-opus-5.5-xhigh',
+    'claude-fable-5.1', 'claude-fable-5.1-medium',
+    'claude-sonnet-5.5', 'gpt-6-sol', 'gpt-6-sol-low',
+    'gpt-6-luna', 'gpt-6-astra', 'claude-opus-5.5', 'claude-opus-5.5-xhigh',
 )
 
 # Serving-provider slugs read from each seat's OpenRouter endpoints data
@@ -152,11 +155,11 @@ class LlmRouterRegistryTests(unittest.TestCase):
 
     def test_council_weight_covers_weighted_seats(self):
         # Weighted council seats resolve against the GPT-6 baseline lineup:
-        # anthropic_council -> claude-opus-5 (1.5), openai_top -> gpt-6-astra
-        # (1.4, replacing the stale/removed gpt-5.5), google_top ->
+        # anthropic_top -> claude-opus-5.5-xhigh (1.5), openai_top ->
+        # gpt-6-astra (1.4, replacing the stale/removed gpt-5.5), google_top ->
         # gemini-3.1-pro-preview (1.3).
         from crux.council.council import _get_model_weight
-        self.assertEqual(_get_model_weight('claude-opus-5'), 1.5)
+        self.assertEqual(_get_model_weight('claude-opus-5.5-xhigh'), 1.5)
         self.assertEqual(_get_model_weight('gpt-6-astra'), 1.4)
         self.assertEqual(_get_model_weight('gemini-3.1-pro-preview'), 1.3)
 
@@ -177,8 +180,8 @@ def _role_names(value):
 class Gpt6RoleAndRegistryTests(unittest.TestCase):
     """The GPT-6 switch re-points roles and never renames a key.
 
-    Every former Terra role and every former Sol role resolves to `gpt-6-sol`,
-    because GPT-6 has no Terra and no Terra workload moves to Luna.
+    The default council's OpenAI member resolves to `gpt-6-sol`, because GPT-6
+    has no Terra and no Terra workload moves to Luna.
     """
 
     @classmethod
@@ -187,20 +190,11 @@ class Gpt6RoleAndRegistryTests(unittest.TestCase):
         cls.llm = llm_caller
         cls.cfg = llm_caller.load_router_config()
 
-    # (a) the six moved role slots
-    def test_single_openai_roles_resolve_to_gpt_6_sol(self):
-        for role in ('openai_chat', 'think_medium', 'vision'):
-            with self.subTest(role=role):
-                self.assertEqual(self.llm.get_default_model(role), 'gpt-6-sol')
-
+    # (a) the moved role slot
     def test_list_roles_carry_gpt_6_sol_first(self):
         expected = {
             'council_default': ['gpt-6-sol', 'gemini-3.1-pro-preview',
                                 'claude-opus-5.5-xhigh'],
-            'council_code': ['gpt-6-sol', 'claude-sonnet-5',
-                             'gemini-3.1-pro-preview'],
-            'recursive_improve': ['gpt-6-sol', 'claude-opus-5',
-                                  'gemini-3.1-pro-preview'],
         }
         for role, models in expected.items():
             with self.subTest(role=role):
@@ -336,23 +330,19 @@ class OpusRoutingTests(unittest.TestCase):
     def test_anthropic_top_routes_to_xhigh_opus(self):
         self.assertEqual(self.llm.get_default_model('anthropic_top'), 'claude-opus-5.5-xhigh')
         self.assertEqual(self.llm.get_default_model('council_arbiter'), 'claude-opus-5.5-xhigh')
-        self.assertEqual(self.llm.get_default_model('think_deep'), 'claude-fable-5.1')
 
     def test_sync_council_default_anthropic_seat_uses_xhigh_opus(self):
         self.assertEqual(
             list(self.llm.get_default_models('council_default')),
             ['gpt-6-sol', 'gemini-3.1-pro-preview', 'claude-opus-5.5-xhigh'],
         )
-        self.assertEqual(self.llm.get_default_model('anthropic_council'), 'claude-opus-5')
 
     def test_weighted_vote_follows_the_repointed_role(self):
         from crux.council.council import _get_model_weight, MODEL_WEIGHTS
         self.assertEqual(MODEL_WEIGHTS, {
-            'anthropic_top': 1.5, 'anthropic_council': 1.5,
-            'google_top': 1.3, 'openai_top': 1.4,
+            'anthropic_top': 1.5, 'google_top': 1.3, 'openai_top': 1.4,
         })
         self.assertEqual(_get_model_weight('claude-fable-5.1'), 1.0)
-        self.assertEqual(_get_model_weight('claude-opus-5'), 1.5)
         self.assertEqual(_get_model_weight('claude-opus-5.5-xhigh'), 1.5)
 
     def test_async_text_and_visual_councils_use_xhigh_opus(self):
@@ -378,6 +368,276 @@ class OpusRoutingTests(unittest.TestCase):
 
     def test_release_docs_keeps_high_effort(self):
         self.assertEqual(self.llm.get_model_config(self.llm.get_default_model('release_docs')).effort, 'high')
+
+
+@unittest.skipUnless(HAVE_HTTPX, "httpx not installed — run under uv")
+class SonnetRoutingTests(unittest.TestCase):
+    """claude-sonnet-5.5 is registered from the live OpenRouter catalog, and
+    no role names it. anthropic_balanced (and the call_claude_sonnet
+    convenience helper, which resolves that role despite its name) resolve to
+    claude-opus-5.5, the high-effort Opus 5.5 entry.
+
+    Uses the same fake-HTTP-client pattern as `LlmRouterPayloadTests` (no
+    network) so the convenience-helper assertion (4) can observe the emitted
+    request without a live call.
+    """
+
+    def setUp(self):
+        from crux.core import llm_caller
+        self.llm = llm_caller
+        self.cfg = llm_caller.load_router_config()
+        self.captured = []
+        captured = self.captured
+
+        class FakeResponse:
+            status_code = 200
+
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return {'choices': [{'finish_reason': 'stop',
+                                     'message': {'content': 'ok'}}]}
+
+        class FakeClient:
+            def __init__(self, **kwargs):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                pass
+
+            def post(self, url, headers=None, json=None, **kwargs):
+                captured.append((url, headers or {}, json))
+                return FakeResponse()
+
+        self._real_client = llm_caller.httpx.Client
+        llm_caller.httpx.Client = FakeClient
+        self._env_backup = os.environ.get('OPENROUTER_API_KEY')
+        os.environ['OPENROUTER_API_KEY'] = 'sk-or-test-dummy'
+
+    def tearDown(self):
+        self.llm.httpx.Client = self._real_client
+        if self._env_backup is None:
+            os.environ.pop('OPENROUTER_API_KEY', None)
+        else:
+            os.environ['OPENROUTER_API_KEY'] = self._env_backup
+
+    # (2) registry entry: exact key set and values, so the omitted keys
+    # (capabilities, tier, judge_eligible, judge_tier, can_judge,
+    # routing_hints, latency_profile, effort, serving_providers,
+    # data_collection) are proven absent, not merely unchecked.
+    def test_sonnet_5_5_entry_key_set_and_values(self):
+        entry = self.llm.get_model_info('claude-sonnet-5.5')
+        self.assertEqual(
+            set(entry.keys()),
+            {'provider', 'api_string', 'display_name', '_note',
+             'supports_temperature', 'type', 'context_window',
+             'max_output_tokens', 'cost'})
+        self.assertEqual(entry['provider'], 'openrouter')
+        self.assertEqual(entry['api_string'], 'anthropic/claude-sonnet-5.5')
+        self.assertEqual(entry['display_name'], 'Claude Sonnet 5.5')
+        self.assertEqual(entry['type'], 'text')
+        self.assertFalse(entry['supports_temperature'])
+        self.assertEqual(entry['context_window'], 1000000)
+        self.assertEqual(entry['max_output_tokens'], 128000)
+        self.assertEqual(entry['cost'], {'input_per_1m': 2.0, 'output_per_1m': 10.0,
+                                          'cached_input_per_1m': 0.2})
+
+    # (3) built request. `claude-sonnet-5.5` is already in TEMPERATURE_REJECT_SET,
+    # so `LlmRouterPayloadTests.test_reject_set_models_omit_temperature` and
+    # `.test_accepting_model_still_sends_temperature` (haiku) are the paired
+    # positive control proving the same builder DOES emit `temperature` for an
+    # accepting model — the omission here is a real branch outcome, not a typo
+    # that would pass regardless. Likewise `test_effort_pinned_entries_send_
+    # reasoning_effort` is the positive control proving the builder emits
+    # `reasoning_effort` when an entry pins one; this entry pins none, so its
+    # absence is the branch's other side. `tools`/`tool_choice`/`top_p`/`top_k`
+    # have no positive control anywhere in this suite because
+    # `build_gateway_request` never constructs them for ANY model (confirmed by
+    # reading the function) — the same architectural-absence shape already
+    # accepted for `test_gpt_6_payloads_send_no_tool_fields`.
+    def test_sonnet_5_5_built_request_omits_disallowed_fields(self):
+        cfg = self.llm.get_model_config('claude-sonnet-5.5')
+        # temperature is passed explicitly to prove the builder drops it even
+        # when the caller asks for one — not merely because none was supplied.
+        url, headers, payload = self.llm.build_gateway_request(
+            cfg, 'hi', max_tokens=None, temperature=0.9)
+        self.assertEqual(url, 'https://openrouter.ai/api/v1/chat/completions')
+        self.assertEqual(payload['model'], 'anthropic/claude-sonnet-5.5')
+        self.assertEqual(payload['max_tokens'], 128000)
+        self.assertNotIn('temperature', payload)
+        self.assertNotIn('reasoning_effort', payload)
+        self.assertNotIn('tools', payload)
+        self.assertNotIn('tool_choice', payload)
+        self.assertNotIn('top_p', payload)
+        self.assertNotIn('top_k', payload)
+        self.assertEqual(payload['provider'], {'data_collection': 'deny'})
+        self.assertNotIn('only', payload['provider'])
+
+    # (4) anthropic_balanced moves to the high-effort Opus 5.5 entry, and
+    # call_claude_sonnet follows it because it resolves that role by name.
+    def test_anthropic_balanced_and_call_claude_sonnet_use_high_opus_5_5(self):
+        self.assertEqual(self.llm.get_default_model('anthropic_balanced'), 'claude-opus-5.5')
+        cfg = self.llm.get_model_config('claude-opus-5.5')
+        self.assertEqual(cfg.effort, 'high')
+        self.assertEqual(cfg.api_string, 'anthropic/claude-opus-5.5')
+        self.captured.clear()
+        self.llm.call_claude_sonnet('Question?')
+        payload = self.captured[-1][2]
+        self.assertEqual(payload['model'], 'anthropic/claude-opus-5.5')
+        self.assertEqual(payload['reasoning_effort'], 'high')
+
+
+# The twelve roles no crux code or shipped doc reads, deleted by owner
+# directive on 2026-09-28. None is aliased to a surviving role.
+DELETED_ROLES = (
+    'anthropic_fast', 'openai_chat', 'council_code', 'code_review', 'vision',
+    'think_shallow', 'think_medium', 'think_deep', 'plan', 'reflect',
+    'recursive_improve', 'anthropic_council',
+)
+
+# Every surviving role and the model it resolves to. council_default is the
+# one list role left.
+KEPT_ROLES = {
+    'google_top': 'gemini-3.1-pro-preview',
+    'google_fast': 'gemini-3.5-flash',
+    'anthropic_top': 'claude-opus-5.5-xhigh',
+    'anthropic_balanced': 'claude-opus-5.5',
+    'openai_top': 'gpt-6-astra',
+    'council_default': ['gpt-6-sol', 'gemini-3.1-pro-preview', 'claude-opus-5.5-xhigh'],
+    'council_arbiter': 'claude-opus-5.5-xhigh',
+    'release_docs': 'claude-opus-5.5',
+}
+
+# The two registry keys retired with the unread roles. Neither is aliased; a
+# caller naming one gets `ValueError: Unknown model`.
+RETIRED_ANTHROPIC_KEYS = ('claude-opus-5', 'claude-sonnet-5')
+
+# The weighted-vote weight of every default council member, sync and async,
+# as it stood before the deletions. Deleting anthropic_council must move none.
+COUNCIL_MEMBER_WEIGHTS = {
+    'gpt-6-sol': 1.0,
+    'gemini-3.1-pro-preview': 1.3,
+    'claude-opus-5.5-xhigh': 1.5,
+    'gpt-6-astra': 1.4,
+}
+
+
+@unittest.skipUnless(HAVE_HTTPX, "httpx not installed — run under uv")
+class UnreadRoleDeletionTests(unittest.TestCase):
+    """model_roles carries only read roles, and the retired keys are gone."""
+
+    @classmethod
+    def setUpClass(cls):
+        from crux.core import llm_caller
+        cls.llm = llm_caller
+        cls.cfg = llm_caller.load_router_config()
+
+    # (a) every deleted role is unknown to both resolvers
+    def test_deleted_roles_raise_unknown_role(self):
+        for role in DELETED_ROLES:
+            with self.subTest(role=role):
+                with self.assertRaisesRegex(ValueError, 'Unknown model role'):
+                    self.llm.get_default_model(role)
+                with self.assertRaisesRegex(ValueError, 'Unknown model role'):
+                    self.llm.get_default_models(role)
+
+    def test_kept_roles_still_resolve(self):
+        # POSITIVE CONTROL for (a): the same resolvers answer every kept role,
+        # so the raise above is about the deleted names, not a broken lookup.
+        for role, expected in KEPT_ROLES.items():
+            with self.subTest(role=role):
+                if isinstance(expected, list):
+                    self.assertEqual(self.llm.get_default_models(role), expected)
+                else:
+                    self.assertEqual(self.llm.get_default_model(role), expected)
+
+    # (e) the role set is exactly the kept set, and each resolves to a key
+    def test_model_roles_hold_exactly_the_kept_roles(self):
+        roles = {k for k in self.cfg['model_roles'] if not k.startswith('_')}
+        self.assertEqual(roles, set(KEPT_ROLES))
+        registry = set(self.cfg['models'])
+        for role in roles:
+            for name in _role_names(self.cfg['model_roles'][role]):
+                with self.subTest(role=role, model=name):
+                    self.assertIn(name, registry)
+
+    def test_default_councils_seat_three_providers(self):
+        from crux.council.async_council import AsyncCouncilConfig
+
+        def vendor(key):
+            return self.llm.get_model_config(key).api_string.split('/', 1)[0]
+
+        sync_members = self.llm.get_default_models('council_default')
+        self.assertEqual({vendor(k) for k in sync_members},
+                         {'openai', 'google', 'anthropic'})
+        config = AsyncCouncilConfig()
+        async_seats = [config.openai_model, config.anthropic_model, config.gemini_model]
+        self.assertEqual({vendor(k) for k in async_seats},
+                         {'openai', 'google', 'anthropic'})
+
+    # (c) the retired keys are gone from the registry listing
+    def test_retired_keys_absent_from_list_available_models(self):
+        available = self.llm.list_available_models()
+        # POSITIVE CONTROL: the listing carries the surviving Anthropic keys,
+        # so the absence below is not an empty or broken listing.
+        self.assertIn('claude-opus-5.5', available)
+        self.assertIn('claude-sonnet-5.5', available)
+        for key in RETIRED_ANTHROPIC_KEYS:
+            with self.subTest(key=key):
+                self.assertNotIn(key, available)
+
+    def test_retired_keys_raise_unknown_model(self):
+        # POSITIVE CONTROL: a surviving key resolves through the same call.
+        self.assertEqual(self.llm.get_model_config('claude-opus-5.5').api_string,
+                         'anthropic/claude-opus-5.5')
+        for key in RETIRED_ANTHROPIC_KEYS:
+            with self.subTest(key=key):
+                with self.assertRaisesRegex(ValueError, 'Unknown model'):
+                    self.llm.get_model_config(key)
+
+    def test_no_role_names_a_retired_key(self):
+        referenced = set()
+        for role, value in self.cfg['model_roles'].items():
+            if not role.startswith('_'):
+                referenced |= set(_role_names(value))
+        # POSITIVE CONTROL: the scan finds a model the roles do name.
+        self.assertIn('claude-opus-5.5-xhigh', referenced)
+        for key in RETIRED_ANTHROPIC_KEYS:
+            with self.subTest(key=key):
+                self.assertNotIn(key, referenced)
+
+    # (d) weights: the table loses anthropic_council and no member moves
+    def test_model_weights_hold_exactly_the_three_top_roles(self):
+        from crux.council.council import MODEL_WEIGHTS
+        self.assertEqual(MODEL_WEIGHTS, {
+            'anthropic_top': 1.5, 'google_top': 1.3, 'openai_top': 1.4,
+        })
+
+    def test_every_default_council_member_keeps_its_weight(self):
+        from crux.council.async_council import AsyncCouncilConfig
+        from crux.council.council import _get_model_weight
+        config = AsyncCouncilConfig()
+        members = list(self.llm.get_default_models('council_default')) + [
+            config.openai_model, config.anthropic_model, config.gemini_model]
+        self.assertEqual(set(members), set(COUNCIL_MEMBER_WEIGHTS))
+        for model in members:
+            with self.subTest(model=model):
+                self.assertEqual(_get_model_weight(model), COUNCIL_MEMBER_WEIGHTS[model])
+
+    # (f) the kept Fable entry is owner-parked with no role
+    def test_fable_note_records_owner_parked_entry_with_no_role(self):
+        # POSITIVE CONTROL: the entry survives the role deletion unchanged in
+        # the fields a caller reads, so the note checks below read a live entry.
+        entry = self.cfg['models']['claude-fable-5.1']
+        self.assertEqual(entry['effort'], 'high')
+        self.assertEqual(entry['api_string'], 'anthropic/claude-fable-5.1')
+        note = entry['_note']
+        self.assertNotIn('think_deep', note)
+        self.assertIn('parked with no role by owner decision', note)
 
 
 @unittest.skipUnless(HAVE_HTTPX, "httpx not installed — run under uv")
@@ -449,7 +709,7 @@ class LlmRouterPayloadTests(unittest.TestCase):
                          "every model must post to the one gateway endpoint")
 
     def test_auth_is_bearer_and_key_never_reaches_the_url(self):
-        url, headers, _ = self._request('claude-opus-5')
+        url, headers, _ = self._request('claude-opus-5.5')
         self.assertEqual(headers.get('Authorization'), 'Bearer sk-or-test-dummy')
         self.assertNotIn('sk-or-test-dummy', url)
 
@@ -466,9 +726,9 @@ class LlmRouterPayloadTests(unittest.TestCase):
                 self.assertEqual(payload.get('reasoning_effort'), effort)
 
     def test_unpinned_entries_omit_reasoning_effort(self):
-        """Plain Sol and Opus 5 pin no effort — the server default stands, and
-        an emitted field would silently override it."""
-        for model in ('gpt-6-sol', 'claude-opus-5'):
+        """Plain Sol and Sonnet 5.5 pin no effort — the server default stands,
+        and an emitted field would silently override it."""
+        for model in ('gpt-6-sol', 'claude-sonnet-5.5'):
             with self.subTest(model=model):
                 self.assertNotIn('reasoning_effort', self._payload(model))
 
@@ -570,7 +830,7 @@ class LlmRouterPayloadTests(unittest.TestCase):
 
     def test_messages_carry_system_and_user_roles(self):
         self.captured.clear()
-        self.llm.call_model('claude-opus-5', 'hi', system='Be terse.', max_tokens=64)
+        self.llm.call_model('claude-opus-5.5', 'hi', system='Be terse.', max_tokens=64)
         payload = self.captured[0][2]
         self.assertEqual(payload['messages'],
                          [{'role': 'system', 'content': 'Be terse.'},

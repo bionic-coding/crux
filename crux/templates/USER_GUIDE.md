@@ -344,7 +344,7 @@ If something feels wrong (a contradiction, a stale page, a missing source), say 
 
 - Write `bionic/briefs/BRIEF-<slug>.md` files — these are *your* pre-decision exploration. Claude tracks them but doesn't author them.
 - Co-author the `## Goal`, `## Strategy`, and `## Prompts` sections of an active promptbook.
-- Edit the repo-root `AGENTS.md` to add project-specific notes Claude should know about (just don't remove the `See bionic/AGENTS.md` line).
+- Edit the repo-root `AGENTS.md`, if you keep one, to add project-specific notes your agents should know about. `init-docs` never creates that file. When it exists, `init-docs` appends a ``See `bionic/AGENTS.md` for documentation operations.`` line and an instruction to read `bionic/objectives.md` where each is missing. Keep both when you edit. When it does not exist, the init summary warns and suggests both additions. Adding the file is your call. Before you add a repo-root `AGENTS.md` beside a legacy instruction file, run `audit-docs --migrate`: it converts tracked `CLAUDE.md` files to `AGENTS.md`. The `See` line is plain text, not an include.
 
 ---
 

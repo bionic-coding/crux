@@ -130,6 +130,28 @@ class TestCruxInfrastructureImports(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json(), {"status": "ok"})
 
+    def test_testclient_binds_httpx2(self):
+        """Starlette's TestClient prefers `httpx2` and falls back to plain
+        `httpx` with a StarletteDeprecationWarning when it is missing. The
+        `infrastructure` extra declares `httpx2`, so the client must bind to
+        it. The module check is deterministic; a warning capture would depend
+        on which test imported `starlette.testclient` first."""
+        try:
+            import fastapi  # noqa: F401
+            import starlette.testclient as starlette_testclient
+        except ImportError as exc:
+            self.skipTest(f"crux-infrastructure extra not installed: {exc}")
+
+        self.assertEqual(
+            starlette_testclient.httpx.__name__,
+            "httpx2",
+            msg=(
+                "FastAPI is installed without httpx2. Re-sync the environment "
+                "with the extra that provided FastAPI: `uv sync --extra "
+                "infrastructure` or `uv sync --extra arch-runtime-test`."
+            ),
+        )
+
     def test_server_chat_refuses_an_image_model(self):
         """`/chat` returns only text, so an image model must be an error, not
         an empty 200. The refusal fires before any credential read or request."""

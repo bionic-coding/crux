@@ -26,7 +26,7 @@ This skill is portable across Claude Code, Codex, and OpenCode. This section ove
 
 ## Overview
 
-The bootstrap operation for the `crux` plugin. Runs once per repository. Creates the full seven-concern documentation tree (code, research, adrs, briefs, journal, promptbooks, invariants) plus the default-on derived arch spine and the default-on observations concern at the resolved `docs_dir` — `bionic/` for a new repository — plus the four root files (`AGENTS.md`, `index.md`, `log.md`, `manifest.yml`) plus seeded sub-indexes. The invariants concern is ONE folder: the ledger, its `checks/` subdirectory, and `reconciliation.yml` all live inside the tree (see docs/AGENTS.md §15). New repos enable the invariants concern **by default** at `schema_version: "5"`, enable the observations concern **by default** additively (docs/AGENTS.md §17 — no `schema_version` bump), and init writes `.bionic.yml` naming the tree it created (merged, never clobbered, when a config already exists). Refuses to touch an existing tree unless `--force` is passed.
+The bootstrap operation for the `crux` plugin. Runs once per repository. Creates the full seven-concern documentation tree (code, research, adrs, briefs, journal, promptbooks, invariants) plus the default-on derived arch spine and the default-on observations concern at the resolved `docs_dir` — `bionic/` for a new repository — plus the four files at the tree's top level (`${DOCS_DIR}/AGENTS.md`, `index.md`, `log.md`, `manifest.yml`) plus seeded sub-indexes. It creates no repo-root `AGENTS.md`: step 9 appends to one that exists and only warns when there is none. The invariants concern is ONE folder: the ledger, its `checks/` subdirectory, and `reconciliation.yml` all live inside the tree (see docs/AGENTS.md §15). New repos enable the invariants concern **by default** at `schema_version: "5"`, enable the observations concern **by default** additively (docs/AGENTS.md §17 — no `schema_version` bump), and init writes `.bionic.yml` naming the tree it created (merged, never clobbered, when a config already exists). Refuses to touch an existing tree unless `--force` is passed.
 
 **New-repo bootstrap only — never an in-place upgrade.** `init-docs` governs the greenfield bootstrap; it MUST NOT enable or upgrade the invariants concern in place in an established (populated) tree. An older tree uses the pinned public recovery release's schema ladder on a copy. `init-docs --force` on a populated tree is a destructive *re-bootstrap*, not a migration: it archives the existing tree to `${DOCS_DIR}.bak.${TODAY}/` (never deletes) and builds a fresh tree of seven concerns plus the derived arch spine at `schema_version: "5"` — a replacement, not an in-place migration of the old data.
 
@@ -395,11 +395,13 @@ _No spine yet._
   See `${DOCS_DIR}/AGENTS.md` for documentation operations.
   ```
 
-- If it does not exist, do **not** create one — that's the user's call. Surface a WARNING in the summary suggesting they add the reference.
+- If it does not exist, do **not** create one — that's the user's call. Surface the WARNING block given at the end of this step in the summary.
 - If a repo-root `CLAUDE.md` exists, do **not** append the pointer to it and do **not**
   delete it. Report it as a legacy instruction file with its remedy: it suppresses the
   canonical `AGENTS.md` on a host reading the fallback, and `audit-docs --migrate`
-  converts it. Creating a second pointer would make the suppression permanent.
+  converts it when it is tracked, is not a symlink, and is not named by
+  `.bionic.yml`'s `instruction_migration_denylist`. Creating a second pointer would
+  make the suppression permanent.
 
 For each existing repo-root `AGENTS.md`, also add the following
 instruction unless the file already names `objectives.md`. Substitute `${DOCS_DIR}`:
@@ -411,9 +413,27 @@ Read `${DOCS_DIR}/objectives.md` before work of any size, and carry its context 
 [^objectives]: rule:objectives-read-before-work, rule:orchestrators-read-objectives-at-startup-and-resume, rule:objectives-shape-the-work-and-authorize-none, rule:objectives-context-travels-with-every-delegation, rule:objectives-populate-gate-never-invents-a-goal
 ```
 
-Preserve existing instructions and generated regions. If the root file is
-absent, include the suggested instruction in the existing warning; do not
-create that file solely for this addition.
+Preserve existing instructions and generated regions. If the root file is absent, do not create that file solely for this addition. Surface this WARNING in the summary verbatim, inside a text code fence, with `${DOCS_DIR}` substituted:
+
+```text
+WARNING: This repository has no repo-root AGENTS.md, so init-docs added no pointer to the documentation tree.
+Codex and OpenCode read a repo-root AGENTS.md.
+Claude Code reads it from version 2.1.277 under its default settings, except on the Bedrock, Vertex and Foundry distributions.
+Under those defaults, three files stop Claude Code from reading AGENTS.md: CLAUDE.md, .claude/CLAUDE.md and CLAUDE.local.md.
+Each one does so in any directory from the repository root to the working directory.
+If the repository holds a tracked CLAUDE.md, run audit-docs --migrate before you add the lines below.
+It converts each tracked CLAUDE.md in the checkout into the AGENTS.md of its directory, unless the file is a symlink, sits under a templates/ directory, or .bionic.yml's instruction_migration_denylist names it.
+It never changes a .claude/CLAUDE.md, a CLAUDE.local.md or an untracked CLAUDE.md.
+It reports each one for you to handle.
+To point your agents at the tree, add these lines to the repo-root AGENTS.md, and create that file if it does not exist:
+
+See `${DOCS_DIR}/AGENTS.md` for documentation operations.
+
+Read `${DOCS_DIR}/objectives.md` before work of any size, and carry its context through every delegation.
+`${DOCS_DIR}/AGENTS.md` §5.B is the one statement of what that means — who reads, when, what a delegation carries, how the mission bounds the work, and what to do when the file is missing or still a placeholder.[^objectives]
+
+[^objectives]: rule:objectives-read-before-work, rule:orchestrators-read-objectives-at-startup-and-resume, rule:objectives-shape-the-work-and-authorize-none, rule:objectives-context-travels-with-every-delegation, rule:objectives-populate-gate-never-invents-a-goal
+```
 
 ### 10. Write the human-facing `USER_GUIDE.md` to repo root
 
@@ -462,11 +482,8 @@ See below. If any item fails, roll back per the rollback contract (remove only t
 - [ ] `${DOCS_DIR}/promptbooks/index.md` exists with empty Active and Archived tables.
 - [ ] `${DOCS_DIR}/promptbooks/{active,runs,archive}/`, `${DOCS_DIR}/adrs/reviews/`, and `${DOCS_DIR}/invariants/checks/` each contain a `.gitkeep` — the reviews surface exists before the first decision review, so the cadence nudge never points at a directory that is not there.
 - [ ] No remaining `{{...}}` placeholders anywhere under `${DOCS_DIR}/`.
-- [ ] If the repo root carries an `AGENTS.md`, its objectives block was appended and no
-      pre-existing content was rewritten. If it carries none, nothing was created.
-- [ ] If the repo root carries an `AGENTS.md`, step 9's objectives block was appended there too,
-      preserving existing content and generated regions. If it carries none, nothing was created.
-- [ ] Repo-root `AGENTS.md` either already references the tree's `AGENTS.md` or a WARNING was surfaced.
+- [ ] If the repo root carries an `AGENTS.md`, step 9 appended the tree reference and the objectives block where each was missing, preserving existing content and generated regions; no pre-existing content was rewritten. If it carries none, nothing was created.
+- [ ] Repo-root `AGENTS.md` either already references the tree's `AGENTS.md` or step 9's WARNING was surfaced verbatim.
 - [ ] A repo-root `CLAUDE.md`, if present, was reported as a legacy suppressor with its remedy and left unedited.
 - [ ] `${CRUX_PLUGIN_ROOT}/catalog/skills.json` and `${CRUX_PLUGIN_ROOT}/catalog/bundles.yml` both exist. The catalog gate's JSON verdict was recorded: `surface_absent: true` is N/A in this consuming project, not a catalog-validation pass.
 - [ ] `${REPO_ROOT}/USER_GUIDE.md` exists, contains the substituted `${REPO_NAME}`, has no remaining `{{...}}` placeholders. (Or — if a pre-existing USER_GUIDE.md was preserved without `--force` + explicit confirmation — a WARNING was surfaced.)

@@ -1,6 +1,6 @@
 # docs/AGENTS.md
 
-Operational schema for the `docs/` tree in **{{repo_name}}**. The repo-root `AGENTS.md` references this file with a single line: "See `docs/AGENTS.md` for documentation operations." This file is the single source of truth for everything Claude does under `docs/`.
+Operational schema for the `docs/` tree in **{{repo_name}}**. This file is the single source of truth for everything an agent does under `docs/`. `init-docs` never creates a repo-root `AGENTS.md`. When none exists, it warns and leaves adding one to you. When one exists, `init-docs` only appends to it and rewrites nothing. It appends the line "See `<docs_dir>/AGENTS.md` for documentation operations." unless the file already references this one. It appends an instruction to read `<docs_dir>/objectives.md` unless the file already names `objectives.md`. Here, as everywhere in this file, `docs/` and `<docs_dir>` both name the configured tree directory, `bionic` by default. The `See` line is plain text, not an include.
 
 ## 1. What this `docs/` directory is
 

@@ -2,7 +2,7 @@
 name: extract-code-docs
 description: "Regenerate code documentation from source using language extractors. Replaces generated files, including manual edits."
 context: fork
-model: sonnet
+model: claude-sonnet-5-5
 metadata:
   tags: "code-docs, extraction, regeneration"
   bundles: "crux-docs"

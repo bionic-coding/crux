@@ -2,7 +2,7 @@
 name: tend-garden
 description: "Run the night gardener's strategic pass over recent work, diagnostics, and news; develop ideas and write a morning note."
 context: fork
-model: sonnet
+model: claude-sonnet-5-5
 metadata:
   tags: "garden, night-gardener, overnight, turn-based, orchestrator"
   bundles: "crux-core"

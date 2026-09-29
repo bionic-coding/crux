@@ -2,7 +2,7 @@
 name: derive-arch
 description: "Regenerate the current architecture map from project sources, or check its drift. Replaces generated architecture files."
 context: fork
-model: sonnet
+model: claude-sonnet-5-5
 metadata:
   tags: "arch, architecture, regeneration, derived-spine"
   bundles: "crux-docs"

@@ -66,7 +66,6 @@ DEFAULT_COUNCIL = _get_default_council
 # router config; missing roles default to weight 1.0.
 MODEL_WEIGHTS: Dict[str, float] = {
     "anthropic_top": 1.5,
-    "anthropic_council": 1.5,
     "google_top": 1.3,
     "openai_top": 1.4,
 }
@@ -190,7 +189,7 @@ Provide:
 Be specific and actionable. The team needs to execute on this decision immediately.
 """
     if arbiter_model is None:
-        arbiter_model = get_default_model("anthropic_top")
+        arbiter_model = get_default_model("council_arbiter")
     return call_model(arbiter_model, prompt)
 
 
@@ -219,7 +218,7 @@ def council_vote(
     tracer = tracer or get_tracer()
     models = models or _get_default_council()
     if arbiter is None:
-        arbiter = get_default_model("anthropic_top")
+        arbiter = get_default_model("council_arbiter")
 
     tracer.log(
         phase=Phase.COUNCIL,

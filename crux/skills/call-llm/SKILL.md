@@ -91,7 +91,7 @@ When writing the temp file, substitute `${CRUX_PLUGIN_ROOT}` (crux's portable pl
 from crux.llm import call_model
 
 response = call_model(
-    model="claude-opus-5",   # a registry key, not a vendor model id
+    model="claude-opus-5.5", # a registry key, not a vendor model id
     prompt="Analyze this architecture for potential issues...",
     system="You are a senior software architect.",
     max_tokens=8000,         # optional; the registry entry's default if None
@@ -176,9 +176,9 @@ Two properties of this table are deliberate and easy to break:
 ```python
 from crux.llm import list_available_models, get_model_config, get_default_model, get_default_models
 
-list_available_models()            # every registry key
-get_model_config("claude-opus-5")  # the resolved ModelConfig
-get_default_model("anthropic_top") # the model a ROLE resolves to
+list_available_models()                # every registry key
+get_model_config("claude-opus-5.5")    # the resolved ModelConfig
+get_default_model("anthropic_top")     # the model a ROLE resolves to
 get_default_models("council_default")  # roles that map to a list
 ```
 

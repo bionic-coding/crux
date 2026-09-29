@@ -160,7 +160,7 @@ class RefusalFinishReasonTests(unittest.TestCase):
         with mock.patch.object(llm_caller.httpx, "Client",
                                return_value=self._fake_client(body)), \
              mock.patch.object(llm_caller, "require", return_value=("test-key",)):
-            return llm_caller.call_model("claude-opus-5", "hello")
+            return llm_caller.call_model("claude-opus-5.5", "hello")
 
     def test_content_filter_finish_reason_raises(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "refusal"):
@@ -181,3 +181,72 @@ class RefusalFinishReasonTests(unittest.TestCase):
                                      "message": {"content": "hi"}}]}),
             "hi",
         )
+
+
+class SyncArbiterRoleTests(unittest.TestCase):
+    """The sync council's default arbiter resolves its own `council_arbiter`
+    role, not `anthropic_top`.
+
+    The two roles name the same model today, so a resolved-model check alone
+    could not tell which role was read. A role table in which the two roles
+    name different sentinels makes the role read visible.
+    """
+
+    SENTINELS = {"council_arbiter": "arbiter-sentinel",
+                 "anthropic_top": "anthropic-top-sentinel"}
+
+    def _resolve(self, role):
+        return self.SENTINELS[role]
+
+    def test_synthesize_opinions_default_arbiter_reads_council_arbiter(self):
+        from unittest import mock
+
+        from crux.council import council as sync_council
+
+        opinion = sync_council.Opinion(model="m", position="p", reasoning="r",
+                                       confidence=0.9, considerations=[])
+        with mock.patch.object(sync_council, "get_default_model",
+                               side_effect=self._resolve), \
+             mock.patch.object(sync_council, "call_model",
+                               return_value="synthesis") as call:
+            sync_council.synthesize_opinions("Question?", [opinion])
+        self.assertEqual(call.call_args.args[0], "arbiter-sentinel")
+
+    def test_council_vote_default_arbiter_reads_council_arbiter(self):
+        from unittest import mock
+
+        from crux.council import council as sync_council
+
+        with mock.patch.object(sync_council, "get_default_model",
+                               side_effect=self._resolve), \
+             mock.patch.object(sync_council, "call_model",
+                               return_value="synthesis") as call:
+            sync_council.council_vote("Question?", models=["member-a"],
+                                      arbiter=None, tracer=mock.Mock())
+        called = [c.args[0] for c in call.call_args_list]
+        # POSITIVE CONTROL: the member call went through the same mock, so the
+        # recorded calls are the council's real call sequence.
+        self.assertEqual(called, ["member-a", "arbiter-sentinel"])
+
+    def test_explicit_arbiter_still_overrides_the_role(self):
+        from unittest import mock
+
+        from crux.council import council as sync_council
+
+        with mock.patch.object(sync_council, "get_default_model",
+                               side_effect=self._resolve) as resolve, \
+             mock.patch.object(sync_council, "call_model",
+                               return_value="synthesis") as call:
+            sync_council.synthesize_opinions("Question?", [], arbiter_model="chosen")
+        self.assertEqual(call.call_args.args[0], "chosen")
+        resolve.assert_not_called()
+
+    def test_council_arbiter_resolves_to_the_same_model_as_before(self):
+        from crux.core import llm_caller
+
+        # No behaviour change: the role the arbiter now reads names the model
+        # the arbiter already used through anthropic_top.
+        self.assertEqual(llm_caller.get_default_model("council_arbiter"),
+                         "claude-opus-5.5-xhigh")
+        self.assertEqual(llm_caller.get_default_model("council_arbiter"),
+                         llm_caller.get_default_model("anthropic_top"))

@@ -2,7 +2,7 @@
 name: read-news
 description: "Read ecosystem news relevant to the project, capture useful findings, and refresh selected research sources within a bounded budget."
 context: fork
-model: sonnet
+model: claude-sonnet-5-5
 metadata:
   tags: "news, perplexity, retrieval, garden, research"
   bundles: "crux-core"

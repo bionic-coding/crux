@@ -1,9 +1,58 @@
-<!-- generated-from: CHANGELOG.md@sha256:ebc670718eb597f2d950df5d9f2831e5356be4bc0ba4237e48069e90e35599dd; model: claude-opus-5.5; date: 2026-09-28 -->
+<!-- generated-from: CHANGELOG.md@sha256:cc7ca12675b7044b79dd511dd0c8e1c6e471cad32f915143fb5e885812de78f8; model: claude-opus-5.5; date: 2026-09-28 -->
 # Changelog
 
 All notable changes to crux. The format roughly follows [Keep a Changelog](https://keepachangelog.com/) and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+
+### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [3.24.6] — 2026-09-29
+
+### Added
+
+- A new `claude-sonnet-5.5` model-registry entry for `anthropic/claude-sonnet-5.5` provides 1M context, 128K output, and pricing of $2 input and $10 output per 1M tokens. It has no capability scores or effort pin, the router sends it no temperature, and no router role uses it yet.
+
+### Changed
+
+- The developer, historian, librarian and wayfinder agents now request `claude-sonnet-5-5`, as do the derive-arch, extract-code-docs, read-news and tend-garden skills. On Claude Code v2.1.284 or later, this selects Claude Sonnet 5.5 by its full model ID.
+- It has not been verified whether Claude Platform on AWS, Amazon Bedrock, Google Cloud's Agent Platform and Microsoft Foundry resolve the `claude-sonnet-5-5` ID. On those providers the `sonnet` alias resolves to an older Sonnet: 4.6 on Claude Platform on AWS and 4.5 on the other three.
+- The standard level's Claude model now uses the full model ID. `claude-sonnet-5-5` is accepted as an agent `model:` value alongside `sonnet`, and Codex and OpenCode model selections are unchanged.
+- The router's `anthropic_balanced` role now resolves to `claude-opus-5.5`, which is Opus 5.5 at high effort, instead of Claude Opus 5. `call_claude_sonnet` still uses `anthropic_balanced`, so it now calls Opus 5.5 at high effort.
+- The synchronous council's default arbiter now uses the `council_arbiter` role instead of `anthropic_top`. Both roles resolve to `claude-opus-5.5-xhigh`, so the arbiter's model does not change.
+- **Breaking:** The router configuration's `version` is now 3.0.0 because this release removes router role names and registry keys.
+- The `sonnet-latest` catalog alias now points at `openrouter/anthropic/claude-sonnet-5.5`. No agent resolves through it.
+
+### Fixed
+
+- `adr-signals.py` now exits 0 on a freshly initialized documentation tree, so the `init-docs` checklist item that runs it passes. This applies when the doctrine directory is absent or holds neither the doctrine index nor its `_meta.json`. In that case `paper_only` reports `unmeasurable` with a reason, and `carve_out_count` still counts the manifest's exemptions.
+- `adr-signals.py` still exits 1 for other broken doctrine layouts. These include:
+  - an index deleted while its `_meta.json` remains
+  - an index that resolves outside the repository
+  - a doctrine path that is a regular file, or a symlink with no in-repository index behind it
+
+  The decision review still stops on a fresh tree until `compile-doctrine` has run.
+- The documentation tree's `AGENTS.md` template now shows the lines that `init-docs` appends using `<docs_dir>` instead of a literal `docs/`. It also explains that `docs/` and `<docs_dir>` both refer to the configured tree directory.
+- `init-docs` now documents the exact warning it shows when the repository has no root `AGENTS.md`. The warning lists the lines to add and says which Claude Code versions and distributions read `AGENTS.md`. It also names the files that stop Claude Code from reading `AGENTS.md` and says which of them `audit-docs --migrate` converts. The verification checklist now asks for this warning verbatim.
+
+### Removed
+
+- **Breaking:** Twelve router roles have been removed, and `get_default_model` now raises `ValueError` for each of them. The removed roles are `anthropic_fast`, `openai_chat`, `council_code`, `code_review`, `vision`, `think_shallow`, `think_medium`, `think_deep`, `plan`, `reflect`, `recursive_improve` and `anthropic_council`. Nothing in crux used them. The weighted council vote drops its `anthropic_council` weight, and no council member's weight changes.
+- **Breaking:** The `claude-opus-5` and `claude-sonnet-5` registry entries have been removed and are not aliased to a successor. Naming either one now raises `ValueError: Unknown model`, so use `claude-opus-5.5` or `claude-sonnet-5.5` instead.
+
+## [3.24.5] — 2026-09-28
+
+### Fixed
+
+- The user guide and the shipped `AGENTS.md` template for the documentation tree no longer claim that a repo-root `AGENTS.md` points at the documentation tree. `init-docs` never creates that file and warns when it is missing. When the file exists, `init-docs` adds the documentation-tree reference and the objectives instruction only where they are missing, and it leaves existing content unchanged.
+- Advancing or abandoning a run with `advance-run.py` now changes only the affected values in the run snapshot. Comments, quoting, indentation, timestamp formatting and line endings are left intact, so the diff shows only the advance.
+- If a snapshot cannot be updated in place, for example because a comment sits inside a value that would change, the operation is refused and the file is not written. Snapshots already rewritten by earlier versions are left as they are.
 
 ## [3.24.4] — 2026-09-28
 

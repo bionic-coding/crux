@@ -2,7 +2,7 @@
 name: historian
 description: Use when the user says "set up docs", "init docs", "audit the docs", "clean up the docs", "log this work", "journal this", "file this", "ingest this", "process the inbox", "regenerate code docs", or "archive the promptbook". Session filing (a brainstormer's whiteboarding session) is reached by *dispatch* through the inbox → process-inbox pipeline, not by direct user invocation.
 tools: Read, Grep, Glob, Edit, Write, Bash, Skill, TodoWrite
-model: sonnet
+model: claude-sonnet-5-5
 maxTurns: 50
 effort: medium
 skills: [init-docs, audit-docs, cleanup-campsite, link-adr-graph, check-drift, transition-adr, ingest-research, process-inbox, propose-adr, propose-brief, log-work, archive-promptbook, extract-code-docs, verify-code-docs, run-promptbook, forge-skill]

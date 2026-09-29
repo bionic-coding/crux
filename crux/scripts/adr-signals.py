@@ -119,13 +119,18 @@ without, and across the eight signals that is:
      `carve_out_count`, where the manifest key and its doctrine projection are
      one surface.
   3. A VALUE-DOMAIN NOTE — what a member of `value` means. `paper_only`, where
-     `null` is a third state and not a falsy `false`; `schema_growth`, where a
-     null member means the path was absent at a ref that did resolve; and
-     `gate_count`, where an empty roster the header row located reports 0.
+     a per-ADR `null` is a third state and not a falsy `false` — that per-ADR
+     shape applies only once the doctrine index HAS been read; `schema_growth`,
+     where a null member means the path was absent at a ref that did resolve;
+     and `gate_count`, where an empty roster the header row located reports 0.
   4. THE REASON A MEASUREMENT WAS IMPOSSIBLE — mandatory on every
      `unmeasurable` record, which is the one verdict where `filter` may not be
      null. `friction_citations` when the tree records no adoption date, or
-     when the queried window lies wholly before the one it records.
+     when the queried window lies wholly before the one it records; `paper_only`
+     WHOLE-RECORD (not the per-ADR null above) when the doctrine index has
+     never been compiled — `adrs/doctrine/index.md` and `adrs/doctrine/_meta.json`
+     both absent, in one of the two shapes EXIT LANES below states exactly.
+     Every other shape without a readable index exits 1 with an `errors` row.
   5. WHICH MARKER WAS CHOSEN, and what each rejected marker's coverage measured
      on this run. `release_cadence` alone, which names the chosen marker (the
      changelog's dated version headings) and both rejected ones (tags, and the
@@ -159,7 +164,8 @@ EXIT LANES.
       of `unmeasurable` is a reported measurement state, not a failure: the
       script grades nothing, so it does not change the exit code.
   1 — the envelope could not be emitted in full because a required input was
-      malformed in a way the script refuses to guess around. Partial JSON with
+      malformed, refused by the containment read, or inconsistent with its
+      siblings, and the script refuses to guess around it. Partial JSON with
       an `errors` array on stdout.
   2 — environment error: `--repo-root` absent, the resolved root is not a
       crux repo root (no `<docs_dir>/adrs` directory), or `.bionic.yml` is
@@ -168,13 +174,36 @@ EXIT LANES.
       this script's own check, which returns 2 to match argparse's usage-error
       code. Message on stderr, empty stdout.
 
-An absent `CHANGELOG.md`, an absent repo-root `AGENTS.md` and an absent
-version-control binary are `unmeasurable` verdicts at exit 0. None of the three
-is an exit-1 error and none is an exit-2 environment failure: they are the
-reported measurement states of `release_cadence`, `gate_count` and
-`schema_growth` respectively. In a downstream target repository none of those
-three inputs exists, so three `unmeasurable` records there are one rule working
-rather than a defect.
+An absent `CHANGELOG.md`, an absent repo-root `AGENTS.md`, an absent
+version-control binary, and a NEVER-COMPILED doctrine index are `unmeasurable`
+verdicts at exit 0. None of the four is an exit-1 error and none is an exit-2
+environment failure: they are the reported measurement states of
+`release_cadence`, `gate_count`, `schema_growth` and `paper_only` respectively.
+A fresh `init-docs` tree has never run `compile-doctrine`. It carries neither
+`adrs/doctrine/index.md` nor `adrs/doctrine/_meta.json`, so its `paper_only`
+record is `unmeasurable` by this rule rather than by a defect.
+
+WHICH ABSENT INPUT FORCES `paper_only` UNMEASURABLE, STATED EXACTLY. The
+check uses `os.lstat`, which does not follow a symlink, and it fails closed.
+Exactly two shapes are never-compiled:
+
+  1. `os.lstat` raises `FileNotFoundError` for `adrs/doctrine`: the doctrine
+     directory does not exist.
+  2. `adrs/doctrine` is a real directory, not a symlink, and `os.lstat` raises
+     `FileNotFoundError` for both `adrs/doctrine/index.md` and
+     `adrs/doctrine/_meta.json`.
+
+Every other shape takes the guarded read of `adrs/doctrine/index.md` through
+`_read_contained`. That includes any symlink at `adrs/doctrine`, whether live,
+escaping, dangling or looping; a regular file at `adrs/doctrine`; any other
+`OSError` from `os.lstat` on any of the three paths; any entry at either leaf,
+including a dangling symlink; and a `_meta.json` without an `index.md`. The
+guarded read either returns the index text, which is then parsed, or refuses.
+A refusal exits 1 with an `errors` row whose `input` names
+adrs/doctrine/index.md. An `index.md` that reads cleanly is read whether or
+not `_meta.json` exists. `carve_out_count` stays `computed` on a never-compiled
+tree, because it reads `adr.governs_exempt` from the tree manifest. Its
+`basis` then names the roster as unread and does not list it as a source.
 
 `friction_citations`' journal leg counts `Friction:` lines, never `### `
 headings, and only over entries dated at or after the adoption date recorded
@@ -197,6 +226,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -1894,7 +1924,8 @@ def signal_amendment_fan_in(active: dict[str, dict], tree: str) -> dict:
 
 def signal_carve_out_count(governs_exempt: list[str], doctrine_exempt: list[str],
                            literals: list[tuple[str, str, list[str]]], tree: str,
-                           scripts_present: bool = True) -> dict:
+                           scripts_present: bool = True,
+                           doctrine_never_compiled: bool = False) -> dict:
     manifest_surface = sorted(set(governs_exempt) | set(doctrine_exempt))
     literal_total = sum(len(entries) for _, _, entries in literals)
     total = len(manifest_surface) + literal_total
@@ -1909,13 +1940,28 @@ def signal_carve_out_count(governs_exempt: list[str], doctrine_exempt: list[str]
         f"{redact(name, quoted=False)} in "
         f"crux/scripts/{redact(fname, quoted=False)}"
         for fname, name, _ in literals)
+    # A never-compiled doctrine index carries no `## Exempt ADRs` roster to
+    # read, so `doctrine_exempt` is always empty in that branch. The signal
+    # STAYS `computed` — `adr.governs_exempt` alone is still a real read —
+    # but the basis says so, because the roster half of the union was never
+    # attempted rather than attempted and found empty. Two sources take no
+    # serial comma; three do, and the compiled path keeps its bytes.
+    sources = (f"`adr.governs_exempt` in {tree}/manifest.yml and "
+               if doctrine_never_compiled else
+               f"`adr.governs_exempt` in {tree}/manifest.yml, the `## Exempt ADRs` "
+               f"roster in {tree}/adrs/doctrine/index.md, and ")
+    doctrine_note = (
+        f"; the `## Exempt ADRs` roster was not read, because "
+        f"{tree}/adrs/doctrine/index.md and its _meta.json are both absent"
+        if doctrine_never_compiled else "")
     return _record(
         "carve_out_count", "computed", total,
-        f"`adr.governs_exempt` in {tree}/manifest.yml, the `## Exempt ADRs` roster in "
-        f"{tree}/adrs/doctrine/index.md, and {len(literals)} module-level EXEMPT* "
+        f"{sources}"
+        f"{len(literals)} module-level EXEMPT* "
         f"literal(s) under crux/scripts/*.py"
         + ("" if scripts_present else " (surface absent in this repo)")
-        + (f" ({named})" if named else ""),
+        + (f" ({named})" if named else "")
+        + doctrine_note,
         "deduped: `adr.governs_exempt` and the doctrine index's `## Exempt ADRs` roster "
         "are ONE surface and are counted ONCE, because the roster projects that same "
         "manifest key and counting both would double-count one fact; entries are deduped "
@@ -1924,7 +1970,8 @@ def signal_carve_out_count(governs_exempt: list[str], doctrine_exempt: list[str]
     )
 
 
-def signal_paper_only(active: dict[str, dict], rows: dict[str, list[str]], tree: str) -> dict:
+def signal_paper_only(active: dict[str, dict], rows: dict[str, list[str]], tree: str,
+                      doctrine_never_compiled: bool = False) -> dict:
     """`True` when no doctrine rule row sourced from this ADR is run-bound.
 
     THE NAME OVERSTATES THE MEASUREMENT, so read the value and not the name.
@@ -1935,7 +1982,22 @@ def signal_paper_only(active: dict[str, dict], rows: dict[str, list[str]], tree:
     whose rules nobody bound to a run, reads `True` here. What the signal
     licenses is "go look at this ADR", which is all a signal ever licenses:
     the judgment is the architect's, in step 4 of the skill.
+
+    `doctrine_never_compiled` forces the WHOLE record `unmeasurable`, rather
+    than the per-ADR `null` the rowless branch below already produces. A
+    fresh tree with no `adrs/doctrine/` at all has never had the chance to
+    name any ADR's rules `not-run-bound` or otherwise. That is a different
+    statement than "every active ADR happens to carry no doctrine row". The
+    per-ADR `null` map that would otherwise result reads exactly like the
+    latter. The whole-record `unmeasurable` says which one this is.
     """
+    if doctrine_never_compiled:
+        return _record(
+            "paper_only", "unmeasurable", None,
+            f"{tree}/adrs/doctrine/index.md and {tree}/adrs/doctrine/_meta.json",
+            "the doctrine index and its _meta.json are both absent: "
+            f"{tree}/adrs/doctrine/index.md and {tree}/adrs/doctrine/_meta.json",
+        )
     value: dict[str, bool | None] = {}
     for adr_id in active:
         basis_values = rows.get(adr_id)
@@ -2196,6 +2258,35 @@ def render_table(envelope: dict) -> str:
 # entry point
 # --------------------------------------------------------------------------
 
+def _doctrine_never_compiled(doctrine_dir: Path, index: Path, meta: Path) -> bool:
+    """True only for the two never-compiled shapes; False for every other.
+
+    The two shapes: `os.lstat` raises `FileNotFoundError` for `doctrine_dir`;
+    or `doctrine_dir` is a real directory, not a symlink, and `os.lstat`
+    raises `FileNotFoundError` for both `index` and `meta`. The check fails
+    closed. A symlink at `doctrine_dir`, a non-directory there, any other
+    `OSError`, or any entry at either leaf returns False. The caller then
+    takes the guarded read, which reads the index or reports an error.
+    """
+    try:
+        mode = os.lstat(doctrine_dir).st_mode
+    except FileNotFoundError:
+        return True
+    except OSError:
+        return False
+    if not stat.S_ISDIR(mode):
+        return False
+    for leaf in (index, meta):
+        try:
+            os.lstat(leaf)
+        except FileNotFoundError:
+            continue
+        except OSError:
+            return False
+        return False
+    return True
+
+
 def build(root: Path, today: dt.date) -> tuple[dict, list[dict]]:
     tree = _tree_name(root)
     docs = root / tree
@@ -2205,18 +2296,41 @@ def build(root: Path, today: dt.date) -> tuple[dict, list[dict]]:
     active = read_active_adrs(root, adrs, errors)
 
     # A doctrine index `_read_contained` refuses — for any of its four reasons
-    # — takes the SAME branch as an absent one: both leave `paper_only` and
-    # `carve_out_count` unable to read it, and the distinction is not worth a
-    # second error shape.
-    doctrine = adrs / "doctrine" / "index.md"
-    doctrine_text = _read_contained(root, doctrine) if doctrine.is_file() else None
-    if doctrine_text is not None:
-        rows, doctrine_exempt = read_doctrine_index(doctrine_text, doctrine.name, errors)
-    else:
+    # — takes the SAME branch as a compiled-then-deleted one: both leave
+    # `paper_only` and `carve_out_count` unable to read it, and the
+    # distinction between those two is not worth a second error shape.
+    #
+    # A NEVER-COMPILED doctrine index is a THIRD shape and is not an error.
+    # `_doctrine_never_compiled` names its two exact shapes and fails closed
+    # on everything else, which then takes the guarded read below.
+    doctrine_dir = adrs / "doctrine"
+    doctrine = doctrine_dir / "index.md"
+    doctrine_meta = doctrine_dir / "_meta.json"
+    doctrine_never_compiled = _doctrine_never_compiled(doctrine_dir, doctrine,
+                                                       doctrine_meta)
+    if doctrine_never_compiled:
         rows, doctrine_exempt = {}, []
-        errors.append({"input": f"{tree}/adrs/doctrine/index.md",
-                       "problem": "the doctrine index is missing; paper_only and "
-                                  "carve_out_count cannot be computed from it"})
+    else:
+        # On 3.13 `is_file()` re-raises a `PermissionError` from `stat`, such as
+        # a mode-000 `adrs/doctrine`; 3.14 returns False. Either way the shape
+        # is a refusal, so it takes the errors row below and never exits 2.
+        try:
+            doctrine_is_file = doctrine.is_file()
+        except OSError:
+            doctrine_is_file = False
+        doctrine_text = _read_contained(root, doctrine) if doctrine_is_file else None
+        if doctrine_text is not None:
+            rows, doctrine_exempt = read_doctrine_index(doctrine_text, doctrine.name, errors)
+        else:
+            rows, doctrine_exempt = {}, []
+            errors.append({"input": f"{tree}/adrs/doctrine/index.md",
+                           "problem": "the doctrine index was not read. It is absent "
+                                      "while adrs/doctrine is not a real directory or "
+                                      "adrs/doctrine/_meta.json exists, or it is not a "
+                                      "regular file, does not resolve, resolves outside "
+                                      "the repository root, or cannot be opened. "
+                                      "paper_only and carve_out_count cannot be "
+                                      "computed from it"})
 
     # Same rule for the tree manifest: a refused read takes the absent-file
     # branch, so `adr.governs_exempt` and `journal.friction_line_from` are
@@ -2243,8 +2357,8 @@ def build(root: Path, today: dt.date) -> tuple[dict, list[dict]]:
         "signals": [
             signal_amendment_fan_in(active, tree),
             signal_carve_out_count(governs_exempt, doctrine_exempt, literals, tree,
-                                   scripts_present),
-            signal_paper_only(active, rows, tree),
+                                   scripts_present, doctrine_never_compiled),
+            signal_paper_only(active, rows, tree, doctrine_never_compiled),
             signal_dormancy_days(active, entries, today, tree, refused_surfaces),
             signal_friction_citations(root, docs, tree, friction_from),
             # The three delivery signals are APPENDED, so the five above keep

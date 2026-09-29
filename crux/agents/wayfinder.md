@@ -2,7 +2,7 @@
 name: wayfinder
 description: Use when an agent needs to read or evaluate large/uncertain or external data BEFORE spending context to consume it — "wayfind this file/URL/corpus", "scope out this source", "is this source worth reading?", "summarize this", "search this for X", "go wayfind <domain>" — or when a primary wants to preserve its context window by delegating a bulky or uncertain read. Returns a fitness verdict + a condensed digest, never the raw content. Distinct from the librarian (which answers recorded-fact questions from the docs/ tree); the wayfinder triages arbitrary/external data.
 tools: Read, Grep, Glob, WebFetch, WebSearch
-model: sonnet
+model: claude-sonnet-5-5
 maxTurns: 50
 effort: medium
 skills: []

@@ -7,8 +7,11 @@
 The vendored counterpart to `validate-promptbook.py` for the `run-promptbook`
 advance path. Hand-editing a run snapshot across many advances is error-prone,
 and a naive re-emit silently drops the run-level trailing fields
-(`notes` / `pr_draft` / `summary`) — this script round-trips ALL top-level keys,
-so those fields survive every advance (the Issue-3 hazard).
+(`notes` / `pr_draft` / `summary`) (the Issue-3 hazard). This script never re-emits
+the document. It splices each value an advance or abandonment changes into the
+original text and appends any key that was absent, so every other byte — comments,
+quoting, indentation, timestamp spelling, line endings, and the trailing fields —
+stays as it was. A snapshot it cannot splice safely is refused with nothing written.
 
 Two modes.
 
@@ -61,6 +64,7 @@ non-zero with empty stdout = crash (stderr).
 from __future__ import annotations
 
 import argparse
+import copy
 import datetime
 import json
 import re
@@ -78,6 +82,12 @@ except ImportError:
 # `base_commit_pin.py` for the no-claim lane and the honest limit.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from base_commit_pin import divergence  # noqa: E402  (sys.path insert before import)
+from _yaml_min import (  # noqa: E402  (sys.path insert before import)
+    CatalogYamlError,
+    _normalize,
+    _walk_for_duplicate_keys,
+    load_yaml,
+)
 
 TERMINAL = ("done", "skipped", "blocked")
 
@@ -111,21 +121,223 @@ def _legacy_refusal(path: Path) -> "NoReturn":  # type: ignore[name-defined]
     )
 
 
-def _dump(doc: dict) -> str:
-    def str_presenter(dumper, data):
-        return dumper.represent_scalar("tag:yaml.org,2002:str", data, style="|" if "\n" in data else None)
+# A top-level key this writer may append in plain style. Anything else is quoted.
+_PLAIN_KEY_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
-    class D(yaml.Dumper):
-        pass
 
-    def flow_list(dumper, data):
-        if all(isinstance(x, str) for x in data) and len(data) <= 8:
-            return dumper.represent_sequence("tag:yaml.org,2002:seq", data, flow_style=True)
-        return dumper.represent_sequence("tag:yaml.org,2002:seq", data, flow_style=False)
+def _emit(value) -> str:
+    """One value as single-line YAML flow text. Strings are always double-quoted
+    by PyYAML's own emitter, which escapes every character a plain or single-quoted
+    scalar could misread (line breaks, U+2028, NEL, quotes, backslashes)."""
+    if value is None:
+        return "null"
+    if isinstance(value, int) and not isinstance(value, bool):
+        return str(value)
+    if isinstance(value, str):
+        out = yaml.safe_dump(value, default_style='"', allow_unicode=True, width=2**31 - 1)
+        if out.endswith("\n"):
+            out = out[:-1]
+        if "\n" in out or "\r" in out or not (out.startswith('"') and out.endswith('"')):
+            _fail("refusing to write: a changed value did not emit as one double-quoted "
+                  "line; nothing was written")
+        return out
+    if isinstance(value, list):
+        return "[" + ", ".join(_emit(v) for v in value) + "]"
+    if isinstance(value, dict):
+        return "{" + ", ".join(f"{_emit(k)}: {_emit(v)}" for k, v in value.items()) + "}"
+    _fail(f"refusing to write: cannot write a value of type {type(value).__name__}; "
+          "nothing was written")
 
-    yaml.add_representer(str, str_presenter, Dumper=D)
-    yaml.add_representer(list, flow_list, Dumper=D)
-    return yaml.dump(doc, Dumper=D, sort_keys=False, allow_unicode=True, width=100)
+
+def _emit_key(key) -> str:
+    if isinstance(key, str) and _PLAIN_KEY_RE.fullmatch(key):
+        return key
+    return _emit(key)
+
+
+def _path_text(path: tuple) -> str:
+    return "".join(f"[{p}]" if isinstance(p, int) else (f".{p}" if i else str(p))
+                   for i, p in enumerate(path))
+
+
+def _changed_paths(before: dict, after: dict, prefix: tuple = ()) -> list[tuple[str, tuple]]:
+    """The edits that turn `before` into `after`, as ``("set" | "add", path)``.
+
+    Mappings recurse, and so do equal-length lists of mappings, so a changed prompt
+    field names its own path. A removed key is refused: this writer only changes and
+    adds values."""
+    for key in before:
+        if key not in after:
+            _fail(f"refusing to write: the update removes {_path_text(prefix + (key,))}; "
+                  "only values may change; nothing was written")
+    ops: list[tuple[str, tuple]] = []
+    for key, value in after.items():
+        path = prefix + (key,)
+        if key not in before:
+            ops.append(("add", path))
+            continue
+        old = before[key]
+        if old == value:
+            continue
+        if isinstance(old, dict) and isinstance(value, dict):
+            ops.extend(_changed_paths(old, value, path))
+        elif (isinstance(old, list) and isinstance(value, list) and len(old) == len(value)
+              and all(isinstance(x, dict) for x in old + value)):
+            for i, (o, v) in enumerate(zip(old, value)):
+                if o != v:
+                    ops.extend(_changed_paths(o, v, path + (i,)))
+        else:
+            ops.append(("set", path))
+    return ops
+
+
+def _locate(root, path: tuple):
+    """The key node and value node at `path` in a composed document."""
+    key_node, node = None, root
+    for step in path:
+        if isinstance(step, int):
+            key_node, node = None, node.value[step]
+            continue
+        for k, v in node.value:
+            if k.value == step:
+                key_node, node = k, v
+                break
+        else:  # pragma: no cover - the path came from the same document
+            _fail(f"refusing to write: {_path_text(path)} is not in the snapshot text; "
+                  "nothing was written")
+    return key_node, node
+
+
+def _is_block_collection(node) -> bool:
+    return isinstance(node, (yaml.SequenceNode, yaml.MappingNode)) and not node.flow_style
+
+
+def _span(text: str, key_node, node) -> tuple[int, int]:
+    """The ``[start, end)`` text span a new value replaces.
+
+    A scalar or a flow collection spans its own node. A block collection starts
+    after its key's colon and ends at its last descendant's content, because the
+    collection's own end mark runs past any comment that follows it. Trailing
+    whitespace is trimmed, so the line break after the value stays in place."""
+    if _is_block_collection(node):
+        start = text.index(":", key_node.end_mark.index) + 1
+        last = node
+        while _is_block_collection(last) and last.value:
+            last = last.value[-1] if isinstance(last, yaml.SequenceNode) else last.value[-1][1]
+        end = last.end_mark.index
+    else:
+        start, end = node.start_mark.index, node.end_mark.index
+    while end > start and text[end - 1] in " \t\r\n":
+        end -= 1
+    return start, end
+
+
+def _block_scalars(node):
+    if isinstance(node, yaml.ScalarNode):
+        if node.style in ("|", ">"):
+            yield node
+    elif isinstance(node, yaml.SequenceNode):
+        for item in node.value:
+            yield from _block_scalars(item)
+    elif isinstance(node, yaml.MappingNode):
+        for k, v in node.value:
+            yield from _block_scalars(k)
+            yield from _block_scalars(v)
+
+
+def _terminators_are_uniform(text: str) -> bool:
+    return "\r" not in text or text.count("\r") == text.count("\r\n") == text.count("\n")
+
+
+def _splice(text: str, before: dict, after: dict) -> str:
+    """Return `text` with only the values that differ between `before` and `after`
+    rewritten, and any key `after` adds appended at the end of the file.
+
+    Every byte outside the replaced spans is kept. A shape this cannot splice
+    without losing text, or without changing a value nobody asked to change, is
+    refused with exit 1 and JSON on stdout, before any file is written: mixed line
+    endings, an anchor or alias, a duplicate key, a comment inside a replaced
+    value or on a replaced block scalar's header line, a removed key, a key added
+    below the top level, an unsupported value type, and any YAML error. The last
+    guard is semantic: the result must re-read as exactly `after`."""
+    if not _terminators_are_uniform(text):
+        _fail("refusing to write: the snapshot mixes line endings (CRLF and LF); "
+              "nothing was written")
+    eol = "\r\n" if "\r\n" in text else "\n"
+    try:
+        for event in yaml.parse(text):
+            if isinstance(event, yaml.AliasEvent) or getattr(event, "anchor", None):
+                _fail("refusing to write: the snapshot uses an anchor or alias, which a "
+                      "value splice cannot keep consistent; nothing was written")
+        root = yaml.compose(text)
+        try:
+            _walk_for_duplicate_keys(root, yaml)
+        except CatalogYamlError as exc:
+            _fail(f"refusing to write: the snapshot has a {exc}; nothing was written")
+        covered = bytearray(len(text))
+        for tok in yaml.scan(text):
+            s, e = tok.start_mark.index, tok.end_mark.index
+            covered[s:e] = b"\x01" * (e - s)
+
+        edits: list[tuple[int, int, str]] = []
+        appends: list[str] = []
+        for op, path in _changed_paths(before, after):
+            if op == "add":
+                if len(path) > 1:
+                    _fail(f"refusing to write: the update adds the nested key "
+                          f"{_path_text(path)}; only a top-level key can be appended; "
+                          "nothing was written")
+                appends.append(path[0])
+                continue
+            key_node, node = _locate(root, path)
+            for scalar in _block_scalars(node):
+                i = scalar.start_mark.index
+                line_end = text.find("\n", i)
+                if "#" in text[i:len(text) if line_end < 0 else line_end]:
+                    _fail(f"refusing to write: {_path_text(path)} has a comment on a "
+                          "block-scalar header line, which replacing the value would "
+                          "drop; nothing was written")
+            start, end = _span(text, key_node, node)
+            for i in range(start, end):
+                if not covered[i] and not text[i].isspace():
+                    _fail(f"refusing to write: {_path_text(path)} has a comment inside "
+                          "the value being replaced, which the replacement would drop; "
+                          "nothing was written")
+            value = after
+            for step in path:
+                value = value[step]
+            new = _emit(value)
+            if start > 0 and text[start - 1] == ":":
+                new = " " + new
+            edits.append((start, end, new))
+    except yaml.YAMLError as exc:
+        _fail(f"refusing to write: the snapshot does not parse as YAML "
+              f"({type(exc).__name__}); nothing was written")
+
+    out = text
+    for start, end, new in sorted(edits, reverse=True):
+        out = out[:start] + new + out[end:]
+    if appends:
+        lines: list[str] = []
+        for key in appends:
+            value = after[key]
+            if isinstance(value, dict) and value:
+                lines.append(f"{_emit_key(key)}:")
+                lines.extend(f"  {_emit_key(k)}: {_emit(v)}" for k, v in value.items())
+            else:
+                lines.append(f"{_emit_key(key)}: {_emit(value)}")
+        if out and not out.endswith("\n"):
+            out += eol
+        out += eol.join(lines) + eol
+
+    try:
+        reread = load_yaml(out)
+    except yaml.YAMLError:
+        reread = None
+    if reread != _normalize(after) or not _terminators_are_uniform(out):
+        _fail("refusing to write: postcondition failed — the spliced snapshot does not "
+              "re-read as the intended document; nothing was written")
+    return out
 
 
 def _check_base_commit_pin(run: dict, run_path: Path) -> None:
@@ -160,9 +372,10 @@ def _check_base_commit_pin(run: dict, run_path: Path) -> None:
 
 
 def _ensure_trailing_fields(run: dict) -> dict:
-    """Existing notes/pr_draft/summary survive via the whole-dict re-emit in main()
-    (yaml.dump over the full `run`); this only ensures the keys EXIST (absent → ""),
-    so a fresh snapshot that never populated them stays schema-clean."""
+    """Existing notes/pr_draft/summary survive because `_splice()` rewrites only the
+    values an advance or abandonment changes; this only ensures the keys EXIST
+    (absent → "", appended at the end of the file), so a fresh snapshot that never
+    populated them stays schema-clean."""
     for k in ("notes", "pr_draft", "summary"):
         run.setdefault(k, "")
     return run
@@ -274,9 +487,18 @@ def main(argv: list[str]) -> int:
     if args.book and Path(args.book).suffix == ".md":
         _legacy_refusal(Path(args.book))
 
-    run = yaml.safe_load(run_path.read_text())
+    # Bytes in, bytes out: text-mode I/O would translate CRLF line endings.
+    try:
+        text = run_path.read_bytes().decode("utf-8")
+    except UnicodeDecodeError:
+        _fail(f"run snapshot is not UTF-8 text: {run_path}")
+    try:
+        run = load_yaml(text)
+    except yaml.YAMLError as exc:
+        _fail(f"run snapshot does not parse as YAML ({type(exc).__name__}): {run_path}")
     if not isinstance(run, dict) or "format_version" not in run:
         _fail("malformed new-format run snapshot: missing top-level format_version")
+    original = copy.deepcopy(run)
 
     # Both modes write, so both are pinned. Checked before either mutates.
     _check_base_commit_pin(run, run_path)
@@ -336,7 +558,10 @@ def main(argv: list[str]) -> int:
                     f"completing advance (got {pre_current_run!r}): {book_path}"
                 )
 
-    run_path.write_text(_dump(run))
+    # The splice and its postcondition run before EITHER write, so a refusal leaves
+    # the run and the book exactly as they were.
+    new_text = _splice(text, original, run)
+    run_path.write_bytes(new_text.encode("utf-8"))
 
     if book_path is not None:
         # Neither a completed nor an abandoned run nulls the book's `current_run`

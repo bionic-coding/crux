@@ -6,7 +6,10 @@ importlib rather than a normal import). Runs under the uv lane (PyYAML).
 """
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
+import json
 import os
 import shutil
 import subprocess
@@ -14,13 +17,19 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-ADVANCE = REPO_ROOT / "crux" / "scripts" / "advance-run.py"
-VALIDATE = REPO_ROOT / "crux" / "scripts" / "validate-promptbook.py"
-PROGRESS = REPO_ROOT / "crux" / "scripts" / "visualize-run-progress.py"
-CHECK_INDEX = REPO_ROOT / "crux" / "scripts" / "check-promptbook-index.py"
+SCRIPTS = REPO_ROOT / "crux" / "scripts"
+ADVANCE = SCRIPTS / "advance-run.py"
+VALIDATE = SCRIPTS / "validate-promptbook.py"
+PROGRESS = SCRIPTS / "visualize-run-progress.py"
+CHECK_INDEX = SCRIPTS / "check-promptbook-index.py"
 FIXTURES = REPO_ROOT / "crux" / "scripts" / "tests" / "fixtures"
+HAND_FORMATTED = FIXTURES / "run-hand-formatted.yaml"
+
+sys.path.insert(0, str(SCRIPTS))
+from _yaml_min import load_yaml  # noqa: E402  (sys.path insert before import)
 
 try:
     import yaml  # noqa: F401
@@ -58,6 +67,25 @@ def _git(cwd: Path, *args: str) -> None:
     })
     subprocess.run(["git", "-C", str(cwd), *args], check=True,
                    capture_output=True, text=True, env=env)
+
+
+def _yaml_text(doc) -> str:
+    """Serialize a test document. A fixture builder only; the script under test
+    never re-serializes a whole snapshot."""
+    import yaml
+    return yaml.safe_dump(doc, sort_keys=False, allow_unicode=True)
+
+
+def _write_and_reload(doc: dict, *args: str) -> dict:
+    """Write `doc`, run the real `main()` over it with `args`, and reload the file
+    it wrote. The reload is what the trailing-field hazard is about."""
+    import yaml
+    with tempfile.TemporaryDirectory() as td:
+        path = Path(td) / "run-RUN-001.yaml"
+        path.write_text(_yaml_text(doc))
+        with contextlib.redirect_stdout(io.StringIO()):
+            _ar.main([str(path), *args])
+        return yaml.safe_load(path.read_text())
 
 
 def _run_doc(n_prompts=3):
@@ -99,22 +127,18 @@ class AdvanceRunTests(unittest.TestCase):
         self.assertIn("summary", r)
 
     def test_dump_reload_preserves_trailing_fields(self):
-        # The REAL Issue-3 hazard is the re-emit dropping keys — exercise
-        # _dump() -> reparse, not just the in-memory mutation.
-        import yaml
-        r = _ar.advance(_run_doc(), "done", "x", [])
-        reloaded = yaml.safe_load(_ar._dump(r))
+        # The REAL Issue-3 hazard is the write dropping keys — exercise
+        # write -> reparse, not just the in-memory mutation.
+        reloaded = _write_and_reload(_run_doc(), "--outcome", "done", "--result", "x")
         self.assertEqual(reloaded["notes"], "IMPORTANT NOTES")
         self.assertEqual(reloaded["pr_draft"], "PR DRAFT BODY")
         self.assertIn("summary", reloaded)
 
     def test_dump_reload_defaults_absent_trailing_fields(self):
-        import yaml
         bare = _run_doc()
         for k in ("notes", "pr_draft", "summary"):
             bare.pop(k, None)
-        r = _ar.advance(bare, "done", "", [])
-        reloaded = yaml.safe_load(_ar._dump(r))
+        reloaded = _write_and_reload(bare, "--outcome", "done")
         self.assertEqual(reloaded["notes"], "")
         self.assertEqual(reloaded["pr_draft"], "")
         self.assertEqual(reloaded["summary"], "")
@@ -180,9 +204,7 @@ class AbandonRunTests(unittest.TestCase):
         self.assertEqual(r["prompts"][2]["state"], "pending")
 
     def test_abandon_preserves_trailing_fields_through_a_dump_reload(self):
-        import yaml
-        r = _ar.abandon(_run_doc(), "stopping")
-        reloaded = yaml.safe_load(_ar._dump(r))
+        reloaded = _write_and_reload(_run_doc(), "--abandon", "--reason", "stopping")
         self.assertEqual(reloaded["notes"], "IMPORTANT NOTES")
         self.assertEqual(reloaded["pr_draft"], "PR DRAFT BODY")
         self.assertEqual(reloaded["abandonment"]["kind"], "deliberate")
@@ -209,9 +231,7 @@ class AbandonRunTests(unittest.TestCase):
         self.assertEqual(cm.exception.code, 1)
 
     def test_abandoned_run_validates_against_the_run_schema(self):
-        import yaml
-        r = _ar.abandon(_run_doc(), "stopping")
-        doc = yaml.safe_load(_ar._dump(r))
+        doc = _write_and_reload(_run_doc(), "--abandon", "--reason", "stopping")
         errors: list[dict] = []
         _vp.validate(doc, _vp.load_schema(_vp.RUN_SCHEMA), "#", "#", errors, "<t>")
         self.assertEqual(errors, [])
@@ -228,7 +248,7 @@ class AbandonCliTests(unittest.TestCase):
     def _write_run(self, tmp: Path) -> Path:
         import yaml
         path = tmp / "run-RUN-001.yaml"
-        path.write_text(_ar._dump(_run_doc(3)))
+        path.write_text(_yaml_text(_run_doc(3)))
         return path
 
     def test_abandon_and_outcome_are_mutually_exclusive(self):
@@ -368,7 +388,7 @@ class AbandonCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             path = tmp / "run-RUN-001.yaml"
-            path.write_text(_ar._dump(_run_doc(1)))
+            path.write_text(_yaml_text(_run_doc(1)))
             book = tmp / "PB-9001-x.yaml"
             book.write_text("id: PB-9001\ncurrent_run: RUN-001\ncurrent_prompt: 1\n")
             proc = _cli([str(path), "--outcome", "done", "--book", str(book)])
@@ -395,7 +415,7 @@ class BookRewriteValidationBackstopTests(unittest.TestCase):
 
     def _write_run(self, tmp: Path) -> Path:
         path = tmp / "run-RUN-001.yaml"
-        path.write_text(_ar._dump(_run_doc(1)))
+        path.write_text(_yaml_text(_run_doc(1)))
         return path
 
     def test_duplicate_current_prompt_key_refuses_the_rewrite(self):
@@ -494,7 +514,7 @@ class BookRewriteValidationBackstopTests(unittest.TestCase):
             doc = _run_doc(2)
             doc["prompts"][1]["n"] = "2\ngoal: PWNED-INJECTED-KEY"
             run = tmp / "run-RUN-001.yaml"
-            run.write_text(_ar._dump(doc))
+            run.write_text(_yaml_text(doc))
             run_before = run.read_text()
             book = tmp / "PB-9001-x.yaml"
             book_text = ("id: PB-9001\ngoal: the real goal\n"
@@ -519,7 +539,7 @@ class BookRewriteValidationBackstopTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             run = tmp / "run-RUN-001.yaml"
-            run.write_text(_ar._dump(_run_doc(1)))
+            run.write_text(_yaml_text(_run_doc(1)))
             run_before = run.read_text()
             book = tmp / "PB-9001-x.yaml"
             book_text = "id: PB-9001\ncurrent_run: null\ncurrent_prompt: 1\n"
@@ -542,7 +562,7 @@ class BookRewriteValidationBackstopTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             run = tmp / "run-RUN-001.yaml"
-            run.write_text(_ar._dump(_run_doc(1)))
+            run.write_text(_yaml_text(_run_doc(1)))
             book = tmp / "PB-9001-x.yaml"
             book.write_text("id: PB-9001\ncurrent_run: RUN-001\n"
                             "current_prompt: &p 1\nnote: *p\n")
@@ -564,7 +584,7 @@ class BookRewriteValidationBackstopTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             run = tmp / "run-RUN-001.yaml"
-            run.write_text(_ar._dump(_run_doc(1)))
+            run.write_text(_yaml_text(_run_doc(1)))
             book = tmp / "PB-9001-x.yaml"
             book.write_text("id: PB-9001\ncurrent_run: RUN-042\n"
                             "current_prompt: [1,\ncurrent_run: RUN-999]\n")
@@ -590,7 +610,7 @@ class BookRewriteValidationBackstopTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             run = tmp / "run-RUN-001.yaml"
-            run.write_text(_ar._dump(_run_doc(1)))
+            run.write_text(_yaml_text(_run_doc(1)))
             book = tmp / "PB-9001-x.yaml"
             book.write_text("id: PB-9001\ncurrent_run: RUN-001\ncurrent_prompt: 1\n")
             buf = io.StringIO()
@@ -672,7 +692,7 @@ class BaseCommitPinTests(unittest.TestCase):
         self.run_path = self.root / "run-RUN-001.yaml"
         doc = _run_doc(3)
         doc["base_commit"] = "a" * 40
-        self.run_path.write_text(_ar._dump(doc))
+        self.run_path.write_text(_yaml_text(doc))
 
     def _commit(self):
         _git(self.root, "add", "-A")
@@ -682,7 +702,7 @@ class BaseCommitPinTests(unittest.TestCase):
         import yaml
         doc = yaml.safe_load(self.run_path.read_text())
         doc["base_commit"] = value
-        self.run_path.write_text(_ar._dump(doc))
+        self.run_path.write_text(_yaml_text(doc))
 
     def test_a_base_commit_advanced_past_its_committed_record_is_refused(self):
         import yaml
@@ -712,7 +732,7 @@ class BaseCommitPinTests(unittest.TestCase):
         self._commit()
         doc = yaml.safe_load(self.run_path.read_text())
         del doc["base_commit"]
-        self.run_path.write_text(_ar._dump(doc))
+        self.run_path.write_text(_yaml_text(doc))
         proc = _cli([str(self.run_path), "--outcome", "done"])
         self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
         self.assertIn("base_commit", proc.stdout)
@@ -725,7 +745,7 @@ class BaseCommitPinTests(unittest.TestCase):
         import yaml
         doc = yaml.safe_load(self.run_path.read_text())
         doc["base_commit"] = None
-        self.run_path.write_text(_ar._dump(doc))
+        self.run_path.write_text(_yaml_text(doc))
         self._commit()
         self._rewrite_base("c" * 40)
         proc = _cli([str(self.run_path), "--outcome", "done"])
@@ -745,9 +765,357 @@ class BaseCommitPinTests(unittest.TestCase):
             path = Path(td) / "run-RUN-001.yaml"
             doc = _run_doc(3)
             doc["base_commit"] = "a" * 40
-            path.write_text(_ar._dump(doc))
+            path.write_text(_yaml_text(doc))
             proc = _cli([str(path), "--outcome", "done"])
             self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+
+
+FIXED_NOW = "2026-09-28T12:00:00Z"
+BOOK_TEXT = "id: PB-9999\ncurrent_run: RUN-001\ncurrent_prompt: 1\n"
+
+# Lines of the hand-formatted fixture that no advance or abandonment touches.
+# Each must survive every write verbatim.
+SURVIVING_LINES = (
+    "# Hand-formatted run snapshot for advance-run.py tests. Every advance must keep this line.",
+    'format_version: "1"',
+    "started_at: 2026-09-27T09:11:00Z   # unquoted timestamp with an inline comment",
+    "  # A comment between prompt items.",
+    "notes: |",
+    "  First line of the notes block.",
+    "    An indented second line.",
+)
+
+
+def _path_diff(a, b, prefix=()):
+    """The semantic difference between two loaded documents, as a set of paths.
+
+    A changed value is its path tuple; a key only `b` has is ``("+", *path)`` and a
+    key only `a` has is ``("-", *path)``. Equal-length lists of mappings are compared
+    element by element, so a prompt element's changed field names its own path."""
+    if isinstance(a, dict) and isinstance(b, dict):
+        out = set()
+        for k in b:
+            if k not in a:
+                out.add(("+",) + prefix + (k,))
+            else:
+                out |= _path_diff(a[k], b[k], prefix + (k,))
+        for k in a:
+            if k not in b:
+                out.add(("-",) + prefix + (k,))
+        return out
+    if (isinstance(a, list) and isinstance(b, list) and len(a) == len(b)
+            and all(isinstance(x, dict) for x in a + b)):
+        out = set()
+        for i, (x, y) in enumerate(zip(a, b)):
+            out |= _path_diff(x, y, prefix + (i,))
+        return out
+    return set() if a == b else {prefix}
+
+
+def _value_span(text: str, path: tuple) -> tuple[int, int]:
+    """The ``[start, end)`` character span of the value at `path`: from just after
+    its key's colon to the end of its last descendant's content, trailing
+    whitespace trimmed. Written independently of the script's own span code, so the
+    byte check below does not grade the script against itself."""
+    import yaml
+    node = yaml.compose(text)
+    key = None
+    for step in path:
+        if isinstance(step, int):
+            node, key = node.value[step], None
+            continue
+        for k, v in node.value:
+            if k.value == step:
+                key, node = k, v
+                break
+        else:
+            raise AssertionError(f"path {path!r} is not in the document")
+    start = text.index(":", key.end_mark.index) + 1
+    last = node
+    while (isinstance(last, (yaml.SequenceNode, yaml.MappingNode))
+           and not last.flow_style and last.value):
+        last = last.value[-1] if isinstance(last, yaml.SequenceNode) else last.value[-1][1]
+    end = last.end_mark.index
+    while end > start and text[end - 1] in " \t\r\n":
+        end -= 1
+    return start, end
+
+
+def _outside(text: str, spans: list[tuple[int, int]]) -> list[str]:
+    """The segments of `text` outside `spans` (sorted, disjoint)."""
+    segs, pos = [], 0
+    for s, e in spans:
+        segs.append(text[pos:s])
+        pos = e
+    segs.append(text[pos:])
+    return segs
+
+
+@unittest.skipUnless(HAVE, "advance-run.py or PyYAML unavailable")
+class SpliceWriterTests(unittest.TestCase):
+    """An advance or an abandonment rewrites only the values it changes.
+
+    Run snapshots are append-only: only state, timestamp, result and artifacts
+    fields update. Comments, quoting, indentation and timestamp spelling everywhere
+    else must survive byte for byte, so a run's diff shows the advance and nothing
+    else. Every test drives the real `main()` over the hand-formatted fixture."""
+
+    def setUp(self):
+        self._td = tempfile.TemporaryDirectory()
+        self.addCleanup(self._td.cleanup)
+        self.tmp = Path(self._td.name)
+        self.base = HAND_FORMATTED.read_bytes().decode("utf-8")
+
+    # -- harness ---------------------------------------------------------------
+
+    def _files(self, text: str | None = None) -> tuple[Path, Path]:
+        run = self.tmp / "run-RUN-001.yaml"
+        run.write_bytes((self.base if text is None else text).encode("utf-8"))
+        book = self.tmp / "PB-9999-x.yaml"
+        book.write_bytes(BOOK_TEXT.encode("utf-8"))
+        return run, book
+
+    def _main(self, args: list[str]) -> tuple[int, str]:
+        buf = io.StringIO()
+        with mock.patch.object(_ar, "_now", return_value=FIXED_NOW), \
+                contextlib.redirect_stdout(buf):
+            try:
+                code = _ar.main(args)
+            except SystemExit as exc:
+                code = exc.code
+        return code, buf.getvalue()
+
+    def _step(self, run: Path, book: Path, *args: str) -> tuple[str, str]:
+        before = run.read_bytes().decode("utf-8")
+        code, out = self._main([str(run), *args, "--book", str(book)])
+        self.assertEqual(code, 0, out)
+        return before, run.read_bytes().decode("utf-8")
+
+    def _mid_run(self) -> tuple[str, str]:
+        run, book = self._files()
+        return self._step(run, book, "--outcome", "done", "--result", "verify done")
+
+    def _completing(self) -> list[tuple[str, str]]:
+        run, book = self._files()
+        return [
+            self._step(run, book, "--outcome", "done", "--result", "p1"),
+            self._step(run, book, "--outcome", "done", "--result", "p2",
+                       "--artifacts", "docs/p2.md"),
+            self._step(run, book, "--outcome", "done", "--result", "p3",
+                       "--artifacts", "docs/p3.md"),
+        ]
+
+    def _abandon(self) -> tuple[str, str]:
+        run, book = self._files()
+        return self._step(run, book, "--abandon", "--reason", "stopping here")
+
+    def _assert_only_spans_changed(self, before: str, after: str, paths: set) -> None:
+        """Mask the changed value spans on both sides; everything else must be
+        byte-identical, apart from keys appended at the end of the file."""
+        changed = sorted((p for p in paths if p[0] not in ("+", "-")),
+                         key=lambda p: _value_span(before, p)[0])
+        b_segs = _outside(before, [_value_span(before, p) for p in changed])
+        a_segs = _outside(after, [_value_span(after, p) for p in changed])
+        self.assertEqual(a_segs[:-1], b_segs[:-1],
+                         "bytes outside the changed value spans moved")
+        if any(p[0] == "+" for p in paths):
+            self.assertTrue(a_segs[-1].startswith(b_segs[-1]),
+                            "the file tail changed beyond an end-of-file append")
+        else:
+            self.assertEqual(a_segs[-1], b_segs[-1], "the file tail changed")
+        lines = after.splitlines()
+        for line in SURVIVING_LINES:
+            self.assertIn(line, lines, f"line lost: {line!r}")
+
+    MID_RUN_PATHS = {
+        ("current_prompt",),
+        ("prompts", 0, "state"), ("prompts", 0, "completed"), ("prompts", 0, "result"),
+        ("prompts", 1, "state"), ("prompts", 1, "started"),
+        ("+", "summary"),
+    }
+
+    # -- (a) the semantic diff is exactly the intended field set ---------------
+
+    def test_mid_run_advance_changes_exactly_the_intended_fields(self):
+        before, after = self._mid_run()
+        self.assertEqual(_path_diff(load_yaml(before), load_yaml(after)), self.MID_RUN_PATHS)
+        doc = load_yaml(after)
+        self.assertEqual(doc["prompts"][0]["completed"], FIXED_NOW)
+        self.assertEqual(doc["prompts"][0]["result"], "verify done")
+        self.assertEqual(doc["prompts"][1]["started"], FIXED_NOW)
+        self.assertEqual(doc["summary"], "")
+
+    def test_completing_advance_changes_exactly_the_intended_fields(self):
+        steps = self._completing()
+        expected = [
+            {("current_prompt",), ("prompts", 0, "state"), ("prompts", 0, "completed"),
+             ("prompts", 0, "result"), ("prompts", 1, "state"), ("prompts", 1, "started"),
+             ("+", "summary")},
+            {("current_prompt",), ("prompts", 1, "state"), ("prompts", 1, "completed"),
+             ("prompts", 1, "result"), ("prompts", 1, "artifacts"), ("prompts", 2, "state")},
+            {("status",), ("completed_at",), ("current_prompt",), ("prompts", 2, "state"),
+             ("prompts", 2, "completed"), ("prompts", 2, "result"), ("prompts", 2, "artifacts")},
+        ]
+        for i, ((before, after), want) in enumerate(zip(steps, expected), start=1):
+            with self.subTest(advance=i):
+                self.assertEqual(_path_diff(load_yaml(before), load_yaml(after)), want)
+        final = load_yaml(steps[-1][1])
+        self.assertEqual(final["status"], "completed")
+        self.assertIsNone(final["current_prompt"])
+        self.assertEqual(final["prompts"][1]["artifacts"], ["docs/p2.md"])
+        self.assertEqual(final["prompts"][2]["artifacts"], ["docs/p3.md"])
+
+    def test_abandon_changes_exactly_the_intended_fields(self):
+        before, after = self._abandon()
+        self.assertEqual(
+            _path_diff(load_yaml(before), load_yaml(after)),
+            {("status",), ("completed_at",), ("current_prompt",),
+             ("+", "abandonment"), ("+", "summary")})
+        self.assertEqual(load_yaml(after)["abandonment"],
+                         {"kind": "deliberate", "at": FIXED_NOW, "reason": "stopping here"})
+
+    # -- (b) with the changed spans masked, the file is byte-identical ---------
+
+    def test_mid_run_advance_keeps_every_other_byte(self):
+        before, after = self._mid_run()
+        self._assert_only_spans_changed(before, after, self.MID_RUN_PATHS)
+
+    def test_completing_advance_keeps_every_other_byte(self):
+        for i, (before, after) in enumerate(self._completing(), start=1):
+            with self.subTest(advance=i):
+                self._assert_only_spans_changed(
+                    before, after, _path_diff(load_yaml(before), load_yaml(after)))
+
+    def test_abandon_keeps_every_other_byte(self):
+        before, after = self._abandon()
+        self._assert_only_spans_changed(
+            before, after, _path_diff(load_yaml(before), load_yaml(after)))
+
+    def test_byte_check_rejects_a_whole_document_re_emit(self):
+        # Positive control for the byte check above: a whole-document re-emit of
+        # the same values must fail it, or the check proves nothing.
+        rewritten = _yaml_text(load_yaml(self.base))
+        with self.assertRaises(AssertionError):
+            self._assert_only_spans_changed(self.base, rewritten, self.MID_RUN_PATHS)
+
+    # -- (c) every result validates against the run schema ---------------------
+
+    def test_every_result_validates_as_a_run(self):
+        results = [self._mid_run()[1], *(a for _, a in self._completing()), self._abandon()[1]]
+        for i, text in enumerate(results):
+            with self.subTest(result=i):
+                path = self.tmp / f"result-{i}.yaml"
+                path.write_bytes(text.encode("utf-8"))
+                proc = subprocess.run(
+                    [sys.executable, str(VALIDATE), "--kind", "run", str(path)],
+                    capture_output=True, text=True)
+                self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+
+    # -- (d) a postcondition refusal writes nothing ----------------------------
+
+    def test_a_failed_postcondition_refuses_and_writes_nothing(self):
+        run, book = self._files()
+        run_bytes, book_bytes = run.read_bytes(), book.read_bytes()
+        with mock.patch.object(_ar, "_emit", return_value='"WRONG"'):
+            code, out = self._main([str(run), "--outcome", "done", "--result", "x",
+                                    "--book", str(book)])
+        self.assertEqual(code, 1, out)
+        self.assertIn("postcondition", json.loads(out)["error"])
+        self.assertEqual(run.read_bytes(), run_bytes)
+        self.assertEqual(book.read_bytes(), book_bytes)
+        # Positive control: the same command without the fault writes both files,
+        # so the unchanged bytes above are the refusal's doing.
+        code, out = self._main([str(run), "--outcome", "done", "--result", "x",
+                                "--book", str(book)])
+        self.assertEqual(code, 0, out)
+        self.assertNotEqual(run.read_bytes(), run_bytes)
+        self.assertNotEqual(book.read_bytes(), book_bytes)
+
+    # -- one refusal per unsupported shape -------------------------------------
+
+    def _variant(self, old: str, new: str) -> str:
+        text = self.base.replace(old, new, 1)
+        self.assertNotEqual(text, self.base, f"variant edit did not land: {old!r}")
+        return text
+
+    def _assert_refused(self, text: str, args: list[str], needle: str) -> None:
+        run, book = self._files(text)
+        run_bytes, book_bytes = run.read_bytes(), book.read_bytes()
+        code, out = self._main([str(run), *args, "--book", str(book)])
+        self.assertEqual(code, 1, out)
+        self.assertIn(needle, json.loads(out)["error"])
+        self.assertEqual(run.read_bytes(), run_bytes)
+        self.assertEqual(book.read_bytes(), book_bytes)
+
+    def test_unsupported_shapes_are_refused_and_write_nothing(self):
+        advance = ["--outcome", "done", "--result", "new"]
+        cases = {
+            "a comment inside a replaced block list": (
+                self._variant("    artifacts: []\n",
+                              "    artifacts:\n      - docs/x.md\n"
+                              "      # inside the list\n      - docs/y.md\n"),
+                advance, "comment inside"),
+            "a comment on a block-scalar header": (
+                self._variant('    result: ""\n',
+                              "    result: |  # a header comment\n      old text\n"),
+                advance, "block-scalar header"),
+            "an anchor": (
+                self._variant('    title: "Verify', '    title: &t "Verify'),
+                advance, "anchor"),
+            "a duplicate top-level key": (
+                self.base + 'pr_draft: ""\n', advance, "duplicate"),
+            "mixed line terminators": (
+                self.base.replace("\n", "\r\n", 1), advance, "line ending"),
+            "a nested added key": (
+                self._variant("    completed: null\n", ""), advance, "nested"),
+        }
+        for name, (text, args, needle) in cases.items():
+            with self.subTest(shape=name):
+                self._assert_refused(text, args, needle)
+
+    def test_a_refusal_reaches_the_real_command_line(self):
+        # The same refusal through the installed entry point, not only main().
+        run, _ = self._files(self.base + 'pr_draft: ""\n')
+        run_bytes = run.read_bytes()
+        proc = _cli([str(run), "--outcome", "done"])
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertNotIn("Traceback", proc.stderr)
+        self.assertIn("duplicate", json.loads(proc.stdout)["error"])
+        self.assertEqual(run.read_bytes(), run_bytes)
+
+    # -- line endings, keep-chomped block scalars, and the emitter -------------
+
+    def test_crlf_line_endings_are_preserved(self):
+        crlf = self.base.replace("\n", "\r\n")
+        run, book = self._files(crlf)
+        before, after = self._step(run, book, "--outcome", "done", "--result", "verify done")
+        self.assertEqual(after.count("\r\n"), after.count("\n"))
+        self.assertEqual(after.count("\r"), after.count("\n"))
+        self.assertEqual(_path_diff(load_yaml(before), load_yaml(after)), self.MID_RUN_PATHS)
+        self._assert_only_spans_changed(before, after, self.MID_RUN_PATHS)
+
+    def test_a_final_keep_block_scalar_survives_an_append(self):
+        text = self.base + "summary: |+\n  kept text\n\n"
+        run, book = self._files(text)
+        before, after = self._step(run, book, "--abandon", "--reason", "stopping")
+        self.assertEqual(load_yaml(after)["summary"], "kept text\n\n")
+        self.assertIn("summary: |+\n  kept text\n\nabandonment:\n", after)
+        self._assert_only_spans_changed(
+            before, after, _path_diff(load_yaml(before), load_yaml(after)))
+
+    def test_a_final_keep_block_scalar_without_a_newline_is_refused(self):
+        # Appending after it would add a newline to its value, so the
+        # postcondition refuses rather than change a value nobody asked to change.
+        self._assert_refused(self.base + "summary: |+\n  kept text",
+                             ["--abandon", "--reason", "stopping"], "postcondition")
+
+    def test_the_emitter_round_trips_awkward_characters(self):
+        awkward = 'astral \U0001D11E, ls  , nel \x85, nl \n, quote ", backslash \\ end'
+        run, book = self._files()
+        before, after = self._step(run, book, "--outcome", "done", "--result", awkward)
+        self.assertEqual(load_yaml(after)["prompts"][0]["result"], awkward)
+        self._assert_only_spans_changed(
+            before, after, _path_diff(load_yaml(before), load_yaml(after)))
 
 
 if __name__ == "__main__":

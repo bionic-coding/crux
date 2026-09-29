@@ -2,7 +2,7 @@
 name: librarian
 description: Use when the user asks a question answerable from docs/ — "what does X do?", "why did we choose Y?", "what's our plan for Z?", "what do we know about W?", "find the ADR about V", "where is U documented?" — or another agent needs a fact retrieved mid-task.
 tools: Read, Grep, Glob, Skill
-model: sonnet
+model: claude-sonnet-5-5
 maxTurns: 50
 effort: medium
 skills: [query-docs, forge-skill, log-work]

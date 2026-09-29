@@ -2,7 +2,7 @@
 name: developer
 description: Use when a single, scoped implementation unit needs to be built — typically dispatched by dev-lead with a specific work unit, the ADR, and its acceptance criteria (e.g. 'implement this unit', 'build this module', 'write this function and its tests').
 tools: Read, Grep, Glob, Edit, Write, Bash, Skill, TodoWrite
-model: sonnet
+model: claude-sonnet-5-5
 maxTurns: 100
 effort: medium
 isolation: worktree

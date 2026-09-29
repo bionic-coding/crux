@@ -17,9 +17,9 @@ ADR-0100 for the OpenCode V2 schema):
   - body: verbatim
   - description: verbatim
   - mode: subagent (added)
-  - model: bare Claude Code alias replaced by the OpenCode value the shared
-    catalog resolves for this agent (crux/catalog/models.yml, via
-    models_catalog)
+  - model: the Claude Code `model:` value, a family alias or a full model ID,
+    replaced by the OpenCode value the shared catalog resolves for this agent
+    (crux/catalog/models.yml, via models_catalog)
   - tools -> permissions: the comma-separated tool string becomes an ORDERED
     array of {action, resource, effect} rules, resolved last-match-wins, over
     the pinned ACTION_UNIVERSE; granted actions map to `allow`, everything

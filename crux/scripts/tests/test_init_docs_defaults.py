@@ -19,9 +19,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 TEMPLATES = REPO_ROOT / "crux" / "templates"
 
 try:
-    from ._dev_surface import TREE, TREE_AGENTS_MD, require_dev_surface
+    from ._dev_surface import IS_STAGED_ARTIFACT, TREE, TREE_AGENTS_MD, require_dev_surface
 except ImportError:  # unittest discover imports test modules top-level
-    from _dev_surface import TREE, TREE_AGENTS_MD, require_dev_surface
+    from _dev_surface import IS_STAGED_ARTIFACT, TREE, TREE_AGENTS_MD, require_dev_surface
 
 try:
     import yaml
@@ -328,6 +328,360 @@ class TestInitDocsSkillProse(unittest.TestCase):
             "the tree just created",
             self._skill_text(),
         )
+
+
+# Pre-fix shipped prose, verbatim: the positive controls for the absence tests
+# in RootAgentsPointerTests. Each asserted a repo-root pointer that init-docs
+# never creates.
+_PRE_FIX_TEMPLATE_LINE_3 = (
+    "Operational schema for the `docs/` tree in **{{repo_name}}**. The repo-root "
+    "`AGENTS.md` references this file with a single line: \"See `docs/AGENTS.md` "
+    "for documentation operations.\" This file is the single source of truth for "
+    "everything Claude does under `docs/`."
+)
+_PRE_FIX_GUIDE_BULLET = (
+    "- Edit the repo-root `AGENTS.md` to add project-specific notes Claude should "
+    "know about (just don't remove the `See bionic/AGENTS.md` line)."
+)
+
+# Each pattern asserts, unconditionally, that a repo-root AGENTS.md points at the
+# tree. Case-insensitive, so a sentence-initial "Don't" is caught too.
+_ROOT_POINTER_CLAIMS = (
+    re.compile(r"repo-root `AGENTS\.md` references this file", re.IGNORECASE),
+    re.compile(r"don't remove the `See [^`]*AGENTS\.md` line", re.IGNORECASE),
+)
+
+_GUIDE_BULLET_PREFIX = "- Edit the repo-root `AGENTS.md`"
+
+
+def _root_pointer_claims(text: str) -> list[str]:
+    """Every unconditional root-pointer claim in `text`."""
+    return [m.group(0) for p in _ROOT_POINTER_CLAIMS for m in p.finditer(text)]
+
+
+def _line_3(path: Path) -> str:
+    return path.read_text(encoding="utf-8").splitlines()[2]
+
+
+# Line 3 as it stood before its quotes named the configured tree directory.
+_PRE_FIX_DOCS_LINE_3 = (
+    "It appends the line \"See `docs/AGENTS.md` for documentation operations.\" unless "
+    "the file already references this one. It appends an instruction to read "
+    "`docs/objectives.md` unless the file already names `objectives.md`."
+)
+_DOCS_DIR_GLOSS = ("Here, as everywhere in this file, `docs/` and `<docs_dir>` both name "
+                   "the configured tree directory, `bionic` by default.")
+
+
+def _fence_bodies(text: str, lang: str) -> list[str]:
+    """The body of every ```lang fence in `text`, with list indentation removed."""
+    bodies = []
+    for m in re.finditer(rf"^([ \t]*)```{lang}\n(.*?)\n\1```$", text,
+                         flags=re.DOTALL | re.MULTILINE):
+        indent = m.group(1)
+        bodies.append("\n".join(ln[len(indent):] if ln.startswith(indent) else ln
+                                for ln in m.group(2).split("\n")).strip("\n"))
+    return bodies
+
+
+def _line_3_quote_problems(line3: str, see: str, objectives_line: str) -> list[str]:
+    """How line 3's quotes of step 9's appends differ from what step 9 writes."""
+    problems = []
+    quoted_see = '"' + see.replace("${DOCS_DIR}", "<docs_dir>") + '"'
+    if quoted_see not in line3:
+        problems.append(f"line 3 does not quote {quoted_see}")
+    token = re.match(r"Read (`\$\{DOCS_DIR\}/objectives\.md`)", objectives_line)
+    if token is None:
+        problems.append("step 9's objectives block does not open with its path")
+    else:
+        quoted = "read " + token.group(1).replace("${DOCS_DIR}", "<docs_dir>")
+        if quoted not in line3:
+            problems.append(f"line 3 does not say {quoted}")
+    for literal in ("See `docs/AGENTS.md`", "`docs/objectives.md`"):
+        if literal in line3:
+            problems.append(f"line 3 quotes the literal {literal}")
+    if _DOCS_DIR_GLOSS not in line3:
+        problems.append("line 3 does not gloss `<docs_dir>`")
+    return problems
+
+
+def _claude_compat():
+    import importlib.util
+    path = REPO_ROOT / "crux" / "scripts" / "check-claude-compat.py"
+    spec = importlib.util.spec_from_file_location("_cc_for_init_docs_tests", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _expected_step9_warning(see: str, objectives: list[str]) -> str:
+    """The whole WARNING fence body step 9 must carry, built from its sources.
+
+    The version floor and the excluded distributions come from
+    check-claude-compat.py; the See line and the objectives block come from
+    step 9's own appends. Everything else is the approved text, whole.
+    """
+    cc = _claude_compat()
+    floor = ".".join(map(str, cc.VERSION_FLOOR))
+    names = [d.capitalize() for d in cc.EXCLUDED_DISTRIBUTIONS]
+    dists = ", ".join(names[:-1]) + " and " + names[-1]
+    return "\n".join([
+        "WARNING: This repository has no repo-root AGENTS.md, "
+        "so init-docs added no pointer to the documentation tree.",
+        "Codex and OpenCode read a repo-root AGENTS.md.",
+        f"Claude Code reads it from version {floor} under its default settings, "
+        f"except on the {dists} distributions.",
+        "Under those defaults, three files stop Claude Code from reading AGENTS.md: "
+        "CLAUDE.md, .claude/CLAUDE.md and CLAUDE.local.md.",
+        "Each one does so in any directory from the repository root to the working directory.",
+        "If the repository holds a tracked CLAUDE.md, run audit-docs --migrate "
+        "before you add the lines below.",
+        "It converts each tracked CLAUDE.md in the checkout into the AGENTS.md of its "
+        "directory, unless the file is a symlink, sits under a templates/ directory, or "
+        ".bionic.yml's instruction_migration_denylist names it.",
+        "It never changes a .claude/CLAUDE.md, a CLAUDE.local.md or an untracked CLAUDE.md.",
+        "It reports each one for you to handle.",
+        "To point your agents at the tree, add these lines to the repo-root AGENTS.md, "
+        "and create that file if it does not exist:",
+        "",
+        see,
+        "",
+        *objectives,
+    ])
+
+
+def _step9_warning_problems(step9: str, see: str, objectives: list[str]) -> list[str]:
+    """Every way step 9's WARNING fence departs from the qualified, verbatim text."""
+    fences = _fence_bodies(step9, "text")
+    if len(fences) != 1:
+        return [f"step 9 carries {len(fences)} ```text fences, not 1"]
+    body = fences[0]
+    expected = _expected_step9_warning(see, objectives)
+    if body == expected:
+        return []
+    # The appends get their own message: they drift with step 9, not the warning.
+    problems = []
+    if see not in body.splitlines():
+        problems.append("the See line is not byte-identical to step 9's append")
+    if "\n" + "\n".join(objectives) + "\n" not in "\n" + body + "\n":
+        problems.append("the objectives block is not byte-identical to step 9's append")
+    got, want = body.splitlines(), expected.splitlines()
+    for n, (g, w) in enumerate(zip(got, want), start=1):
+        if g != w:
+            problems.append(f"warning line {n} is {g!r}, expected {w!r}")
+            break
+    else:
+        problems.append(f"the warning has {len(got)} lines, expected {len(want)}")
+    return problems
+
+
+class RootAgentsPointerTests(unittest.TestCase):
+    """What the shipped prose says init-docs does with a repo-root AGENTS.md.
+
+    Step 9 never creates that file: it warns when there is none, and appends
+    to one that exists. The shipped template and user guide used to claim the
+    root file points at the tree, which is false in a fresh repository.
+    """
+
+    SKILL_MD = REPO_ROOT / "crux" / "skills" / "init-docs" / "SKILL.md"
+    TEMPLATE = TEMPLATES / "AGENTS.md.tmpl"
+    GUIDE_TEMPLATE = TEMPLATES / "USER_GUIDE.md"
+
+    def _step9(self) -> str:
+        text = self.SKILL_MD.read_text(encoding="utf-8")
+        start = text.index("### 9. Update the repo-root `AGENTS.md` reference")
+        return " ".join(text[start:text.index("### 10.", start)].split())
+
+    def _guide_bullet(self) -> str:
+        bullets = [ln for ln in self.GUIDE_TEMPLATE.read_text(encoding="utf-8").splitlines()
+                   if ln.startswith(_GUIDE_BULLET_PREFIX)]
+        self.assertEqual(len(bullets), 1, bullets)
+        return bullets[0]
+
+    def test_step9_keeps_no_create_rule(self):
+        """Guards existing, unchanged behaviour that no decision record holds.
+
+        The no-create rule lives only in skill prose. A move to creating the
+        root file is a contract change for its own dev-cycle, which edits this
+        test.
+        """
+        step9 = self._step9()
+        self.assertIn("If it does not exist, do **not** create one", step9)
+        self.assertIn("do not create that file solely for this addition", step9)
+
+    def test_shipped_templates_assert_no_unconditional_root_pointer(self):
+        for path in (self.TEMPLATE, self.GUIDE_TEMPLATE):
+            with self.subTest(path=path.name):
+                self.assertEqual(
+                    _root_pointer_claims(path.read_text(encoding="utf-8")), [],
+                    f"{path.relative_to(REPO_ROOT)} claims a repo-root pointer "
+                    "that init-docs never creates")
+
+    def test_positive_control_detects_pre_fix_text(self):
+        """The absence tests above and below are not vacuous.
+
+        The detector finds the verbatim pre-fix sentences, and it stays silent
+        on the corrected template line 3, which quotes the `See` line itself.
+        """
+        self.assertGreaterEqual(len(_root_pointer_claims(_PRE_FIX_TEMPLATE_LINE_3)), 1)
+        self.assertGreaterEqual(len(_root_pointer_claims(_PRE_FIX_GUIDE_BULLET)), 1)
+        self.assertEqual(_root_pointer_claims(_line_3(self.TEMPLATE)), [])
+        self.assertEqual(_root_pointer_claims(self._guide_bullet()), [])
+
+    def test_dev_twins_match_templates(self):
+        """Line 3 and the guide bullet stay in lock-step with their dev twins.
+
+        The template parity manifest anchors no clause before section 1, so
+        its checker cannot see line 3; this test does.
+        """
+        require_dev_surface(self, TREE_AGENTS_MD, f"{TREE}/AGENTS.md")
+        self.assertEqual(_line_3(self.TEMPLATE).replace("{{repo_name}}", "crux"),
+                         _line_3(TREE_AGENTS_MD))
+        # A staged artifact's root USER_GUIDE.md is the public rendition, which
+        # regenerates at release; only the dev checkout holds the twin.
+        if IS_STAGED_ARTIFACT:
+            self.skipTest("root USER_GUIDE.md is the public rendition in a staged artifact")
+        guide = REPO_ROOT / "USER_GUIDE.md"
+        require_dev_surface(self, guide, "USER_GUIDE.md")
+        text = guide.read_text(encoding="utf-8")
+        self.assertEqual(_root_pointer_claims(text), [])
+        self.assertIn(self._guide_bullet(), text.splitlines())
+
+    def test_checklist_has_one_root_agents_item_and_no_root_files_ambiguity(self):
+        text = self.SKILL_MD.read_text(encoding="utf-8")
+        self.assertEqual(text.count("If it carries none, nothing was created."), 1)
+        self.assertNotIn("the four root files", text)
+        self.assertIn("It creates no repo-root `AGENTS.md`", text)
+
+    # -- line 3 quotes step 9's appends, true for any docs_dir ----------------
+
+    def _raw_step9(self) -> str:
+        """Step 9 as written, with its line breaks and indentation intact."""
+        text = self.SKILL_MD.read_text(encoding="utf-8")
+        start = text.index("### 9. Update the repo-root `AGENTS.md` reference")
+        return text[start:text.index("### 10.", start)]
+
+    def _step9_appends(self, step9: str) -> tuple[str, list[str]]:
+        """The `See` line and the objectives block step 9 appends, verbatim."""
+        fences = _fence_bodies(step9, "markdown")
+        see = [ln.strip() for body in fences for ln in body.splitlines()
+               if ln.strip().startswith("See `${DOCS_DIR}/")]
+        self.assertEqual(len(see), 1, see)
+        objectives = [body for body in fences if body.startswith("Read `${DOCS_DIR}/")]
+        self.assertEqual(len(objectives), 1, fences)
+        return see[0], objectives[0].splitlines()
+
+    def test_line_3_quotes_both_step9_appends_for_any_docs_dir(self):
+        """Template line 3 quotes the appends as step 9 writes them.
+
+        Step 9 appends `${DOCS_DIR}`, which is `bionic` by default. A literal
+        `docs/` in the quote is false for every tree init-docs creates.
+        """
+        see, objectives = self._step9_appends(self._raw_step9())
+        line3 = _line_3(self.TEMPLATE)
+        self.assertEqual(_line_3_quote_problems(line3, see, objectives[0]), [])
+        # POSITIVE CONTROL: the pre-fix line 3 quoted `docs/` and fails the check.
+        self.assertGreaterEqual(
+            len(_line_3_quote_problems(_PRE_FIX_DOCS_LINE_3, see, objectives[0])), 2)
+
+    def test_dev_twin_line_3_quotes_both_step9_appends(self):
+        require_dev_surface(self, TREE_AGENTS_MD, f"{TREE}/AGENTS.md")
+        see, objectives = self._step9_appends(self._raw_step9())
+        self.assertEqual(_line_3_quote_problems(_line_3(TREE_AGENTS_MD), see, objectives[0]),
+                         [])
+
+    # -- step 9's verbatim WARNING for a missing repo-root AGENTS.md -----------
+
+    #: The bullet that sends a missing root file to the WARNING, and the line
+    #: that introduces the WARNING's fence. Both pinned whole.
+    NO_ROOT_BULLET = ("- If it does not exist, do **not** create one — that's the user's "
+                      "call. Surface the WARNING block given at the end of this step in "
+                      "the summary.")
+    WARNING_LEAD_IN = ("Surface this WARNING in the summary verbatim, inside a text code "
+                       "fence, with `${DOCS_DIR}` substituted:")
+    #: The legacy root CLAUDE.md bullet names the migrator's three conditions.
+    LEGACY_MIGRATE_CLAUSE = ("`audit-docs --migrate` converts it when it is tracked, is "
+                             "not a symlink, and is not named by `.bionic.yml`'s "
+                             "`instruction_migration_denylist`.")
+
+    def _step9_pin_problems(self, step9: str) -> list[str]:
+        """The pinned step-9 lines that are not present verbatim."""
+        problems = []
+        lines = step9.splitlines()
+        if self.NO_ROOT_BULLET not in lines:
+            problems.append("the no-root-file bullet is not verbatim")
+        if not any(ln.endswith(self.WARNING_LEAD_IN) for ln in lines):
+            problems.append("the WARNING lead-in line is not verbatim")
+        if self.LEGACY_MIGRATE_CLAUSE not in " ".join(ln.strip() for ln in lines):
+            problems.append("the legacy CLAUDE.md bullet does not qualify the migrator")
+        return problems
+
+    def test_step9_warning_is_verbatim_and_qualified(self):
+        step9 = self._raw_step9()
+        self.assertEqual(_step9_warning_problems(step9, *self._step9_appends(step9)), [])
+        self.assertEqual(self._step9_pin_problems(step9), [])
+
+    def test_positive_control_step9_pins_are_not_vacuous(self):
+        """A mutation of each pinned line turns the pin check red."""
+        step9 = self._raw_step9()
+        for old, new in (
+                ("Surface the WARNING block given at the end of this step in the summary.",
+                 "Surface the WARNING at the end of this step instead."),
+                ("in the summary verbatim, inside a text code fence, with",
+                 "in the summary verbatim, with"),
+                ("converts it when it is tracked, is not a symlink, and is not named by",
+                 "converts it, and is not named by"),
+                ("is not a symlink, and is not named by\n  `.bionic.yml`'s",
+                 "is not named by\n  `.bionic.yml`'s")):
+            with self.subTest(old=old):
+                mutated = step9.replace(old, new, 1)
+                self.assertNotEqual(mutated, step9)
+                self.assertNotEqual(self._step9_pin_problems(mutated), [])
+
+    def test_positive_control_step9_warning_check_is_not_vacuous(self):
+        """The warning check fails on the pre-fix shape and on a dropped suppressor."""
+        step9 = self._raw_step9()
+        see, objectives = self._step9_appends(step9)
+        # No text fence at all, the shape before the warning existed.
+        no_fence = re.sub(r"```text\n.*?\n```\n", "", step9, flags=re.DOTALL)
+        self.assertNotEqual(no_fence, step9)
+        self.assertNotEqual(_step9_warning_problems(no_fence, see, objectives), [])
+        # One suppressor deleted from the warning.
+        dropped = step9.replace(", .claude/CLAUDE.md and CLAUDE.local.md",
+                                " and CLAUDE.local.md", 1)
+        self.assertNotEqual(dropped, step9)
+        self.assertNotEqual(_step9_warning_problems(dropped, see, objectives), [])
+        # Edits a phrase-by-phrase check let through: an inverted qualifier, an
+        # inverted lead-in, and a changed tail on the first line.
+        for old, new in (
+                ("If the repository holds a tracked CLAUDE.md",
+                 "If the repository root holds a tracked CLAUDE.md"),
+                ("run audit-docs --migrate before you add the lines below.",
+                 "run audit-docs --migrate first."),
+                ("It converts each tracked CLAUDE.md in the checkout into the AGENTS.md "
+                 "of its directory",
+                 "It converts that file into AGENTS.md"),
+                ("unless the file is a symlink, sits under a templates/ directory, or ",
+                 "unless "),
+                ("sits under a templates/ directory, or ", "or "),
+                ("default settings, except on the Bedrock",
+                 "default settings, including on the Bedrock"),
+                ("create that file if it does not exist:", "never create that file:"),
+                ("so init-docs added no pointer to the documentation tree.",
+                 "so init-docs created one.")):
+            with self.subTest(old=old):
+                mutated = step9.replace(old, new, 1)
+                self.assertNotEqual(mutated, step9)
+                self.assertNotEqual(_step9_warning_problems(mutated, see, objectives), [])
+
+    def test_checklist_names_the_verbatim_warning(self):
+        lines = self.SKILL_MD.read_text(encoding="utf-8").splitlines()
+        self.assertIn(
+            "- [ ] Repo-root `AGENTS.md` either already references the tree's `AGENTS.md` "
+            "or step 9's WARNING was surfaced verbatim.", lines)
+        self.assertNotIn(
+            "- [ ] Repo-root `AGENTS.md` either already references the tree's `AGENTS.md` "
+            "or a WARNING was surfaced.", lines)
 
 
 @unittest.skipUnless(HAVE_YAML, "PyYAML required (run under uv)")

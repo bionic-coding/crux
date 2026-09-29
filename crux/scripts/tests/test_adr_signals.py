@@ -212,12 +212,30 @@ class DownstreamInstallShapeTests(unittest.TestCase):
             self.assertIsNone(by[name]["value"], name)
             self.assertIsNotNone(by[name]["filter"], name)
 
-    def test_a_missing_doctrine_index_is_an_error_not_a_silent_zero(self):
-        """The absence is REPORTED. A downstream tree without doctrine says so."""
-        _, errors = sig.build(self._downstream(), TODAY)
-        self.assertTrue(errors, "a downstream root with no doctrine index must report it")
-        self.assertTrue(any("doctrine" in e.get("input", "") or "doctrine" in e.get("problem", "")
-                            for e in errors), errors)
+    def test_a_never_compiled_doctrine_index_is_unmeasurable_not_a_silent_zero(self):
+        """A never-compiled doctrine index is `unmeasurable`, never an error, never a zero.
+
+        A fresh `init-docs` tree carries no `adrs/doctrine/` at all — that is
+        this fixture's shape, confirmed by the precondition below. A
+        never-compiled doctrine index is a measurement state, not a malformed
+        input, so the CLI exits 0 on this shape.
+        """
+        root = self._downstream()
+        # Precondition: the fixture really carries no doctrine directory,
+        # so `paper_only` reading `unmeasurable` below is the never-compiled
+        # branch firing and not an accident of a differently-shaped fixture.
+        self.assertFalse((root / "bionic" / "adrs" / "doctrine").exists())
+        env, errors = sig.build(root, TODAY)
+        self.assertFalse(
+            any("doctrine" in e.get("input", "") or "doctrine" in e.get("problem", "")
+                for e in errors),
+            f"a never-compiled doctrine index must not be reported as an error: {errors}")
+        rec = next(r for r in env["signals"] if r["signal"] == "paper_only")
+        self.assertEqual(rec["verdict"], "unmeasurable")
+        self.assertIsNone(rec["value"])
+        self.assertIsNotNone(rec["filter"])
+        self.assertIn("doctrine", rec["filter"])
+        self.assertIn("both absent", rec["filter"])
 
 
 class FrictionMeasuredZeroTests(unittest.TestCase):
@@ -1020,7 +1038,15 @@ class RedactionRoutingTests(unittest.TestCase):
 
 
 class MalformedInputTests(unittest.TestCase):
-    def test_a_missing_doctrine_index_exits_one_with_an_errors_array(self):
+    def test_a_deleted_index_beside_its_meta_json_exits_one_with_an_errors_array(self):
+        """Compiled-then-deleted: `_meta.json` present, `index.md` absent.
+
+        This is NOT the never-compiled shape — `_meta.json` marks that the
+        doctrine index was compiled at some point and the index file was then
+        removed, which stays a malformed-input error at exit 1. The
+        never-compiled shape (both files absent) is covered by
+        `DownstreamInstallShapeTests` and `FreshInitTreeCliTests`.
+        """
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "root"
             root.mkdir()
@@ -1029,6 +1055,9 @@ class MalformedInputTests(unittest.TestCase):
             src = TRIPS / "bionic"
             dst = root / "bionic"
             (dst / "adrs").mkdir(parents=True)
+            (dst / "adrs" / "doctrine").mkdir(parents=True)
+            (dst / "adrs" / "doctrine" / "_meta.json").write_text(
+                '{"generated": true}\n', encoding="utf-8")
             (dst / "manifest.yml").write_text((src / "manifest.yml").read_text(encoding="utf-8"),
                                               encoding="utf-8")
             for adr in sorted((src / "adrs").glob("ADR-*.md")):
@@ -1046,6 +1075,352 @@ class MalformedInputTests(unittest.TestCase):
             # copied ADR set.
             ok = _run("--repo-root", str(TRIPS), "--today", TODAY.isoformat(), "--json")
             self.assertEqual(ok.returncode, 0, ok.stderr)
+
+
+class FreshInitTreeCliTests(unittest.TestCase):
+    """The real `init-docs` fresh-tree shape, run through the CLI entry point.
+
+    Mirrors `init-docs`' actual output: `.bionic.yml`, a real `manifest.yml`
+    body, one ADR-0000, and `adrs/index.md` — and, critically, no
+    `adrs/doctrine/` directory at all. A never-compiled doctrine index is a
+    measurement state, not a malformed input, so the CLI exits 0 on this
+    shape.
+
+    The symlink and non-directory cases below are the fail-closed half: every
+    doctrine shape other than the two never-compiled ones takes the guarded
+    read, and a refused read exits 1.
+    """
+
+    # init-docs' own manifest and meta-ADR sources; crux/templates ships, so a
+    # staged artifact carries both too.
+    MANIFEST_TEMPLATE = REPO_ROOT / "crux" / "templates" / "manifest.yml.tmpl"
+    ADR_0000_TEMPLATE = (REPO_ROOT / "crux" / "templates"
+                         / "ADR-0000-record-architecture-decisions.md")
+
+    #: The `problem` prefix of the retained exit-1 doctrine errors row.
+    NOT_READ = "the doctrine index was not read"
+
+    #: Planted in a doctrine index outside the root. `read_doctrine_index`
+    #: echoes an unknown basis value into `errors`, so the sentinel reaches
+    #: stdout whenever that file is READ — the paired inside-root control
+    #: proves it — and its absence means the read was refused.
+    SENTINEL = "PLANTEDOUTSIDESENTINEL"
+    PLANTED_INDEX = (
+        "# doctrine\n\n## planted\n\n"
+        "| handle | citation | rule | source ADR | disposition | basis |\n"
+        "|--------|----------|------|------------|-------------|-------|\n"
+        "| ADR-0000/planted | rule:planted | A planted rule. | ADR-0000 | decided "
+        f"| {SENTINEL} |\n"
+    )
+    CLEAN_INDEX = (
+        "# doctrine\n\n## clean\n\n"
+        "| handle | citation | rule | source ADR | disposition | basis |\n"
+        "|--------|----------|------|------------|-------------|-------|\n"
+        "| ADR-0000/clean | rule:clean | A clean rule. | ADR-0000 | decided "
+        "| not-run-bound |\n"
+    )
+
+    def _adr_0000(self) -> str:
+        """The meta-ADR init-docs writes: the template with its placeholders filled."""
+        text = self.ADR_0000_TEMPLATE.read_text(encoding="utf-8")
+        self.assertIn("{{today}}", text)
+        self.assertIn("{{repo_name}}", text)
+        text = text.replace("{{today}}", "2026-09-28").replace("{{repo_name}}", "fresh")
+        # A placeholder the template gains later must be filled here too.
+        self.assertNotRegex(text, r"\{\{[^}]*\}\}")
+        return text
+
+    def _manifest(self) -> str:
+        """The manifest init-docs writes: the template with `{{today}}` filled."""
+        text = self.MANIFEST_TEMPLATE.read_text(encoding="utf-8")
+        self.assertIn('friction_line_from: "{{today}}"', text)
+        text = text.replace("{{today}}", "2026-09-28")
+        # A placeholder the template gains later must be filled here too.
+        self.assertNotRegex(text, r"\{\{[^}]*\}\}")
+        return text
+
+    ADR_INDEX = (
+        "# ADRs\n\n_Last updated: 2026-09-28_\n\n"
+        "| id | title | status | date | supersedes | superseded_by | tags |\n"
+        "|----|-------|--------|------|------------|---------------|------|\n"
+        "| ADR-0000 | Record architectural decisions as ADRs | Accepted | 2026-09-28 "
+        "| — | — | meta |\n"
+    )
+
+    def _fresh_root(self) -> Path:
+        tmp = tempfile.TemporaryDirectory(prefix="adr-signals-fresh-init-")
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        docs = root / "bionic"
+        (docs / "adrs").mkdir(parents=True)
+        (root / ".bionic.yml").write_text(
+            'config_version: "1"\ndocs_dir: bionic\nartifact_prefix: ""\n', encoding="utf-8")
+        (docs / "manifest.yml").write_text(self._manifest(), encoding="utf-8")
+        (docs / "adrs" / "ADR-0000-record-architecture-decisions.md").write_text(
+            self._adr_0000(), encoding="utf-8")
+        (docs / "adrs" / "index.md").write_text(self.ADR_INDEX, encoding="utf-8")
+        return root
+
+    def test_fresh_init_tree_exits_zero_with_unmeasurable_paper_only(self):
+        root = self._fresh_root()
+        # Precondition: the fixture really carries no doctrine directory,
+        # so exit 0 below is the never-compiled branch and not a fixture that
+        # happens to omit the doctrine check entirely.
+        self.assertFalse((root / "bionic" / "adrs" / "doctrine").exists())
+        proc = _run("--repo-root", str(root), "--json")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertNotIn("errors", payload)
+        by = {r["signal"]: r for r in payload["signals"]}
+        self.assertEqual(by["paper_only"]["verdict"], "unmeasurable")
+        self.assertIsNone(by["paper_only"]["value"])
+        self.assertEqual(by["carve_out_count"]["verdict"], "computed")
+        # The basis names the roster as unread and never lists it as a source.
+        basis = by["carve_out_count"]["basis"]
+        self.assertIn("roster was not read", basis)
+        self.assertNotIn("roster in bionic/adrs/doctrine/index.md", basis)
+        assert_envelope_contract(self, payload)
+        # Paired control: a compiled tree lists the roster as a source.
+        self.assertIn("roster in bionic/adrs/doctrine/index.md",
+                      record(TRIPS, "carve_out_count")["basis"])
+
+    def test_meta_json_without_index_flips_the_cli_to_exit_one(self):
+        """POSITIVE CONTROL for the exit-0 case above.
+
+        Writing only `_meta.json` (never `index.md`) into the SAME fixture is
+        the compiled-then-deleted shape, which stays a malformed-input error —
+        proving the exit 0 above is the never-compiled branch firing and not
+        the CLI having stopped checking the doctrine index at all.
+        """
+        root = self._fresh_root()
+        doctrine = root / "bionic" / "adrs" / "doctrine"
+        doctrine.mkdir(parents=True)
+        (doctrine / "_meta.json").write_text('{"generated": true}\n', encoding="utf-8")
+        proc = _run("--repo-root", str(root), "--json")
+        self.assertEqual(proc.returncode, 1, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertTrue(
+            any("doctrine" in e.get("input", "") or "doctrine" in e.get("problem", "")
+                for e in payload["errors"]), payload["errors"])
+
+    @unittest.skipUnless(hasattr(os, "symlink"), "platform has no symlink support")
+    def test_a_dangling_doctrine_index_symlink_exits_one(self):
+        """`lexists` is true for a dangling symlink, so this is NOT never-compiled."""
+        root = self._fresh_root()
+        doctrine = root / "bionic" / "adrs" / "doctrine"
+        doctrine.mkdir(parents=True)
+        target = doctrine / "index.md"
+        try:
+            target.symlink_to(doctrine / "does-not-exist.md")
+        except OSError:
+            self.skipTest("symlink creation not permitted in this environment")
+        # Positive control: the symlink really is dangling (lexists true,
+        # exists false), so exit 1 below is the refused-read branch and not
+        # a coincidence of a resolvable target.
+        self.assertTrue(os.path.lexists(target))
+        self.assertFalse(target.exists())
+        proc = _run("--repo-root", str(root), "--json")
+        self.assertEqual(proc.returncode, 1, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertTrue(
+            any("doctrine" in e.get("input", "") or "doctrine" in e.get("problem", "")
+                for e in payload["errors"]), payload["errors"])
+
+
+    # -- the fail-closed half ------------------------------------------------
+
+    def _outside_dir(self) -> Path:
+        """A directory that is NOT under any fresh root."""
+        tmp = tempfile.TemporaryDirectory(prefix="adr-signals-outside-")
+        self.addCleanup(tmp.cleanup)
+        return Path(tmp.name)
+
+    def _symlink(self, link: Path, target: Path) -> None:
+        try:
+            link.symlink_to(target)
+        except (OSError, NotImplementedError):
+            self.skipTest("symlink creation not permitted in this environment")
+
+    def _cli(self, root: Path) -> tuple[subprocess.CompletedProcess, dict]:
+        proc = _run("--repo-root", str(root), "--json")
+        return proc, json.loads(proc.stdout)
+
+    def _assert_refused(self, root: Path) -> dict:
+        """Exit 1 with the doctrine `not read` row, and no planted text read.
+
+        Carries its own positive control: the SAME fresh root with the planted
+        shape removed exits 0, so exit 1 here is that shape and not the fixture.
+        """
+        proc, payload = self._cli(root)
+        self.assertEqual(proc.returncode, 1, proc.stderr)
+        rows = [e for e in payload.get("errors", [])
+                if e.get("input") == "bionic/adrs/doctrine/index.md"]
+        self.assertEqual(len(rows), 1, payload.get("errors"))
+        self.assertTrue(rows[0]["problem"].startswith(self.NOT_READ), rows[0])
+        self.assertNotIn(self.SENTINEL, proc.stdout)
+        by = {r["signal"]: r for r in payload["signals"]}
+        # Not the never-compiled branch: the record is the per-ADR map.
+        self.assertEqual(by["paper_only"]["verdict"], "computed")
+        self.assertIsNone(by["paper_only"]["value"]["ADR-0000"])
+        assert_envelope_contract(self, payload)
+        return payload
+
+    def _assert_fresh_root_exits_zero(self) -> None:
+        """Positive control shared by every exit-1 case: no planted shape, exit 0."""
+        proc, payload = self._cli(self._fresh_root())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertNotIn("errors", payload)
+
+    @unittest.skipUnless(hasattr(os, "symlink"), "platform has no symlink support")
+    def test_an_index_symlinked_outside_the_root_exits_one_unread(self):
+        root = self._fresh_root()
+        outside = self._outside_dir() / "index.md"
+        outside.write_text(self.PLANTED_INDEX, encoding="utf-8")
+        doctrine = root / "bionic" / "adrs" / "doctrine"
+        doctrine.mkdir()
+        self._symlink(doctrine / "index.md", outside)
+        # Precondition: the symlink is live, so a plain read would serve it.
+        self.assertIn(self.SENTINEL, (doctrine / "index.md").read_text(encoding="utf-8"))
+        self._assert_refused(root)
+        self._assert_fresh_root_exits_zero()
+
+    @unittest.skipUnless(hasattr(os, "symlink"), "platform has no symlink support")
+    def test_an_index_symlinked_inside_the_root_is_read_and_computed(self):
+        """PAIRED CONTROL for the outside case: containment, not the symlink, refuses."""
+        root = self._fresh_root()
+        doctrine = root / "bionic" / "adrs" / "doctrine"
+        doctrine.mkdir()
+        inside = root / "bionic" / "clean-doctrine.md"
+        inside.write_text(self.CLEAN_INDEX, encoding="utf-8")
+        self._symlink(doctrine / "index.md", inside)
+        proc, payload = self._cli(root)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertNotIn("errors", payload)
+        by = {r["signal"]: r for r in payload["signals"]}
+        self.assertEqual(by["paper_only"]["verdict"], "computed")
+        self.assertIs(by["paper_only"]["value"]["ADR-0000"], True)
+        # And the planted text DOES reach stdout when its file is read, so the
+        # sentinel's absence in the outside case is the refusal.
+        inside.write_text(self.PLANTED_INDEX, encoding="utf-8")
+        proc, _ = self._cli(root)
+        self.assertIn(self.SENTINEL, proc.stdout)
+
+    @unittest.skipUnless(hasattr(os, "symlink"), "platform has no symlink support")
+    def test_a_doctrine_dir_symlinked_outside_with_an_index_exits_one(self):
+        root = self._fresh_root()
+        outside = self._outside_dir()
+        (outside / "index.md").write_text(self.PLANTED_INDEX, encoding="utf-8")
+        link = root / "bionic" / "adrs" / "doctrine"
+        self._symlink(link, outside)
+        self.assertTrue((link / "index.md").is_file())
+        self._assert_refused(root)
+        self._assert_fresh_root_exits_zero()
+
+    @unittest.skipUnless(hasattr(os, "symlink"), "platform has no symlink support")
+    def test_a_doctrine_dir_symlinked_to_an_empty_outside_dir_exits_one(self):
+        root = self._fresh_root()
+        link = root / "bionic" / "adrs" / "doctrine"
+        self._symlink(link, self._outside_dir())
+        # Precondition: both leaves are absent through the link, which is the
+        # shape a `lexists`-on-the-leaves check would call never-compiled.
+        self.assertFalse(os.path.lexists(link / "index.md"))
+        self.assertFalse(os.path.lexists(link / "_meta.json"))
+        self._assert_refused(root)
+        self._assert_fresh_root_exits_zero()
+
+    @unittest.skipUnless(hasattr(os, "symlink"), "platform has no symlink support")
+    def test_a_doctrine_dir_symlink_loop_exits_one(self):
+        root = self._fresh_root()
+        link = root / "bionic" / "adrs" / "doctrine"
+        self._symlink(link, link)
+        self.assertTrue(os.path.islink(link))
+        self._assert_refused(root)
+        self._assert_fresh_root_exits_zero()
+
+    @unittest.skipUnless(hasattr(os, "symlink"), "platform has no symlink support")
+    def test_a_dangling_doctrine_dir_symlink_exits_one(self):
+        root = self._fresh_root()
+        link = root / "bionic" / "adrs" / "doctrine"
+        self._symlink(link, self._outside_dir() / "does-not-exist")
+        self.assertTrue(os.path.lexists(link))
+        self.assertFalse(link.exists())
+        self._assert_refused(root)
+        self._assert_fresh_root_exits_zero()
+
+    def test_a_regular_file_at_the_doctrine_path_exits_one(self):
+        root = self._fresh_root()
+        (root / "bionic" / "adrs" / "doctrine").write_text(
+            self.PLANTED_INDEX, encoding="utf-8")
+        self._assert_refused(root)
+        self._assert_fresh_root_exits_zero()
+
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0,
+                     "a root process reads a mode-000 directory, so the refusal never fires")
+    def test_a_mode_000_doctrine_dir_exits_one_with_the_errors_row(self):
+        """A doctrine dir that denies access is refused through the CLI: exit 1, one row.
+
+        On 3.13 `Path.is_file()` re-raises the `PermissionError` from `stat`
+        on `adrs/doctrine/index.md`, so the run exited 2 with no JSON. The
+        documented lane for "any other `OSError`" is the guarded read and an
+        exit-1 refusal, on every supported interpreter.
+        """
+        root = self._fresh_root()
+        doctrine = root / "bionic" / "adrs" / "doctrine"
+        doctrine.mkdir()
+        (doctrine / "index.md").write_text(self.CLEAN_INDEX, encoding="utf-8")
+
+        # PAIRED POSITIVE CONTROL on the identical tree: while the directory is
+        # readable the index is read and computed, so exit 1 below is the mode.
+        proc, payload = self._cli(root)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIs(
+            {r["signal"]: r for r in payload["signals"]}["paper_only"]["value"]["ADR-0000"],
+            True)
+
+        os.chmod(doctrine, 0o000)
+        # Registered after `_fresh_root`'s cleanup, so it runs first and the
+        # temporary directory can still be removed.
+        self.addCleanup(os.chmod, doctrine, 0o755)
+        try:
+            os.listdir(doctrine)
+        except PermissionError:
+            pass
+        else:
+            self.skipTest("chmod 000 does not deny directory access in this environment")
+        try:
+            proc = _run("--repo-root", str(root), "--json")
+        finally:
+            os.chmod(doctrine, 0o755)
+        self.assertEqual(proc.returncode, 1, proc.stderr)
+        self.assertNotIn("Traceback", proc.stderr)
+        payload = json.loads(proc.stdout)
+        rows = [e for e in payload.get("errors", [])
+                if e.get("input") == "bionic/adrs/doctrine/index.md"]
+        self.assertEqual(len(rows), 1, payload.get("errors"))
+        self.assertTrue(rows[0]["problem"].startswith(self.NOT_READ), rows[0])
+        by = {r["signal"]: r for r in payload["signals"]}
+        self.assertEqual(by["paper_only"]["verdict"], "computed")
+        self.assertIsNone(by["paper_only"]["value"]["ADR-0000"])
+        assert_envelope_contract(self, payload)
+
+    def test_an_empty_real_doctrine_dir_exits_zero_unmeasurable(self):
+        root = self._fresh_root()
+        doctrine = root / "bionic" / "adrs" / "doctrine"
+        doctrine.mkdir()
+        proc, payload = self._cli(root)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertNotIn("errors", payload)
+        by = {r["signal"]: r for r in payload["signals"]}
+        self.assertEqual(by["paper_only"]["verdict"], "unmeasurable")
+        self.assertIsNone(by["paper_only"]["value"])
+        self.assertIn("both absent", by["paper_only"]["filter"])
+        # The two-source basis takes no serial comma.
+        self.assertIn("bionic/manifest.yml and ", by["carve_out_count"]["basis"])
+        self.assertNotIn("bionic/manifest.yml, and", by["carve_out_count"]["basis"])
+        # Positive control: one entry at a leaf flips the SAME dir to exit 1.
+        (doctrine / "_meta.json").write_text('{"generated": true}\n', encoding="utf-8")
+        proc, _ = self._cli(root)
+        self.assertEqual(proc.returncode, 1, proc.stderr)
 
 
 class BionicConfigLaneTests(unittest.TestCase):

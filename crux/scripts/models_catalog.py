@@ -132,7 +132,7 @@ TOP_LEVEL_KEYS = frozenset(
     {"schema_version", "providers", "aliases", "agents", "levels", "claude_aliases"}
 )
 LEVEL_NAMES = ("apex", "flagship", "standard")
-CLAUDE_ALIASES = ["fable", "opus", "sonnet", "haiku", "inherit", "claude-opus-5-5"]
+CLAUDE_ALIASES = ["fable", "opus", "sonnet", "haiku", "inherit", "claude-opus-5-5", "claude-sonnet-5-5"]
 CODEX_KEYS = frozenset({"model", "reasoning_effort", "verified", "source"})
 REASONING_EFFORTS = frozenset({"low", "medium", "high", "xhigh"})
 

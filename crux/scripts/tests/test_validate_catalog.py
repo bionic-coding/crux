@@ -677,7 +677,24 @@ def _fields(findings: list[dict]) -> set[str]:
 # because four fixtures share two of them and a respelled alias table has to
 # move one string, not four. `_assert_rule` asserts each splice landed.
 _OPUS_STABLE_ROW = "opus-stable: openrouter/anthropic/claude-opus-4.8"
+# The standard level's Claude cell, as shipped. Named once so the next re-point
+# of that cell moves one string, not four fixtures.
+_STANDARD_CLAUDE_CELL = "  standard:\n    claude: claude-sonnet-5-5"
 _QWEN_MAX_ROW = "  qwen-max: openrouter/"
+
+def _set_standard_claude(text: str, value: str) -> str:
+    """Set the standard level's Claude cell, whatever value it holds now.
+
+    Anchored on structure, never on the current value; a zero-match
+    substitution raises instead of validating the pristine catalog.
+    """
+    out, count = re.subn(
+        r"^(  standard:\n    claude: )\S+$", lambda m: m.group(1) + value, text, flags=re.M
+    )
+    if count != 1:
+        raise AssertionError("fixture inert: the standard level's Claude cell was not found")
+    return out
+
 
 # The two fixtures that need an UNDECLARED alias reference mutate the developer
 # row's OpenCode override. Anchored on the agent name and its `level:` line and
@@ -733,17 +750,32 @@ class ModelsCatalogPositiveTests(unittest.TestCase):
         # from the shipped catalog. `fable` is a MEMBER of claude_aliases, and
         # with the deny-list gone membership alone governs V3, so no rule
         # refuses the alias as a level value. The mutation DOES trip V6 — the
-        # four standard-level agent files still declare `model: sonnet` — and
-        # that firing is what proves the mutated catalog was validated all the
-        # way through rather than skipped.
+        # four standard-level agent files still declare `model: claude-sonnet-5-5`
+        # — and that firing is what proves the mutated catalog was validated all
+        # the way through rather than skipped.
         with tempfile.TemporaryDirectory() as td:
             text = SHIPPED_MODELS.read_text(encoding="utf-8").replace(
-                "  standard:\n    claude: sonnet", "  standard:\n    claude: fable")
+                _STANDARD_CLAUDE_CELL, "  standard:\n    claude: fable")
             findings = _rules(_plugin_fixture(Path(td), text))
         fields = _fields(findings)
         self.assertIn("V6", fields)
         self.assertNotIn("V3", fields)
         self.assertNotIn("V9", fields)
+
+
+    def test_sonnet_alias_and_full_sonnet_5_5_id_are_both_legal_level_values(self):
+        # Each value goes into the standard cell AND the four standard-level
+        # agent files, so V6 agrees. Any finding left is a rule refusing the
+        # value itself (V3 or V9).
+        standard_agents = ("developer", "historian", "librarian", "wayfinder")
+        for value in ("sonnet", "claude-sonnet-5-5"):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as td:
+                text = _set_standard_claude(SHIPPED_MODELS.read_text(encoding="utf-8"), value)
+                plugin = _plugin_fixture(Path(td), text)
+                for agent in standard_agents:
+                    _set_agent_model(plugin, agent, value)
+                findings = _rules(plugin)
+                self.assertEqual([f for f in findings if f.get("severity") != "warning"], [])
 
 
 class ModelsCatalogNegativeTests(unittest.TestCase):
@@ -856,7 +888,20 @@ class ModelsCatalogNegativeTests(unittest.TestCase):
     # `claude_disabled` table: its flipped positive lives in
     # ModelsCatalogPositiveTests as test_fable_is_now_a_legal_level_selection.
     def test_v3_invented_alias(self):
-        self._assert_rule("V3", lambda t: t.replace("  standard:\n    claude: sonnet", "  standard:\n    claude: invented"))
+        self._assert_rule("V3", lambda t: t.replace(_STANDARD_CLAUDE_CELL, "  standard:\n    claude: invented"))
+
+    def test_v3_router_spelling_of_sonnet_5_5_is_not_a_level_value(self):
+        # `claude-sonnet-5.5` is the ROUTER's key for the model; the Claude Code
+        # enum holds `claude-sonnet-5-5`. The level cell takes only the latter.
+        with tempfile.TemporaryDirectory() as td:
+            text = _set_standard_claude(SHIPPED_MODELS.read_text(encoding="utf-8"), "claude-sonnet-5.5")
+            findings = _rules(_plugin_fixture(Path(td), text))
+        v3 = [f["error"] for f in findings if f["field"] == "V3"]
+        self.assertEqual(
+            v3,
+            ["levels.standard.claude='claude-sonnet-5.5' is not a member of claude_aliases"],
+            findings,
+        )
 
     def test_v3_override_outside_claude_aliases(self):
         # `claude-opus-5.5` is the ROUTER's spelling of the model; the Claude
@@ -927,8 +972,7 @@ class ModelsCatalogNegativeTests(unittest.TestCase):
     def test_v6_frontmatter_disagrees_with_its_level(self):
         with tempfile.TemporaryDirectory() as td:
             plugin = _plugin_fixture(Path(td))
-            agent = plugin / "agents" / "developer.md"
-            agent.write_text(agent.read_text(encoding="utf-8").replace("model: sonnet", "model: opus", 1), encoding="utf-8")
+            _set_agent_model(plugin, "developer", "opus")
             findings = _rules(plugin)
         self.assertIn("V6", _fields(findings))
 
@@ -1007,7 +1051,7 @@ class ModelsCatalogNegativeTests(unittest.TestCase):
 
     def test_v9_raw_model_id_in_levels_claude(self):
         self._assert_rule("V9", lambda t: t.replace(
-            "  standard:\n    claude: sonnet", "  standard:\n    claude: anthropic/claude-sonnet-5"))
+            _STANDARD_CLAUDE_CELL, "  standard:\n    claude: anthropic/claude-sonnet-5"))
 
     def test_v9_raw_model_id_in_a_scalar_agent_row(self):
         self._assert_rule("V9", lambda t: t.replace(

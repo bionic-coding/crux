@@ -161,7 +161,7 @@
       "Skill",
       "TodoWrite"
     ],
-    "model": "sonnet",
+    "model": "claude-sonnet-5-5",
     "tags": [
       "agents",
       "implementation",
@@ -193,7 +193,7 @@
       "Skill",
       "TodoWrite"
     ],
-    "model": "sonnet",
+    "model": "claude-sonnet-5-5",
     "tags": [
       "agents",
       "docs",
@@ -236,7 +236,7 @@
       "Glob",
       "Skill"
     ],
-    "model": "sonnet",
+    "model": "claude-sonnet-5-5",
     "tags": [
       "agents",
       "retrieval",
@@ -346,7 +346,7 @@
       "WebFetch",
       "WebSearch"
     ],
-    "model": "sonnet",
+    "model": "claude-sonnet-5-5",
     "tags": [
       "agents",
       "wayfinder",

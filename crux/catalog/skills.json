@@ -232,7 +232,7 @@
       "update the arch"
     ],
     "context": "fork",
-    "model": "sonnet"
+    "model": "claude-sonnet-5-5"
   },
   {
     "id": "dev-cycle",
@@ -303,7 +303,7 @@
       "regenerate code docs"
     ],
     "context": "fork",
-    "model": "sonnet"
+    "model": "claude-sonnet-5-5"
   },
   {
     "id": "fix-directly",
@@ -747,7 +747,7 @@
       "what's new in the ecosystem"
     ],
     "context": "fork",
-    "model": "sonnet"
+    "model": "claude-sonnet-5-5"
   },
   {
     "id": "reconcile-signoff",
@@ -1074,7 +1074,7 @@
       "morning note"
     ],
     "context": "fork",
-    "model": "sonnet"
+    "model": "claude-sonnet-5-5"
   },
   {
     "id": "transition-adr",
