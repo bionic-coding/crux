@@ -25,7 +25,7 @@
       "crux-agents"
     ],
     "risk_level": "medium",
-    "maxTurns": 50,
+    "maxTurns": 75,
     "effort": "high",
     "skills": [
       "propose-adr",
@@ -141,7 +141,7 @@
       "crux-agents"
     ],
     "risk_level": "high",
-    "maxTurns": 100,
+    "maxTurns": 150,
     "skills": [
       "forge-skill",
       "log-work"
@@ -171,7 +171,7 @@
       "crux-agents"
     ],
     "risk_level": "medium",
-    "maxTurns": 100,
+    "maxTurns": 150,
     "effort": "medium",
     "skills": [
       "forge-skill",
@@ -204,7 +204,7 @@
       "crux-agents"
     ],
     "risk_level": "medium",
-    "maxTurns": 50,
+    "maxTurns": 75,
     "effort": "medium",
     "skills": [
       "init-docs",

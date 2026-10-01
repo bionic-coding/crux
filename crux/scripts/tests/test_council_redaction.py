@@ -67,6 +67,10 @@ ALLOWED_LABELS = {
     # ADR-0087: a non-2xx outside 400-599 (a 3xx or a 1xx); the action is to
     # report the status, not to change the payload or the credential.
     "unexpected-status",
+    # A safety decline: the model answered and refused, so nothing failed.
+    "refused",
+    # A reply that stopped on its output budget (finish reason "length").
+    "truncated",
 }
 
 
@@ -217,6 +221,23 @@ class RedactionClassificationTests(unittest.TestCase):
             self.assertEqual(got, expected)
             seen.add(got)
         self.assertEqual(len(seen), len(cases), "labels must not collapse together")
+
+    def test_allowed_labels_are_exactly_the_label_table_plus_unknown(self):
+        """The allowed set is pinned as a SET against the source of truth, so a
+        label added to `_ERROR_LABELS` without a test update fails here."""
+        self.assertEqual(ALLOWED_LABELS,
+                         set(AsyncCouncil._ERROR_LABELS.values()) | {"unknown"})
+        self.assertIn("truncated", ALLOWED_LABELS)
+
+    def test_truncated_and_malformed_response_classify_by_their_own_classes(self):
+        from crux.core.llm_caller import MalformedResponseError, ResponseTruncatedError
+
+        for err, expected in ((ResponseTruncatedError("x"), "truncated"),
+                              (MalformedResponseError("x"), "malformed-response")):
+            with self.subTest(error=type(err).__name__):
+                got = AsyncCouncil._redact_error(err)
+                self.assertEqual(got, expected)
+                self.assertIn(_label_of(got), ALLOWED_LABELS)
 
     def test_confidence_rejected_error_classifies_as_malformed_response(self):
         """A bool / non-numeric / out-of-range confidence at ingest IS a

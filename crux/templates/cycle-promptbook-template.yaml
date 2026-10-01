@@ -420,15 +420,15 @@ prompts:
       `Review deferrals`.
 
       After fixes land, re-run Prompt 7's quality gates. If they still pass
+      AND the original reviewers (re-dispatched, incl. security + conformance)
+      report zero MUST-FIX findings, advance to Prompt 12. Otherwise loop back
+      to Prompt 9.
+
       Where you fixed a MUST-FIX yourself rather than dispatching it, that
       fix is your own authorship: the re-review of it is commissioned by
       your delegator, not by you, and you re-dispatch only the reviewers of
       work you did not write. At the top of the chain the delegator is the
       human who approved the run.
-
-      AND the original reviewers (re-dispatched, incl. security + conformance)
-      report zero MUST-FIX findings, advance to Prompt 12. Otherwise loop back
-      to Prompt 9.
 
       After 3 review-fix loops without convergence, STOP and escalate.
 

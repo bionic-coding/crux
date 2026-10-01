@@ -3,7 +3,7 @@ name: dev-lead
 description: Use when the user says "implement this", "build the feature", "lead the development", "coordinate the dev work", "do the delicate refactor", or an accepted ADR / plan needs to be turned into working, tested code.
 tools: Read, Grep, Glob, Edit, Write, Bash, Agent(developer), Agent(historian), Agent(reviewer), Agent(wayfinder), Skill, TodoWrite
 model: opus
-maxTurns: 100
+maxTurns: 150
 skills: [forge-skill, log-work]
 metadata:
   tags: "agents, implementation, lead, coordination"

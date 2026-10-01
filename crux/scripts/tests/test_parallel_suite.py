@@ -28,6 +28,7 @@ import tempfile
 import textwrap
 import time
 import unittest
+import venv
 from pathlib import Path
 from unittest import mock
 
@@ -1497,6 +1498,357 @@ def _alive(pid: int) -> bool:
     except PermissionError:
         return True
     return True
+
+
+# -- the interpreter preflight -------------------------------------------------------------
+#
+# A bare `uv run <this driver>` builds an isolated interpreter from the driver's PEP 723 block,
+# which declares no dependency. Discovery then failed on an import, and the run exited 1 (the
+# test-failure lane) for a fault in the environment. The driver now probes the interpreter its
+# workers use, before discovery, and exits 2 naming the working command.
+
+SUITE_COMMAND = "uv run python3 crux/scripts/tests/parallel_suite.py crux/scripts/tests"
+REPO = HERE.parents[2]
+
+
+def _clean_env() -> dict:
+    env = dict(os.environ)
+    for key in ("PYTHONPATH", "VIRTUAL_ENV", "PYTHONHOME"):
+        env.pop(key, None)
+    return env
+
+
+def _make_venv(parent: Path, name: str) -> Path:
+    """A stdlib venv with no pip and no third-party package; returns its interpreter."""
+    target = parent / name
+    venv.create(target, with_pip=False, symlinks=True)
+    return target / "bin" / "python3"
+
+
+def _provide(python: Path, parent: Path, packages: dict) -> None:
+    """Make `packages` (import name -> package directory) importable from `python` and nothing
+    else: a `.pth` file names a directory of symlinks, so no network and no other module of the
+    running environment becomes visible."""
+    extra = parent / f"{python.parent.parent.name}-extra"
+    extra.mkdir()
+    for name, source in packages.items():
+        (extra / name).symlink_to(source, target_is_directory=True)
+    purelib = subprocess.run(
+        [str(python), "-c", "import sysconfig; print(sysconfig.get_paths()['purelib'])"],
+        capture_output=True, text=True, check=True, env=_clean_env()).stdout.strip()
+    (Path(purelib) / "extra.pth").write_text(f"{extra}\n", encoding="utf-8")
+
+
+def _can_import(python, module: str, *flags: str) -> bool:
+    return subprocess.run([str(python), *flags, "-c", f"import {module}"], capture_output=True,
+                          env=_clean_env()).returncode == 0
+
+
+def third_party_imports(entries, scripts_dir: Path, count_guarded: bool = True) -> dict:
+    """Map each third-party module imported at module level to the `path:line` sites.
+
+    Reads `entries` and, transitively, every module under `scripts_dir` (or its `tests/`) that
+    they import. Imports inside a function or a class body are not read. A module is third party
+    when it is neither stdlib nor resolvable under `scripts_dir`.
+
+    An import is guarded when it sits under a module-level `if`, or in the body, a handler or
+    the `else` of a `try` that catches ImportError (a handler naming ImportError,
+    ModuleNotFoundError, Exception or BaseException, or a bare `except`). A `finally` body
+    always runs and is not guarded. With `count_guarded` false, a guarded import is optional:
+    it is not reported, and a guarded local module is not followed. The suite's inventory
+    passes false, because its tests skip where such a module is absent.
+    """
+    import ast
+
+    bases = [scripts_dir, scripts_dir / "tests"]
+    sites: dict = {}
+    seen: set = set()
+
+    def resolve(dotted: str, extra: tuple = ()) -> list:
+        files = []
+        for base in bases:
+            path = base
+            names = dotted.split(".")
+            for i, part in enumerate(names):
+                if (path / part).is_dir():
+                    path = path / part
+                    if (path / "__init__.py").is_file():
+                        files.append(path / "__init__.py")
+                elif (path / f"{part}.py").is_file():
+                    files.append(path / f"{part}.py")
+                    path = None
+                    break
+                else:
+                    path = None
+                    break
+            if path is not None:
+                for name in extra:
+                    if (path / f"{name}.py").is_file():
+                        files.append(path / f"{name}.py")
+            if files:
+                return files
+        return files
+
+    import_guards = {"ImportError", "ModuleNotFoundError", "Exception", "BaseException"}
+
+    def catches_import_error(node) -> bool:
+        for handler in node.handlers:
+            if handler.type is None:
+                return True
+            kinds = handler.type.elts if isinstance(handler.type, ast.Tuple) else [handler.type]
+            if any(isinstance(k, ast.Name) and k.id in import_guards for k in kinds):
+                return True
+        return False
+
+    def statements(body, guarded=False):
+        for node in body:
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                yield node, guarded
+            elif isinstance(node, ast.Try):
+                inner = guarded or catches_import_error(node)
+                yield from statements(node.body, inner)
+                for handler in node.handlers:
+                    yield from statements(handler.body, inner)
+                yield from statements(node.orelse, inner)
+                yield from statements(node.finalbody, guarded)
+            elif isinstance(node, ast.If):
+                yield from statements(node.body, True)
+                yield from statements(node.orelse, True)
+
+    def visit(path: Path) -> None:
+        if path in seen:
+            return
+        seen.add(path)
+        for node, guarded in statements(ast.parse(path.read_text(encoding="utf-8")).body):
+            if guarded and not count_guarded:
+                continue
+            if isinstance(node, ast.Import):
+                targets = [(a.name, ()) for a in node.names]
+            elif node.level == 0 and node.module:
+                targets = [(node.module, tuple(a.name for a in node.names))]
+            else:
+                continue
+            for dotted, names in targets:
+                top = dotted.split(".")[0]
+                found = resolve(dotted, names)
+                if found:
+                    for f in found:
+                        visit(f)
+                elif top not in sys.stdlib_module_names and top != "__future__":
+                    sites.setdefault(top, []).append(f"{path}:{node.lineno}")
+
+    for entry in entries:
+        visit(Path(entry))
+    return {k: sorted(v) for k, v in sorted(sites.items())}
+
+
+class PluginSuiteInterpreterTests(unittest.TestCase):
+    """The driver refuses, at exit 2 and before discovery, an interpreter that cannot import the
+    plugin suite's third-party modules.
+
+    Hermetic fixture: a stdlib `venv.create(with_pip=False)` interpreter reproduces the isolated
+    interpreter with no network. By hand: `python3 -c "import venv; venv.create('/tmp/bare',
+    with_pip=False)"` and then `/tmp/bare/bin/python3 crux/scripts/tests/parallel_suite.py
+    crux/scripts/tests -p test_arch_facts.py` from the repo root. The narrow pattern keeps the
+    unfixed run short.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls._tmp = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(cls._tmp.cleanup)
+        parent = Path(cls._tmp.name)
+        cls.bare = _make_venv(parent, "bare")
+        cls.yaml_only = _make_venv(parent, "yaml-only")
+        import importlib.util as _iu
+        spec = _iu.find_spec("yaml")
+        if spec is None:
+            raise unittest.SkipTest("the running interpreter has no yaml to provision")
+        _provide(cls.yaml_only, parent, {"yaml": Path(spec.origin).parent})
+
+    def _run(self, python, *argv, cwd=None):
+        return subprocess.run([str(python), str(DRIVER), *argv], cwd=cwd or REPO,
+                              capture_output=True, text=True, env=_clean_env(),
+                              timeout=RUN_TIMEOUT)
+
+    def _assert_refused(self, proc, missing: str):
+        self.assertEqual(proc.returncode, 2, proc.stderr)
+        self.assertEqual(proc.stdout, "")
+        self.assertIn("parallel_suite: FAILED CLOSED", proc.stderr)
+        self.assertIn(SUITE_COMMAND, proc.stderr)
+        self.assertIn(f"cannot import: {missing}.", proc.stderr)
+        self.assertIsNone(_RAN_RE.search(proc.stderr), "discovery or a run began before the refusal")
+
+    def test_the_fixtures_are_what_they_claim(self):
+        """Control: the bare venv imports none of the suite's modules; the yaml-only venv has
+        yaml alone."""
+        for module in ps.PLUGIN_SUITE_MODULES:
+            self.assertFalse(_can_import(self.bare, module), module)
+        self.assertTrue(_can_import(self.yaml_only, "yaml"))
+        self.assertFalse(_can_import(self.yaml_only, "httpx"))
+        self.assertFalse(_can_import(self.yaml_only, "griffe"))
+
+    def test_an_interpreter_without_the_suite_dependencies_is_refused(self):
+        proc = self._run(self.bare, str(HERE), "-p", "test_arch_facts.py")
+        self._assert_refused(proc, ", ".join(ps.PLUGIN_SUITE_MODULES))
+        self.assertIn(str(self.bare), proc.stderr)
+
+    def test_a_partly_provisioned_interpreter_names_only_the_missing_modules(self):
+        proc = self._run(self.yaml_only, str(HERE), "-p", "test_arch_facts.py")
+        self._assert_refused(proc, "httpx, griffe")
+
+    def test_the_relative_and_dot_slash_forms_target_the_own_tests_directory(self):
+        for form in ("crux/scripts/tests", "./crux/scripts/tests", "crux/scripts/tests/"):
+            with self.subTest(form=form):
+                proc = self._run(self.bare, form, "-p", "test_arch_facts.py")
+                self._assert_refused(proc, ", ".join(ps.PLUGIN_SUITE_MODULES))
+        with self.subTest(form="."):
+            proc = self._run(self.bare, ".", "-p", "test_arch_facts.py", cwd=HERE)
+            self._assert_refused(proc, ", ".join(ps.PLUGIN_SUITE_MODULES))
+
+    def test_a_symlinked_route_to_the_own_tests_directory_is_recognised(self):
+        link = Path(self._tmp.name) / "tests-link"
+        if not link.exists():
+            link.symlink_to(HERE, target_is_directory=True)
+        proc = self._run(self.bare, str(link), "-p", "test_arch_facts.py")
+        self._assert_refused(proc, ", ".join(ps.PLUGIN_SUITE_MODULES))
+
+    def test_a_foreign_start_directory_is_not_probed(self):
+        """The scoping control: the driver's own toy-tree tests run under interpreters that lack
+        the plugin suite's modules, and must keep running."""
+        tree = _write_tree(Path(self._tmp.name) / "toy", {
+            "test_toy.py": """
+                import unittest
+                class T(unittest.TestCase):
+                    def test_ok(self):
+                        self.assertTrue(True)
+            """})
+        proc = self._run(self.bare, str(tree), "--workers", "1")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertNotIn("FAILED CLOSED", proc.stderr)
+
+    def test_help_and_argument_errors_keep_their_exit_codes(self):
+        helped = self._run(self.bare, "--help")
+        self.assertEqual(helped.returncode, 0)
+        self.assertIn("usage:", helped.stdout)
+        bad = self._run(self.bare, str(HERE), "--workers", "0")
+        self.assertEqual(bad.returncode, 2)
+        self.assertIn("usage:", bad.stderr)
+        self.assertNotIn("FAILED CLOSED", bad.stderr)
+
+    def test_the_probe_argv_is_the_one_the_workers_are_spawned_with(self):
+        """Discovery runs in the coordinator; workers are spawned children that inherit the
+        coordinator's interpreter flags. The probe takes the spawn context's own argv prefix."""
+        import multiprocessing.spawn as mp_spawn
+        command = mp_spawn.get_command_line()
+        prefix = command[:command.index("-c")]
+        self.assertEqual(ps._worker_interpreter_argv(), prefix)
+        seen = {}
+
+        def fake(argv, **kwargs):
+            seen["argv"], seen["kwargs"] = list(argv), kwargs
+            return subprocess.CompletedProcess(argv, 0, stdout=ps._PROBE_MARKER + "\n",
+                                               stderr="")
+
+        with mock.patch.object(ps.subprocess, "run", side_effect=fake):
+            self.assertEqual(ps._missing_modules(("yaml",)), [])
+        self.assertEqual(seen["argv"][:len(prefix)], prefix)
+        self.assertEqual(seen["argv"][len(prefix)], "-c")
+
+    def test_an_interpreter_flag_that_hides_site_packages_reaches_the_probe(self):
+        """`-S` reaches the workers, so a coordinator run under it has workers with no
+        site-packages. The probe must see what the workers see."""
+        if _can_import(sys.executable, "yaml", "-S"):
+            self.skipTest("-S does not hide yaml from this interpreter")
+        proc = subprocess.run([sys.executable, "-S", str(DRIVER), str(HERE), "-p",
+                               "test_arch_facts.py"], cwd=REPO, capture_output=True, text=True,
+                              timeout=RUN_TIMEOUT)
+        self.assertEqual(proc.returncode, 2, proc.stderr)
+        self.assertIn("parallel_suite: FAILED CLOSED", proc.stderr)
+        self.assertIn("yaml", proc.stderr)
+
+    def test_a_capable_interpreter_passes_the_probe(self):
+        """Positive control for the refusals above: the running interpreter can host the suite,
+        so the probe reports nothing missing."""
+        self.assertEqual(ps._missing_modules(ps.PLUGIN_SUITE_MODULES), [])
+
+    def test_startup_output_is_not_read_as_a_missing_module(self):
+        """An interpreter that prints at startup (here a sitecustomize) is still capable: only
+        the probe's marked result line names missing modules."""
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "sitecustomize.py").write_text(
+                "import sys\nsys.stdout.write('startup-noise\\n')\n", encoding="utf-8")
+            env = dict(os.environ, PYTHONPATH=tmp)
+            noisy = subprocess.run([sys.executable, "-c", "pass"], capture_output=True,
+                                   text=True, env=env).stdout
+            self.assertIn("startup-noise", noisy, "the fixture does not print at startup")
+            with mock.patch.dict(os.environ, {"PYTHONPATH": tmp}):
+                self.assertEqual(ps._missing_modules(ps.PLUGIN_SUITE_MODULES), [])
+
+
+class SuiteDependencyInventoryTests(unittest.TestCase):
+    """The probe set is the inventory of third-party modules the discovered suite imports at
+    module level. A test that gains a new one would otherwise pass the probe and fail at import
+    under an interpreter that lacks it. Modules the tests skip on when absent (the tree-sitter
+    grammars) are imported inside test bodies and are not part of the inventory."""
+
+    def test_every_module_level_third_party_import_of_the_suite_is_probed(self):
+        entries = sorted(HERE.glob("test_*.py"))
+        self.assertGreater(len(entries), 50)
+        found = third_party_imports(entries, HERE.parent, count_guarded=False)
+        missing = sorted(set(found) - set(ps.PLUGIN_SUITE_MODULES))
+        self.assertEqual(missing, [], "suite imports missing from PLUGIN_SUITE_MODULES: "
+                         + "; ".join(f"{m} at {found[m][:2]}" for m in missing))
+
+    def test_the_probe_set_names_the_measured_suite_dependencies(self):
+        """Measured by running discovery in a stdlib venv: yaml (2 modules), griffe (4) and httpx
+        (41, through the eager `crux` package import)."""
+        self.assertEqual(set(ps.PLUGIN_SUITE_MODULES), {"yaml", "httpx", "griffe"})
+
+    def test_the_scan_finds_a_seeded_import(self):
+        """Positive control: the scanner reports imports it should report, guarded or not, and
+        follows a local module and a package `__init__`."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        scripts = Path(tmp.name)
+        (scripts / "pkg").mkdir()
+        (scripts / "pkg" / "__init__.py").write_text("import from_init\n", encoding="utf-8")
+        (scripts / "entry.py").write_text("import helper\nimport seeded_pkg\nimport pkg.sub\n"
+                                          "import os\n", encoding="utf-8")
+        (scripts / "pkg" / "sub.py").write_text("def f():\n    import inside_function\n",
+                                                encoding="utf-8")
+        (scripts / "helper.py").write_text("try:\n    import guarded_seed\nexcept ImportError:\n"
+                                           "    pass\n", encoding="utf-8")
+        found = third_party_imports([scripts / "entry.py"], scripts)
+        self.assertEqual(sorted(found), ["from_init", "guarded_seed", "seeded_pkg"])
+
+    def test_a_guarded_module_level_import_is_not_a_hard_import(self):
+        """An import the module guards with `try`/`except ImportError`, or places under a
+        module-level `if`, is optional: its tests skip where it is absent, so the probe must not
+        refuse the interpreter for it. A `try` that does not catch ImportError guards nothing,
+        and a `finally` body always runs."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        scripts = Path(tmp.name)
+        (scripts / "entry.py").write_text(
+            "import hard_seed\n"
+            "import optional_helper\n"
+            "try:\n    import guarded_by_importerror\n"
+            "except ImportError:\n    import fallback_in_handler\n"
+            "else:\n    import guarded_in_else\n"
+            "finally:\n    import hard_in_finally\n"
+            "try:\n    import guarded_by_tuple\nexcept (ValueError, ModuleNotFoundError):\n    pass\n"
+            "try:\n    import guarded_by_exception\nexcept Exception:\n    pass\n"
+            "try:\n    import local_optional\nexcept ImportError:\n    pass\n"
+            "try:\n    import hard_not_guarded\nexcept ValueError:\n    pass\n"
+            "if True:\n    import guarded_by_if\nelse:\n    import guarded_by_else\n",
+            encoding="utf-8")
+        (scripts / "optional_helper.py").write_text("import hard_via_helper\n", encoding="utf-8")
+        (scripts / "local_optional.py").write_text("import reached_only_when_guarded\n",
+                                                  encoding="utf-8")
+        found = third_party_imports([scripts / "entry.py"], scripts, count_guarded=False)
+        self.assertEqual(sorted(found), ["hard_in_finally", "hard_not_guarded", "hard_seed",
+                                         "hard_via_helper"])
 
 
 if __name__ == "__main__":

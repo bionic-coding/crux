@@ -3,7 +3,7 @@ name: architect
 description: Use when the user says "propose an ADR", "record this decision", "formalize this decision", "review this ADR", "accept ADR-NNNN", "draft a promptbook", "plan the build for X", or "design the architecture for X".
 tools: Read, Grep, Glob, Edit, Write, Bash, Skill, WebSearch, WebFetch
 model: opus
-maxTurns: 50
+maxTurns: 75
 effort: high
 skills: [propose-adr, transition-adr, review-decisions, council, srde, author-promptbook, dev-cycle, link-adr-graph, propose-brief, log-work, forge-skill]
 metadata:

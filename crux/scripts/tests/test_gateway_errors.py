@@ -387,6 +387,21 @@ class GatewayErrorLabelTests(unittest.TestCase):
         "provider", "client-config", "unexpected-status",
     })
 
+    #: The whole label set `_ERROR_LABELS` maps onto, pinned as a SET rather
+    #: than a count: a count survives one label swapped for another. "unknown"
+    #: is the fallback for an unmatched class and has no row of its own.
+    ERROR_LABEL_VOCABULARY = frozenset({
+        "refused", "insufficient-credit", "timeout", "auth", "rate-limit",
+        "unreachable", "provider", "client-config", "malformed-response",
+        "unexpected-status", "truncated",
+    })
+
+    def test_error_label_set_is_pinned(self):
+        self.assertEqual(set(self.AsyncCouncil._ERROR_LABELS.values()),
+                         self.ERROR_LABEL_VOCABULARY)
+        self.assertIn("truncated", self.ERROR_LABEL_VOCABULARY)
+        self.assertEqual(self.AsyncCouncil._fault_label(KeyError("odd")), "unknown")
+
     def test_no_status_reads_as_unknown_at_the_consumer(self):
         """The same 100-599 sweep, one layer further down.
 
@@ -497,11 +512,13 @@ class ErrorVoteSeatIdentityTests(unittest.TestCase):
         return council
 
     def test_timed_out_seats_keep_the_lowercase_seat_key(self):
-        async def _hang(seat, prompt, system=None):
+        # The deadline lives in the seat wrapper, so the hang is at the gateway
+        # post, under it. A stub over the whole seat would carry no deadline.
+        async def _hang(cfg, prompt, system=None, response_format=None, attempt=None):
             await asyncio.sleep(60)
 
         council = self._council(timeout=0.05)
-        council._call_seat_async = _hang
+        council._post_seat = _hang
         result = council.deliberate_sync("Should we ship?")
 
         self.assertEqual([v.provider for v in result.votes],
@@ -527,16 +544,165 @@ class ErrorVoteSeatIdentityTests(unittest.TestCase):
         """The seat list is filtered by availability, so any parallel list must
         be filtered by the same pass — an index built over the unfiltered order
         misattributes the failure to the wrong vendor."""
-        async def _hang(seat, prompt, system=None):
+        async def _hang(cfg, prompt, system=None, response_format=None, attempt=None):
             await asyncio.sleep(60)
 
         council = self._council(timeout=0.05)
         council.available_providers = ["anthropic", "gemini"]
-        council._call_seat_async = _hang
+        council._post_seat = _hang
         result = council.deliberate_sync("Should we ship?")
 
         self.assertEqual([v.provider for v in result.votes],
                          ["anthropic", "gemini"])
+
+
+@unittest.skipUnless(HAVE_HTTPX, "httpx not installed — run under uv")
+class PerSeatDeadlineTests(unittest.TestCase):
+    """One slow seat costs only that seat; the seats that answered still count.
+
+    Positive control: ErrorVoteSeatIdentityTests above (every seat hangs, every
+    seat becomes a timeout-labelled errored vote) stays green under the same fix.
+    """
+
+    # Fast seats return at once and slow seats sleep 60 s, so 1 s separates them
+    # with room for a loaded machine running the suite across several workers.
+    def _council(self, cls_name="AsyncCouncil", timeout=1.0, seats=None):
+        from crux.council import async_council
+        cls = getattr(async_council, cls_name)
+        council = cls.__new__(cls)
+        # max_retries=0: these tests are about the per-seat deadline, and one
+        # attempt per seat keeps the wait at one deadline. The retry has its own
+        # tests in test_council_retry.py.
+        council.config = async_council.AsyncCouncilConfig(timeout_seconds=timeout, max_retries=0)
+        council._seat_models = {
+            "openai": council.config.openai_model,
+            "anthropic": council.config.anthropic_model,
+            "gemini": council.config.gemini_model,
+        }
+        council.available_providers = list(seats or cls._SEAT_ORDER)
+        council._retry = lambda fn: fn
+        return council
+
+    def test_default_timeout_is_600_seconds(self):
+        from crux.council.async_council import AsyncCouncilConfig
+        self.assertEqual(AsyncCouncilConfig().timeout_seconds, 600.0)
+
+    _VOTE = ('{"decision": "APPROVE", "confidence": 0.8, "dissents": [], '
+             '"reasoning": ""}')
+
+    def test_one_slow_seat_does_not_erase_the_responding_seats(self):
+        # The deadline lives in the seat wrapper, so the seats are slow or fast at
+        # the gateway post, under it. The slow seat is told apart by its model.
+        council = self._council()
+        slow_model = council._seat_models["anthropic"]
+
+        async def _post(cfg, prompt, system=None, response_format=None, attempt=None):
+            if cfg.name == slow_model:
+                await asyncio.sleep(60)
+            return self._VOTE
+
+        council._post_seat = _post
+        result = council.deliberate_sync("Should we ship?")
+
+        self.assertEqual([v.provider for v in result.votes], ["openai", "anthropic", "gemini"])
+        errored = [v.provider for v in result.votes if v.errored]
+        self.assertEqual(errored, ["anthropic"])
+        slow = next(v for v in result.votes if v.provider == "anthropic")
+        self.assertIn("timeout", slow.reasoning)
+        self.assertEqual(result.consensus, "UNANIMOUS_APPROVE")
+        self.assertEqual(result.errored_seats, "1/3")
+        self.assertTrue(result.final_recommendation["degraded"])
+        self.assertEqual(result.final_recommendation["action"], "EXECUTE_WITH_MONITORING")
+
+    def test_all_seats_hang_is_no_quorum_within_the_deadline(self):
+        async def _hang(cfg, prompt, system=None, response_format=None, attempt=None):
+            await asyncio.sleep(60)
+
+        council = self._council()
+        council._post_seat = _hang
+        result = council.deliberate_sync("Should we ship?")
+        self.assertEqual(result.consensus, "NO_QUORUM")
+        self.assertEqual(result.errored_seats, "3/3")
+        self.assertEqual(result.final_recommendation["off_scale"], [])
+
+    def test_no_provider_path_carries_off_scale(self):
+        council = self._council(seats=[])
+        result = council.deliberate_sync("Should we ship?")
+        self.assertEqual(result.consensus, "NO_QUORUM")
+        self.assertEqual(result.final_recommendation["off_scale"], [])
+
+    def test_visual_council_keeps_the_fast_seat_when_one_is_slow(self):
+        council = self._council(cls_name="AsyncVisualCouncil", seats=["openai", "anthropic"])
+        slow_model = council._seat_models["openai"]
+
+        async def _post(cfg, prompt, system=None, response_format=None, attempt=None):
+            if cfg.name == slow_model:
+                await asyncio.sleep(60)
+            return ('{"passed": true, "confidence": 0.9, "observations": "clean", '
+                    '"anomalies": []}')
+
+        council._post_seat = _post
+        results = council.analyze_sync("aGVsbG8=", "Inspect.")
+
+        by_name = {r.model_name: r for r in results}
+        self.assertEqual(set(by_name), {"OpenAI-vision", "Claude-vision"})
+        self.assertFalse(by_name["OpenAI-vision"].passed)
+        self.assertIn("timeout", by_name["OpenAI-vision"].observations)
+        self.assertTrue(by_name["OpenAI-vision"].errored)
+        self.assertTrue(by_name["Claude-vision"].passed)
+        self.assertFalse(by_name["Claude-vision"].errored)
+        self.assertEqual(by_name["Claude-vision"].observations, "clean")
+
+    def test_http_client_timeout_is_not_below_the_seat_deadline(self):
+        seen = {}
+
+        class _Client:
+            def __init__(self, **kwargs):
+                seen.update(kwargs)
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def post(self, *a, **kw):
+                raise httpx.ReadTimeout("slow")
+
+        from crux.council import async_council
+        council = self._council(timeout=600.0)
+        with mock.patch.dict(os.environ, {"OPENROUTER_API_KEY": "sk-or-test-dummy"}), \
+                mock.patch.object(async_council.httpx, "AsyncClient", _Client):
+            vote = asyncio.run(council._call_seat_async("openai", "Question?"))
+        self.assertGreaterEqual(seen["timeout"], council.config.timeout_seconds)
+        self.assertGreaterEqual(seen["timeout"], 600.0)
+        self.assertTrue(vote.errored)
+
+    def test_transport_timeouts_carry_the_timeout_label(self):
+        from crux.council import async_council
+        errors = [httpx.ReadTimeout("x"), httpx.ConnectTimeout("x"),
+                  asyncio.TimeoutError(), TimeoutError("x")]
+        for exc in errors:
+            with self.subTest(exc=type(exc).__name__):
+                class _Client:
+                    def __init__(self, **kwargs):
+                        pass
+
+                    async def __aenter__(self):
+                        return self
+
+                    async def __aexit__(self, *e):
+                        return False
+
+                    async def post(self, *a, _exc=exc, **kw):
+                        raise _exc
+
+                council = self._council(timeout=30.0)
+                with mock.patch.dict(os.environ, {"OPENROUTER_API_KEY": "sk-or-test-dummy"}), \
+                        mock.patch.object(async_council.httpx, "AsyncClient", _Client):
+                    vote = asyncio.run(council._call_seat_async("openai", "Question?"))
+                self.assertTrue(vote.errored)
+                self.assertIn("timeout", vote.reasoning)
 
 
 @unittest.skipUnless(HAVE_HTTPX, "httpx not installed — run under uv")

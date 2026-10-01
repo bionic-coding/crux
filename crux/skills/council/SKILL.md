@@ -82,6 +82,14 @@ from crux.council import create_async_council
 d=$(mktemp -d) && uv run "$d/driver.py"
 ```
 
+Each attempt at a seat has its own deadline, 600 s by default. A seat that fails with a
+`timeout`, `provider`, `malformed-response` or `truncated` fault is called once more, so the
+worst case per seat is two deadlines, about 20 minutes. A Claude Code foreground shell call
+stops at 10 minutes, so **run the driver as a background command** and read its output when it
+exits. A shell that kills the driver first loses every seat's answer. `AsyncCouncilConfig`
+takes `max_retries` 0 (no retry) or 1 (the default); any other value is refused when the
+configuration is built.
+
 Write the driver into a private per-run directory as above, never a fixed shared
 path like `/tmp/driver.py` — a predictable name in a world-writable directory is a
 symlink hazard.
@@ -117,8 +125,37 @@ async def decide(question: str, context: str):
     # deliberate() returns a CouncilDeliberation (crux/scripts/crux/core/data_classes.py):
     #   votes, consensus, consensus_confidence, key_agreements, key_disagreements,
     #   final_recommendation, dissent_count, confidence_adjustment (+ .has_critical_dissent).
+    # final_recommendation keys: action, reason, degraded, errored_seats, off_scale,
+    #   conditioned, conditions, nits, nit_items.
     print(f"Consensus: {decision.consensus}")              # e.g. UNANIMOUS_APPROVE
+    # Consensus labels: UNANIMOUS_APPROVE, UNANIMOUS_REJECT, MAJORITY_APPROVE, MAJORITY_REJECT,
+    # SPLIT, NO_QUORUM, and UNANIMOUS_<TOKEN> when every responding seat returned the same
+    # other decision. UNANIMOUS_OFF_SCALE replaces it when the token is not 1-40 characters of
+    # A-Z and underscore starting with a letter, contains APPROVE or REJECT, or is AUTO_EXECUTE
+    # or EXECUTE_WITH_MONITORING.
+    # Only UNANIMOUS_APPROVE and MAJORITY_APPROVE can route to an execute action; every other
+    # label routes to DEFER_TO_HUMAN or ABORT. Unanimity on REVISE is agreement, not approval.
+    print(decision.final_recommendation["off_scale"])      # ["<provider>:<decision>", ...] for
+                                                            # responding seats outside the known
+                                                            # scale; each entry is bounded and
+                                                            # its unprintable characters replaced
     print(f"Confidence: {decision.consensus_confidence}")
+
+    # A conditioned approval: a responding seat returned APPROVE_WITH_CONDITIONS. The label
+    # can still read UNANIMOUS_APPROVE or MAJORITY_APPROVE, so read the flag. The route is EXECUTE_WITH_MONITORING at
+    # most, never AUTO_EXECUTE. The flag fires only when the prompt puts APPROVE_WITH_CONDITIONS
+    # on the decision scale (the built-in envelope does not).
+    fr = decision.final_recommendation
+    if fr["conditioned"]:                                   # decision.conditioned is the same flag
+        for seat, points in fr["conditions"].items():       # keyed by seat; untrusted model text, carried unchanged
+            print(f"  [condition] {seat}: {points}")
+    # Nits: a responding seat returned APPROVE_WITH_NITS. Nits are reported and never change
+    # the route. Only conditions block.
+    if fr["nits"]:                                          # decision.nits is the same flag
+        for seat, points in fr["nit_items"].items():
+            print(f"  [nit] {seat}: {points}")
+    # Both flags read False, with empty items, when no responding seat returned them. An
+    # errored seat never contributes.
 
     if decision.dissent_count:
         print(f"{decision.dissent_count} dissent(s) — feed into SRDE")
@@ -126,6 +163,15 @@ async def decide(question: str, context: str):
             for d in v.dissenting_points:                   # NOTE: dissenting_points, not dissent_points
                 print(f"  [{v.provider}/{v.model}] {d}")
         # See srde skill
+
+    # Each vote also records how its seat fared. finish_reason is the reply's finish reason
+    # from a closed set (stop, length, content_filter, tool_calls, error, other, missing; None
+    # when the seat got no reply, such as a timeout). fault_label names an errored seat's cause
+    # (one of timeout, provider, malformed-response, truncated, auth, rate-limit, client-config,
+    # refused, insufficient-credit, unexpected-status or unreachable, or unknown). retried marks a seat called a second time; recovered marks a seat that answered on
+    # that second call; first_fault_label and first_finish_reason describe its first attempt.
+    for v in decision.votes:
+        print(v.provider, v.finish_reason, v.fault_label, v.retried, v.recovered)
 
     return decision
 
@@ -163,6 +209,10 @@ votes = await visual_council.analyze_image(
 # Or sync:
 votes = visual_council.analyze_sync(image_b64="...", prompt="...")
 ```
+
+The visual council retries and labels a seat as the text council does. Its result for a seat
+that errored reads `passed=False` at confidence 0.0 and carries `errored=True`. Skip errored
+results when you count failed checks: an errored seat is a missing check, not a failed one.
 
 ## Sync Fallback (only if async is impossible)
 
@@ -204,6 +254,8 @@ API keys are read via `crux_env.require(...)` from `~/.crux/env` (managed by `cr
 ## Rules
 - ALWAYS prefer async for agent teams (parallel teammates = concurrent calls)
 - ALWAYS check `dissent_count` (and each vote's `dissenting_points`) — never just read `consensus`
+- ALWAYS read `final_recommendation["conditioned"]` and `["nits"]`: a conditioned approval can read `UNANIMOUS_APPROVE` or `MAJORITY_APPROVE` but never routes to `AUTO_EXECUTE`
+- ALWAYS run a council driver in the background: the worst case per seat is about 20 minutes
 - ALWAYS provide rich context — models deliberate better with specifics
 - Feed dissents into SRDE for automatic resolution (see srde skill)
 - Register results on Semantic Bridge for cross-teammate visibility

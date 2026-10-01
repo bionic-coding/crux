@@ -36,6 +36,10 @@
       "domain": "rule-citation",
       "rule": "A rule citation resolves by the surface it sits on. A citation on a shipped surface is a binding reference to a rule the plugin ships and resolves against the shipped catalog, whatever the reader's own projection holds, so a project cannot redefine a rule inside the plugin's own instructions by minting the same slug. A citation on a reader-owned surface resolves against the reader's projection first and the shipped catalog second, so the reader's own rules keep their meaning and the plugin's stay reachable. A slug both sides hold is reported wherever the citation lint runs, because a silent substitution and a deliberate override are not the same act. A citation that resolves against neither source is a finding. A surface is shipped when it is part of the artifact the release stages and reader-owned otherwise; the citing file's location decides which rule applies, and the rule being cited never does."
     },
+    "claude-family-wins-a-dual-family-scope": {
+      "domain": "repository-instructions",
+      "rule": "In a scope migration touches and does not refuse, holding a CLAUDE.md-family winner and an AGENTS.md-family loser, the scope's one AGENTS.md holds the winner's bytes with each import line (clause 3) replaced by the loser's bytes, and migration merges nothing else."
+    },
     "code-doc-callers-invoke-through-uv": {
       "domain": "code-docs-dispatcher",
       "rule": "Every skill or gate that invokes the code-doc dispatcher, and every command a skill prints for the reader to run it, uses uv run --no-config."
@@ -72,6 +76,10 @@
       "domain": "code-docs-dispatcher",
       "rule": "Outside --dry-run, a refusal caused by tree content exits 1 with its message on stderr, nothing on stdout, and every output byte-unchanged."
     },
+    "compatibility-is-measured-not-inferred": {
+      "domain": "harness-portability",
+      "rule": "A compatibility verdict reports the effective instruction files a host loads, never a version number alone."
+    },
     "completion-separates-verified-from-unobserved": {
       "domain": "agent-assignment",
       "rule": "A completion report names the assignment's Outcome and gives every Evidence item one of three dispositions: verified, where the claim was observed to hold, with the command and the result token behind it or, where no command produced it, the observation and where it is recorded; contradicted, where the claim was observed and did not hold, which is a finding; and unobserved, where the claim is not established because no observation was made or one was attempted and settled nothing, naming what was attempted, what limited it, and what would settle it. An Evidence item carrying no disposition is a finding. The report states whether the Constraint held and what shows that. Three labels applied to items the assignment already named is not a form: it adds no artifact and no field, it asks for nothing the report was not already claiming, and a direct fix says all of it in one sentence. Evidence is classified by what it observed rather than by the tool that produced it: a test exercising a component establishes that component's behaviour and establishes a user outcome only where it observes that outcome, and instruction text containing an instruction is no evidence that the instruction worked. A result token is the value that settles the claim, such as an exit code, a pass count or a named verdict, and never raw output, an environment value or a secret. A delegator consolidating a worker's report carries a verified item forward only by citing that worker's result token or recorded observation; an item it can neither cite nor re-derive is unobserved. The assignment's three statements and the report's dispositions land in a durable record the tree already holds, so a later reader recovers the acceptance bar without the dispatch or the session: for a cycle, the book's goal and the run snapshot; for a direct fix, the journal entry the direct-fix rung already requires. A task sized for that rung states all of this in one sentence. An unobserved outcome is a stated limit rather than a concern, so the existing concern status keeps meaning a doubt about the work."
@@ -83,10 +91,6 @@
     "declared-triggers-first-prose-fallback": {
       "domain": "skill-trigger-declaration",
       "rule": "The routing-table regenerator reads a skill's declared triggers first and falls back to the quoted phrases in its description's first sentence only where the skill declares none. The fallback is what makes the declared field additive: a skill that still carries its triggers inline keeps routing unchanged, and no existing skill is forced to move."
-    },
-    "dedupe-is-exact-match-only": {
-      "domain": "repository-instructions",
-      "rule": "Automatic deduplication removes only blocks identical in both bytes and heading ancestry; every other difference is retained or escalated to a reviewed resolution."
     },
     "delegation-carries-objectives-context": {
       "domain": "agent-assignment",
@@ -100,9 +104,9 @@
       "domain": "capability-forging",
       "rule": "A developer reports a capability gap to its lead instead of invoking forge-skill, unless the unit it was assigned is to build that capability."
     },
-    "discovery-is-tracked-files-of-one-checkout": {
+    "discovery-reads-entries-in-tracked-scopes": {
       "domain": "repository-instructions",
-      "rule": "Instruction discovery enumerates the tracked files of the checkout it is given and mutates nothing outside that set."
+      "rule": "Instruction discovery reads the directory entries and index paths of each scope in the given checkout that holds a managed instruction file, matches names by Unicode lowercasing rather than probing a path, and mutates no untracked entry except a losing AGENTS.md-family file or an entry a migration run created."
     },
     "disputed-note-outranks-re-verification": {
       "domain": "decision-review",
@@ -146,7 +150,7 @@
     },
     "gate-count-reads-the-roster-header-row": {
       "domain": "decision-review",
-      "rule": "This rule governs gate_count, one of the three delivery signals, and restates its predecessor's clauses without changing them, because retiring one rule that covered three signals would otherwise drop the clauses of a signal this amendment does not touch. gate_count reads no git at all. It finds the regenerator roster by its four-column header row rather than by the heading above it, because that heading spells its count as an English word, so that header row is the input whose absence forces unmeasurable, while a roster the header row locates carrying no enrolled row below it is a count of zero."
+      "rule": "This rule governs gate_count, one of the three delivery signals, and restates its predecessor's clauses, changing only how the roster's header row is recognized, because retiring one rule that covered three signals would otherwise drop the clauses of a signal this amendment does not touch, and because rule:regenerator-declares-its-scope gave that header row a further column. gate_count reads no git at all. It finds the regenerator roster by its header row rather than by the heading above it, because that heading spells its count as an English word. That header row is the one whose first four cells are Output, Source of truth, Regenerator and Drift check, in that order, whatever cells follow them. It is the input whose absence forces unmeasurable, while a roster the header row locates carrying no enrolled row below it is a count of zero."
     },
     "griffe-is-declared-in-the-dispatcher-metadata": {
       "domain": "code-docs-python",
@@ -164,6 +168,10 @@
       "domain": "journal-contract",
       "rule": "Derivation is the steady-state write rule for the journal index row rather than only a repair step, so on every write of that row each cell is derived from the entries the month's journal file holds and no cell is computed from the row it replaces. Existing journal entries keep their content. Each derived cell is required to be bounded — the count by a fence-aware split of that journal file built on the shared fence subset in crux/scripts/md_fences.py, the two dates by the month the file names, and the rollup by a match anchored on the journal's closed nine-member category enum. That bound constrains where a write lands and never whether a cell is right."
     },
+    "losing-agents-file-is-moved-aside-and-reported": {
+      "domain": "repository-instructions",
+      "rule": "In a scope migration does not refuse, a loser whose bytes differ from the resulting AGENTS.md, whether tracked, dirty, untracked or ignored, is kept byte for byte in its own directory under a new, reported name that none of Claude Code, Codex and OpenCode loads by default, and the report says its content was inlined or is no longer loaded."
+    },
     "measure-decomposes-into-falsifiable-parts": {
       "domain": "decision-review",
       "rule": "A measure stating more than one independently falsifiable claim is assessed part by part, and checking one part never establishes the measure. A part whose claim is a trend needs two comparable measurements. A part whose claim is observed behaviour is not established by a schema check, a rule handle, or prose: READING A CODIFIED RULE YIELDS PARTIAL OR INCONCLUSIVE, never resolved and never a gap, so the pairing that would let a rule's existence discriminate is refused at the cell rather than only at the outcome, and such a part reaches a serves conclusion only on a cited execution. Decomposition is one level deep, a quantified claim is one part rather than one per member, and where the measure defers to the statement the statement supplies the parts. Every report carries a decomposition valid against the measure text it records verbatim beside the parts; where that text now differs from the text an earlier report recorded, the earlier decomposition is invalid and a fresh one is owed, so a report cannot keep assessing parts of a measure the owner has rewritten. Copying an unchanged decomposition forward is one way to meet that and is not a step this rule mandates. A goal whose declared measure is the recorded absence of one yields no parts, and its alignment rollup and its measurement outcome are both not-assessed."
@@ -172,13 +180,9 @@
       "domain": "decision-review",
       "rule": "A report carrying no measured_objectives key is no recorded measurement evidence, read as the literal unknown for every goal — never measured, never ignored, never an empty list, and never recomputed from a later report, on the same footing a legacy report's standing already holds. A key present and empty is not legacy but a positive record of zero goals measured. A report carrying the flat list of bare ids is read as attempted for every id it names and never as measured, because that grammar cannot distinguish the two and an earlier report is never edited to disambiguate it. The rotation spans the three newest report dates that exist and asserts nothing about dates that do not, so it is vacuously satisfied where fewer exist; each legacy or absent-key date inside the window is named in Coverage, because a window that is partly blind is owed broader coverage from the current pass."
     },
-    "merge-accounting-balances": {
+    "migration-writes-no-unplanned-entry": {
       "domain": "repository-instructions",
-      "rule": "A merge accounts for every source block, with its heading path, as retained, exactly deduplicated, or superseded by a recorded resolution, and refuses when the accounting does not balance."
-    },
-    "merge-never-reparents-a-block": {
-      "domain": "repository-instructions",
-      "rule": "A merged block keeps the heading ancestry of its source, and a placement that would change it is escalated to a reviewed resolution."
+      "rule": "No migration step replaces an existing entry, case-fold aliases included, or removes any entry except a temporary one the run created; each winner and loser is renamed into AGENTS.md, set aside, or left where it is."
     },
     "mined-values-fenced-and-bounded": {
       "domain": "decision-review",
@@ -348,6 +352,10 @@
       "domain": "decision-review",
       "rule": "The signal set carries three delivery signals — release_cadence, schema_growth and gate_count — and this rule governs release_cadence. It reads the release record from the changelog's dated version headings, and names in its filter the rejected markers with their measured coverage. GIT-DEPENDENCE IS PER MEMBER, not per signal: the changelog alone supplies `releases` and the interval members `intervals_days`, `mean_interval_days` and `median_interval_days`, which compute with no git leg at all; the two per-release members below rest on the mark predicate, which is a first-parent commit test, so they and only they require git. Where the contained git session cannot be established those two members are null and the changelog-only members still compute, and the signal's verdict stays computed, because an absent git session is an absent input for two members rather than for the signal. The release-cadence signal reports two per-release members over the half-open interval that EXCLUDES the previous release's mark and INCLUDES this release's own mark, so consecutive intervals partition the history without overlap and both members read the same interval, and names each for what it counts. `span_commits` counts first-parent commits in that interval; it establishes that those commits lie between two release boundaries and establishes nothing about whether any of them was preparation, concerned that version, or was work that version required. `prep_commits` counts the commits in that same interval whose subject matches the declared preparation prefix; it counts DECLARATIONS and never the span. Zero and null are different values with different meanings on both members: zero means the interval is bounded and the count inside it is zero, and on `prep_commits` that establishes that nobody declared preparation rather than that the release had none; null means the interval is not bounded, and a null is never rendered as a zero. `prep_commits` is keyed by the version string and stays injective because the changelog carries at most one dated heading for a version at any commit, which a heading removed and later restored does not violate; it is never re-keyed on the publication event, because the repository holds no evidence of either event and an event-keyed map would be fabricated."
     },
+    "staging-publishes-no-untracked-bytes-and-drops-no-index-blob": {
+      "domain": "repository-instructions",
+      "rule": "Migration stages nothing in a scope whose result carries bytes read from an untracked or ignored entry, where the exact path AGENTS.md is untracked and git ignores it, or where an instruction-family index entry holds a blob that neither HEAD nor any working-tree entry holds."
+    },
     "swift-dependency-location-strips-credentials": {
       "domain": "arch-stack-pack-swift",
       "rule": "The Swift pack renders every dependency location with its userinfo, query and fragment removed."
@@ -363,6 +371,10 @@
     "triggers-separator-fits-the-value-type": {
       "domain": "skill-trigger-declaration",
       "rule": "The trigger field is pipe-separated rather than comma-separated, because a trigger is a natural-language phrase and a comma occurs inside one. A value whose token carries the separator is refused at validation rather than split, because the encoding cannot represent it. The separator is chosen by what the value type admits, never by what a neighbouring field happens to use."
+    },
+    "unsafe-scope-refuses-alone-with-a-next-step": {
+      "domain": "repository-instructions",
+      "rule": "Migration changes nothing in a scope, and reports each blocking entry with a next step, when the loser is excluded, a link, not a regular file or unreadable, the winner is not a readable regular file, an ignored loser's set-aside name would not be ignored, a family has two spellings, a family member's index entry is unmerged, skip-worktree or assume-unchanged, the scope directory is reached through a symlink, or the volume cannot establish identity or create and rename without replacing; a refused scope blocks no other."
     }
   },
   "schema": "1",

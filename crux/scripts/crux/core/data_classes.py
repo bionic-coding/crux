@@ -226,7 +226,9 @@ class CouncilVote:
     model: str
     provider: str             # anthropic, google, openai
     decision: str             # APPROVE | REJECT | DEFER_TO_HUMAN (async_council verdict envelope);
-                              # the aggregator also counts APPROVE_WITH_NITS / APPROVE_WITH_CONDITIONS as approvals
+                              # the aggregator also counts APPROVE_WITH_NITS / APPROVE_WITH_CONDITIONS as approvals.
+                              # Model output is not validated: any other value is off-scale and is listed in
+                              # final_recommendation["off_scale"] as "<provider>:<decision>"
     reasoning: str
     confidence: float
     dissenting_points: List[str] = field(default_factory=list)
@@ -235,6 +237,21 @@ class CouncilVote:
     # responding-vs-errored partition (ADR-0054): the aggregator excludes these
     # seats from all consensus math. Never parsed from provider output.
     errored: bool = False
+    # Seat telemetry, set only by the council's seat wrapper; never parsed from
+    # provider output. `fault_label` is a closed-vocabulary label from
+    # AsyncCouncil._ERROR_LABELS (errored seats only). `finish_reason` is the
+    # reply's finish reason mapped onto AsyncCouncil's closed _FINISH_REASONS,
+    # or None when the seat got no reply (a timeout, or an HTTP error status
+    # raised before the reply body is read). `retried` marks a seat that
+    # was called a second time. `recovered` marks a seat that answered on that
+    # second call. `first_fault_label` and `first_finish_reason` describe the
+    # first attempt of a seat that was retried.
+    fault_label: Optional[str] = None
+    finish_reason: Optional[str] = None
+    recovered: bool = False
+    retried: bool = False
+    first_fault_label: Optional[str] = None
+    first_finish_reason: Optional[str] = None
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
 
 
@@ -242,7 +259,11 @@ class CouncilVote:
 class CouncilDeliberation:
     """Result of full LLM council deliberation"""
     votes: List[CouncilVote]
-    consensus: str            # What the council decided
+    consensus: str            # UNANIMOUS_APPROVE | UNANIMOUS_REJECT | MAJORITY_APPROVE | MAJORITY_REJECT | SPLIT | NO_QUORUM
+                              # | UNANIMOUS_<TOKEN> (every responding seat returned the same other decision; never an approval)
+                              # | UNANIMOUS_OFF_SCALE (UNANIMOUS_OFF_SCALE replaces it when the token is not
+                              #   1-40 characters of A-Z and underscore starting with a letter, contains
+                              #   APPROVE or REJECT, or is AUTO_EXECUTE or EXECUTE_WITH_MONITORING)
     consensus_confidence: float
     key_agreements: List[str]
     key_disagreements: List[str]
@@ -265,6 +286,25 @@ class CouncilDeliberation:
     def degraded(self) -> bool:
         """True iff any provider seat errored (partial availability, ADR-0054)."""
         return any(getattr(v, "errored", False) for v in self.votes)
+
+    @property
+    def conditioned(self) -> bool:
+        """True iff a responding seat returned APPROVE_WITH_CONDITIONS.
+
+        Reads `final_recommendation["conditioned"]`, whose `conditions` key holds
+        each such seat's points, keyed by seat. A conditioned approval never
+        routes to AUTO_EXECUTE. The points are untrusted model text.
+        """
+        return bool(self.final_recommendation.get("conditioned", False))
+
+    @property
+    def nits(self) -> bool:
+        """True iff a responding seat returned APPROVE_WITH_NITS.
+
+        Reads `final_recommendation["nits"]`, whose `nit_items` key holds each such
+        seat's points, keyed by seat. Nits never change the route.
+        """
+        return bool(self.final_recommendation.get("nits", False))
 
     @property
     def has_critical_dissent(self) -> bool:

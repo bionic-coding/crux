@@ -74,6 +74,17 @@ except ImportError:  # pragma: no cover - exercised only outside scripts/ cwd
     YamlCapabilityError = _yaml_min.YamlCapabilityError
 
 
+try:
+    import record_numbers
+except ImportError:  # pragma: no cover - by-path load, scripts/ not on sys.path
+    _rn_spec = importlib.util.spec_from_file_location(
+        "record_numbers", Path(__file__).resolve().parent / "record_numbers.py"
+    )
+    assert _rn_spec is not None and _rn_spec.loader is not None
+    record_numbers = importlib.util.module_from_spec(_rn_spec)
+    _rn_spec.loader.exec_module(record_numbers)
+
+
 SCHEMAS_DIR = Path(__file__).resolve().parent.parent / "schemas"
 PROMPTBOOK_SCHEMA = SCHEMAS_DIR / "promptbook.schema.json"
 RUN_SCHEMA = SCHEMAS_DIR / "run.schema.json"
@@ -629,6 +640,41 @@ def compute_book_hash(book_dict: dict) -> str:
 # ──────────────────────────────── main ────────────────────────────────────
 
 
+def _tree_of(path: Path) -> tuple[Path, str, str] | None:
+    """The tree a book or run snapshot sits in, its namespace, and the name that
+    carries its number, else None.
+
+    A book sits at `<docs>/promptbooks/{active,archive}/<book>` and a run snapshot at
+    `<docs>/promptbooks/runs/<dir>/<run>`, whose directory carries the number. Anything
+    else, `legacy/` included, is outside a tree and owes no number check.
+    """
+    p = path.resolve()
+    if p.parent.name in ("active", "archive") and p.parent.parent.name == "promptbooks":
+        return p.parent.parent.parent, "books", p.name
+    if p.parent.parent.name == "runs" and p.parent.parent.parent.name == "promptbooks":
+        return p.parent.parent.parent.parent, "run_directories", p.parent.name
+    return None
+
+
+def duplicate_number_errors(path: Path, file_label: str) -> list[dict]:
+    """A duplicate of the validated record's own number, as validator errors.
+
+    Only the book or run directory `path` belongs to is checked. Another record's
+    duplicate, an ADR's included, is not this file's fault; audit-docs and the
+    release gate report every duplicate in the tree.
+    """
+    where = _tree_of(path)
+    if where is None:
+        return []
+    docs, namespace, name = where
+    held = record_numbers.number_of(name)
+    if held is None:
+        return []
+    key = (namespace, *held)
+    return [{"file": file_label, "instance_path": "#", "schema_path": "#", "error": msg}
+            for msg in record_numbers.find_duplicate_numbers(docs, only=key)]
+
+
 def validate_file(path: Path, kind_override: str | None) -> tuple[int, list[dict]]:
     """Validate one file. Returns (exit_code, errors)."""
     file_label = str(path)
@@ -671,6 +717,7 @@ def validate_file(path: Path, kind_override: str | None) -> tuple[int, list[dict
     # non-cycle books and for grandfathered cycle books.
     if kind == "promptbook":
         cycle_coverage_pass(doc, errors, file_label)
+    errors.extend(duplicate_number_errors(path, file_label))
 
     return (1 if errors else 0), errors
 

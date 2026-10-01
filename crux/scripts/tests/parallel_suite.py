@@ -38,8 +38,20 @@ How a run works:
    fixture record, and zero tests. A worker that exits before its payload, or
    exits non-zero, also fails the run closed.
 
+The interpreter check. When START is this driver's own directory, the driver
+first imports `PLUGIN_SUITE_MODULES` in a child started with the argv prefix
+the spawn context gives each worker (the interpreter and its flags). A bare
+`uv run` of this file builds an isolated interpreter from the PEP 723 block
+above, which declares no dependency, so discovery would fail on an import and
+the run would exit 1 as a test failure. When a module cannot be imported the
+driver exits 2 before discovery, names the interpreter, the missing modules and
+the working command `uv run python3 crux/scripts/tests/parallel_suite.py
+crux/scripts/tests`, and prints nothing on stdout. A START that is any other
+directory is not checked, because its tests own their environment.
+
 Exit codes: 0 when every test passed; 1 when a test failed or errored, or an
-expected failure passed; 2 when the driver failed closed; 128 plus the signal
+expected failure passed; 2 when the driver failed closed, or when the
+interpreter check refused the interpreter; 128 plus the signal
 number when SIGINT, SIGTERM or SIGHUP stopped the run. A signal that arrives
 during discovery takes effect once discovery returns, before any worker starts,
 because the unittest loader turns an exception raised inside an import into a
@@ -66,9 +78,11 @@ import argparse
 import collections
 import importlib.util
 import multiprocessing
+import multiprocessing.spawn
 import os
 import re
 import signal
+import subprocess
 import sys
 import time
 import traceback
@@ -120,6 +134,29 @@ HEAVY = {
 Bin = collections.namedtuple("Bin", "index weight positions")
 
 _PREFIX = "parallel_suite:"
+
+# The third-party modules the discovered plugin suite imports at module level: yaml (two test
+# modules), griffe (four; its distribution is griffelib) and httpx (forty-one, through the eager
+# `crux` package import). Names only, no pins: the installers hold the pins. Modules the tests
+# skip on when absent, the tree-sitter grammars, are not listed. A test scans the suite and fails
+# when a test imports a module that is not listed here.
+PLUGIN_SUITE_MODULES = ("yaml", "httpx", "griffe")
+WORKING_COMMAND = "uv run python3 crux/scripts/tests/parallel_suite.py crux/scripts/tests"
+_PROBE_TIMEOUT_SECONDS = 120
+# The child reports on one marked line, so anything else an interpreter prints at startup
+# (a sitecustomize, a .pth hook, a module that prints on import) is never read as a name.
+_PROBE_MARKER = "crux-probe-missing:"
+_PROBE_SOURCE = (
+    "import importlib, sys\n"
+    "_PROBE_MARKER = %r\n" % _PROBE_MARKER +
+    "missing = []\n"
+    "for name in sys.argv[1:]:\n"
+    "    try:\n"
+    "        importlib.import_module(name)\n"
+    "    except ImportError:\n"
+    "        missing.append(name)\n"
+    "sys.stdout.write('\\n' + _PROBE_MARKER + ','.join(missing) + '\\n')\n"
+)
 # How long the coordinator waits for a message before it checks whether a
 # worker has exited. A ready pipe or sentinel ends the wait at once.
 _POLL_SECONDS = 1.0
@@ -917,6 +954,58 @@ def _crux_origin():
     return locations[0] if locations else None
 
 
+def _worker_interpreter_argv():
+    """The argv prefix that starts a spawned worker: the interpreter and its flags.
+
+    Read from the spawn context's own command line, so the check runs under the interpreter,
+    flags (`-S`, `-I`, `-X`) and, through the inherited environment and cwd, the import path that
+    the workers get. Discovery runs in the coordinator, and the coordinator is the same
+    interpreter as its spawned workers."""
+    command = multiprocessing.spawn.get_command_line()
+    return command[:command.index("-c")] if "-c" in command else [sys.executable]
+
+
+def _missing_modules(modules):
+    """The `modules` a worker interpreter cannot import. Raises when the check cannot run."""
+    proc = subprocess.run(
+        [*_worker_interpreter_argv(), "-c", _PROBE_SOURCE, *modules], capture_output=True,
+        text=True, encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL,
+        timeout=_PROBE_TIMEOUT_SECONDS)
+    if proc.returncode != 0:
+        raise RuntimeError("the import check exited %d: %s" % (proc.returncode, proc.stderr.strip()))
+    return _parse_probe(proc.stdout)
+
+
+def _parse_probe(stdout):
+    """The missing module names from the probe's marked line. Raises RuntimeError when the
+    line is absent, because then the check did not run to its end."""
+    for line in reversed(stdout.splitlines()):
+        if line.startswith(_PROBE_MARKER):
+            return [name for name in line[len(_PROBE_MARKER):].split(",") if name]
+    raise RuntimeError("the import check printed no result line")
+
+
+def _targets_own_tests(start):
+    """True when `start` resolves to the directory this driver lives in."""
+    return os.path.realpath(start) == os.path.dirname(os.path.realpath(__file__))
+
+
+def _refuse_incapable_interpreter(args):
+    """The exit-2 message when START is the plugin suite and its interpreter lacks a dependency,
+    else None."""
+    if not _targets_own_tests(args.start):
+        return None
+    try:
+        missing = _missing_modules(PLUGIN_SUITE_MODULES)
+    except Exception as exc:  # the check could not run: the same environment lane
+        return ("the interpreter check could not run under %s: %s: %s. Run `%s`."
+                % (sys.executable, type(exc).__name__, exc, WORKING_COMMAND))
+    if missing:
+        return ("the interpreter %s cannot import: %s. The plugin suite needs them. Run `%s`."
+                % (sys.executable, ", ".join(missing), WORKING_COMMAND))
+    return None
+
+
 def _header(args, manifest, bins, workers):
     requested = args.workers if args.workers is not None else "default %d" % DEFAULT_WORKERS
     origin = _crux_origin()
@@ -963,6 +1052,10 @@ def _parse(argv):
 
 def main(argv=None):
     args = _parse(argv)
+    refusal = _refuse_incapable_interpreter(args)
+    if refusal:
+        sys.stderr.write("%s FAILED CLOSED: %s\n" % (_PREFIX, refusal))
+        return 2
     records_path = os.path.abspath(args.records) if args.records else None
     if not sys.flags.safe_path:
         # The `python -m unittest` shape: the working directory first, in

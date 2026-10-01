@@ -116,6 +116,48 @@ def _run_vision_seat(body):
 
 
 @unittest.skipUnless(HAVE_COUNCIL, "council/router deps unavailable — run under uv")
+class IngestLabelVocabularyTests(unittest.TestCase):
+    """Every way a reply fails ingest lands on a label in the closed set."""
+
+    #: The label set and the finish set, pinned as SETS. `test_council_retry.py`
+    #: drives each label through a seat; this pins the vocabulary they draw from.
+    LABELS = {
+        "refused", "insufficient-credit", "timeout", "auth", "rate-limit",
+        "unreachable", "provider", "client-config", "malformed-response",
+        "unexpected-status", "truncated",
+    }
+
+    def test_the_label_table_holds_exactly_the_pinned_set(self):
+        self.assertEqual(set(AsyncCouncil._ERROR_LABELS.values()), self.LABELS)
+
+    def test_ingest_failures_carry_a_label_from_the_set_and_never_client_config(self):
+        cases = {
+            "not json": _vote_body("no braces"),
+            "empty": _vote_body(""),
+            "dissents null": _vote_body('{"decision": "APPROVE", "dissents": null}'),
+            "confidence": _vote_body('{"decision": "APPROVE", "confidence": 99}'),
+            "length": {"choices": [{"finish_reason": "length",
+                                    "message": {"content": '{"decision": "APPROVE"}'}}]},
+        }
+        seen = set()
+        for name, body in cases.items():
+            with self.subTest(case=name):
+                vote = _run_council_seat(body)
+                self.assertTrue(vote.errored)
+                self.assertIn(vote.fault_label, self.LABELS)
+                self.assertNotEqual(vote.fault_label, "client-config")
+                seen.add(vote.fault_label)
+        self.assertEqual(seen, {"malformed-response", "truncated"})
+
+    def test_the_finish_vocabulary_is_the_pinned_set(self):
+        import crux.council.async_council as ac
+
+        self.assertEqual(set(ac._FINISH_REASONS),
+                         {"stop", "length", "content_filter", "tool_calls", "error",
+                          "other", "missing"})
+
+
+@unittest.skipUnless(HAVE_COUNCIL, "council/router deps unavailable — run under uv")
 class ConfidenceValidationTests(unittest.TestCase):
     """SEC-1: hostile confidence values must be an error vote, never a crash."""
 

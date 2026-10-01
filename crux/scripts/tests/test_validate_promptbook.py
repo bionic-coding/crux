@@ -53,6 +53,7 @@ def _load_validator():
 
 
 vp = _load_validator()
+import record_numbers  # noqa: E402  (importable once the loader put scripts/ on sys.path)
 
 
 class SchemaSubsetConformanceTests(unittest.TestCase):
@@ -905,6 +906,106 @@ class TemplateInstantiationTests(unittest.TestCase):
             msg="iterate-promptbook-template.yaml prompt 7 lost the "
             "release-content gate (ADR-0034 §4 / PB-0041).",
         )
+
+
+class DuplicateNumberInTreeTests(unittest.TestCase):
+    """A file validated inside a documentation tree fails when the tree holds a
+    duplicate promptbook or run-directory number.
+
+    A duplicate is a property of the tree, so the finding rides on any file the
+    validator is pointed at inside it. A fixture outside a tree owes nothing. The
+    clean-tree tests are the controls: the same file, in a tree with no duplicate,
+    exits 0, so the exit 1 comes from the duplicate and not from the file.
+    """
+
+    def setUp(self):
+        import shutil
+        import tempfile
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.pb = self.tmp / "bionic" / "promptbooks"
+        self.book_src = FIXTURES / "promptbook-valid.yaml"
+        self.run_src = FIXTURES / "run-valid.yaml"
+
+    def _put(self, src: Path, dest: Path) -> Path:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+        return dest
+
+    def _seed_duplicate_books(self) -> Path:
+        first = self._put(self.book_src, self.pb / "active" / "PB-0001-alpha.yaml")
+        self._put(self.book_src, self.pb / "archive" / "PB-0001-alpha-copy.yaml")
+        return first
+
+    def test_a_clean_tree_leaves_a_valid_book_at_exit_zero(self):
+        book = self._put(self.book_src, self.pb / "active" / "PB-0001-alpha.yaml")
+        code, errors = vp.validate_file(book, None)
+        self.assertEqual((code, errors), (0, []))
+
+    def test_a_duplicate_book_number_fails_a_book_in_active(self):
+        book = self._seed_duplicate_books()
+        code, errors = vp.validate_file(book, None)
+        self.assertEqual(code, 1)
+        named = [e["error"] for e in errors if "PB-0001" in e["error"]]
+        self.assertEqual(len(named), 1, errors)
+        self.assertIn("PB-0001-alpha-copy.yaml", named[0])
+
+    def test_a_duplicate_book_number_fails_a_book_in_archive(self):
+        self._seed_duplicate_books()
+        code, errors = vp.validate_file(self.pb / "archive" / "PB-0001-alpha-copy.yaml",
+                                        None)
+        self.assertEqual(code, 1)
+        self.assertTrue(any("PB-0001" in e["error"] for e in errors), errors)
+
+    def test_a_duplicate_run_directory_fails_a_run_snapshot(self):
+        run = self._put(self.run_src, self.pb / "runs" / "PB-0001-alpha" / "run-RUN-001.yaml")
+        code, errors = vp.validate_file(run, None)
+        self.assertEqual((code, errors), (0, []), "control: one run directory is clean")
+        self._put(self.run_src, self.pb / "runs" / "PB-0001-fork" / "run-RUN-001.yaml")
+        code, errors = vp.validate_file(run, None)
+        self.assertEqual(code, 1)
+        self.assertTrue(any("PB-0001" in e["error"] for e in errors), errors)
+
+    def test_a_copy_under_legacy_does_not_fail_the_book(self):
+        book = self._put(self.book_src, self.pb / "archive" / "PB-0001-alpha.yaml")
+        self._put(self.book_src, self.pb / "legacy" / "PB-0001-alpha.md")
+        self.assertEqual(vp.validate_file(book, None), (0, []))
+
+    def test_a_fixture_outside_any_tree_is_unaffected(self):
+        loose = self._put(self.book_src, self.tmp / "loose" / "PB-0001-alpha.yaml")
+        self._put(self.book_src, self.tmp / "loose" / "PB-0001-alpha-copy.yaml")
+        self.assertEqual(vp.validate_file(loose, None), (0, []))
+
+    def test_an_adr_duplicate_does_not_fail_a_book(self):
+        """A duplicate ADR is audit-docs' and the release gate's finding. It says
+        nothing about a promptbook, so a book validated beside it stays valid."""
+        book = self._put(self.book_src, self.pb / "active" / "PB-0001-alpha.yaml")
+        adrs = self.tmp / "bionic" / "adrs"
+        adrs.mkdir(parents=True)
+        (adrs / "ADR-0003-one.md").write_text("x\n", encoding="utf-8")
+        (adrs / "ADR-0003-two.md").write_text("x\n", encoding="utf-8")
+        self.assertTrue(record_numbers.find_duplicate_numbers(self.tmp / "bionic"),
+                        "control: the tree does hold a duplicate ADR")
+        self.assertEqual(vp.validate_file(book, None), (0, []))
+
+    def test_another_books_duplicate_does_not_fail_this_book(self):
+        """The finding rides on the records that share the number, not on every
+        book in the tree."""
+        book = self._put(self.book_src, self.pb / "active" / "PB-0001-alpha.yaml")
+        self._put(self.book_src, self.pb / "active" / "PB-0002-beta.yaml")
+        self._put(self.book_src, self.pb / "archive" / "PB-0002-beta-copy.yaml")
+        self.assertEqual(vp.validate_file(book, None), (0, []))
+        code, errors = vp.validate_file(self.pb / "active" / "PB-0002-beta.yaml", None)
+        self.assertEqual(code, 1, "control: a book holding the duplicate still fails")
+        self.assertTrue(any("PB-0002" in e["error"] for e in errors), errors)
+
+    def test_the_command_line_exits_one_and_names_the_duplicate(self):
+        book = self._seed_duplicate_books()
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            code = vp.main([str(book)])
+        self.assertEqual(code, 1)
+        self.assertIn("PB-0001", buf.getvalue())
 
 
 if __name__ == "__main__":

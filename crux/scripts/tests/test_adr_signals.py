@@ -2,9 +2,11 @@
 
 Every case reads the miniature repo roots under
 `crux/scripts/tests/fixtures/adr-signals-corpus/` and nothing else: `trips/`
-carries a fixture that trips each signal, `quiet/` one that does not. No case
-reads the live tree, the README, or any other dev-only surface, so the suite
-passes unchanged against the crux-only staged artifact.
+carries a fixture that trips each signal, `quiet/` one that does not. One
+case reads the live repo-root `AGENTS.md`, guarded by `require_dev_surface`,
+so a roster the fixtures freeze cannot hide a live header change. No other
+case reads the live tree, the README, or any other dev-only surface, so the
+suite passes unchanged against the crux-only staged artifact.
 """
 
 from __future__ import annotations
@@ -24,6 +26,11 @@ import unittest.mock
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
+try:
+    from ._dev_surface import require_dev_surface
+except ImportError:
+    from _dev_surface import require_dev_surface
+
 SCRIPT = REPO_ROOT / "crux" / "scripts" / "adr-signals.py"
 CORPUS = Path(__file__).resolve().parent / "fixtures" / "adr-signals-corpus"
 TODAY = dt.date(2026, 2, 20)
@@ -686,13 +693,14 @@ class DoctrineEscapedPipeTests(unittest.TestCase):
 
     def _append_row(self, basis: str) -> None:
         row = ("| ADR-0003/pipe-rule | rule:pipe-rule | a rule whose text says "
-               "`a \\| b` on purpose | ADR-0003 | decided | " + basis + " |\n")
+               "`a \\| b` on purpose | ADR-0003 | Accepted | decided | " + basis + " |\n")
         text = self.doctrine.read_text(encoding="utf-8")
-        marker = "## Exempt ADRs"
-        if marker in text:
-            text = text.replace(marker, row + "\n" + marker, 1)
-        else:
-            text = text.rstrip("\n") + "\n" + row
+        # The row goes INSIDE a rule table, as the doctrine compiler writes
+        # it: a rule-handle line outside every table is a malformed index.
+        last_rule_row = ("| OBS-0001/observed-thing | rule:observed-thing | An observed "
+                         "fixture fact. | OBS-0001 | ratified | observed | evidence-resolves |\n")
+        self.assertIn(last_rule_row, text)
+        text = text.replace(last_rule_row, last_rule_row + row, 1)
         self.doctrine.write_text(text, encoding="utf-8")
 
     def test_a_run_bound_row_with_an_escaped_pipe_reads_false_not_null(self):
@@ -952,10 +960,10 @@ class RedactionRoutingTests(unittest.TestCase):
         control = next(e for e in self._errors(root2) if e["input"].startswith("ADR-9998-"))
         self.assertEqual(control["input"], benign)
 
-    def test_an_unprintable_doctrine_basis_is_replaced_not_echoed(self):
+    def test_an_unprintable_doctrine_basis_is_not_echoed(self):
         # ESC is the sharp one: `\x1b[2J` clears the reader's terminal, so a
         # basis cell that reached stdout verbatim would erase the finding that
-        # reported it.
+        # reported it. The cell is named by position and length, never quoted.
         esc = chr(27)
         hostile = f"not-run{esc}[2Jbound"
         root = self._root()
@@ -963,30 +971,28 @@ class RedactionRoutingTests(unittest.TestCase):
         text = doctrine.read_text(encoding="utf-8")
         doctrine.write_text(
             text.replace("| ADR-0001/alpha-one | rule:alpha-one | The first fixture rule. "
-                         "| ADR-0001 | decided | not-run-bound |",
+                         "| ADR-0001 | Accepted | decided | not-run-bound |",
                          f"| ADR-0001/alpha-one | rule:alpha-one | The first fixture rule. "
-                         f"| ADR-0001 | decided | {hostile} |"),
+                         f"| ADR-0001 | Accepted | decided | {hostile} |"),
             encoding="utf-8")
         entry = next(e for e in self._errors(root) if "unknown basis" in e["problem"])
         self.assertNotIn(esc, entry["problem"])
-        self.assertIn("\ufffd", entry["problem"])
-        self.assertIn("1 unprintable character redacted", entry["problem"])
+        self.assertNotIn("[2J", entry["problem"])
+        self.assertIn(f"in cell 7, {len(hostile)} characters long", entry["problem"])
 
         # PAIRED POSITIVE CONTROL: an unknown but wholly PRINTABLE basis is
-        # reported verbatim and carries no redaction note, so the assertion
-        # above measures the unprintable character and not merely "the
-        # message mentioned the cell".
+        # not quoted either, so the assertions above measure the rule that no
+        # cell content is echoed, and not the unprintable character alone.
         root2 = self._root()
         doctrine2 = root2 / "bionic" / "adrs" / "doctrine" / "index.md"
         doctrine2.write_text(
             doctrine2.read_text(encoding="utf-8").replace(
-                "| ADR-0001 | decided | not-run-bound |",
-                "| ADR-0001 | decided | not-run-bounded |", 1),
+                "| ADR-0001 | Accepted | decided | not-run-bound |",
+                "| ADR-0001 | Accepted | decided | not-run-bounded |", 1),
             encoding="utf-8")
         control = next(e for e in self._errors(root2) if "unknown basis" in e["problem"])
-        self.assertIn("not-run-bounded", control["problem"])
-        self.assertNotIn("redacted", control["problem"])
-        self.assertNotIn("\ufffd", control["problem"])
+        self.assertNotIn("not-run-bounded", control["problem"])
+        self.assertIn("in cell 7, 15 characters long", control["problem"])
 
     def test_a_hostile_today_cannot_forge_or_flood_a_stderr_line(self):
         # `--today` is the one untrusted value that reaches stderr on the
@@ -1105,19 +1111,22 @@ class FreshInitTreeCliTests(unittest.TestCase):
     #: stdout whenever that file is READ — the paired inside-root control
     #: proves it — and its absence means the read was refused.
     SENTINEL = "PLANTEDOUTSIDESENTINEL"
+    #: What reading the planted row puts on stdout. A basis value is never
+    #: quoted, so the row's cause and the sentinel's length mark the read.
+    PLANTED_CAUSE = f"unknown basis value in cell 7, {len(SENTINEL)} characters long"
     PLANTED_INDEX = (
         "# doctrine\n\n## planted\n\n"
-        "| handle | citation | rule | source ADR | disposition | basis |\n"
-        "|--------|----------|------|------------|-------------|-------|\n"
-        "| ADR-0000/planted | rule:planted | A planted rule. | ADR-0000 | decided "
-        f"| {SENTINEL} |\n"
+        "| handle | citation | rule | source ADR | source_status | disposition | basis |\n"
+        "|--------|----------|------|------------|---------------|-------------|-------|\n"
+        "| ADR-0000/planted | rule:planted | A planted rule. | ADR-0000 | Accepted "
+        f"| decided | {SENTINEL} |\n"
     )
     CLEAN_INDEX = (
         "# doctrine\n\n## clean\n\n"
-        "| handle | citation | rule | source ADR | disposition | basis |\n"
-        "|--------|----------|------|------------|-------------|-------|\n"
-        "| ADR-0000/clean | rule:clean | A clean rule. | ADR-0000 | decided "
-        "| not-run-bound |\n"
+        "| handle | citation | rule | source ADR | source_status | disposition | basis |\n"
+        "|--------|----------|------|------------|---------------|-------------|-------|\n"
+        "| ADR-0000/clean | rule:clean | A clean rule. | ADR-0000 | Accepted "
+        "| decided | not-run-bound |\n"
     )
 
     def _adr_0000(self) -> str:
@@ -1258,10 +1267,17 @@ class FreshInitTreeCliTests(unittest.TestCase):
         self.assertEqual(len(rows), 1, payload.get("errors"))
         self.assertTrue(rows[0]["problem"].startswith(self.NOT_READ), rows[0])
         self.assertNotIn(self.SENTINEL, proc.stdout)
+        # The planted row's basis is unknown. Read, it puts this cause on
+        # stdout; its absence is the refusal.
+        self.assertNotIn(self.PLANTED_CAUSE, proc.stdout)
         by = {r["signal"]: r for r in payload["signals"]}
-        # Not the never-compiled branch: the record is the per-ADR map.
-        self.assertEqual(by["paper_only"]["verdict"], "computed")
-        self.assertIsNone(by["paper_only"]["value"]["ADR-0000"])
+        # Not the never-compiled branch, and not a computed map either: an
+        # index that was not read is an absent input, so the WHOLE record is
+        # unmeasurable rather than a `computed` map of nulls read from nothing.
+        self.assertEqual(by["paper_only"]["verdict"], "unmeasurable")
+        self.assertIsNone(by["paper_only"]["value"])
+        self.assertIn("was not read", by["paper_only"]["filter"])
+        self.assertNotIn("both absent", by["paper_only"]["filter"])
         assert_envelope_contract(self, payload)
         return payload
 
@@ -1299,11 +1315,11 @@ class FreshInitTreeCliTests(unittest.TestCase):
         by = {r["signal"]: r for r in payload["signals"]}
         self.assertEqual(by["paper_only"]["verdict"], "computed")
         self.assertIs(by["paper_only"]["value"]["ADR-0000"], True)
-        # And the planted text DOES reach stdout when its file is read, so the
-        # sentinel's absence in the outside case is the refusal.
+        # And the planted row's cause DOES reach stdout when its file is read,
+        # so the cause's absence in the outside case is the refusal.
         inside.write_text(self.PLANTED_INDEX, encoding="utf-8")
         proc, _ = self._cli(root)
-        self.assertIn(self.SENTINEL, proc.stdout)
+        self.assertIn(self.PLANTED_CAUSE, proc.stdout)
 
     @unittest.skipUnless(hasattr(os, "symlink"), "platform has no symlink support")
     def test_a_doctrine_dir_symlinked_outside_with_an_index_exits_one(self):
@@ -1399,8 +1415,9 @@ class FreshInitTreeCliTests(unittest.TestCase):
         self.assertEqual(len(rows), 1, payload.get("errors"))
         self.assertTrue(rows[0]["problem"].startswith(self.NOT_READ), rows[0])
         by = {r["signal"]: r for r in payload["signals"]}
-        self.assertEqual(by["paper_only"]["verdict"], "computed")
-        self.assertIsNone(by["paper_only"]["value"]["ADR-0000"])
+        self.assertEqual(by["paper_only"]["verdict"], "unmeasurable")
+        self.assertIsNone(by["paper_only"]["value"])
+        self.assertIn("was not read", by["paper_only"]["filter"])
         assert_envelope_contract(self, payload)
 
     def test_an_empty_real_doctrine_dir_exits_zero_unmeasurable(self):
@@ -2769,7 +2786,10 @@ class SchemaGrowthTests(unittest.TestCase):
                 rec["value"]["conditions"])
 
 
-ROSTER_HEADER = "| Output | Source of truth | Regenerator | Drift check |"
+#: The live roster header shape: four leading named cells plus `Scope`.
+ROSTER_HEADER = "| Output | Source of truth | Regenerator | Drift check | Scope |"
+#: The legacy four-cell shape, which still locates the roster.
+LEGACY_ROSTER_HEADER = "| Output | Source of truth | Regenerator | Drift check |"
 
 
 class GateCountTests(unittest.TestCase):
@@ -2783,7 +2803,8 @@ class GateCountTests(unittest.TestCase):
         # Positive control that the header row is the input: the fixture's
         # heading above the table spells its count as an English word.
         text = (TRIPS / "AGENTS.md").read_text(encoding="utf-8")
-        self.assertIn(ROSTER_HEADER, text)
+        self.assertIn(LEGACY_ROSTER_HEADER, text)
+        self.assertNotIn(ROSTER_HEADER, text)
         self.assertIn("## Two regenerative outputs", text)
 
     def test_unmeasurable_over_a_root_with_no_claude_md(self):
@@ -4832,7 +4853,9 @@ class RenderedDictKeyTests(unittest.TestCase):
         active = {HOSTILE_ADR_ID: {"amends": [], "supersedes": []}}
         records = [
             sig.signal_amendment_fan_in(active, "bionic"),
-            sig.signal_paper_only(active, {}, "bionic"),
+            sig.signal_paper_only(active, sig.DoctrineRead(
+                rows={}, exempt=[], nulled=frozenset(), failures=[],
+                rule_tables=1, rule_rows=0), "bionic"),
             sig.signal_dormancy_days(active, [], TODAY, "bionic"),
         ]
         for rec in records:
@@ -4844,6 +4867,676 @@ class RenderedDictKeyTests(unittest.TestCase):
                 table = sig.render_table({"active_adrs": 1, "signals": [rec]})
                 self.assertNotIn("\x1b", table)
                 self.assertIn("unprintable characters redacted", table)
+
+
+# --------------------------------------------------------------------------
+# Header-keyed table reading: gate_count's roster and paper_only's doctrine
+# index. Both readers pinned a table's exact shape, and both tables gained a
+# column. The roster gained `Scope`, so gate_count read `unmeasurable` on every
+# run. The doctrine rule tables gained `source_status`, so paper_only read 0 of
+# 313 rows and still reported `computed`.
+# --------------------------------------------------------------------------
+
+def _separator(cells: int) -> str:
+    return "|" + "---|" * cells
+
+
+ROSTER_ROW = "| a.md | a.src | gen-a | check-a | repo |"
+
+
+def _roster(header: str, *body: str, before: str = "") -> str:
+    """A repo-root AGENTS.md: the header on line 5 unless `before` adds lines."""
+    return ("# AGENTS.md\n\n## Some regenerative outputs\n\n" + before + header + "\n"
+            + "".join(line + "\n" for line in body)
+            + "\nProse after the table.\n")
+
+
+def _gate(tc: unittest.TestCase, text: str) -> dict:
+    tmp = tempfile.TemporaryDirectory(prefix="adr-signals-roster-")
+    tc.addCleanup(tmp.cleanup)
+    root = Path(tmp.name)
+    (root / "AGENTS.md").write_text(text, encoding="utf-8")
+    return sig.signal_gate_count(root, "bionic")
+
+
+#: The two header shapes that locate the roster, each with its separator.
+ROSTER_SHAPES = ((ROSTER_HEADER, _separator(5)), (LEGACY_ROSTER_HEADER, _separator(4)))
+
+
+class GateCountHeaderShapeTests(unittest.TestCase):
+    """The roster is located by its first four header cells, whatever follows."""
+
+    def test_the_live_five_cell_header_computes(self):
+        # The live roster's header shape. Before the fix the exact four-cell
+        # string never matched it, and the signal read `unmeasurable`.
+        rec = _gate(self, _roster(ROSTER_HEADER, _separator(5), ROSTER_ROW, ROSTER_ROW))
+        self.assertEqual(rec["verdict"], "computed", rec)
+        self.assertEqual(rec["value"], 2)
+        self.assertIn("located at line 5", rec["basis"])
+
+    def test_a_sixth_trailing_cell_computes(self):
+        header = ROSTER_HEADER + " Owner |"
+        rec = _gate(self, _roster(header, _separator(6), ROSTER_ROW + " x |"))
+        self.assertEqual(rec["verdict"], "computed", rec)
+        self.assertEqual(rec["value"], 1)
+
+    def test_the_legacy_four_cell_header_still_computes(self):
+        rec = _gate(self, _roster(LEGACY_ROSTER_HEADER, _separator(4), ROSTER_ROW))
+        self.assertEqual(rec["verdict"], "computed", rec)
+        self.assertEqual(rec["value"], 1)
+
+    def test_a_changed_leading_cell_locates_no_roster(self):
+        cases = {
+            "renamed": "| Outputs | Source of truth | Regenerator | Drift check | Scope |",
+            "reordered": "| Output | Source of truth | Drift check | Regenerator | Scope |",
+            "prepended": "| Kind | Output | Source of truth | Regenerator | Drift check |",
+            "no trailing pipe": "| Output | Source of truth | Regenerator | Drift check | Scope",
+        }
+        for name, header in cases.items():
+            with self.subTest(header=name):
+                rec = _gate(self, _roster(header, _separator(5), ROSTER_ROW))
+                self.assertEqual(rec["verdict"], "unmeasurable", rec)
+                self.assertIsNone(rec["value"])
+                self.assertIn("carries no roster header row", rec["filter"])
+                # The filter names the four leading cells, not a literal row.
+                self.assertIn("first four cells are Output, Source of truth, "
+                              "Regenerator and Drift check", rec["filter"])
+        # PAIRED POSITIVE CONTROL: the same fixture with the live header
+        # computes, so each refusal above is the header and not the fixture.
+        rec = _gate(self, _roster(ROSTER_HEADER, _separator(5), ROSTER_ROW))
+        self.assertEqual((rec["verdict"], rec["value"]), ("computed", 1))
+
+    def test_a_fenced_five_cell_decoy_is_not_a_candidate(self):
+        decoy = f"{FENCE}text\n{ROSTER_HEADER}\n{_separator(5)}\n| decoy |\n{FENCE}\n\n"
+        rec = _gate(self, _roster(ROSTER_HEADER, _separator(5), ROSTER_ROW, ROSTER_ROW,
+                                  before=decoy))
+        self.assertEqual(rec["verdict"], "computed", rec)
+        self.assertEqual(rec["value"], 2)
+
+    def test_two_unfenced_five_cell_headers_are_refused(self):
+        first = f"{ROSTER_HEADER}\n{_separator(5)}\n| decoy |\n\n"
+        rec = _gate(self, _roster(ROSTER_HEADER, _separator(5), ROSTER_ROW, before=first))
+        self.assertEqual(rec["verdict"], "unmeasurable", rec)
+        self.assertIn("2 lines matching the roster header row", rec["filter"])
+
+
+class GateCountBodyExtentTests(unittest.TestCase):
+    """A second delimiter-shaped line makes the roster's extent ambiguous.
+
+    Every case runs over the legacy four-cell header too. The code before the
+    fix located that header, so a case there fails before the fix by its count
+    rather than only by the header it could not locate.
+    """
+
+    def _refused(self, rec: dict, line: int) -> None:
+        self.assertEqual(rec["verdict"], "unmeasurable", rec)
+        self.assertIsNone(rec["value"])
+        self.assertIn(f"delimiter-shaped line at line {line}", rec["basis"])
+        self.assertIn("a delimiter-shaped line inside the roster body makes the "
+                      "roster's extent ambiguous", rec["filter"])
+
+    def _computed(self, rec: dict, value: int) -> None:
+        self.assertEqual((rec["verdict"], rec["value"]), ("computed", value), rec)
+
+    def test_a_separator_shaped_row_inside_the_body_is_refused(self):
+        for header, sep in ROSTER_SHAPES:
+            with self.subTest(header=header):
+                self._refused(_gate(self, _roster(header, sep, ROSTER_ROW, sep, ROSTER_ROW)), 8)
+                # PAIRED CONTROL: without the stray separator the same rows count.
+                self._computed(_gate(self, _roster(header, sep, ROSTER_ROW, ROSTER_ROW)), 2)
+
+    def test_a_doubled_separator_is_refused(self):
+        for header, sep in ROSTER_SHAPES:
+            with self.subTest(header=header):
+                self._refused(_gate(self, _roster(header, sep, sep, ROSTER_ROW)), 7)
+
+    def test_a_table_glued_under_the_roster_is_refused(self):
+        for header, sep in ROSTER_SHAPES:
+            with self.subTest(header=header):
+                rec = _gate(self, _roster(header, sep, ROSTER_ROW, ROSTER_ROW,
+                                          "| Other | Table |", "|---|---|", "| x | y |"))
+                self._refused(rec, 10)
+
+    def test_a_glued_delimiter_with_no_trailing_pipe_is_refused(self):
+        # A GFM delimiter row needs no outer pipes.
+        # Read with the trailing pipe required, this input counted 5 rows.
+        for header, sep in ROSTER_SHAPES:
+            with self.subTest(header=header):
+                rec = _gate(self, _roster(header, sep, ROSTER_ROW, ROSTER_ROW,
+                                          "| Other | Table |", "|---|---", "| x | y |"))
+                self._refused(rec, 10)
+                # PAIRED CONTROL: the roster alone counts its two rows.
+                self._computed(_gate(self, _roster(header, sep, ROSTER_ROW, ROSTER_ROW)), 2)
+
+    def test_a_glued_delimiter_with_no_leading_pipe_ending_the_body_is_refused(self):
+        # `---|---` opens with no pipe, so it ends the body. The delimiter
+        # test also runs on that line.
+        for header, sep in ROSTER_SHAPES:
+            with self.subTest(header=header):
+                rec = _gate(self, _roster(header, sep, ROSTER_ROW, ROSTER_ROW,
+                                          "| Other | Table |", "---|---", "x | y"))
+                self._refused(rec, 10)
+                # PAIRED CONTROL: a thematic break carries no pipe, so the
+                # line that ends the body is not refused.
+                self._computed(_gate(self, _roster(header, sep, ROSTER_ROW, ROSTER_ROW,
+                                                   "---")), 2)
+
+    def test_a_row_with_no_leading_pipe_ending_the_body_is_refused(self):
+        # A renderer draws `f | g | h | i | j` as a roster row. Counting only
+        # the pipe-opening rows above it would undercount the roster at exit 0.
+        for header, sep in ROSTER_SHAPES:
+            with self.subTest(header=header):
+                rec = _gate(self, _roster(header, sep, ROSTER_ROW,
+                                          "f | g | h | i | j", ROSTER_ROW))
+                self.assertEqual(rec["verdict"], "unmeasurable", rec)
+                self.assertIsNone(rec["value"])
+                self.assertIn("line 8 ends the body and carries a pipe", rec["basis"])
+                self.assertIn("roster's extent is ambiguous", rec["filter"])
+                # PAIRED CONTROL: the same row written with its pipes counts.
+                self._computed(_gate(self, _roster(header, sep, ROSTER_ROW,
+                                                   "| f | g | h | i | j |",
+                                                   ROSTER_ROW)), 3)
+
+    def test_a_header_with_no_separator_counts_every_row(self):
+        for header, _sep in ROSTER_SHAPES:
+            with self.subTest(header=header):
+                self._computed(_gate(self, _roster(header, ROSTER_ROW, ROSTER_ROW,
+                                                   ROSTER_ROW)), 3)
+
+    def test_an_indented_body_row_counts(self):
+        for header, sep in ROSTER_SHAPES:
+            with self.subTest(header=header):
+                self._computed(_gate(self, _roster(header, sep, ROSTER_ROW,
+                                                   "  " + ROSTER_ROW, ROSTER_ROW)), 3)
+
+    def test_a_blank_line_then_another_table_counts_zero(self):
+        for header, _sep in ROSTER_SHAPES:
+            with self.subTest(header=header):
+                self._computed(_gate(self, _roster(header, "", "| x |", "|---|",
+                                                   "| 1 |")), 0)
+
+    def test_a_row_of_em_dashes_still_counts(self):
+        for header, sep in ROSTER_SHAPES:
+            with self.subTest(header=header):
+                self._computed(_gate(self, _roster(header, sep, ROSTER_ROW,
+                                                   "| — | — | — | — | — |")), 2)
+
+    def test_a_blank_line_inside_the_roster_is_refused(self):
+        # A blank line splits the authored roster, and the piped rows after it
+        # carry no header or delimiter row of their own. Counting only the rows
+        # above the blank line undercounted the roster at exit 0.
+        for header, sep in ROSTER_SHAPES:
+            with self.subTest(header=header):
+                for after in ((ROSTER_ROW, ROSTER_ROW), (ROSTER_ROW,)):
+                    rec = _gate(self, _roster(header, sep, ROSTER_ROW, "", *after))
+                    self.assertEqual(rec["verdict"], "unmeasurable", rec)
+                    self.assertIsNone(rec["value"])
+                    self.assertIn("line 9 opens with a pipe after a blank line",
+                                  rec["basis"])
+                    self.assertIn("no delimiter row under it", rec["filter"])
+                # PAIRED CONTROL: the same rows without the blank line count.
+                self._computed(_gate(self, _roster(header, sep, ROSTER_ROW, ROSTER_ROW,
+                                                   ROSTER_ROW)), 3)
+
+    def test_a_real_table_after_a_blank_line_leaves_the_count(self):
+        # A piped line after a blank line that a delimiter row follows opens a
+        # new table, so the roster above it is counted as it stands.
+        for header, sep in ROSTER_SHAPES:
+            with self.subTest(header=header):
+                for delimiter in ("|---|---|", "---|---"):
+                    self._computed(_gate(self, _roster(
+                        header, sep, ROSTER_ROW, ROSTER_ROW, "", "| x | y |",
+                        delimiter, "| 1 | 2 |")), 2)
+
+
+class GateCountHeaderBlockTests(unittest.TestCase):
+    """A header row inside an indented code block or an HTML comment is
+    content, as a fenced one is, and never locates the roster."""
+
+    def test_an_indented_code_block_header_is_not_a_candidate(self):
+        sample = "".join(f"    {line}\n" for line in (ROSTER_HEADER, _separator(5),
+                                                        ROSTER_ROW, ROSTER_ROW))
+        text = "# AGENTS.md\n\nAn example:\n\n" + sample + "\nProse.\n"
+        rec = _gate(self, text)
+        self.assertEqual(rec["verdict"], "unmeasurable", rec)
+        self.assertIn("carries no roster header row", rec["filter"])
+        # PAIRED CONTROL: indented three spaces, the same table is a roster.
+        rec = _gate(self, text.replace("    ", "   "))
+        self.assertEqual((rec["verdict"], rec["value"]), ("computed", 2), rec)
+
+    def test_a_commented_header_is_not_a_candidate(self):
+        sample = f"{ROSTER_HEADER}\n{_separator(5)}\n{ROSTER_ROW}\n{ROSTER_ROW}\n"
+        for before, after in (("<!--\n", "-->\n"), ("<!-- a sample\n", "end -->\n")):
+            with self.subTest(opener=before):
+                text = "# AGENTS.md\n\n" + before + sample + after + "\nProse.\n"
+                rec = _gate(self, text)
+                self.assertEqual(rec["verdict"], "unmeasurable", rec)
+                self.assertIn("carries no roster header row", rec["filter"])
+        # PAIRED CONTROL: a one-line comment closes on its own line, so the
+        # table under it is the roster.
+        rec = _gate(self, "# AGENTS.md\n\n<!-- marker -->\n" + sample + "\nProse.\n")
+        self.assertEqual((rec["verdict"], rec["value"]), ("computed", 2), rec)
+        # PAIRED CONTROL: the same table outside any comment is the roster.
+        rec = _gate(self, "# AGENTS.md\n\n" + sample + "\nProse.\n")
+        self.assertEqual((rec["verdict"], rec["value"]), ("computed", 2), rec)
+
+
+class GateCountLiveRosterTests(unittest.TestCase):
+    """The live roster, so a header change the fixtures freeze cannot hide."""
+
+    def test_the_live_repo_root_roster_computes(self):
+        require_dev_surface(self, REPO_ROOT / "AGENTS.md", "repo-root AGENTS.md")
+        rec = sig.signal_gate_count(REPO_ROOT, "bionic")
+        self.assertEqual(rec["verdict"], "computed", rec)
+        self.assertIsInstance(rec["value"], int)
+        self.assertGreater(rec["value"], 0, rec)
+
+
+RULE_HEADER = ("| handle | citation | rule | source ADR | source_status | disposition | basis |\n"
+               + _separator(7) + "\n")
+
+
+def _rule(handle: str, basis: str) -> str:
+    return f"| {handle} | rule:x | text | {handle.split('/')[0]} | Accepted | decided | {basis} |\n"
+
+
+#: A valid rule table over the `trips` corpus's two ADRs that carry rules:
+#: ADR-0001 reads true (one not-run-bound row), ADR-0002 false (run-bound).
+GOOD = ("# doctrine\n\n## d1 — backfilled\n\n" + RULE_HEADER
+        + _rule("ADR-0001/a", "not-run-bound") + _rule("ADR-0002/a", "run-bound") + "\n")
+OBS_TABLE = ("## d2 — backfilled\n\n| observation | evidence | resolves |\n"
+             + _separator(3) + "\n| OBS-0001/x | a.py:1 | yes |\n")
+INV_TABLE = ("## d3 — believed\n\n| invariant | handle | status |\n"
+             + _separator(3) + "\n| INV-0001 | ADR-0002/a | compatible |\n")
+#: A secret-shaped basis value. Its content must never reach an errors row.
+SECRET_SHAPED = "sk-or-v1-" + "0123456789abcdef" * 4
+#: A rule row the reader must not skip: run-bound, so reading it turns
+#: ADR-0001 false, and hiding it leaves ADR-0001 true from GOOD's row.
+HIDDEN = "| ADR-0001/b | ADR-0001 | run-bound |\n"
+
+
+class _DoctrineIndexCase(unittest.TestCase):
+    """Run the whole script over a copy of `trips` with a given doctrine index."""
+
+    def _build(self, index_text: str) -> tuple[dict, list[dict]]:
+        tmp = tempfile.TemporaryDirectory(prefix="adr-signals-doctrine-")
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name) / "trips"
+        shutil.copytree(TRIPS, root)
+        (root / "bionic" / "adrs" / "doctrine" / "index.md").write_text(
+            index_text, encoding="utf-8")
+        env, errors = sig.build(root, TODAY)
+        assert_envelope_contract(self, env)
+        return next(r for r in env["signals"] if r["signal"] == "paper_only"), errors
+
+    def assertComputed(self, index_text: str, first, second, row_errors: int = 0) -> dict:
+        rec, errors = self._build(index_text)
+        self.assertEqual(rec["verdict"], "computed", (rec, errors))
+        self.assertIs(rec["value"]["ADR-0001"], first)
+        self.assertIs(rec["value"]["ADR-0002"], second)
+        self.assertEqual(len(errors), row_errors, errors)
+        return rec
+
+    def assertMalformed(self, index_text: str) -> list[dict]:
+        rec, errors = self._build(index_text)
+        self.assertEqual(rec["verdict"], "unmeasurable", (rec, errors))
+        self.assertIsNone(rec["value"])
+        self.assertIn("cannot account for", rec["filter"])
+        self.assertRegex(rec["basis"], r"the first at line \d+")
+        self.assertTrue(errors, "case C carries one errors row per failing line")
+        for e in errors:
+            self.assertEqual(e["input"], "index.md")
+            self.assertRegex(e["problem"], r"^line \d+: ")
+        return errors
+
+
+class DoctrineEmitterShapeTests(_DoctrineIndexCase):
+    """The index the doctrine compiler really writes is read in full.
+
+    The fixture is the emitter itself, rendered in memory, so this test
+    follows any column the compiler adds. A fixture frozen on an old header
+    kept this signal green while it read 0 of 313 rows.
+    """
+
+    def _rendered(self) -> str:
+        dp = _load_doctrine_projection()
+        rules = [
+            {"handle": "ADR-0001/a", "rule": "a rule", "source_adr": "ADR-0001",
+             "source_status": "Accepted", "disposition": "decided", "basis": "not-run-bound"},
+            {"handle": "ADR-0002/a", "rule": "a rule with `a | b` in it",
+             "source_adr": "ADR-0002", "source_status": "Accepted",
+             "disposition": "decided", "basis": "run-bound"},
+            {"handle": "OBS-0001/x", "rule": "an observed fact", "source_adr": "OBS-0001",
+             "source_status": "ratified", "disposition": "observed",
+             "basis": "evidence-resolves"},
+        ]
+        # Every status the compiler can write into a reconciliation row.
+        statuses = sorted(v for k, v in vars(dp).items() if k.startswith("STATUS_"))
+        entries = [
+            {"domain": "d1", "state": "believed", "authority": None, "rules": rules[:2],
+             "evidence": [], "pairings": [
+                 {"invariant": f"INV-000{n}", "handle": "ADR-0002/a", "status": s}
+                 for n, s in enumerate(statuses, 1)]},
+            {"domain": "d2", "state": "BROKEN", "authority": "descriptive",
+             "rules": rules[2:], "evidence": [
+                 {"handle": "OBS-0001/x", "evidence": "a.py:1-2", "resolves": True}],
+             "pairings": []},
+        ]
+        exempt = [{"adr": "ADR-0003", "reason": "amends ADR-0002; its rule ADR-0002/a "
+                                                "is unchanged"}]
+        return dp.build_index(entries, exempt, {"schema": "4"})
+
+    def test_an_index_the_compiler_renders_is_read(self):
+        text = self._rendered()
+        # Preconditions: the rendered index carries the shapes under test.
+        self.assertIn("| source_status |", text)
+        self.assertIn("| observation | evidence | resolves |", text)
+        self.assertIn("| invariant | handle | status |", text)
+        self.assertIn("- ADR-0003 — amends ADR-0002; its rule ADR-0002/a", text)
+        rec = self.assertComputed(text, True, False)
+        self.assertIn("3 rule rows from 2 rule tables", rec["basis"])
+
+
+class DoctrineHeaderGainsAColumnTests(_DoctrineIndexCase):
+    """A column added anywhere in the rule header is read by name.
+
+    Each case failed against the positional reader, which kept a row only at
+    one exact cell count and read `basis` at one fixed position.
+    """
+
+    COLUMNS = ["handle", "citation", "rule", "source ADR", "source_status",
+               "disposition", "basis"]
+
+    def _with_column(self, at: int) -> str:
+        """GOOD's two rows under a header with `extra` inserted at `at`."""
+        def row(cells: list[str]) -> str:
+            return "| " + " | ".join(cells) + " |\n"
+        header = list(self.COLUMNS)
+        header.insert(at, "extra")
+        rows = []
+        for adr, basis in (("ADR-0001", "not-run-bound"), ("ADR-0002", "run-bound")):
+            cells = [f"{adr}/a", "rule:x", "text", adr, "Accepted", "decided", basis]
+            cells.insert(at, "q")
+            rows.append(row(cells))
+        return ("# doctrine\n\n## d1 — backfilled\n\n" + row(header)
+                + _separator(8) + "\n" + "".join(rows))
+
+    def test_a_column_before_handle_is_read_by_name(self):
+        text = self._with_column(0)
+        self.assertIn("| extra | handle |", text)
+        self.assertComputed(text, True, False)
+
+    def test_a_column_between_source_status_and_basis_is_read_by_name(self):
+        text = self._with_column(6)
+        self.assertIn("| disposition | extra | basis |", text)
+        self.assertComputed(text, True, False)
+
+    def test_a_column_after_basis_is_read_by_name(self):
+        text = self._with_column(7)
+        self.assertIn("| basis | extra |", text)
+        self.assertComputed(text, True, False)
+
+    def test_the_legacy_six_cell_header_still_reads(self):
+        text = ("# doctrine\n\n## d1\n\n| handle | citation | rule | source ADR | disposition "
+                "| basis |\n" + _separator(6) + "\n"
+                "| ADR-0001/a | rule:x | text | ADR-0001 | decided | not-run-bound |\n"
+                "| ADR-0002/a | rule:x | text | ADR-0002 | decided | run-bound |\n")
+        self.assertComputed(text, True, False)
+
+
+class DoctrineAccountingTests(_DoctrineIndexCase):
+    """Every line that names an ADR rule, or carries a basis value as a cell,
+    is read once as a rule row, a reconciliation row, or an exempt bullet.
+    Any other such line makes the index malformed (case C)."""
+
+    MALFORMED = {
+        "rule header without basis": "## d2\n\n| handle | citation | basiz |\n"
+            + _separator(3) + "\n| ADR-0001/b | rule:x | run-bound |\n",
+        "rule header naming basis twice": "## d2\n\n| handle | basis | basis |\n"
+            + _separator(3) + "\n| ADR-0001/b | run-bound | run-bound |\n",
+        "rule header naming handle twice": "## d2\n\n| handle | handle | basis |\n"
+            + _separator(3) + "\n| ADR-0001/b | ADR-0001/b | run-bound |\n",
+        "handle cell failing the grammar": "## d2\n\n" + RULE_HEADER
+            + _rule("ADR-01/b", "run-bound"),
+        "rule-handle line outside any table": "| ADR-0001/b | junk |\n",
+        "reordered handle and a misspelt basis": "## d2\n\n| citation | handle | basiz |\n"
+            + _separator(3) + "\n| ADR-0001 | ADR-0001/b | run-bound |\n",
+        "headerless rule row glued under an observation table": OBS_TABLE
+            + _rule("ADR-0001/b", "run-bound"),
+        "rule table under the exempt heading": "## Exempt ADRs (1)\n\n- ADR-0003 — r\n\n"
+            + RULE_HEADER + _rule("ADR-0001/b", "run-bound"),
+        "rule handle in a third cell of another table": "## d2\n\n| x | y | z |\n"
+            + _separator(3) + "\n| a | b | ADR-0001/b |\n",
+        "observation-first header naming basis": "## d2\n\n| observation | evidence | basis |\n"
+            + _separator(3) + "\n| OBS-0001/x | a.py:1 | run-bound |\n",
+        "three-cell rule row glued under an observation table": OBS_TABLE + HIDDEN,
+        "three-cell rule row glued under a reconciliation table": INV_TABLE + HIDDEN,
+        "basis value in a reconciliation row's status cell": INV_TABLE
+            + "| rule:x | ADR-0001/b | run-bound |\n",
+        "separator under a rule row promotes it to a header": "## d2\n\n" + RULE_HEADER
+            + _rule("ADR-0001/b", "run-bound") + _separator(7) + "\n",
+        "observation header naming handle": "## d2\n\n| observation | handle | basiz |\n"
+            + _separator(3) + "\n| x | ADR-0001/b | run-bound |\n",
+        "invariant header naming handle without status": "## d2\n\n| invariant | handle | basiz |\n"
+            + _separator(3) + "\n| x | ADR-0001/b | run-bound |\n",
+        "reconciliation shape carrying a basis in its status cell":
+            "## d2\n\n| invariant | handle | status |\n" + _separator(3)
+            + "\n| x | ADR-0001/b | run-bound |\n",
+        "reconciliation status outside the five": "## d2\n\n| invariant | handle | status |\n"
+            + _separator(3) + "\n| INV-0001 | ADR-0002/a | weird |\n",
+        "reconciliation row naming a second rule": "## d2\n\n| invariant | handle | status |\n"
+            + _separator(3) + "\n| ADR-0001/b | ADR-0002/a | compatible |\n",
+        "indented rule row as a table's last row": "## d2\n\n" + RULE_HEADER
+            + _rule("ADR-0002/b", "run-bound") + "  " + _rule("ADR-0001/b", "run-bound"),
+        "rule row with no leading pipe": "\n" + _rule("ADR-0001/b", "run-bound")[2:],
+        "rule handle in a prose line": "\nNote: ADR-0001/b was run-bound.\n",
+        "near-miss handle carrying a basis under an observation table": OBS_TABLE
+            + "| ADR-123/b | ADR-0001 | run-bound |\n",
+    }
+
+    def test_each_unaccountable_line_makes_the_index_malformed(self):
+        for name, extra in self.MALFORMED.items():
+            with self.subTest(case=name):
+                self.assertMalformed(GOOD + extra)
+
+    def test_positive_control_the_valid_base_computes(self):
+        # Every malformed case above is GOOD plus one shape. GOOD alone
+        # computes, so each refusal is that shape and not the base.
+        self.assertComputed(GOOD, True, False)
+
+    def test_the_live_reconciliation_shape_is_read_without_failure(self):
+        self.assertComputed(GOOD + INV_TABLE, True, False)
+
+    def test_an_exempt_bullet_naming_a_rule_handle_is_read_without_failure(self):
+        self.assertComputed(GOOD + "## Exempt ADRs (1)\n\n- ADR-0003 — amends ADR-0002; "
+                                   "its rule ADR-0002/a is unchanged\n", True, False)
+
+    def test_a_rule_table_glued_under_an_observation_table_is_read(self):
+        # Its own header starts a new table, so its run-bound row is read.
+        self.assertComputed(GOOD + OBS_TABLE + RULE_HEADER
+                            + _rule("ADR-0001/b", "run-bound"), False, False)
+
+    def test_each_failing_line_has_its_own_errors_row(self):
+        errors = self.assertMalformed(GOOD + "| ADR-0001/b | junk |\n"
+                                      + "\nNote: ADR-0002/a again.\n")
+        self.assertEqual([e["problem"].split(":")[0] for e in errors],
+                         ["line 10", "line 12"])
+
+
+class DoctrineFencedTableTests(_DoctrineIndexCase):
+    """A rule table inside a fence or an HTML comment is not a rule table.
+
+    The reader does not track either block, so the index carrying one is
+    malformed (case C) rather than read. Read as a table, the decoy row below
+    turned ADR-0001 false at exit 0 with no errors row.
+    """
+
+    DECOY = "\n" + RULE_HEADER + _rule("ADR-0001/decoy", "run-bound")
+    WRAPPERS = {"backtick fence": (FENCE + "\n", FENCE + "\n"),
+                "tilde fence": (TILDE + "\n", TILDE + "\n"),
+                "HTML comment": ("<!--\n", "-->\n")}
+
+    def test_a_wrapped_rule_table_makes_the_index_malformed(self):
+        for name, (opener, closer) in self.WRAPPERS.items():
+            with self.subTest(wrapper=name):
+                errors = self.assertMalformed(GOOD + "\n" + opener + self.DECOY + closer)
+                self.assertIn("a fence or HTML comment", errors[0]["problem"])
+
+    def test_positive_control_the_same_table_unwrapped_is_counted(self):
+        # The decoy flips ADR-0001 when read, so each refusal above is the
+        # wrapper and not a decoy the reader would ignore anyway.
+        self.assertComputed(GOOD + self.DECOY, False, False)
+
+
+class DoctrineRowErrorTests(_DoctrineIndexCase):
+    """A rule row that names its ADR but cannot be read nulls that ADR for good."""
+
+    def test_a_wrong_count_row_nulls_its_adr_and_a_later_row_does_not_restore_it(self):
+        short = "| ADR-0001/b | rule:x | text | ADR-0001 | decided | run-bound |\n"
+        self.assertComputed(GOOD.replace(_rule("ADR-0002/a", "run-bound"),
+                                         _rule("ADR-0002/a", "run-bound") + short
+                                         + _rule("ADR-0001/c", "not-run-bound")),
+                            None, False, row_errors=1)
+
+    def test_a_row_with_no_trailing_pipe_nulls_its_adr(self):
+        self.assertComputed(GOOD + "## d2\n\n" + RULE_HEADER
+                            + _rule("ADR-0001/c", "run-bound").rstrip().rstrip("|") + "\n",
+                            None, False, row_errors=1)
+
+    def test_an_escaped_last_pipe_names_its_cause(self):
+        rec, errors = self._build(GOOD + "## d2\n\n" + RULE_HEADER
+                                  + _rule("ADR-0001/c", "run-bound").rstrip()[:-1]
+                                  + "\\|\n")
+        self.assertEqual(rec["verdict"], "computed", (rec, errors))
+        self.assertIsNone(rec["value"]["ADR-0001"])
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("does not end with an unescaped pipe", errors[0]["problem"])
+        self.assertNotIn("cells where its header carries", errors[0]["problem"])
+
+    def test_an_unknown_basis_nulls_its_adr_and_a_later_row_does_not_restore_it(self):
+        rec = self.assertComputed(
+            GOOD + "## d2\n\n" + RULE_HEADER + _rule("ADR-0001/b", "weird")
+            + _rule("ADR-0001/c", "not-run-bound"), None, False, row_errors=1)
+        self.assertIn("could not read", rec["filter"])
+
+    def test_an_unknown_basis_value_is_named_by_position_never_quoted(self):
+        text = GOOD + "## d2\n\n" + RULE_HEADER + _rule("ADR-0001/b", SECRET_SHAPED)
+        self.assertIn(SECRET_SHAPED, text)
+        rec, errors = self._build(text)
+        self.assertEqual(rec["verdict"], "computed", (rec, errors))
+        self.assertIsNone(rec["value"]["ADR-0001"])
+        self.assertEqual(len(errors), 1, errors)
+        problem = errors[0]["problem"]
+        # POSITIVE CONTROL: the row reached the unknown-basis path.
+        self.assertIn("unknown basis value", problem)
+        self.assertIn(f"in cell 7, {len(SECRET_SHAPED)} characters long", problem)
+        self.assertNotIn(SECRET_SHAPED, problem)
+        self.assertNotIn("sk-or", json.dumps(errors))
+
+    def test_a_single_rule_row_is_named_in_the_singular(self):
+        rec = self.assertComputed("# doctrine\n\n## d1\n\n" + RULE_HEADER
+                                  + _rule("ADR-0001/a", "not-run-bound"), True, None)
+        self.assertIn("1 rule row from 1 rule table", rec["basis"])
+
+
+class DoctrineAbsentInputTests(_DoctrineIndexCase):
+    def test_an_index_with_no_rule_table_is_unmeasurable_at_exit_zero(self):
+        rec, errors = self._build("# doctrine\n\n" + OBS_TABLE)
+        self.assertEqual(rec["verdict"], "unmeasurable", rec)
+        self.assertIsNone(rec["value"])
+        self.assertIn("carries no rule table", rec["filter"])
+        self.assertEqual(errors, [])
+
+    def test_a_header_only_rule_table_computes_every_adr_null(self):
+        # A present rule table with no body rows is a leg that ran and matched
+        # nothing: computed, and the basis says it read 0 rows.
+        rec, errors = self._build("# doctrine\n\n## d1\n\n" + RULE_HEADER)
+        self.assertEqual(rec["verdict"], "computed", rec)
+        self.assertEqual(set(rec["value"].values()), {None})
+        self.assertIn("0 rule rows from 1 rule table", rec["basis"])
+        self.assertEqual(errors, [])
+
+
+class DoctrineCliExitTests(unittest.TestCase):
+    """The exit lanes, through the script's own entry point."""
+
+    def _cli(self, index_text: str) -> tuple[int, dict]:
+        tmp = tempfile.TemporaryDirectory(prefix="adr-signals-doctrine-cli-")
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name) / "trips"
+        shutil.copytree(TRIPS, root)
+        (root / "bionic" / "adrs" / "doctrine" / "index.md").write_text(
+            index_text, encoding="utf-8")
+        proc = _run("--repo-root", str(root), "--today", TODAY.isoformat(), "--json")
+        payload = json.loads(proc.stdout)
+        return proc.returncode, payload
+
+    def _paper_only(self, payload: dict) -> dict:
+        return next(r for r in payload["signals"] if r["signal"] == "paper_only")
+
+    def test_a_malformed_index_exits_one_unmeasurable(self):
+        code, payload = self._cli(GOOD + OBS_TABLE + HIDDEN)
+        self.assertEqual(code, 1)
+        rec = self._paper_only(payload)
+        self.assertEqual(rec["verdict"], "unmeasurable")
+        self.assertIn("cannot account for", rec["filter"])
+        self.assertTrue(any(e["input"] == "index.md" for e in payload["errors"]))
+
+    def test_an_unknown_basis_value_never_reaches_either_stream(self):
+        tmp = tempfile.TemporaryDirectory(prefix="adr-signals-doctrine-cli-")
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name) / "trips"
+        shutil.copytree(TRIPS, root)
+        (root / "bionic" / "adrs" / "doctrine" / "index.md").write_text(
+            GOOD + "## d2\n\n" + RULE_HEADER + _rule("ADR-0001/b", SECRET_SHAPED),
+            encoding="utf-8")
+        proc = _run("--repo-root", str(root), "--today", TODAY.isoformat(), "--json")
+        self.assertEqual(proc.returncode, 1)
+        payload = json.loads(proc.stdout)
+        # POSITIVE CONTROL: the row was read, and its ADR nulled for its basis.
+        self.assertIsNone(self._paper_only(payload)["value"]["ADR-0001"])
+        self.assertTrue(any("unknown basis value" in e["problem"]
+                            for e in payload["errors"]))
+        self.assertNotIn("sk-or", proc.stdout + proc.stderr)
+
+    def test_an_index_with_no_rule_table_exits_zero_unmeasurable(self):
+        code, payload = self._cli("# doctrine\n\n" + OBS_TABLE)
+        self.assertEqual(code, 0)
+        self.assertNotIn("errors", payload)
+        self.assertEqual(self._paper_only(payload)["verdict"], "unmeasurable")
+
+    def test_positive_control_a_valid_index_exits_zero_computed(self):
+        code, payload = self._cli(GOOD + OBS_TABLE + INV_TABLE)
+        self.assertEqual(code, 0)
+        rec = self._paper_only(payload)
+        self.assertEqual(rec["verdict"], "computed")
+        self.assertIs(rec["value"]["ADR-0001"], True)
+
+
+def _load_doctrine_projection():
+    scripts = str(SCRIPT.parent)
+    if scripts not in sys.path:
+        sys.path.insert(0, scripts)
+    spec = importlib.util.spec_from_file_location("doctrine_projection_for_signals",
+                                                  SCRIPT.parent / "doctrine_projection.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class DoctrineVocabularyPinTests(unittest.TestCase):
+    """This script must not import the compiler, so it restates two of its
+    vocabularies. These tests hold each restatement to its source."""
+
+    def test_the_reconciliation_statuses_match_the_compiler(self):
+        dp = _load_doctrine_projection()
+        source = {value for name, value in vars(dp).items() if name.startswith("STATUS_")}
+        self.assertEqual(len(source), 5, source)
+        self.assertEqual(set(sig.RECONCILIATION_STATUSES), source)
+
+    def test_the_basis_values_match_the_compiler(self):
+        dp = _load_doctrine_projection()
+        self.assertEqual(set(sig.BASIS_VALUES), set(dp.BASIS_VALUES))
 
 
 if __name__ == "__main__":

@@ -325,8 +325,8 @@ class OpusRoutingTests(unittest.TestCase):
         cls.llm = llm_caller
         cls.cfg = llm_caller.load_router_config()
 
-    def test_release_docs_role_resolves_to_opus_5_5(self):
-        self.assertEqual(self.llm.get_default_model('release_docs'), 'claude-opus-5.5')
+    def test_release_docs_role_resolves_to_sonnet_5_5(self):
+        self.assertEqual(self.llm.get_default_model('release_docs'), 'claude-sonnet-5.5')
 
     def test_anthropic_top_routes_to_xhigh_opus(self):
         self.assertEqual(self.llm.get_default_model('anthropic_top'), 'claude-opus-5.5-xhigh')
@@ -367,14 +367,16 @@ class OpusRoutingTests(unittest.TestCase):
         self.assertEqual(list(cfg.serving_providers), ['anthropic'])
         self.assertFalse(cfg.supports_temperature)
 
-    def test_release_docs_keeps_high_effort(self):
-        self.assertEqual(self.llm.get_model_config(self.llm.get_default_model('release_docs')).effort, 'high')
+    def test_release_docs_sends_no_temperature(self):
+        # generate-public-docs.py passes temperature=0.3; Sonnet 5.5 rejects a
+        # non-default temperature, so the resolved entry must drop it.
+        self.assertFalse(self.llm.get_model_config(self.llm.get_default_model('release_docs')).supports_temperature)
 
 
 @unittest.skipUnless(HAVE_HTTPX, "httpx not installed — run under uv")
 class SonnetRoutingTests(unittest.TestCase):
     """claude-sonnet-5.5 is registered from the live OpenRouter catalog, and
-    no role names it. anthropic_balanced (and the call_claude_sonnet
+    release_docs is the one role that names it. anthropic_balanced (and the call_claude_sonnet
     convenience helper, which resolves that role despite its name) resolve to
     claude-opus-5.5, the high-effort Opus 5.5 entry.
 
@@ -510,7 +512,7 @@ KEPT_ROLES = {
     'openai_top': 'gpt-6-astra',
     'council_default': ['gpt-6.1-sol', 'gemini-3.1-pro-preview', 'claude-opus-5.5-xhigh'],
     'council_arbiter': 'claude-opus-5.5-xhigh',
-    'release_docs': 'claude-opus-5.5',
+    'release_docs': 'claude-sonnet-5.5',
 }
 
 # The two registry keys retired with the unread roles. Neither is aliased; a
@@ -639,6 +641,176 @@ class UnreadRoleDeletionTests(unittest.TestCase):
         note = entry['_note']
         self.assertNotIn('think_deep', note)
         self.assertIn('parked with no role by owner decision', note)
+
+
+class RouterRoleReaderTests(unittest.TestCase):
+    """Every `model_roles` key has a reader in `crux/` outside the tests.
+
+    A role nothing reads is dead configuration. The scan parses every `.py`
+    file under `crux/` except `crux/scripts/tests/` and recognises three
+    reader forms:
+
+    1. a call to `get_default_model` or `get_default_models`, by bare name or
+       as an attribute, whose first argument is a string literal naming the role;
+    2. a key of a module-level `MODEL_WEIGHTS` dict literal (the council
+       weight table, whose keys are roles);
+    3. a call to one of those two functions whose first argument is a
+       module-level name bound to a string literal in the same file
+       (`MODEL_ROLE = "google_fast"` in `transcribe-video.py`).
+
+    Registry entries (`models`) are not roles and are addressed by key.
+    `_comment` is a note, not a role. `release_docs` is exempt by name: only
+    dev-repo release tooling (`tools/generate-public-docs.py`) reads it, the
+    staged release copy does not ship that tool, and the release-docs role
+    rule requires the role to exist. The scan reads nothing outside `crux/`,
+    so it runs unchanged in the staged copy.
+    """
+
+    CONFIG_PATH = SCRIPTS_DIR / 'crux' / '_config' / 'llm_router_config.json'
+    CRUX_ROOT = SCRIPTS_DIR.parent
+    TESTS_DIR = SCRIPTS_DIR / 'tests'
+    READER_FUNCTIONS = ('get_default_model', 'get_default_models')
+    EXEMPT_ROLES = {
+        'release_docs': (
+            'read only by dev-repo release tooling, tools/generate-public-docs.py, '
+            'which the staged release copy does not ship'
+        ),
+    }
+    NOT_A_ROLE_KEYS = ('_comment',)
+
+    # ---- the scan and the check, callable on injected inputs ----
+
+    @classmethod
+    def read_sources(cls):
+        """Map each non-test `.py` path under `crux/` to its source text."""
+        sources = {}
+        for path in sorted(cls.CRUX_ROOT.rglob('*.py')):
+            if cls.TESTS_DIR in path.parents:
+                continue
+            sources[str(path.relative_to(cls.CRUX_ROOT))] = path.read_text(encoding='utf-8')
+        return sources
+
+    @classmethod
+    def scan_readers(cls, sources):
+        """Return {role: [reader description, ...]} found in `sources`."""
+        import ast
+        readers = {}
+
+        def note(role, where):
+            readers.setdefault(role, []).append(where)
+
+        for name, text in sources.items():
+            tree = ast.parse(text, filename=name)
+            constants = {}
+            for node in tree.body:
+                targets, value = [], None
+                if isinstance(node, ast.Assign):
+                    targets, value = node.targets, node.value
+                elif isinstance(node, ast.AnnAssign) and node.value is not None:
+                    targets, value = [node.target], node.value
+                for target in targets:
+                    if not isinstance(target, ast.Name):
+                        continue
+                    if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                        constants[target.id] = value.value
+                    if target.id == 'MODEL_WEIGHTS' and isinstance(value, ast.Dict):
+                        for key in value.keys:
+                            if isinstance(key, ast.Constant) and isinstance(key.value, str):
+                                note(key.value, f'{name}: MODEL_WEIGHTS key')
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call) or not node.args:
+                    continue
+                func = node.func
+                called = func.id if isinstance(func, ast.Name) else (
+                    func.attr if isinstance(func, ast.Attribute) else None)
+                if called not in cls.READER_FUNCTIONS:
+                    continue
+                first = node.args[0]
+                if isinstance(first, ast.Constant) and isinstance(first.value, str):
+                    note(first.value, f'{name}:{node.lineno}: {called} literal')
+                elif isinstance(first, ast.Name) and first.id in constants:
+                    note(constants[first.id], f'{name}:{node.lineno}: {called} via {first.id}')
+        return readers
+
+    @classmethod
+    def unread_roles(cls, cfg, readers, exempt):
+        """Return the sorted roles of `cfg` with no reader and no exemption."""
+        roles = [key for key in cfg['model_roles'] if key not in cls.NOT_A_ROLE_KEYS]
+        return sorted(role for role in roles if role not in readers and role not in exempt)
+
+    @classmethod
+    def load_config(cls):
+        import json
+        return json.loads(cls.CONFIG_PATH.read_text(encoding='utf-8'))
+
+    # ---- the gate on the real tree ----
+
+    def test_every_role_has_a_reader_in_crux(self):
+        cfg = self.load_config()
+        readers = self.scan_readers(self.read_sources())
+        roles = [k for k in cfg['model_roles'] if k not in self.NOT_A_ROLE_KEYS]
+        # Vacuity guards: the gate measured something.
+        self.assertGreaterEqual(len(roles), 1)
+        self.assertGreaterEqual(sum(len(v) for v in readers.values()), 1)
+        missing = self.unread_roles(cfg, readers, self.EXEMPT_ROLES)
+        self.assertEqual(
+            missing, [],
+            f'model_roles with no reader in crux/ (roles checked {len(roles)}, '
+            f'roles with a reader {len([r for r in roles if r in readers])}): {missing}')
+
+    def test_exemptions_name_real_roles_and_a_reason(self):
+        cfg = self.load_config()
+        for role, reason in self.EXEMPT_ROLES.items():
+            with self.subTest(role=role):
+                self.assertIn(role, cfg['model_roles'])
+                self.assertTrue(reason.strip())
+
+    def test_registry_entry_is_a_key_and_not_a_role(self):
+        cfg = self.load_config()
+        self.assertIn('claude-sonnet-5.5', cfg['models'])
+        self.assertNotIn('claude-sonnet-5.5', cfg['model_roles'])
+
+    def test_comment_key_is_not_a_role(self):
+        cfg = self.load_config()
+        self.assertIn('_comment', cfg['model_roles'])
+        cfg['model_roles']['_comment'] = 'note'
+        self.assertNotIn('_comment', self.unread_roles(cfg, {}, {}))
+
+    # ---- positive controls: the gate turns red on seeded faults ----
+
+    def test_control_seeded_unread_role_is_red(self):
+        cfg = self.load_config()
+        cfg['model_roles']['seeded_unread_role'] = 'claude-sonnet-5.5'
+        readers = self.scan_readers(self.read_sources())
+        self.assertEqual(
+            self.unread_roles(cfg, readers, self.EXEMPT_ROLES), ['seeded_unread_role'])
+
+    def test_control_removed_reader_is_red(self):
+        cfg = self.load_config()
+        sources = self.read_sources()
+        needle = 'get_default_model("anthropic_balanced")'
+        holders = [n for n, t in sources.items() if needle in t]
+        self.assertTrue(holders, 'fixture premise: a reader of anthropic_balanced exists')
+        for name in holders:
+            sources[name] = sources[name].replace(needle, 'None')
+        readers = self.scan_readers(sources)
+        self.assertEqual(
+            self.unread_roles(cfg, readers, self.EXEMPT_ROLES), ['anthropic_balanced'])
+
+    def test_control_release_docs_exemption_is_load_bearing(self):
+        cfg = self.load_config()
+        readers = self.scan_readers(self.read_sources())
+        self.assertNotIn('release_docs', readers)
+        self.assertEqual(self.unread_roles(cfg, readers, {}), ['release_docs'])
+
+    def test_control_each_reader_form_is_recognised(self):
+        sources = {
+            'a.py': 'get_default_model("r_call")\nx.get_default_models("r_attr")\n',
+            'b.py': 'MODEL_WEIGHTS = {"r_weight": 1.0}\n',
+            'c.py': 'ROLE = "r_const"\nget_default_model(ROLE)\n',
+        }
+        self.assertEqual(
+            sorted(self.scan_readers(sources)), ['r_attr', 'r_call', 'r_const', 'r_weight'])
 
 
 @unittest.skipUnless(HAVE_HTTPX, "httpx not installed — run under uv")

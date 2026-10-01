@@ -79,12 +79,28 @@ def main(argv: list[str] | None = None) -> int:
     payload = {"repo_root": str(root), "host_supported": supported,
                "managed_scopes": scopes}
 
+    # The host reads AGENTS.md when no host-configuration cause stands. A missing
+    # AGENTS.md makes the verdict unsupported without being such a cause, and an
+    # adapter cannot repair it, so it never unlocks `--generate`. `adapter_applies`
+    # is false both for "no host cause" and for managed-only; the mode separates them.
+    host_reads_agents = supported or (
+        not verdict.get("adapter_applies", False)
+        and verdict.get("derived_from", {}).get("mode") != "managed-only")
+
     if args.generate:
-        if supported and not args.force:
+        if host_reads_agents and not args.force:
             payload["generated"] = []
-            payload["refused"] = (
-                "this host already reads AGENTS.md; an adapter here would only "
-                "shadow it. Pass --force if you are generating for a different host.")
+            if supported:
+                payload["refused"] = (
+                    "this host already reads AGENTS.md; an adapter here would only "
+                    "shadow it. Pass --force if you are generating for a different host.")
+            else:
+                # Unsupported with no host cause: the only remaining cause is the
+                # missing canonical file, which an adapter derives from and cannot create.
+                payload["refused"] = (
+                    "no root AGENTS.md exists, so the host loads no instruction file "
+                    "from this tree; an adapter derives from AGENTS.md and cannot "
+                    "replace it. Create a root AGENTS.md first.")
             print(json.dumps(payload, indent=2, sort_keys=True))
             return 1
         # Every refusal is reported, and one refusal never stops the others:

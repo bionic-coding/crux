@@ -128,9 +128,9 @@ without, and across the eight signals that is:
      null. `friction_citations` when the tree records no adoption date, or
      when the queried window lies wholly before the one it records; `paper_only`
      WHOLE-RECORD (not the per-ADR null above) when the doctrine index has
-     never been compiled — `adrs/doctrine/index.md` and `adrs/doctrine/_meta.json`
-     both absent, in one of the two shapes EXIT LANES below states exactly.
-     Every other shape without a readable index exits 1 with an `errors` row.
+     never been compiled, was not read, carries no rule table, or carries a
+     line its reader cannot account for; the section on `paper_only` below
+     states each shape exactly.
   5. WHICH MARKER WAS CHOSEN, and what each rejected marker's coverage measured
      on this run. `release_cadence` alone, which names the chosen marker (the
      changelog's dated version headings) and both rejected ones (tags, and the
@@ -183,9 +183,32 @@ A fresh `init-docs` tree has never run `compile-doctrine`. It carries neither
 `adrs/doctrine/index.md` nor `adrs/doctrine/_meta.json`, so its `paper_only`
 record is `unmeasurable` by this rule rather than by a defect.
 
-WHICH ABSENT INPUT FORCES `paper_only` UNMEASURABLE, STATED EXACTLY. The
-check uses `os.lstat`, which does not follow a symlink, and it fails closed.
-Exactly two shapes are never-compiled:
+WHICH ABSENT INPUT FORCES `paper_only` UNMEASURABLE, STATED EXACTLY. Three
+absent inputs do (A, B and D), and one malformed input does (C):
+
+  A. The index was never compiled: `unmeasurable` at exit 0, in one of the
+     two shapes stated below.
+  B. The index was not read, because the guarded read below refused it:
+     `unmeasurable`, plus an `errors` row, at exit 1.
+  C. The index was read and carries a line its reader cannot account for —
+     a line naming an ADR rule, or carrying a basis value as a cell, that is
+     not a rule-table row, a reconciliation row or an exempt bullet; a
+     malformed table line; or a line that opens a fence or an HTML comment.
+     This is the malformed-input case: `unmeasurable`,
+     with one `errors` row per such line, at exit 1. `read_doctrine_index`
+     states the accounting rule in full.
+  D. The index was read and carries no rule table: `unmeasurable` at exit
+     0. A rule table's header names `basis`, or names `handle` with a first
+     cell other than `observation` or `invariant`. That header is this
+     signal's input, as the roster header row is `gate_count`'s.
+
+A read index with at least one rule table and no such line is `computed`.
+A rule row that names its ADR and cannot be read — a cell count unlike its
+header's, or a basis outside the four values — adds an `errors` row (exit 1)
+and nulls that ADR whatever its other rows say; every other ADR is computed.
+
+The never-compiled check uses `os.lstat`, which does not follow a symlink,
+and it fails closed. Exactly two shapes are never-compiled:
 
   1. `os.lstat` raises `FileNotFoundError` for `adrs/doctrine`: the doctrine
      directory does not exist.
@@ -199,7 +222,7 @@ escaping, dangling or looping; a regular file at `adrs/doctrine`; any other
 `OSError` from `os.lstat` on any of the three paths; any entry at either leaf,
 including a dangling symlink; and a `_meta.json` without an `index.md`. The
 guarded read either returns the index text, which is then parsed, or refuses.
-A refusal exits 1 with an `errors` row whose `input` names
+A refusal is shape B: it exits 1 with an `errors` row whose `input` names
 adrs/doctrine/index.md. An `index.md` that reads cleanly is read whether or
 not `_meta.json` exists. `carve_out_count` stays `computed` on a never-compiled
 tree, because it reads `adr.governs_exempt` from the tree manifest. Its
@@ -230,6 +253,7 @@ import stat
 import subprocess
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -245,8 +269,13 @@ BULK_ENTRY_THRESHOLD = 4
 
 ADR_ID = re.compile(r"\bADR-\d{4}\b")
 ADR_FILE = re.compile(r"^ADR-\d{4}-.*\.md$")
-DOCTRINE_ROW = re.compile(r"^\|\s*((?:ADR|OBS)-\d{4})/[a-z0-9][a-z0-9-]*\s*\|")
+#: A doctrine rule handle as a whole cell; group 1 is the source ADR or OBS id.
+DOCTRINE_HANDLE = re.compile(r"((?:ADR|OBS)-\d{4})/[a-z0-9][a-z0-9-]*")
+#: An ADR-prefixed rule handle anywhere in a line: the identity of an ADR rule.
+ADR_HANDLE_IN_LINE = re.compile(r"ADR-\d{4}/[a-z0-9][a-z0-9-]*")
 UNESCAPED_PIPE = re.compile(r"(?<!\\)\|")
+#: One cell of a Markdown table's delimiter row.
+SEPARATOR_CELL = re.compile(r":?-+:?")
 DOCTRINE_EXEMPT_HEADING = re.compile(r"^##\s+Exempt ADRs\b")
 EXEMPT_ROSTER_ROW = re.compile(r"^-\s+((?:[A-Z][A-Z0-9]{1,9}-)?ADR-\d{4})\b")
 LOG_HEADING = re.compile(r"^## \[(\d{4}-\d{2}-\d{2})[^\]]*\]")
@@ -257,6 +286,11 @@ FORGE_ENTRY = re.compile(r"^## \[[^\]]+\]\s+([a-z]+)\s+\|")
 LOCAL_SKILLS_DIRS = (".claude/skills", ".agents/skills", ".opencode/skills", ".opencode/skill")
 BASIS_VALUES = {"run-bound", "not-run-bound", "evidence-resolves", "evidence-missing"}
 NOT_RUN_BOUND = "not-run-bound"
+#: The five statuses the doctrine compiler writes into a reconciliation row.
+#: Restated rather than imported, because importing the compiler would raise
+#: this script's dependency floor; a test holds the two spellings equal.
+RECONCILIATION_STATUSES = frozenset(
+    {"compatible", "reconciled", "collision", "un-adjudicated", "digest-stale"})
 
 
 # --------------------------------------------------------------------------
@@ -462,64 +496,247 @@ def read_active_adrs(root: Path, adrs_dir: Path, errors: list[dict]) -> dict[str
     return out
 
 
-def read_doctrine_index(text: str, name: str,
-                        errors: list[dict]) -> tuple[dict[str, list[str]], list[str]]:
-    """Per-rule rows keyed by the source ADR/OBS id, plus the exempt roster.
+def _table_cells(line: str) -> list[str] | None:
+    """The cells of one Markdown table line, or None when it is not one.
+
+    THE ONE CELL SPLIT both table readers use. A table line starts with `|`
+    and, once trailing whitespace is stripped, ends with an unescaped `|`. It
+    is split on unescaped pipes, the empty first and last parts are dropped,
+    and each cell is unescaped (`\\|` to `|`) and stripped. The doctrine
+    compiler escapes a literal pipe inside a cell as `\\|`, so a split on
+    every pipe would read one cell too many.
+    """
+    s = line.rstrip()
+    if len(s) < 2 or not s.startswith("|") or not s.endswith("|") or s.endswith("\\|"):
+        return None
+    return [c.strip().replace("\\|", "|") for c in UNESCAPED_PIPE.split(s)][1:-1]
+
+
+def _leading_cells(line: str) -> list[str]:
+    """The cells of a line that fails `_table_cells`, dropping only the first part."""
+    return [c.strip().replace("\\|", "|") for c in UNESCAPED_PIPE.split(line.rstrip())][1:]
+
+
+def _separator_shaped(line: str) -> bool:
+    """Whether a line reads as a Markdown table's delimiter row.
+
+    The leading and trailing pipes are both optional, as a GFM delimiter row
+    allows: the stripped line loses one leading `|` and one trailing unescaped
+    `|`, and every cell between unescaped pipes must match `:?-+:?`.
+    """
+    s = line.strip()
+    if s.startswith("|"):
+        s = s[1:]
+    if s.endswith("|") and not s.endswith("\\|"):
+        s = s[:-1]
+    if not s:
+        return False
+    return all(SEPARATOR_CELL.fullmatch(c.strip()) for c in UNESCAPED_PIPE.split(s))
+
+
+def _doctrine_header(lines: list[str], k: int) -> list[str] | None:
+    """The header cells when line `k` opens a doctrine table, else None.
+
+    A header is a table line whose next line is a table line of the same cell
+    count with every cell matching `:?-+:?`.
+    """
+    if k + 1 >= len(lines):
+        return None
+    header, sep = _table_cells(lines[k]), _table_cells(lines[k + 1])
+    if not header or sep is None or len(sep) != len(header):
+        return None
+    if not all(SEPARATOR_CELL.fullmatch(c) for c in sep):
+        return None
+    return header
+
+
+class DoctrineRead(NamedTuple):
+    """What `read_doctrine_index` read, and what it could not account for."""
+
+    #: Basis values keyed by the source ADR or OBS id, one per readable rule row.
+    rows: dict[str, list[str]]
+    #: The `## Exempt ADRs` roster.
+    exempt: list[str]
+    #: Ids with a rule row that names them and cannot be read. They read null.
+    nulled: frozenset[str]
+    #: `(line number, cause)` for each line the reader cannot account for.
+    failures: list[tuple[int, str]]
+    #: Rule tables found, and the body rows under them.
+    rule_tables: int
+    rule_rows: int
+
+
+def read_doctrine_index(text: str, name: str, errors: list[dict]) -> DoctrineRead:
+    """Read the doctrine index's rule tables by column name.
 
     `text` is already read through `_read_contained` by the caller, and `name`
     is the file's basename, used only in error messages below.
 
-    The row grammar, reverse-engineered from `bionic/adrs/doctrine/index.md`: a
-    rule row is a Markdown table row whose FIRST cell is a rule handle
-    (`ADR-NNNN/<slug>` or `OBS-NNNN/<slug>`) and which carries SIX CONTENT
-    cells — handle, citation, rule, source ADR, disposition, basis.
+    THE READER KEYS ON HEADER NAMES, NEVER ON A FIXED CELL COUNT OR A FIXED
+    POSITION. It
+    once kept a row only when the row split into exactly eight parts and read
+    `basis` from one fixed position. The compiler then added a
+    `source_status` column, every rule row split into nine parts, and the
+    reader kept none of them. An empty row set raised no error, so
+    `paper_only` reported `computed` over 133 nulls.
 
-    THE CODE BELOW TESTS FOR EIGHT, AND EIGHT IS CORRECT. A pipe-delimited
-    Markdown row is written `| a | b | ... | f |`, so `line.split("|")` yields
-    the six content cells PLUS an empty string before the leading pipe and
-    another after the trailing one: six content cells, eight split parts, and
-    `cells[6]` is therefore the sixth content cell, `basis`. "Fixing" the
-    comparison to `!= 6` to match the prose would make the condition true for
-    every real row, `continue` past all of them, and leave `rows` empty — and
-    an empty `rows` raises no error: `paper_only` would map every ADR to
-    `null` and the script would exit 0. That false green is why this
-    paragraph exists rather than a shorter comment.
+    Tables. A header is a table line (`_table_cells`) whose next line is a
+    delimiter row with the same cell count. A header always ends the open
+    table and starts a new one. A body runs from the line after the delimiter
+    to the first line that does not start with `|` or is itself a header. Each
+    header is classified in this order: any cell `basis` makes a RULE table;
+    else a first cell `observation` or `invariant` makes an EXCLUDED table;
+    else any cell `handle` makes a RULE table; else it is an OTHER table. A
+    rule table must name `handle` once and `basis` once.
 
-    The file also carries `_Observed evidence:_` tables and reconciliation
-    tables with three content cells (five split parts); the cell-count check
-    is what excludes them.
+    Rule rows. Each body row of a rule table yields a basis for its ADR, or
+    nulls its ADR with one `errors` row when its handle cell is valid but its
+    cell count differs from the header's or its basis is not one of the four
+    values. A nulled ADR stays null whatever its other rows say. A row whose
+    handle cell fails the handle grammar names no ADR, and is a failure.
+
+    The accounting invariant. A line carries an ADR rule's identity when it
+    holds an ADR-prefixed handle anywhere, or when it is a `|` line holding a
+    basis value as a whole cell. Every such line is consumed exactly once: as
+    a rule-table body row; as a reconciliation row, which sits under an
+    `invariant` table naming `handle` once and `status` once, carries an ADR
+    handle in its `handle` cell and nowhere else, and one of the five
+    statuses in its `status` cell; or, for the handle half only, as a `- `
+    line of the `## Exempt ADRs` section. Any other such line is a failure.
+    So is a malformed rule header, a row of an excluded or other table whose
+    cell count differs from its header's, a rule handle in a cell of an other
+    table, and any `|` line outside every table or inside the exempt section.
+    So is a line that opens a fence or an HTML comment: the reader does not
+    track either block, so a table inside one would read as a real table.
+    Each failing line gets one `errors` row naming the first cause found,
+    and `paper_only` then reads `unmeasurable` rather than computing any ADR
+    from a partial read.
     """
+    lines = _lines(text)
+    label = redact(name, quoted=False)
     rows: dict[str, list[str]] = {}
+    nulled: set[str] = set()
+    failures: dict[int, str] = {}
     exempt: list[str] = []
+    consumed: set[int] = set()
+    rule_body: set[int] = set()
+    rule_tables = rule_rows = 0
+
+    def fail(k: int, cause: str) -> None:
+        failures.setdefault(k, cause)
+
+    def null(adr: str, k: int, problem: str) -> None:
+        nulled.add(adr)
+        errors.append({"input": label,
+                       "problem": f"line {k + 1}: rule row for "
+                                  f"{redact(adr, quoted=False)} {problem}; "
+                                  f"paper_only reads that ADR as null"})
+
     in_exempt = False
-    for line in _lines(text):
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if _fence_marker(line) is not None or line.lstrip().startswith("<!--"):
+            fail(i, "a fence or HTML comment, which this reader does not parse")
+            i += 1
+            continue
         if line.startswith("## "):
             in_exempt = bool(DOCTRINE_EXEMPT_HEADING.match(line))
+            i += 1
+            continue
+        if not line.startswith("|"):
+            if in_exempt:
+                m = EXEMPT_ROSTER_ROW.match(line)
+                if m:
+                    exempt.append(m.group(1))
+                if line.startswith("- "):
+                    consumed.add(i)
+            i += 1
             continue
         if in_exempt:
-            m = EXEMPT_ROSTER_ROW.match(line)
-            if m:
-                exempt.append(m.group(1))
+            fail(i, "a table line inside the Exempt ADRs section")
+            i += 1
             continue
-        m = DOCTRINE_ROW.match(line)
-        if not m:
+        header = _doctrine_header(lines, i)
+        if header is None:
+            fail(i, "a table line outside any table")
+            i += 1
             continue
-        # The doctrine renderer escapes a literal pipe inside a cell as `\|`.
-        # Splitting on every pipe would read nine cells and drop the row with
-        # no error, so a run-bound rule would vanish and its ADR read as
-        # paper-only. Split on unescaped pipes only, then unescape the cells.
-        cells = [c.strip().replace("\\|", "|") for c in UNESCAPED_PIPE.split(line)]
-        if len(cells) != 8:
-            continue
-        basis = cells[6]
-        if basis not in BASIS_VALUES:
-            errors.append({"input": redact(name, quoted=False),
-                           "problem": f"rule row for {redact(m.group(1), quoted=False)} "
-                                      f"carries an unknown basis value "
-                                      f"{redact(basis, quoted=False)}"})
-            continue
-        rows.setdefault(m.group(1), []).append(basis)
-    return rows, exempt
+        if "basis" in header:
+            kind = "rule"
+        elif header[0] in ("observation", "invariant"):
+            kind = "excluded"
+        elif "handle" in header:
+            kind = "rule"
+        else:
+            kind = "other"
+        handle_at = basis_at = None
+        if kind == "rule":
+            rule_tables += 1
+            if header.count("handle") != 1 or header.count("basis") != 1:
+                fail(i, "a rule-table header that does not name `handle` once "
+                        "and `basis` once")
+            else:
+                handle_at, basis_at = header.index("handle"), header.index("basis")
+        reconciliation = (kind == "excluded" and header[0] == "invariant"
+                          and header.count("handle") == 1 and header.count("status") == 1)
+        j = i + 2
+        while j < len(lines) and lines[j].startswith("|") and _doctrine_header(lines, j) is None:
+            cells = _table_cells(lines[j])
+            if kind == "rule":
+                rule_rows += 1
+                consumed.add(j)
+                rule_body.add(j)
+                if handle_at is not None:
+                    read = cells if cells is not None else _leading_cells(lines[j])
+                    m = (DOCTRINE_HANDLE.fullmatch(read[handle_at])
+                         if len(read) > handle_at else None)
+                    if m is None:
+                        fail(j, "a rule-table row whose handle cell names no rule")
+                    elif cells is None:
+                        null(m.group(1), j, "does not end with an unescaped pipe")
+                    elif len(cells) != len(header):
+                        null(m.group(1), j,
+                             f"carries {len(cells)} cells where its header carries "
+                             f"{len(header)}")
+                    elif cells[basis_at] not in BASIS_VALUES:
+                        null(m.group(1), j,
+                             f"carries an unknown basis value in cell {basis_at + 1}, "
+                             f"{len(cells[basis_at])} characters long (its content "
+                             f"is not quoted here)")
+                    else:
+                        rows.setdefault(m.group(1), []).append(cells[basis_at])
+            elif cells is None or len(cells) != len(header):
+                fail(j, f"a row of an {kind} table whose cells do not match its header")
+            elif kind == "other" and any(DOCTRINE_HANDLE.fullmatch(c) for c in cells):
+                fail(j, "a rule handle in a table that is not a rule table")
+            elif reconciliation:
+                at = header.index("handle")
+                if (ADR_HANDLE_IN_LINE.fullmatch(cells[at])
+                        and cells[header.index("status")] in RECONCILIATION_STATUSES
+                        and not any(ADR_HANDLE_IN_LINE.search(c)
+                                    for n, c in enumerate(cells) if n != at)):
+                    consumed.add(j)
+            j += 1
+        i = j
+
+    for k, line in enumerate(lines):
+        if k not in consumed and ADR_HANDLE_IN_LINE.search(line):
+            fail(k, "an ADR rule handle on a line that is not a rule-table row, "
+                    "a reconciliation row or an exempt bullet")
+        if k not in rule_body and line.startswith("|"):
+            cells = _table_cells(line)
+            if any(c in BASIS_VALUES for c in (cells if cells is not None
+                                               else _leading_cells(line))):
+                fail(k, "a basis value in a cell outside every rule-table row")
+
+    ordered = sorted(failures.items())
+    for k, cause in ordered:
+        errors.append({"input": label,
+                       "problem": f"line {k + 1}: {cause}; paper_only cannot "
+                                  f"account for this line and reads unmeasurable"})
+    return DoctrineRead(rows, exempt, frozenset(nulled),
+                        [(k + 1, cause) for k, cause in ordered], rule_tables, rule_rows)
 
 
 #: The `adr:` key of a `{adr: ADR-NNNN, reason: "..."}` exemption member.
@@ -1099,10 +1316,13 @@ CHANGELOG_HEADING = re.compile(r"^##\s+\[([^\]]+)\]\s+—\s+(\d{4}-\d{2}-\d{2})\
 #: match a DECLARED prefix is not mined content; a commit subject is, and none
 #: reaches an envelope.
 RELEASE_PREP_SUBJECT = re.compile(r"^release prep\b", re.IGNORECASE)
-#: The regenerator roster's four-column header row. `gate_count` locates the
-#: roster by THIS row and never by the heading above it, which spells its count
-#: as an English word — and mining a word into a record is forbidden.
-ROSTER_HEADER_ROW = "| Output | Source of truth | Regenerator | Drift check |"
+#: The regenerator roster's header row is the unfenced table row whose FIRST
+#: FOUR cells are these, in this order, whatever cells follow them. `gate_count`
+#: locates the roster by that row and never by the heading above it, which
+#: spells its count as an English word — and mining a word into a record is
+#: forbidden. An exact match on the whole row read `unmeasurable` on every run
+#: once the roster gained its `Scope` column.
+ROSTER_HEADER_CELLS = ("Output", "Source of truth", "Regenerator", "Drift check")
 
 
 def _dated_release_headings(text: str) -> list[tuple[str, str]]:
@@ -1822,10 +2042,26 @@ def signal_schema_growth(root: Path, docs: Path, tree: str) -> dict:
 def signal_gate_count(root: Path, tree: str) -> dict:
     """The enrolled regenerator rows in the repo-root AGENTS.md roster.
 
-    Reads no git. The roster is located by its four-column header row and never
-    by the heading above it, so THAT ROW is the input whose absence forces
-    `unmeasurable`. A roster the header row locates carrying no enrolled row is
-    a count of zero rather than an absence.
+    Reads no git. The roster is located by its header row, the table row
+    whose first four cells are `ROSTER_HEADER_CELLS` whatever cells follow
+    them, and never by the heading above it. A row inside a fence, an HTML
+    comment or an indented code block is content, never a candidate. THAT ROW
+    is the input whose absence forces `unmeasurable`. A roster the header row
+    locates carrying no enrolled row is a count of zero rather than an absence.
+
+    The body is the contiguous lines after the header that open with `|` once
+    leading whitespace is stripped. A delimiter-shaped first body line is the
+    delimiter row and is not counted. Any later delimiter-shaped body line, or
+    a delimiter-shaped line carrying a pipe that ends the body, means a second
+    table is glued to the roster or its delimiter row is doubled. Any other
+    line that ends the body while carrying a pipe is refused as well: a row
+    written without its leading pipe renders as a further roster row, and the
+    reader does not tell such a row from a line that opens another block. A
+    blank line followed by a line opening with `|` that no delimiter row
+    follows splits the roster: those rows have no header of their own. In
+    each case the roster's extent is ambiguous, and the record is
+    `unmeasurable` rather than a count that takes in another table's rows or
+    stops above one of its own.
     """
     path = root / "AGENTS.md"
     surface = (f"the regenerator roster in the repo-root AGENTS.md — not "
@@ -1834,8 +2070,8 @@ def signal_gate_count(root: Path, tree: str) -> dict:
         return _record(
             "gate_count", "unmeasurable", None,
             f"{surface}; the file is absent",
-            "AGENTS.md is absent from the repository root, so the roster's four-column "
-            "header row — this signal's whole input — does not exist",
+            "AGENTS.md is absent from the repository root, so the roster's header "
+            "row — this signal's whole input — does not exist",
         )
     text = _read_contained(root, path)
     if text is None:
@@ -1848,14 +2084,17 @@ def signal_gate_count(root: Path, tree: str) -> dict:
             "reason — so no roster is located",
         )
     lines = _lines(text)
-    # Fence-aware: a decoy header row inside a fenced code block — the
-    # live repo-root AGENTS.md carries one such fence a few lines above its
-    # real roster header — is content, never a candidate match. `next(...)`
-    # over the unguarded scan took the FIRST textual match wherever it sat,
-    # so a decoy placed first would win outright.
+    # Fence-aware: a decoy header row inside a fenced code block is
+    # content, never a candidate match. `next(...)` over the unguarded scan
+    # took the FIRST textual match wherever it sat, so a decoy placed first
+    # would win outright.
     matches: list[int] = []
     fence: tuple[str, int] | None = None
+    comment = False
     for i, line in enumerate(lines):
+        if comment:
+            comment = "-->" not in line
+            continue
         marker = _fence_marker(line)
         if fence is not None:
             if _closes_fence(marker, fence):
@@ -1864,15 +2103,24 @@ def signal_gate_count(root: Path, tree: str) -> dict:
         if marker is not None:
             fence = (marker[0], marker[1])
             continue
-        if line.strip() == ROSTER_HEADER_ROW:
+        if line.lstrip().startswith("<!--"):
+            comment = "-->" not in line.lstrip()[4:]
+            continue
+        expanded = line.expandtabs(4)
+        if len(expanded) - len(expanded.lstrip(" ")) > 3:
+            continue
+        cells = _table_cells(line.strip())
+        if cells is not None and tuple(cells[:4]) == ROSTER_HEADER_CELLS:
             matches.append(i)
     if not matches:
         return _record(
             "gate_count", "unmeasurable", None,
             f"{surface}; the roster header row is absent",
-            f"the repo-root AGENTS.md carries no roster header row `{ROSTER_HEADER_ROW}`; "
-            f"that header row is the input, and the heading above the table is never "
-            f"read, because it spells its count as an English word",
+            "the repo-root AGENTS.md carries no roster header row: no unfenced table "
+            "row whose first four cells are Output, Source of truth, Regenerator and "
+            "Drift check, in that order; that header row is the input, and the heading "
+            "above the table is never read, because it spells its count as an English "
+            "word",
         )
     if len(matches) > 1:
         return _record(
@@ -1883,18 +2131,59 @@ def signal_gate_count(root: Path, tree: str) -> dict:
             f"decoy, so an ambiguous roster is refused rather than guessed at",
         )
     header = matches[0]
-    rows = 0
-    for line in lines[header + 2:]:
-        if not line.startswith("|"):
-            break
-        rows += 1
+    end = header + 1
+    while end < len(lines) and lines[end].lstrip().startswith("|"):
+        end += 1
+    body = list(range(header + 1, end))
+    if body and _separator_shaped(lines[body[0]]):
+        body = body[1:]
+    stray = [k for k in body if _separator_shaped(lines[k])]
+    if (end < len(lines) and UNESCAPED_PIPE.search(lines[end])
+            and _separator_shaped(lines[end])):
+        stray.append(end)
+    if stray:
+        return _record(
+            "gate_count", "unmeasurable", None,
+            f"{surface}, located at line {header + 1}; a delimiter-shaped line at "
+            f"line {stray[0] + 1}",
+            "a delimiter-shaped line inside the roster body makes the roster's extent "
+            "ambiguous: a table is glued under the roster, or its delimiter row is "
+            "doubled, so a count could take in another table's rows and is refused "
+            "rather than guessed at",
+        )
+    if end < len(lines) and UNESCAPED_PIPE.search(lines[end]):
+        return _record(
+            "gate_count", "unmeasurable", None,
+            f"{surface}, located at line {header + 1}; line {end + 1} ends the body "
+            f"and carries a pipe",
+            "the line that ends the roster body carries a pipe without opening with "
+            "one; a renderer draws such a line as a further roster row unless it "
+            "opens another block, so the roster's extent is ambiguous and a count "
+            "that stops above it is refused rather than guessed at",
+        )
+    after = end
+    while after < len(lines) and not lines[after].strip():
+        after += 1
+    if (after > end and after < len(lines) and lines[after].lstrip().startswith("|")
+            and not (after + 1 < len(lines) and _separator_shaped(lines[after + 1]))):
+        return _record(
+            "gate_count", "unmeasurable", None,
+            f"{surface}, located at line {header + 1}; line {after + 1} opens with a "
+            f"pipe after a blank line",
+            "a line opening with a pipe follows the roster body after a blank line, "
+            "with no delimiter row under it, so it opens no new table: the rows from "
+            "it on read as roster rows split off by the blank line, and a count that "
+            "stops at the blank line is refused rather than guessed at",
+        )
     return _record(
-        "gate_count", "computed", rows,
+        "gate_count", "computed", len(body),
         f"{surface}, located at line {header + 1}",
-        "counted as the contiguous pipe-opening lines after the separator row, stopping "
-        "at the first non-table line; the heading above the table is never read, because "
-        "it spells its count as an English word, and a roster the header row locates "
-        "carrying no enrolled row reports 0 rather than reading as an absence",
+        "counted as the contiguous lines after the header row that open with a pipe "
+        "once leading whitespace is stripped, less the delimiter row directly under the "
+        "header, stopping at the first other line; the heading above the table is never "
+        "read, because it spells its count as an English word, and a roster the header "
+        "row locates carrying no enrolled row reports 0 rather than reading as an "
+        "absence",
     )
 
 
@@ -1932,7 +2221,7 @@ def signal_carve_out_count(governs_exempt: list[str], doctrine_exempt: list[str]
     # [SECURITY:S1] `name` is an identifier lifted out of a source file by
     # `ast` and `fname` is a filename off the filesystem, and both land in
     # `basis` — an envelope member the report renders. Redacted for the same
-    # reason as the three sibling call sites twelve lines up in
+    # reason as the redacted values in the `errors` rows of
     # `read_doctrine_index`: a value this script did not author does not reach
     # a channel unbounded. Legitimate values (`EXEMPT_THINGS`,
     # `summarize-adrs.py`) round-trip to exactly themselves.
@@ -1970,7 +2259,7 @@ def signal_carve_out_count(governs_exempt: list[str], doctrine_exempt: list[str]
     )
 
 
-def signal_paper_only(active: dict[str, dict], rows: dict[str, list[str]], tree: str,
+def signal_paper_only(active: dict[str, dict], doctrine: DoctrineRead | None, tree: str,
                       doctrine_never_compiled: bool = False) -> dict:
     """`True` when no doctrine rule row sourced from this ADR is run-bound.
 
@@ -1990,26 +2279,69 @@ def signal_paper_only(active: dict[str, dict], rows: dict[str, list[str]], tree:
     statement than "every active ADR happens to carry no doctrine row". The
     per-ADR `null` map that would otherwise result reads exactly like the
     latter. The whole-record `unmeasurable` says which one this is.
+
+    Three more shapes force the whole record `unmeasurable`, because a
+    per-ADR map computed from them would read as a measurement of rows that
+    were never read. `doctrine` is None when the index was not read. A
+    `doctrine` carrying failures holds a line the reader cannot account for.
+    A `doctrine` with no rule table holds no rule-table header, which is this
+    signal's input. A rule table with no body rows is none of these: the leg
+    ran and matched nothing, so the record stays `computed` with every ADR
+    null, and its basis names the zero.
     """
+    index = f"{tree}/adrs/doctrine/index.md"
     if doctrine_never_compiled:
         return _record(
             "paper_only", "unmeasurable", None,
-            f"{tree}/adrs/doctrine/index.md and {tree}/adrs/doctrine/_meta.json",
+            f"{index} and {tree}/adrs/doctrine/_meta.json",
             "the doctrine index and its _meta.json are both absent: "
-            f"{tree}/adrs/doctrine/index.md and {tree}/adrs/doctrine/_meta.json",
+            f"{index} and {tree}/adrs/doctrine/_meta.json",
+        )
+    if doctrine is None:
+        return _record(
+            "paper_only", "unmeasurable", None,
+            f"{index}; the index was not read",
+            "the doctrine index was not read, so no rule row is known and no ADR's "
+            "value is computed; the errors row names the reasons a read is refused",
+        )
+    if doctrine.failures:
+        return _record(
+            "paper_only", "unmeasurable", None,
+            f"{index}; {len(doctrine.failures)} line(s) the reader cannot account "
+            f"for, the first at line {doctrine.failures[0][0]}",
+            "the doctrine index carries a line the reader cannot account for: a line "
+            "naming an ADR rule, or carrying a basis value as a cell, that is not a "
+            "rule-table row, a reconciliation row or an exempt bullet, or a malformed "
+            "table line; no ADR's value is computed from a partial read, and each such "
+            "line has its own errors row",
+        )
+    if not doctrine.rule_tables:
+        return _record(
+            "paper_only", "unmeasurable", None,
+            f"{index}; it carries no rule table",
+            "the doctrine index carries no rule table — no table header naming "
+            "`basis`, or naming `handle` without a first cell of `observation` or "
+            "`invariant` — and that header is this signal's input, so its absence "
+            "is not read as a count of zero rule rows",
         )
     value: dict[str, bool | None] = {}
     for adr_id in active:
-        basis_values = rows.get(adr_id)
-        if not basis_values:
+        basis_values = doctrine.rows.get(adr_id)
+        if adr_id in doctrine.nulled or not basis_values:
             value[adr_id] = None
         else:
             value[adr_id] = all(b == NOT_RUN_BOUND for b in basis_values)
+    tables, rule_rows = doctrine.rule_tables, doctrine.rule_rows
     return _record(
         "paper_only", "computed", value,
-        f"the per-rule `basis` column of {tree}/adrs/doctrine/index.md, joined to the "
-        f"{len(active)} active ADRs by rule-handle prefix",
-        "value-domain note. `true` means every doctrine rule row sourced from this ADR "
+        f"the per-rule `basis` column of {index}, joined to the "
+        f"{len(active)} active ADRs by rule-handle prefix; {rule_rows} rule "
+        f"row{'' if rule_rows == 1 else 's'} from {tables} rule "
+        f"table{'' if tables == 1 else 's'}",
+        "value-domain note. An ADR with a rule row the reader could not read — a cell "
+        "count unlike its header's, or a basis outside the four values — maps to null "
+        "whatever its other rows say, and that row has an errors row. "
+        "`true` means every doctrine rule row sourced from this ADR "
         "carries basis `not-run-bound`, which is a statement about evidence bindings and "
         "NOT a claim that the ADR is unimplemented — the basis column makes no "
         "implementation claim. And an ADR carrying NO doctrine rule row maps to null "
@@ -2308,8 +2640,9 @@ def build(root: Path, today: dt.date) -> tuple[dict, list[dict]]:
     doctrine_meta = doctrine_dir / "_meta.json"
     doctrine_never_compiled = _doctrine_never_compiled(doctrine_dir, doctrine,
                                                        doctrine_meta)
+    doctrine_read: DoctrineRead | None = None
     if doctrine_never_compiled:
-        rows, doctrine_exempt = {}, []
+        doctrine_exempt = []
     else:
         # On 3.13 `is_file()` re-raises a `PermissionError` from `stat`, such as
         # a mode-000 `adrs/doctrine`; 3.14 returns False. Either way the shape
@@ -2320,9 +2653,10 @@ def build(root: Path, today: dt.date) -> tuple[dict, list[dict]]:
             doctrine_is_file = False
         doctrine_text = _read_contained(root, doctrine) if doctrine_is_file else None
         if doctrine_text is not None:
-            rows, doctrine_exempt = read_doctrine_index(doctrine_text, doctrine.name, errors)
+            doctrine_read = read_doctrine_index(doctrine_text, doctrine.name, errors)
+            doctrine_exempt = doctrine_read.exempt
         else:
-            rows, doctrine_exempt = {}, []
+            doctrine_exempt = []
             errors.append({"input": f"{tree}/adrs/doctrine/index.md",
                            "problem": "the doctrine index was not read. It is absent "
                                       "while adrs/doctrine is not a real directory or "
@@ -2358,7 +2692,7 @@ def build(root: Path, today: dt.date) -> tuple[dict, list[dict]]:
             signal_amendment_fan_in(active, tree),
             signal_carve_out_count(governs_exempt, doctrine_exempt, literals, tree,
                                    scripts_present, doctrine_never_compiled),
-            signal_paper_only(active, rows, tree, doctrine_never_compiled),
+            signal_paper_only(active, doctrine_read, tree, doctrine_never_compiled),
             signal_dormancy_days(active, entries, today, tree, refused_surfaces),
             signal_friction_citations(root, docs, tree, friction_from),
             # The three delivery signals are APPENDED, so the five above keep

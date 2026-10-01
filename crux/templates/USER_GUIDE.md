@@ -344,7 +344,7 @@ If something feels wrong (a contradiction, a stale page, a missing source), say 
 
 - Write `bionic/briefs/BRIEF-<slug>.md` files — these are *your* pre-decision exploration. Claude tracks them but doesn't author them.
 - Co-author the `## Goal`, `## Strategy`, and `## Prompts` sections of an active promptbook.
-- Edit the repo-root `AGENTS.md`, if you keep one, to add project-specific notes your agents should know about. `init-docs` never creates that file. When it exists, `init-docs` appends a ``See `bionic/AGENTS.md` for documentation operations.`` line and an instruction to read `bionic/objectives.md` where each is missing. Keep both when you edit. When it does not exist, the init summary warns and suggests both additions. Adding the file is your call. Before you add a repo-root `AGENTS.md` beside a legacy instruction file, run `audit-docs --migrate`: it converts tracked `CLAUDE.md` files to `AGENTS.md`. The `See` line is plain text, not an include.
+- Edit the repo-root `AGENTS.md` to add project-specific notes your agents should know about. When the repository root holds no `AGENTS.md` or `CLAUDE.md` in any letter case, `init-docs` creates that file with a ``See `bionic/AGENTS.md` for documentation operations.`` line and an instruction to read `bionic/objectives.md`. A `CLAUDE.local.md` does not block that create. When an exact `AGENTS.md` exists, `init-docs` appends each of the two where it is missing. Keep both when you edit. `init-docs` writes nothing to a `CLAUDE.md` in any letter case, to a case variant of `AGENTS.md`, or through a symlink. The init summary reports each such entry with its remedy, which names `audit-docs --migrate` where that migration applies. The `See` line is plain text, not an include.
 
 ---
 
@@ -382,13 +382,10 @@ In Codex, use `codex plugin marketplace add bionic-coding/crux` and
 `codex plugin add crux@crux`. Update with the same commands for your platform.
 After upgrading from a release before 3.19.0, say *"audit docs --migrate"* even when
 `schema_version` is already `"5"`. The migration converts tracked `CLAUDE.md` files
-to `AGENTS.md`. When both files exist at one scope, it preserves unique blocks and
-removes only exact duplicates under the same heading path. If a heading conflicts or
-a block cannot retain its heading ancestry, the migration keeps both source files and
-writes `.instruction-migration-preview.md`. Reconcile each named block in a JSON
-resolution file that copies `source_hashes` from `.instruction-migration-receipt.json`,
-then say *"audit docs --migrate using the resolution file at `<path>`"*. It reports
-untracked and private suppressors without editing them. Codex users can install the
+to `AGENTS.md`. When a scope also holds an
+`AGENTS.md`, the legacy file wins: it becomes the new `AGENTS.md`, and the previous
+`AGENTS.md` is kept byte for byte under a name the report gives. Where a move is
+unsafe, the migration changes nothing in that scope and names the next step. It reports untracked and private suppressors without editing them. Codex users can install the
 ten Crux role agents personally with the `install-codex-agents` skill.
 
 ### Recover older trees and Markdown promptbooks

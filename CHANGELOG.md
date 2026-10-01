@@ -1,9 +1,71 @@
-<!-- generated-from: CHANGELOG.md@sha256:0446827075174e47155bcf3c6490a2a3159bdea308cde2b123c094e45fb950e9; model: claude-opus-5.5; date: 2026-09-29 -->
+<!-- generated-from: CHANGELOG.md@sha256:7b8d4ff406627e0d257a3a6835484729cb67916888929cba9a08926ac475fe98; model: claude-sonnet-5.5; date: 2026-09-30 -->
 # Changelog
 
 All notable changes to crux. The format roughly follows [Keep a Changelog](https://keepachangelog.com/) and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+
+### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [3.25.1] — 2026-10-01
+
+### Changed
+
+- The instruction-file contract in the `AGENTS.md` template now describes the set-aside name check the way `audit-docs --migrate` performs it. A name counts as taken when an existing entry holds it or holds a name that lowercases to it. If the volume folds a name in some other way, the migration scope stops at its no-replace rename.
+- Two rules in the shipped rules catalog have updated text. The rule for a refused migrate scope now names the refusal of a scope directory reached through a symlink, which migrate already enforced. The rule for the decision review's `gate_count` signal now says the roster is matched by its four leading header cells.
+
+### Fixed
+
+- The decision review's `gate_count` signal finds the regenerator roster again. It now matches the roster's header by its four leading columns, so the Scope column the roster gained in 3.16.0 no longer hides it. Before this fix the signal reported unmeasurable on every run. A roster split by a blank line, or a table directly attached beneath it, now reads as unmeasurable instead of producing a wrong count.
+- The decision review's `paper_only` signal now reads the columns of the doctrine table by name. Since the table gained its `source_status` column, the signal had read none of the rule rows while still reporting a computed result. It now accounts for every line that carries a rule handle or a basis value.
+  - A row it cannot read has its ADR set to null and is reported as an error.
+  - A missing basis column, or a fenced table, makes the signal unmeasurable.
+  - An unknown basis value is identified by its cell position and is never quoted.
+
+### Removed
+
+## [3.25.0] — 2026-09-30
+
+### Added
+
+- A new check, `check-record-numbers`, fails when two promptbooks or two architecture decision records share a number. `validate-promptbook`, `audit-docs` (rule CHK-NUM-1) and `release-preflight` run the same check, so a duplicate no longer reaches a release.
+
+### Changed
+
+- `init-docs` now creates a repo-root `AGENTS.md` when the root has no `AGENTS.md` or `CLAUDE.md` in any letter case, and step 9 prints a note saying so. A `CLAUDE.local.md` does not prevent the create. A fresh repository then reports `supported: true` from `check-claude-compat`.
+- `init-docs` reports each legacy root entry (a `CLAUDE.md`, a case variant, or a linked or read-only `AGENTS.md`) with a remedy that loses no content when followed. Rollback deletes a created root `AGENTS.md` only while it is still the file the run created.
+- The council retries a seat once, with a fresh deadline, after a timeout, provider error, truncated response or malformed response. `max_retries` defaults to 1, and any value other than 0 or 1 is refused. Each seat now records its finish reason.
+- Council results now include `conditioned` and `conditions` alongside `nits` and `nit_items`. A conditioned approval never runs automatically, and nits never change the route. A reply of the wrong shape is now reported as `malformed-response` instead of `client-config`.
+- The Swift pack's parser rule now covers third-party parsers only: the probe declares each one and the deriver pins it. A standard-library parser follows the supported Python versions.
+
+### Fixed
+
+- `check-claude-compat` lists each instruction file once, under its real name, on a case-insensitive filesystem. Under `claude-md-and-agents-md`, only a file spelled exactly `CLAUDE.md` counts as effective.
+- The cycle and iterate promptbook templates no longer splice a review paragraph into the middle of a sentence.
+- `audit-docs --migrate` no longer loses instruction files. Where a scope holds both `CLAUDE.md` and `AGENTS.md`, `CLAUDE.md` wins and the other file is kept byte for byte under a reported name. Where a move is unsafe, migrate changes nothing in that scope and names the next step.
+
+### Removed
+
+- **Breaking:** the merge preview and the `--resolution` file of `audit-docs --migrate` are gone. Two instruction files in one scope no longer merge block by block.
+
+## [3.24.9] — 2026-09-30
+
+### Changed
+
+- Four agents now have larger turn budgets so they finish and report instead of running out of turns. The architect and historian move from 50 to 75 turns, and the dev-lead and developer move from 100 to 150. OpenCode `steps` values match. Codex agents are unchanged because Codex has no per-agent turn cap.
+
+### Fixed
+
+- The Claude compatibility check (`check-claude-compat.py`) now reports `supported: false` and exits 1 when the host loads no instruction file, such as in a fresh repository without a root `AGENTS.md`. A `.claude/CLAUDE.md` now counts as an instruction file for its project directory. `build-claude-adapter --generate` now refuses to run when no root `AGENTS.md` exists.
+- The council now reports `UNANIMOUS_<decision>` when every seat returns the same decision. It previously reported `SPLIT` in that case.
+- The council now lists responses outside the expected decision scale in an `off_scale` field. A response that only resembles an approval or execute decision now reads as `UNANIMOUS_OFF_SCALE`.
+- Each council seat now has its own deadline, so one slow seat no longer discards the other seats' results. The default timeout rose from 180 s to 600 s.
 
 ## [3.24.8] — 2026-09-29
 

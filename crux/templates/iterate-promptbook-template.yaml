@@ -235,11 +235,6 @@ prompts:
       Independent verification of correctness, consistency, clarity, and security.
     prompt: |
       Dispatch parallel `Agent` reviewers, each blind to the others, scoped to the
-      Commission these reviewers yourself for the units you dispatched.
-      Where you integrated across those units, that integration is your own
-      authorship, so its review is commissioned by your delegator and not by
-      you.
-
       full cycle diff. **Three quality dimensions:** (a) Correctness — re-run the
       Prompt 7 gates, then read the diff for behavior bugs + confirm the fix
       actually resolves the diagnosed root cause; (b) Consistency — vs ADRs,
@@ -248,6 +243,11 @@ prompts:
       injection, S2 secrets incl. `~/.crux/`, S3 authz, S4 supply-chain, S5
       unsafe file/shell/resource), scope-adaptive with MANDATORY N/A reports. A
       `[SECURITY:Sn]` finding on a reachable path is non-downgradable MUST-FIX.
+
+      Commission these reviewers yourself for the units you dispatched.
+      Where you integrated across those units, that integration is your own
+      authorship, so its review is commissioned by your delegator and not by
+      you.
 
       Every reviewer receives the book's `goal` statements — the Outcome, the
       Evidence, and the Constraint. Each judges the change against the Outcome
@@ -320,16 +320,16 @@ prompts:
       item the finding bears on. Narrow the Outcome to the finding and say what
       the narrowing dropped; pass the Evidence and the Constraint whole. A fixer
       that is told only what is broken optimizes for the gate rather than for the
+      user the fix is meant to serve. Re-run the Prompt 7 gates; if green
+      AND re-dispatched reviewers report zero MUST-FIX, advance to Prompt 12.
+      Otherwise loop to Prompt 9. After 3 review-fix loops without convergence,
+      STOP and escalate.
+
       Where you fixed a MUST-FIX yourself rather than dispatching it, that
       fix is your own authorship: the re-review of it is commissioned by
       your delegator, not by you, and you re-dispatch only the reviewers of
       work you did not write. At the top of the chain the delegator is the
       human who approved the run.
-
-      user the fix is meant to serve. Re-run the Prompt 7 gates; if green
-      AND re-dispatched reviewers report zero MUST-FIX, advance to Prompt 12.
-      Otherwise loop to Prompt 9. After 3 review-fix loops without convergence,
-      STOP and escalate.
 
       **Forge-log `used` recording (on this module's CONVERGED EXIT only).**
       When this pass is the one that advances OUT of the module (NOT on each

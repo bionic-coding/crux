@@ -17,7 +17,7 @@ import types
 import httpx
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional, Dict, Any, List, Tuple, Union
+from typing import Optional, Dict, Any, List, NamedTuple, Tuple, Union
 from dataclasses import dataclass
 
 from crux_env import require
@@ -131,6 +131,30 @@ class ConfidenceRejectedError(ValueError):
     closed-vocabulary redaction maps the class to `malformed-response` via
     `AsyncCouncil._ERROR_LABELS` (a class row on an existing label — the
     vocabulary stays closed).
+    """
+
+
+class ResponseTruncatedError(RuntimeError):
+    """A reply that stopped on its output budget (finish reason `length`).
+
+    Raised by the council seat, never by `parse_gateway_response`: the shared
+    parse returns the text a synchronous caller asked for, and only the council
+    acts on the finish reason. Not a `ValueError`, so it can never take the
+    `client-config` row that class carries in `AsyncCouncil._ERROR_LABELS`.
+    """
+
+
+class MalformedResponseError(RuntimeError):
+    """A reply that arrived but cannot become a vote.
+
+    Raised by a council seat when the reply holds no parseable JSON object, or
+    when the parsed object cannot be built into a vote. Also raised by
+    `parse_gateway_reply`, on the path every caller shares (the council seat,
+    `call_gateway`, and `transcribe-video` through it), when the reply's
+    `message` is not an object or its `content` is not text. The message is
+    a fixed string: no part of the reply travels with the error. Not a
+    `ValueError`, so the `client-config` row of a real configuration error
+    stays for those alone.
     """
 
 
@@ -450,18 +474,35 @@ def validated_confidence(raw, default: float = 0.5) -> float:
 _validated_confidence = validated_confidence
 
 
-def parse_gateway_response(data: Dict[str, Any], model: str) -> str:
-    """Extract the assistant text from an OpenAI-compatible response body.
+class GatewayReply(NamedTuple):
+    """One parsed reply: its text, its raw finish reason, and whether it is a refusal.
 
-    A refusal arrives as HTTP 200 with `finish_reason: "content_filter"` (the
-    documented ChatFinishReasonEnum member) or a passed-through
-    `native_finish_reason: "refusal"`. Without this check it falls through to an
-    empty string, which distorts council consensus; raising lets the council's
-    seat wrapper degrade this seat to an error vote instead.
+    `finish_reason` is the gateway's value, untouched: None when the reply names
+    none. It is untrusted text, and the council maps it onto a closed vocabulary
+    before it reaches a vote.
     """
+
+    content: str
+    finish_reason: Any
+    refused: bool
+
+
+def parse_gateway_reply(data: Dict[str, Any], model: str) -> GatewayReply:
+    """Read the assistant text and the finish reason from a response body.
+
+    Reports a refusal or a `length` finish and leaves the decision to the
+    caller. A refusal arrives as HTTP 200 with `finish_reason:
+    "content_filter"` (the documented ChatFinishReasonEnum member) or a
+    passed-through `native_finish_reason: "refusal"`.
+
+    Raises `MalformedResponseError` when `message` is not an object or its
+    `content` is not text. A `choices[0]` that is not an object, or a body with
+    no choices, yields empty text.
+    """
+    _ = model  # part of the signature the sync and async callers share; not read here
     choices = data.get('choices') or []
     if not choices:
-        return ""
+        return GatewayReply("", None, False)
 
     choice = choices[0]
     if not isinstance(choice, dict):
@@ -469,12 +510,35 @@ def parse_gateway_response(data: Dict[str, Any], model: str) -> str:
         # uncaught AttributeError on `.get` below. transcribe-video's main() arm
         # does not catch AttributeError, so treat a non-dict choice as no
         # content rather than crash the caller.
-        return ""
-    if choice.get('finish_reason') == 'content_filter' or \
-            choice.get('native_finish_reason') == 'refusal':
-        raise ModelRefusedError(f"model {model} declined to answer (refusal)")
+        return GatewayReply("", None, False)
+    finish_reason = choice.get('finish_reason')
+    refused = finish_reason == 'content_filter' or \
+        choice.get('native_finish_reason') == 'refusal'
+    message = choice.get('message')
+    if message is None:
+        message = {}
+    if not isinstance(message, dict):
+        # The finish reason is not recorded: the reply is unusable, and the
+        # raise carries a fixed message, so no byte of the reply travels with it.
+        raise MalformedResponseError("reply message is not an object")
+    content = message.get('content') or ""
+    if not isinstance(content, str):
+        raise MalformedResponseError("reply content is not text")
+    return GatewayReply(content, finish_reason, refused)
 
-    return (choice.get('message') or {}).get('content') or ""
+
+def parse_gateway_response(data: Dict[str, Any], model: str) -> str:
+    """Extract the assistant text from an OpenAI-compatible response body.
+
+    A refusal would otherwise return an empty string, so this raises
+    `ModelRefusedError` for it. The sync callers (`call_gateway`) use this
+    function. The async council calls `parse_gateway_reply` instead, because it
+    also needs the finish reason. A `length` finish is returned as text.
+    """
+    reply = parse_gateway_reply(data, model)
+    if reply.refused:
+        raise ModelRefusedError(f"model {model} declined to answer (refusal)")
+    return reply.content
 
 
 def call_gateway(
@@ -618,6 +682,8 @@ def call_claude_sonnet(prompt: str, system: Optional[str] = None) -> str:
 __all__ = [
     "ModelConfig",
     "ModelRefusedError",
+    "ResponseTruncatedError",
+    "MalformedResponseError",
     "GatewayError",
     "NotATextModelError",
     "TEXT_MODEL_TYPES",
@@ -633,6 +699,8 @@ __all__ = [
     "build_gateway_request",
     "provider_object",
     "raise_for_gateway_status",
+    "GatewayReply",
+    "parse_gateway_reply",
     "parse_gateway_response",
     "call_gateway",
     "gateway_timeout_seconds",

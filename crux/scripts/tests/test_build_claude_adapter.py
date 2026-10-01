@@ -118,6 +118,54 @@ class DestructiveWriteRefusalTests(CliFixture):
         self.assertIn("edited", (self.root / "CLAUDE.md").read_text(encoding="utf-8"))
 
 
+class UnsupportedHostGenerateTests(CliFixture):
+    """`--generate` proceeds on a host that a root `.claude/CLAUDE.md` stops from
+    reading AGENTS.md. A checkout with no root AGENTS.md is unsupported too, but an
+    adapter cannot repair that, so `--generate` refuses there and names the missing
+    root AGENTS.md rather than claiming the host already reads it."""
+
+    def test_a_root_dot_claude_file_makes_the_host_unsupported_and_generate_proceeds(self):
+        _write(self.root / ".claude" / "CLAUDE.md", "# legacy\n")
+        code, payload, _ = self.run_cli("--generate")
+        self.assertFalse(payload["host_supported"], payload)
+        self.assertEqual(payload["refused"], [], payload)
+        self.assertEqual(sorted(payload["generated"]),
+                         ["CLAUDE.md", "bionic/CLAUDE.md"])
+        self.assertEqual(code, 0, payload)
+
+    def test_a_supported_host_still_refuses_without_force(self):
+        """Positive control: the refusal string the tests above avoid still fires."""
+        code, payload, _ = self.run_cli("--generate")
+        self.assertTrue(payload["host_supported"])
+        self.assertIn("already reads AGENTS.md", payload["refused"])
+        self.assertEqual(code, 1)
+
+    def test_no_canonical_file_is_reported_unsupported_and_writes_no_adapter(self):
+        (self.root / "AGENTS.md").unlink()
+        (self.root / "bionic" / "AGENTS.md").unlink()
+        code, payload, _ = self.run_cli("--generate")
+        self.assertFalse(payload["host_supported"], payload)
+        self.assertEqual(payload["generated"], [])
+        self.assertIn("no root AGENTS.md", payload["refused"])
+        self.assertNotIn("already reads AGENTS.md", payload["refused"])
+        self.assertFalse((self.root / "CLAUDE.md").exists())
+        self.assertFalse((self.root / "bionic" / "CLAUDE.md").exists())
+        self.assertEqual(code, 1)
+
+    def test_a_missing_root_agents_md_alone_still_refuses_without_force(self):
+        """A missing canonical file is not a host cause, and an adapter cannot
+        create it, so `--generate` refuses rather than writing an adapter for a
+        nested scope. The refusal names the missing root AGENTS.md."""
+        (self.root / "AGENTS.md").unlink()
+        code, payload, _ = self.run_cli("--generate")
+        self.assertFalse(payload["host_supported"], payload)
+        self.assertIn("no root AGENTS.md", payload["refused"])
+        self.assertNotIn("already reads AGENTS.md", payload["refused"])
+        self.assertEqual(payload["generated"], [])
+        self.assertFalse((self.root / "bionic" / "CLAUDE.md").exists())
+        self.assertEqual(code, 1)
+
+
 class DenylistRefusalTests(CliFixture):
     def test_a_denylisted_scope_is_never_written(self):
         fixture_dir = self.root / "fixtures" / "trips"

@@ -31,14 +31,43 @@ sys.modules["instruction_migration"] = im
 _spec.loader.exec_module(im)
 
 
+def _payload(root: Path, d, plan) -> dict:
+    """The report every run prints, dry runs included."""
+    left = {im._rel(sp.scope, sp.winner.name) for sp in plan.scopes
+            if sp.winner is not None and sp.winner_left}
+    excluded = {k: v for k, v in d.excluded.items() if k not in left}
+    for sp in plan.scopes:
+        excluded.update(sp.excluded)
+    suppressors = []
+    for s in d.suppressors:
+        rel = s.path.as_posix()
+        row = {"path": im.show(rel), "reason": s.reason, "on_chain": s.on_chain,
+               "remedy": s.remedy}
+        if rel in left:
+            # A winner left in place is reported once, as a suppressor whose
+            # content AGENTS.md carries, with no next step.
+            row["reason"] = "winner left in place; AGENTS.md carries its content"
+            row["remedy"] = ""
+        suppressors.append(row)
+    return {
+        "repo_root": str(root),
+        "managed": [im.show(p.as_posix()) for p in d.managed_paths()],
+        "excluded": {im.show(k): v for k, v in sorted(excluded.items())},
+        "suppressors": suppressors,
+        "actions": [s.to_json() for s in plan.actions],
+        "scopes": [sp.to_json() for sp in plan.scopes],
+        "set_asides": [sa for sp in plan.scopes for sa in sp.set_asides],
+        "refusals": plan.refusals,
+        "temporaries": [t for sp in plan.scopes for t in sp.temporaries],
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--repo-root", default=".")
     ap.add_argument("--working-dir", default=None,
                     help="the directory a host would load instructions from; "
                          "decides which suppressors bear on a verdict")
-    ap.add_argument("--resolution", default=None,
-                    help="reviewed JSON resolution bound to the preview receipt")
     mode = ap.add_mutually_exclusive_group()
     mode.add_argument("--dry-run", action="store_true", help="report only")
     mode.add_argument("--migrate", action="store_true", help="apply the plan")
@@ -52,54 +81,30 @@ def main(argv: list[str] | None = None) -> int:
     try:
         d = im.discover(root, denylist=im.load_denylist(root),
                         working_dir=Path(args.working_dir) if args.working_dir else root)
+        plan = im.build_plan(d)
     except im.CapabilityError as exc:
         print(str(exc), file=sys.stderr)
         return 2
-
-    resolution_errors: list[str] = []
-    resolutions = None
-    if args.resolution:
-        try:
-            resolutions = im.load_reviewed_resolutions(
-                Path(args.resolution), root, d)
-        except im.PlanInvalid as exc:
-            resolution_errors.append(str(exc))
-    plan = im.build_plan(d, resolutions=resolutions)
-    plan.errors.extend(resolution_errors)
-
-    payload = {
-        "repo_root": str(root),
-        "managed": [p.as_posix() for p in d.managed_paths()],
-        "excluded": d.excluded,
-        "suppressors": [
-            {"path": s.path.as_posix(), "reason": s.reason,
-             "on_chain": s.on_chain, "remedy": s.remedy}
-            for s in d.suppressors
-        ],
-        "actions": [
-            {"kind": a.kind, "scope": a.scope.as_posix(),
-             "sources": [s.as_posix() for s in a.sources],
-             "dest": a.dest.as_posix(), "blocked": a.blocked, "reason": a.reason}
-            for a in plan.actions
-        ],
-        "validation_errors": plan.errors,
-    }
+    except OSError as exc:
+        print(f"cannot read the repository: {exc}", file=sys.stderr)
+        return 2
 
     if args.migrate:
-        if not plan.valid:
-            payload["applied"] = False
-            print(json.dumps(payload, indent=2, sort_keys=True))
-            return 1
-        receipt = im.apply_plan(plan, root)
+        try:
+            receipt = im.apply_plan(plan, root)
+        except im.RunStopped as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        payload = _payload(root, d, plan)
         payload["applied"] = True
+        payload["receipt"] = receipt.to_json()
         payload["dispositions"] = receipt.dispositions
-        payload["unresolved"] = receipt.unresolved
-        payload["merge_rows"] = receipt.merge_rows
         payload["staging_note"] = receipt.staging_note
         print(json.dumps(payload, indent=2, sort_keys=True))
-        return 1 if receipt.has_unresolved() else 0
+        return 1 if plan.findings() else 0
 
-    clean = not plan.actions and not plan.errors
+    payload = _payload(root, d, plan)
+    clean = not plan.actions and not plan.findings()
     payload["clean"] = clean
     print(json.dumps(payload, indent=2, sort_keys=True))
     return 0 if clean else 1

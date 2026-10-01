@@ -29,6 +29,11 @@ under the checkout is reported; only one on the chain from the root to the worki
 directory, under a mode in which it suppresses, fails the verdict. A suppressor off
 that chain changes nothing about what this host loads now.
 
+A checkout in which the host would load no instruction file is unsupported too.
+The verdict then carries a reason worded as a missing AGENTS.md and exits 1. That
+cause alone never sets `adapter_applies`, because an adapter derives from AGENTS.md
+and cannot create it; `adapter_applies` reads the host-configuration causes only.
+
 `managed-only` cannot be repaired by the compatibility adapter, because it drops
 private and checked-in project files alike. Its remedy is a configuration change.
 
@@ -103,7 +108,7 @@ def detect_version(explicit: str | None = None) -> tuple[str | None, tuple | Non
 
 
 def detect_distribution(explicit: str | None = None) -> str:
-    """Anthropic API unless the environment names a excluded distribution."""
+    """Anthropic API unless the environment names an excluded distribution."""
     if explicit:
         return explicit
     if os.environ.get("CLAUDE_CODE_USE_BEDROCK"):
@@ -228,32 +233,84 @@ def evaluate(repo_root: Path, working_dir: Path, *, version=None,
             f"mode {mode} is suppressed by a Claude-named file on the chain from "
             f"the root to {working_dir}: {named}")
 
+    # Interpretation of clause 10 (rule:compatibility-is-measured-not-inferred).
+    # The verdict names the effective instruction files the host loads, and "the
+    # absence of an error" never establishes that; the postcondition says the
+    # verdict reports whether the host loads the managed instruction file. So a
+    # host with no configuration cause is still unsupported when the files it
+    # would load form an EMPTY list. The predicate is the empty list, not "no
+    # AGENTS.md": under claude-md-and-agents-md a loaded CLAUDE.md is a file the
+    # host loads, and whether that mode should also demand AGENTS.md is left open
+    # in the brief. The cause is worded as a missing canonical file; it is never
+    # an unsupported runtime and never recommends the adapter, which derives from
+    # AGENTS.md and cannot create it.
+    #
+    # `host_reasons` are the configuration causes above. Everything that speaks of
+    # the adapter (adapter_applies, the removal basis) reads host_reasons only.
+    host_reasons = list(reasons)
+
+    # The measured candidate list: the files the host would load if its
+    # configuration were fine. Name only files that exist. Asserting a path
+    # without stat'ing it is the inferred-verdict shape clause 10 refuses.
+    candidates: list[str] = []
+
+    def _add(path: Path) -> None:
+        rel = (path.relative_to(repo_root).as_posix()
+               if repo_root in path.parents or path.parent == repo_root
+               else str(path))
+        if rel not in candidates:
+            candidates.append(rel)
+
+    def _entries(directory: Path) -> list[str]:
+        # The directory's real entry names. A path probe cannot tell `AGENTS.md`
+        # from `agents.md` on a filesystem that folds case, and whether a host
+        # loads such a variant is unobserved, so spelling is judged from here.
+        try:
+            return sorted(os.listdir(directory))
+        except OSError:
+            return []
+
+    probe = working_dir
+    while True:
+        if "AGENTS.md" in _entries(probe) and (probe / "AGENTS.md").is_file():
+            _add(probe / "AGENTS.md")
+        if probe == repo_root or repo_root not in probe.parents:
+            break
+        probe = probe.parent
+    if mode == "claude-md-and-agents-md":
+        # This mode loads both names, so a CLAUDE.md that exists is also
+        # effective. Stat it rather than asserting it. Judge the spelling from
+        # the directory's entries, as for AGENTS.md: a variant such as
+        # `claude.md` is never counted, because whether a host loads one is
+        # unobserved, and a path probe would find it only on a volume that
+        # folds case.
+        for d in (repo_root, working_dir):
+            if "CLAUDE.md" in _entries(d) and (d / "CLAUDE.md").is_file():
+                _add(d / "CLAUDE.md")
+        # Every CLAUDE.md the suppressor scan places on the chain loads too: one
+        # in an intermediate directory, and `<dir>/.claude/CLAUDE.md`, which is
+        # that scope's project file. The scan matches names in any letter case,
+        # because a variant still fails the verdict as a suppressor; only the
+        # exact spelling is counted as a file the host loads.
+        for s in on_chain:
+            if s.path.name == "CLAUDE.md" and (repo_root / s.path).is_file():
+                _add(repo_root / s.path)
+
+    if not candidates:
+        reasons.append(
+            f"no AGENTS.md on the chain from the root to {working_dir} (and, "
+            "under claude-md-and-agents-md, no CLAUDE.md), so the host loads no "
+            "canonical instruction file; create an AGENTS.md spelled exactly "
+            "so (init-docs creates one only while it initialises a tree in a "
+            "root that holds no AGENTS.md or CLAUDE.md in any letter case, and a "
+            "CLAUDE.local.md does not block that create)")
+
     supported = not reasons
 
-    if supported:
-        # Name only files that exist. Asserting a path without stat'ing it is the
-        # inferred-verdict shape clause 10 exists to refuse.
-        effective = []
-        probe = working_dir
-        while True:
-            candidate = probe / "AGENTS.md"
-            if candidate.is_file():
-                effective.append(candidate.relative_to(repo_root).as_posix()
-                                 if repo_root in candidate.parents
-                                 or candidate.parent == repo_root
-                                 else str(candidate))
-            if probe == repo_root or repo_root not in probe.parents:
-                break
-            probe = probe.parent
-        if mode == "claude-md-and-agents-md":
-            # This mode loads both names, so a CLAUDE.md that exists is also
-            # effective. Stat it rather than asserting it.
-            effective.extend(
-                p.relative_to(repo_root).as_posix()
-                for p in (repo_root / "CLAUDE.md", working_dir / "CLAUDE.md")
-                if p.is_file())
-    else:
-        effective = []
+    # While a host configuration cause stands, the effective list stays [] as it
+    # did before. That is a separate, deferred misreport: the host may still load
+    # a file the report omits.
+    effective = [] if host_reasons else candidates
 
     # Clause 11's three reports. They read only; nothing here writes or deletes
     # an adapter, and a Claude-named file without the generated header is a legacy
@@ -279,7 +336,7 @@ def evaluate(repo_root: Path, working_dir: Path, *, version=None,
         if not is_ad:
             non_adapter_on_chain.append(sup)
     supported_without_adapters = not [
-        r for r in reasons
+        r for r in host_reasons
         if "suppressed by a Claude-named file" not in r
     ] and not non_adapter_on_chain
     adapter_audit = adapters.audit(repo_root, tracked,
@@ -318,7 +375,7 @@ def evaluate(repo_root: Path, working_dir: Path, *, version=None,
             "off_chain": [{"path": s.path.as_posix(), "reason": s.reason,
                            "remedy": s.remedy} for s in off_chain],
         },
-        "adapter_applies": (not supported) and mode != "managed-only",
+        "adapter_applies": bool(host_reasons) and mode != "managed-only",
     }
 
 

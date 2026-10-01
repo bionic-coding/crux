@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """instruction_migration.py — discovery and migration for the canonical AGENTS.md.
 
-Implements the discovery and migration contract decided for the canonical
-repository instruction file. `migrate-instructions.py` is the CLI entry point;
-`audit-docs` reports in plain mode and applies under `--migrate`.
+Implements the discovery and migration contract for the canonical repository
+instruction file, `bionic/AGENTS.md` §18 in the source checkout (§18 of the
+tree's own AGENTS.md downstream). `migrate-instructions.py` is the CLI entry
+point; `audit-docs` reports in plain mode and applies under `--migrate`.
 
 Two sets, and the difference between them is the whole safety argument:
 
-  MUTATION set    the tracked files of ONE checkout. A vendored dependency cache
-                  and a linked worktree are outside it by construction rather
-                  than by an enumerated exclusion, because neither is tracked
-                  here. Nothing outside this set is ever written.
+  MUTATION set    the entries and index paths of each TOUCHED scope of ONE
+                  checkout: a directory whose listing and index, read together,
+                  hold a managed instruction file. A vendored dependency cache and
+                  a linked worktree hold no file tracked here, so they fall
+                  outside it by construction.
 
   SUPPRESSION set wider, and it includes untracked files. A file this tool must
                   not touch can still silence the canonical one: under the host's
@@ -23,26 +25,35 @@ mutation boundary only, so an implementer reading the projection alone would
 build a tracked-only scan and ship no suppressor reporting at all. The decision
 body is the authority here, and this docstring is the reminder.
 
-Deduplication matches on (heading path, bytes), never bytes alone. Matching on
-bytes alone lets a block be REPARENTED — deduplicate `# General`, append its
-child `## Security` after `# JavaScript`, and Security silently moves from
-General/Security to JavaScript/Security while every block still records as
-retained or deduplicated. The accounting pairs each source path with its
-resulting path so that move cannot balance.
+Where a touched scope holds a CLAUDE.md-family entry (the winner) and an
+AGENTS.md-family entry (the loser), the result is one `AGENTS.md` holding the
+winner's bytes with each line that imports the loser replaced by the loser's
+bytes. No other merge happens and no instruction byte is decoded. A loser whose
+bytes differ from the result is SET ASIDE: renamed, without replacing anything,
+to a reported name in its own directory. No step unlinks a winner or a loser,
+and no step replaces an existing entry; `os.replace` and `os.rename` replace on
+POSIX, which is how an untracked AGENTS.md was once lost, so every such step
+goes through a no-replace primitive from the C library.
 
-Staging is per file. A crash leaves committed files committed and the rest
-untouched, and a rerun converges. **This claims no multi-file atomicity.**
+A scope that cannot migrate safely is refused alone and changes nothing. A
+scope whose result would carry untracked bytes stages nothing. Neither blocks
+another scope.
 
 Exit codes (entry point): 0 clean, 1 findings/refusal with JSON on stdout,
 2 capability error with a message on stderr.
 """
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
 import re
+import secrets
+import shlex
+import stat
 import subprocess
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
@@ -50,19 +61,71 @@ from pathlib import Path, PurePosixPath
 CANONICAL = "AGENTS.md"
 _NAMES = {"agents.md", "claude.md", "claude.local.md"}
 
+# The two instruction families, keyed by the lowercased name.
+_FAMILY = {"claude.md": "claude", "agents.md": "agents"}
+
 RECEIPT_NAME = ".instruction-migration-receipt.json"
-PREVIEW_NAME = ".instruction-migration-preview.md"
 
 # Path prefixes excluded from mutation regardless of the denylist.
 _TEMPLATE_MARKERS = ("crux/templates/", "templates/")
 
+# The set-aside sequence and the temporary entry. Neither ends in `.md`, and
+# neither lowercases to a family name, so no harness loads one by default.
+SET_ASIDE_MARK = ".crux-set-aside-"
+_SET_ASIDE = re.compile(
+    r"^(?P<orig>.+)\.crux-set-aside-(?P<hash>[0-9a-f]{12})(?:-(?P<n>[0-9]+))?$")
+_TEMPORARY = re.compile(r"^\.crux-migrate-[0-9a-f]{12}\.tmp$")
 
-class PlanInvalid(Exception):
-    """Raised when apply is called on a plan that did not validate."""
+# The next step each report names. Every one, followed literally, loses no byte
+# and publishes nothing.
+NEXT_UNLIST = "remove the denylist entry or move the file yourself, then migrate"
+NEXT_LINK = "replace it with a regular file or remove the link"
+NEXT_REGULAR = "make it a readable regular file or move it out of the directory"
+NEXT_IGNORED = ("move your private file to a name that does not exist yet, that git "
+                "ignores, and that no harness loads by default")
+NEXT_SPELLINGS = ("move one spelling to a name that does not exist yet and no harness "
+                  "loads by default, saving any index-only version first")
+NEXT_FLAGS = ("save each index-only stage, `git show :<stage>:<path>`, under its own "
+              "new name that does not exist yet, then finish that merge or clear that "
+              "flag, then migrate")
+NEXT_VOLUME = "migrate from a clone on a volume that offers them"
+NEXT_IMPORT = "replace that line with the instructions you meant it to load"
+NEXT_LINK_DIR = "replace the link with a real directory or remove the link, then migrate"
+
+
+def next_index_only(stage: int, path: str) -> str:
+    """The save step for an index-only blob. Every path a next step names is
+    shell-quoted, so a pasted command never runs a substitution in the name."""
+    return (f"before changing the index, save `git show {shlex.quote(f':{stage}:{path}')}` "
+            "under a new name that does not exist yet")
+
+
+def next_missing(path: str) -> str:
+    """The step for an index path the directory no longer lists."""
+    q = shlex.quote(path)
+    return (f"save `git show {shlex.quote(f':0:{path}')}` under a new name that does not "
+            f"exist yet, then restore the file with `git checkout -- {q}` or remove it "
+            f"from the index with `git rm --cached -- {q}`, then migrate")
+
+
+PUBLISH_NOTE = ("committing AGENTS.md publishes any untracked or ignored bytes it "
+                "holds")
 
 
 class CapabilityError(Exception):
     """An environment problem — exit 2, never a findings exit."""
+
+
+class ScopeStop(Exception):
+    """One scope stops before its next step; the others continue (exit 1)."""
+
+
+class RunStopped(Exception):
+    """An environment failure stops the whole run after the current step (exit 2)."""
+
+    def __init__(self, message: str, completed: list[str]):
+        super().__init__(message)
+        self.completed = completed
 
 
 def load_denylist(root: Path) -> list[str]:
@@ -83,6 +146,8 @@ def load_denylist(root: Path) -> list[str]:
             continue
         try:
             text = cfg.read_text(encoding="utf-8")
+        except UnicodeDecodeError as exc:
+            raise CapabilityError(f"cannot read {cfg} as UTF-8: {exc}") from exc
         except OSError:
             return []
         out: list[str] = []
@@ -106,300 +171,23 @@ def is_instruction_name(name: str) -> bool:
     return name.lower() in _NAMES
 
 
+def family_of(name: str) -> str | None:
+    """`claude` or `agents` for a family member's name, else None."""
+    return _FAMILY.get(name.lower())
+
+
 def _sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-# --------------------------------------------------------------- block parsing
-
-_ATX = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
-_FENCE = re.compile(r"^\s{0,3}(`{3,}|~{3,})")
-_SETEXT = re.compile(r"^\s{0,3}(=+|-+)\s*$")
-
-
-@dataclass(frozen=True)
-class Block:
-    path: tuple[str, ...]
-    text: str
-    level: int
-
-
-def _heading_lines(lines: list[str]) -> dict[int, tuple[int, str]]:
-    """Map line index -> (level, title) for real headings only.
-
-    A `#` is not a heading inside a fenced code block, an indented code block, or
-    an HTML comment. These instruction files carry fenced examples and
-    commented-out regions, so a parser that missed this would split on them.
-    """
-    out: dict[int, tuple[int, str]] = {}
-    fence: str | None = None
-    in_comment = False
-    prev_blank = True
-
-    for i, raw in enumerate(lines):
-        stripped = raw.strip()
-
-        if fence is not None:
-            if stripped.startswith(fence[0] * len(fence)) and _FENCE.match(raw):
-                closing = _FENCE.match(raw).group(1)
-                if closing[0] == fence[0] and len(closing) >= len(fence):
-                    fence = None
-            prev_blank = not stripped
-            continue
-
-        if in_comment:
-            if "-->" in raw:
-                in_comment = False
-            prev_blank = not stripped
-            continue
-
-        m = _FENCE.match(raw)
-        if m:
-            fence = m.group(1)
-            prev_blank = False
-            continue
-
-        if stripped.startswith("<!--") and "-->" not in raw:
-            in_comment = True
-            prev_blank = False
-            continue
-
-        # An indented code block: 4+ spaces or a tab, opening after a blank line.
-        if prev_blank and (raw.startswith("    ") or raw.startswith("\t")):
-            prev_blank = not stripped
-            continue
-
-        atx = _ATX.match(raw)
-        if atx:
-            out[i] = (len(atx.group(1)), atx.group(2).strip())
-            prev_blank = False
-            continue
-
-        # Setext: this line underlines the previous non-blank, non-heading line.
-        if _SETEXT.match(raw) and i > 0 and not prev_blank:
-            prior = lines[i - 1].strip()
-            if prior and (i - 1) not in out:
-                level = 1 if raw.strip()[0] == "=" else 2
-                out[i - 1] = (level, prior)
-                out.pop(i, None)
-        prev_blank = not stripped
-
-    return out
-
-
-def split_blocks(text: str) -> list[Block]:
-    """Split into heading-delimited blocks, each carrying its full ancestry.
-
-    The span above the first heading carries the empty heading path and
-    participates in every rule exactly as a headed block does.
-    """
-    lines = text.splitlines(keepends=True)
-    heads = _heading_lines([l.rstrip("\n") for l in lines])
-
-    starts = sorted(heads)
-    blocks: list[Block] = []
-
-    def _emit(path, chunk, level):
-        if chunk.strip() or path:
-            blocks.append(Block(path=path, text=chunk, level=level))
-
-    preamble_end = starts[0] if starts else len(lines)
-    _emit((), "".join(lines[:preamble_end]), 0)
-
-    stack: list[tuple[int, str]] = []
-    for idx, start in enumerate(starts):
-        level, title = heads[start]
-        while stack and stack[-1][0] >= level:
-            stack.pop()
-        stack.append((level, title))
-        path = tuple(t for _, t in stack)
-        end = starts[idx + 1] if idx + 1 < len(starts) else len(lines)
-        # A setext heading occupies two source lines; keep the underline with it.
-        span_end = end
-        _emit(path, "".join(lines[start:span_end]), level)
-
-    return blocks
-
-
-# ----------------------------------------------------------------------- merge
-
-
-@dataclass
-class ReceiptRow:
-    source: str                      # "agents" | "claude" | "-"
-    source_path: tuple[str, ...] | None
-    result_path: tuple[str, ...] | None
-    disposition: str                 # retained|deduplicated|resolved|synthesized|blocked
-
-
-@dataclass
-class Flag:
-    kind: str                        # overlap | reparent
-    path: tuple[str, ...]
-    detail: str
-
-
-@dataclass
-class MergeResult:
-    text: str
-    receipt_rows: list[ReceiptRow]
-    flags: list[Flag]
-    applied: bool
-
-    def accounting(self) -> dict:
-        counts: dict[str, int] = {}
-        for row in self.receipt_rows:
-            counts[row.disposition] = counts.get(row.disposition, 0) + 1
-        result_blocks = len(split_blocks(self.text)) if self.text else 0
-        return {"counts": counts, "result_blocks": result_blocks}
-
-    def accounting_balances(self) -> bool:
-        """result blocks == retained + synthesized + resolved, and nothing else.
-
-        Counting blocks alone would balance across a reparenting; each retained
-        row additionally asserts source_path == result_path.
-        """
-        if not self.applied:
-            return False
-        a = self.accounting()
-        expected = sum(a["counts"].get(k, 0)
-                       for k in ("retained", "synthesized", "resolved"))
-        if expected != a["result_blocks"]:
-            return False
-        return all(r.source_path == r.result_path
-                   for r in self.receipt_rows if r.disposition == "retained")
-
-
-def _render(blocks: list[Block]) -> str:
-    out = []
-    for b in blocks:
-        chunk = b.text
-        if chunk and not chunk.endswith("\n"):
-            chunk += "\n"
-        out.append(chunk)
-    return "".join(out)
-
-
-def _synth_heading(path: tuple[str, ...]) -> Block:
-    level = len(path)
-    return Block(path=path, text=f"{'#' * level} {path[-1]}\n", level=level)
-
-
-def merge_documents(agents_text: str, claude_text: str,
-                    resolutions: dict[tuple[str, ...], str] | None = None
-                    ) -> MergeResult:
-    """Deterministic merge. The automatic half removes only exact duplicates."""
-    resolutions = resolutions or {}
-    a_blocks = split_blocks(agents_text)
-    c_blocks = split_blocks(claude_text)
-
-    result: list[Block] = []
-    rows: list[ReceiptRow] = []
-    flags: list[Flag] = []
-
-    emitted_paths: set[tuple[str, ...]] = set()
-    emitted_exact: set[tuple[tuple[str, ...], str]] = set()
-
-    for b in a_blocks:
-        if (b.path, b.text) in emitted_exact:
-            rows.append(ReceiptRow("agents", b.path, None, "deduplicated"))
-            continue
-        result.append(b)
-        emitted_paths.add(b.path)
-        emitted_exact.add((b.path, b.text))
-        rows.append(ReceiptRow("agents", b.path, b.path, "retained"))
-
-    def _tail_chain() -> list[tuple[str, ...]]:
-        """The ancestry the next appended block would land under."""
-        return [blk.path for blk in result]
-
-    for b in c_blocks:
-        if (b.path, b.text) in emitted_exact:
-            rows.append(ReceiptRow("claude", b.path, None, "deduplicated"))
-            continue
-
-        if b.path in emitted_paths:
-            if b.path in resolutions:
-                for i, blk in enumerate(result):
-                    if blk.path == b.path:
-                        result[i] = Block(b.path, resolutions[b.path], blk.level)
-                        break
-                # Both sources are SUPERSEDED; the resulting block is one
-                # `resolved` row. Marking both sources resolved would count two
-                # result blocks for one and the balance could never hold.
-                for r in rows:
-                    if r.source_path == b.path and r.disposition == "retained":
-                        r.disposition = "superseded"
-                rows.append(ReceiptRow("claude", b.path, None, "superseded"))
-                rows.append(ReceiptRow("-", None, b.path, "resolved"))
-                emitted_exact.add((b.path, resolutions[b.path]))
-                continue
-            flags.append(Flag("overlap", b.path,
-                              f"heading path {'/'.join(b.path) or '(preamble)'} "
-                              "is present in both sources with differing bodies"))
-            rows.append(ReceiptRow("claude", b.path, None, "blocked"))
-            continue
-
-        # Placing it must not change its ancestry.
-        ancestors = [b.path[:i] for i in range(1, len(b.path))]
-        missing = [a for a in ancestors if a not in emitted_paths]
-        present = [a for a in ancestors if a in emitted_paths]
-
-        tail = _tail_chain()
-
-        def _open_at_tail(anc: tuple[str, ...]) -> bool:
-            """Is `anc` still the open chain at the end of the result?"""
-            for blk in reversed(tail):
-                if blk == anc:
-                    return True
-                if len(blk) <= len(anc):
-                    return False
-            return False
-
-        reparents = [a for a in present if not _open_at_tail(a)]
-        if reparents:
-            if b.path in resolutions:
-                parent = b.path[:-1]
-                insertion = next(
-                    (i for i, block in enumerate(result)
-                     if block.path == parent),
-                    None)
-                if insertion is None:
-                    raise PlanInvalid(
-                        f"cannot place reviewed resolution for {'/'.join(b.path)} "
-                        "under its missing ancestor")
-                insertion += 1
-                while (insertion < len(result)
-                       and result[insertion].path[:len(parent)] == parent):
-                    insertion += 1
-                result.insert(insertion,
-                              Block(b.path, resolutions[b.path], b.level))
-                emitted_paths.add(b.path)
-                emitted_exact.add((b.path, resolutions[b.path]))
-                rows.append(ReceiptRow("claude", b.path, None, "superseded"))
-                rows.append(ReceiptRow("-", None, b.path, "resolved"))
-                continue
-            flags.append(Flag(
-                "reparent", b.path,
-                f"placing {'/'.join(b.path)} at the end would change its ancestry; "
-                f"ancestor {'/'.join(reparents[-1])} exists but is not open at the tail"))
-            rows.append(ReceiptRow("claude", b.path, None, "blocked"))
-            continue
-
-        for anc in missing:
-            synth = _synth_heading(anc)
-            result.append(synth)
-            emitted_paths.add(anc)
-            emitted_exact.add((anc, synth.text))
-            rows.append(ReceiptRow("-", None, anc, "synthesized"))
-
-        result.append(b)
-        emitted_paths.add(b.path)
-        emitted_exact.add((b.path, b.text))
-        rows.append(ReceiptRow("claude", b.path, b.path, "retained"))
-
-    applied = not flags
-    return MergeResult(_render(result) if applied else "", rows, flags, applied)
+def show(name: str) -> str:
+    """A name for the report. A non-UTF-8 name is reported escaped."""
+    try:
+        name.encode("utf-8")
+        return name
+    except UnicodeEncodeError:
+        raw = os.fsencode(name)
+        return raw.decode("utf-8", "backslashreplace")
 
 
 # ------------------------------------------------------------------- discovery
@@ -420,6 +208,7 @@ class Discovery:
     managed: list[Path]
     excluded: dict[str, str]
     suppressors: list[Suppressor]
+    denylist: list[str] = field(default_factory=list)
 
     def managed_paths(self) -> list[Path]:
         return sorted(self.managed, key=lambda p: p.as_posix())
@@ -435,14 +224,17 @@ class Discovery:
 
 
 def git_tracked_files(root: Path) -> list[str]:
+    # Bytes, decoded as the filesystem decodes a name, so a path that is not
+    # UTF-8 reaches the report escaped instead of raising in the decoder.
     try:
         out = subprocess.run(["git", "-C", str(root), "ls-files", "-z"],
-                             capture_output=True, text=True, check=True).stdout
+                             capture_output=True, check=True).stdout
     except FileNotFoundError as exc:
         raise CapabilityError("git is not available on PATH") from exc
     except subprocess.CalledProcessError as exc:
-        raise CapabilityError(f"git ls-files failed in {root}: {exc.stderr}") from exc
-    return [p for p in out.split("\0") if p]
+        raise CapabilityError(f"git ls-files failed in {root}: "
+                              f"{exc.stderr.decode('utf-8', 'replace')}") from exc
+    return [os.fsdecode(p) for p in out.split(b"\0") if p]
 
 
 def _contained(root: Path, rel: str) -> bool:
@@ -540,8 +332,13 @@ def _scan_suppressors(root: Path, working_dir: Path,
             else:
                 reason = "legacy managed file, suppresses until migrated"
                 remedy = "run `audit-docs --migrate` to convert it to AGENTS.md"
+            # A `<dir>/.claude/CLAUDE.md` is the project-scope file of `<dir>`, so
+            # its chain membership follows the directory that holds `.claude`. Only
+            # this exact shape moves; any deeper path keeps its own directory.
+            scope_dir = (here.parent if here.name == ".claude" and here != root
+                         and low == "claude.md" else here)
             found.append(Suppressor(Path(rel), reason,
-                                    here.resolve() in chain_set, remedy))
+                                    scope_dir.resolve() in chain_set, remedy))
     return sorted(found, key=lambda s: s.path.as_posix())
 
 
@@ -585,110 +382,1001 @@ def discover(root: Path, tracked_files: list[str] | None = None,
         if rel not in tracked_set and rel not in excluded:
             excluded[rel] = "excluded:untracked"
 
-    return Discovery(root, managed, excluded, suppressors)
+    return Discovery(root, managed, excluded, suppressors, sorted(deny))
+
+
+# ------------------------------------------------------------ the filesystem seam
+
+
+def _load_noreplace():
+    """The C library's no-replace rename, or None where this platform lacks one.
+
+    Python has no binding for it. macOS offers `renamex_np` with RENAME_EXCL and
+    Linux offers `renameat2` with RENAME_NOREPLACE. There is no link-then-unlink
+    fallback: where neither exists, a scope that needs a rename is refused.
+    """
+    try:
+        import ctypes
+        libc = ctypes.CDLL(None, use_errno=True)
+    except (ImportError, OSError):
+        return None
+    if sys.platform == "darwin":
+        fn = getattr(libc, "renamex_np", None)
+        if fn is None:
+            return None
+        fn.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint]
+        fn.restype = ctypes.c_int
+
+        def call(src: bytes, dst: bytes) -> int:
+            return fn(src, dst, 0x00000004)  # RENAME_EXCL
+    elif sys.platform.startswith("linux"):
+        fn = getattr(libc, "renameat2", None)
+        if fn is None:
+            return None
+        fn.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p,
+                       ctypes.c_uint]
+        fn.restype = ctypes.c_int
+
+        def call(src: bytes, dst: bytes) -> int:
+            return fn(-100, src, -100, dst, 1)  # AT_FDCWD, RENAME_NOREPLACE
+    else:
+        return None
+
+    def rename_noreplace(src: Path, dst: Path) -> None:
+        ctypes.set_errno(0)
+        if call(os.fsencode(src), os.fsencode(dst)) != 0:
+            err = ctypes.get_errno()
+            raise OSError(err, os.strerror(err), str(src), None, str(dst))
+
+    return rename_noreplace
+
+
+_NOREPLACE = _load_noreplace()
+
+
+class NotRegular(OSError):
+    """The entry is not a regular file."""
+
+
+class RealFS:
+    """Every filesystem operation migration makes, in one replaceable object.
+
+    Tests substitute a subclass that folds letter case on each operation, so a
+    case-sensitive volume proves what a case-folding one does.
+    """
+
+    def listdir(self, directory: Path) -> list[str]:
+        return os.listdir(directory)
+
+    def lstat(self, path: Path) -> os.stat_result:
+        return os.lstat(path)
+
+    def readlink(self, path: Path) -> str:
+        return os.readlink(path)
+
+    def read(self, path: Path) -> bytes:
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+        fd = os.open(path, flags)
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                raise NotRegular(errno.EINVAL, "not a regular file", str(path))
+            chunks = []
+            while True:
+                chunk = os.read(fd, 1 << 20)
+                if not chunk:
+                    return b"".join(chunks)
+                chunks.append(chunk)
+        finally:
+            os.close(fd)
+
+    def create_excl(self, path: Path, data: bytes) -> None:
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(path, flags, 0o644)
+        try:
+            view = memoryview(data)
+            while view:
+                view = view[os.write(fd, view):]
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+
+    def noreplace_available(self) -> bool:
+        return _NOREPLACE is not None
+
+    def rename_noreplace(self, src: Path, dst: Path) -> None:
+        if _NOREPLACE is None:
+            raise OSError(errno.ENOTSUP, "no no-replace rename on this platform", str(src))
+        _NOREPLACE(src, dst)
+
+    def rename(self, src: Path, dst: Path) -> None:
+        """Plain rename. Used only for a case-only respell of one identity."""
+        os.rename(src, dst)
+
+    def unlink(self, path: Path) -> None:
+        os.unlink(path)
+
+    def fsync_dir(self, directory: Path) -> None:
+        try:
+            fd = os.open(directory, os.O_RDONLY)
+        except OSError:
+            return
+        try:
+            os.fsync(fd)
+        except OSError:
+            pass
+        finally:
+            os.close(fd)
+
+
+# ------------------------------------------------------------------------ git
+
+
+class GitError(Exception):
+    pass
+
+
+class Git:
+    def __init__(self, root: Path):
+        self.root = Path(root)
+
+    def run(self, *args: str, stdin: bytes | None = None, ok=(0,)) -> bytes:
+        try:
+            proc = subprocess.run(["git", "-C", str(self.root), *args], input=stdin,
+                                  capture_output=True)
+        except FileNotFoundError as exc:
+            raise CapabilityError("git is not available on PATH") from exc
+        if proc.returncode not in ok:
+            raise GitError(f"git {' '.join(args)} failed: "
+                           f"{proc.stderr.decode('utf-8', 'replace').strip()}")
+        return proc.stdout
+
+
+@dataclass(frozen=True)
+class IndexEntry:
+    path: str
+    mode: str
+    blob: str
+    stage: int
+    tag: str
+
+    @property
+    def flag(self) -> str | None:
+        """The index state that refuses a scope, or None."""
+        if self.stage != 0 or self.tag == "M":
+            return "unmerged"
+        if self.tag in ("S", "s"):
+            return "skip-worktree"
+        if self.tag.islower():
+            return "assume-unchanged"
+        return None
+
+
+def read_index(git: Git) -> list[IndexEntry]:
+    raw = git.run("ls-files", "-z", "-s", "-v")
+    out = []
+    for rec in raw.split(b"\0"):
+        if not rec:
+            continue
+        head, _, path = rec.partition(b"\t")
+        tag, mode, blob, stage = head.decode("ascii").split(" ")
+        out.append(IndexEntry(os.fsdecode(path), mode, blob, int(stage), tag))
+    return out
+
+
+def _git_blob(data: bytes, algo: str) -> str:
+    h = hashlib.new(algo)
+    h.update(b"blob %d\0" % len(data))
+    h.update(data)
+    return h.hexdigest()
+
+
+def _rel(scope: str, name: str) -> str:
+    return name if scope == "." else f"{scope}/{name}"
+
+
+# ------------------------------------------------------------------ import lines
+
+_FENCE_OPEN = re.compile(rb"^ {0,3}(`{3,}|~{3,})")
+
+
+def _split_ending(line: bytes) -> tuple[bytes, bytes]:
+    if line.endswith(b"\r\n"):
+        return line[:-2], b"\r\n"
+    if line.endswith((b"\n", b"\r")):
+        return line[:-1], line[-1:]
+    return line, b""
+
+
+def _import_target(body: bytes) -> bytes | None:
+    if not body.startswith(b"@"):
+        return None
+    target = body[1:]
+    if target.startswith(b"./"):
+        target = target[2:]
+    return target or None
+
+
+def inline_imports(winner: bytes, loser: bytes | None, loser_name: str | None,
+                   folds: bool) -> tuple[bytes, list[dict], list[dict], bool]:
+    """The winner's bytes with each import line of the loser replaced by the loser.
+
+    Returns the result, the replaced lines, the other lines importing a family
+    name, and whether the result carries any winner byte beyond those replaced.
+    Nothing is decoded; a line inside a fenced code block is not an import line.
+    """
+    out: list[bytes] = []
+    replaced: list[dict] = []
+    others: list[dict] = []
+    carries_winner = False
+    fence: bytes | None = None
+    want = os.fsencode(loser_name) if loser_name is not None else None
+    for number, line in enumerate(winner.splitlines(keepends=True), 1):
+        body, ending = _split_ending(line)
+        if fence is not None:
+            m = _FENCE_OPEN.match(body)
+            if (m and m.group(1)[:1] == fence[:1] and len(m.group(1)) >= len(fence)
+                    and not body[m.end():].strip()):
+                fence = None
+        else:
+            m = _FENCE_OPEN.match(body)
+            if m:
+                fence = m.group(1)
+            else:
+                target = _import_target(body)
+                if target is not None and loser is not None and want is not None and (
+                        target == want or (folds and target.lower() == want.lower())):
+                    piece = loser
+                    if ending and not loser.endswith((b"\n", b"\r")):
+                        piece += ending
+                    out.append(piece)
+                    replaced.append({"line": number,
+                                     "text": body.decode("utf-8", "backslashreplace")})
+                    continue
+                if target is not None and target.lower() in (b"agents.md", b"claude.md"):
+                    others.append({"line": number,
+                                   "text": body.decode("utf-8", "backslashreplace"),
+                                   "next_step": NEXT_IMPORT})
+        out.append(line)
+        carries_winner = True
+    return b"".join(out), replaced, others, carries_winner
+
+
+def set_aside_name(name: str, data: bytes, taken: set[str]) -> str:
+    """The first unused name of the §18 set-aside sequence.
+
+    `taken` holds the lowercased names of the directory's entries, so a case-fold
+    alias of a candidate counts as used.
+    """
+    base = f"{name}{SET_ASIDE_MARK}{_sha(data)[:12]}"
+    candidate, n = base, 2
+    while candidate.lower() in taken:
+        candidate = f"{base}-{n}"
+        n += 1
+    return candidate
 
 
 # -------------------------------------------------------------------- planning
 
 
 @dataclass
-class Action:
-    kind: str                        # rename | collapse | merge
-    scope: Path
-    sources: list[Path]
-    dest: Path
-    blocked: bool = False
-    reason: str = ""
-    needs_case_staging: bool = False
-    merge: MergeResult | None = None
+class Member:
+    """One family entry in a scope's listing."""
+    name: str
+    family: str
+    kind: str                         # regular | symlink | directory | other
+    ident: tuple[int, int] | None
+    data: bytes | None
+    index: IndexEntry | None          # the matching stage-0 index entry
+    ignored: bool = False
+    excluded: str | None = None
+
+    @property
+    def usable(self) -> bool:
+        return self.kind == "regular" and self.data is not None
+
+    def git_state(self, algo: str) -> str:
+        if self.index is None:
+            return "ignored" if self.ignored else "untracked"
+        if self.data is not None and _git_blob(self.data, algo) == self.index.blob:
+            return "tracked"
+        return "tracked-dirty"
+
+
+@dataclass
+class Step:
+    kind: str       # set-aside | create | rename-in | respell | set-aside-winner | index
+    scope: str
+    source: str | None = None
+    dest: str | None = None
+    ident: tuple[int, int] | None = None
+    data: bytes | None = None
+    remove: list[str] = field(default_factory=list)
+    add: str | None = None
+
+    def to_json(self) -> dict:
+        row = {"kind": self.kind, "scope": self.scope}
+        if self.kind == "index":
+            row.update(remove=sorted(self.remove), add=self.add)
+        else:
+            row.update(source=show(self.source) if self.source else None,
+                       dest=show(self.dest) if self.dest else None)
+        return row
+
+
+@dataclass
+class ScopePlan:
+    scope: str
+    folds: bool = False
+    winner: Member | None = None
+    loser: Member | None = None
+    loser_input: str | None = None
+    result: bytes | None = None
+    steps: list[Step] = field(default_factory=list)
+    refusals: list[dict] = field(default_factory=list)
+    blockers: list[str] = field(default_factory=list)
+    set_asides: list[dict] = field(default_factory=list)
+    temporaries: list[str] = field(default_factory=list)
+    imports: list[dict] = field(default_factory=list)
+    other_imports: list[dict] = field(default_factory=list)
+    index_blobs: list[dict] = field(default_factory=list)
+    index_only: list[dict] = field(default_factory=list)
+    no_longer_loaded: list[str] = field(default_factory=list)
+    excluded: dict[str, str] = field(default_factory=dict)
+    missing: list[dict] = field(default_factory=list)
+    resume: dict = field(default_factory=dict)
+    winner_left: bool = False
+    stopped: str | None = None
+    done: bool = False
+
+    @property
+    def stages(self) -> bool:
+        return not self.blockers and not self.refusals
+
+    def to_json(self) -> dict:
+        return {
+            "scope": self.scope,
+            "winner": show(self.winner.name) if self.winner else None,
+            "loser": show(self.loser.name) if self.loser else None,
+            "loser_input": show(self.loser_input) if self.loser_input else None,
+            "result_sha256": _sha(self.result) if self.result is not None else None,
+            "steps": [s.to_json() for s in self.steps],
+            "refusals": self.refusals,
+            "stages": self.stages,
+            "stages_nothing_because": self.blockers,
+            "publish_note": PUBLISH_NOTE if self.blockers and not self.refusals else None,
+            "imports_inlined": self.imports,
+            "other_imports": self.other_imports,
+            "index_blobs": self.index_blobs,
+            "index_only_blobs": self.index_only,
+            "missing_index_paths": self.missing,
+            "no_longer_loaded": self.no_longer_loaded,
+            "temporaries": self.temporaries,
+            "winner_left_in_place": self.winner_left,
+            "stopped": self.stopped,
+        }
 
 
 @dataclass
 class Plan:
     root: Path
-    actions: list[Action]
-    errors: list[str] = field(default_factory=list)
-    discovery: Discovery | None = None
+    scopes: list[ScopePlan]
+    discovery: "Discovery | None" = None
+    fs: RealFS | None = None
+    git: Git | None = None
+    algo: str = "sha1"
+    resume: dict = field(default_factory=dict)
 
     @property
-    def valid(self) -> bool:
-        return not self.errors
+    def actions(self) -> list[Step]:
+        return [s for sp in self.scopes if not sp.refusals for s in sp.steps]
+
+    @property
+    def refusals(self) -> list[dict]:
+        return [r for sp in self.scopes for r in sp.refusals]
+
+    def findings(self) -> bool:
+        """Does anything here owe the user an exit 1?"""
+        return any(sp.refusals or sp.stopped or sp.temporaries or sp.missing
+                   or sp.index_only or (sp.blockers and (sp.steps or sp.winner_left))
+                   for sp in self.scopes)
 
 
-def _read(root: Path, rel: Path) -> str:
-    return (root / rel).read_text(encoding="utf-8")
+class _Ctx:
+    def __init__(self, root: Path, fs: RealFS, git: Git, deny: set[str],
+                 resume: dict | None = None):
+        self.root = root
+        self.fs = fs
+        self.git = git
+        self.deny = deny
+        # Each scope's receipt row from an earlier run that acted on it: the
+        # sources' sha256 and index paths, written before that run's first step.
+        self.resume = resume or {}
+        try:
+            self.index = read_index(git)
+            fmt = git.run("rev-parse", "--show-object-format", ok=(0, 128, 129)).strip()
+            self.algo = "sha256" if fmt == b"sha256" else "sha1"
+            conf = git.run("config", "--bool", "core.ignorecase", ok=(0, 1)).strip()
+            self.ignorecase = conf == b"true"
+            self.has_head = bool(git.run("rev-parse", "-q", "--verify", "HEAD",
+                                         ok=(0, 1)).strip())
+        except GitError as exc:
+            raise CapabilityError(str(exc)) from exc
+
+    def head_blobs(self, scope: str) -> dict[str, str]:
+        if not self.has_head:
+            return {}
+        args = ["ls-tree", "-z", "HEAD"] + ([] if scope == "." else ["--", f"{scope}/"])
+        try:
+            raw = self.git.run(*args)
+        except GitError as exc:
+            raise CapabilityError(str(exc)) from exc
+        out = {}
+        for rec in raw.split(b"\0"):
+            if not rec:
+                continue
+            head, _, path = rec.partition(b"\t")
+            parts = head.split(b" ")
+            if len(parts) == 3 and parts[1] == b"blob":
+                out[os.fsdecode(path)] = parts[2].decode("ascii")
+        return out
+
+    def holds_blob(self, data: bytes, blob: str, entry: str, as_path: str) -> bool:
+        """Do an entry's bytes make this index blob, raw or through git's filters?
+
+        An eol or clean filter stores bytes other than the working tree's, so a
+        raw hash alone misses a winner a stopped run already moved.
+
+        This does not contradict clause 7's raw-byte rule. That rule decides
+        which index blobs no working-tree entry holds, and so what staging could
+        drop; it still hashes raw bytes. This check only recognises which entry a
+        stopped run renamed the winner into. That recognition sets the winner's
+        index path, which the index step then removes, so it bears on staging;
+        the raw-byte index-only check still runs before any index step.
+        """
+        if _git_blob(data, self.algo) == blob:
+            return True
+        try:
+            out = self.git.run("hash-object", f"--path={as_path}", "--", entry)
+        except GitError:
+            return False
+        return out.decode("ascii", "replace").strip() == blob
+
+    def ignored(self, paths: list[str]) -> set[str]:
+        if not paths:
+            return set()
+        try:
+            raw = self.git.run("check-ignore", "-z", "--no-index", "--stdin",
+                               stdin=b"".join(os.fsencode(p) + b"\0" for p in paths),
+                               ok=(0, 1))
+        except GitError as exc:
+            raise CapabilityError(str(exc)) from exc
+        return {os.fsdecode(p) for p in raw.split(b"\0") if p}
 
 
-def build_plan(d: Discovery,
-               resolutions: dict[tuple[str, tuple[str, ...]], str] | None = None
-               ) -> Plan:
-    root = d.root
-    actions: list[Action] = []
-    errors: list[str] = []
-    resolutions = resolutions or {}
+def _excluded_by_path(rel: str, deny: set[str]) -> str | None:
+    p = PurePosixPath(rel)
+    if rel in deny:
+        return "excluded:denylist"
+    if ".claude" in p.parts and p.name.lower() == "claude.md":
+        return "excluded:dot-claude"
+    if any(rel.startswith(m) or f"/{m}" in f"/{rel}" for m in _TEMPLATE_MARKERS):
+        return "excluded:template"
+    return None
 
-    for scope, rels in sorted(d.by_scope().items(), key=lambda kv: str(kv[0])):
-        family: dict[str, list[Path]] = {}
-        for rel in rels:
-            family.setdefault(Path(rel).name.lower(), []).append(Path(rel))
 
-        for low, members in family.items():
-            if len(members) > 1:
-                errors.append(
-                    f"ambiguous: {scope}/ holds {len(members)} names in one "
-                    f"case-folded family ({', '.join(m.name for m in members)}); "
-                    "a reviewed resolution is required")
-
-        agents = family.get("agents.md", [])
-        claude = family.get("claude.md", [])
-        if errors:
+def _folds(fs: RealFS, directory: Path, names: list[str]) -> bool:
+    """Does this directory's volume fold case? Identity confirms a probed alias."""
+    listed = set(names)
+    for name in names:
+        alias = name.swapcase()
+        if alias == name or alias in listed:
             continue
+        try:
+            a, b = fs.lstat(directory / name), fs.lstat(directory / alias)
+        except OSError:
+            return False
+        return (a.st_dev, a.st_ino) == (b.st_dev, b.st_ino)
+    return False
 
-        dest = Path(str(scope)) / CANONICAL if str(scope) != "." else Path(CANONICAL)
 
-        if claude and not agents:
-            src = claude[0]
-            actions.append(Action(
-                "rename", Path(str(scope)), [src], dest,
-                needs_case_staging=src.name.lower() == dest.name.lower()
-                and src.name != dest.name))
-        elif agents and not claude:
-            src = agents[0]
-            if src.name != CANONICAL:
-                actions.append(Action("rename", Path(str(scope)), [src], dest,
-                                      needs_case_staging=True))
-        elif agents and claude:
-            a_text, c_text = _read(root, agents[0]), _read(root, claude[0])
-            if a_text == c_text:
-                actions.append(Action("collapse", Path(str(scope)),
-                                      [agents[0], claude[0]], dest))
+def touched_scopes(ctx: _Ctx) -> list[str]:
+    scopes = set()
+    for e in ctx.index:
+        p = PurePosixPath(e.path)
+        if family_of(p.name) is None or _excluded_by_path(e.path, ctx.deny):
+            continue
+        scope = p.parent.as_posix()
+        if _contained(ctx.root, scope):
+            scopes.add(scope)
+    return sorted(scopes)
+
+
+def _member(ctx: _Ctx, directory: Path, scope: str, name: str) -> Member:
+    fs = ctx.fs
+    path = directory / name
+    st = fs.lstat(path)
+    mode = st.st_mode
+    kind = ("regular" if stat.S_ISREG(mode) else "symlink" if stat.S_ISLNK(mode)
+            else "directory" if stat.S_ISDIR(mode) else "other")
+    data = None
+    if kind == "regular":
+        try:
+            data = fs.read(path)
+        except OSError:
+            data = None
+    return Member(name, family_of(name) or "", kind, (st.st_dev, st.st_ino), data, None)
+
+
+def plan_scope(ctx: _Ctx, scope: str) -> ScopePlan | None:
+    """Plan one touched scope, or return None when it holds no managed member."""
+    fs, root = ctx.fs, ctx.root
+    directory = root if scope == "." else root / scope
+    sp = ScopePlan(scope)
+    # A scope reached through a link: git refuses every path beyond it, and a
+    # step there would write where the link points. Refused alone.
+    cur = root
+    for part in ([] if scope == "." else PurePosixPath(scope).parts):
+        cur = cur / part
+        try:
+            linked = stat.S_ISLNK(fs.lstat(cur).st_mode)
+        except OSError:
+            break
+        if linked:
+            sp.refusals.append({
+                "scope": scope, "entry": show(cur.relative_to(root).as_posix()),
+                "reason": "the scope directory is reached through a symlink",
+                "next_step": NEXT_LINK_DIR})
+            return sp
+    try:
+        names = fs.listdir(directory)
+    except FileNotFoundError:
+        names = []
+    except OSError as exc:
+        raise CapabilityError(f"cannot list {directory}: {exc}") from exc
+
+    fam_names = sorted(n for n in names if family_of(n))
+    folds = ctx.ignorecase or _folds(fs, directory, fam_names)
+    sp.folds = folds
+
+    # Index paths of this scope, grouped by path (an unmerged path has stages).
+    by_path: dict[str, list[IndexEntry]] = {}
+    for e in ctx.index:
+        p = PurePosixPath(e.path)
+        if p.parent.as_posix() == scope and family_of(p.name):
+            by_path.setdefault(e.path, []).append(e)
+
+    members = {n: _member(ctx, directory, scope, n) for n in fam_names}
+    unmatched: list[str] = []
+    for path, entries in sorted(by_path.items()):
+        base = PurePosixPath(path).name
+        target = base if base in members else None
+        if target is None and folds:
+            target = next((n for n in fam_names if n.lower() == base.lower()
+                           and members[n].index is None), None)
+        if target is None:
+            unmatched.append(path)
+            continue
+        stage0 = next((e for e in entries if e.stage == 0), entries[0])
+        members[target].index = stage0
+
+    # A stopped run's receipt row for this scope, if one exists.
+    resume = ctx.resume.get(scope)
+    resume = resume if isinstance(resume, dict) else {}
+    rw = resume.get("winner") if isinstance(resume.get("winner"), dict) else {}
+    ri = resume.get("input") if isinstance(resume.get("input"), dict) else {}
+
+    # A run stopped after a respell leaves the old spelling in the index and
+    # `AGENTS.md` in the listing. On a case-sensitive volume nothing above
+    # matches them, so the index path is that entry when the entry holds its
+    # blob or the bytes the receipt row recorded for that path.
+    if CANONICAL in members and members[CANONICAL].index is None \
+            and members[CANONICAL].data is not None:
+        entry = members[CANONICAL]
+        for path in list(unmatched):
+            stage0 = next((e for e in by_path[path] if e.stage == 0), None)
+            recorded = {r.get("sha256") for r in (rw, ri) if r.get("index_path") == path}
+            if (stage0 is not None and family_of(PurePosixPath(path).name) == "agents"
+                    and (_git_blob(entry.data, ctx.algo) == stage0.blob
+                         or _sha(entry.data) in recorded)):
+                entry.index = stage0
+                unmatched.remove(path)
+                break
+
+    for m in members.values():
+        rel = _rel(scope, m.name)
+        m.excluded = (_excluded_by_path(rel, ctx.deny)
+                      or (_excluded_by_path(m.index.path, ctx.deny) if m.index else None)
+                      or ("excluded:symlink" if m.kind == "symlink" else None))
+        if m.excluded:
+            sp.excluded[rel] = m.excluded
+
+    managed = [m for m in members.values() if m.index is not None and not m.excluded]
+    managed_absent = [p for p in unmatched
+                      if not _excluded_by_path(p, ctx.deny)]
+    if not managed and not managed_absent:
+        return None
+
+    # Set-asides and temporaries this scope already holds.
+    taken = {n.lower() for n in names}
+    found = []
+    for n in sorted(names):
+        m = _SET_ASIDE.match(n)
+        if m and family_of(m.group("orig")):
+            try:
+                data = fs.read(directory / n)
+            except OSError:
+                data = None
+            found.append((n, m.group("orig"), data))
+        elif _TEMPORARY.match(n):
+            sp.temporaries.append(_rel(scope, n))
+
+    # Ignore state, asked of git once for the scope.
+    candidates = [_rel(scope, m.name) for m in members.values() if m.index is None]
+    candidates += [_rel(scope, n) for n, _, _ in found]
+    candidates.append(_rel(scope, CANONICAL))
+    planned_names = {}
+    for m in members.values():
+        if m.usable:
+            planned_names[m.name] = set_aside_name(m.name, m.data, taken)
+            candidates.append(_rel(scope, planned_names[m.name]))
+    ignored = ctx.ignored(sorted(set(candidates)))
+    for m in members.values():
+        m.ignored = m.index is None and _rel(scope, m.name) in ignored
+
+    for n, orig, data in found:
+        sp.set_asides.append({
+            "scope": scope, "entry": show(orig), "set_aside": show(n),
+            "sha256": _sha(data) if data is not None else None,
+            "git_state": "ignored" if _rel(scope, n) in ignored else "untracked",
+            "ignored_by_git": _rel(scope, n) in ignored, "status": "found"})
+
+    # Index blobs, recorded for the receipt.
+    for path, entries in sorted(by_path.items()):
+        for e in entries:
+            sp.index_blobs.append({"path": show(path), "stage": e.stage, "blob": e.blob})
+
+    def refuse(entry: str, reason: str, next_step: str, **extra):
+        row = {"scope": scope, "entry": show(entry), "reason": reason,
+               "next_step": next_step}
+        row.update(extra)
+        sp.refusals.append(row)
+
+    # Index paths a stopped run moved: the receipt row names the path and a
+    # listed entry holds its recorded bytes, or a set-aside holds its blob.
+    listed_sha = {_sha(m.data) for m in members.values() if m.data is not None}
+    listed_sha |= {_sha(d) for _, _, d in found if d is not None}
+    found_blobs = {_git_blob(d, ctx.algo) for _, _, d in found if d is not None}
+    resumed_paths = {r.get("index_path") for r in (rw, ri)
+                     if r.get("index_path") in unmatched and r.get("sha256") in listed_sha}
+    accounted = {p for p in unmatched if p in resumed_paths
+                 or any(e.blob in found_blobs for e in by_path[p])}
+
+    # Clause 6: two spellings of one family, across the listing and the index.
+    for fam in ("claude", "agents"):
+        spellings = [_rel(scope, n) for n in fam_names if family_of(n) == fam]
+        spellings += [p for p in unmatched if family_of(PurePosixPath(p).name) == fam
+                      and p not in accounted]
+        if len(spellings) > 1:
+            refuse(spellings[0], "one family holds two spellings: "
+                   + ", ".join(show(s) for s in spellings), NEXT_SPELLINGS,
+                   paths=[show(s) for s in spellings])
+    for path, entries in sorted(by_path.items()):
+        for e in entries:
+            if e.flag:
+                refuse(path, f"its index entry is {e.flag}", NEXT_FLAGS)
+                break
+    for m in members.values():
+        if m.kind == "regular" and (m.ident is None or m.ident[1] == 0):
+            refuse(_rel(scope, m.name), "the volume cannot establish identity",
+                   NEXT_VOLUME)
+    if sp.refusals:
+        return sp
+
+    claude = next((m for m in members.values() if m.family == "claude"), None)
+    loser = next((m for m in members.values() if m.family == "agents"), None)
+    winner = claude if claude is not None and not claude.excluded else None
+    sp.winner, sp.loser = winner, loser
+    head = ctx.head_blobs(scope)
+    held = {_git_blob(m.data, ctx.algo) for m in members.values() if m.data is not None}
+    held |= {_git_blob(d, ctx.algo) for _, _, d in found if d is not None}
+    index_blobs = {e.blob for entries in by_path.values() for e in entries}
+
+    # The winner input: the entry, or a prior run's winner found by its blob.
+    w_data: bytes | None = None
+    w_tracked = False
+    w_label = None
+    resumed_result = False
+    resumed_path: str | None = None
+    if winner is not None:
+        if not winner.usable:
+            refuse(_rel(scope, winner.name), "the winner is not a readable regular file",
+                   NEXT_REGULAR)
+            return sp
+        w_data, w_tracked, w_label = winner.data, winner.index is not None, winner.name
+    else:
+        gone = [p for p in unmatched if family_of(PurePosixPath(p).name) == "claude"]
+        if gone:
+            path = rw.get("index_path") if rw.get("index_path") in gone else gone[0]
+            blob = next(e.blob for e in by_path[path] if e.stage == 0)
+            recorded = rw.get("sha256") if rw.get("index_path") == path else None
+
+            # A dirty winner's bytes make no index blob, so the receipt row's
+            # recorded sha256 is what finds where a stopped run moved it.
+            def was_winner(data: bytes, entry: str) -> bool:
+                return (_sha(data) == recorded
+                        or ctx.holds_blob(data, blob, _rel(scope, entry), path))
+
+            prior = [(n, d) for n, orig, d in found
+                     if family_of(orig) == "claude" and d is not None and was_winner(d, n)]
+            if len(prior) == 1:
+                w_data, w_tracked, w_label = prior[0][1], True, prior[0][0]
+                resumed_path = path
+            elif (loser is not None and loser.name == CANONICAL and loser.usable
+                  and was_winner(loser.data, loser.name)):
+                w_data, w_tracked, w_label = loser.data, True, loser.name
+                resumed_result = True
+                resumed_path = path
+
+    # The loser, and the rows of clause 4 that refuse the scope.
+    if loser is not None and w_data is not None:
+        rel = _rel(scope, loser.name)
+        if loser.excluded == "excluded:symlink":
+            try:
+                target = fs.readlink(directory / loser.name)
+            except OSError:
+                target = None
+            refuse(rel, "the loser is a symlink", NEXT_LINK,
+                   target=show(target) if target else None)
+        elif loser.excluded:
+            what = ("named by the denylist" if loser.excluded == "excluded:denylist"
+                    else "a template")
+            refuse(rel, f"the loser is {what}", NEXT_UNLIST)
+        elif not loser.usable:
+            refuse(rel, "the loser is not a regular file, or is unreadable", NEXT_REGULAR)
+        if sp.refusals:
+            return sp
+
+    agents_found = [(n, orig, d) for n, orig, d in found
+                    if family_of(orig) == "agents" and d is not None]
+    finished = False
+    result: bytes | None = None
+    input_name = input_orig = None
+    input_data: bytes | None = None
+    input_tracked = False
+    loser_is_input = False
+    if w_data is not None:
+        if resumed_result:
+            finished, result = True, loser.data
+            _, _, sp.other_imports, carries_w = inline_imports(w_data, None, None, folds)
+        else:
+            if loser is not None and loser.name == CANONICAL:
+                # A rerun: an AGENTS.md computed from the winner and a set-aside
+                # of this scope is finished, not a loser.
+                for n, orig, d in agents_found:
+                    r, rep, oth, cw = inline_imports(w_data, d, orig, folds)
+                    if r == loser.data:
+                        finished, result, carries_w = True, r, cw
+                        input_name, input_orig, input_data = n, orig, d
+                        sp.imports, sp.other_imports = rep, oth
+                        break
+            if not finished:
+                if loser is not None:
+                    input_name, input_orig, input_data = loser.name, loser.name, loser.data
+                    loser_is_input = True
+                elif len(agents_found) == 1:
+                    input_name, input_orig, input_data = agents_found[0]
+                result, sp.imports, sp.other_imports, carries_w = inline_imports(
+                    w_data, input_data, input_orig, folds)
+        if len(agents_found) > 1 and not loser_is_input and not finished:
+            # More than one set-aside could be the loser: inline none.
+            sp.no_longer_loaded += [show(_rel(scope, n)) for n, _, _ in agents_found]
+        elif input_name is not None and not loser_is_input and not sp.imports:
+            sp.no_longer_loaded.append(show(_rel(scope, input_name)))
+        if loser_is_input:
+            input_tracked = loser.index is not None
+        else:
+            # A dirty tracked loser's set-aside makes no index blob, so the receipt
+            # row a stopped run wrote says whether that input was tracked.
+            input_tracked = input_data is not None and (
+                _git_blob(input_data, ctx.algo) in index_blobs
+                or (ri.get("tracked") is True and ri.get("sha256") == _sha(input_data)))
+        if carries_w and not w_tracked:
+            state = "ignored" if winner is not None and winner.ignored else "untracked"
+            sp.blockers.append(f"the result carries bytes read from the {state} entry "
+                               f"{show(_rel(scope, w_label))}")
+        if sp.imports and not input_tracked:
+            if loser_is_input:
+                state = "ignored" if loser.ignored else "untracked"
+                sp.blockers.append(f"the result carries bytes read from the {state} "
+                                   f"entry {show(_rel(scope, input_name))}")
             else:
-                scope_resolutions = {
-                    path: text
-                    for (resolution_scope, path), text in resolutions.items()
-                    if resolution_scope == Path(str(scope)).as_posix()
-                }
-                m = merge_documents(a_text, c_text, resolutions=scope_resolutions)
-                # Clause 8's refusal. `applied` only says no flag fired; the
-                # accounting says the result actually accounts for every source
-                # block under its own heading path. A merge that flags nothing and
-                # still fails to balance is the merge logic being wrong, which is
-                # precisely the case this refusal exists for — so it is checked
-                # here, before a byte is written, and not merely asserted in a test.
-                unbalanced = m.applied and not m.accounting_balances()
-                reasons = [f.detail for f in m.flags]
-                if unbalanced:
-                    reasons.append(
-                        "the merge accounting does not balance: "
-                        f"{m.accounting()} — refusing rather than writing a result "
-                        "whose source blocks are unaccounted for")
-                actions.append(Action(
-                    "merge", Path(str(scope)), [agents[0], claude[0]], dest,
-                    blocked=not m.applied or unbalanced,
-                    reason="; ".join(reasons),
-                    merge=m))
+                # A set-aside is untracked, but its source may have been a tracked
+                # entry with dirty bytes; without a receipt row that is unknown.
+                sp.blockers.append(
+                    f"the result carries bytes read from the set-aside "
+                    f"{show(_rel(scope, input_name))}, whose bytes no index blob holds "
+                    "and no receipt record marks as tracked")
+    elif loser is not None and not loser.excluded:
+        # One family: a lone variant takes the exact spelling.
+        if not loser.usable:
+            if loser.name != CANONICAL:
+                refuse(_rel(scope, loser.name),
+                       "the entry is not a regular file, or is unreadable", NEXT_REGULAR)
+            return sp
+        result, input_name, loser_is_input = loser.data, loser.name, True
+        input_data, input_tracked = loser.data, loser.index is not None
+        finished = loser.name == CANONICAL
+        if not finished and loser.index is None:
+            state = "ignored" if loser.ignored else "untracked"
+            sp.blockers.append(f"the result carries bytes read from the {state} entry "
+                               f"{show(_rel(scope, loser.name))}")
+    else:
+        _missing(sp, scope, unmatched, set(), ctx.deny)
+        return sp
+    sp.loser_input = input_name
+    sp.result = result
 
-    return Plan(root, actions, errors, d)
+    # What a rerun needs if this run stops: each source's sha256 and index path.
+    record: dict = {}
+    if w_data is not None and w_tracked:
+        record["winner"] = {
+            "sha256": _sha(w_data),
+            "index_path": winner.index.path if winner is not None else resumed_path}
+    elif rw:
+        record["winner"] = rw
+    if input_data is not None:
+        if loser_is_input and loser.index is not None:
+            in_path = loser.index.path
+        else:
+            in_path = ri.get("index_path") if ri.get("sha256") == _sha(input_data) else None
+        record["input"] = {"sha256": _sha(input_data), "index_path": in_path,
+                           "tracked": bool(input_tracked)}
+    elif ri:
+        record["input"] = ri
+    sp.resume = record
+
+    # Staging: nothing where untracked bytes or an index-only blob would move.
+    # A finished one-family scope plans an index step only to remove an old
+    # path, and that removal is checked like every other index change.
+    exact = _rel(scope, CANONICAL)
+    moved = {m.index.path for m in members.values()
+             if m.index is not None and not m.excluded}
+    removable = sorted(p for p, entries in by_path.items()
+                       if p != exact and not _excluded_by_path(p, ctx.deny)
+                       and (p in moved or p == resumed_path or p in resumed_paths
+                            or any(e.blob in held for e in entries)))
+    if not finished or w_data is not None or removable:
+        if exact not in by_path and exact in ignored:
+            sp.blockers.append(
+                f"the exact path {show(exact)} is untracked and git ignores it")
+        for path, entries in sorted(by_path.items()):
+            for e in entries:
+                if e.blob not in held and head.get(path) != e.blob:
+                    sp.index_only.append({
+                        "path": show(path), "stage": e.stage, "blob": e.blob,
+                        "next_step": next_index_only(e.stage, show(path))})
+        if sp.index_only:
+            sp.blockers.append("an instruction-family index entry holds a blob that "
+                               "neither HEAD nor any working-tree entry holds")
+    stages = not sp.blockers
+
+    # The working-tree steps, in the order clause 8 fixes.
+    loaded_before_steps = list(sp.no_longer_loaded)
+    steps: list[Step] = []
+    renamed_in = False
+    if not finished:
+        if loser_is_input and loser.data != result:
+            dest = set_aside_name(loser.name, loser.data, taken)
+            taken.add(dest.lower())
+            if loser.ignored and _rel(scope, dest) not in ignored:
+                refuse(_rel(scope, loser.name),
+                       "the loser is ignored and git would not ignore its set-aside name "
+                       + show(dest), NEXT_IGNORED)
+                return sp
+            steps.append(Step("set-aside", scope, loser.name, dest, loser.ident,
+                              loser.data))
+            sp.set_asides.append({
+                "scope": scope, "entry": show(loser.name), "set_aside": show(dest),
+                "sha256": _sha(loser.data), "git_state": loser.git_state(ctx.algo),
+                "ignored_by_git": _rel(scope, dest) in ignored, "status": "planned",
+                "inlined": bool(sp.imports)})
+            if not sp.imports:
+                sp.no_longer_loaded.append(show(_rel(scope, dest)))
+        if loser_is_input and loser.data == result:
+            if loser.name != CANONICAL:
+                steps.append(Step("respell", scope, loser.name, CANONICAL, loser.ident,
+                                  loser.data))
+        elif winner is not None and w_tracked and stages and winner.data == result:
+            steps.append(Step("rename-in", scope, winner.name, CANONICAL, winner.ident,
+                              winner.data))
+            renamed_in = True
+        else:
+            steps.append(Step("create", scope, None, CANONICAL, None, result))
+    if winner is not None and w_tracked and stages and not renamed_in:
+        dest = set_aside_name(winner.name, winner.data, taken)
+        taken.add(dest.lower())
+        steps.append(Step("set-aside-winner", scope, winner.name, dest, winner.ident,
+                          winner.data))
+        sp.set_asides.append({
+            "scope": scope, "entry": show(winner.name), "set_aside": show(dest),
+            "sha256": _sha(winner.data), "git_state": winner.git_state(ctx.algo),
+            "ignored_by_git": _rel(scope, dest) in ignored, "status": "planned",
+            "inlined": False})
+    sp.winner_left = winner is not None and not (w_tracked and stages)
+
+    # The index: the result at the exact path, no other family path this
+    # migration moved. A path the user deleted, whose blob only HEAD holds, and
+    # an excluded path are left as they are, and a deleted one is reported.
+    remove: list[str] = []
+    if stages:
+        remove = removable
+        current = by_path.get(exact)
+        stale = current is None or current[0].blob != _git_blob(result, ctx.algo)
+        if steps or remove or (w_data is not None and stale):
+            steps.append(Step("index", scope, remove=remove, add=exact))
+
+    if steps and not all(s.kind == "index" for s in steps) and not fs.noreplace_available():
+        needs = [s for s in steps if s.kind in ("set-aside", "create", "rename-in",
+                                                "set-aside-winner")]
+        if needs:
+            refuse(_rel(scope, needs[0].source or CANONICAL),
+                   "the volume offers no atomic no-replace create and rename",
+                   NEXT_VOLUME)
+            # A refused scope changes nothing, so nothing is planned to move.
+            sp.set_asides = [s for s in sp.set_asides if s["status"] == "found"]
+            sp.no_longer_loaded = loaded_before_steps
+            sp.winner_left = False
+            return sp
+    # A path the plan does not remove is missing whether or not the scope
+    # stages; the exact path is not missing when the index step adds it.
+    _missing(sp, scope, unmatched, set(remove) | ({exact} if stages else set()),
+             ctx.deny)
+    sp.steps = steps
+    return sp
+
+
+def _missing(sp: ScopePlan, scope: str, unmatched: list[str], removed: set[str],
+             deny: set[str]) -> None:
+    """Report each family index path the directory no longer lists and this plan
+    does not remove. The index then differs from what a finished run stages, so
+    the scope is a finding, never clean."""
+    for path in unmatched:
+        if path in removed or _excluded_by_path(path, deny):
+            continue
+        sp.missing.append({
+            "scope": scope, "path": show(path),
+            "reason": "the index holds this path and the directory does not list it",
+            "next_step": next_missing(show(path))})
+
+
+def build_plan(d: "Discovery", fs: RealFS | None = None, git: Git | None = None) -> Plan:
+    """Plan every touched scope. A refused scope is planned as refused, alone."""
+    root = Path(d.root)
+    fs = fs or RealFS()
+    git = git or Git(root)
+    resume = _prior_resume(root)
+    ctx = _Ctx(root, fs, git, set(d.denylist), resume)
+    scopes = []
+    for scope in touched_scopes(ctx):
+        sp = plan_scope(ctx, scope)
+        if sp is not None:
+            scopes.append(sp)
+    return Plan(root, scopes, d, fs, git, ctx.algo, resume)
+
+
+def _prior_resume(root: Path) -> dict:
+    """The receipt's per-scope source records, or {} when there is none to read."""
+    path = receipt_path(root)
+    try:
+        if path.is_symlink():
+            return {}
+        data = json.loads(path.read_bytes())
+    except (OSError, ValueError):
+        return {}
+    resume = data.get("resume") if isinstance(data, dict) else None
+    if not isinstance(resume, dict):
+        return {}
+    return {k: v for k, v in resume.items() if isinstance(k, str) and isinstance(v, dict)}
 
 
 # -------------------------------------------------------------------- applying
@@ -697,233 +1385,266 @@ def build_plan(d: Discovery,
 @dataclass
 class Receipt:
     root: Path
-    source_hashes: dict[str, str] = field(default_factory=dict)
+    scopes: list[dict] = field(default_factory=list)
     dispositions: dict[str, str] = field(default_factory=dict)
-    merge_rows: list[dict] = field(default_factory=list)
-    unresolved: list[dict] = field(default_factory=list)
+    resume: dict = field(default_factory=dict)
     atomic: bool = False
     staging_note: str = (
-        "Staging is per-file: a temporary file beside the target, then a rename. "
-        "A crash leaves committed files committed and the rest untouched, and a "
-        "rerun converges. This claims no multi-file filesystem atomicity."
+        "Each scope migrates by steps: set a loser aside, write AGENTS.md through a "
+        "temporary entry and a no-replace rename, then move the winner. A stopped run "
+        "leaves no partial AGENTS.md, and a rerun reaches the state an uninterrupted "
+        "run reaches. This claims no multi-file filesystem atomicity and no "
+        "durability across power loss."
     )
 
     def has_unresolved(self) -> bool:
-        return bool(self.unresolved)
+        return any(s.get("refusals") or s.get("stopped") for s in self.scopes)
 
     def is_noop(self) -> bool:
-        return not self.dispositions and not self.unresolved
+        return not any(s.get("steps") for s in self.scopes)
 
-    def to_json(self) -> dict:
-        return {
-            "source_hashes": self.source_hashes,
-            "dispositions": self.dispositions,
-            "merge_rows": self.merge_rows,
-            "unresolved": self.unresolved,
-            "atomic": self.atomic,
-            "staging_note": self.staging_note,
-        }
+    def to_json(self, pending: list[dict] | None = None) -> dict:
+        return {"format": 2, "scopes": self.scopes + (pending or []),
+                "dispositions": self.dispositions, "resume": self.resume,
+                "atomic": self.atomic, "staging_note": self.staging_note}
 
 
 def receipt_path(root: Path) -> Path:
     return Path(root) / RECEIPT_NAME
 
 
-def preview_path(root: Path) -> Path:
-    return Path(root) / PREVIEW_NAME
+def read_receipt(path: Path) -> dict:
+    return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
-def read_receipt(path: Path) -> Receipt:
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
-    r = Receipt(Path(path).parent)
-    r.source_hashes = data.get("source_hashes", {})
-    r.dispositions = data.get("dispositions", {})
-    r.merge_rows = data.get("merge_rows", [])
-    r.unresolved = data.get("unresolved", [])
-    r.atomic = data.get("atomic", False)
-    return r
+def _write_own_file(target: Path, data: bytes) -> None:
+    """Write one of this tool's own files through a fresh temporary entry.
 
-
-def resolution_still_binds(receipt: Receipt, d: Discovery) -> bool:
-    """A source that changed after the preview invalidates the plan."""
-    for rel, recorded in receipt.source_hashes.items():
-        p = d.root / rel
-        if not p.exists():
-            continue
-        if _sha(p.read_bytes()) != recorded:
-            return False
-    return True
-
-
-def load_reviewed_resolutions(path: Path, root: Path,
-                              d: Discovery) -> dict[tuple[str, tuple[str, ...]], str]:
-    """Load a reviewed resolution only when its preview receipt still binds.
-
-    The receipt written with the preview is the binding object. Repeating its
-    source hashes in the resolution file makes the reviewer attest to exactly
-    the preview they read, and prevents a changed source from borrowing an old
-    resolution.
+    The temporary name is new on every call and created O_EXCL, so no existing
+    entry is ever unlinked or written through.
     """
-    try:
-        data = json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise PlanInvalid(f"cannot read resolution file {path}: {exc}") from exc
-    if not isinstance(data, dict):
-        raise PlanInvalid("resolution file must contain a JSON object")
-    hashes = data.get("source_hashes")
-    items = data.get("resolutions")
-    if not isinstance(hashes, dict) or not isinstance(items, list):
-        raise PlanInvalid(
-            "resolution file must contain source_hashes and resolutions")
-    receipt_file = receipt_path(root)
-    if not receipt_file.exists():
-        raise PlanInvalid(
-            f"resolution file requires the preview receipt {RECEIPT_NAME}")
-    try:
-        preview = read_receipt(receipt_file)
-    except (OSError, json.JSONDecodeError) as exc:
-        raise PlanInvalid(f"cannot read preview receipt {receipt_file}: {exc}") from exc
-    if hashes != preview.source_hashes:
-        raise PlanInvalid("resolution source_hashes do not match the preview receipt")
-    if not resolution_still_binds(preview, d):
-        raise PlanInvalid("a source changed after the preview; review a new resolution")
-
-    resolutions: dict[tuple[str, tuple[str, ...]], str] = {}
-    for item in items:
-        if not isinstance(item, dict):
-            raise PlanInvalid("each resolution must be a JSON object")
-        scope, heading_path, text = item.get("scope"), item.get("path"), item.get("text")
-        if (not isinstance(scope, str) or not isinstance(heading_path, list)
-                or not all(isinstance(part, str) and part for part in heading_path)
-                or not isinstance(text, str) or not text):
-            raise PlanInvalid(
-                "each resolution requires a scope, a non-empty string path, and text")
-        blocks = split_blocks(text)
-        expected_path = (heading_path[-1],) if heading_path else ()
-        expected_level = len(heading_path)
-        if (len(blocks) != 1 or blocks[0].path != expected_path
-                or blocks[0].level != expected_level):
-            raise PlanInvalid(
-                "resolution text must contain exactly one block whose heading "
-                f"matches {'/'.join(heading_path) or '(preamble)'}")
-        key = (Path(scope).as_posix(), tuple(heading_path))
-        if key in resolutions:
-            raise PlanInvalid(
-                f"resolution file repeats {'/'.join(heading_path)} in scope {scope}")
-        resolutions[key] = text
-    return resolutions
-
-
-def _atomic_write(target: Path, data: bytes) -> None:
-    tmp = target.with_name(target.name + ".tmp")
-    if tmp.exists():
-        tmp.unlink()
-    fd = os.open(tmp, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+    if target.exists() and not target.is_symlink():
+        try:
+            if target.read_bytes() == data:
+                return
+        except OSError:
+            pass
+    tmp = target.with_name(f".{target.name}.{secrets.token_hex(6)}.tmp")
+    fd = os.open(tmp, os.O_CREAT | os.O_EXCL | os.O_WRONLY
+                 | getattr(os, "O_NOFOLLOW", 0), 0o644)
     try:
         with os.fdopen(fd, "wb") as fh:
             fh.write(data)
         os.replace(tmp, target)
-    finally:
-        if tmp.exists():
-            tmp.unlink()
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
-def _commit_action(action: Action, root: Path, receipt: Receipt) -> None:
-    """Commit one action. Per-file; a crash here leaves earlier actions done."""
-    root = Path(root)
-    dest = root / action.dest
+class _Applier:
+    def __init__(self, plan: Plan, hook=None):
+        self.plan = plan
+        self.fs = plan.fs or RealFS()
+        self.git = plan.git or Git(plan.root)
+        self.hook = hook
 
-    if action.kind == "rename":
-        src = root / action.sources[0]
-        data = src.read_bytes()
-        if action.needs_case_staging:
-            staged = src.with_name(src.name + ".case-stage")
-            os.replace(src, staged)
-            os.replace(staged, dest)
-        else:
-            _atomic_write(dest, data)
-            src.unlink()
-        receipt.dispositions[action.sources[0].as_posix()] = "renamed"
+    def _dir(self, scope: str) -> Path:
+        return self.plan.root if scope == "." else self.plan.root / scope
 
-    elif action.kind == "collapse":
-        agents, claude = action.sources
-        (root / claude).unlink()
-        receipt.dispositions[agents.as_posix()] = "kept"
-        receipt.dispositions[claude.as_posix()] = "collapsed"
+    def _verify(self, path: Path, ident, data: bytes, what: str) -> None:
+        try:
+            st = self.fs.lstat(path)
+            now = self.fs.read(path)
+        except FileNotFoundError:
+            raise ScopeStop(f"{what} {show(path.name)} is gone since planning")
+        except NotRegular:
+            raise ScopeStop(f"{what} {show(path.name)} is no longer a regular file")
+        if (ident is not None and (st.st_dev, st.st_ino) != ident) or now != data:
+            raise ScopeStop(f"{what} {show(path.name)} changed since planning")
 
-    elif action.kind == "merge":
-        if action.merge is None or not action.merge.applied:
-            raise PlanInvalid(f"merge action for {action.scope} did not apply")
-        if not action.merge.accounting_balances():
-            raise PlanInvalid(
-                f"merge accounting does not balance for {action.scope}: "
-                f"{action.merge.accounting()}")
-        _atomic_write(dest, action.merge.text.encode("utf-8"))
-        for src in action.sources:
-            if (root / src) != dest and (root / src).exists():
-                (root / src).unlink()
-            receipt.dispositions[src.as_posix()] = "merged"
-        receipt.merge_rows.extend(
-            {"source": r.source,
-             "source_path": list(r.source_path) if r.source_path else None,
-             "result_path": list(r.result_path) if r.result_path else None,
-             "disposition": r.disposition}
-            for r in action.merge.receipt_rows)
+    def _one_result(self, directory: Path, result: bytes) -> None:
+        agents = [n for n in self.fs.listdir(directory) if family_of(n) == "agents"]
+        if agents != [CANONICAL]:
+            raise ScopeStop("the scope does not hold exactly one AGENTS.md-family "
+                            f"entry spelled AGENTS.md: {sorted(show(a) for a in agents)}")
+        self._verify(directory / CANONICAL, None, result, "the result")
+
+    def _exists_error(self, directory: Path, dest: str) -> ScopeStop:
+        # A volume may fold more than lowercasing does (`agentſ.md` onto
+        # `AGENTS.md`), so the entry met is found by full case folding.
+        alias = [n for n in self.fs.listdir(directory)
+                 if n.casefold() == dest.casefold()]
+        where = alias[0] if alias else dest
+        kind = "a case-fold alias of " if where != dest else ""
+        return ScopeStop(f"a no-replace step met an existing entry {show(where)}, "
+                         f"{kind}{show(dest)}")
+
+    def _noreplace(self, directory: Path, src: str, dest: str) -> None:
+        try:
+            self.fs.rename_noreplace(directory / src, directory / dest)
+        except FileExistsError:
+            raise self._exists_error(directory, dest)
+        except OSError as exc:
+            if exc.errno in (errno.EEXIST, errno.ENOTEMPTY):
+                raise self._exists_error(directory, dest)
+            if exc.errno in (errno.ENOTSUP, errno.EINVAL, errno.ENOSYS,
+                             getattr(errno, "EOPNOTSUPP", errno.ENOTSUP)):
+                raise ScopeStop("the volume offers no atomic no-replace rename; "
+                                + NEXT_VOLUME)
+            raise
+
+    def _sources(self, sp: ScopePlan, locations: dict[str, str]) -> None:
+        """Before each step: every source still holds what the plan observed."""
+        directory = self._dir(sp.scope)
+        for m in (sp.winner, sp.loser):
+            if m is None or m.name not in locations or not m.usable:
+                continue
+            self._verify(directory / locations[m.name], m.ident, m.data, "source")
+
+    def run_scope(self, sp: ScopePlan) -> list[dict]:
+        directory = self._dir(sp.scope)
+        locations = {m.name: m.name for m in (sp.winner, sp.loser) if m is not None}
+        changes: list[dict] = []
+        for step in sp.steps:
+            self._sources(sp, locations)
+            if step.kind in ("set-aside", "set-aside-winner"):
+                if step.kind == "set-aside-winner":
+                    self._one_result(directory, sp.result)
+                    self.fs.fsync_dir(directory)
+                self._noreplace(directory, step.source, step.dest)
+                self._verify(directory / step.dest, step.ident, step.data, "set-aside")
+                for row in sp.set_asides:
+                    if row["status"] == "planned" and row["set_aside"] == show(step.dest):
+                        row["status"] = "created"
+                if step.source in self.fs.listdir(directory):
+                    raise ScopeStop(f"{show(step.source)} is still listed after its "
+                                    "set-aside")
+                locations[step.source] = step.dest
+                self.fs.fsync_dir(directory)
+            elif step.kind == "create":
+                tmp = directory / f".crux-migrate-{secrets.token_hex(6)}.tmp"
+                self.fs.create_excl(tmp, step.data)
+                try:
+                    self._noreplace(directory, tmp.name, CANONICAL)
+                except BaseException:
+                    self.fs.unlink(tmp)
+                    raise
+                self.fs.fsync_dir(directory)
+                self._one_result(directory, sp.result)
+            elif step.kind in ("rename-in", "respell"):
+                src = directory / step.source
+                dst = directory / CANONICAL
+                same = False
+                if sp.folds and step.source.lower() == CANONICAL.lower():
+                    try:
+                        a, b = self.fs.lstat(src), self.fs.lstat(dst)
+                        same = (a.st_dev, a.st_ino) == (b.st_dev, b.st_ino)
+                    except OSError:
+                        same = False
+                if same:
+                    self.fs.rename(src, dst)
+                else:
+                    self._noreplace(directory, step.source, CANONICAL)
+                locations[step.source] = CANONICAL
+                self.fs.fsync_dir(directory)
+                self._one_result(directory, sp.result)
+            elif step.kind == "index":
+                changes.append(self._index(sp, step, directory))
+            if self.hook:
+                self.hook(sp.scope, step.kind)
+        return changes
+
+    def _index(self, sp: ScopePlan, step: Step, directory: Path) -> dict:
+        self._one_result(directory, sp.result)
+        algo = self.plan.algo
+        zero = "0" * (64 if algo == "sha256" else 40)
+        try:
+            blob = self.git.run("hash-object", "-w", "--", step.add).decode().strip()
+            mode = "100755" if self.fs.lstat(directory / CANONICAL).st_mode & 0o111 \
+                else "100644"
+            lines = b"".join(os.fsencode(f"0 {zero}\t{p}") + b"\0" for p in step.remove)
+            lines += os.fsencode(f"{mode} {blob}\t{step.add}") + b"\0"
+            self.git.run("update-index", "-z", "--index-info", stdin=lines)
+        except GitError as exc:
+            raise ScopeStop(f"git refused the index change for {sp.scope}: {exc}; "
+                            "no byte was lost")
+        return {"removed": sorted(show(p) for p in step.remove), "added": show(step.add),
+                "blob": blob}
 
 
-def _write_preview(root: Path, blocked: list[Action]) -> None:
-    lines = ["# Instruction migration — unresolved conflicts", "",
-             "Both sources are left on disk. Create a reviewed JSON resolution file",
-             f"that copies source_hashes from `{RECEIPT_NAME}` and carries",
-             "resolutions with scope, path, and text. Rerun with",
-             'Say "audit docs --migrate using the resolution file at <path>".', ""]
-    for a in blocked:
-        lines.append(f"## Scope `{a.scope}`")
-        lines.append("")
-        lines.append(f"- {a.reason}")
-        lines.append("")
-        for src in a.sources:
-            lines.append(f"### Source `{src.as_posix()}`")
-            lines.append("")
-            lines.append("```markdown")
-            lines.append((root / src).read_text(encoding="utf-8").rstrip("\n"))
-            lines.append("```")
-            lines.append("")
-    _atomic_write(preview_path(root), "\n".join(lines).encode("utf-8"))
+def apply_plan(plan: Plan, root: Path | None = None, hook=None) -> Receipt:
+    """Run each scope's steps in order. A refused or stopped scope blocks no other.
 
+    An environment failure stops the run after the current step. The receipt
+    still records every scope reached, so a completed scope's set-asides and
+    index changes are never left unrecorded.
+    """
+    root = Path(root or plan.root)
+    receipt = Receipt(root, resume=dict(plan.resume))
+    applier = _Applier(plan, hook)
 
-def apply_plan(plan: Plan, root: Path) -> Receipt:
-    """Validate the complete plan, then commit each action, staged per file."""
-    if not plan.valid:
-        raise PlanInvalid("; ".join(plan.errors))
-
-    root = Path(root)
-    receipt = Receipt(root)
-
-    for action in plan.actions:
-        for src in action.sources:
-            p = root / src
-            if p.exists():
-                receipt.source_hashes[src.as_posix()] = _sha(p.read_bytes())
+    def write(pending: list[dict] | None = None) -> None:
+        _write_own_file(receipt_path(root), json.dumps(
+            receipt.to_json(pending), indent=2, sort_keys=True).encode())
 
     if plan.discovery:
         for rel, reason in plan.discovery.excluded.items():
             receipt.dispositions[rel] = reason
-
-    runnable = [a for a in plan.actions if not a.blocked]
-    blocked = [a for a in plan.actions if a.blocked]
-
-    for action in runnable:
-        _commit_action(action, root, receipt)
-
-    for a in blocked:
-        receipt.unresolved.append({"scope": a.scope.as_posix(), "reason": a.reason})
-    if blocked:
-        _write_preview(root, blocked)
-
-    if receipt.source_hashes or receipt.unresolved:
-        _atomic_write(receipt_path(root),
-                      json.dumps(receipt.to_json(), indent=2, sort_keys=True).encode())
+    completed: list[str] = []
+    failure: RunStopped | None = None
+    for sp in plan.scopes:
+        row = sp.to_json()
+        if not sp.refusals and sp.steps:
+            # Before the first step: the sources' sha256 and index paths, so a
+            # rerun after a stop at any step finds what this run moved.
+            if sp.resume:
+                receipt.resume[sp.scope] = sp.resume
+            write([dict(row, stopped="stopped before this scope finished")])
+            try:
+                row["index_changes"] = applier.run_scope(sp)
+                sp.done = True
+            except KeyboardInterrupt:
+                sp.stopped = row["stopped"] = "interrupted"
+                row["set_asides"] = sp.set_asides
+                receipt.scopes.append(row)
+                write()
+                raise
+            except ScopeStop as exc:
+                sp.stopped = row["stopped"] = str(exc)
+            except OSError as exc:
+                sp.stopped = row["stopped"] = f"environment failure: {exc}"
+                failure = RunStopped(
+                    f"environment failure in scope {sp.scope}: {exc}; scopes completed: "
+                    f"{', '.join(completed) or 'none'}", list(completed))
+                failure.__cause__ = exc
+        row["set_asides"] = sp.set_asides
+        receipt.scopes.append(row)
+        for sa in sp.set_asides:
+            if sa["status"] == "created":
+                receipt.dispositions[_rel(sp.scope, sa["entry"])] = (
+                    f"set aside as {sa['set_aside']}")
+        if sp.done:
+            completed.append(sp.scope)
+            for s in sp.steps:
+                if s.kind in ("rename-in", "respell"):
+                    receipt.dispositions[_rel(sp.scope, s.source)] = "renamed to AGENTS.md"
+                elif s.kind == "create":
+                    receipt.dispositions[_rel(sp.scope, CANONICAL)] = "created"
+        for r in sp.refusals:
+            receipt.dispositions[r["entry"]] = "refused"
+        if failure is not None:
+            break
+    # A run that changed nothing leaves an earlier run's receipt as it is, so a
+    # second run on a completed tree rewrites nothing, the receipt included.
+    acted = any(sp.done or sp.stopped for sp in plan.scopes)
+    refused = any(sp.refusals for sp in plan.scopes)
+    if acted or (refused and not receipt_path(root).exists()):
+        write()
+    if failure is not None:
+        raise failure
     return receipt
 
 
@@ -933,13 +1654,14 @@ def apply_plan(plan: Plan, root: Path) -> Receipt:
 def append_log(log_path: Path, receipt: Receipt, date: str) -> None:
     """One `schema` op per migration — never one entry per file."""
     log_path = Path(log_path)
-    migrated = [k for k, v in receipt.dispositions.items()
-                if v in {"renamed", "merged", "collapsed"}]
+    migrated = [s for s in receipt.scopes if s.get("steps") and not s.get("stopped")
+                and not s.get("refusals")]
+    unresolved = [s for s in receipt.scopes if s.get("stopped") or s.get("refusals")]
     heading = (f"## [{date}] schema | migrate instruction files to {CANONICAL} "
-               f"({len(migrated)} files)")
+               f"({len(migrated)} scopes)")
     body = [
-        f"Migrated {len(migrated)} managed instruction file(s) to `{CANONICAL}`.",
-        f"Unresolved scopes: {len(receipt.unresolved)}.",
+        f"Migrated {len(migrated)} instruction scope(s) to `{CANONICAL}`.",
+        f"Refused or stopped scopes: {len(unresolved)}.",
         f"Receipt: `{RECEIPT_NAME}`.",
     ]
     entry = heading + "\n\n" + "\n".join(body) + "\n\n"
@@ -950,4 +1672,4 @@ def append_log(log_path: Path, receipt: Receipt, date: str) -> None:
         text = text.replace(marker, marker + entry, 1)
     else:
         text = entry + text
-    _atomic_write(log_path, text.encode("utf-8"))
+    _write_own_file(log_path, text.encode("utf-8"))

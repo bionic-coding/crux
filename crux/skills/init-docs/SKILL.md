@@ -26,13 +26,13 @@ This skill is portable across Claude Code, Codex, and OpenCode. This section ove
 
 ## Overview
 
-The bootstrap operation for the `crux` plugin. Runs once per repository. Creates the full seven-concern documentation tree (code, research, adrs, briefs, journal, promptbooks, invariants) plus the default-on derived arch spine and the default-on observations concern at the resolved `docs_dir` — `bionic/` for a new repository — plus the four files at the tree's top level (`${DOCS_DIR}/AGENTS.md`, `index.md`, `log.md`, `manifest.yml`) plus seeded sub-indexes. It creates no repo-root `AGENTS.md`: step 9 appends to one that exists and only warns when there is none. The invariants concern is ONE folder: the ledger, its `checks/` subdirectory, and `reconciliation.yml` all live inside the tree (see docs/AGENTS.md §15). New repos enable the invariants concern **by default** at `schema_version: "5"`, enable the observations concern **by default** additively (docs/AGENTS.md §17 — no `schema_version` bump), and init writes `.bionic.yml` naming the tree it created (merged, never clobbered, when a config already exists). Refuses to touch an existing tree unless `--force` is passed.
+The bootstrap operation for the `crux` plugin. Runs once per repository. Creates the full seven-concern documentation tree (code, research, adrs, briefs, journal, promptbooks, invariants) plus the default-on derived arch spine and the default-on observations concern at the resolved `docs_dir` — `bionic/` for a new repository — plus the four files at the tree's top level (`${DOCS_DIR}/AGENTS.md`, `index.md`, `log.md`, `manifest.yml`) plus seeded sub-indexes. Step 9 creates a repo-root `AGENTS.md` when the root holds no `AGENTS.md` or `CLAUDE.md` in any letter case. A `CLAUDE.local.md` does not block that create. Step 9 appends to an exact `AGENTS.md` that exists, and it reports a `CLAUDE.md` or a case variant of `AGENTS.md` with its remedy instead of writing to it. The invariants concern is ONE folder: the ledger, its `checks/` subdirectory, and `reconciliation.yml` all live inside the tree (see docs/AGENTS.md §15). New repos enable the invariants concern **by default** at `schema_version: "5"`, enable the observations concern **by default** additively (docs/AGENTS.md §17 — no `schema_version` bump), and init writes `.bionic.yml` naming the tree it created (merged, never clobbered, when a config already exists). Refuses to touch an existing tree unless `--force` is passed.
 
 **New-repo bootstrap only — never an in-place upgrade.** `init-docs` governs the greenfield bootstrap; it MUST NOT enable or upgrade the invariants concern in place in an established (populated) tree. An older tree uses the pinned public recovery release's schema ladder on a copy. `init-docs --force` on a populated tree is a destructive *re-bootstrap*, not a migration: it archives the existing tree to `${DOCS_DIR}.bak.${TODAY}/` (never deletes) and builds a fresh tree of seven concerns plus the derived arch spine at `schema_version: "5"` — a replacement, not an in-place migration of the old data.
 
 Core principle: **deterministic, idempotent-with-force, never partial**. Either the entire tree appears or none of it does. If a step fails midway, roll back what was written so the user retries cleanly.
 
-**Rollback contract.** Track every path this run writes as it is written, and record the PRIOR content of any pre-existing file it modifies (a merged `.bionic.yml`, the appended repo-root `AGENTS.md` line, an overwritten `USER_GUIDE.md`) before mutating it. On failure: remove ONLY the recorded new paths — files first, then the now-empty directories bottom-up — and **refuse to remove any path not on the list** (report it instead; a directory whose contents are unaccounted for is never removed). Restore the recorded prior content of every modified pre-existing file. If the run archived an existing tree under `--force`, move `${ARCHIVE}` back to `${DOCS_DIR}` — unless `${DOCS_DIR}` still exists (the unaccounted-contents branch refused to clear it), in which case do NOT move and instead report both paths. Always state the archive path in the failure report. Never `rm -rf` the whole `${DOCS_DIR}/` directory.
+**Rollback contract.** Track every path this run writes as it is written, and record the PRIOR content of any pre-existing file it modifies (a merged `.bionic.yml`, the appended repo-root `AGENTS.md` line, an overwritten `USER_GUIDE.md`) before mutating it. On failure: remove ONLY the recorded new paths — files first, then the now-empty directories bottom-up — and **refuse to remove any path not on the list** (report it instead; a directory whose contents are unaccounted for is never removed). Restore the recorded prior content of every modified pre-existing file. If the run archived an existing tree under `--force`, move `${ARCHIVE}` back to `${DOCS_DIR}` — unless `${DOCS_DIR}` still exists (the unaccounted-contents branch refused to clear it), in which case do NOT move and instead report both paths. Always state the archive path in the failure report. The repo-root `AGENTS.md` that step 9 created is a new path. Remove it only through step 9's guarded rollback, never by path. That rollback deletes the file only when it still finds the regular file this run created. Never `rm -rf` the whole `${DOCS_DIR}/` directory.
 
 This skill owns: the directory tree, the `AGENTS.md` template substitution, `manifest.yml` generation (including language detection), the bootstrap meta-ADR, all root and sub-concern `index.md` headers, the seed `journal/YYYY-MM.md` for the current month, and the first `log.md` entry.
 
@@ -386,25 +386,21 @@ The arch spine is deferred at init — `derive-arch` ("build the arch"), or the 
 _No spine yet._
 ```
 
-### 9. Update the repo-root `AGENTS.md` reference
+### 9. Create or update the repo-root `AGENTS.md`
 
-- If `${REPO_ROOT}/AGENTS.md` exists and does not already reference the tree's `AGENTS.md`, append:
+The helper `${CRUX_PLUGIN_ROOT}/scripts/root_agents.py` does every file operation in this step. It reads the two blocks below from this step, so they have one source, shared by the create and the append. It refuses to write through a link, and it creates the file only where no entry exists at that moment.
 
-  ```markdown
+1. Create a private directory with `mktemp -d`, outside the repository, and set `${RECORD}` to a new file name inside it, such as `root-agents.json`. The helper refuses a record path that already exists, so each run gets its own record. Keep it until step 12 passes. If the root holds a regular file spelled exactly `AGENTS.md`, record its prior content before you run the helper, as the rollback contract requires: the helper may append to it.
+2. Run `uv run "${CRUX_PLUGIN_ROOT}/scripts/root_agents.py" apply --repo-root "${REPO_ROOT}" --docs-dir "${DOCS_DIR}" --record "${RECORD}"`.
+3. Parse the JSON on stdout. Exit `0` means the root file is done and nothing needs reporting. Exit `1` means the helper reported at least one entry: that is a summary item, never a failure of this run. Exit `2` is a capability error. The helper wrote nothing to the root unless its stderr says an append failed part-way or a created `AGENTS.md` was kept. After a part-way append, restore the file's recorded prior content. Leave a kept file in place and name it in the summary. Report the helper's stderr as a WARNING in the summary and continue with step 10.
 
-  See `${DOCS_DIR}/AGENTS.md` for documentation operations.
-  ```
+The pointer line, appended (or, in a new file, written first):
 
-- If it does not exist, do **not** create one — that's the user's call. Surface the WARNING block given at the end of this step in the summary.
-- If a repo-root `CLAUDE.md` exists, do **not** append the pointer to it and do **not**
-  delete it. Report it as a legacy instruction file with its remedy: it suppresses the
-  canonical `AGENTS.md` on a host reading the fallback, and `audit-docs --migrate`
-  converts it when it is tracked, is not a symlink, and is not named by
-  `.bionic.yml`'s `instruction_migration_denylist`. Creating a second pointer would
-  make the suppression permanent.
+```markdown
+See `${DOCS_DIR}/AGENTS.md` for documentation operations.
+```
 
-For each existing repo-root `AGENTS.md`, also add the following
-instruction unless the file already names `objectives.md`. Substitute `${DOCS_DIR}`:
+The objectives block, appended (or, in a new file, written second). Substitute `${DOCS_DIR}`:
 
 ```markdown
 Read `${DOCS_DIR}/objectives.md` before work of any size, and carry its context through every delegation.
@@ -413,19 +409,43 @@ Read `${DOCS_DIR}/objectives.md` before work of any size, and carry its context 
 [^objectives]: rule:objectives-read-before-work, rule:orchestrators-read-objectives-at-startup-and-resume, rule:objectives-shape-the-work-and-authorize-none, rule:objectives-context-travels-with-every-delegation, rule:objectives-populate-gate-never-invents-a-goal
 ```
 
-Preserve existing instructions and generated regions. If the root file is absent, do not create that file solely for this addition. Surface this WARNING in the summary verbatim, inside a text code fence, with `${DOCS_DIR}` substituted:
+What the helper does, judged from the root's directory entries and never from a path probe. `AGENTS.md` spelled exactly is the exact name, and any other spelling of `agents.md` is a variant. A root `CLAUDE.local.md` and a `.claude/CLAUDE.md` never block the create and are not reported.
+
+- The root holds no `AGENTS.md` or `CLAUDE.md` in any letter case: it creates `AGENTS.md` holding the pointer line, one blank line, then the objectives block, in LF line endings with one final newline, and no heading. Running the append rules below against that file appends nothing.
+- The root holds an exact `AGENTS.md` that is a regular, readable, UTF-8 file: it appends the pointer line only when the file does not reference the tree's `AGENTS.md`, and the objectives block only when the file does not name `objectives.md`. It rewrites nothing and preserves existing content and generated regions.
+- The root holds an exact `AGENTS.md` beside an untracked or ignored `CLAUDE.md` that `audit-docs --migrate` left in place, and `AGENTS.md` carries that file's content: it appends nothing and reports the `CLAUDE.md`. The next migration would set a changed `AGENTS.md` aside.
+- The root holds a `CLAUDE.md` or a variant, with no exact `AGENTS.md`: it creates nothing, appends nothing to that entry, and reports it. A pointer written to a legacy file would make the suppression permanent, and a created `AGENTS.md` beside it would author the two-file state.
+- The root holds an exact `AGENTS.md` that is a symlink (live or dangling), is not a regular file, cannot be read, or is not valid UTF-8: it writes nothing to it and reports it. The tree still initialises.
+- Entries compose one by one. The helper writes only what every matching case allows, and it reports each blocked or legacy entry as that entry's own case says. A legacy directory limits only itself: an exact regular `AGENTS.md` beside it still gets its append.
+- It never renames, deletes or rewrites a `CLAUDE.md` or a variant. `audit-docs --migrate` is the only path that converts one.
+
+**Summary.** Build the summary from the JSON.
+
+- `"outcome": "created"`: surface this NOTE verbatim, inside a text code fence.
 
 ```text
-WARNING: This repository has no repo-root AGENTS.md, so init-docs added no pointer to the documentation tree.
+NOTE: This repository held no AGENTS.md or CLAUDE.md at its root, so init-docs created a repo-root AGENTS.md.
+It holds a pointer to the documentation tree and an instruction to read its objectives.
 Codex and OpenCode read a repo-root AGENTS.md.
 Claude Code reads it from version 2.1.277 under its default settings, except on the Bedrock, Vertex and Foundry distributions.
 Under those defaults, three files stop Claude Code from reading AGENTS.md: CLAUDE.md, .claude/CLAUDE.md and CLAUDE.local.md.
 Each one does so in any directory from the repository root to the working directory.
-If the repository holds a tracked CLAUDE.md, run audit-docs --migrate before you add the lines below.
-It converts each tracked CLAUDE.md in the checkout into the AGENTS.md of its directory, unless the file is a symlink, sits under a templates/ directory, or .bionic.yml's instruction_migration_denylist names it.
-It never changes a .claude/CLAUDE.md, a CLAUDE.local.md or an untracked CLAUDE.md.
-It reports each one for you to handle.
-To point your agents at the tree, add these lines to the repo-root AGENTS.md, and create that file if it does not exist:
+To see which instruction files this host loads, run check-claude-compat.
+```
+
+- `reports` is not empty: surface one WARNING, verbatim, inside a text code fence. Replace `<lead>` with the first sentence below when `"outcome"` is `none` or `refused` (the helper wrote nothing), and with the second when it is `appended` or `unchanged`. Write one entry line per report, in the order given, using the sentence for its code from the table below. Drop the closing block, from "When every entry above" on, when `"outcome"` is `appended` or `unchanged`.
+
+  1. `init-docs created no repo-root AGENTS.md and appended no pointer to the documentation tree.`
+  2. `init-docs left the repo-root entries below unchanged.`
+
+```text
+WARNING: <lead>
+Codex and OpenCode read a repo-root AGENTS.md.
+Claude Code reads it from version 2.1.277 under its default settings, except on the Bedrock, Vertex and Foundry distributions.
+Under those defaults, three files stop Claude Code from reading AGENTS.md: CLAUDE.md, .claude/CLAUDE.md and CLAUDE.local.md.
+Each one does so in any directory from the repository root to the working directory.
+- <entry name>: <sentence for its code>
+When every entry above is resolved, add these lines to the repo-root AGENTS.md, and create that file if it does not exist:
 
 See `${DOCS_DIR}/AGENTS.md` for documentation operations.
 
@@ -434,6 +454,31 @@ Read `${DOCS_DIR}/objectives.md` before work of any size, and carry its context 
 
 [^objectives]: rule:objectives-read-before-work, rule:orchestrators-read-objectives-at-startup-and-resume, rule:objectives-shape-the-work-and-authorize-none, rule:objectives-context-travels-with-every-delegation, rule:objectives-populate-gate-never-invents-a-goal
 ```
+
+Each report carries a `code`. Use its sentence, and no other, on the entry line:
+
+| Code | Sentence |
+|---|---|
+| `migrate` | Run audit-docs --migrate to convert it to AGENTS.md. |
+| `migrate-set-aside` | Run audit-docs --migrate. The CLAUDE.md content becomes AGENTS.md. A file beside it whose name lowercases to agents.md and whose content differs moves to a new name the report gives. Its content stops loading unless CLAUDE.md imported it, and the report says which. If the migration refuses the directory instead, follow the next step its report names. |
+| `resolve-partner-then-migrate` | Do not run audit-docs --migrate yet. It refuses this directory while an entry beside this one that it would read or set aside is a link, is not a regular file, is named by instruction_migration_denylist, or shares a lowercased name with another entry. Make that entry a regular file that instruction_migration_denylist does not name, or move it to a name that does not exist yet and that no harness loads by default, then run audit-docs --migrate. |
+| `track-then-migrate` | Run git add on it, then run audit-docs --migrate, which acts only where git tracks an instruction file. |
+| `unlist-then-migrate` | Remove it from instruction_migration_denylist in .bionic.yml, then run audit-docs --migrate. |
+| `track-and-unlist-then-migrate` | Run git add on it, remove it from instruction_migration_denylist in .bionic.yml, then run audit-docs --migrate. |
+| `resolve-family-then-migrate` | Its name differs from another entry only in letter case, and the migration refuses a directory holding both. Move one of them to a name that does not exist yet and that no harness loads by default, with git mv where git tracks it, saving any version only git's index holds first, then run audit-docs --migrate. |
+| `fix-agents-then-migrate` | Resolve the AGENTS.md entry named above first. Leave it a regular file that git tracks and instruction_migration_denylist does not name, then run audit-docs --migrate. |
+| `not-applicable:symlink` | audit-docs --migrate does not apply, because it never converts a symlink. Replace the link with a regular file, or delete it. |
+| `not-applicable:not-regular-file` | audit-docs --migrate does not apply, because it converts regular files only. Rename the entry to a name that does not exist yet. |
+| `not-applicable:no-git` | audit-docs --migrate does not apply, because git could not list the tracked files here and the migration acts only where git tracks an instruction file. Run git init and git add on the entry, then run audit-docs --migrate. |
+| `not-applicable:carried` | AGENTS.md already carries this file's content, and audit-docs --migrate leaves an untracked or ignored CLAUDE.md where it is. init-docs appended nothing to AGENTS.md, because the next migration would set a changed AGENTS.md aside. Add any line below that this file lacks to this file, not to AGENTS.md, then run audit-docs --migrate. This entry stays unresolved while it stays in place. |
+| `replace-with-regular-file` | init-docs writes only to a regular file, never through a link. Replace it with a regular file. |
+| `make-readable-or-reencode` | init-docs cannot read it as UTF-8 text. Make it readable, or re-encode it as UTF-8. |
+| `make-writable` | init-docs cannot open it for writing. Make it writable. |
+| `appeared-during-run` | It appeared while init-docs ran, so init-docs left it untouched. Add the two lines below to it by hand. |
+
+Every sentence above and every line of the NOTE and the WARNING stays true on Claude Code, Codex and OpenCode and claims no observation of what a host loads.
+
+**Rollback.** The created root `AGENTS.md` is a new path. On failure, and only when this run's `"outcome"` was `created`, run `uv run "${CRUX_PLUGIN_ROOT}/scripts/root_agents.py" rollback --repo-root "${REPO_ROOT}" --record "${RECORD}"` instead of removing it by path. The helper refuses a record that names any file other than `${REPO_ROOT}/AGENTS.md`. It deletes the file only when its check, just before the delete, finds the regular file this run created, with the same inode and the same bytes. Otherwise it keeps the file and reports why, and you surface that report. A file this run only appended to is a modified pre-existing file: restore its recorded prior content, as the rollback contract says.
 
 ### 10. Write the human-facing `USER_GUIDE.md` to repo root
 
@@ -482,9 +527,9 @@ See below. If any item fails, roll back per the rollback contract (remove only t
 - [ ] `${DOCS_DIR}/promptbooks/index.md` exists with empty Active and Archived tables.
 - [ ] `${DOCS_DIR}/promptbooks/{active,runs,archive}/`, `${DOCS_DIR}/adrs/reviews/`, and `${DOCS_DIR}/invariants/checks/` each contain a `.gitkeep` — the reviews surface exists before the first decision review, so the cadence nudge never points at a directory that is not there.
 - [ ] No remaining `{{...}}` placeholders anywhere under `${DOCS_DIR}/`.
-- [ ] If the repo root carries an `AGENTS.md`, step 9 appended the tree reference and the objectives block where each was missing, preserving existing content and generated regions; no pre-existing content was rewritten. If it carries none, nothing was created.
-- [ ] Repo-root `AGENTS.md` either already references the tree's `AGENTS.md` or step 9's WARNING was surfaced verbatim.
-- [ ] A repo-root `CLAUDE.md`, if present, was reported as a legacy suppressor with its remedy and left unedited.
+- [ ] If the repo root held no `AGENTS.md` or `CLAUDE.md` in any letter case, step 9 created a repo-root `AGENTS.md` holding the pointer line and the objectives block, and its NOTE was surfaced verbatim.
+- [ ] If the repo root carries an exact `AGENTS.md` that is a regular UTF-8 file, step 9 appended the tree reference and the objectives block where each was missing, preserving existing content and generated regions; no pre-existing content was rewritten.
+- [ ] Every repo-root entry step 9 reported (a `CLAUDE.md`, a case variant of `AGENTS.md`, or an `AGENTS.md` it could not write to) appears in the WARNING with the sentence for its code, and was left unedited.
 - [ ] `${CRUX_PLUGIN_ROOT}/catalog/skills.json` and `${CRUX_PLUGIN_ROOT}/catalog/bundles.yml` both exist. The catalog gate's JSON verdict was recorded: `surface_absent: true` is N/A in this consuming project, not a catalog-validation pass.
 - [ ] `${REPO_ROOT}/USER_GUIDE.md` exists, contains the substituted `${REPO_NAME}`, has no remaining `{{...}}` placeholders. (Or — if a pre-existing USER_GUIDE.md was preserved without `--force` + explicit confirmation — a WARNING was surfaced.)
 
@@ -499,7 +544,9 @@ See below. If any item fails, roll back per the rollback contract (remove only t
 - About to write `manifest.yml` with `adr.next_number: 0`. The next user ADR takes number 1; 0 is reserved for the meta-ADR.
 - About to call `validate-catalog.py` exit `0` a catalog pass without reading its JSON. `surface_absent: true` means N/A; it validated no installed catalog. Exit `1` with findings is a failure only when the gate actually applies. Surface its JSON, and never patch an installed `catalog/skills.json` by hand.
 - About to leave a partial tree behind because step 7 or 8 failed. Roll back fully.
-- About to silently edit the repo-root `AGENTS.md`. Two appends are sanctioned and no others: the one-line tree reference (skip it if already referenced), and step 9's objectives block (skip it if the file already names `objectives.md`). Both append and preserve existing content and generated regions; neither creates a file that does not exist. Anything beyond those two is a silent edit — don't.
+- About to silently edit the repo-root `AGENTS.md`. Two appends are sanctioned and no others, both made by the step 9 helper: the one-line tree reference (skip it if already referenced), and the objectives block (skip it if the file already names `objectives.md`). Both append and preserve existing content and generated regions. The one sanctioned create is step 9's, for a root that holds no `AGENTS.md` or `CLAUDE.md` in any letter case. Anything beyond those is a silent edit — don't.
+- About to create a repo-root `AGENTS.md` beside a `CLAUDE.md` or a case variant of `AGENTS.md`, to append to a case variant, or to write through a symlink. Step 9 refuses all three and reports the entry with its remedy; converting a legacy file is `audit-docs --migrate`'s work.
+- About to write the repo-root `AGENTS.md` by hand instead of running the step 9 helper. The helper alone creates the file with an exclusive, no-follow open and records what it created, so a failed run removes only that file.
 - About to create the tree but skip the `## [${TODAY}] init |` log entry. The audit relies on this entry to know the schema version was bootstrapped today.
 - About to overwrite a pre-existing `USER_GUIDE.md` at repo root without `--force` AND an explicit per-file confirmation. The user may have customized it; preserve it and surface a WARNING.
 - About to leave a stale `USER_GUIDE.md` referencing a different `{{repo_name}}` after `--force` regeneration. Always substitute.

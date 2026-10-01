@@ -106,23 +106,25 @@ The supported-range predicate is the single-value check `schema_version == "5"`.
 `AGENTS.md` is the canonical file at every managed instruction scope. These rules
 are **report-only in a plain audit**; `--migrate` applies the validated plan. Run
 the vendored script rather than reimplementing discovery here — it owns the
-tracked-file boundary, the classification, and the merge:
+scope boundary, the classification, and the set-aside:
 
 ```bash
 uv run "${CRUX_PLUGIN_ROOT}/scripts/migrate-instructions.py" --repo-root . --dry-run
 ```
 
 **Two sets, and conflating them is the defect these rules exist to prevent.** The
-MUTATION set is the tracked files of this one checkout, so a vendored dependency
-cache and a linked worktree are outside it by construction. The SUPPRESSION set is
-wider and includes untracked files, because a file crux must not touch can still
-silence the canonical one.
+MUTATION set is the entries and index paths of each touched scope of this one
+checkout: a directory holding a tracked instruction file. A vendored dependency
+cache and a linked worktree hold no file tracked here, so they are outside it by
+construction. The SUPPRESSION set is wider and includes untracked files, because a
+file crux must not touch can still silence the canonical one.
 
 - **CHK-INSTR-1** No managed scope holds a committed `CLAUDE.md`. One present →
   DRIFT, remediation `audit-docs --migrate`. Never migrate during a plain audit.
 - **CHK-INSTR-2** No scope holds two names in one case-folded family (`CLAUDE.md`
-  plus `Claude.md`) → BROKEN. Ambiguous; a reviewed resolution is required, and
-  `--migrate` refuses the scope rather than guessing which name wins.
+  plus `Claude.md`), counted across the directory and the index → BROKEN.
+  `--migrate` refuses the scope rather than guessing which name wins, and the
+  report names both paths and the next step.
 - **CHK-INSTR-3** Every suppressor under the checkout is reported with its remedy:
   an untracked `CLAUDE.md`, a `.claude/CLAUDE.md`, a `CLAUDE.local.md`, and a
   tracked legacy `CLAUDE.md` that has not yet migrated. A suppressor **on the chain
@@ -130,17 +132,28 @@ silence the canonical one.
   default mode it silences the canonical file outright. One **off** that chain is
   INFO — it is reported, and it changes nothing about what this host loads now.
   Never delete a private override; report it.
-- **CHK-INSTR-4** A merge left unresolved writes a preview and keeps BOTH sources
-  → WARNING until a reviewed resolution is supplied. An unresolved conflict blocks
-  its own scope and no other.
+- **CHK-INSTR-4** A scope `--migrate` refused, stopped, or migrated without
+  staging, a scope whose index holds a path its directory no longer lists, and every
+  set-aside entry (`<name>.crux-set-aside-<hash>`) → WARNING.
+  Some set-asides hold content that no longer loads, and the report's
+  `no_longer_loaded` list names them. Other set-asides hold a winner, or a loser the
+  winner imported, and that content still loads. A set-aside row carries no next
+  step. A refused or stopped scope names its blocking entry and a next step. A
+  scope that stages nothing names its reasons in `stages_nothing_because`, and its
+  index-only blobs with a save command. Each blocks its own scope and no other.
 - **CHK-INSTR-5** The host loads what this tree publishes. Run
   `uv run "${CRUX_PLUGIN_ROOT}/scripts/check-claude-compat.py" --repo-root .`; an
   unsupported verdict is a WARNING carrying the verdict's own `reasons`. A version
   number alone never settles this, so never report compatibility from one. Three of
-  the five causes are repaired by a setting rather than a file; the remaining two
+  the five host causes are repaired by a setting rather than a file; the remaining two
   route to [`references/legacy-claude-adapter.md`](references/legacy-claude-adapter.md),
   which is opt-in and never part of a normal install. `managed-only` is repaired by
-  configuration alone and never by the adapter.
+  configuration alone and never by the adapter. A sixth cause is a missing
+  `AGENTS.md`: no `AGENTS.md` on the chain from the root to the working directory
+  (and, under `claude-md-and-agents-md`, no `CLAUDE.md`) means the host loads none
+  of this tree's instructions. Its remedy is to create an `AGENTS.md` spelled exactly so. `init-docs`
+  creates one only while it initialises a tree in a root that holds no `AGENTS.md` or `CLAUDE.md` in any
+  letter case. A `CLAUDE.local.md` does not block that create. The remedy is never the adapter, which derives from that file.
 
 - **CHK-INBOX-2** At schema 5, `docs/research/new/` is absent. Present → DRIFT. Inspect its contents and move pending drops into `docs/inbox/` without overwriting or deleting them; never auto-delete this directory during a plain audit.
 - **CHK-INBOX-3** When `schema_version == "5"`: count non-`.gitkeep` entries in `docs/inbox/` **excluding the `_dispatched/` subtree** (a partially-drained `urls.md` legitimately counts). Non-empty → WARNING `"N items pending in docs/inbox/"` (NOT BROKEN — pending drops are normal; the user runs `process-inbox` to triage). Empty → no finding.
@@ -202,7 +215,7 @@ Four more rules read the batch surfaces contracted in `docs/AGENTS.md` §17.5 (d
 - **CHK-ADR-1a** The frontmatter keyset of `${CRUX_PLUGIN_ROOT}/templates/ADR-template.md` MUST equal the canonical keyset in `docs/AGENTS.md` §11.A. Mechanical comparison — **set equality, order-independent** (the template orders fields differently from §11.A; that is fine): (1) extract the backticked tokens from §11.A's first table column — every entry in that column uses backtick markup, so a row whose field is not backticked is itself a §11.A formatting bug and should be flagged; (2) parse the template's YAML frontmatter for its top-level keys (use a real YAML parse via Bash `python3 -c 'import yaml,sys; print("\n".join(yaml.safe_load(...)))'` rather than a line-grep — a grep would miss a key whose value shares the line, e.g. `amends: [] # ...`); (3) compare the two SETS. Any key in one but not the other → WARNING ("ADR template and §11.A schema have drifted; reconcile against §11.A"). This closes the loop so the template itself cannot silently drift from the schema. A stdlib unit test (`${CRUX_PLUGIN_ROOT}/scripts/tests/test_schema_invariants.py`) enforces the same invariant in CI.
 - **CHK-ADR-2** `id` matches filename prefix. Mismatch → BROKEN.
 - **CHK-ADR-3** `status` ∈ {Proposed, Accepted, Deprecated, Superseded}. Invalid → BROKEN.
-- **CHK-ADR-4** ADR numbering is monotonic and contiguous from 0000 with no gaps and no duplicates. Gap → WARNING; Duplicate → BROKEN. **The "ask" on a gap is concrete — distinguish two dispositions by whether the deleted number is still referenced anywhere:** scan the tree (ADR `supersedes:`/`superseded_by:`/`amends:` frontmatter, any `adrs/ADR-NNNN` wiki-link, and the `docs/adrs/index.md` rows) for the gap's `ADR-NNNN`. (1) **Gap with NO surviving references** → the number is almost certainly a deleted Proposed ADR that was never cited; it is **renumberable** — recommend the user either reuse the gap by renumbering the next allocation down to close it, or leave it as a permanent hole (numbers are never reused once cited, but an uncited deleted-Proposed hole may be reclaimed). (2) **Gap WITH surviving references** → some artifact still points at the missing `ADR-NNNN`; it is **NOT renumberable** — surface every referencing path and recommend either restoring the ADR or fixing the dangling references; do not propose reusing the number. (This is a generic reference scan — crux has no separate id-validation machinery; do not cite one.)
+- **CHK-ADR-4** ADR numbering is monotonic and contiguous from 0000 with no gaps and no duplicates. Gap → WARNING; Duplicate → BROKEN, detected by CHK-NUM-1. **The "ask" on a gap is concrete — distinguish two dispositions by whether the deleted number is still referenced anywhere:** scan the tree (ADR `supersedes:`/`superseded_by:`/`amends:` frontmatter, any `adrs/ADR-NNNN` wiki-link, and the `docs/adrs/index.md` rows) for the gap's `ADR-NNNN`. (1) **Gap with NO surviving references** → the number is almost certainly a deleted Proposed ADR that was never cited; it is **renumberable** — recommend the user either reuse the gap by renumbering the next allocation down to close it, or leave it as a permanent hole (numbers are never reused once cited, but an uncited deleted-Proposed hole may be reclaimed). (2) **Gap WITH surviving references** → some artifact still points at the missing `ADR-NNNN`; it is **NOT renumberable** — surface every referencing path and recommend either restoring the ADR or fixing the dangling references; do not propose reusing the number. (This is a generic reference scan — crux has no separate id-validation machinery; do not cite one.)
 - **CHK-ADR-5** State-machine date consistency:
   - `proposed_date` is non-null for every ADR (every ADR was proposed at some point).
   - `accepted_date` is non-null iff `status` ∈ {Accepted, Deprecated, Superseded} AND the ADR ever passed through Accepted (Proposed → Deprecated is allowed; an ADR with status=Deprecated and accepted_date=null is the "abandoned proposal" case).
@@ -261,6 +274,7 @@ An `OBJ-N` token in a review report, a brief, or an ADR is a reference to this f
 - **CHK-PB-9** Archived books (`docs/promptbooks/archive/`) have `status: archived` AND their FINAL run is archive-eligible by one of the two paths in `docs/AGENTS.md` §11.B: either `status: completed` with every prompt terminal (`done | skipped | blocked`), or `status: abandoned` with `abandonment.kind: deliberate`. Violation → BROKEN. (Eligibility is a run-level property; there is no per-prompt flag.)
 - **CHK-PB-10** `forked_from: PB-MMMM` references an existing book (active or archive). Dangling → BROKEN. Note that **nothing writes this field any more** — it is an accepted, always-null vestige, and the mid-run fork it recorded is deleted (a plan change mid-run is an abandonment plus a successor book that cites its predecessor in prose). The check is retained for the historical corpus; a non-null value on a newly authored book is itself suspect.
 - **CHK-PB-11** `docs/promptbooks/index.md` exists with active table + recent-runs list + archive section. Stale counts / missing rows → DRIFT (rebuild from directory walk). **One exemption: the `progress` cell of an ACTIVE book whose `current_run` is non-null — whether the pointed-to run is `in_progress` or already terminal.** Advancing a prompt deliberately writes two surfaces and no third — the run snapshot and the book pointer, never this index (see `docs/AGENTS.md` §6 under the `promptbook` op). So the `progress` cell lags its snapshot by design for the whole life of the run, and reporting that lag would emit a DRIFT finding on every audit run during every live run. The advance that COMPLETES a run writes those same two surfaces and no third, and the book's `current_run` survives that completion. So the lag persists through the delivered-but-unarchived window too, exempt there for the same reason rather than a new one. A lagging `progress` cell on any unarchived run is NOT a finding; the next boundary op (archive) rebuilds it. Every other cell, row, and count in the file is checked as stated.
+- **CHK-NUM-1** No two promptbooks and no two ADRs share a number → BROKEN. Delegate it: run `uv run "${CRUX_PLUGIN_ROOT}/scripts/check-record-numbers.py" --repo-root .` (exit 0 clean; exit 1 with JSON `validation_errors`, one per shared number, naming each file holding it; exit 2 crash, surface stderr). Three namespaces are checked apart: books in `active/` and `archive/` (any extension), run directories in `runs/`, and ADRs in `adrs/` and `adrs/archive/`. A book and its run directory carry one number and are one record. `legacy/` is excluded, as it is from every CHK-PB-* walk. The checker reports the records it scanned per namespace under `checked`; a clean verdict that scanned none is not a pass. Never renumber or delete a file to clear the finding: numbers are never reused, so surface both paths and ask.
 - **CHK-PB-12** `manifest.yml`'s `promptbook.next_number` > max existing PB number. Equal-or-less → BROKEN.
 - **CHK-PB-ABANDON** _(replaces the retired CHK-PB-13, whose whole subject was the per-prompt archive-eligibility flag that `docs/AGENTS.md` §11.B retired.)_ For an **archived** book whose final run has `status: abandoned`: that run MUST carry `abandonment.kind: deliberate`. An archived book whose final run is `abandoned` with `kind: superseded`, or with no `abandonment` mapping at all, → **BROKEN** — it was archived on a signal that confers no eligibility (a `superseded` value marks a stale run that a later run's start rolled over). A `deliberate` abandonment on a run under `active/` is legitimate and unflagged: it means the book is eligible but not yet archived.
 - **CHK-PB-RADIUS** For an **archived** book with `cycle_kind: patch`: `blast_radius` is present and non-empty, every entry passes the declared-path grammar, and the book's final run carries a non-null `base_commit`. **The grammar has one implementation** — `invalid_blast_radius_entry` in `${CRUX_PLUGIN_ROOT}/scripts/validate-promptbook.py`, the same function the authoring validator and the archive check call, so all three agree by construction. Its rejections are **not restated here**; read the function. (Restating them produced a partial copy that read as complete and omitted one of them.) Violation → BROKEN. **Audit does NOT re-run the git comparison.** A historical diff is not reproducible from an archived tree — the base commit may be unreachable, and the working tree has moved on — so re-deriving it would produce a verdict the archive already settled. The mechanical containment check is `archive-promptbook`'s precondition (`check-blast-radius.py`), run once at archival against the live tree; this rule audits only that the declaration and its commit boundary are present and well-formed. Immutable-history demotion applies as for CHK-PB-SCHEMA.
@@ -387,7 +401,7 @@ When `docs/` has 100+ markdown files, spawn an Explore agent with this prompt ve
 > 20. Every `docs/adrs/ADR-NNNN-*.md` has the required frontmatter keyset defined canonically in `docs/AGENTS.md` §11.A (single source of truth — read §11.A for the field list; `amends:` is optional). List pages missing any §11.A-required key.
 > 20a. (CHK-ADR-1a) Compare `${CRUX_PLUGIN_ROOT}/templates/ADR-template.md`'s frontmatter keyset against the backticked col-1 tokens in `docs/AGENTS.md` §11.A. WARN on any divergence (template and schema drifted).
 > 21. Every ADR's `id` matches its filename prefix. List mismatches.
-> 22. ADR numbering is contiguous from 0000. List gaps and duplicates.
+> 22. ADR numbering is contiguous from 0000. List gaps. List duplicates through CHK-NUM-1 (item 40e), which reads the same filenames.
 > 23. State-machine consistency: for each ADR, check that `accepted_date`/`deprecated_date`/`superseded_date` are non-null iff status implies them. List violations.
 > 24. Supersession bidirectionality: for every `superseded_by: ADR-X`, confirm `ADR-X.supersedes` contains this ADR; and for every entry in any `supersedes`, confirm `superseded_by` points back. List one-sided links. Separately, for every ADR with a top-level `amends:` list, confirm each entry resolves to an existing `docs/adrs/ADR-*.md`. List dangling. The `amends:` relationship is one-way — do NOT report missing `amended_by:` back-refs on the amended ADRs.
 > 25. `manifest.yml`'s `adr.next_number` must be strictly greater than the max existing ADR number. Report the values.
@@ -422,6 +436,8 @@ When `docs/` has 100+ markdown files, spawn an Explore agent with this prompt ve
 > 40b. (CHK-PB-SCHEMA) Format-detected per-prompt shape. **`.yaml` run with `format_version`** → invoke `${CRUX_PLUGIN_ROOT}/scripts/validate-promptbook.py --kind run <path>` (exit 0 = clean; exit 1 + JSON `errors` = list them) — other non-zero with empty stdout = crash (surface stderr, e.g. the exit-2 YAML-capability error (PyYAML missing; see `docs/AGENTS.md` §10.A)); a `.yaml` run lacking `format_version` → BROKEN (malformed). **`.md` run** → validate each `^## Prompt N` block against `docs/AGENTS.md` §11.B (read §11.B for fields + enum). Ignore `## Notes`/`## Summary`/`## PR Draft` and nested `###`/`####` content. Accept bulleted `- **Field:**` and bare `**Field:**`. Findings: missing §11.B-required field → DRIFT-surface; `State` ∉ enum → BROKEN; unknown `**Field:**` → WARNING. `blocked-confirmed` is a RETIRED field — IGNORE it entirely (do NOT report it as unknown; those `.md` bodies are frozen). Demote ALL findings to WARNING (both paths) for archived or `status: completed` snapshots (status wins over path).
 > 40c. (CHK-PB-BIND) For each **`.yaml` run** whose `book_id` resolves to an active-or-archived `.yaml` book: recompute the book's frozen-plan hash via `${CRUX_PLUGIN_ROOT}/scripts/validate-promptbook.py`'s `compute_book_hash` (canonical-JSON of the plan-bearing fields, excluding run-state `current_run`/`current_prompt`/`status`) and compare to the run's stored `book_content_hash`. List any mismatch (stored vs. recomputed) as DRIFT — NEVER auto-fix (recomputing erases the evidence; remediation is the §4 abandon rule — abandon the run, author a successor book). An unresolvable `book_id` is NOT this rule — that's the orphan-run-dir / parent-book check (item 35).
 > 40d. (CHK-PB-11) `docs/promptbooks/index.md` completeness. **Delegate it:** invoke `${CRUX_PLUGIN_ROOT}/scripts/check-promptbook-index.py --root <repo root>` (exit 0 = clean; exit 1 + JSON `validation_errors` = list them; other non-zero with empty stdout = crash, surface stderr). It reports a book on disk with no index row, a duplicate row, a row naming a book that is not there, a heading whose count disagrees with the rows below it, and the tree index's promptbook rollup disagreeing with the directories. Membership is the DIRECTORY WALK (`active/` and `archive/`, extension-agnostic, `legacy/` excluded) — never a `status` frontmatter filter, which yields a different set and would call an incomplete index consistent. **This item exists because its absence was the defect.** The inline rule list carried CHK-PB-11; this delegated enumeration did not. On a tree large enough to route the audit here, the index went uninspected, which is how 107 rows sat against 109 books. Missing rows → DRIFT (additive, auto-fixable); an orphan row → confirm before removing, per the destructive-repair rule.
+>
+> 40e. (CHK-NUM-1) Duplicate record numbers. **Delegate it:** invoke `${CRUX_PLUGIN_ROOT}/scripts/check-record-numbers.py --repo-root <repo root>` (exit 0 = clean; exit 1 + JSON `validation_errors` = list them, each naming the files that hold the shared number; other non-zero with empty stdout = crash, surface stderr). It covers promptbooks, promptbook run directories and ADRs across both lifecycle tiers, and excludes `legacy/`. A shared number is BROKEN; report it and never renumber.
 >
 > **Concern 6 — journal:**
 > 41. Every `## ` heading in `docs/journal/YYYY-MM.md` must match `## \[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\] (decision|implementation|bug|learning|blocker|refactor|meeting|review|misc|release) \| `. List malformed.
@@ -508,14 +524,15 @@ Run the current instruction migrator through its vendored script:
 uv run "${CRUX_PLUGIN_ROOT}/scripts/migrate-instructions.py" --repo-root . --migrate
 ```
 
-Exit `0` clean, `1` with findings JSON when a scope stays unresolved, `2` on a
-capability error. An unresolved scope keeps both sources and writes a preview;
-supply a JSON resolution file that copies the preview receipt's `source_hashes` and
-names each reviewed `scope`, heading `path`, and replacement `text`, then rerun
-`uv run "${CRUX_PLUGIN_ROOT}/scripts/migrate-instructions.py" --repo-root . --migrate --resolution <path>`. A changed source refuses
-that resolution before mutation. The migration validates its whole plan before it
-mutates anything, stages per file, and converges on a rerun — it claims **no
-multi-file filesystem atomicity**, and the receipt says so in as many words.
+Exit `0` clean, `1` with findings JSON when a scope is refused, stopped, or
+migrated without staging, `2` on a capability error. Where a scope holds both a
+`CLAUDE.md` and an `AGENTS.md`, `CLAUDE.md` wins: its bytes become `AGENTS.md`,
+with each line that imports the other file replaced by that file's bytes. A losing
+`AGENTS.md` whose bytes differ is set aside under a reported name in its own
+directory, never overwritten. Show the user every set-aside, refusal and next step
+the report names. The migration plans every scope before it mutates anything, and a
+rerun reaches the state an uninterrupted run reaches — it claims **no multi-file
+filesystem atomicity**, and the receipt says so in as many words.
 
 ## Red flags — STOP and reconsider
 

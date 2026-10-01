@@ -4,18 +4,18 @@ _Fixture projection. Regenerated in a real tree; hand-written here._
 
 ## fixture-alpha — backfilled
 
-| handle | citation | rule | source ADR | disposition | basis |
-|--------|----------|------|------------|-------------|-------|
-| ADR-0001/alpha-one | rule:alpha-one | The first fixture rule. | ADR-0001 | decided | not-run-bound |
-| ADR-0001/alpha-two | rule:alpha-two | The second fixture rule. | ADR-0001 | decided | not-run-bound |
+| handle | citation | rule | source ADR | source_status | disposition | basis |
+|--------|----------|------|------------|---------------|-------------|-------|
+| ADR-0001/alpha-one | rule:alpha-one | The first fixture rule. | ADR-0001 | Accepted | decided | not-run-bound |
+| ADR-0001/alpha-two | rule:alpha-two | The second fixture rule. | ADR-0001 | Accepted | decided | not-run-bound |
 
 ## fixture-beta — no-applicable-invariant · authority: descriptive
 
-| handle | citation | rule | source ADR | disposition | basis |
-|--------|----------|------|------------|-------------|-------|
-| ADR-0002/beta-one | rule:beta-one | A run-bound fixture rule. | ADR-0002 | decided | run-bound |
-| ADR-0002/beta-two | rule:beta-two | A paper fixture rule. | ADR-0002 | decided | not-run-bound |
-| OBS-0001/observed-thing | rule:observed-thing | An observed fixture fact. | OBS-0001 | observed | evidence-resolves |
+| handle | citation | rule | source ADR | source_status | disposition | basis |
+|--------|----------|------|------------|---------------|-------------|-------|
+| ADR-0002/beta-one | rule:beta-one | A run-bound fixture rule. | ADR-0002 | Accepted | decided | run-bound |
+| ADR-0002/beta-two | rule:beta-two | A paper fixture rule. | ADR-0002 | Accepted | decided | not-run-bound |
+| OBS-0001/observed-thing | rule:observed-thing | An observed fixture fact. | OBS-0001 | ratified | observed | evidence-resolves |
 
 _Observed evidence:_
 

@@ -30,14 +30,15 @@ Implementation notes:
   not the gateway. It is what error votes and aggregation key on, and it is the
   diversity the seats exist to buy — the serving host each seat pins is the
   registry's `serving_providers`.
-- Tenacity is intentionally NOT a dependency — the no-op retry decorator
-  fallback is the only path. Failures still surface as DEFER_TO_HUMAN votes
-  thanks to the per-seat try/except wrappers.
+- Tenacity is intentionally NOT a dependency. The seat wrapper retries a seat
+  once itself (`_run_seat`), under a fresh deadline per attempt. Failures still
+  surface as errored votes thanks to the per-seat try/except wrappers.
 """
 
 import asyncio
 import json
 import logging
+import re
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -54,6 +55,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import httpx
 
 from crux_env import get
+from untrusted import redact
 
 # Absolute imports (not `from ..core import …`) so this file also works when
 # executed as a plain script, where `__package__` is unset and relative
@@ -64,20 +66,18 @@ from crux.core.data_classes import (
     CouncilVote,
 )
 from crux.core.llm_caller import (
+    MalformedResponseError,
+    ModelRefusedError,
+    ResponseTruncatedError,
     validated_confidence,
     build_gateway_request,
     get_default_model,
     get_model_config,
-    parse_gateway_response,
+    parse_gateway_reply,
     raise_for_gateway_status,
 )
 
 logger = logging.getLogger(__name__)
-
-# Tenacity is not a pyproject dependency; we ship a no-op retry shim so the
-# decorator surface matches the upstream API without pulling extra deps.
-TENACITY_AVAILABLE = False
-
 
 # Shared by both seat ingest paths. Deliberately module-level: the safety
 # property has to be provable on one implementation. The confidence validator
@@ -100,19 +100,83 @@ def _extract_json_blob(content: Optional[str]) -> str:
     return text[start:end + 1]
 
 
-def _retry_noop(*_args, **_kwargs):
-    """No-op retry decorator. Failures surface to the caller's try/except."""
+#: Per-attempt deadline in seconds. Each attempt of each seat gets this long on
+#: its own, so a seat that is retried can run for twice this. One slow seat
+#: becomes a `timeout`-labelled errored vote and never costs the others.
+DEFAULT_SEAT_TIMEOUT_SECONDS = 600.0
 
-    def decorator(fn):
-        return fn
+#: The fault labels a seat is called a second time after. A closed set, keyed on
+#: the label `_redact_error` computes and never on an HTTP status, so a change to
+#: what yields a label changes what is retried.
+_RETRYABLE_FAULT_LABELS = frozenset({"timeout", "provider", "malformed-response", "truncated"})
 
-    return decorator
+#: The finish reasons a vote may carry. A closed vocabulary: the gateway's own
+#: text reaches a vote only when it is one of `stop`, `length`, `content_filter`,
+#: `tool_calls` or `error`. Any other value
+#: records as _FINISH_OTHER, and a reply that names none records as
+#: _FINISH_MISSING. A seat that received no reply (a timeout, or an HTTP error status raised before the body is read) records None.
+_FINISH_OTHER = "other"
+_FINISH_MISSING = "missing"
+_FINISH_REASONS = frozenset({
+    "stop", "length", "content_filter", "tool_calls", "error",
+    _FINISH_OTHER, _FINISH_MISSING,
+})
 
 
-def _create_retry_decorator(max_retries: int = 3):
-    """Return a no-op decorator. Kept for upstream API parity."""
-    _ = max_retries  # unused; retained for signature parity
-    return _retry_noop()
+def _finish_value(raw: object) -> str:
+    """Map the gateway's finish reason onto the closed `_FINISH_REASONS` set."""
+    if raw is None:
+        return _FINISH_MISSING
+    if isinstance(raw, str) and raw in _FINISH_REASONS - {_FINISH_OTHER, _FINISH_MISSING}:
+        return raw
+    return _FINISH_OTHER
+
+
+class _Attempt:
+    """What one seat attempt learned before it ended: the reply's finish reason.
+
+    None until a reply arrives. It is set before the reply is judged, so a
+    refusal or a truncation still records the finish reason that named it.
+    """
+
+    __slots__ = ("finish_reason",)
+
+    def __init__(self):
+        self.finish_reason: Optional[str] = None
+
+
+@dataclass
+class _SeatRun:
+    """The outcome of `_run_seat`: a value or an error, plus the retry record."""
+
+    value: object = None
+    error: Optional[Exception] = None
+    finish_reason: Optional[str] = None
+    retried: bool = False
+    first_fault_label: Optional[str] = None
+    first_finish_reason: Optional[str] = None
+
+#: The decision tokens the aggregator and the prompt know. A responding seat
+#: whose decision is outside this set is reported in `off_scale`.
+_APPROVE_DECISIONS = ("APPROVE", "APPROVE_WITH_CONDITIONS", "APPROVE_WITH_NITS")
+_KNOWN_DECISIONS = _APPROVE_DECISIONS + ("REJECT", "DEFER_TO_HUMAN")
+
+#: A shared decision token is echoed into a `UNANIMOUS_<X>` consensus label.
+#: UNANIMOUS_OFF_SCALE replaces it when the token is not 1-40 characters of A-Z and
+#: underscore starting with a letter, contains APPROVE or REJECT, or is AUTO_EXECUTE
+#: or EXECUTE_WITH_MONITORING. No label then reads as a verdict or an execute action
+#: to a caller that matches it by prefix.
+_LABEL_TOKEN = re.compile(r"[A-Z][A-Z_]{0,39}")
+_LABEL_FORBIDDEN_SUBSTRINGS = ("APPROVE", "REJECT")
+_LABEL_FORBIDDEN_TOKENS = ("AUTO_EXECUTE", "EXECUTE_WITH_MONITORING")
+
+
+def _echoable_label_token(token: object) -> bool:
+    """True when `token` may be echoed into a `UNANIMOUS_<X>` label."""
+    return (isinstance(token, str)
+            and _LABEL_TOKEN.fullmatch(token) is not None
+            and not any(s in token for s in _LABEL_FORBIDDEN_SUBSTRINGS)
+            and token not in _LABEL_FORBIDDEN_TOKENS)
 
 
 @dataclass
@@ -122,11 +186,14 @@ class AsyncCouncilConfig:
     openai_model: Optional[str] = None
     anthropic_model: Optional[str] = None
     gemini_model: Optional[str] = None
-    timeout_seconds: float = 180.0  # 3 minutes — Opus needs time for thorough code reviews
-    max_retries: int = 3  # Accepted for API parity; current retry shim is a no-op
+    timeout_seconds: float = DEFAULT_SEAT_TIMEOUT_SECONDS  # per attempt: a retried seat can take twice this
+    max_retries: int = 1  # Extra attempts after a retryable fault: 0 disables the retry, 1 is the only other value
     max_tokens: int = 32000  # Max output tokens per council member
 
     def __post_init__(self):
+        # `type(...) is int`, not isinstance: a bool is an int, and 1.0 == 1.
+        if type(self.max_retries) is not int or self.max_retries not in (0, 1):
+            raise ValueError("max_retries must be 0 or 1")
         if self.openai_model is None:
             self.openai_model = get_default_model("openai_top")
         if self.anthropic_model is None:
@@ -144,6 +211,16 @@ class VisualVoteResult:
     confidence: float
     observations: str
     anomalies: List[Dict[str, str]] = field(default_factory=list)
+    # Seat telemetry, as on CouncilVote. `errored` is set only by the seat
+    # wrapper: an errored seat also reads passed=False at confidence 0.0, so a
+    # caller counting failed checks must skip errored results.
+    errored: bool = False
+    fault_label: Optional[str] = None
+    finish_reason: Optional[str] = None
+    recovered: bool = False
+    retried: bool = False
+    first_fault_label: Optional[str] = None
+    first_finish_reason: Optional[str] = None
 
 
 class AsyncCouncil:
@@ -152,7 +229,7 @@ class AsyncCouncil:
 
     Features:
     - Parallel execution via asyncio.gather
-    - Enforced timeout via asyncio.wait_for
+    - Per-seat timeout via asyncio.wait_for (a slow seat never erases the others)
     - One async transport for every seat: httpx.AsyncClient against the gateway
 
     Usage:
@@ -207,9 +284,6 @@ class AsyncCouncil:
             if self.gateway_key else []
         )
 
-        # Retry decorator (no-op shim).
-        self._retry = _create_retry_decorator(self.config.max_retries)
-
         logger.info(f"AsyncCouncil: {len(self.available_providers)} seats")
         logger.info(f"     Timeout: {self.config.timeout_seconds}s, Retries: {self.config.max_retries}")
         for p in self.available_providers:
@@ -223,11 +297,16 @@ class AsyncCouncil:
             return models[seat]
         return getattr(self.config, f"{seat}_model")
 
-    async def _post_seat(self, cfg, prompt, system=None, response_format=None) -> str:
+    async def _post_seat(self, cfg, prompt, system=None, response_format=None,
+                         attempt: Optional[_Attempt] = None) -> str:
         """One gateway round-trip for one seat, over httpx.AsyncClient.
 
         The request is built by the SHARED builder, so the async council and the
         sync router cannot drift into two wire formats.
+
+        Returns the reply text. A refusal raises `ModelRefusedError` and a
+        `length` finish raises `ResponseTruncatedError`, both before any parse.
+        The finish reason is recorded on `attempt` first, so it survives either.
         """
         url, headers, payload = build_gateway_request(
             cfg,
@@ -239,57 +318,130 @@ class AsyncCouncil:
             temperature=None,
             response_format=response_format,
         )
+        # The client timeout equals the seat deadline, never below it, so the
+        # configured deadline (600 s by default) is the one that takes effect.
         async with httpx.AsyncClient(timeout=self.config.timeout_seconds) as client:
             response = await client.post(url, headers=headers, json=payload)
             raise_for_gateway_status(response)
-            return parse_gateway_response(response.json(), cfg.api_string)
+            reply = parse_gateway_reply(response.json(), cfg.api_string)
+            if attempt is not None:
+                attempt.finish_reason = _finish_value(reply.finish_reason)
+            if reply.refused:
+                raise ModelRefusedError(f"model {cfg.api_string} declined to answer (refusal)")
+            if reply.finish_reason == "length":
+                raise ResponseTruncatedError(f"model {cfg.api_string} stopped on its output budget")
+            return reply.content
+
+    @staticmethod
+    def _reply_object(content: Optional[str]) -> dict:
+        """The JSON object in a reply, or `MalformedResponseError`.
+
+        The error carries a fixed message: no byte of the reply travels with it.
+        """
+        try:
+            data = json.loads(_extract_json_blob(content))
+        except ValueError:  # no braces, or a JSON decode error
+            raise MalformedResponseError("reply holds no parseable JSON object") from None
+        if not isinstance(data, dict):
+            raise MalformedResponseError("reply holds no parseable JSON object")
+        return data
+
+    async def _run_seat(self, attempt_fn) -> _SeatRun:
+        """Run one seat: an attempt, and at most one more after a retryable fault.
+
+        Each attempt runs under its own full `timeout_seconds` deadline, so a
+        timeout can be retried; a deadline shared by both would leave the retry
+        none. `attempt_fn(attempt)` is one attempt and returns the seat's result.
+        The retry is keyed on the fault LABEL (`_RETRYABLE_FAULT_LABELS`), never on
+        an HTTP status, and it replaces the failed attempt: it adds no result.
+        """
+        may_retry = self.config.max_retries >= 1  # never more than one retry
+        first_label: Optional[str] = None
+        first_finish: Optional[str] = None
+        retried = False
+        for number in range(2 if may_retry else 1):
+            attempt = _Attempt()
+            try:
+                value = await asyncio.wait_for(
+                    attempt_fn(attempt), timeout=self.config.timeout_seconds)
+            except Exception as e:
+                label = self._fault_label(e)
+                if number == 0 and may_retry and label in _RETRYABLE_FAULT_LABELS:
+                    logger.warning(f"seat attempt failed ({label}); retrying once")
+                    first_label, first_finish, retried = label, attempt.finish_reason, True
+                    continue
+                return _SeatRun(error=e, finish_reason=attempt.finish_reason, retried=retried,
+                                first_fault_label=first_label, first_finish_reason=first_finish)
+            return _SeatRun(value=value, finish_reason=attempt.finish_reason, retried=retried,
+                            first_fault_label=first_label, first_finish_reason=first_finish)
+        raise AssertionError("unreachable: the last attempt always returns")  # pragma: no cover
 
     async def _call_seat_async(self, seat: str, prompt: str, system: Optional[str] = None) -> CouncilVote:
-        """One council seat, one gateway call. Replaces the three SDK seats."""
+        """One council seat, one gateway call, and at most one retry.
+
+        Replaces the three SDK seats. Each attempt runs under its own deadline
+        (`_run_seat`), so a stuck provider becomes one timeout-labelled errored
+        vote and cannot hang the deliberation or erase the seats that answered.
+        """
         model = self._seat_model(seat)
 
-        @self._retry
-        async def _inner():
+        async def _once(attempt: _Attempt) -> CouncilVote:
             cfg = get_model_config(model)
             content = await self._post_seat(
                 cfg,
                 prompt + self._VOTE_JSON_INSTRUCTION,
                 system=system or "You are a critical reviewer. Respond with valid JSON.",
                 response_format={"type": "json_object"},
+                attempt=attempt,
             )
-
+            data = self._reply_object(content)
             try:
-                blob = _extract_json_blob(content)
-            except ValueError:
-                raise ValueError(f"Could not parse JSON response from {self._SEAT_LABELS[seat]}")
+                return CouncilVote(
+                    model=f"{self._SEAT_LABELS[seat]}/{model}",
+                    provider=seat,
+                    decision=data.get("decision", "DEFER_TO_HUMAN"),
+                    confidence=validated_confidence(data.get("confidence", 0.5)),
+                    reasoning=data.get("reasoning", ""),
+                    dissenting_points=[d.get("point", "") for d in data.get("dissents", [])],
+                )
+            except (TypeError, AttributeError, ValueError, KeyError):
+                # A field the vote cannot hold, such as `"dissents": null`, or a
+                # confidence the ingest gate refuses. A reply that cannot become
+                # a vote is a malformed reply, never a configuration error.
+                raise MalformedResponseError("reply cannot be built into a vote") from None
 
-            data = json.loads(blob)
-            return CouncilVote(
-                model=f"{self._SEAT_LABELS[seat]}/{model}",
-                provider=seat,
-                decision=data.get("decision", "DEFER_TO_HUMAN"),
-                confidence=validated_confidence(data.get("confidence", 0.5)),
-                reasoning=data.get("reasoning", ""),
-                dissenting_points=[d.get("point", "") for d in data.get("dissents", [])],
-            )
-
-        try:
-            return await _inner()
-        except Exception as e:
-            logger.error(f"{self._SEAT_LABELS[seat]} async error: {self._redact_error(e)}")
-            return self._create_error_vote(seat, e)
+        run = await self._run_seat(_once)
+        if run.error is not None:
+            logger.error(f"{self._SEAT_LABELS[seat]} async error: {self._redact_error(run.error)}")
+            return self._create_error_vote(
+                seat, run.error, finish_reason=run.finish_reason, retried=run.retried,
+                first_fault_label=run.first_fault_label,
+                first_finish_reason=run.first_finish_reason)
+        vote = run.value
+        vote.finish_reason = run.finish_reason
+        vote.retried = run.retried
+        vote.recovered = run.retried
+        vote.first_fault_label = run.first_fault_label
+        vote.first_finish_reason = run.first_finish_reason
+        return vote
 
     # Closed label vocabulary. Every value here is a SOURCE LITERAL — the output
     # of _redact_error can only ever be one of these strings (plus a validated
     # int), which is what makes the non-leakage guarantee structural rather than
     # pattern-based. Keys are exception class names matched against the MRO.
-    # Eight labels + "unknown", justified by distinct-operator-action: a timeout
+    # Eleven labels + "unknown", justified by distinct-operator-action: a timeout
     # and a rate-limit want a retry, auth wants a credential fix, unreachable
     # wants a network check, client-config wants a request fix, provider wants
-    # waiting, malformed-response wants a bug report, and refused wants a
+    # waiting, malformed-response wants a bug report, truncated wants a larger
+    # output budget or a shorter prompt, insufficient-credit wants credit,
+    # unexpected-status wants the status reported, and refused wants a
     # prompt/content change or a fallback model (nothing failed — the model
-    # declined).
+    # declined). These are what an operator does next. The seat's own automatic
+    # second call is a different, closed set: _RETRYABLE_FAULT_LABELS. A test
+    # pins the set.
     _ERROR_LABELS: dict[str, str] = {
+        # truncated (a reply that stopped on its output budget; finish "length")
+        "ResponseTruncatedError": "truncated",
         # refused (safety decline; HTTP 200 with finish_reason "content_filter")
         "ModelRefusedError": "refused",
         # insufficient-credit (HTTP 402; NOT retryable — retrying spends nothing
@@ -348,7 +500,11 @@ class AsyncCouncil:
         # malformed-response (SDK-side: a response that arrived but failed to
         # parse or validate. ConfidenceRejectedError is ours — the ingest gate
         # refusing a confidence value the SDK parsed fine — mapped here so it
-        # degrades to an error vote inside the closed vocabulary)
+        # degrades to an error vote inside the closed vocabulary). So is
+        # MalformedResponseError: the seat's own row for a reply with no
+        # parseable JSON object, or one that cannot be built into a vote. It
+        # is not a ValueError, so a real configuration error keeps client-config.
+        "MalformedResponseError": "malformed-response",
         "APIResponseValidationError": "malformed-response",
         "JSONDecodeError": "malformed-response",
         "ValidationError": "malformed-response",
@@ -371,6 +527,22 @@ class AsyncCouncil:
     # object to hand (see the deliberate_async timeout path). Closed by
     # construction: an arbitrary string never matches and degrades to "unknown".
     _LEGACY_LITERAL_LABELS: dict[str, str] = {"Timeout": "timeout"}
+
+    @staticmethod
+    def _fault_label(error: "BaseException | str") -> str:
+        """The closed-vocabulary fault label for `error`, without any status.
+
+        The same classification `_redact_error` uses (an MRO walk over
+        `_ERROR_LABELS`; a legacy string literal; else "unknown"), and the value
+        the retry keys on.
+        """
+        if isinstance(error, BaseException):
+            for cls in type(error).__mro__:
+                hit = AsyncCouncil._ERROR_LABELS.get(getattr(cls, "__name__", ""))
+                if hit is not None:
+                    return hit
+            return "unknown"
+        return AsyncCouncil._LEGACY_LITERAL_LABELS.get(error, "unknown")
 
     @staticmethod
     def _redact_error(error: "BaseException | str") -> str:
@@ -400,15 +572,10 @@ class AsyncCouncil:
         destroyed 20 of 91 real SDK exception class names. Structured omission is
         strictly safer AND strictly more diagnostic.
         """
-        label = "unknown"
+        label = AsyncCouncil._fault_label(error)
         status: int | None = None
 
         if isinstance(error, BaseException):
-            for cls in type(error).__mro__:
-                hit = AsyncCouncil._ERROR_LABELS.get(getattr(cls, "__name__", ""))
-                if hit is not None:
-                    label = hit
-                    break
             # Attribute reads can execute arbitrary property code and may raise;
             # any failure must degrade to "status omitted" rather than propagate
             # out of the redactor, which would put the raw exception back on an
@@ -431,12 +598,13 @@ class AsyncCouncil:
                     value = None
                 if type(value) is int and 100 <= value <= 599:
                     status = value
-        else:
-            label = AsyncCouncil._LEGACY_LITERAL_LABELS.get(error, "unknown")
 
         return f"{label} (HTTP {status})" if status is not None else label
 
-    def _create_error_vote(self, provider: str, error: "BaseException | str") -> CouncilVote:
+    def _create_error_vote(self, provider: str, error: "BaseException | str", *,
+                           finish_reason: Optional[str] = None, retried: bool = False,
+                           first_fault_label: Optional[str] = None,
+                           first_finish_reason: Optional[str] = None) -> CouncilVote:
         """Create an error vote when a provider fails.
 
         Marked errored=True (ADR-0054): the aggregator excludes it from all
@@ -464,14 +632,22 @@ class AsyncCouncil:
             reasoning=f"Error calling {provider}: {safe}",
             dissenting_points=[f"Provider {provider} failed: {safe}"],
             errored=True,
+            fault_label=self._fault_label(error),
+            finish_reason=finish_reason,
+            retried=retried,
+            first_fault_label=first_fault_label,
+            first_finish_reason=first_finish_reason,
         )
 
     async def deliberate(self, prompt: str, system: Optional[str] = None) -> CouncilDeliberation:
         """
         Run all council members in PARALLEL and aggregate results.
 
-        Enforces timeout_seconds via asyncio.wait_for so a stuck provider
-        cannot hang the entire deliberation.
+        Each seat enforces timeout_seconds PER ATTEMPT (`_run_seat`), so a stuck
+        provider becomes one timeout-labelled errored vote and cannot hang the
+        deliberation or erase the seats that answered. A seat that fails with a
+        retryable fault label is called once more, so the worst case per seat is
+        two deadlines.
         """
         logger.info("ASYNC COUNCIL DELIBERATION")
         start_time = datetime.now()
@@ -505,21 +681,18 @@ class AsyncCouncil:
                 key_agreements=[],
                 key_disagreements=["No LLM providers configured"],
                 final_recommendation={"action": "DEFER_TO_HUMAN", "reason": "NO_QUORUM",
-                                      "degraded": False, "errored_seats": "0/0"},
+                                      "degraded": False, "errored_seats": "0/0",
+                                      "off_scale": [], **self._approval_reports([])},
                 dissent_count=0,
                 confidence_adjustment=0.0,
             )
 
         logger.info(f"     Running {len(tasks)} providers in parallel: {task_names}")
-        logger.info(f"     Timeout: {self.config.timeout_seconds}s")
+        logger.info(f"     Timeout: {self.config.timeout_seconds}s per attempt")
 
-        try:
-            votes: List[CouncilVote] = await asyncio.wait_for(
-                asyncio.gather(*tasks, return_exceptions=True), timeout=self.config.timeout_seconds
-            )
-        except asyncio.TimeoutError:
-            logger.error(f"     Council deliberation TIMED OUT after {self.config.timeout_seconds}s")
-            votes = [self._create_error_vote(seat, "Timeout") for seat in task_seats]
+        # No outer deadline: each task carries its own, so a seat that times out
+        # returns as an exception here and becomes that seat's errored vote below.
+        votes: List[CouncilVote] = await asyncio.gather(*tasks, return_exceptions=True)
 
         # Handle exceptions
         clean_votes = []
@@ -537,6 +710,28 @@ class AsyncCouncil:
         # Aggregate results
         return self._aggregate_votes(clean_votes)
 
+    @staticmethod
+    def _approval_reports(responding: List[CouncilVote]) -> dict:
+        """The `conditioned` / `conditions` / `nits` / `nit_items` keys of a result.
+
+        Built from RESPONDING seats only, so an errored seat never contributes.
+        `conditions` and `nit_items` are keyed by seat and hold each such seat's
+        own dissenting points, carried unchanged: no bound cuts them, as the
+        same points are carried in `votes` and `key_disagreements`. They are
+        untrusted model text. No reader matches a point as a decision or an
+        action, and `conditioned` keys on the decision token. Escaping a point
+        for display is the printing reader's job; the data keeps every byte.
+        """
+        conditions: Dict[str, List[str]] = {}
+        nit_items: Dict[str, List[str]] = {}
+        for v in responding:
+            if v.decision == "APPROVE_WITH_CONDITIONS":
+                conditions.setdefault(v.provider, []).extend(v.dissenting_points)
+            elif v.decision == "APPROVE_WITH_NITS":
+                nit_items.setdefault(v.provider, []).extend(v.dissenting_points)
+        return {"conditioned": bool(conditions), "conditions": conditions,
+                "nits": bool(nit_items), "nit_items": nit_items}
+
     def _aggregate_votes(self, votes: List[CouncilVote]) -> CouncilDeliberation:
         """Aggregate individual votes into a consensus"""
         if not votes:
@@ -547,7 +742,8 @@ class AsyncCouncil:
                 key_agreements=[],
                 key_disagreements=[],
                 final_recommendation={"action": "DEFER_TO_HUMAN", "reason": "NO_QUORUM",
-                                      "degraded": False, "errored_seats": "0/0"},
+                                      "degraded": False, "errored_seats": "0/0",
+                                      "off_scale": [], **self._approval_reports([])},
                 dissent_count=0,
                 confidence_adjustment=0.0,
             )
@@ -575,6 +771,17 @@ class AsyncCouncil:
             all_dissents.extend(vote.dissenting_points)
         key_agreements = self._extract_key_agreements(responding)
 
+        # Responding seats whose decision is outside the known scale stay visible
+        # here whatever the consensus label says. Additive key; every return path
+        # carries it. Each entry is model text, so it is bounded and its
+        # unprintable characters replaced by `untrusted.redact`, the one helper
+        # that owns the bound. A short printable entry passes through unchanged.
+        off_scale = [redact(f"{v.provider}:{v.decision}", quoted=False) for v in responding
+                     if v.decision not in _KNOWN_DECISIONS]
+        # Conditioned approvals and nits, from responding seats only.
+        approval_reports = self._approval_reports(responding)
+        conditioned = approval_reports["conditioned"]
+
         if n < QUORUM_MIN:
             # Below quorum (incl. all-errored): no verdict, always defer.
             overall_confidence = (sum(v.confidence for v in responding) / n) if n else 0.0
@@ -588,7 +795,8 @@ class AsyncCouncil:
                 key_agreements=key_agreements,
                 key_disagreements=all_dissents[:5],
                 final_recommendation={"action": recommended_action, "reason": consensus,
-                                      "degraded": degraded, "errored_seats": errored_seats},
+                                      "degraded": degraded, "errored_seats": errored_seats,
+                                      "off_scale": off_scale, **approval_reports},
                 dissent_count=len(all_dissents),
                 confidence_adjustment=overall_confidence - 0.5,
             )
@@ -596,7 +804,7 @@ class AsyncCouncil:
         # Count decisions over responding seats. APPROVE_WITH_NITS and
         # APPROVE_WITH_CONDITIONS are approvals (a nit is non-blocking; it still
         # surfaces via dissenting_points).
-        APPROVE = ("APPROVE", "APPROVE_WITH_CONDITIONS", "APPROVE_WITH_NITS")
+        APPROVE = _APPROVE_DECISIONS
         approve_count = sum(1 for v in responding if v.decision in APPROVE)
         reject_count = sum(1 for v in responding if v.decision == "REJECT")
 
@@ -605,6 +813,15 @@ class AsyncCouncil:
             consensus = "UNANIMOUS_APPROVE"
         elif reject_count == n:
             consensus = "UNANIMOUS_REJECT"
+        elif all(v.decision == responding[0].decision for v in responding):
+            # Every responding seat returned the same decision, and it is neither
+            # an approval nor REJECT. Name it; it routes to DEFER_TO_HUMAN below
+            # because the action chain recognises only the approve/reject labels.
+            first = responding[0].decision
+            if _echoable_label_token(first):
+                consensus = f"UNANIMOUS_{first}"
+            else:
+                consensus = "UNANIMOUS_OFF_SCALE"
         elif approve_count > n / 2:
             consensus = "MAJORITY_APPROVE"
         elif reject_count > n / 2:
@@ -617,8 +834,12 @@ class AsyncCouncil:
 
         # Recommend action. Degraded (any errored seat) caps the route at
         # EXECUTE_WITH_MONITORING — AUTO_EXECUTE requires a full, un-degraded
-        # quorum at the existing 0.85 threshold.
-        if consensus == "UNANIMOUS_APPROVE" and overall_confidence >= 0.85 and not degraded:
+        # quorum at the existing 0.85 threshold. A conditioned approval caps it
+        # the same way: it routes to EXECUTE_WITH_MONITORING at most, on the
+        # unchanged 0.70 floor, and otherwise defers. Nits never change the
+        # route: APPROVE_WITH_NITS counts as APPROVE above and is not tested here.
+        if (consensus == "UNANIMOUS_APPROVE" and overall_confidence >= 0.85
+                and not degraded and not conditioned):
             recommended_action = "AUTO_EXECUTE"
         elif consensus in ("UNANIMOUS_APPROVE", "MAJORITY_APPROVE") and overall_confidence >= 0.70:
             # existing 0.70 EXECUTE_WITH_MONITORING floor, unchanged by ADR-0054
@@ -643,7 +864,8 @@ class AsyncCouncil:
             key_agreements=key_agreements,
             key_disagreements=all_dissents[:5],
             final_recommendation={"action": recommended_action, "reason": consensus,
-                                  "degraded": degraded, "errored_seats": errored_seats},
+                                  "degraded": degraded, "errored_seats": errored_seats,
+                                  "off_scale": off_scale, **approval_reports},
             dissent_count=len(all_dissents),
             confidence_adjustment=overall_confidence - 0.5,  # Adjustment from baseline 50%
         )
@@ -654,7 +876,7 @@ class AsyncCouncil:
 
         # Check if all agree on decision
         decisions = [v.decision for v in votes]
-        if len(set(decisions)) == 1:
+        if decisions and all(d == decisions[0] for d in decisions):  # not set(): a decision may be unhashable
             agreements.append(f"All models agree: {decisions[0]}")
 
         # Check if confidence is consistently high or low
@@ -699,14 +921,11 @@ class AsyncVisualCouncil(AsyncCouncil):
 
         logger.info(f"     Running {len(tasks)} vision models in parallel")
 
-        # Enforce timeout
-        try:
-            results = await asyncio.wait_for(
-                asyncio.gather(*tasks, return_exceptions=True), timeout=self.config.timeout_seconds
-            )
-        except asyncio.TimeoutError:
-            logger.error(f"     Visual analysis TIMED OUT after {self.config.timeout_seconds}s")
-            results = [TimeoutError("Vision analysis timed out") for _ in task_names]
+        # Each seat carries its own per-attempt deadline (`_run_seat`): a slow
+        # seat comes back as an errored timeout result, and the other seat's
+        # result is kept. An errored result is excluded from any count of failed
+        # checks by its `errored` marker.
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
         clean_results = []
         for i, result in enumerate(results):
@@ -720,6 +939,8 @@ class AsyncVisualCouncil(AsyncCouncil):
                         # so pass the object for MRO classification, never str().
                         observations=f"Error: {self._redact_error(result)}",
                         anomalies=[],
+                        errored=True,
+                        fault_label=self._fault_label(result),
                     )
                 )
             else:
@@ -730,7 +951,10 @@ class AsyncVisualCouncil(AsyncCouncil):
     async def _analyze_seat_async(
         self, seat: str, label: str, image_b64: str, prompt: str
     ) -> VisualVoteResult:
-        """One vision seat, one gateway call. Replaces the two SDK vision seats.
+        """One vision seat, one gateway call, and at most one retry.
+
+        Replaces the two SDK vision seats. The retry, the per-attempt deadline,
+        the fault labels and the finish reason are the text seat's (`_run_seat`).
 
         The image rides the OpenAI-compatible `image_url` content part, whose
         value is the nested `{"url": data_url}` object — the chat-completions
@@ -738,8 +962,7 @@ class AsyncVisualCouncil(AsyncCouncil):
         """
         model = self._seat_model(seat)
 
-        @self._retry
-        async def _inner():
+        async def _once(attempt: _Attempt) -> VisualVoteResult:
             cfg = get_model_config(model)
             data_url = f"data:image/png;base64,{image_b64}"
             content = await self._post_seat(
@@ -748,29 +971,37 @@ class AsyncVisualCouncil(AsyncCouncil):
                     {"type": "text", "text": prompt + self._VISION_JSON_INSTRUCTION},
                     {"type": "image_url", "image_url": {"url": data_url}},
                 ],
+                attempt=attempt,
             )
-
+            data = self._reply_object(content)
             try:
-                blob = _extract_json_blob(content)
-            except ValueError:
-                raise ValueError(f"Could not parse JSON from {label}")
+                return VisualVoteResult(
+                    model_name=label,
+                    passed=data.get("passed", False),
+                    confidence=validated_confidence(data.get("confidence", 0.5)),
+                    observations=data.get("observations", ""),
+                    anomalies=data.get("anomalies", []),
+                )
+            except (TypeError, AttributeError, ValueError, KeyError):
+                raise MalformedResponseError("reply cannot be built into a result") from None
 
-            data = json.loads(blob)
-            return VisualVoteResult(
-                model_name=label,
-                passed=data.get("passed", False),
-                confidence=validated_confidence(data.get("confidence", 0.5)),
-                observations=data.get("observations", ""),
-                anomalies=data.get("anomalies", []),
-            )
-
-        try:
-            return await _inner()
-        except Exception as e:
+        run = await self._run_seat(_once)
+        if run.error is not None:
             return VisualVoteResult(
                 model_name=label, passed=False, confidence=0.0,
-                observations=f"Error: {self._redact_error(e)}", anomalies=[],
+                observations=f"Error: {self._redact_error(run.error)}", anomalies=[],
+                errored=True, fault_label=self._fault_label(run.error),
+                finish_reason=run.finish_reason, retried=run.retried,
+                first_fault_label=run.first_fault_label,
+                first_finish_reason=run.first_finish_reason,
             )
+        result = run.value
+        result.finish_reason = run.finish_reason
+        result.retried = run.retried
+        result.recovered = run.retried
+        result.first_fault_label = run.first_fault_label
+        result.first_finish_reason = run.first_finish_reason
+        return result
 
     def analyze_sync(self, image_b64: str, prompt: str) -> List[VisualVoteResult]:
         """Synchronous wrapper"""
