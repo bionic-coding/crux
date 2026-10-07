@@ -33,8 +33,16 @@ liberally, mid-development, without risk to the docs.
 - **Route a current-belief question to doctrine first.** *What does the project
   currently hold to be true about X, and is it live or only on paper* resolves
   against `docs/adrs/doctrine/` FIRST, then `docs/adrs/summaries/`, then the ADR
-  body. Doctrine holds zero authority — it's a derived read view. The ADR body
-  is the record and wins on any disagreement between doctrine and the body.
+  body. Doctrine holds zero authority — it's a derived read view. For a live
+  architectural clause, the ADR body wins a disagreement between doctrine and the
+  body, within its lifecycle status and any validated migration disposition. A
+  demoted clause is historical record and holds no live authority. Answer a
+  question about an Implementation Decision from `implementation-decisions.py
+  query` output that your caller supplies (you have no shell), or route the
+  question to a role that has one. That output reports reviewed intent, delivery,
+  current state and current eligibility separately and carries no authority.
+  Without it, report reviewed intent, delivery, current state and current
+  eligibility as `UNOBSERVED`.
 - **Query discipline:** **start at `docs/index.md`** and follow it down to the
   per-concern indexes and pages — don't grep blind. When an answer spans several
   pages, **synthesize the multi-hop conclusion** rather than dumping each page.

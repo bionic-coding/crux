@@ -15,6 +15,12 @@ nothing.
 The files read here all cross the sync boundary (`crux/agents/`,
 `crux/templates/`), so the suite runs unchanged against the staged artifact.
 
+A second class pins the base-SHA handoff: the dev-lead names its HEAD SHA in
+every developer dispatch, and the developer fast-forwards to it or reports
+`BLOCKED` before any edit. Its absence check (each file's statements stay out of
+the other) has its positive control in the presence assertions over the same
+needles, run by the same matcher against the owning file.
+
 Stdlib unittest plus PyYAML, which the test package already requires.
 """
 
@@ -309,6 +315,103 @@ class DevLeadDisciplineTests(unittest.TestCase):
             self.text,
         )
         self.assertIn("skills: [forge-skill, log-work]\n", self.text)
+
+
+COMMANDER_MD = AGENTS_DIR / "commander.md"
+
+# The base-SHA handoff. A harness worktree can branch from the remote default
+# branch rather than the lead's HEAD, so a developer dispatched with isolation
+# starts without the lead's unpushed commits. The lead names its HEAD SHA in
+# every dispatch; the developer fast-forwards to it or reports BLOCKED before
+# any edit.
+DEV_LEAD_BASE_SHA = {
+    "dispatch carries the SHA": (
+        "Every developer dispatch carries your `git rev-parse HEAD` SHA as the "
+        "base the developer starts from."
+    ),
+    "commit first": (
+        "Commit what the developer needs before you dispatch; the SHA carries "
+        "committed work only."
+    ),
+}
+DEVELOPER_BASE_SHA = {
+    "compare before any edit": (
+        "Before any edit, run `git rev-parse HEAD` and compare it to that SHA:"
+    ),
+    "SHA format checked": (
+        "The SHA must be 40 or 64 lowercase hex characters; anything else gets "
+        "`BLOCKED` before you run a git command with it."
+    ),
+    "equal proceeds": "If HEAD equals the SHA, proceed.",
+    "ancestor condition": (
+        "If HEAD is an ancestor of the SHA (`git merge-base --is-ancestor HEAD "
+        "<sha>` exits 0), run `git merge --ff-only <sha>`."
+    ),
+    "failed merge blocks": (
+        "If the merge fails, or HEAD still differs from the SHA, report "
+        "`BLOCKED` and edit nothing; otherwise proceed."
+    ),
+    "otherwise blocked": (
+        "Otherwise, report `BLOCKED` with both SHAs and edit nothing."
+    ),
+    "no SHA needs context": (
+        "A dispatch that names no base SHA gets `NEEDS_CONTEXT` before any edit."
+    ),
+}
+BASE_SHA_HEADING = "\n## First: start from your lead's commit\n"
+
+
+class BaseShaHandoffTests(unittest.TestCase):
+    """The lead names its HEAD SHA; the developer starts from it or stops."""
+
+    def test_dev_lead_dispatch_carries_head_sha(self):
+        text = body(DEV_LEAD_MD)
+        for label, needle in DEV_LEAD_BASE_SHA.items():
+            with self.subTest(statement=label):
+                self.assertEqual(occurrences(text, needle), 1, needle)
+
+    def test_developer_checks_base_sha_before_any_edit(self):
+        text = body(DEVELOPER_MD)
+        for label, needle in DEVELOPER_BASE_SHA.items():
+            with self.subTest(statement=label):
+                self.assertEqual(occurrences(text, needle), 1, needle)
+
+    def test_developer_steps_run_in_order(self):
+        text = normalize(body(DEVELOPER_MD))
+        order = [
+            normalize(DEVELOPER_BASE_SHA[k])
+            for k in ("no SHA needs context", "SHA format checked",
+                      "compare before any edit", "equal proceeds",
+                      "ancestor condition", "failed merge blocks",
+                      "otherwise blocked")
+        ]
+        positions = [text.index(n) for n in order]
+        self.assertEqual(positions, sorted(positions))
+
+    def test_developer_base_check_is_the_first_section(self):
+        text = body(DEVELOPER_MD)
+        self.assertEqual(text.count(BASE_SHA_HEADING), 1)
+        first = text.index(BASE_SHA_HEADING)
+        self.assertLess(first, text.index("\n## Before you write the first test\n"))
+        self.assertLess(first, text.index("\n## Embedded disciplines\n"))
+
+    def test_base_sha_statements_stay_in_their_own_file(self):
+        lead, dev = body(DEV_LEAD_MD), body(DEVELOPER_MD)
+        for needle in DEVELOPER_BASE_SHA.values():
+            self.assertEqual(occurrences(lead, needle), 0, needle)
+        for needle in DEV_LEAD_BASE_SHA.values():
+            self.assertEqual(occurrences(dev, needle), 0, needle)
+
+    def test_commander_dispatching_developers_carries_the_sha(self):
+        # The commander reaches developers only through the dev-lead today. If
+        # it ever gains a direct developer dispatch, it owes the same handoff.
+        text = body(COMMANDER_MD)
+        if "Agent(developer)" in text:
+            self.assertEqual(
+                occurrences(text, DEV_LEAD_BASE_SHA["dispatch carries the SHA"]), 1
+            )
+        else:
+            self.assertEqual(occurrences(text, "Agent(dev-lead)"), 1)
 
 
 class PatchTemplateImplementPromptTests(unittest.TestCase):

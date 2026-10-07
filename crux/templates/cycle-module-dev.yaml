@@ -47,6 +47,13 @@
   purpose: |
     Convert the architectural commitment(s) into ordered work units.
   prompt: |
+    Read governing architectural constraints and any selected formal implementation reasoning
+    separately. An Implementation Decision supplies no rule or current-state authority.
+    For a selected formal decision, compare delivery to the approved original and include annotations in
+    independent review scope. Report approval, delivery and queried source state separately.
+    Validate the committed approval binding and its retained context before
+    treating reasoning as reviewed intent. Use the context's supported profile;
+    book format supplies none. Preserve historical context bytes.
     Read the rules this loop implements: {RULE_REFS}. Resolve each citation
     through `docs/adrs/doctrine/index.md` to its rule and its ADR; read the
     ADR for the rationale. Produce an implementation plan scoped to {SCOPE}
@@ -70,6 +77,13 @@
   purpose: |
     Implement the plan with parallel agents where independent.
   prompt: |
+    Read governing architectural constraints and any selected formal implementation reasoning
+    separately. An Implementation Decision supplies no rule or current-state authority.
+    For a selected formal decision, compare delivery to the approved original and include annotations in
+    independent review scope. Report approval, delivery and queried source state separately.
+    Validate the committed approval binding and its retained context before
+    treating reasoning as reviewed intent. Use the context's supported profile;
+    book format supplies none. Preserve historical context bytes.
     Group the work units from this loop's planning prompt by independence.
     Dispatch one `Agent` per independent group in parallel. Each agent
     receives: the ADR(s), the implementation plan, its assigned work units,
@@ -99,6 +113,13 @@
   purpose: |
     Verify the implementation passes every gate before review.
   prompt: |
+    Read governing architectural constraints and any selected formal implementation reasoning
+    separately. An Implementation Decision supplies no rule or current-state authority.
+    For a selected formal decision, compare delivery to the approved original and include annotations in
+    independent review scope. Report approval, delivery and queried source state separately.
+    Validate the committed approval binding and its retained context before
+    treating reasoning as reviewed intent. Use the context's supported profile;
+    book format supplies none. Preserve historical context bytes.
     Run, in this order:
       - The repo's **full test suite** — the COMPLETE run (e.g.
         `python3 -m unittest discover -s crux/scripts/tests`, `mix test`,
@@ -151,6 +172,13 @@
   purpose: |
     First-pass self-review before external eyes.
   prompt: |
+    Read governing architectural constraints and any selected formal implementation reasoning
+    separately. An Implementation Decision supplies no rule or current-state authority.
+    For a selected formal decision, compare delivery to the approved original and include annotations in
+    independent review scope. Report approval, delivery and queried source state separately.
+    Validate the committed approval binding and its retained context before
+    treating reasoning as reviewed intent. Use the context's supported profile;
+    book format supplies none. Preserve historical context bytes.
     Invoke the `code-review` skill (use the default effort level, no
     `--comment` flag — this is a private dry-run). The skill produces a
     ranked list of findings scoped to the diff this dev loop produced.

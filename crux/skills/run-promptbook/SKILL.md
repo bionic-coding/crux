@@ -31,6 +31,30 @@ This skill is portable across Claude Code, Codex, and OpenCode. This section ove
 
 Promptbooks separate the frozen plan in `<docs_dir>/promptbooks/active/` from the run snapshot in `<docs_dir>/promptbooks/runs/`. Start, advance, and abandon change run state, never prompt content. Status derives a view without changing run state. Resolve the repository and `<docs_dir>` through `crux-config.py` before following any operation. Live execution accepts structured `.yaml` books and runs only. Historical `.md` records remain readable through status and documentation readers.
 
+## Explicit execution formats
+
+Structured YAML format one retains its original structure, hash and cycle classification.
+New cycle books use format two; their runs use format two with initial
+`implementation_bindings: []`. Format two requires a hash-bound `cycle_kind` and
+complete `implementation_slots`, including an explicit empty list for incidental choices.
+It refuses grandfathering, unknown kinds, invalid counts and module order before
+classification, even without run-start history. Never convert a live or archived run
+implicitly. Historical Markdown remains readable under the existing refusal boundary.
+Implementation Decisions preserve reasoning without governing authority. Only a
+successful lawful close writes approval. Independently reviewed results establish
+historical delivery; source verification at the queried revision establishes current state.
+No Implementation Decision authorizes extra scope, spend or external actions.
+
+Book/run format and council evidence versions are independent. Live execution of
+both book formats uses the current attempt-aware gate. New council records use
+format two and attempts use format one. A legacy council record is admissible
+only when committed run-start history proves its pre-cutover base.
+New formal closes retain gate context two with approval profile three.
+Historical context one/profile two remains immutable and serves historical replay only.
+Never choose an approval profile from the book format or substitute a current registry
+for a committed historical context. Unknown or inconsistent context refuses approval.
+Keep frozen books unchanged; record execution corrections through the owning historian.
+
 ## Select the operation
 
 Choose one operation from the user's intent and **read its exact local reference before the first side effect**. The references are part of this skill's installed directory. If the selected reference is missing or unreadable, refuse that operation and report the missing path. Do not substitute another operation's procedure or rely on memory.
@@ -39,10 +63,11 @@ Choose one operation from the user's intent and **read its exact local reference
 |---|---|---|
 | Start a new run | `references/start.md` | Creates snapshot, updates book and indexes, records start op |
 | Complete, skip, or block a prompt | `references/advance.md` | Updates snapshot and book pointer only |
+| Issue or advance a gate prompt | `references/gates.md` | Council runner or reviewer reports as evidence; the gate check decides |
 | Deliberately abandon a run | `references/abandon.md` | Records run-level abandonment and book pointer |
 | Ask for status, progress, or how to resume | `references/status.md` | Reads state; only explicit Markdown writes an artifact and one log operation |
 
-If an active run already exists, continue through its authorized prompts without per-step permission. Only the stop points in `docs/AGENTS.md` §11 apply. A prompt's assignment carries the book's whole Evidence and Constraint, even when its Outcome is narrowed. Preserve independent review and required gates. An advance changes exactly the run snapshot and active-book pointer; it does not regenerate indexes, call `log-work`, or add a per-prompt log entry. Status does not advance the run. A completed or deliberately abandoned run is archived through `archive-promptbook`.
+If an active run already exists, continue through its authorized prompts without per-step permission. Only the stop points in `docs/AGENTS.md` §11 apply. Before you issue every prompt, run the gate-information query `advance-run.py <run> --book <book> --gate-info --prompt <n>` (a commander holds no shell, so it dispatches the historian) and follow any `correction_notice` before you act on the prompt text. Read `references/gates.md` when the query reports the class `council`, `module-close` or `independent-review`. A prompt's assignment carries the book's whole Evidence and Constraint, even when its Outcome is narrowed. Preserve independent review and required gates. Every `--outcome` needs a resolvable book whose content hash matches the run's `book_content_hash`. An ordinary advance changes the run snapshot and active-book pointer; a formal format-two close also retains immutable evaluated gate context; it does not regenerate indexes, call `log-work`, or add a per-prompt log entry. Status does not advance the run. A completed or deliberately abandoned run is archived through `archive-promptbook`.
 
 ## Objectives context for execution
 

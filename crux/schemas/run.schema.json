@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "crux run snapshot (format_version 1)",
+  "title": "crux run snapshot (format_version 1 or 2)",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -15,23 +15,83 @@
     "prompts"
   ],
   "properties": {
-    "format_version": { "const": "1" },
-    "run_id": { "type": "string", "pattern": "^RUN-\\d{3}$" },
-    "book_id": { "type": "string", "pattern": "^(?:(?!(?:PB|ADR|RUN|BRIEF)-)[A-Z][A-Z0-9]{1,9}-)?PB-\\d{4}$" },
-    "book_content_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
-    "started_at": { "type": "string", "minLength": 1 },
-    "completed_at": { "type": ["string", "null"] },
-    "status": { "type": "string", "enum": ["in_progress", "completed", "abandoned"] },
-    "current_prompt": { "type": ["integer", "null"], "minimum": 1 },
-    "base_commit": { "type": ["string", "null"], "pattern": "^[0-9a-f]{40}$" },
+    "format_version": {
+      "type": "string",
+      "enum": [
+        "1",
+        "2"
+      ]
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^RUN-\\d{3}$"
+    },
+    "book_id": {
+      "type": "string",
+      "pattern": "^(?:(?!(?:PB|ADR|RUN|BRIEF)-)[A-Z][A-Z0-9]{1,9}-)?PB-\\d{4}$"
+    },
+    "book_content_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "started_at": {
+      "type": "string",
+      "minLength": 1
+    },
+    "completed_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "in_progress",
+        "completed",
+        "abandoned"
+      ]
+    },
+    "current_prompt": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1
+    },
+    "base_commit": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})(?![\\s\\S])"
+    },
     "abandonment": {
-      "type": ["object", "null"],
+      "type": [
+        "object",
+        "null"
+      ],
       "additionalProperties": false,
-      "required": ["kind", "at", "reason"],
+      "required": [
+        "kind",
+        "at",
+        "reason"
+      ],
       "properties": {
-        "kind": { "type": "string", "enum": ["deliberate", "superseded"] },
-        "at": { "type": "string", "minLength": 1 },
-        "reason": { "type": "string" }
+        "kind": {
+          "type": "string",
+          "enum": [
+            "deliberate",
+            "superseded"
+          ]
+        },
+        "at": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reason": {
+          "type": "string"
+        }
       }
     },
     "prompts": {
@@ -40,27 +100,341 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["n", "title", "state", "started", "completed", "result", "artifacts"],
+        "required": [
+          "n",
+          "title",
+          "state",
+          "started",
+          "completed",
+          "result",
+          "artifacts"
+        ],
         "properties": {
-          "n": { "type": "integer", "minimum": 1 },
-          "title": { "type": "string", "minLength": 1 },
+          "n": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
           "state": {
             "type": "string",
-            "enum": ["pending", "running", "done", "skipped", "blocked"]
+            "enum": [
+              "pending",
+              "running",
+              "done",
+              "skipped",
+              "blocked"
+            ]
           },
-          "started": { "type": ["string", "null"] },
-          "completed": { "type": ["string", "null"] },
-          "result": { "type": "string" },
-          "artifacts": { "type": "array", "items": { "type": "string" } },
+          "started": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "completed": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "result": {
+            "type": "string"
+          },
+          "artifacts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "blocked_confirmed": {
             "const": true,
-            "$comment": "RETIRED AND IGNORED — readmitted, and pinned to the one value any writer ever produced. The per-prompt archive-eligibility flag is gone: eligibility is a run-level property (see the run status enum and the abandonment record). Nothing reads or writes this key. It stays listed because `additionalProperties: false` would otherwise REJECT a .yaml snapshot written before the retirement, and such snapshots are reachable in trees that ran an earlier crux. That is the same call already made on the legacy .md read path, where the retired field is ignored rather than reported: those bodies are frozen and cannot be cleanly retro-fixed, so a finding nobody may act on is worse than silence. `const: true` scopes the readmission to that reachable history and no wider: a retired field admitted at any value is an escape hatch, not a compatibility lane. Do not widen it, and do not read the key."
+            "$comment": "RETIRED AND IGNORED \u2014 readmitted, and pinned to the one value any writer ever produced. The per-prompt archive-eligibility flag is gone: eligibility is a run-level property (see the run status enum and the abandonment record). Nothing reads or writes this key. It stays listed because `additionalProperties: false` would otherwise REJECT a .yaml snapshot written before the retirement, and such snapshots are reachable in trees that ran an earlier crux. That is the same call already made on the legacy .md read path, where the retired field is ignored rather than reported: those bodies are frozen and cannot be cleanly retro-fixed, so a finding nobody may act on is worse than silence. `const: true` scopes the readmission to that reachable history and no wider: a retired field admitted at any value is an escape hatch, not a compatibility lane. Do not widen it, and do not read the key."
           }
         }
       }
     },
-    "notes": { "type": "string" },
-    "pr_draft": { "type": "string" },
-    "summary": { "type": "string" }
-  }
+    "notes": {
+      "type": "string"
+    },
+    "pr_draft": {
+      "type": "string"
+    },
+    "summary": {
+      "type": "string"
+    },
+    "implementation_bindings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "slot",
+          "book_id",
+          "run_id",
+          "book_content_hash",
+          "revision",
+          "gate_prompt",
+          "deciding_record",
+          "retained_subject",
+          "context"
+        ],
+        "properties": {
+          "slot": {
+            "type": "string",
+            "pattern": "^(?:(?:implementation|verify)-[1-9]\\d*|patch)(?![\\s\\S])"
+          },
+          "book_id": {
+            "type": "string",
+            "pattern": "^(?:(?!(?:PB|ADR|RUN|BRIEF)-)[A-Z][A-Z0-9]{1,9}-)?PB-\\d{4}(?![\\s\\S])"
+          },
+          "run_id": {
+            "type": "string",
+            "pattern": "^RUN-\\d{3}(?![\\s\\S])"
+          },
+          "book_content_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}(?![\\s\\S])"
+          },
+          "revision": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "sha256"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))[^/\\\\\\x00-\\x1f\\x7f]+(?:/[^/\\\\\\x00-\\x1f\\x7f]+)*(?![\\s\\S])"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}(?![\\s\\S])"
+              }
+            }
+          },
+          "gate_prompt": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "deciding_record": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "sha256"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))[^/\\\\\\x00-\\x1f\\x7f]+(?:/[^/\\\\\\x00-\\x1f\\x7f]+)*(?![\\s\\S])"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}(?![\\s\\S])"
+              }
+            }
+          },
+          "retained_subject": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "sha256"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))[^/\\\\\\x00-\\x1f\\x7f]+(?:/[^/\\\\\\x00-\\x1f\\x7f]+)*(?![\\s\\S])"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}(?![\\s\\S])"
+              }
+            }
+          },
+          "context": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "sha256"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))[^/\\\\\\x00-\\x1f\\x7f]+(?:/[^/\\\\\\x00-\\x1f\\x7f]+)*(?![\\s\\S])"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}(?![\\s\\S])"
+              }
+            }
+          }
+        }
+      },
+      "$comment": "Shape admission is not approval. Only successful advance appends binding with DONE; consumers require committed full history."
+    },
+    "migration_bindings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "slot",
+          "book_id",
+          "run_id",
+          "book_content_hash",
+          "batch",
+          "gate_prompt",
+          "deciding_record",
+          "retained_subject",
+          "context"
+        ],
+        "properties": {
+          "slot": {
+            "type": "string",
+            "pattern": "^implementation-[1-9]\\d*(?![\\s\\S])"
+          },
+          "book_id": {
+            "type": "string",
+            "pattern": "^(?:(?!(?:PB|ADR|RUN|BRIEF)-)[A-Z][A-Z0-9]{1,9}-)?PB-\\d{4}(?![\\s\\S])"
+          },
+          "run_id": {
+            "type": "string",
+            "pattern": "^RUN-\\d{3}(?![\\s\\S])"
+          },
+          "book_content_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}(?![\\s\\S])"
+          },
+          "gate_prompt": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "deciding_record": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "sha256"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))[^/\\\\\\x00-\\x1f\\x7f]+(?:/[^/\\\\\\x00-\\x1f\\x7f]+)*(?![\\s\\S])"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}(?![\\s\\S])"
+              }
+            }
+          },
+          "retained_subject": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "sha256"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))[^/\\\\\\x00-\\x1f\\x7f]+(?:/[^/\\\\\\x00-\\x1f\\x7f]+)*(?![\\s\\S])"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}(?![\\s\\S])"
+              }
+            }
+          },
+          "context": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "sha256"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))[^/\\\\\\x00-\\x1f\\x7f]+(?:/[^/\\\\\\x00-\\x1f\\x7f]+)*(?![\\s\\S])"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}(?![\\s\\S])"
+              }
+            }
+          },
+          "batch": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "sha256"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))[^/\\\\\\x00-\\x1f\\x7f]+(?:/[^/\\\\\\x00-\\x1f\\x7f]+)*(?![\\s\\S])"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}(?![\\s\\S])"
+              }
+            }
+          }
+        }
+      },
+      "$comment": "Shape admission is not approval. Only successful advance appends binding with DONE; consumers require committed full history."
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "format_version"
+        ],
+        "properties": {
+          "format_version": {
+            "const": "1"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "implementation_bindings": {
+            "type": "null",
+            "const": false,
+            "$comment": "Presence is forbidden in this format; both constraints are supported and cannot hold together."
+          },
+          "migration_bindings": {
+            "type": "null",
+            "const": false,
+            "$comment": "Presence is forbidden in this format; both constraints are supported and cannot hold together."
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "format_version"
+        ],
+        "properties": {
+          "format_version": {
+            "const": "2"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "implementation_bindings"
+        ]
+      }
+    }
+  ]
 }

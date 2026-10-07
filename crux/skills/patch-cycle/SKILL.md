@@ -34,8 +34,12 @@ A `patch` book runs **five phases in order — verify, plan, implement, review, 
 
 ### The two gates a patch still pays
 
-- **The council gate is a postcondition of the verify phase.** The council reviews the diagnosis, the minimal approach, and the declared blast radius.
-- **The review gate is a postcondition of the review phase.** Quality gates plus an independent review pass.
+Council deliberation runs only through the council runner, and its council record is the only evidence a council gate accepts.[^council] Independent review is a reviewer's examination, and its reviewer report is the only evidence an independent-review gate accepts.[^review] Neither satisfies the other's gate.
+
+- **The council gate is a postcondition of the verify phase.** The council reviews the diagnosis, the minimal approach, and the declared blast radius. The gate needs a council record bound to the verify prompt. On a routed record, the council reconvenes inside that one prompt. The gate closes only on convergence. The council runner commits the attempt record and the council record itself, and a conductor never commits either. After a preflight refusal the conductor may repair, repair the input and run again; the third refusal at one convening prompt takes the escalation-loop stop. On exit 2 whose stderr names `timeout`, or names outside work the commit moved, report a contradicted-premise stop first: the owner restores the set-aside work, then removes a stale `index.lock`. Then, as on every other exit 2 or when the council runner ended without an exit code or with a code other than 0, 1 and 2, run the process check and the lock probe, then `run-council.py --recover <run> --prompt <n>`; never convene another round until recovery reports. `run-promptbook`'s `references/gates.md` holds the repair and the recovery steps.
+- **The review gate is a postcondition of the review phase.** Quality gates plus independent review: the gate needs a reviewer report.
+
+The three escape verdicts (needs an ADR, cannot be bounded, radius disproportionate) travel as blocking findings. The conductor takes the contradicted-premise stop by prose. The patch scale has no escape token, so the gate check cannot see that stop.
 
 Both are positional, guaranteed by the fixed phase sequence. A `patch` book that archives a completed run has passed both.
 
@@ -104,6 +108,37 @@ Read `docs/manifest.yml`; take `promptbook.next_number`; format `PB-NNNN`. **Do 
 
 Kebab-case from the title, ASCII, ≤50 chars. Filename: `docs/promptbooks/active/PB-NNNN-<slug>.yaml`. Run dir: `docs/promptbooks/runs/PB-NNNN-<slug>/`.
 
+### Formal implementation reasoning
+
+New patch books use format two with explicit `implementation_slots: []`, or one
+slot named `patch` when selecting a significant replaceable approach. Freeze its
+slug, scope and direct Accepted architectural constraints before start. Select the
+formal revision before the existing verify-phase council. Retain that exact subject;
+the question assesses all five patch dimensions and architectural conflict.
+Diagnosis-only approval is insufficient. The successful verify advance binds the
+explicit `--implementation-revision` with DONE. Later selection requires escalation
+or abandonment for a successor, never a sixth phase or reopening a completed prompt.
+Approval establishes reviewed intent; separate independently reviewed delivery results
+and queried source proof establish delivery and current state. Earlier decisions remain
+historical reasoning without revocation. Direct fixes require no compulsory formal record.
+Existing format-one books and Markdown history retain their original semantics.
+
+
+Every initial or revised formal revision or migration-batch subject write records
+its bytes immediately, before its commit:
+
+```bash
+uv run "${CRUX_PLUGIN_ROOT}/scripts/run-work-witness.py" record <run-RUN-NNN.yaml> --prompt <n> --path <subject-path>
+```
+
+Never create a witness after a refusal. Both book formats use the current
+attempt-aware gate. New formal closes retain context two/profile three;
+historical context one/profile two remains immutable and replay-only.
+Finish any open Git merge or other sequence before council. Runner and recovery
+own attempt/result commits. Follow `run-promptbook`'s `references/gates.md` for
+authorized preflight repair, the third-refusal stop, process/lock checks and
+request-free recovery. Persistence failure permits recovery, never repeat deliberation.
+
 ### 4. Assemble the book
 
 Copy `${CRUX_PLUGIN_ROOT}/templates/patch-promptbook-template.yaml` (the full five-prompt skeleton) and do token substitution only. The phase sequence is fixed — never reorder it, never add a sixth prompt, never drop one to four.
@@ -143,7 +178,7 @@ Body: id, title, `total_prompts: 5`, the declared blast radius, and the note `pa
 ## Verification checklist
 
 - [ ] `docs/manifest.yml` `promptbook.next_number` incremented and persisted.
-- [ ] `docs/promptbooks/active/PB-NNNN-<slug>.yaml` exists with `format_version: "1"`, `cycle_kind: patch`, `total_prompts: 5`, and `forked_from: null`.
+- [ ] `docs/promptbooks/active/PB-NNNN-<slug>.yaml` exists with `format_version: "2"`, `cycle_kind: patch`, `total_prompts: 5`, and `forked_from: null`.
 - [ ] Exactly five prompts, `n: 1..5`, whose `phase` values are `verify, plan, implement, review, summary` in that order.
 - [ ] No prompt carries a `module_tag`; the book carries no `modules` block.
 - [ ] `blast_radius` is non-empty, every entry passes the declared-path grammar (invariant 3), and no entry covers the cycle machinery itself — the validator, the archive check, or the schemas.
@@ -187,3 +222,6 @@ Body: id, title, `total_prompts: 5`, the declared blast radius, and the note `pa
 - `run-promptbook` — runs the book; stamps the run's `base_commit` at start.
 - `archive-promptbook` — runs the blast-radius containment check as an archive precondition.
 - Schema: `${CRUX_PLUGIN_ROOT}/schemas/promptbook.schema.json`; validator `${CRUX_PLUGIN_ROOT}/scripts/validate-promptbook.py`; containment check `${CRUX_PLUGIN_ROOT}/scripts/check-blast-radius.py`. Contract: `docs/AGENTS.md` §11.B and §11.C.
+
+[^council]: rule:council-is-never-harness-native, rule:council-gate-needs-a-runner-record
+[^review]: rule:review-gate-needs-a-reviewer-report

@@ -1,4 +1,4 @@
-<!-- generated-from: CHANGELOG.md@sha256:7b8d4ff406627e0d257a3a6835484729cb67916888929cba9a08926ac475fe98; model: claude-sonnet-5.5; date: 2026-09-30 -->
+<!-- generated-from: CHANGELOG.md@sha256:35ed05434fb8e958d6d6f5646dbbcabeffdd6b2003ba1a498d5188a847db0f91; model: claude-sonnet-5.5; date: 2026-10-07 -->
 # Changelog
 
 All notable changes to crux. The format roughly follows [Keep a Changelog](https://keepachangelog.com/) and the project adheres to [Semantic Versioning](https://semver.org/).
@@ -8,6 +8,46 @@ All notable changes to crux. The format roughly follows [Keep a Changelog](https
 ### Added
 
 ### Changed
+
+### Fixed
+
+### Removed
+
+## [3.26.1] — 2026-10-07
+
+### Added
+
+### Changed
+
+- Six agents now get more turns before they stop: architect 100, commander 250, dev-lead 250, developer 200, historian 100 and reviewer 200. The OpenCode projection carries the same values as `steps`.
+
+### Fixed
+
+- A repository with no commits now reads as `original` authority. Previously the authority view refused with `history-unavailable`, so `query-docs` could not answer between `init-docs` and the first commit.
+- After a clause migration is published, a new brief can cite a demoted rule as history. Previously the summaries, doctrine and rules-catalog readers refused with `migration-citation-repair-required`. A governing citation of a demoted rule still refuses.
+
+### Removed
+
+## [3.26.0] — 2026-10-07
+
+### Added
+
+- Architectural Decisions and Implementation Decisions are now separate records. An ADR records an enduring constraint. A council-reviewed Implementation Decision records a replaceable choice, so a later choice does not need to revoke, deprecate or supersede the earlier one. Implementation Decisions author no rule, and doctrine, summaries and every other governing reader exclude them.
+- `dev-cycle` can now build an `implementation` cycle kind. It has implementation, dev and review modules, no ADR module, and at least 13 prompts. Council review, independent review, authorization and the direct-fix path are unchanged.
+- `implementation-decisions.py` has four subcommands. `validate` checks a decision revision. `query` reads the source at the revision you name and answers `UNOBSERVED` when it finds no evidence. `result` appends delivery evidence, and `annotate` records a title or source-label correction beside the reviewed original. Only `result` and `annotate` write.
+- `authority-view.py` reports whether current authority is `original` or `published` and lists retained demonstration holdings. `audit-docs`, `query-docs`, `cleanup-campsite` and `archive-promptbook` now run it as an executable step before they walk or answer.
+- `implementation-migration.py` publishes a reviewed clause migration through `inventory`, `dry-run` and `apply`. It accepts only the crux repository's own pilot batch. In any other project every batch refuses with `migration-outside-pilot` or `migration-authorizer-refused`.
+
+### Changed
+
+- A tree that has published a clause migration now needs full Git history. In a shallow clone the governing readers refuse with `history-unavailable`. In the development repository, CI now checks out with `fetch-depth: 0`.
+- Scripts now declare their third-party imports, and an import-closure gate reports any import a script does not declare.
+- The implementation commands now bound the YAML they read before parsing it.
+- In the development repository, the test runner now runs the plugin and tools suites in parallel. Shared fixtures and the combined runner cut the full run time about fivefold, to 10.6 minutes. The authority view now starts about 590 Git subprocesses where it started about 9,500.
+- Council deliberation and independent review are now separate processes with separate gates. A council gate passes only on a committed council-runner record that names each seat's requested and served model and provider. An independent-review gate passes only on a reviewer report from `write-review-report.py`, and neither kind of evidence satisfies the other's gate.
+- A book that carries the five-reviewer alternative to the council is now corrected when it executes, and its bytes stay unchanged. An existing OpenCode install keeps its earlier agent text until you run `install-opencode-agents` again, because a template change does not alter an installed agent.
+- The council runner now commits an attempt record before it sends any request. It then commits its own result record and verifies that the committed bytes match the bytes it computed. An attempt with no committed result holds the gate. `run-council.py --recover` commits or recognises the original record and never asks for a new verdict. The conductor no longer commits council records.
+- The conductor now retries a preflight refusal, a mistyped path or an uncommitted run-work subject, instead of stopping for the owner. A third refusal at one gate prompt is the escalation-loop stop. A Codex session in the workspace-write sandbox cannot begin a council.
 
 ### Fixed
 

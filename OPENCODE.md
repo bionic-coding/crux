@@ -1,4 +1,4 @@
-<!-- generated-from: OPENCODE.md@sha256:399d1757a93cb4de76d381ab3522f7f78cd5007e1b6068e5b990fdf5cc94f070; model: deterministic-copy; date: 2026-09-27 -->
+<!-- generated-from: OPENCODE.md@sha256:4428fa1966b87210185e0b6ee987b8d685eedb320519075b19d50be091a3ac87; model: deterministic-copy; date: 2026-10-06 -->
 # Install Crux for OpenCode
 
 Crux has no native OpenCode marketplace package. OpenCode installation uses a stable clone of the public Crux repository. This guide covers machine-wide and project-only installation for humans and agents.
@@ -127,7 +127,7 @@ git pull --ff-only
 uv run python3 crux/scripts/generate-opencode-agents.py
 ```
 
-The global symlinks continue pointing at the generated files. Restart OpenCode after regeneration. Run the generator with `--dry-run` to check for drift without writing:
+The global symlinks continue pointing at the generated files. After an upgrade, regenerate the agents so each installed role carries the new council and review text, then restart OpenCode. A project install refreshes through `install-opencode-agents`. Run the generator with `--dry-run` to check for drift without writing:
 
 ```bash
 uv run python3 crux/scripts/generate-opencode-agents.py --dry-run
@@ -135,9 +135,9 @@ uv run python3 crux/scripts/generate-opencode-agents.py --dry-run
 
 Project-only installations do not update through the global symlinks. Invoke `install-opencode-agents` again in each project and review drift before using `--force`.
 
-## Optional model gateway
+## Model gateway
 
-Most Crux skills work without external model credentials. Council and LLM-backed skills use one OpenRouter key stored outside the repository:
+Most Crux skills work without external model credentials. A cycle's council gates need the gateway key. An ad-hoc council and the LLM-backed skills use it too. All of them read one OpenRouter key stored outside the repository:
 
 ```bash
 python3 crux/scripts/crux-env.py init
@@ -146,6 +146,8 @@ python3 crux/scripts/crux-env.py check --project crux
 ```
 
 The check command never prints secret values.
+
+Council deliberation runs only through the council runner (`run-council.py`). Without the key, the council runner cannot run. It writes a DEFER_TO_HUMAN record, and the run stops for you. No agent casts a seat's vote in its place. Before a run's next gate prompt, store the key and commit every council subject. The council runner commits its attempt record and its council record itself; do not commit either by hand. When the council runner exits 2 and stderr names `timeout`, or names outside work the commit moved, the owner's remedy comes first. Restore the work a hook set aside (`git stash list`; the pre-commit framework keeps a backup patch under its cache directory). Only then remove a stale `index.lock` in the git directory. After those two steps, and after any other exit 2 or an open attempt, run the process check and probe the lock with `run-council.py --recover <run> --prompt <n> --probe`. Once no live council runner holds it, run `run-council.py --recover <run> --prompt <n>`, never a new round. A hook that rewrites a council file (a JSON formatter with another indent or key order, for example) must exclude `<docs_dir>/promptbooks/runs/`, for example `exclude: ^<docs_dir>/promptbooks/runs/` in the pre-commit framework. Otherwise each council commit whose file the hook rewrites fails closed (`hook-or-commit-failed`, or `mismatch` when the hook re-stages its rewrite) and stops for you. A hook slower than the commit's 120-second bound makes the commit time out and leaves the attempt open, so the owner's remedy above comes before recovery.
 
 ## Troubleshooting
 

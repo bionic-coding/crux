@@ -25,7 +25,7 @@
       "crux-agents"
     ],
     "risk_level": "medium",
-    "maxTurns": 75,
+    "maxTurns": 100,
     "effort": "high",
     "skills": [
       "propose-adr",
@@ -102,7 +102,7 @@
       "crux-agents"
     ],
     "risk_level": "medium",
-    "maxTurns": 200,
+    "maxTurns": 250,
     "skills": [
       "run-promptbook",
       "dev-cycle",
@@ -141,7 +141,7 @@
       "crux-agents"
     ],
     "risk_level": "high",
-    "maxTurns": 150,
+    "maxTurns": 250,
     "skills": [
       "forge-skill",
       "log-work"
@@ -171,7 +171,7 @@
       "crux-agents"
     ],
     "risk_level": "medium",
-    "maxTurns": 150,
+    "maxTurns": 200,
     "effort": "medium",
     "skills": [
       "forge-skill",
@@ -204,7 +204,7 @@
       "crux-agents"
     ],
     "risk_level": "medium",
-    "maxTurns": 75,
+    "maxTurns": 100,
     "effort": "medium",
     "skills": [
       "init-docs",
@@ -325,7 +325,7 @@
       "crux-agents"
     ],
     "risk_level": "low",
-    "maxTurns": 150,
+    "maxTurns": 200,
     "effort": "high",
     "skills": [
       "prose-review",

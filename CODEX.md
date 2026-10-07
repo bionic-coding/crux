@@ -1,4 +1,4 @@
-<!-- generated-from: CODEX.md@sha256:92c1ec3510233ef8f1ce86ebfcf78eefc587ef304bfca98263c2ea5815825366; model: deterministic-copy; date: 2026-09-27 -->
+<!-- generated-from: CODEX.md@sha256:c03eeefec454d27f036dcbafaf34f5950821b5dacff00028fdf9d9b8e309cf03; model: deterministic-copy; date: 2026-10-06 -->
 # Install Crux for Codex
 
 This guide installs the Crux plugin, its skills, and its ten Codex role agents. It covers human installation and the procedure an agent should follow after the plugin is available.
@@ -74,7 +74,7 @@ Then say:
 
 > Refresh the Crux agents in Codex.
 
-An upgraded or relocated plugin changes the absolute skill paths. The installer reports that change as managed drift. Review the `changed` and `removed` lists before allowing `--force`.
+Refreshing also carries the new council and review text into each installed role. An upgraded or relocated plugin changes the absolute skill paths. The installer reports that change as managed drift. Review the `changed` and `removed` lists before allowing `--force`.
 
 ## Agent installation procedure
 
@@ -113,6 +113,14 @@ The installer refuses unsafe managed files, escaping paths, malformed source dec
 | Skill bindings point to an old plugin path | Refresh after verifying the selected plugin root. |
 | Static health is clean but the role is unavailable | Start a fresh thread and record runtime evidence; static health does not prove host discovery. |
 | A role has broader access than expected | Check the parent session's permission overrides. The role prompt remains binding. |
+
+## Councils
+
+A cycle's council gate runs through the council runner (`run-council.py`), which needs the gateway key. Store it with `crux-env set OPENROUTER_API_KEY <value>`. A reviewer in the read-only Codex sandbox returns its report fields, and the commissioning agent runs the report writer. Whether a Codex sandbox allows egress to the gateway is unverified. An unreachable gateway takes the could-not-run stop: the council runner writes DEFER_TO_HUMAN, and the run stops for you. Commit every council subject before a run's next gate prompt. The council runner commits its attempt record and its council record itself; do not commit either by hand. When the council runner exits 2 and stderr names `timeout`, or names outside work the commit moved, the owner's remedy comes first. Restore the work a hook set aside (`git stash list`; the pre-commit framework keeps a backup patch under its cache directory). Only then remove a stale `index.lock` in the git directory. After those two steps, and after any other exit 2 or an open attempt, run the process check and probe the lock with `run-council.py --recover <run> --prompt <n> --probe`. Once no live council runner holds it, run `run-council.py --recover <run> --prompt <n>`, never a new round.
+
+Codex CLI 0.160.0's workspace-write sandbox keeps the git directory read-only. Observed with no model call, the runner's attempt commit then fails before any request, and the council runner exits 2. A Codex council therefore cannot begin. Nothing is spent, and the prompt cannot advance. Run councils from a session whose sandbox can write the git directory. Codex's approval escalation is not observed.
+
+A hook that rewrites a council file (a JSON formatter with another indent or key order, for example) must exclude `<docs_dir>/promptbooks/runs/`, for example `exclude: ^<docs_dir>/promptbooks/runs/` in the pre-commit framework. Otherwise each council commit whose file the hook rewrites fails closed (`hook-or-commit-failed`, or `mismatch` when the hook re-stages its rewrite) and stops for you. A hook slower than the commit's 120-second bound makes the commit time out and leaves the attempt open, so the owner's remedy above comes before recovery.
 
 ## Security boundaries
 

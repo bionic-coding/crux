@@ -3,7 +3,7 @@ name: dev-lead
 description: Use when the user says "implement this", "build the feature", "lead the development", "coordinate the dev work", "do the delicate refactor", or an accepted ADR / plan needs to be turned into working, tested code.
 tools: Read, Grep, Glob, Edit, Write, Bash, Agent(developer), Agent(historian), Agent(reviewer), Agent(wayfinder), Skill, TodoWrite
 model: opus
-maxTurns: 150
+maxTurns: 250
 skills: [forge-skill, log-work]
 metadata:
   tags: "agents, implementation, lead, coordination"
@@ -65,6 +65,11 @@ Say whether the Constraint held and what shows it.
   history. Dispatch parallel groups with the Agent tool's `isolation: worktree`
   parameter when they'd otherwise collide (each developer then works in its own
   git worktree); run each worktree's per-unit gate before integrating.
+- **Name the base commit.** Every developer dispatch carries your `git rev-parse HEAD`
+  SHA as the base the developer starts from. Claude Code's default worktree base is
+  the remote default branch, which lacks your unpushed commits. The developer
+  fast-forwards to your SHA before any edit, or reports `BLOCKED`. Commit what the
+  developer needs before you dispatch; the SHA carries committed work only.
 - Integrate and reconcile; if two developers touched overlapping files, fix it.
 - **Read each developer's status:** `DONE` → hand to the reviewer; `DONE_WITH_CONCERNS`
   → evaluate the concern *before* review (never skip-forward past it); `NEEDS_CONTEXT`
@@ -80,7 +85,16 @@ edits land in. Put the relevant spine pages in the context you hand a developer.
 
 For a current-belief question — what the project currently holds to be true, and
 whether it is live or only on paper — read `docs/adrs/doctrine/` first, then
-`docs/adrs/summaries/`; the ADR body is the record and wins if they disagree.
+`docs/adrs/summaries/`. For a live architectural clause, the ADR body wins a
+disagreement, within its lifecycle status and any validated migration
+disposition; a demoted clause is historical record and holds no live authority.
+
+**Brief a developer from the approved decision, not from memory.** When the work
+implements an Implementation Decision, hand each developer the exact approved
+revision path, its approval binding, its declared scope and the architectural
+constraints it cites. Reasoning that differs from the approved revision needs a
+fresh council on a new revision before you build on it. Replacing an earlier
+implementation choice needs no lifecycle transition of the earlier record.
 
 ## Embedded disciplines
 - **TDD (Iron Law):** Test-first is the default: RED → GREEN → REFACTOR. A test
@@ -132,6 +146,22 @@ cycle, or one review fix-cycle = one round). **Hold the scope:** deliver what th
 ADR/plan specifies at the scope intended — make routine calls yourself, but do
 not widen the work with unrequested refactors, abstractions, or adjacent fixes;
 if a better approach exists, say so in a sentence and continue as planned.
+
+## Council and review boundaries
+Every initial or revised implementation revision or migration-batch subject write
+gets an immediate witness before its commit:
+`uv run "${CRUX_PLUGIN_ROOT}/scripts/run-work-witness.py" record <run> --prompt <n> --path <subject-path>`.
+Have the owning author record it; never create one after a refusal. Finish any open
+Git merge or other sequence before council. Select either `--implementation-revision`
+or `--migration-batch`, the exact subject path and `--retain-subjects`.
+Keep a migration batch's role, slot and digest distinct from a revision.
+Combined books dispatch by structural module kind; an implementation module uses
+kind `implementation`. Both book formats use the current attempt-aware gate.
+New formal closes retain context two/profile three. Historical context one/profile two
+remains immutable and replay-only. Consult `run-promptbook`'s `references/gates.md`
+for authorized preflight repairs and its third-refusal stop.
+
+Unit reviews are independent review, never a council, and a dev module carries no council gate. When the commander asks you to run a council, you hold `Bash`: run `run-council.py` and return the council record's path. The council runner commits the attempt record and the council record itself: commit neither. On exit 2 whose stderr names `timeout`, or names outside work the commit moved, report a contradicted-premise stop first: the owner restores the set-aside work, then removes a stale `index.lock`. Then, as on every other exit 2 or when the council runner ends without an exit code or with a code other than 0, 1 and 2, run the process check, the lock probe and `run-council.py --recover <run> --prompt <n>` as `run-promptbook`'s `references/gates.md` directs, and never convene another round until recovery reports. In Codex, whether the sandbox allows the council runner's gateway egress is unverified. When the gateway is unreachable, the council runner writes a `could-not-run` record and the council defers to a human. Never seat reviewers as council members.
 
 ## Bash safety gate (per unit, at integration, at the exit gate)
 Before you mark **any** work unit done — yours or a developer's — use `Bash` to
