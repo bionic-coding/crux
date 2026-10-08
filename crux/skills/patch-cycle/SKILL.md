@@ -71,7 +71,7 @@ A `patch` book declares its blast radius — a set of repository paths — in it
 
 Do **not** use this skill for:
 
-- **Work that needs an ADR.** A patch admits a reversible, non-architectural change; work that needs a decision recorded is `dev-cycle`. The archive check enforces this from the other end: an ADR path is never excluded from the comparison, so a patch that writes one fails containment.
+- **Work that needs an ADR.** A patch admits a reversible, non-architectural change; work that changes an enduring constraint is `dev-cycle`. The archive check enforces the ADR boundary from the other end: an ADR path is never excluded from the comparison, so a patch that writes one fails containment. A replaceable approach whose reasoning must survive retrieval changes no enduring constraint and stays in the patch. Declare the `patch` slot before start and record it as an Implementation Decision. The existing verify council reviews that revision.
 - **A fix you cannot bound**, or one too large for a single implement prompt. That is `iterate` — it has the room, and its floor is there for a reason.
 - **A defect that passes `fix-directly`'s sizing test** — nameable files, a failing test before the fix, no contract changed, one instance, no review gate wanted. That is `fix-directly`: no book at all.
 - **A bespoke plan that needs no gates at all.** That is `author-promptbook`.
@@ -111,7 +111,7 @@ Kebab-case from the title, ASCII, ≤50 chars. Filename: `docs/promptbooks/activ
 ### Formal implementation reasoning
 
 New patch books use format two with explicit `implementation_slots: []`, or one
-slot named `patch` when selecting a significant replaceable approach. Freeze its
+slot named `patch` for a replaceable approach whose reasoning must survive retrieval. Freeze its
 slug, scope and direct Accepted architectural constraints before start. Select the
 formal revision before the existing verify-phase council. Retain that exact subject;
 the question assesses all five patch dimensions and architectural conflict.
@@ -132,8 +132,8 @@ uv run "${CRUX_PLUGIN_ROOT}/scripts/run-work-witness.py" record <run-RUN-NNN.yam
 ```
 
 Never create a witness after a refusal. Both book formats use the current
-attempt-aware gate. New formal closes retain context two/profile three;
-historical context one/profile two remains immutable and replay-only.
+attempt-aware gate. New formal closes retain context three/profile four;
+historical context two/profile three and context one/profile two remain immutable and replay-only.
 Finish any open Git merge or other sequence before council. Runner and recovery
 own attempt/result commits. Follow `run-promptbook`'s `references/gates.md` for
 authorized preflight repair, the third-refusal stop, process/lock checks and

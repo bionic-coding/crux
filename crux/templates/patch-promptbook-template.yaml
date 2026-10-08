@@ -99,7 +99,7 @@ strategy: |
 run_autonomy: |
   Both book formats execute with the current attempt-aware gate. New councils use
   council-record format two and attempt format one. New formal closes retain gate
-  context two/profile three; historical context one/profile two remains replay-only.
+  context three/profile four; historical context two/profile three and context one/profile two remain replay-only.
   Finish any open Git merge or other sequence before council. The runner or
   recovery alone commits attempt/result evidence; the historian commits run closes.
   After each initial or revised formal revision or migration-batch subject write,
@@ -148,7 +148,7 @@ prompts:
         uv run "${CRUX_PLUGIN_ROOT}/scripts/run-work-witness.py" record <run-RUN-NNN.yaml> --prompt <n> --path <run-RUN-NNN.yaml>
 
       Select a formal Implementation Decision before this verify phase's council
-      when its replaceable approach or material alternative must survive retrieval.
+      for a replaceable approach or material alternative whose reasoning must survive retrieval.
       Declare slot 'patch' before start. Author the exact decision revision.
       After each initial or revised write, immediately record its bytes:
 
@@ -501,6 +501,22 @@ prompts:
       one was written, journal entry, this run); stats (council rounds, gate
       loops, files changed, tests added); and any deferred work.
 
+      **Result record.** Skip this when the run's `implementation_bindings` is
+      empty. Otherwise, wait until the review reports are committed, and finish
+      before the advance below. Write one evidence file per
+      `implementation_bindings` entry in this run's directory. The shape is
+      defined by `${CRUX_PLUGIN_ROOT}/schemas/implementation-result.schema.json`;
+      `${CRUX_PLUGIN_ROOT}/templates/implementation-result-template.yaml` is an example.
+      Mark `delivery_state: complete` only when every decision scope entry is
+      covered and every file changed under the scope between
+      `preimage_revision` and `source_revision` is listed; otherwise mark it
+      `partial` when part of the scope was delivered, or `unimplemented` with empty
+      `scope` and `sources` when none was. Then run `uv run "${CRUX_PLUGIN_ROOT}/scripts/implementation-decisions.py"
+      result --decision <the entry's revision.path> --evidence <evidence file>`.
+      Commit the evidence file and the result record at the `written` path the
+      command prints, each by explicit path.
+      Record any `refused` code the result command prints in the run notes.
+
       THEN run `uv run "${CRUX_PLUGIN_ROOT}/scripts/advance-run.py"
       <run-RUN-NNN.yaml> --outcome done --result "summary written; archiving
       next" --book <book.yaml>`. This prompt's `result` records the
@@ -532,5 +548,6 @@ prompts:
     expected_output: |
       Completion summary written; the blast-radius check read as a three-lane
       gate; the book archived (or the run abandoned and re-authored in another
-      tier, with the reason recorded).
+      tier, with the reason recorded); a result record per implementation
+      binding, or none when implementation_bindings is empty.
     side_effects: [archive-promptbook]

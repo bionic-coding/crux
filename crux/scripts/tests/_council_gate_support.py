@@ -99,9 +99,75 @@ def init_repo(root: Path) -> Path:
     return root
 
 
-def commit_all(root: Path, msg: str = "c") -> None:
+def _commit_all_plain(root: Path, msg: str = "c") -> None:
     git(root, "add", "-A")
     git(root, "commit", "-q", "-m", msg)
+
+
+def _replay_with(root: Path, rel: str, blob: str | None) -> None:
+    """Rewrite every commit from the one that added `rel` through HEAD so that `rel` holds `blob`
+    there, or is absent when `blob` is None. The working tree is untouched."""
+    added = git(root, "log", "--diff-filter=A", "--format=%H", "--", rel).split()
+    if not added:
+        return
+    has_parent = subprocess.run(["git", "-C", str(root), "rev-parse", "--verify", "--quiet", added[-1] + "^"],
+                                capture_output=True, env=scrubbed_env()).returncode == 0
+    chain = git(root, "rev-list", "--reverse", "--ancestry-path",
+                added[-1] + "^..HEAD" if has_parent else "HEAD").split()
+    parent = git(root, "rev-parse", added[-1] + "^").strip() if has_parent else None
+    index = root / ".git" / "replay-index"
+    for commit in chain:
+        env = scrubbed_env()
+        env["GIT_INDEX_FILE"] = str(index)
+        env.update({"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull})
+
+        def run(*args, stdin=None):
+            r = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, env=env,
+                               input=stdin)
+            if r.returncode:
+                raise AssertionError(f"git {args} failed: {r.stderr}")
+            return r.stdout
+        run("read-tree", commit)
+        if run("ls-files", "--", rel).strip():
+            if blob is None:
+                run("update-index", "--force-remove", "--", rel)
+            else:
+                run("update-index", "--cacheinfo", f"100644,{blob},{rel}")
+        tree = run("write-tree").strip()
+        meta = run("log", "-1", "--format=%an%n%ae%n%aI%n%cn%n%ce%n%cI", commit).split("\n")
+        body = run("log", "-1", "--format=%B", commit)
+        env.update({"GIT_AUTHOR_NAME": meta[0], "GIT_AUTHOR_EMAIL": meta[1], "GIT_AUTHOR_DATE": meta[2],
+                    "GIT_COMMITTER_NAME": meta[3], "GIT_COMMITTER_EMAIL": meta[4],
+                    "GIT_COMMITTER_DATE": meta[5]})
+        args = ["commit-tree", tree] + (["-p", parent] if parent else [])
+        parent = run(*args, stdin=body).strip()
+    index.unlink(missing_ok=True)
+    git(root, "update-ref", "HEAD", parent)
+    git(root, "reset", "-q", "--mixed", parent)
+
+
+def commit_all(root: Path, msg: str = "c", reintroduce: tuple = ()) -> None:
+    """`commit_all`, except history keeps one introducing commit for each council record.
+
+    A modified committed council record replaces its blob in the commit that introduced it, and
+    every later commit is replayed on top. A path in `reintroduce` leaves the earlier commits and
+    joins this commit, so a fixture can make a record the newest one. A fixture that builds a
+    synthetic record and rewrites it before the close then keeps one introducing commit, as the
+    council runner's single commit of a record does. A test of a record modified after its commit
+    makes that commit itself, with `Env.commit_records` after an unrelated commit, or with `git`."""
+    root = Path(root)
+    if subprocess.run(["git", "-C", str(root), "rev-parse", "--verify", "--quiet", "HEAD"],
+                      capture_output=True, env=scrubbed_env()).returncode:
+        return _commit_all_plain(root, msg)
+    changed = git(root, "diff", "--name-only", "HEAD").split("\n")
+    records = [p for p in changed if "/council/" in p and p.endswith(".json") and not p.endswith(".attempt.json")
+               and (root / p).is_file()]
+    for rel in records:
+        _replay_with(root, rel, git(root, "hash-object", "-w", "--", rel).strip())
+    for rel in reintroduce:
+        _replay_with(root, rel, None)
+    if git(root, "status", "--porcelain").strip():
+        _commit_all_plain(root, msg)
 
 
 def index_blob(root: Path, name: bytes, content: bytes) -> None:
@@ -291,7 +357,15 @@ class Env:
         git(self.root, "add", "--", *rels)
         if subprocess.run(["git", "-C", str(self.root), "diff", "--cached", "--quiet", "--", *rels],
                           env=scrubbed_env()).returncode != 0:
-            git(self.root, "commit", "-q", "-m", msg, "--", *rels)
+            # Records are ordered by the commit that introduced them. A test that tries several
+            # variants of one record rewrites its path while HEAD is still the commit that added
+            # it; amending keeps one introducing commit, as a single committed record has.
+            added = [r for r in rels if git(self.root, "diff-tree", "--no-commit-id", "--name-status", "-r",
+                                            "HEAD", "--", r).startswith("A")]
+            if added and len(added) == len(rels):
+                git(self.root, "commit", "-q", "--amend", "--no-edit", "--", *rels)
+            else:
+                git(self.root, "commit", "-q", "-m", msg, "--", *rels)
 
     def write_sealed(self, name: str, doc: dict, folder: Path | None = None, commit: bool | None = None) -> Path:
         """Seal `doc` and write its canonical bytes, as the council runner does. Commits as `write`."""

@@ -157,8 +157,8 @@ or `--migration-batch`, the exact subject path and `--retain-subjects`.
 Keep a migration batch's role, slot and digest distinct from a revision.
 Combined books dispatch by structural module kind; an implementation module uses
 kind `implementation`. Both book formats use the current attempt-aware gate.
-New formal closes retain context two/profile three. Historical context one/profile two
-remains immutable and replay-only. Consult `run-promptbook`'s `references/gates.md`
+New formal closes retain context three/profile four. Historical context two/profile three and context one/profile two
+remain immutable and replay-only. Consult `run-promptbook`'s `references/gates.md`
 for authorized preflight repairs and its third-refusal stop.
 
 Unit reviews are independent review, never a council, and a dev module carries no council gate. When the commander asks you to run a council, you hold `Bash`: run `run-council.py` and return the council record's path. The council runner commits the attempt record and the council record itself: commit neither. On exit 2 whose stderr names `timeout`, or names outside work the commit moved, report a contradicted-premise stop first: the owner restores the set-aside work, then removes a stale `index.lock`. Then, as on every other exit 2 or when the council runner ends without an exit code or with a code other than 0, 1 and 2, run the process check, the lock probe and `run-council.py --recover <run> --prompt <n>` as `run-promptbook`'s `references/gates.md` directs, and never convene another round until recovery reports. In Codex, whether the sandbox allows the council runner's gateway egress is unverified. When the gateway is unreachable, the council runner writes a `could-not-run` record and the council defers to a human. Never seat reviewers as council members.

@@ -81,6 +81,9 @@ def main(argv=None) -> int:
                 docs_root, repo / p))} for p in args.paths]}
     except migration.Refused as exc:
         print(json.dumps({"authority": "none", "limit": exc.code}))
+        remedy = getattr(exc, "remedy", None)    # a path-free next step; stdout keeps its one line
+        if remedy:
+            print(json.dumps({"remedy": remedy}), file=sys.stderr)
         return 1
     except retained_evidence.RetainedEvidenceRefusal as exc:
         print(json.dumps({"authority": "none", "limit": str(exc)}))

@@ -556,6 +556,14 @@ def declared_input_domain(summaries: Path, *, _source_io=None) -> list[str] | No
     return doc["input_domain"]
 
 
+class _DomainRefusal(str):
+    """A refusal reason that also carries the migration refusal's path-free remedy, if any."""
+    def __new__(cls, reason: str, remedy: str | None):
+        text = super().__new__(cls, reason)
+        text.remedy = remedy
+        return text
+
+
 def declared_domain_refusal(root: Path, manifest: dict, summaries: Path) -> str | None:
     """ADR-0095 requirement 6: a regenerator refuses, fail-closed, to rewrite
     a projection whose declared domain names a source it cannot read.
@@ -583,7 +591,8 @@ def declared_domain_refusal(root: Path, manifest: dict, summaries: Path) -> str 
         try:
             view = migration.authority_view(root)
         except migration.Refused as exc:
-            return f"_meta.json declares migration inputs but their proof refuses: {exc}"
+            return _DomainRefusal(f"_meta.json declares migration inputs but their proof refuses: {exc}",
+                                  getattr(exc, "remedy", None))
         if view["state"] != "published":
             return "_meta.json declares migration inputs but no proved publication is available"
     return None

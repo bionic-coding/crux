@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 import yaml
@@ -23,6 +24,13 @@ def main(argv=None) -> int:
     validate = commands.add_parser("validate")
     validate.add_argument("record", type=Path)
     validate.add_argument("--repo-root", type=Path, default=Path.cwd())
+    unchecked = commands.add_parser("unchecked-rules")
+    unchecked.add_argument("--decision", type=Path, required=True)
+    unchecked.add_argument("--output", type=Path, required=True)
+    unchecked.add_argument("--repo-root", type=Path, default=Path.cwd())
+    audit = commands.add_parser("audit-order", help="report where profile-3 stamp order and committed order differ")
+    audit.add_argument("--repo-root", type=Path, default=Path.cwd())
+    audit.add_argument("--run", type=Path, default=None)
     for name in ("result", "query", "annotate"):
         command = commands.add_parser(name)
         command.add_argument("--decision", type=Path, required=True)
@@ -33,9 +41,20 @@ def main(argv=None) -> int:
             command.add_argument("--evidence", type=Path, required=True)
             command.add_argument("--output", type=Path, required=name == "annotate")
     args = parser.parse_args(argv)
+    if args.command == "audit-order":
+        # Read-only. Exit 2 only when the audit cannot start; every finding exits 0.
+        try:
+            print(json.dumps(ids.audit_order(args.repo_root, args.run), sort_keys=True))
+            return 0
+        except ids.AuditUnusable as exc:
+            print("audit-order: " + str(exc), file=sys.stderr)
+            return 2
     try:
         if args.command == "validate":
             result = ids.validate_decision(args.repo_root, args.record)
+        elif args.command == "unchecked-rules":
+            written = ids.write_unchecked_rules(args.repo_root, args.decision, args.output)
+            result = {"written": written.relative_to(args.repo_root.resolve()).as_posix(), "authority": "none"}
         elif args.command == "query":
             result = ids.query(args.repo_root, args.decision, args.revision)
         else:

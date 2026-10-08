@@ -460,6 +460,13 @@ def _patch_coverage_pass(doc: dict, prompts: list, e) -> None:
               f"#/blast_radius/{idx}")
 
 
+# The explicit declaration that no architectural constraint governs a slot's scope. The pattern
+# repeats the reason bound the two schemas state: one line of 1 to 500 characters with a
+# non-whitespace character.
+_DECLARATION_FIELD = "no_governing_constraint"
+_DECLARATION_REASON_PATTERN = r"^(?=[^\x00-\x1f\x7f]*\S)[^\x00-\x1f\x7f]{1,500}(?![\s\S])"
+
+
 class FormatTwoError(ValueError):
     """A bounded structural refusal safe for execution-boundary diagnostics."""
     def __init__(self, code):
@@ -488,12 +495,22 @@ def validate_format_two(book: dict) -> None:
     require(isinstance(slots, list), "slots-refused")
     for slot in slots:
         base = {"slot", "slug", "scope", "constraint_refs"}
-        require(isinstance(slot, dict) and set(slot) in (base, base | {"migration_batch"}),
+        require(isinstance(slot, dict) and base <= set(slot) and
+                set(slot) - base <= {"migration_batch", _DECLARATION_FIELD},
                 "slot-shape-refused")
+        declared = _DECLARATION_FIELD in slot
+        if declared:
+            require("migration_batch" not in slot, "migration-slot-declaration-refused")
+            marker = slot[_DECLARATION_FIELD]
+            require(isinstance(marker, dict) and set(marker) == {"reason"} and
+                    isinstance(marker["reason"], str) and
+                    re.match(_DECLARATION_REASON_PATTERN, marker["reason"]) is not None and
+                    slot["constraint_refs"] == [], "slot-declaration-refused")
         require(isinstance(slot["slug"], str) and re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", slot["slug"]),
                 "slot-slug-refused")
         require(isinstance(slot["scope"], list) and slot["scope"] and
-                isinstance(slot["constraint_refs"], list) and slot["constraint_refs"], "slot-scope-refused")
+                isinstance(slot["constraint_refs"], list) and (declared or slot["constraint_refs"]),
+                "slot-scope-refused")
         require(isinstance(slot["slot"], str) and re.fullmatch(r"(?:implementation|verify)-[1-9][0-9]*|patch", slot["slot"]),
                 "slot-kind-refused")
         require(all(isinstance(path, str) and path and not path.startswith("/") and
@@ -856,6 +873,48 @@ def duplicate_number_errors(path: Path, file_label: str) -> list[dict]:
             for msg in record_numbers.find_duplicate_numbers(docs, only=key)]
 
 
+def declared_empty_overlap_errors(path: Path, doc: dict, file_label: str) -> list[dict]:
+    """Authoring-time check: a declared-empty slot whose scope an undeclared live Accepted rule's
+    path scope overlaps, as validator errors.
+
+    The slot validator, `validate_format_two`, is structural and reads no repository. This reads the
+    committed Accepted rules of the repository the book sits in. A repository that cannot be read
+    (no git root, an uncommitted rule source) yields no finding here: council preflight, the
+    approval close and current eligibility each repeat the check against the committed tree."""
+    slots = doc.get("implementation_slots") if doc.get("format_version") == "2" else None
+    declared = [s for s in slots if isinstance(s, dict) and _DECLARATION_FIELD in s] \
+        if isinstance(slots, list) else []
+    if not declared:
+        return []
+    try:
+        import subprocess
+        top = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=path.resolve().parent,
+                             capture_output=True, text=True, check=True).stdout.strip()
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import implementation_approval as approval
+        repo = Path(top)
+        view = approval.live_constraints(repo, [])
+        out = []
+        for index, slot in enumerate(slots):
+            if not isinstance(slot, dict) or _DECLARATION_FIELD not in slot:
+                continue
+            found = approval.undeclared_governing_constraints(repo, slot["scope"], [], view)
+            if found["overlapping"]:
+                out.append({"file": file_label, "instance_path": f"#/implementation_slots/{index}",
+                            "schema_path": "#", "error": "declared-empty slot "
+                            f"{slot.get('slot')!r} overlaps the path scope of undeclared live rule(s) "
+                            + ", ".join(found["overlapping"])})
+        return out
+    except (subprocess.CalledProcessError, OSError, ValueError):
+        # Unreadable sources only: no git root, or an uncommitted rule source (`Refused` is a
+        # ValueError). A programming error propagates rather than reading as a clean check.
+        return []
+    except Exception as exc:  # noqa: BLE001
+        if type(exc).__name__ in ("RecordError", "PathRefused", "BionicConfigError", "YAMLError"):
+            return []
+        raise
+
+
 def validate_file(path: Path, kind_override: str | None) -> tuple[int, list[dict]]:
     """Validate one file. Returns (exit_code, errors)."""
     file_label = str(path)
@@ -899,6 +958,8 @@ def validate_file(path: Path, kind_override: str | None) -> tuple[int, list[dict
     if kind == "promptbook":
         cycle_coverage_pass(doc, errors, file_label)
     errors.extend(duplicate_number_errors(path, file_label))
+    if kind == "promptbook":
+        errors.extend(declared_empty_overlap_errors(path, doc, file_label))
 
     return (1 if errors else 0), errors
 

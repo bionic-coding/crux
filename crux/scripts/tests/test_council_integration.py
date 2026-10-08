@@ -20,6 +20,7 @@ import yaml
 from unittest import mock
 import council_gate as cg
 import council_history_v3 as policy
+import council_history_v4 as policy_four
 import council_records as cr
 
 
@@ -87,17 +88,20 @@ class ImplementationAttemptShapeTests(unittest.TestCase):
 
 class CurrentRetainedLocatorTests(unittest.TestCase):
     def test_declared_run_relative_and_legacy_repository_relative_names_share_one_locator(self):
+        def retained(repo, run_path, given):
+            return approval._policy_call(approval.supported_profile(approval.CONTRACT_VERSION), "retained_path",
+                                         repo, run_path, given)
         with tempfile.TemporaryDirectory() as folder:
             repo = Path(folder)
             run = repo / 'docs/promptbooks/runs/PB-0999-fixture/run-RUN-001.yaml'
             rel = 'docs/promptbooks/runs/PB-0999-fixture/council/subjects/revision.yaml'
-            self.assertEqual(approval._retained_path(repo, run, 'council/subjects/revision.yaml'), rel)
-            self.assertEqual(approval._retained_path(repo, run, rel), rel)
+            self.assertEqual(retained(repo, run, 'council/subjects/revision.yaml'), rel)
+            self.assertEqual(retained(repo, run, rel), rel)
             for given in ('revision.yaml', 'other/council/subjects/revision.yaml',
                           'docs/promptbooks/runs/another/council/subjects/revision.yaml',
                           'council/subjects/../revision.yaml', str(repo / rel)):
                 with self.subTest(given=given), self.assertRaises(approval.Refused):
-                    approval._retained_path(repo, run, given)
+                    retained(repo, run, given)
             self.assertEqual(list(repo.rglob('*')), [])
 
 
@@ -119,9 +123,9 @@ class SealedCurrentAdmissionTests(unittest.TestCase):
             seen = set()
             previous = sys.getprofile()
             def trace(frame, event, arg):
-                if event == 'call' and frame.f_globals.get('__name__') == policy.__name__:
+                if event == 'call' and frame.f_globals.get('__name__') == policy_four.__name__:
                     seen.add(frame.f_code.co_name)
-                if event == 'call' and frame.f_globals.get('__name__') == policy.start_snapshot_yaml.__name__:
+                if event == 'call' and frame.f_globals.get('__name__') == policy_four.start_snapshot_yaml.__name__:
                     seen.add('owned-yaml.' + frame.f_code.co_name)
             try:
                 sys.setprofile(trace)
@@ -135,11 +139,11 @@ class SealedCurrentAdmissionTests(unittest.TestCase):
             for field, value in (('format_version', '1'), ('start_identity', None),
                     ('records', [{'path': 'bad', 'sha256': 'wrong'}]), ('artifacts', ['../bad']), ('authority', True)):
                 changed = copy.deepcopy(context); changed[field] = value
-                with self.subTest(field=field), self.assertRaises(cr.RecordError): policy.validate_context(changed)
+                with self.subTest(field=field), self.assertRaises(cr.RecordError): policy_four.validate_context(changed)
             changed = copy.deepcopy(context); changed['contract']['version'] = '2'
-            with self.assertRaises(cr.RecordError): policy.validate_context(changed)
+            with self.assertRaises(cr.RecordError): policy_four.validate_context(changed)
             deciding = json.loads(fixture.receipt.read_bytes())
-            expected = policy.deciding_subject(fixture.root, fixture.run_path, deciding, binding['revision'])
+            expected = policy_four.deciding_subject(fixture.root, fixture.run_path, deciding, binding['revision'])
             self.assertEqual(expected, binding['retained_subject'])
             for fault in ('digest', 'missing', 'duplicate'):
                 changed = copy.deepcopy(deciding)
@@ -147,7 +151,7 @@ class SealedCurrentAdmissionTests(unittest.TestCase):
                 if fault == 'missing': changed['subjects'] = []
                 if fault == 'duplicate': changed['subjects'] *= 2
                 with self.subTest(fault=fault), self.assertRaises(cr.RecordError):
-                    policy.deciding_subject(fixture.root, fixture.run_path, changed, binding['revision'])
+                    policy_four.deciding_subject(fixture.root, fixture.run_path, changed, binding['revision'])
 
     def test_each_reached_semantic_helper_is_inside_candidate_contract(self):
         for name in ('retained_path', 'validate_context', 'context_records', 'deciding_subject'):
@@ -203,9 +207,9 @@ class CandidateCloseCompositionTests(unittest.TestCase):
             run = yaml.safe_load(fixture.run_path.read_bytes())
             binding = run['implementation_bindings'][0]
             context = json.loads((fixture.root / binding['context']['path']).read_bytes())
-            self.assertEqual(context['format_version'], '2')
-            self.assertEqual(context['contract']['version'], '3')
-            self.assertEqual(context['start_identity'], policy.start_identity(fixture.root, run, fixture.run_path))
+            self.assertEqual(context['format_version'], '3')
+            self.assertEqual(context['contract']['version'], '4')
+            self.assertEqual(context['start_identity'], policy_four.start_identity(fixture.root, run, fixture.run_path))
             from _council_gate_support import commit_all
             commit_all(fixture.root, 'synthetic committed current close')
             proof = approval.validate_historical_implementation_binding(fixture.root, fixture.run_path,
@@ -326,15 +330,15 @@ class ActualRunnerCloseTests(runner._Base):
         run = self.env.load_run()
         binding = run[container][0]
         context = json.loads((self.env.root / binding['context']['path']).read_bytes())
-        self.assertEqual((context['format_version'], context['contract']['version']), ('2', '3'))
+        self.assertEqual((context['format_version'], context['contract']['version']), ('3', '4'))
         self.assertTrue(any(item['path'].endswith('.attempt.json') for item in context['records']))
         consumer = approval.validate_historical_migration_binding if migration else approval.validate_historical_implementation_binding
         kwargs = {'batch_path': rel, 'batch_sha256': binding['batch']['sha256']} if migration else {
             'revision_path': rel, 'revision_sha256': binding['revision']['sha256']}
         seen = set(); previous = sys.getprofile()
         def trace(frame, event, arg):
-            if event == 'call' and frame.f_globals.get('__name__') == policy.__name__: seen.add(frame.f_code.co_name)
-            if event == 'call' and frame.f_globals.get('__name__') == policy.start_snapshot_yaml.__name__:
+            if event == 'call' and frame.f_globals.get('__name__') == policy_four.__name__: seen.add(frame.f_code.co_name)
+            if event == 'call' and frame.f_globals.get('__name__') == policy_four.start_snapshot_yaml.__name__:
                 seen.add('owned-yaml.' + frame.f_code.co_name)
         try:
             sys.setprofile(trace)

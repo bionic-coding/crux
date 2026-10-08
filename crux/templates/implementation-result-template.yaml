@@ -8,6 +8,8 @@ decision:
 delivery_state: partial
 source_revision: "0000000000000000000000000000000000000000"
 preimage_revision: "1111111111111111111111111111111111111111"
+# scope lists delivered files, never a directory. A directory entry in the
+# decision's scope is covered by listing each file changed under it.
 scope:
   - src/lookup.py
 sources:

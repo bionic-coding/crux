@@ -13,7 +13,7 @@ import re
 import subprocess
 import sys
 import tempfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import yaml
 
@@ -30,6 +30,30 @@ SCHEMA = Path(__file__).resolve().parent.parent / "schemas/implementation-migrat
 PILOT_SOURCES = {"ADR-0093", "ADR-0110", "ADR-0124", "ADR-0125"}
 MAX_SOURCE_BYTES = 2 * 1024 * 1024
 PUBLICATION_RECORD_TYPE = "implementation-migration-publication"
+#: Project-local skill roots, spelled as adr-signals.LOCAL_SKILLS_DIRS spells them.
+LOCAL_SKILLS_DIRS = (".claude/skills", ".agents/skills", ".opencode/skills", ".opencode/skill")
+#: Each skill root's forge-log.md, an append-only dated record. It is excluded for the reason the
+#: linter excludes log.md.
+FORGE_LOGS = frozenset(d + "/forge-log.md" for d in LOCAL_SKILLS_DIRS)
+#: The next step a citation-source refusal names. The refusal code stays the whole contract;
+#: a remedy is advice beside it, path-free, so it never carries an untrusted value.
+SYMLINK_SOURCE_REMEDY = (
+    "A file or directory the migration reads for citations is a symbolic link, or sits under one. "
+    "Replace a file link with a regular file, and a directory link with a real directory. "
+    "The scan reads root AGENTS.md, README.md, USER_GUIDE.md and CHANGELOG.md whether git tracks "
+    "them or not, so untracking never clears a link at one of those paths. "
+    "At any other path, `git rm --cached <path>` also clears the refusal. "
+    "`git ls-files -s` shows a tracked link with mode 120000. Then rerun.")
+SUBMODULE_SOURCE_REMEDY = (
+    "A submodule sits at or under a project-local skill root. A harness loads its skill files, "
+    "but this repository's index does not list them, so the migration cannot read them. "
+    "Vendor the skill as regular files tracked in this repository, then remove the submodule. "
+    "`git ls-files -s` shows a submodule with mode 160000. Then rerun.")
+ABSENT_SOURCE_REMEDY = (
+    "A tracked instruction or skill file is missing from the working tree. "
+    "Restore it, stage its deletion with `git rm <path>`, or widen the sparse checkout to include it. "
+    "`git ls-files --deleted` lists an unstaged deletion. "
+    "`git ls-files -t` marks a skip-worktree entry with S. Then rerun.")
 
 
 def _digest(content: bytes) -> str:
@@ -397,6 +421,9 @@ def _citation_inspection(repo: Path, batch: dict) -> tuple[list[dict], dict]:
             for name in ("AGENTS.md", "README.md", "USER_GUIDE.md", "CHANGELOG.md"):
                 path = repo / name
                 if source_io.metadata(path) is not None: files.append(path)
+            listed = set(files)
+            files += [path for path in _tracked_instruction_sources(repo, source_io, module)
+                      if path not in listed]
             briefs = Path(tree).relative_to(repo).as_posix() + "/briefs/"
             inspection = _inspect_citation_sources(repo, batch, module, files, source_io, briefs=briefs)
             source_io.revalidate()
@@ -405,14 +432,94 @@ def _citation_inspection(repo: Path, batch: dict) -> tuple[list[dict], dict]:
         raise Refused("migration-citation-scope-refused") from None
 
 
+def _tracked_instruction_sources(repo: Path, source_io, module) -> list[Path]:
+    """Tracked instruction files and tracked local-skill files: one source rule for both.
+
+    Membership is the git index, read through cr.git's isolated environment, so an exported
+    GIT_INDEX_FILE or GIT_DIR never redirects it. An untracked or ignored install never changes
+    the verdict. Every path returned is read from the working tree by the caller, through the same
+    leaf and ancestor symlink refusal, containment check and size bound as every other citation
+    source; nothing here follows a link.
+
+    A tracked link (index mode 120000) at or under a skill root is a candidate whatever its
+    suffix, so a linked skill directory reaches the leaf-link refusal instead of being skipped:
+    a harness loads the skill through the link. A submodule (index mode 160000) at or under a
+    skill root is refused here: a harness loads its skill files, and the index lists none of them.
+
+    A tracked directory link outside the skill roots is not followed. When its target is tracked
+    in this repository, the target's instruction files are already scanned at their real paths.
+    What remains is a target outside this index: out of the repository, ignored or untracked, or
+    under a directory name the linter excludes. That is a known limitation, and it matches the
+    membership rule above: content the index does not list never changes the verdict.
+
+    discover()'s exclusions are not applied: each decides what the instruction migration may
+    rewrite, and none decides what a harness loads. An instruction file is dropped only where the
+    linter's own walk drops a file, under an excluded directory name or an excluded prefix, because
+    those mark text that is not this repository's claim: test fixtures, dated records, third-party
+    captures, inbox drops and regenerated output. No skill-root file is dropped by directory name,
+    so a skill named `build` or `dist` stays in scope. The one skill-root file dropped is each
+    root's forge-log.md, an append-only dated record whose entries are never edited.
+
+    A tracked candidate with no working-tree entry is refused, whatever the cause: an unstaged
+    deletion, a skip-worktree bit or a sparse checkout. The index says the file is in force; the
+    gate vouches only for bytes it read."""
+    import instruction_migration as im
+    try:
+        listing = cr.git(repo, "ls-files", "-s", "-z")
+    except OSError:
+        raise Refused("migration-citation-scope-refused") from None
+    ap.require(listing.returncode == 0, "migration-citation-scope-refused")
+    # `-s` prints "<mode> <object> <stage>\t<path>"; a conflicted path lists once per stage.
+    modes: dict[str, set[str]] = {}
+    for record in listing.stdout.split(b"\0"):
+        if not record: continue
+        meta, sep, raw = record.partition(b"\t")
+        ap.require(bool(sep) and bool(raw), "migration-citation-scope-refused")
+        modes.setdefault(os.fsdecode(raw), set()).add(meta.split(b" ", 1)[0].decode("ascii"))
+    tracked = list(modes)
+    excluded = module.excluded_paths(repo, _source_io=source_io)
+    roots = set(LOCAL_SKILLS_DIRS) | {PurePosixPath(d).parent.as_posix() for d in LOCAL_SKILLS_DIRS}
+    paths = []
+    for rel in tracked:
+        name = PurePosixPath(rel)
+        under = any(rel.startswith(d + "/") for d in LOCAL_SKILLS_DIRS)
+        if (under or rel in roots) and "160000" in modes[rel]:
+            raise _with_remedy(Refused("migration-citation-scope-refused"), SUBMODULE_SOURCE_REMEDY)
+        skill = (under and (name.suffix in module.SCAN_EXTENSIONS or "120000" in modes[rel])
+                 or rel in roots)
+        # The index holds no directory entry: an entry AT a skill root or its parent is a link,
+        # a file or a submodule. Keeping it sends a linked root to the symlink refusal.
+        if rel in FORGE_LOGS or not (skill or im.is_instruction_name(name.name)):
+            continue
+        path = repo / rel
+        if not skill and (set(name.parts[:-1]) & module.EXCLUDED_DIR_NAMES
+                          or any(path == e or e in path.parents for e in excluded)):
+            continue
+        if source_io.metadata(path) is None:
+            raise _with_remedy(Refused("migration-source-unreadable"), ABSENT_SOURCE_REMEDY)
+        paths.append(path)
+    return paths
+
+
+def _with_remedy(refusal, remedy: str):
+    """Attach advice to a refusal without touching its code, which stays the whole contract."""
+    refusal.remedy = remedy
+    return refusal
+
+
 def _inspect_citation_sources(repo: Path, batch: dict, module, files, source_io,
                               briefs=None) -> tuple[list[dict], dict]:
     handles = {rule["handle"] for entry in batch["entries"] for rule in entry["affected_governs"]}
     slugs = {"rule:" + handle.split("/", 1)[1] for handle in handles}
     found = []; kinds = {"governing": [], "historical": []}
     for path in sorted(set(files)):
-        path, rel = _checked(repo, path)
-        ap.require(source_io.resolve(path) == path, "migration-symlink-refused")
+        try:
+            path, rel = _checked(repo, path)
+            ap.require(source_io.resolve(path) == path, "migration-symlink-refused")
+        except Refused as refusal:
+            if refusal.code == "migration-symlink-refused":
+                _with_remedy(refusal, SYMLINK_SOURCE_REMEDY)
+            raise
         metadata = source_io.metadata(path)
         ap.require(metadata is not None, "migration-source-unreadable")
         ap.require(metadata["st_size"] <= MAX_SOURCE_BYTES, "migration-source-oversize")

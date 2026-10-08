@@ -76,7 +76,7 @@ strategy: |
 run_autonomy: |
   Both book formats execute with the current attempt-aware gate. New councils use
   council-record format two and attempt format one. New formal closes retain gate
-  context two/profile three; historical context one/profile two remains replay-only.
+  context three/profile four; historical context two/profile three and context one/profile two remain replay-only.
   Finish any open Git merge or other sequence before council. The runner or
   recovery alone commits attempt/result evidence; the historian commits run closes.
   After each initial or revised formal revision or migration-batch subject write,
@@ -840,8 +840,13 @@ prompts:
       Do all of the following:
 
       1. **Changelog**: update the repo-root `CHANGELOG.md`'s `## [Unreleased]`
-         section with a 1–3 line entry for this change. Include a wiki-link to
-         the Accepted ADR's page under `adrs/`. (If the repo's release
+         section with a 1–3 line entry for this change. Reference the
+         decision by the modules this book declares. With ADR modules
+         (`modules.adrs`), include a wiki-link to each Accepted ADR's page
+         under `adrs/`. With implementation modules (`modules.implementations`),
+         name each approved revision path from the run's
+         `implementation_bindings[].revision.path` as reviewed intent. A book
+         with both does both. (If the repo's release
          workflow promotes Unreleased entries into the versioned section
          automatically on dispatch, do NOT hand-promote.)
       2. **Documentation**: run `audit-docs`. Address every BROKEN finding.
@@ -858,12 +863,30 @@ prompts:
          unapplied `fix` should be a deliberate choice you can state, not an
          oversight.
       5. **PR notes**: draft a PR body (do NOT open the PR yet) containing:
-         Summary (3 bullets), ADR link, Test plan (checklist), Risk notes,
+         Summary (3 bullets), decision references (ADR links under
+         `modules.adrs`, approved revision paths under
+         `modules.implementations`), Test plan (checklist), Risk notes,
          Breaking changes (if any). Store the draft in the run snapshot's
          `PR Draft` field.
+      6. **Result record**: skip this item when the run's
+         `implementation_bindings` is empty. Otherwise, wait until the review
+         reports are committed. Then write one evidence file per
+         `implementation_bindings` entry in this run's directory. The shape is
+         defined by `${CRUX_PLUGIN_ROOT}/schemas/implementation-result.schema.json`;
+         `${CRUX_PLUGIN_ROOT}/templates/implementation-result-template.yaml` is an example.
+         Mark `delivery_state: complete` only when every decision scope entry is
+         covered and every file changed under the scope between
+         `preimage_revision` and `source_revision` is listed; otherwise mark it
+         `partial` when part of the scope was delivered, or `unimplemented` with empty
+         `scope` and `sources` when none was. Then run `uv run "${CRUX_PLUGIN_ROOT}/scripts/implementation-decisions.py"
+         result --decision <the entry's revision.path> --evidence <evidence file>`.
+         Commit the evidence file and the result record at the `written` path the
+         command prints, each by explicit path.
+         Record any `refused` code the result command prints in the run notes.
     expected_output: |
       CHANGELOG updated; docs clean per audit-docs; journal entry written;
-      PR draft ready.
+      PR draft ready; a result record per implementation binding, or none when
+      implementation_bindings is empty.
     side_effects: [audit-docs, log-work]
 
   - n: 13
@@ -877,7 +900,11 @@ prompts:
     prompt: |
       Produce a markdown completion summary containing:
         - One-paragraph outcome statement.
-        - Links: the Accepted ADR's page (wiki-link under `adrs/`), CHANGELOG entry,
+        - Links: each Accepted ADR's page (wiki-link under `adrs/`, when the book
+          declares `modules.adrs`), each approved revision path from
+          `implementation_bindings[].revision.path` (when it declares
+          `modules.implementations`), each `result-NNN.yaml` the Prep result-record
+          step wrote (as delivery evidence), CHANGELOG entry,
           journal entry (`[[journal/YYYY-MM/<entry>]]`), this promptbook
           run (`[[promptbooks/runs/PB-NNNN-<slug>/RUN-NNN]]`).
         - Stats: total prompts, council rounds, dev quality-gate loops,

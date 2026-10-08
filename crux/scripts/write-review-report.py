@@ -24,8 +24,9 @@ What the writer binds and checks. Every refusal precedes the write.
    ``reviewer_role`` is always ``reviewer``.
 2. The subject. Each ``--path`` must be tracked, not a symlink, and unchanged in HEAD, the
    index and the working tree; its sha256 is read from HEAD. Each end of ``--range`` must
-   resolve to a commit, and the report records both ends as full 40-hex SHAs, so an
-   abbreviated SHA or a ref such as ``HEAD~1`` is recorded as the commit it named.
+   resolve to a commit, and the report records both ends as full commit ids (40 hex digits in
+   a SHA-1 repository, 64 in a SHA-256 repository), so an abbreviated id or a ref such as
+   ``HEAD~1`` is recorded as the commit it named.
 3. The text inputs. ``--verdict-file`` and each ``--finding-file`` keep model-written text
    out of the shell: the path must name a regular file, not a symlink, holding UTF-8; one
    trailing newline is removed and the rest is kept verbatim. Findings from files follow the
@@ -33,7 +34,8 @@ What the writer binds and checks. Every refusal precedes the write.
 4. The secret scan over the verdict, each finding and the reviewer, by key shape only,
    whether the text came from argv or a file. A refusal names the field and the shape, never
    the value. A secret with no known shape passes.
-5. The reviewer-report schema.
+5. The reviewer-report schema. The writer emits ``format_version`` ``"2"``, whose range admits
+   64-hex ends; ``council_records.reviewer_report_errors`` chooses the schema by format.
 6. The subject again with ``council_gate.subject_problems``, the implementation the gate
    runs. A range is checked only here.
 
@@ -353,14 +355,14 @@ def build(args: argparse.Namespace) -> tuple[dict, Path, Path, list[str]]:
     hits = ss.scan_fields(fields, exact=_exact())
     if hits:
         raise Refused(*[f"{field}: matched the secret scan ({shape})" for field, shape in hits])
-    doc = {"record_type": RECORD_TYPE, "format_version": "1", "written_at": _stamp()[1],
+    doc = {"record_type": RECORD_TYPE, "format_version": "2", "written_at": _stamp()[1],
            "book": {"id": run["book_id"],
                     "content_hash": run["book_content_hash"]},
            "run_id": run["run_id"], "prompt": args.prompt, "reviewer_role": "reviewer",
            "subject": subject, "verdict": verdict, "findings": findings}
     if args.reviewer is not None:
         doc["reviewer"] = args.reviewer
-    errors = cr.schema_errors(doc, RECORD_TYPE)
+    errors = cr.reviewer_report_errors(doc)
     if errors:
         raise Refused(*[f"the report fails its schema: {e}" for e in errors[:5]])
     problems = cg.subject_problems(repo, subject)

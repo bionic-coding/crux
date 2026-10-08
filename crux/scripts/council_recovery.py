@@ -34,7 +34,8 @@ and the pending copies:
   recovery, `--prompt N` was passed, prompt N's state in the run snapshot is neither `done` nor
   `blocked`, and the latest attempt in scope (highest round, then highest ordinal) is resolved by
   a record bound to prompt N, recovery recognises that record the same way. It does not when
-  another council record in scope bound to prompt N sorts after that record by `written_at` (a
+  another council record in scope bound to prompt N comes after that record in committed order
+  (an uncommitted record, a tie, or history that cannot order the records counts as later; a
   preflight could-not-run record names no attempt), or when prompt N's last claim line in
   `council-preflight.jsonl` names a later round or was written after that record (a released
   attempt leaves only its claim line).
@@ -513,8 +514,8 @@ def _latest_resolved(ctx: Ctx, states: list[cg.AttemptState], explicit_prompt: b
     was passed; that prompt's state in the run snapshot is neither `done` nor `blocked` (an
     advanced prompt already attached its record); the latest attempt in scope, by round and then
     ordinal, is resolved, so no later voided or open attempt follows it; its resolving record is
-    bound to that prompt; no other council record in scope bound to that prompt sorts after it by
-    `written_at` (`_later_record`); and the prompt's last claim line in the diagnostics log names
+    bound to that prompt; no other council record in scope bound to that prompt comes after it in
+    committed order, an uncommitted record counting as later (`_later_record`); and the prompt's last claim line in the diagnostics log names
     no later round or later attempt (`_later_claim`)."""
     if not explicit_prompt:
         return None
@@ -541,12 +542,12 @@ def _latest_resolved(ctx: Ctx, states: list[cg.AttemptState], explicit_prompt: b
 
 
 def _later_record(ctx: Ctx, resolving: cr.Record, records: list[cr.Record]) -> bool:
-    """True when a council record in scope, bound to the prompt, sorts after `resolving` by
-    `written_at` (the gate's record order), or ties with it. A preflight could-not-run record
-    carries no attempt, so the attempt order cannot see it. Records in HEAD whose working-tree file is gone
-    count too, and so do working-tree records not yet committed."""
-    stamp = resolving.doc.get("written_at")
-    if not isinstance(stamp, str):
+    """True when a council record in scope, bound to the prompt, sorts after `resolving` in the
+    gate's committed record order, or ties with it. A preflight could-not-run record carries no
+    attempt, so the attempt order cannot see it. Records in HEAD whose working-tree file is gone
+    count too, and so do working-tree records not yet committed: a record with no committed place
+    is later than every committed one. History that cannot order the records counts as later."""
+    if not isinstance(resolving.doc.get("written_at"), str):
         return True
     own = ctx.rel(resolving.path)
     docs: dict[str, dict] = {ctx.rel(r.path): r.doc for r in records if r.record_type == "council-record"}
@@ -555,13 +556,16 @@ def _later_record(ctx: Ctx, resolving: cr.Record, records: list[cr.Record]) -> b
             d = _parse(ctx.git.head_blob(rel) or b"")
             if d is not None and d.get("record_type") == "council-record":
                 docs[rel] = d
+    try:
+        order = cg.committed_order(ctx.run, ctx.run_dir, ctx.repo, ctx.module_tag, ctx.prompt)
+    except cr.RecordError:
+        return True
     for rel, d in docs.items():
         if rel == own or not cg._in_attempt_scope(d, ctx.run, ctx.module_tag, ctx.prompt):
             continue
         if (d.get("binding") or {}).get("prompt") != ctx.prompt:
             continue
-        other = d.get("written_at")
-        if not isinstance(other, str) or other >= stamp:
+        if rel not in order.commit or own not in order.commit or not order.before(rel, own):
             return True
     return False
 

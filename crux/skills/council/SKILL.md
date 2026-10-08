@@ -49,8 +49,8 @@ or a migration batch with `--migration-batch <batch-path>`. These selectors are
 mutually exclusive. Also pass that exact path as `--subject` with `--retain-subjects`.
 Keep a batch's role, slot and digest distinct from a revision. Record each subject's
 write-time witness before committing it; never attribute dirty bytes after a refusal.
-New formal closes retain context two/profile three. Historical context one/profile two
-remains immutable and replay-only, never selected from the book format.
+New formal closes retain context three/profile four. Historical context two/profile three
+and context one/profile two remain immutable and replay-only, never selected from the book format.
 
 `--prompt` is optional and defaults to the run's current prompt. The run, `--round`, `--question` and at least one `--subject` are required.
 

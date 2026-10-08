@@ -680,6 +680,49 @@ def resolve_book(run_path: Path | str, book_arg: Path | str | None = None) -> Re
     raise BookResolutionError(run_p, "no book found: tried " + ", ".join(str(c) for c in candidates))
 
 
+# ───────────────────────────── reviewer-report formats ─────────────────────────────
+
+#: Reviewer-report schema per `format_version`. Format 1 keeps its 40-hex range and is never
+#: widened; format 2 accepts a 64-hex range for a SHA-256 repository. Every reader of a reviewer
+#: report goes through `reviewer_report_errors` or `load_reviewer_report`. The gate policy kernels
+#: never call either, so no issued policy profile binds the format-2 schema.
+REVIEWER_REPORT_SCHEMAS = {"1": _SCHEMAS / "reviewer-report.schema.json",
+                           "2": _SCHEMAS / "reviewer-report-format-2.schema.json"}
+
+
+def reviewer_report_errors(doc: Any) -> list[str]:
+    """The schema errors of a reviewer report, chosen by its `format_version`.
+
+    An absent or unrecognized `format_version` is an error, never a default. Format 1 is judged
+    exactly as `schema_errors(doc, "reviewer-report")` judges it."""
+    if not isinstance(doc, dict):
+        return ["#: a reviewer report must be an object"]
+    version = doc.get("format_version")
+    if not isinstance(version, str) or version not in REVIEWER_REPORT_SCHEMAS:
+        return ["#/format_version: absent or not a supported reviewer-report format "
+                f"({', '.join(REVIEWER_REPORT_SCHEMAS)})"]
+    if version == "1":
+        return schema_errors(doc, "reviewer-report")
+    vp = _validator()
+    errors: list[dict] = []
+    vp.validate(doc, vp.load_schema(REVIEWER_REPORT_SCHEMAS[version]), "#", "#", errors, "reviewer-report")
+    return [f"{e['instance_path']}: {e['error']}" for e in errors]
+
+
+def _check_reviewer_aware(doc: Any, record_type: str) -> list[str]:
+    if record_type == "reviewer-report":
+        return reviewer_report_errors(doc)
+    return schema_errors(doc, record_type)
+
+
+def load_reviewer_report(path: Path | str) -> Record | None:
+    """`load_record` for a reviewer report: the schema is chosen by `format_version`.
+
+    Returns None for JSON whose `record_type` is not recognized, and raises `InvalidRecord` for an
+    unparseable file or a recognized record that fails its schema, as `load_record` does."""
+    return _load_record(path, _check_reviewer_aware)
+
+
 __all__ = [
     "canonical_bytes", "seal_of", "sealed", "seal_holds", "SEAL_PREFIX", "PENDING_SUBDIR",
     "pending_component", "open_pending_dir",

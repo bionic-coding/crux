@@ -105,7 +105,8 @@ class WrittenReport(WriterCase):
         self.assertEqual(self.env.rel(files[0]), out["path"])
         self.assertRegex(files[0].name, r"^RUN-001-p13-\d{8}T\d{12}Z-[0-9a-f]{8}\.json$")
         doc = json.loads(files[0].read_text())
-        self.assertEqual(cr.schema_errors(doc, "reviewer-report"), [])
+        self.assertEqual(doc["format_version"], "2")
+        self.assertEqual(cr.reviewer_report_errors(doc), [])
         self.assertEqual(doc["book"], {"id": "PB-0999", "content_hash": self.env.hash})
         self.assertEqual((doc["run_id"], doc["prompt"], doc["reviewer_role"]), ("RUN-001", 13, "reviewer"))
         self.assertEqual(doc["subject"]["paths"], [{"path": SUBJECT, "sha256": self.env.sha(SUBJECT)}])
@@ -551,7 +552,16 @@ class GateIntegration(unittest.TestCase):
     def test_report_copied_into_the_council_folder_is_still_refused_at_a_council_gate(self):
         rel = self.written("--path", SUBJECT, "--verdict", "APPROVE", prompt=COUNCIL_GATE_PROMPT)
         copy = self.env.council / "reviewer-copy.json"
-        copy.write_text((self.env.root / rel).read_text())
+        doc = json.loads((self.env.root / rel).read_text())
+        # A format-2 report is refused at the council gate by the format-1 record loader, which
+        # reads the council folder and does not know format 2. Format 1 keeps the original reason.
+        copy.write_text(json.dumps(doc))
+        refused = cg.evaluate_gate(self.council_gate(), self.env.load_run(), self.env.run_path,
+                                   self.env.root, [self.env.rel(copy)], "done")
+        self.assertEqual(refused.verdict, "refuse", refused)
+        self.assertTrue(any("fails the reviewer-report schema" in r for r in refused.reasons), refused.reasons)
+        doc["format_version"] = "1"
+        copy.write_text(json.dumps(doc))
         refused = cg.evaluate_gate(self.council_gate(), self.env.load_run(), self.env.run_path,
                                    self.env.root, [self.env.rel(copy)], "done")
         self.assertEqual(refused.verdict, "refuse", refused)

@@ -131,6 +131,13 @@ def build(root: Path, *, manifest: dict | None = None) -> dict[Path, str]:
     return {path: content.decode("utf-8") for path, content in dp._materialize_doctrine_outputs(plan, proven).items()}
 
 
+def _print_remedy(exc) -> None:
+    """Print a migration refusal's path-free next step on stderr, beside the unchanged code."""
+    remedy = getattr(exc, "remedy", None)
+    if isinstance(remedy, str) and remedy:
+        sys.stderr.write(json.dumps({"remedy": remedy}) + "\n")
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         description="Regenerate the doctrine projection (adrs/doctrine/) from "
@@ -148,6 +155,7 @@ def main(argv=None) -> int:
         return 1
     except Exception as exc:
         sys.stderr.write(f"compile-doctrine: {type(exc).__name__}: {exc}\n")
+        _print_remedy(exc)
         return 2
 
     if args.dry_run:
@@ -180,6 +188,7 @@ def main(argv=None) -> int:
             written.append(str(path.relative_to(root)))
     except Exception as exc:
         sys.stderr.write(f"compile-doctrine: {type(exc).__name__}: {exc}\n")
+        _print_remedy(exc)
         return 2
     print(json.dumps({"written": written}, sort_keys=True))
     return 0

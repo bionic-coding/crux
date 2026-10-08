@@ -39,8 +39,8 @@ contradicted premise before dispatching dependent work.
 
 Preserve the frozen book and its hash. Dispatch execution addenda to the historian.
 Both book formats use the current attempt-aware gate; never choose an approval
-profile from book format. New formal closes retain context two/profile three.
-Historical context one/profile two remains immutable and replay-only.
+profile from book format. New formal closes retain context three/profile four.
+Historical context two/profile three and context one/profile two remain immutable and replay-only.
 Dispatch a formal subject's author to record its write-time witness immediately
 after every initial or revised write, before committing the subject:
 `uv run "${CRUX_PLUGIN_ROOT}/scripts/run-work-witness.py" record <run> --prompt <n> --path <subject-path>`.

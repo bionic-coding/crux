@@ -127,8 +127,12 @@ A round that did not converge at place 3 or later stops with "the round bound is
 other stop applies to the gate; with another exception present (a held seat, a reused round
 number) the run stops on that one. The owner acts the same way on either.
 
-Record order is ascending `written_at`; two in-scope records with an equal stamp are a
-tie and stop the gate. A counted round is a council record with `outcome: ran` that is gate
+Record order is committed order: the commit that introduced each record, never its
+`written_at`. Two in-scope records on one commit, or on commits with no ancestry between them,
+are a tie and stop the gate. A `written_at` that contradicts the committed order, a record
+removed from history and a path with no single introducing commit stop it at 4.
+
+A counted round is a council record with `outcome: ran` that is gate
 evidence (a format-2 record only when it resolves the attempt it names); the gate counts places
 itself and never trusts a record's own `round`. A could-not-run record, a preflight
 could-not-run record and an attempt record take no place.
@@ -150,7 +154,7 @@ from pathlib import Path
 from typing import Any
 
 import council_records as cr
-import council_history_v3 as current_policy
+import council_history_v4 as current_policy
 
 GATE_CLASSES = ("council", "module-close", "independent-review")
 #: The could-not-run code the council runner writes on the third preflight refusal at one convening
@@ -167,7 +171,7 @@ REGISTRY_PATH = Path(__file__).resolve().parent / "crux" / "_config" / "llm_rout
 # ───────────────────────────── classification ─────────────────────────────
 
 
-from council_history_v3 import GateClass
+from council_history_v4 import GateClass
 
 
 def _tag(prompt: Any) -> Any:
@@ -403,28 +407,28 @@ def classify(book: dict, n: int, start: StartFields | None = None) -> GateClass:
 # ───────────────────────────── verdicts ─────────────────────────────
 
 
-from council_history_v3 import Verdict
+from council_history_v4 import Verdict
 
 
-from council_history_v3 import _refuse
+from council_history_v4 import _refuse
 
 
-from council_history_v3 import _rel
+from council_history_v4 import _rel
 
 
-from council_history_v3 import _bound
+from council_history_v4 import _bound
 
 
 # ───────────────────────────── seats and findings ─────────────────────────────
 
 
-from council_history_v3 import is_blocking
+from council_history_v4 import is_blocking
 
 
-from council_history_v3 import _responding
+from council_history_v4 import _responding
 
 
-from council_history_v3 import _scan_reduced
+from council_history_v4 import _scan_reduced
 
 
 def load_registry() -> tuple[dict | None, str | None]:
@@ -444,70 +448,73 @@ def load_registry() -> tuple[dict | None, str | None]:
     return reg, None
 
 
-from council_history_v3 import _registry_problem
+from council_history_v4 import _registry_problem
 
 
-from council_history_v3 import admissibility_problem
+from council_history_v4 import admissibility_problem
 
 
-from council_history_v3 import Round
+from council_history_v4 import Round
 
 
-from council_history_v3 import _analyze
+from council_history_v4 import _analyze
 
 
-from council_history_v3 import _all_findings
+from council_history_v4 import _all_findings
 
 
 # ───────────────────────────── refutation records ─────────────────────────────
 
 
-from council_history_v3 import Refutation
+from council_history_v4 import Refutation
 
 
-from council_history_v3 import derive_result
+from council_history_v4 import derive_result
 
 
-from council_history_v3 import _check_refutation
+from council_history_v4 import _check_refutation
 
 
 # ───────────────────────────── the council-class gate ─────────────────────────────
 
 
-from council_history_v3 import _subject_changes
+from council_history_v4 import _subject_changes
 
 
-from council_history_v3 import _attached
+from council_history_v4 import _attached
 
 
-from council_history_v3 import _scope
+from council_history_v4 import _scope
 
 
-from council_history_v3 import _walk_places
+from council_history_v4 import _walk_places
 
 
-from council_history_v3 import expected_round
+from council_history_v4 import expected_round
+
+
+from council_history_v4 import committed_order, OrderError
 
 
 # ───────────────────────────── council attempts ─────────────────────────────
 
 
-from council_history_v3 import AttemptState
+from council_history_v4 import AttemptState
 
 
-from council_history_v3 import _is_committed
+from council_history_v4 import _is_committed
 
 
-from council_history_v3 import _subject_pairs
+from council_history_v4 import _subject_pairs
 
 
-from council_history_v3 import resolution_problem
+from council_history_v4 import resolution_problem
 
 
-from council_history_v3 import _in_attempt_scope
+from council_history_v4 import _in_attempt_scope
 
 
-from council_history_v3 import _void_names
+from council_history_v4 import _void_names
 
 
 _RUN_WORK_BASE = re.compile(r"[0-9a-f]{7,64}")
@@ -543,22 +550,22 @@ def run_work_candidates(run: dict, run_path: Path | str | None, book_path: Path 
     return out
 
 
-from council_history_v3 import read_pending
+from council_history_v4 import read_pending
 
 
-from council_history_v3 import attempt_states
+from council_history_v4 import attempt_states
 
 
-from council_history_v3 import open_attempts
+from council_history_v4 import open_attempts
 
 
-from council_history_v3 import holding_attempts
+from council_history_v4 import holding_attempts
 
 
-from council_history_v3 import next_ordinal
+from council_history_v4 import next_ordinal
 
 
-from council_history_v3 import _evidence_councils
+from council_history_v4 import _evidence_councils
 
 
 #: The plugin's attempt schema. When the plugin's own source sits inside the repository (the
@@ -567,34 +574,34 @@ from council_history_v3 import _evidence_councils
 _ATTEMPT_SCHEMA = Path(__file__).resolve().parent.parent / "schemas" / "council-attempt.schema.json"
 
 
-from council_history_v3 import v1_admissible
+from council_history_v4 import v1_admissible
 
 
-from council_history_v3 import _recover_command
+from council_history_v4 import _recover_command
 
 
-from council_history_v3 import _recover_uncommitted
+from council_history_v4 import _recover_uncommitted
 
 
-from council_history_v3 import _names_committed_attempt
+from council_history_v4 import _names_committed_attempt
 
 
-from council_history_v3 import _uncommitted_problem
+from council_history_v4 import _uncommitted_problem
 
 
-from council_history_v3 import _removed_record_problem
+from council_history_v4 import _removed_record_problem
 
 
-from council_history_v3 import _snapshot_named_problem
+from council_history_v4 import _snapshot_named_problem
 
 
-from council_history_v3 import _head_records_naming
+from council_history_v4 import _head_records_naming
 
 
-from council_history_v3 import _void_problems
+from council_history_v4 import _void_problems
 
 
-from council_history_v3 import _open_attempt_verdict
+from council_history_v4 import _open_attempt_verdict
 
 
 def evaluate_council_gate(gate, run, run_path, repo, artifacts, start=None):
@@ -732,7 +739,7 @@ def evaluate_review_gate(gate: GateClass, run: dict, repo: Path | None, artifact
         if not absolute.name.endswith(".json"):
             return _refuse(f"attached artifact {a} is not a reviewer report (.json)")
         try:
-            rec = cr.load_record(absolute)
+            rec = cr.load_reviewer_report(absolute)
         except cr.RecordError as exc:
             return _refuse(f"attached artifact {a} is not a valid reviewer report: {exc.message}")
         if rec is None:
@@ -746,7 +753,7 @@ def evaluate_review_gate(gate: GateClass, run: dict, repo: Path | None, artifact
     problems: list[str] = []
     for rec in reports:
         problems.extend(_report_problems(rec, run, gate.n, repo))
-    latest = max(reports, key=lambda r: r.doc["written_at"])
+    latest = reports[-1]  # the last attached report names the decision; no wall clock
     name = _rel(repo, latest.path)
     if problems:
         return _refuse(*problems, deciding=name)

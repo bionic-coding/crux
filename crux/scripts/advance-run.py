@@ -972,9 +972,9 @@ _COUNCIL_EVIDENCE = ("a committed council record that names run-council.py as it
                      "decides: attach its attempt record with --outcome blocked")
 
 _REQUIRES = {
-    "council": _COUNCIL_EVIDENCE + "; the newest record by written_at decides: it converges, or in an adr "
+    "council": _COUNCIL_EVIDENCE + "; the record committed last decides: it converges, or in an adr "
                "module a refutation record shows every blocking finding refuted",
-    "module-close": _COUNCIL_EVIDENCE + "; the deciding record is the newest by written_at: a council "
+    "module-close": _COUNCIL_EVIDENCE + "; the deciding record is the one committed last: a council "
                     "record, or in an adr module a refutation record; a module whose council ran before "
                     "records existed closes only on a round convened at module close with run-council.py",
     "independent-review": "a reviewer report for this book, run and prompt, attached with --artifacts, "

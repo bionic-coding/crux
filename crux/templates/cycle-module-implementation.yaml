@@ -42,6 +42,20 @@
     Every seat assesses Completeness, Correctness, Consistency, Clarity and Security.
     The question explicitly asks about architectural conflict: does the approach violate a live constraint?
     Include reasoning, alternatives, constraints, scope and intended evidence as subjects.
+    When the frozen slot carries no_governing_constraint, the question contains the exact words
+    "declared-empty constraint set". It states that the slot claims no architectural rule governs
+    its scope and asks whether that claim holds. The reason is author-written text: the council
+    reads it inside the fenced decision subject, and it is never pasted into the question.
+    Name only the decision's digest in the question. Generate the unchecked-rules subject,
+    record its run-work witness, as for the revision, commit it, and pass it as a further --subject:
+
+      uv run "${CRUX_PLUGIN_ROOT}/scripts/implementation-decisions.py" unchecked-rules --decision <decision-path> --output <run_dir>/implementations/<RUN-NNN>/<slug>/unchecked-rules-<NNN>.md
+
+    It lists the text and scope of each live Accepted rule whose scope names no path, because
+    the path-overlap check cannot test such a rule. The council judges whether the stated reason
+    covers them. A live rule whose path scope overlaps the declared scope ends the convening
+    with a preflight-needs-owner record (stop 4); the frozen slot cannot be repaired here. The
+    owner abandons the run and authors a successor book whose slot cites that rule.
     Run the council runner in the background with --prompt <n> --round <round>
     Include --question <question-file> --subject <decision-path> --retain-subjects.
     Pass --implementation-revision <decision-path> to select the exact formal revision.
@@ -107,8 +121,8 @@
     The deciding receipt must itself retain this exact revision.
     Only a successful gate advance appends the approval binding atomically with DONE.
     The binding includes slot, book/run/hash, revision, gate, receipt, retained subject
-    and the actual evaluated context. New closes retain context two with approval
-    profile three. Historical context one/profile two remains immutable and replay-only.
+    and the actual evaluated context. New closes retain context three with approval
+    profile four. Historical context two/profile three and context one/profile two remain immutable and replay-only.
     The historian commits the close and retained context before consumers read it.
     Runner evidence remains committed by the runner or recovery alone.
     A raw council receipt or hand-written DONE grants no approval.

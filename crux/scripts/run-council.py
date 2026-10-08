@@ -406,6 +406,8 @@ class Ctx:
     #: What a refused commit reported (`CommitRefused.moved` and `.staged`), for the exit-2 message.
     moved: tuple = ()
     staged: tuple = ()
+    #: Preflight causes found while binding the selected subject, outside the conductor's authority.
+    owner_causes: list = field(default_factory=list)
 
     @property
     def exact(self) -> list[str]:
@@ -1221,7 +1223,7 @@ def _subject_code(ctx: Ctx, s: Item, candidates: Any) -> str | None:
 def preflight_causes(ctx: Ctx) -> list[Cause]:
     """Every preflight cause, question first then subjects in order. A subject that passes is
     marked clean, so only it can be retained."""
-    causes: list[Cause] = []
+    causes: list[Cause] = list(ctx.owner_causes)
     if ctx.question.code is not None:
         causes.append(Cause("question.path", ctx.question.code))
     cache: dict[str, set[str]] = {}
@@ -1557,6 +1559,7 @@ def _selected_revision(ctx: Ctx, book: dict, given: str) -> None:
     matching = [subject for subject in ctx.subjects if subject.label == item.label]
     if len(matching) != 1 or matching[0].sha != item.sha:
         raise Fatal("the exact selected Implementation Decision must occur once as --subject")
+    declaration, overlap = None, []
     try:
         decision, run_path, _ = decisions._decision(ctx.repo, ctx.repo / item.label)
         approval.require(run_path == ctx.run_dir / ("run-" + ctx.run_id + ".yaml"),
@@ -1570,12 +1573,21 @@ def _selected_revision(ctx: Ctx, book: dict, given: str) -> None:
         slot = slots[0]
         approval.require("migration_batch" not in slot, "selected-subject-role-refused")
         approval.require(all(decision[field] == slot[field]
-                             for field in ("slot", "slug", "scope", "constraint_refs")),
+                             for field in ("slot", "slug", "scope", "constraint_refs")) and
+                         decision.get(approval.DECLARATION_FIELD) == slot.get(approval.DECLARATION_FIELD),
                          "decision-slot-mismatch")
         approval.live_constraints(ctx.repo, decision["constraint_refs"])
+        declaration = approval.declaration_of(slot)
+        if declaration is not None:
+            found = approval.declared_empty_findings(ctx.repo, slot)
+            if found["overlapping"]:
+                # The slot is frozen, so the conductor cannot repair this: a stop for the owner.
+                # The question check runs first, so a missing claim is still reported as that.
+                overlap = [Cause("implementation.scope", "undeclared-governing-constraint")]
     except approval.Refused as exc:
         raise Fatal("the selected Implementation Decision was refused: " + exc.code) from None
-    _selected_question(ctx, item)
+    _selected_question(ctx, item, declaration)
+    ctx.owner_causes.extend(overlap)
 
 
 def _selected_batch(ctx: Ctx, book: dict, given: str) -> None:
@@ -1601,7 +1613,7 @@ def _selected_batch(ctx: Ctx, book: dict, given: str) -> None:
             batch_path=rel, batch_sha256=cr.sha256_bytes(content))
     except approval.Refused as exc:
         raise Fatal("the selected migration batch was refused: " + exc.code) from None
-    _selected_question(ctx, matching[0])
+    _selected_question(ctx, matching[0], None)
 
 
 def _selector_required(book: dict, kind: str, module_tag: str | None) -> bool:
@@ -1616,20 +1628,22 @@ def _selector_required(book: dict, kind: str, module_tag: str | None) -> bool:
         item.get("slot") == slot for item in book.get("implementation_slots", []) if isinstance(item, dict))
 
 
-def _selected_question(ctx: Ctx, item: Item) -> None:
+def _selected_question(ctx: Ctx, item: Item, declaration: dict | None = None) -> None:
     """The close re-checks the sealed question with the same function, so both admit one question."""
     import implementation_approval as approval
 
     question = ctx.question.text or ""
     subjects = [{"path": s.label, "sha256": s.sha} for s in ctx.subjects]
     code = approval.selected_question_refusal(question, ctx.kind, {"path": item.label, "sha256": item.sha},
-                                              subjects)
+                                              subjects, declaration)
     if code == "deciding-question-revision-missing":
         raise Fatal("the council question must name the selected revision path and SHA256")
     if code == "deciding-question-selection-ambiguous":
         raise Fatal("the council question must name the SHA256 of the selected subject only")
     if code == "deciding-question-dimensions-missing":
         raise Fatal("the council question must name all five council dimensions")
+    if code == "deciding-question-declaration-missing":
+        raise Fatal("the council question must name the declared-empty constraint set")
     if code is not None:
         raise Fatal("the council question must assess architectural conflict")
 

@@ -124,7 +124,7 @@ accept "should pass". Evidence before any approval; match success claims on
 meaning, not keywords. For formal implementation or migration approval, inspect
 the exact declared subject role, slot, path and digest. Review the question and
 retained reasoning, not subject inclusion alone. New formal closes retain context
-two/profile three; historical context one/profile two stays immutable and replay-only.
+three/profile four; historical context two/profile three and context one/profile two stay immutable and replay-only.
 Book format never selects the live attempt policy. Approval establishes reviewed
 intent; delivery and current source state need their separate evidence.
 Report missing write-time witnesses or unresolved attempts to the commissioning

@@ -276,9 +276,11 @@ def _read_phase(root: Path) -> dict[Path, str] | int:
         return 1
     except Exception as exc:
         sys.stderr.write(f"summarize-adrs: {type(exc).__name__}: {exc}\n")
+        _print_remedy(exc)
         return 2
     if refusal is not None:
         sys.stderr.write(f"summarize-adrs: refusing to rewrite: {refusal}\n")
+        _print_remedy(refusal)    # a migration refusal's remedy rides on the reason
         return 2
 
     try:
@@ -288,8 +290,16 @@ def _read_phase(root: Path) -> dict[Path, str] | int:
         return 1
     except Exception as exc:
         sys.stderr.write(f"summarize-adrs: {type(exc).__name__}: {exc}\n")
+        _print_remedy(exc)
         return 2
     return wanted
+
+
+def _print_remedy(exc) -> None:
+    """Print a migration refusal's path-free next step on stderr, beside the unchanged code."""
+    remedy = getattr(exc, "remedy", None)
+    if isinstance(remedy, str) and remedy:
+        sys.stderr.write(json.dumps({"remedy": remedy}) + "\n")
 
 
 def main(argv=None) -> int:
@@ -306,6 +316,7 @@ def main(argv=None) -> int:
         import implementation_migration as migration
     except Exception as exc:
         sys.stderr.write(f"summarize-adrs: {type(exc).__name__}: {exc}\n")
+        _print_remedy(exc)
         return 2
     with migration.read_scope():
         wanted = _read_phase(root)
@@ -345,6 +356,7 @@ def main(argv=None) -> int:
             written.append(str(path.relative_to(root)))
     except Exception as exc:
         sys.stderr.write(f"summarize-adrs: {type(exc).__name__}: {exc}\n")
+        _print_remedy(exc)
         return 2
     print(json.dumps({"written": written}, sort_keys=True))
     return 0

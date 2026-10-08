@@ -224,10 +224,11 @@ class CouncilGateEvidenceTests(_Case):
         self.assertEqual(self.states()[0][3], "blocked")
 
     def test_disclosed_tampering_a_re_advance_naming_another_record_lets_a_committed_deletion_clear(self):
-        """Pins the committed-tampering case gates.md section 10 discloses: a re-advance of the
-        blocked prompt replaces its artifacts and keeps the old list only in the run's notes, which
-        the gate does not read. A committed deletion of the held record then clears its stop. If
-        the last advance starts refusing, the case has closed: update that disclosure."""
+        """The committed-tampering case gates.md section 10 disclosed under the stamp order: a
+        re-advance of the blocked prompt replaces its artifacts and keeps the old list only in the
+        run's notes, which the gate does not read. Under the committed order a committed deletion
+        of the held record is a permanent stop at 4, and gates.md section 10 no longer discloses
+        the window."""
         held = self.council(decisions=(RC, OK, OK))
         proc = self.cli("--outcome", "blocked", "--result", "held round", "--artifacts", self.artifacts(held))
         self.assertEqual((proc.returncode, self.out(proc)["gate"]["stops"]), (0, [1]))
@@ -248,7 +249,9 @@ class CouncilGateEvidenceTests(_Case):
         sup.git(self.env.root, "rm", "-q", "--", self.env.rel(held))
         sup.git(self.env.root, "commit", "-q", "-m", "drop the held record again")
         proc = self.cli("--outcome", "done", "--artifacts", self.artifacts(r2))
-        self.assertEqual((proc.returncode, self.out(proc)["gate"]["verdict"]), (0, "pass"), proc.stdout)
+        gate = self.out(proc)["gate"]
+        self.assertEqual((proc.returncode, gate["verdict"], gate["stops"]), (1, "stop", [4]), proc.stdout)
+        self.assertIn(self.env.rel(held), " ".join(gate["reasons"]))
 
     def test_a_could_not_run_stop_clears_when_the_council_reconvenes_at_the_same_round(self):
         cnr = self.council("r0.json", outcome="could-not-run")
@@ -1470,12 +1473,12 @@ class GateInfoRequiresTextTests(_Case):
                           "current router registry assignment", text)
             self.assertIn("attach the deciding record, council or refutation, committed, with --artifacts",
                           text)
-            self.assertIn("newest", text)
+            self.assertIn("committed last", text)
             self.assertNotIn("the latest record decides", text)
             self.assertNotIn("only convergence closes the gate", text)
-        self.assertIn("the newest record by written_at decides: it converges, or in an adr module a "
+        self.assertIn("the record committed last decides: it converges, or in an adr module a "
                       "refutation record shows every blocking finding refuted", council)
-        self.assertIn("the deciding record is the newest by written_at: a council record, or in an adr "
+        self.assertIn("the deciding record is the one committed last: a council record, or in an adr "
                       "module a refutation record", close)
         self.assertIn("run-council.py", close)
 

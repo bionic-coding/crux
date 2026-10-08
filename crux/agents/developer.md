@@ -59,6 +59,9 @@ revision, binding and scope it names, within the architectural constraints it
 cites. Stop and report `NEEDS_CONTEXT` when the work needs reasoning the
 approved revision does not carry, because only a fresh council can approve it.
 You do not revoke or transition an earlier choice that your work replaces.
+Only the current run's selected approval binding defines delivery intent. An
+earlier Implementation Decision supplied as background imposes no obligation to
+keep its approach.
 
 ## Embedded disciplines
 - **TDD (Iron Law):** Test-first is the default: write a **failing** test, watch

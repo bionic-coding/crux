@@ -46,7 +46,7 @@ pass that now enforces `dev-cycle`'s `cycle_kind: adr` books). Assembly is
 | **Verify** — research & reproduce, council-review the diagnosis (5 dims incl. Security + the "this is actually architectural → use dev-cycle" escape verdict, the token `ARCHITECTURAL`, which the gate check reads as the contradicted-premise stop), address findings, commit-approach | 4 | `verify-{M}` | `${CRUX_PLUGIN_ROOT}/templates/cycle-module-verify.yaml` |
 | **Dev** — derive plan, implement, quality gates, internal review | 4 | `dev-{M}` | `${CRUX_PLUGIN_ROOT}/templates/cycle-module-dev.yaml` |
 | **Review** — external multi-dim review + multi-subagent security review + test/doc + dev-practice conformance audit, fix-loop | 3 | `review-{M}` | `${CRUX_PLUGIN_ROOT}/templates/cycle-module-review.yaml` |
-| **Prep (fixed)** — changelog, docs, journal, PR draft | 1 | _none_ | inline (last-2 of `iterate-promptbook-template.yaml`) |
+| **Prep (fixed)** — changelog, docs, journal, result record, PR draft | 1 | _none_ | inline (last-2 of `iterate-promptbook-template.yaml`) |
 | **Summary (fixed)** — completion report + archive | 1 | _none_ | inline (last-1 of `iterate-promptbook-template.yaml`) |
 
 The dev + review module partials are **reused unedited from `dev-cycle`** —
@@ -113,8 +113,11 @@ and exactly 2 untagged (prep + summary) prompts.
   **not** introduce a new architectural decision.
 
 Do **NOT** use this skill for:
-- **Net-new or architectural work** — a feature, a new contract, a decision worth
-  recording. Use `dev-cycle` (it has the ADR module). If an iterate cycle's
+- **Net-new or architectural work** — a feature, a new contract, or a change to an
+  enduring constraint. Use `dev-cycle` (it has the ADR module). A replaceable
+  approach whose reasoning must survive retrieval changes no enduring constraint.
+  Declare a verify slot for it before start, and record it as an Implementation
+  Decision in that slot. The existing verify council reviews that revision. If an iterate cycle's
   verify council concludes the work is actually architectural, it STOPS and
   routes the user to `dev-cycle` (the escape verdict).
 - **A reversible fix you can bound by declared paths and finish in one implement
@@ -132,8 +135,8 @@ Do **NOT** use this skill for:
 
 ### Formal implementation reasoning within verify
 
-Declare a verify-N slot before start when the replaceable approach or material
-alternative must survive retrieval. Explicit `implementation_slots: []` permits
+Declare a verify-N slot before start for a replaceable approach or material
+alternative whose reasoning must survive retrieval. Explicit `implementation_slots: []` permits
 incidental choices without a formal record. For a selected formal record, retain
 its exact revision in the existing council and ask every diagnosis dimension plus
 architectural conflict. Diagnosis-only approval is insufficient. Successful ordinal-four
@@ -152,8 +155,8 @@ uv run "${CRUX_PLUGIN_ROOT}/scripts/run-work-witness.py" record <run-RUN-NNN.yam
 ```
 
 Never create a witness after a refusal. Both book formats use the current
-attempt-aware gate. New formal closes retain context two/profile three;
-historical context one/profile two remains immutable and replay-only.
+attempt-aware gate. New formal closes retain context three/profile four;
+historical context two/profile three and context one/profile two remain immutable and replay-only.
 Finish any open Git merge or other sequence before council. Runner and recovery
 own attempt/result commits. Follow `run-promptbook`'s `references/gates.md` for
 authorized preflight repair, the third-refusal stop, process/lock checks and
@@ -371,7 +374,7 @@ Body: id, title, `total_prompts`, modules `(V×verify, D×dev, R×review)`, note
 
 | Excuse | Reality |
 |---|---|
-| "This bug is architectural-ish; I'll just iterate it." | If it needs a decision, it needs `dev-cycle` (an ADR). The verify council exists to catch this — but don't knowingly mis-route. |
+| "This bug is architectural-ish; I'll just iterate it." | If the fix changes an enduring constraint, it needs `dev-cycle` (an ADR). A replaceable approach whose reasoning must survive retrieval stays here: declare a verify slot before start and record it as an Implementation Decision. The verify council exists to catch mis-routes — but don't knowingly mis-route. |
 | "The fix is tiny; I'll cut to 8 prompts." | < 13 isn't a cycle. A defect that passes the sizing test is `fix-directly`; a bounded fix that wants the gates is `patch-cycle`. The rigor is proportional to the work. |
 | "No ADR means I can skip the council." | The council is the whole point — it reviews the verified *diagnosis* instead of an ADR. Invariant #2. |
 | "I'll tag it `cycle_kind: adr` to reuse the dev-cycle template." | An iterate book is `verify`-kind. Mixing adr/verify fails the cycle-coverage pass. |

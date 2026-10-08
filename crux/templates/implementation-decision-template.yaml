@@ -13,6 +13,12 @@ scope:
   - src/lookup.py
 constraint_refs:
   - ADR-NNNN/example-constraint
+# Optional. When no architectural rule governs the scope, declare that instead of citing an
+# irrelevant rule. Replace the list above with "constraint_refs: []" and add the marker below.
+# The frozen book slot must carry the identical marker, reason included. The reason is one line
+# of 1 to 500 characters. A slot that names a migration batch never carries the marker.
+# no_governing_constraint:
+#   reason: "A one-off data-repair script outside every module the architecture describes."
 reasoning: "Explain the problem and why the evidence supports this choice."
 alternatives:
   - "Describe another approach and its tradeoffs."

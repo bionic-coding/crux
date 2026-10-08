@@ -49,8 +49,8 @@ Book/run format and council evidence versions are independent. Live execution of
 both book formats uses the current attempt-aware gate. New council records use
 format two and attempts use format one. A legacy council record is admissible
 only when committed run-start history proves its pre-cutover base.
-New formal closes retain gate context two with approval profile three.
-Historical context one/profile two remains immutable and serves historical replay only.
+New formal closes retain gate context three with approval profile four.
+Historical context two/profile three and context one/profile two remain immutable and serve historical replay only.
 Never choose an approval profile from the book format or substitute a current registry
 for a committed historical context. Unknown or inconsistent context refuses approval.
 Keep frozen books unchanged; record execution corrections through the owning historian.

@@ -1,4 +1,4 @@
-<!-- generated-from: CHANGELOG.md@sha256:35ed05434fb8e958d6d6f5646dbbcabeffdd6b2003ba1a498d5188a847db0f91; model: claude-sonnet-5.5; date: 2026-10-07 -->
+<!-- generated-from: CHANGELOG.md@sha256:697ce087466e78399c97672ae5a0d5fd8bb26c53bbdd5641d6b03961b10f1021; model: claude-sonnet-5.5; date: 2026-10-08 -->
 # Changelog
 
 All notable changes to crux. The format roughly follows [Keep a Changelog](https://keepachangelog.com/) and the project adheres to [Semantic Versioning](https://semver.org/).
@@ -12,6 +12,39 @@ All notable changes to crux. The format roughly follows [Keep a Changelog](https
 ### Fixed
 
 ### Removed
+
+## [3.26.2] — 2026-10-08
+
+### Added
+
+- An Implementation Decision can declare an empty constraint set and give a reason. Council preflight, the approval close and current eligibility refuse the declaration if an undeclared live rule's path scope overlaps the decision's scope.
+- SHA-256 repositories can now write and gate commit-range review reports (format 2). Reports for SHA-1 ranges are unchanged.
+
+### Changed
+
+- `iterate` and `patch-cycle` now route on whether an enduring constraint changes. A replaceable approach whose reasoning must survive retrieval stays an Implementation Decision instead of becoming an ADR.
+- A completion prompt in an implementation-only cycle now references the reviewed Implementation Decision. Before, it required Accepted ADR references.
+- The cycle, `iterate` and patch templates now direct the agent to write the result record.
+- The developer handoff now states that only the current run's approval binding defines delivery intent.
+- A council gate now orders its evidence by committed history, not by the host clock. A record committed first can no longer outrank a record committed later, even when a rolled-back clock stamps the later record earlier. When history contradicts a stamp, the gate stops and names both records.
+
+### Fixed
+
+- The Codex guide no longer says a Codex council cannot begin. The workspace-write sandbox keeps the git directory read-only, so an unapproved invocation still fails before any model request. With approvals enabled, the agent requests escalation for the whole `run-council.py` command, and the council runs. The 3.26.0 release notes repeated the old claim.
+- Implementation migration now refuses a governing citation of a demoted rule in any tracked instruction file, including nested `AGENTS.md` and `CLAUDE.md`. It does the same in any project-local skill under `.claude/skills`, `.agents/skills`, `.opencode/skills` or `.opencode/skill`. Before, it checked only the root instruction files.
+- Once a migration is published, a tracked link or submodule under a skill root is refused with a remedy, even a link that only mirrors a skill directory. A tracked instruction or skill file that is missing from the working tree (sparse checkout, skip-worktree or unstaged deletion) is refused with `migration-source-unreadable`.
+- The governing readers now refuse in the same way. `summarize-adrs`, `compile-doctrine` and the `query-docs` authority view print a `{"remedy": ...}` line on stderr.
+- A directory-scoped Implementation Decision can now record complete delivery. A rename review now covers the old path. A dangling symlink no longer counts as an absent source.
+- A decision label returned by a council seat no longer reaches INFO logs. The log shows a fixed label in place of an unknown value.
+- The diagnosis and fix history for these fixes is recorded in the development repository's journal and run records.
+
+### Known limitations
+
+- Migration does not scan nested skill roots such as `packages/web/.claude/skills`, or skill reference files with a suffix outside the scanned set such as `.txt`.
+- Migration does not follow a tracked directory link outside the skill roots when its target is outside the repository, ignored or untracked. It also skips instruction files under directory names the linter excludes (`build/AGENTS.md`), and it matches skill roots by exact case on case-insensitive filesystems.
+- The migration apply report prints no remedy line. The rules catalog, `derive-arch` and the reviews index refuse with the bare code and no remedy line.
+- A migration inspection has no cap on its candidate count.
+- A council gate's history read ignores git's commit-graph file, so a forged or corrupt commit-graph cannot change the evidence order. The read is slower on large repositories and runs on every gate advance. In a 200,000-commit repository, records spread through history took 1.84 s instead of 0.42 s, and records in the last 2,000 commits took 0.69 s instead of 0.40 s. Larger repositories are not measured.
 
 ## [3.26.1] — 2026-10-07
 

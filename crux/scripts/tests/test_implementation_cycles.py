@@ -147,11 +147,12 @@ class Classification(unittest.TestCase):
 
 class PolicyProfiles(unittest.TestCase):
     def test_production_dispatch_is_explicit_and_fixture_one_unsupported(self):
-        self.assertEqual(ap.CONTRACT_VERSION, "3")
+        self.assertEqual(ap.CONTRACT_VERSION, "4")
         profile = ap.supported_profile("2")
         self.assertEqual(profile.version, "2")
         self.assertEqual(ap.supported_profile("3").version, "3")
-        for version in ("1", "4", "", None):
+        self.assertEqual(ap.supported_profile("4").version, "4")
+        for version in ("1", "5", "", None):
             with self.subTest(version=version), self.assertRaises(ap.Refused):
                 ap.supported_profile(version)
 
@@ -689,8 +690,8 @@ class WriterControls(unittest.TestCase):
         self.assertEqual(run["prompts"][3]["state"], "done")
         self.assertEqual(len(run["implementation_bindings"]), 1)
         context = json.loads((self.f.root / run["implementation_bindings"][0]["context"]["path"]).read_bytes())
-        self.assertEqual(context["contract"]["version"], "3")
-        self.assertEqual(context["format_version"], "2")
+        self.assertEqual(context["contract"]["version"], "4")
+        self.assertEqual(context["format_version"], "3")
         with self.assertRaises(ap.Refused): self.f.proof()
         sup.commit_all(self.f.root, "synthetic actual successful close")
         self.assertEqual(self.f.proof().binding["gate_prompt"], 4)
@@ -911,13 +912,15 @@ class BoundHistoryWriters(unittest.TestCase):
                 'safety_adjacent': False, 'kind': 'blocking', 'text': 'synthetic blocker'}]
             path = f.council / f'earlier-{number}.json'
             path.write_text(json.dumps(earlier))
+            sup.commit_all(f.root, f'synthetic earlier council round {number}')
             f.artifacts += ',' + path.relative_to(f.root).as_posix()
         original.update(round=count, written_at=sup.ts(count))
         if not converge:
             original['seats'][0]['decision'] = 'REQUEST_CHANGES'
             original['seats'][0]['findings'] = earlier['seats'][0]['findings']
         f.receipt.write_text(json.dumps(original))
-        sup.commit_all(f.root, 'synthetic counted council history')
+        sup.commit_all(f.root, 'synthetic counted council history',
+                       reintroduce=(f.receipt.relative_to(f.root).as_posix(),))
         if exception is not None:
             owner = f.council / 'owner.json'
             owner.write_text(json.dumps(f.env.owner_doc(kind='round-above-three',

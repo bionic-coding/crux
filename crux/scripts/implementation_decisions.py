@@ -15,6 +15,7 @@ import yaml
 
 import bionic_config
 import council_gate as cg
+import council_history_v4 as v4
 import council_records as cr
 import implementation_approval as ap
 
@@ -91,6 +92,35 @@ def validate_decision(repo_root, path) -> dict:
     ap.live_constraints(repo, doc["constraint_refs"])
     return {"valid": True, "identity": [doc[k] for k in ("book_id", "run_id", "slug", "revision")],
             "path": rel, "sha256": cr.sha256_file(repo / rel), "authority": "none"}
+
+
+def unchecked_rules_text(repo_root, decision_path) -> str:
+    """The subject the council reads beside a declared-empty decision: each live Accepted rule whose
+    scope names no path, with its handle, rule text and scope. The overlap check cannot test such a
+    rule against the declared scope, so the council's review of the stated reason covers it."""
+    repo = Path(repo_root).resolve()
+    decision, _, _ = _decision(repo, Path(decision_path))
+    rows = ap.unchecked_rules(repo, decision)
+    lines = ["# Unchecked rules for a declared-empty constraint set", "",
+             "Scope under review: " + ", ".join(decision["scope"]), "",
+             "Each live Accepted rule below names no path in its scope. The path-overlap check could not "
+             "test it against the declared scope. Judge whether it governs that scope.", ""]
+    if not rows:
+        lines.append("No live Accepted rule lacks a path scope.")
+    for row in rows:
+        lines += ["## " + row["handle"], "", "Scope: " + (row["scope"] or "(none)"), "",
+                  "Rule: " + row["rule"], ""]
+    return "\n".join(lines).rstrip("\n") + "\n"
+
+
+def write_unchecked_rules(repo_root, decision_path, output) -> Path:
+    repo = Path(repo_root).resolve()
+    text = unchecked_rules_text(repo, decision_path)
+    absolute, _ = ap.checked_path(repo, str(output))
+    ap.require(not absolute.is_symlink(), "record-symlink-refused")
+    absolute.parent.mkdir(parents=True, exist_ok=True)
+    absolute.write_bytes(text.encode("utf-8"))
+    return absolute
 
 
 def _write_new(path: Path, doc: dict) -> Path:
@@ -236,7 +266,7 @@ def _review_coverage(repo: Path, result: dict) -> None:
     covered = set()
     for item in result["reviews"]:
         raw = json.loads(ap.committed_bytes(repo, item))
-        ap.require(not cr.schema_errors(raw, "reviewer-report"), "review-schema-refused")
+        ap.require(not cr.reviewer_report_errors(raw), "review-schema-refused")
         subject = raw["subject"]
         if subject["form"] == "paths":
             for entry in subject["paths"]:
@@ -247,7 +277,10 @@ def _review_coverage(repo: Path, result: dict) -> None:
             base, end = commit_id(repo, base), commit_id(repo, end)
             ap.require(cr.git(repo, "merge-base", "--is-ancestor", base, end).returncode == 0,
                        "review-range-refused")
-            diff = cr.git(repo, "diff", "--name-only", "-z", base, end, "--")
+            # Same changed-path semantics as the review gate: a rename is a delete plus an add.
+            # --literal-pathspecs repeats cr.git's GIT_LITERAL_PATHSPECS default on purpose, so a
+            # change to that default never turns a path into a pathspec pattern here.
+            diff = cr.git(repo, "--literal-pathspecs", "diff", "--name-only", "--no-renames", "-z", base, end, "--")
             ap.require(diff.returncode == 0, "review-range-refused")
             changed = {os.fsdecode(x) for x in diff.stdout.split(b"\0") if x}
             for path, digest in expected.items():
@@ -266,12 +299,20 @@ def _validate_result(repo_root, decision_path, evidence: dict, *, writing: bool)
     proof = consumer(repo, run_path, slot=decision["slot"], revision_path=rel, revision_sha256=digest)
     ap.require(decision["scope"] == proof.slot["scope"] and
                decision["constraint_refs"] == proof.slot["constraint_refs"] and
+               decision.get(ap.DECLARATION_FIELD) == proof.slot.get(ap.DECLARATION_FIELD) and
                decision["slug"] == proof.slot["slug"], "decision-slot-mismatch")
     ap.require(all(ap.within_scope(path, decision["scope"]) for path in evidence["scope"]), "result-scope-refused")
     ap.require({s["path"] for s in evidence["sources"]} == set(evidence["scope"]) and
                len(evidence["sources"]) == len(evidence["scope"]), "result-source-scope-mismatch")
     if evidence["delivery_state"] == "complete":
-        ap.require(set(evidence["scope"]) == set(decision["scope"]), "complete-scope-missing")
+        # Leg (a), above, keeps every result path inside the authorized scope. Leg (b): every
+        # authorized entry, file or directory, is covered by at least one result path.
+        # For a file-only decision scope, legs (a) and (b) make the result scope equal the
+        # decision scope. Leg (c) below then adds nothing, unless a result path lies under a file
+        # entry (a file that became a directory), which leg (c) refuses.
+        # Only a directory entry admits more than one result path.
+        ap.require(all(any(ap.within_scope(path, [entry]) for path in evidence["scope"])
+                       for entry in decision["scope"]), "complete-scope-missing")
     if evidence["delivery_state"] == "unimplemented":
         ap.require(not evidence["scope"] and not evidence["sources"], "unimplemented-has-delivery")
     delivered, preimage = (commit_id(repo, evidence[k]) for k in ("source_revision", "preimage_revision"))
@@ -282,13 +323,24 @@ def _validate_result(repo_root, decision_path, evidence: dict, *, writing: bool)
     if writing:
         ap.require(cr.git(repo, "merge-base", "--is-ancestor", delivered, "HEAD").returncode == 0,
                    "delivery-lineage-refused")
+    if evidence["delivery_state"] == "complete":
+        # Leg (c): every file changed under the authorized scope between the full preimage and
+        # delivered object ids is listed. Scope entries are literal pathspecs, never magic or globs;
+        # --literal-pathspecs repeats cr.git's default on purpose, as at the review-range read.
+        # --no-renames lists a renamed file's old path too, as the review gate does, so a complete
+        # result cannot omit the path a rename took out of scope.
+        changed = cr.git(repo, "--literal-pathspecs", "diff", "--name-only", "--no-renames", "-z",
+                         preimage, delivered, "--", *decision["scope"])
+        ap.require(changed.returncode == 0, "source-unreadable")
+        ap.require({os.fsdecode(x) for x in changed.stdout.split(b"\0") if x} <= set(evidence["scope"]),
+                   "complete-scope-missing")
     for source in evidence["sources"]:
         ap.require(ap.within_scope(source["path"], proof.slot["scope"]), "result-scope-refused")
         ap.require(source_hash(repo, preimage, source["path"]) == source["preimage"] and
                    source_hash(repo, delivered, source["path"]) == source["delivered"], "source-evidence-mismatch")
         if writing:
             state = cr.path_state(repo, source["path"])
-            clean = state.clean if source["delivered"] != ABSENT else not state.tracked and not (repo / source["path"]).exists()
+            clean = state.clean if source["delivered"] != ABSENT else not state.tracked and not os.path.lexists(repo / source["path"])
             ap.require(clean and source_hash(repo, "HEAD", source["path"]) == source["delivered"], "delivered-source-dirty")
     annotations = evidence["annotations"]
     if writing:
@@ -335,6 +387,7 @@ def query(repo_root, decision_path, revision="HEAD") -> dict:
     eligibility = {"eligible": False, "limit": None, "constraint_refs": decision["constraint_refs"]}
     try:
         view = ap.live_constraints(repo, decision["constraint_refs"])
+        # For a declared-empty decision `constraint_refs` is empty, so every live rule is undeclared.
         undeclared = ap.undeclared_governing_constraints(repo, decision["scope"], decision["constraint_refs"],
                                                          view)
         if undeclared["overlapping"]:
@@ -392,7 +445,7 @@ def query(repo_root, decision_path, revision="HEAD") -> dict:
                 if revision == "HEAD":
                     state = cr.path_state(repo, source["path"])
                     if state.head is None:
-                        ap.require(not state.tracked and not (repo / source["path"]).exists(), "queried-source-dirty")
+                        ap.require(not state.tracked and not os.path.lexists(repo / source["path"]), "queried-source-dirty")
                     else:
                         ap.require(state.clean, "queried-source-dirty")
                 value = source_hash(repo, current, source["path"])
@@ -407,3 +460,130 @@ def query(repo_root, decision_path, revision="HEAD") -> dict:
         except Refused as exc:
             history["limit"] = exc.code
     return answer
+
+
+# ───────────────────────────── order audit ─────────────────────────────
+
+class AuditUnusable(Exception):
+    """The audit cannot start: the directory is no repository, the configuration is unreadable, or
+    `--run` names no run file inside the repository. The command exits 2. Every finding about a
+    binding, however bad, is a report row and exits 0."""
+
+
+_AUDIT_BINDINGS = (("implementation_bindings", "implementation"), ("migration_bindings", "migration"))
+
+
+def _audit_row(run_rel: str, kind: str, binding: dict) -> dict:
+    return {"run": run_rel, "slot": binding.get("slot"), "binding_kind": kind,
+            "gate_prompt": binding.get("gate_prompt")}
+
+
+def _audit_context_version(repo: Path, binding: dict) -> str:
+    ref = binding["context"]
+    blob = cr.git(repo, "show", "HEAD:" + ref["path"])
+    ap.require(blob.returncode == 0 and cr.sha256_bytes(blob.stdout) == ref["sha256"], "context-unavailable")
+    return json.loads(blob.stdout)["contract"]["version"]
+
+
+def _audit_book(run_path: Path) -> dict:
+    books = run_path.parent.parent.parent
+    found = [books / tier / (run_path.parent.name + ".yaml") for tier in ("active", "archive")]
+    found = [p for p in found if p.is_file()]
+    ap.require(len(found) == 1, "book-unavailable")
+    book = yaml.safe_load(found[0].read_bytes())
+    ap.require(isinstance(book, dict), "book-unavailable")
+    return book
+
+
+def _audit_compare(repo: Path, run_path: Path, run: dict, binding: dict, proof_commit: str, row: dict) -> None:
+    """Fill `row` with the outcome of one profile-3 binding at its proof commit."""
+    book = _audit_book(run_path)
+    slot = binding["slot"]
+    module_tag = None if book.get("cycle_kind") == "patch" else slot
+    try:
+        order = v4.committed_order(run, run_path.parent, repo, module_tag, binding["gate_prompt"],
+                                   rev=proof_commit)
+        contradictions = order.contradictions()
+        paths = list(order.commit)
+        ties = sorted({p for i, a in enumerate(paths) for b in paths[i + 1:] if order.tied(a, b)
+                       for p in (a, b)})
+    except v4.OrderError as exc:
+        history = exc.path.endswith(".json")
+        row.update(outcome="uncomparable", reason="invalid-path-history" if history else "shallow-or-unavailable",
+                   records=[exc.path] if history else [], detail=exc.message)
+        return
+    if contradictions:
+        row.update(outcome="contradict",
+                   records=sorted({p for pair in contradictions for p in pair}),
+                   contradictions=[{"committed_first": a, "committed_later": b,
+                                    "stamp_first": order.stamp[a], "stamp_later": order.stamp[b]}
+                                   for a, b in contradictions])
+    elif ties:
+        row.update(outcome="uncomparable", reason="tie", records=ties)
+    else:
+        row.update(outcome="agree", records=sorted(paths))
+
+
+def audit_order(repo_root, run=None) -> dict:
+    """Report, without changing anything, where profile-3 stamp order and committed order disagree.
+
+    Profile 3 replays a close's council evidence in stamp order. For each binding whose retained
+    context names contract version "3", this rebuilds the gate scope and orders the scope's records by
+    the commits that introduced them, read at the binding's proof commit (not at HEAD). A row's
+    outcome is `agree`, `contradict` (a record committed first carries a later stamp) or
+    `uncomparable` with one reason: `tie` (two records share a commit or lie on unrelated commits),
+    `invalid-path-history` (a participating record was modified, removed or re-added) or
+    `shallow-or-unavailable` (history, proof commit, context or book cannot be read). A binding
+    naming another contract version is listed under `skipped`; a run in the legacy format is omitted.
+    The audit refuses no approval, writes nothing and changes no replay or eligibility."""
+    repo = Path(repo_root).resolve()
+    if cr.git(repo, "rev-parse", "--git-dir").returncode != 0:
+        raise AuditUnusable("not a git repository: " + str(repo))
+    try:
+        tree = bionic_config.load_config(repo).docs_root
+    except (bionic_config.BionicConfigError, OSError, ValueError) as exc:
+        raise AuditUnusable("the documentation tree configuration is unreadable: " + type(exc).__name__) from None
+    if run is not None:
+        try:
+            absolute, _ = ap.checked_path(repo, str(run))
+        except ap.Refused:
+            raise AuditUnusable("--run names a path outside the repository") from None
+        if not absolute.is_file():
+            raise AuditUnusable("--run names no run file")
+        run_paths = [absolute]
+    else:
+        run_paths = sorted((tree / "promptbooks" / "runs").glob("*/run-*.yaml"))
+    probe = cr.git(repo, "rev-parse", "--is-shallow-repository")
+    shallow = probe.returncode != 0 or probe.stdout.strip() != b"false"
+    rows: list[dict] = []
+    skipped: list[dict] = []
+    for run_path in run_paths:
+        run_rel = run_path.resolve().relative_to(repo).as_posix()
+        try:
+            doc = yaml.safe_load(run_path.read_bytes())
+        except (OSError, ValueError, yaml.YAMLError):
+            doc = None
+        if not isinstance(doc, dict) or doc.get("format_version") != "2":
+            continue
+        for key, kind in _AUDIT_BINDINGS:
+            entries = doc.get(key)
+            for binding in entries if isinstance(entries, list) else []:
+                if not isinstance(binding, dict):
+                    continue
+                row = _audit_row(run_rel, kind, binding)
+                try:
+                    version = _audit_context_version(repo, binding)
+                    if version != "3":
+                        skipped.append({**row, "contract": version})
+                        continue
+                    row["contract"] = version
+                    ap.require(not shallow, "history-unavailable")
+                    row["proof_commit"] = ap._binding_commit(repo, run_rel, binding, binding_key=key)
+                    _audit_compare(repo, run_path.resolve(), doc, binding, row["proof_commit"], row)
+                except (ap.Refused, cr.RecordError, OSError, ValueError, TypeError, KeyError,
+                        yaml.YAMLError) as exc:
+                    row.update(outcome="uncomparable", reason="shallow-or-unavailable",
+                               detail=getattr(exc, "code", None) or type(exc).__name__)
+                rows.append(row)
+    counts = {name: sum(1 for r in rows if r["outcome"] == name) for name in ("agree", "contradict", "uncomparable")}
+    return {"audit": "order", "authority": "none", "summary": counts, "bindings": rows, "skipped": skipped}

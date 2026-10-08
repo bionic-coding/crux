@@ -128,6 +128,10 @@
       "domain": "council-composition",
       "rule": "Every council seat is a call the council runner makes through the inference gateway, and only the council runner writes a council record; no harness-native agent or subagent casts a seat's vote or writes or edits a council record."
     },
+    "council-record-order-is-committed-order": {
+      "domain": "council-gates",
+      "rule": "Under the current council policy, a council gate orders its in-scope council and refutation records by the commits that introduced them into the run's reachable history, never by a wall-clock stamp. Records that history cannot order are a tie and stop the gate; a stamp order that contradicts the committed order stops it at the contradicted-premise stop. The gate check, round counting and recovery read that one order."
+    },
     "coverage-matrix": {
       "domain": "decision-review",
       "rule": "Every pass writes a Coverage matrix carrying one row per OBJ-N in the objectives file, in id order, naming the signals and domains that measured that goal this pass or carrying a literal em dash, where a signal measures a goal only when that signal's verdict is computed, an unmeasurable signal never counting as measuring a goal, and a domain measures a goal when the pass judged what is held in that domain against it, so a goal no signal reaches is still reachable; and every goal whose status is active is measured at least once across the three newest report dates under the reviews directory, read from an append-only measured_objectives frontmatter list on each report."
@@ -215,6 +219,14 @@
     "griffe-is-declared-in-the-dispatcher-metadata": {
       "domain": "code-docs-python",
       "rule": "The code-doc dispatcher's inline script metadata declares griffelib at one exact version with no extras and requires Python 3.13 or later, and the dispatcher never re-executes itself to obtain griffe or an interpreter."
+    },
+    "introducing-commit-is-unique-and-read-in-isolation": {
+      "domain": "council-gates",
+      "rule": "Every path reachable history has held as a council or refutation record of the run takes part in the order, and one absent at the evaluated commit refuses. A record's introducing commit is the one non-merge commit that gives its path its current bytes. Only a council record whose current seal holds may have earlier blobs, and each must fail the seal; any other history refuses. Order reads use literal pathspecs and the isolated git environment, with replace objects off and a grafts file refused."
+    },
+    "issued-approval-profiles-are-frozen": {
+      "domain": "implementation-decisions",
+      "rule": "An issued approval profile's gate-contract bytes never change. A change to council history evaluation lands in a new profile that new closes retain; each retained context names its profile, and replay dispatches on that name alone, so an issued approval replays under the semantics it was issued with."
     },
     "journal-friction-line": {
       "domain": "journal-contract",
@@ -311,6 +323,10 @@
     "per-unit-gate-runs-reachable-tests": {
       "domain": "agent-embedded-disciplines",
       "rule": "Before the dev-lead marks a work unit done, it runs the tests that bear on the unit and every test the change could reach, and runs the full suite where it cannot bound that set; a unit is not done on red or when those tests cannot run."
+    },
+    "profile-three-order-is-audited-never-refused": {
+      "domain": "implementation-decisions",
+      "rule": "A read-only audit reads each retained context naming profile 3 through profile 4's order function and reports its council history as agreeing, contradicting, or uncomparable with a reason. It never refuses, and it changes no approval's replay or eligibility."
     },
     "python-duplicate-binding-carries-a-gap-note": {
       "domain": "code-docs-python",

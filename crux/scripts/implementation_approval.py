@@ -26,9 +26,10 @@ import council_records as cr
 import council_history_v2 as policy_two
 import council_records_v2 as records_two
 import council_history_v3 as policy_three
+import council_history_v4 as policy_four
 import bionic_config
 
-CONTRACT_VERSION = "3"
+CONTRACT_VERSION = "4"
 
 
 @dataclass(frozen=True)
@@ -45,9 +46,12 @@ class PolicyProfile:
 SUPPORTED_PROFILES = {"2": PolicyProfile("2", policy_two,
     "c44a85a6160a9fb5ddc6ac938ce7b15d462c9d40b2808d2db92699ad15b8f4d2", records_two),
     # Issued: PB-0141 RUN-001 holds an approval under this profile. Never change a byte that
-    # gate_contract_bytes("3") covers; freeze an image and issue profile 4, as profile 2 was frozen.
+    # gate_contract_bytes("3") covers. Profile 4 was issued beside it rather than as an edit of it.
     "3": PolicyProfile("3", policy_three,
-        "62a4760de1e477fb13c78f9162c49c4da620b5ace304ca72ce6fc45496d16d23", cr)}
+        "62a4760de1e477fb13c78f9162c49c4da620b5ace304ca72ce6fc45496d16d23", cr),
+    # Current: new closes retain profile 4, which orders council evidence by committed history.
+    # Once a close retains it, never change a byte gate_contract_bytes("4") covers; issue profile 5.
+    "4": PolicyProfile("4", policy_four, "b1bda66c8667b1c9a8bbaa39c47d58fd55245b718e6d025f71f7221d47035167", cr)}
 
 
 def supported_profile(version) -> PolicyProfile:
@@ -79,11 +83,11 @@ def gate_contract_bytes(version=CONTRACT_VERSION) -> bytes:
     validator = kernel.schema_engine
     modules = {kernel: "council-policy-" + version, profile.records: "council_records",
                validator: "schema-validator-" + version}
-    if version == "3":
+    if version in ("3", "4"):
         start_parser = getattr(kernel, "start_snapshot_yaml", None)
         require(inspect.ismodule(start_parser) and getattr(start_parser, "__file__", None),
                 "context-policy-unavailable")
-        modules[start_parser] = "start-snapshot-yaml-3"
+        modules[start_parser] = "start-snapshot-yaml-" + version
     policy = {}
     plugin = Path(__file__).resolve().parent.parent
     declarations = {module: {node.name for node in ast.parse(Path(module.__file__).read_text()).body
@@ -163,13 +167,13 @@ def gate_contract_bytes(version=CONTRACT_VERSION) -> bytes:
         roots = [(kernel, "_evaluate_council_history"), (kernel, "GateClass"),
                              (kernel, "discover_records"), (validator, "validate"),
                              (validator, "load_schema")]
-        if version == "3":
+        if version in ("3", "4"):
             roots.extend(((kernel, "expected_round"), (kernel, "start_identity"),
                                  (kernel, "retained_path"), (kernel, "validate_context"),
                                  (kernel, "context_records"), (kernel, "deciding_subject"),
                                  (kernel.start_snapshot_yaml, "load_yaml")))
         for module, name in roots:
-            if version == "3":
+            if version in ("3", "4"):
                 item = getattr(module, name)
                 require((inspect.isfunction(item) or inspect.isclass(item)) and
                         item.__module__ == module.__name__, "context-policy-unavailable")
@@ -178,7 +182,7 @@ def gate_contract_bytes(version=CONTRACT_VERSION) -> bytes:
                             Path(item.__code__.co_filename).resolve() == Path(module.__file__).resolve(),
                             "context-policy-unavailable")
             visit(module, name)
-            if version == "3":
+            if version in ("3", "4"):
                 require(modules[module] + "." + name in policy, "context-policy-unavailable")
         return json.dumps({"version": version, "policy": policy},
                           sort_keys=True, separators=(",", ":")).encode()
@@ -241,10 +245,6 @@ def _policy_call(profile, name, *args):
         return getattr(profile.kernel, name)(*args)
     except cr.RecordError as exc:
         raise Refused(exc.message) from None
-
-
-def _retained_path(repo, run_path, given):
-    return _policy_call(supported_profile("3"), "retained_path", repo, run_path, given)
 
 
 def within_scope(path: str, scope: list[str]) -> bool:
@@ -390,12 +390,59 @@ QUESTION_DIMENSIONS = {
 }
 
 
-def selected_question_refusal(question: str, kind: str, selected: dict, subjects: list[dict]):
+# The slot field that declares an empty constraint set, and the words a deciding council question
+# must contain when the slot carries it: the council judges the declaration, not only the subject.
+DECLARATION_FIELD = "no_governing_constraint"
+DECLARED_EMPTY_WORDS = "declared-empty constraint set"
+
+
+def declaration_of(item) -> dict | None:
+    """The declared-empty marker of a book slot or decision record, else None."""
+    marker = item.get(DECLARATION_FIELD) if isinstance(item, dict) else None
+    return marker if isinstance(marker, dict) else None
+
+
+def declared_empty_findings(repo: Path, item: dict) -> dict[str, list[str]] | None:
+    """For a declared-empty slot or decision, the undeclared live Accepted rules split by whether
+    their path scope overlaps its scope (`overlapping`) or names no path (`unscoped`); None when
+    `item` carries no declaration."""
+    if declaration_of(item) is None:
+        return None
+    view = live_constraints(repo, [])
+    return undeclared_governing_constraints(repo, item["scope"], [], view)
+
+
+def require_declaration_unconflicted(repo: Path, item: dict) -> None:
+    """Refuse `undeclared-governing-constraint` while an undeclared live Accepted rule's path scope
+    overlaps a declared-empty slot's or decision's scope."""
+    found = declared_empty_findings(repo, item)
+    require(found is None or not found["overlapping"], "undeclared-governing-constraint")
+
+
+def unchecked_rules(repo: Path, item: dict) -> list[dict]:
+    """Each undeclared live Accepted rule whose scope names no path, with its handle, rule text and
+    scope. The council reads this list as a subject beside the declared reason."""
+    found = declared_empty_findings(repo, item)
+    require(found is not None, "decision-not-declared-empty")
+    wanted = set(found["unscoped"])
+    tree = bionic_config.load_config(repo).docs_root
+    rows = {}
+    for entry in _accepted_governs_entries(repo, tree):
+        if entry.get("handle") in wanted:
+            rows[entry["handle"]] = {"handle": entry["handle"], "rule": str(entry.get("rule", "")),
+                                     "scope": str(entry.get("scope", ""))}
+    return [rows[h] for h in sorted(rows)]
+
+
+def selected_question_refusal(question: str, kind: str, selected: dict, subjects: list[dict],
+                              declaration: dict | None = None):
     """The refusal code for a council question that did not select `selected`, else None.
 
     A question selects a subject when it names that subject's path and SHA256, all five
     dimensions of `kind` and the words ``architectural conflict``, and names the SHA256 of no
-    other subject. `selected` and each of `subjects` carry `path` and `sha256`."""
+    other subject. `selected` and each of `subjects` carry `path` and `sha256`. A slot that
+    carries a declaration (`declaration` is not None) also needs the words
+    ``declared-empty constraint set``."""
     if selected["path"] not in question or selected["sha256"] not in question:
         return "deciding-question-revision-missing"
     if any(isinstance(s.get("sha256"), str) and s["sha256"] != selected["sha256"] and s["sha256"] in question
@@ -407,10 +454,13 @@ def selected_question_refusal(question: str, kind: str, selected: dict, subjects
         return "deciding-question-dimensions-missing"
     if "architectural conflict" not in lowered:
         return "deciding-question-conflict-missing"
+    if declaration is not None and DECLARED_EMPTY_WORDS not in lowered:
+        return "deciding-question-declaration-missing"
     return None
 
 
-def _deciding_question_selects(repo: Path, deciding: dict, kind: str, revision: dict) -> None:
+def _deciding_question_selects(repo: Path, deciding: dict, kind: str, revision: dict,
+                               declaration: dict | None = None) -> None:
     """Bind the approval to what the deciding council was asked, read from its sealed question.
 
     The record seals the question's path and SHA256. The bytes at that path must still hash to it,
@@ -427,12 +477,12 @@ def _deciding_question_selects(repo: Path, deciding: dict, kind: str, revision: 
         raise Refused("deciding-question-unavailable") from None
     require(cr.sha256_bytes(content) == question["sha256"], "deciding-question-unavailable")
     subjects = [s for s in deciding.get("subjects", []) if isinstance(s, dict)]
-    code = selected_question_refusal(text, kind, revision, subjects)
+    code = selected_question_refusal(text, kind, revision, subjects, declaration)
     require(code is None, code or "")
 
 
 def _context_records(profile, records, run, gate):
-    if profile.version == "3":
+    if profile.version in ("3", "4"):
         return _policy_call(profile, "context_records", records, run, gate)
     scoped = sum((list(group) for group in profile.kernel._scope(records, run, gate.module_tag, gate.n)), [])
     return scoped
@@ -450,27 +500,29 @@ def _prepare_close(repo_root, run_path, gate, revision_path, artifacts, *, migra
     require(run.get("current_prompt") == gate.n, "implementation-close-position-refused")
     prompt = next((p for p in run["prompts"] if p["n"] == gate.n), None)
     require(prompt is not None and prompt.get("state") in ("running", "blocked"), "close-already-terminal")
-    declarations = [item for item in book["implementation_slots"] if item["slot"] == slot]
-    require(len(declarations) == 1, "slot-not-declared")
-    declaration = declarations[0]
-    require(("migration_batch" in declaration) == migration, "selected-subject-role-refused")
+    slot_entries = [item for item in book["implementation_slots"] if item["slot"] == slot]
+    require(len(slot_entries) == 1, "slot-not-declared")
+    slot_entry = slot_entries[0]
+    require(("migration_batch" in slot_entry) == migration, "selected-subject-role-refused")
     raw_revision = repo / revision_path
     require(not cr.reached_through_symlink(raw_revision), "selected-revision-symlink-refused")
     if migration:
         import implementation_migration as migrations
         require(".." not in raw_revision.parts, "selected-batch-path-refused")
         _, selected_rel = checked_path(repo, str(raw_revision))
-        require(selected_rel == declaration["migration_batch"]["path"], "selected-batch-path-refused")
+        require(selected_rel == slot_entry["migration_batch"]["path"], "selected-batch-path-refused")
         selected, selected_bytes = migrations._load_batch(repo, raw_revision)
         require(selected["approval_slot"] == slot, "selected-slot-mismatch")
     else:
         selected, owner_path, selected_rel = ids._decision(repo, raw_revision)
         require(owner_path == Path(run_path).resolve() and
-                all(selected.get(key) == declaration[key] for key in ("slot", "slug", "scope", "constraint_refs")),
+                all(selected.get(key) == slot_entry[key] for key in ("slot", "slug", "scope", "constraint_refs")) and
+                selected.get(DECLARATION_FIELD) == slot_entry.get(DECLARATION_FIELD),
                 "selected-slot-mismatch")
         selected_bytes = (repo / selected_rel).read_bytes()
     if not migration:
-        live_constraints(repo, declaration["constraint_refs"])
+        live_constraints(repo, slot_entry["constraint_refs"])
+        require_declaration_unconflicted(repo, slot_entry)
     revision = {"path": selected_rel, "sha256": cr.sha256_bytes(selected_bytes)}
     committed_bytes(repo, revision)
     if migration:
@@ -493,7 +545,7 @@ def _prepare_close(repo_root, run_path, gate, revision_path, artifacts, *, migra
     retained = _policy_call(profile, "deciding_subject", repo, run_path, deciding, revision)
     require(committed_bytes(repo, retained) == committed_bytes(repo, revision), "retained-revision-mismatch")
     # The deciding council must have selected this exact subject; carrying it is not enough.
-    _deciding_question_selects(repo, deciding, gate.module_kind, revision)
+    _deciding_question_selects(repo, deciding, gate.module_kind, revision, declaration_of(slot_entry))
     scoped = _context_records(profile, records, run, gate)
     inventory = sorted(({"path": rec.path.relative_to(repo).as_posix(), "sha256": cr.sha256_file(rec.path)}
                         for rec in scoped), key=lambda item: item["path"])
@@ -509,7 +561,8 @@ def _prepare_close(repo_root, run_path, gate, revision_path, artifacts, *, migra
         files[rel] = content
         return {"path": rel, "sha256": digest}
 
-    context = {"record_type": "implementation-gate-context", "format_version": "2",
+    context = {"record_type": "implementation-gate-context",
+               "format_version": {"3": "2", "4": "3"}[profile.version],
                "contract": {"version": profile.version, **retain("contract", contract_bytes)},
                "registry": retain("registry", registry_bytes), "records": inventory, "artifacts": artifacts,
                "start_identity": identity}
@@ -617,19 +670,19 @@ def _validate_binding(repo_root, run_path, *, slot, revision_path, revision_sha2
     contract = context.get("contract")
     require(isinstance(contract, dict) and isinstance(contract.get("version"), str), "context-version-unsupported")
     profile = supported_profile(contract["version"])
-    if profile.version == "3":
+    if profile.version in ("3", "4"):
         _policy_call(profile, "validate_context", context)
     fields = {"record_type", "format_version", "contract", "registry", "records", "artifacts"}
-    if context.get("format_version") == "2":
+    if context.get("format_version") in ("2", "3"):
         fields.add("start_identity")
     require(set(context) == fields, "context-shape-refused")
     contract = context["contract"]
     require(context["record_type"] == "implementation-gate-context" and
-            context["format_version"] in ("1", "2") and
+            context["format_version"] in ("1", "2", "3") and
             isinstance(contract, dict) and set(contract) == {"version", "path", "sha256"} and
             isinstance(contract["version"], str), "context-version-unsupported")
-    # Contract 2 wrote context format 1; contract 3 writes context format 2.
-    require(context["format_version"] == {"2": "1", "3": "2"}[profile.version],
+    # Contract 2 wrote context format 1; contract 3 writes context format 2; contract 4 writes format 3.
+    require(context["format_version"] == {"2": "1", "3": "2", "4": "3"}[profile.version],
             "context-version-unsupported")
     contract_ref = {k: contract[k] for k in ("path", "sha256")}
     require(committed_bytes(repo, contract_ref) == production_contract_bytes(profile.version), "context-contract-unsupported")
@@ -669,7 +722,7 @@ def _validate_binding(repo_root, run_path, *, slot, revision_path, revision_sha2
     prompt = next((p for p in run["prompts"] if p.get("n") == gate.n), None)
     require(prompt is not None and prompt.get("state") == "done" and prompt.get("completed"), "close-not-done")
     require(context["artifacts"] == prompt.get("artifacts", []), "context-artifacts-mismatch")
-    if profile.version == "3":
+    if profile.version in ("3", "4"):
         identity = profile.kernel.start_identity(repo, run, run_path)
         require(context["start_identity"] == identity, "context-start-identity-mismatch")
         start_blob = cr.git(repo, "show", identity["commit"] + ":" + identity["run"]["path"])
@@ -684,7 +737,7 @@ def _validate_binding(repo_root, run_path, *, slot, revision_path, revision_sha2
     require(verdict.verdict == "pass", "historical-gate-" + verdict.verdict)
     require(verdict.deciding_record == binding["deciding_record"]["path"], "deciding-record-mismatch")
     deciding = json.loads(committed_bytes(repo, binding["deciding_record"]))
-    if profile.version == "3":
+    if profile.version in ("3", "4"):
         retained = _policy_call(profile, "deciding_subject", repo, run_path, deciding, binding[subject_key])
         require(retained == binding["retained_subject"], "deciding-revision-missing")
         return ValidatedBinding(binding, declaration, run, book, proof_commit)

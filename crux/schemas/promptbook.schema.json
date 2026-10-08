@@ -245,7 +245,6 @@
           },
           "constraint_refs": {
             "type": "array",
-            "minItems": 1,
             "items": {
               "type": "string",
               "pattern": "^(?:(?!(?:PB|ADR|RUN|BRIEF)-)[A-Z][A-Z0-9]{1,9}-)?ADR-\\d{4}/[a-z0-9]+(?:-[a-z0-9]+)*(?![\\s\\S])"
@@ -267,8 +266,57 @@
                 "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))[^/\\\\\\x00-\\x1f\\x7f]+(?:/[^/\\\\\\x00-\\x1f\\x7f]+)*(?![\\s\\S])"
               }
             }
+          },
+          "no_governing_constraint": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "reason"
+            ],
+            "properties": {
+              "reason": {
+                "type": "string",
+                "pattern": "^(?=[^\\x00-\\x1f\\x7f]*\\S)[^\\x00-\\x1f\\x7f]{1,500}(?![\\s\\S])"
+              }
+            },
+            "$comment": "Declares that no architectural constraint governs the scope. Valid only beside an empty constraint_refs list; the reason is one line of 1 to 500 characters."
           }
-        }
+        },
+        "allOf": [
+          {
+            "if": {
+              "required": [
+                "no_governing_constraint"
+              ]
+            },
+            "then": {
+              "properties": {
+                "constraint_refs": {
+                  "items": false
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "constraint_refs": {
+                  "minItems": 1
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "required": [
+                "migration_batch"
+              ]
+            },
+            "then": {
+              "properties": {
+                "no_governing_constraint": false
+              }
+            }
+          }
+        ]
       }
     }
   },

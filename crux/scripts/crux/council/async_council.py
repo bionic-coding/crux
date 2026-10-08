@@ -227,6 +227,31 @@ class _SeatRun:
 _APPROVE_DECISIONS = ("APPROVE", "APPROVE_WITH_CONDITIONS", "APPROVE_WITH_NITS")
 _KNOWN_DECISIONS = _APPROVE_DECISIONS + ("REJECT", "DEFER_TO_HUMAN")
 
+#: Labels a log line may carry. A seat's decision is model text, and a log line is written before
+#: run-council's secret scan, so a line names a constant from these tables and never the input.
+#: The decision table is _KNOWN_DECISIONS plus the gate-only tokens: REQUEST_CHANGES from the gate
+#: scale (_GATE_DECISIONS) and the verify/implementation ARCHITECTURAL token. Keep it in step with
+#: run-council's _DECISION_TOKENS; test_council_log_labels ties all three.
+_LOG_DECISIONS = {d: d for d in _KNOWN_DECISIONS + ("REQUEST_CHANGES", "ARCHITECTURAL")}
+_LOG_CONSENSUS = {c: c for c in ("UNANIMOUS_APPROVE", "UNANIMOUS_REJECT", "MAJORITY_APPROVE",
+                                 "MAJORITY_REJECT", "SPLIT", "NO_QUORUM", "UNANIMOUS_OFF_SCALE",
+                                 "UNANIMOUS_DEFER_TO_HUMAN", "UNANIMOUS_REQUEST_CHANGES",
+                                 "UNANIMOUS_ARCHITECTURAL")}
+#: A consensus outside _LOG_CONSENSUS logs as UNLISTED, a label no deliberation produces. It does
+#: not borrow UNANIMOUS_OFF_SCALE, which in the record means a shared token failed the echo check.
+#: The deliberation result and the record keep the precise label.
+_LOG_UNLISTED_CONSENSUS = "UNLISTED"
+#: A vote outside _LOG_DECISIONS logs as OFF_SCALE. The table holds every _KNOWN_DECISIONS token,
+#: so such a vote is also listed in the record's off_scale; the two labels agree.
+
+
+def _log_label(table: Dict[str, str], value: object, fallback: str) -> str:
+    """A label from `table`, else `fallback`: no string outside the table reaches a log line.
+
+    `type(value) is str` sends a non-string decision to the fallback, because a list or dict
+    cannot be a table key and would raise TypeError in `table.get`."""
+    return table.get(value, fallback) if type(value) is str else fallback
+
 #: A shared decision token is echoed into a `UNANIMOUS_<X>` consensus label.
 #: UNANIMOUS_OFF_SCALE replaces it when the token is not 1-40 characters of A-Z and
 #: underscore starting with a letter, contains APPROVE or REJECT, or is AUTO_EXECUTE
@@ -1264,10 +1289,12 @@ class AsyncCouncil:
         # Log summary
         for vote in responding:
             status = "+" if vote.decision in APPROVE else "-"
-            logger.info(f"     {status} {vote.model}: {vote.decision} ({vote.confidence:.0%})")
+            label = _log_label(_LOG_DECISIONS, vote.decision, "OFF_SCALE")
+            logger.info(f"     {status} {vote.model}: {label} ({vote.confidence:.0%})")
         if degraded:
             logger.info(f"     (degraded: errored seats {errored_seats})")
-        logger.info(f"     -> Consensus: {consensus}, Action: {recommended_action}")
+        logger.info(f"     -> Consensus: {_log_label(_LOG_CONSENSUS, consensus, _LOG_UNLISTED_CONSENSUS)}, "
+                    f"Action: {recommended_action}")
 
         return CouncilDeliberation(
             votes=votes,

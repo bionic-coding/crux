@@ -10,7 +10,8 @@
 # remediation, refinements to existing behavior). There is NO ADR — the council
 # reviews a VERIFIED DIAGNOSIS + remediation approach instead, and the durable
 # record is a journal entry (the diagnosis lives in the run snapshot's `notes`).
-# A significant replaceable approach may also retain a formal Implementation Decision.
+# A replaceable approach whose reasoning must survive retrieval may also retain a formal
+# Implementation Decision.
 # An `iterate` cycle MUST have at least one verify module (the council-reviewed
 # diagnosis is the cycle's load-bearing artifact, exactly as the ADR is for
 # `dev-cycle`).

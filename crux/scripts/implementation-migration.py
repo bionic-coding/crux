@@ -31,6 +31,7 @@ def main(argv=None):
             return 1 if report.get("failure_class") == "validation" else 0
         except migration.Refused as exc:
             print(json.dumps({"authority": "none", "limit": exc.code}))
+            _remedy(exc)
             return 1
         except sp.GovernsValidationError:
             print(json.dumps({"authority": "none", "limit": "migration-application-model-refused"}))
@@ -54,10 +55,18 @@ def main(argv=None):
         return 0 if report["ready_to_apply"] else 1
     except migration.Refused as exc:
         print(json.dumps({"authority": "none", "limit": exc.code}))
+        _remedy(exc)
         return 1
     except (bionic_config.BionicConfigError, OSError, ValueError, TypeError, KeyError):
         print(json.dumps({"authority": "none", "limit": "migration-inventory-unavailable"}), file=sys.stderr)
         return 2
+
+
+def _remedy(exc):
+    """Print a refusal's next step on stderr. Stdout keeps its one-line contract."""
+    remedy = getattr(exc, "remedy", None)
+    if remedy:
+        print(json.dumps({"remedy": remedy}), file=sys.stderr)
 
 
 if __name__ == "__main__":

@@ -45,7 +45,7 @@ heading-renumber (step 4).
 | **Implementation module** — author reasoning, council, findings, exact-revision close; no ADR lifecycle | 4 | `implementation-{M}` | `${CRUX_PLUGIN_ROOT}/templates/cycle-module-implementation.yaml` |
 | **Dev module** — derive plan, implement, quality gates (recorded with command+result tokens), internal review | 4 | `dev-{M}` | `${CRUX_PLUGIN_ROOT}/templates/cycle-module-dev.yaml` |
 | **Review module** — external multi-dim review + dedicated multi-subagent security review, test/docs + dev-practice conformance audit, fix-loop | 3 | `review-{M}` | `${CRUX_PLUGIN_ROOT}/templates/cycle-module-review.yaml` |
-| **Prep (fixed)** — changelog, docs, journal, PR draft | 1 | _none_ | inline (last-2 of canonical template) |
+| **Prep (fixed)** — changelog, docs, journal, result record, PR draft | 1 | _none_ | inline (last-2 of canonical template) |
 | **Summary (fixed)** — completion report | 1 | _none_ | inline (last-1 of canonical template) |
 
 Every prompt in an ADR module carries `module_tag: adr-{M}` (where `{M}` is the
@@ -148,8 +148,8 @@ uv run "${CRUX_PLUGIN_ROOT}/scripts/run-work-witness.py" record <run-RUN-NNN.yam
 ```
 
 Never create a witness after a refusal. Both book formats use the current
-attempt-aware gate. New formal closes retain context two/profile three;
-historical context one/profile two remains immutable and replay-only.
+attempt-aware gate. New formal closes retain context three/profile four;
+historical context two/profile three and context one/profile two remain immutable and replay-only.
 Finish any open Git merge or other sequence before council. Runner and recovery
 own attempt/result commits. Follow `run-promptbook`'s `references/gates.md` for
 authorized preflight repair, the third-refusal stop, process/lock checks and
@@ -201,7 +201,8 @@ Do **not** use this skill for:
 - **Optional**: a hint at the affected scope (file paths, modules) — this
   goes into the Goal paragraph; the planning team in Prompt 1 will refine.
 - **Cycle kind:** `adr` for enduring architectural constraints; `implementation`
-  for a significant replaceable approach under unchanged constraints.
+  for a replaceable approach whose reasoning must survive retrieval, under
+  unchanged constraints.
 - **Optional module counts** (default architectural A=1,I=0,D=R=1;
   implementation A=0,I=1,D=R=1):
   - `--adrs N` — ADR modules; N≥1 only for architectural kind.
@@ -369,7 +370,19 @@ Every dedicated implementation module requires exactly one declared slot, includ
 in combined architectural books. Scope, slug and constraint references freeze at start.
 Later revision selection lives only in append-only run bindings and never in book fields.
 Constraint handles resolve directly to active Accepted architecture, not doctrine labels
-or historical aliases. A formal decision is appropriate for a replaceable approach,
+or historical aliases. When no architectural rule governs a slot's scope, declare it: set
+`constraint_refs: []` and add `no_governing_constraint: {reason: "<one line, 1-500 characters>"}`
+to the slot and to the decision record, identically. An empty or absent list without the
+declaration stays refused, the declaration beside a non-empty list is refused, and a slot that
+names a migration batch never carries it. The declaration is a reviewed claim. Council preflight,
+the approval close and current eligibility each refuse it while a live Accepted rule's path scope
+overlaps the slot's scope. Validate the book before starting the run: `validate-promptbook.py`
+names each live Accepted rule whose path scope overlaps a declared-empty slot. After run start the
+slot is frozen, so an overlap found at council preflight stops for the owner, whose remedy is to
+abandon the run and author a successor book that cites the rule. The council question contains the
+exact words "declared-empty constraint set". A live rule whose scope names no path is listed as
+unchecked, not refused.
+A formal decision is appropriate for a replaceable approach,
 a material alternative, or a reviewed batch whose reasoning future retrieval needs.
 It is unnecessary for every function or incidental choice. Direct fixes keep their path.
 Never add governs or architectural lifecycle operations to implementation records.

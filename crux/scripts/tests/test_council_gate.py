@@ -55,6 +55,16 @@ class _Base(unittest.TestCase):
         return cg.evaluate_gate(cg.classify(env.book, n), env.load_run(), env.run_path, env.root,
                                 env.args_for(*artifacts), outcome)
 
+    def one_commit(self, count):
+        """Squash the last `count` commits into one: records committed together share a commit, so
+        their order is a tie."""
+        sup.git(self.env.root, "reset", "-q", "--soft", f"HEAD~{count}")
+        sup.git(self.env.root, "commit", "-q", "-m", "records committed together")
+
+    def fresh_env(self, name="control"):
+        """A second repository for a positive control, so no record is rewritten after its commit."""
+        self.env = sup.Env(Path(self._td.name) / name, kind=self.KIND, autocommit=True, base=self.BASE)
+
     def at_council(self, *artifacts, outcome="done"):
         return self.gate(1 if self.KIND == "patch" else COUNCIL_N, *artifacts, outcome=outcome)
 
@@ -328,8 +338,9 @@ class CouncilGateHoldTests(_Base):
         self.assertEqual(len(v.holds), 1)
         # Positive control: the same first round with a blocking finding instead of a
         # hold is a change request, and the converged second round passes.
-        self.env.write("r1.json", self.env.council_doc(written_at=ts(1), decisions=(RC, OK, OK),
-                                                       findings=BLOCK))
+        self.fresh_env()
+        self.council("r1.json", written_at=ts(1), decisions=(RC, OK, OK), findings=BLOCK)
+        r2 = self.council("r2.json", round=2, written_at=ts(2))
         self.assertEqual(self.at_council(r2).verdict, "pass")
 
     def test_an_errored_seat_never_holds(self):
@@ -423,15 +434,20 @@ class CouncilGateRoundBoundTests(_Base):
     def test_a_record_tie_stops(self):
         r1 = self.council("r1.json", written_at=ts(1), decisions=(RC, OK, OK), findings=BLOCK)
         r2 = self.council("r2.json", written_at=ts(1), round=2)
+        self.one_commit(2)
         v = self.at_council(r1, r2)
         self.assertEqual((v.verdict, v.stops), ("stop", [1]), v.reasons)
         self.assertIn("tie", v.reasons[0])
-        r2 = self.council("r2.json", written_at=ts(1, micro=2), round=2)
+        # Positive control: the same two records on separate commits are ordered, not tied.
+        self.fresh_env()
+        self.council("r1.json", written_at=ts(1), decisions=(RC, OK, OK), findings=BLOCK)
+        r2 = self.council("r2.json", written_at=ts(1), round=2)
         self.assertEqual(self.at_council(r2).verdict, "pass")
 
     def test_a_tie_stop_needs_its_tied_records_attached(self):
         r1 = self.council("r1.json", written_at=ts(1), decisions=(RC, OK, OK), findings=BLOCK)
         r2 = self.council("r2.json", written_at=ts(1), round=2)
+        self.one_commit(2)
         for attached in ((), (r1,), (r2,)):
             with self.subTest(attached=len(attached)):
                 v = self.at_council(*attached)
@@ -451,13 +467,13 @@ class CouncilGateRoundBoundTests(_Base):
     def test_an_owner_exception_authorizes_a_third_adr_council_that_closes_on_convergence(self):
         self.council("r1.json", written_at=ts(1), decisions=(RC, OK, OK), findings=BLOCK)
         self.council("r2.json", round=2, written_at=ts(2), decisions=(RC, OK, OK), findings=BLOCK)
-        r3 = self.council("r3.json", round=3, written_at=ts(3))
         self.env.write("exception.json", self.env.owner_doc())
-        self.assertEqual(self.at_council(r3).verdict, "pass")
         # Closes only on convergence: the authorized round, unconverged, stops.
         r3 = self.council("r3.json", round=3, written_at=ts(3), decisions=(RC, OK, OK), findings=BLOCK)
         v = self.at_council(r3)
         self.assertEqual((v.verdict, v.stops), ("stop", [1]), v.reasons)
+        r3 = self.council("r3.json", round=3, written_at=ts(3))
+        self.assertEqual(self.at_council(r3).verdict, "pass")
 
     def test_an_exception_for_another_module_or_place_does_not_authorize(self):
         self.council("r1.json", written_at=ts(1), decisions=(RC, OK, OK), findings=BLOCK)
@@ -647,8 +663,8 @@ class CouncilGateRefutationTests(_Base):
 
     def test_a_conductor_claiming_adjudicator_is_refused(self):
         r1 = self.council("r1.json", written_at=ts(1), decisions=(RC, OK, OK), findings=BLOCK)
-        r2 = self.council("r2.json", round=2, written_at=ts(2), decisions=(RC, OK, OK), findings=BLOCK)
         self.env.write("conductor.json", self.env.refutation_doc(r1, recorder="alice", written_at=ts(1, 2)))
+        r2 = self.council("r2.json", round=2, written_at=ts(2), decisions=(RC, OK, OK), findings=BLOCK)
         # The conductor who recorded for round 1 now claims to adjudicate round 2.
         ref = self.env.write("adj.json", self.env.refutation_doc(
             r2, recorder="alice", role="adjudicator", written_at=ts(3)))
@@ -1467,14 +1483,19 @@ class CommittedEvidenceTests(_Base):
         self.assertEqual(self.at_council(r1).verdict, "pass")
 
     def test_disclosed_tampering_a_committed_deletion_alone_clears_a_stop_no_advance_named(self):
-        """Pins the committed-tampering case gates.md section 10 discloses: with no blocked advance
-        naming the held record, a committed deletion alone clears its stop."""
+        """The committed-tampering case gates.md section 10 disclosed under the stamp order: a
+        committed deletion alone cleared a held record's stop. The committed order closes it, so
+        the deletion is a permanent stop at 4, and gates.md section 10 no longer discloses the
+        window."""
         held = self.council("r1.json", written_at=ts(1), decisions=(RC, OK, OK))
         self.assertEqual(self.at_council(held).verdict, "stop")
         sup.git(self.env.root, "rm", "-q", "--", self.env.rel(held))
         sup.git(self.env.root, "commit", "-q", "-m", "drop the held record")
         r1 = self.council("r1b.json", round=1, written_at=ts(2))
-        self.assertEqual(self.at_council(r1).verdict, "pass")
+        # Profile four closes this window: the removed record is a permanent stop at 4.
+        v = self.at_council(r1)
+        self.assertEqual((v.verdict, v.stops), ("stop", [4]), v.reasons)
+        self.assertIn(self.env.rel(held), " ".join(v.reasons))
         # Control: once a blocked advance names the record, the same deletion is refused.
         self.snapshot_names(held)
         self.assertEqual(self.at_council(r1).verdict, "refuse")
