@@ -1,4 +1,4 @@
-<!-- generated-from: CHANGELOG.md@sha256:697ce087466e78399c97672ae5a0d5fd8bb26c53bbdd5641d6b03961b10f1021; model: claude-sonnet-5.5; date: 2026-10-08 -->
+<!-- generated-from: CHANGELOG.md@sha256:018e85a3a4473a072135d9f6b780aade020ba9d63f33251150d3cc1ea7f63b5d; model: claude-sonnet-5.5; date: 2026-10-08 -->
 # Changelog
 
 All notable changes to crux. The format roughly follows [Keep a Changelog](https://keepachangelog.com/) and the project adheres to [Semantic Versioning](https://semver.org/).
@@ -10,6 +10,43 @@ All notable changes to crux. The format roughly follows [Keep a Changelog](https
 ### Changed
 
 ### Fixed
+
+### Removed
+
+## [3.27.1] — 2026-10-08
+
+### Added
+
+### Changed
+
+- Contracts: the next advance now refuses while a closed ADR module's ADR is still Proposed. The historian now reads the objectives before any work, including verbatim transcription. The commander checks each proposed deferral against the Outcome and Evidence sentences. The verify template's first prompt now says to reproduce at the run's `base_commit` and record that commit.
+
+### Fixed
+
+- Lint: a demoted rule mentioned in a brief now gets advice that matches a new sentence in the brief template.
+- Signals: the ADR signals report now says "no history yet" for `schema_growth` when HEAD is unborn.
+- Remedy: the submodule remedy now lists steps in an order in which none refuses again on the path being fixed. It no longer offers to delete the submodule's `.git` entry.
+- Speed: the authority view now uses a batched path that cuts git calls from 596 to 122 with identical output.
+
+### Removed
+
+## [3.27.0] — 2026-10-08
+
+### Added
+
+### Changed
+
+- Orchestration: a cycle run now names a tester, who runs the full test suite under a lock and writes a pass record. A later run reuses that record when the gate label, command, HEAD commit and clean working tree all match. The tester's window holds the commit lane, an in-flight unit hands its work back by commit, and an owner decision carries its provenance.
+- Release: in the development repository's release process, the official release no longer has a dry-run step. Preflight check 1 now covers `uv.lock` and `reviewed_plugin_version`, the public-documentation generator reuses unchanged renditions, and DEPLOY.md now documents the heading format the prose-review advisory reads.
+- Projections: allocating an identifier or transitioning a decision record (ADR) now regenerates the summaries, doctrine and architecture projections after the commit.
+
+### Fixed
+
+- Tests (development repository): the council-record ordering test now pins `LC_ALL=C` for its plain git helper, so its ambiguous-argument assertion holds under a non-English git locale.
+- Tests (development repository): fixture repositories now disable git auto-gc and auto-maintenance, so a detached repack can no longer delete an object while a test copies the repository.
+- `log-work`: the writer's report now names its `committed` key `recorded`. The writer never runs version control and leaves the journal files modified and uncommitted, so the old name was misleading.
+- Starting a run now works with a committed promptbook that has an unquoted date (for example `created_at: 2026-10-07`). Previously it was refused with `book-validation-refused`. The start script now loads the book through the same loader the validator uses.
+- Drift-gate runs: a `validation-errors` finding now carries the guard's first three error entries (400 characters each) alongside the count, so a transient failure leaves its text behind.
 
 ### Removed
 

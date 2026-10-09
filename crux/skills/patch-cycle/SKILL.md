@@ -159,6 +159,19 @@ Exit 0 = clean, proceed. Exit 1 = the book is invalid; the JSON `errors` on stdo
 
 Re-read `manifest.yml`, confirm `promptbook.next_number` is unchanged, increment, write back. If it changed, another invocation raced — STOP, retry.
 
+While a tester's window is open, commit nothing and run no regenerator. The window runs from the tester's dispatch until the tester returns; outside a run there is none.
+
+After the counter bump, commit the allocated file together with the bump. Never commit the counter bump without the file it allocated. Stage only these paths (`git add -- <paths>`) and commit only them (`git commit -- <paths>`), so no change already staged is included. If a regenerator still exits 2 with `migration-input-not-committed`, another uncommitted input is in the tree: stop and name it; never commit a file this skill did not write.
+
+Then regenerate the summaries projection, then the doctrine projection, because the bump changes their input hash:
+
+```
+uv run "${CRUX_PLUGIN_ROOT}/scripts/summarize-adrs.py" --repo-root <repo-root>
+uv run "${CRUX_PLUGIN_ROOT}/scripts/compile-doctrine.py" --repo-root <repo-root>
+```
+
+Confirm `--dry-run` of each exits 0, then commit the regenerated projections so none stays uncommitted.
+
 ### 8. Regenerate `docs/promptbooks/index.md`
 
 Walk active/runs/archive (extension-agnostic); rebuild the index. The new book appears in Active at `0/5 (0%)`.

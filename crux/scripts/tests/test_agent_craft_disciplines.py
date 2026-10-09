@@ -456,5 +456,158 @@ class PatchTemplateImplementPromptTests(unittest.TestCase):
         self.assertEqual(len(opening), 1)
 
 
+HISTORIAN_MD = AGENTS_DIR / "historian.md"
+
+# The historian reads the objectives before any work, verbatim transcription
+# included. The contract route was chosen over a carve-out in the rule.
+HISTORIAN_READ = (
+    "Read the resolved `<docs_dir>/objectives.md` before starting any work, "
+    "including verbatim transcription of another agent's report."
+)
+HISTORIAN_WRITE_ONLY = (
+    "Read the objectives before any write, except verbatim transcription."
+)
+HISTORIAN_CARVE_OUTS = (
+    "before any write",
+    "except verbatim",
+    "transcription is exempt",
+    "except transcription",
+)
+
+
+class HistorianObjectivesTests(unittest.TestCase):
+    def setUp(self):
+        self.text = body(HISTORIAN_MD)
+
+    def test_read_sentence_appears_once(self):
+        self.assertEqual(occurrences(self.text, HISTORIAN_READ), 1)
+
+    def test_section_sits_between_the_intro_and_what_you_do(self):
+        text = normalize(self.text)
+        head = text.index("## Mission and objectives")
+        read = text.index(normalize(HISTORIAN_READ))
+        what = text.index("## What you do")
+        self.assertLess(head, read)
+        self.assertLess(read, what)
+
+    def test_no_carve_out_for_transcription(self):
+        for phrase in HISTORIAN_CARVE_OUTS:
+            with self.subTest(phrase=phrase):
+                self.assertEqual(occurrences(self.text, phrase), 0)
+
+    def test_rules_and_populate_clause_appear_once(self):
+        for needle in (
+            "`rule:objectives-read-before-work`",
+            "`rule:objectives-context-travels-with-every-delegation`",
+            "you never populate it",
+        ):
+            with self.subTest(needle=needle):
+                self.assertEqual(occurrences(self.text, needle), 1)
+
+    def test_bash_clause_matches_the_tool_allowlist(self):
+        self.assertIn("Bash", self.text.split("---")[1].split("tools:")[1].split("\n")[0])
+        self.assertEqual(occurrences(self.text, "you hold `Bash`"), 1)
+
+    def test_detector_controls(self):
+        wrapped = "  " + HISTORIAN_READ.replace(" before starting ", "\n  before starting ")
+        self.assertEqual(occurrences(wrapped, HISTORIAN_READ), 1)
+        self.assertGreaterEqual(occurrences(HISTORIAN_WRITE_ONLY, "before any write"), 1)
+        self.assertGreaterEqual(occurrences(HISTORIAN_WRITE_ONLY, "except verbatim"), 1)
+
+
+GATES_MD = REPO_ROOT / "crux" / "skills" / "run-promptbook" / "references" / "gates.md"
+
+# The deferral check against the book's Outcome and Evidence sentences.
+COMMANDER_CHECK = (
+    "Before you record any deferral or known limitation, check it against each "
+    "Outcome and Evidence sentence of the book's `goal`, and against any "
+    "narrowing the run snapshot records."
+)
+COMMANDER_NOTES = (
+    "Record the check in the run Notes, by one of the two routes above, as one "
+    'line beside the deferral: "checked against Outcome/Evidence: no conflict", '
+    "or the sentence it contradicts."
+)
+# The rule supports "a finding" (a contradicted item is a finding); the known-limitation
+# clause is the contract's own, so the citation sits before it.
+COMMANDER_FINDING = (
+    "A deferral that contradicts an Outcome or Evidence sentence is a finding "
+    "(`rule:completion-separates-verified-from-unobserved`), never a known "
+    "limitation."
+)
+COMMANDER_OPEN_FINDING = (
+    "it enters the next council round's question as an open blocking finding "
+    "that names its originating item and the Outcome or Evidence sentence it "
+    "contradicts."
+)
+COMMANDER_STOP = (
+    "report a contradicted-premise stop so the owner decides, and never record "
+    "it as a known limitation."
+)
+COMMANDER_RECORDING = (
+    "Have the historian record notes, deferrals with their Outcome/Evidence "
+    "check lines, and gate tokens after the advance."
+)
+COMMANDER_PENDING = (
+    "When its `adr_acceptance_pending` list is non-empty, do not issue the "
+    "prompt. For an entry whose `remedy` is `transition-adr` and whose module "
+    "has not yet run `transition-adr`, dispatch the accepting architect to run "
+    "it per `references/gates.md`. Every other entry takes a "
+    "contradicted-premise stop for the owner, including an entry whose "
+    "`transition-adr` already failed."
+)
+GATES_DEFERRAL = (
+    "Before a deferral is recorded, check it against the book's Outcome and "
+    "Evidence sentences, and against any narrowing the run snapshot records. "
+    "Write the check as one line in the run Notes beside it."
+)
+SEEDED_OLD_ROUTE = "so the council or the owner decides"
+# Retired wording: a write instruction to a role with no write tool, and "limit" for
+# "known limitation".
+RETIRED_COMMANDER = ("Write the check into the run Notes", "never a limit (")
+
+
+class CommanderDeferralCheckTests(unittest.TestCase):
+    def setUp(self):
+        self.commander = body(COMMANDER_MD)
+        self.gates = body(GATES_MD)
+
+    def test_commander_carries_each_deferral_statement_once(self):
+        for needle in (COMMANDER_CHECK, COMMANDER_NOTES, COMMANDER_FINDING, COMMANDER_OPEN_FINDING,
+                       COMMANDER_STOP, COMMANDER_RECORDING, COMMANDER_PENDING):
+            with self.subTest(needle=needle[:40]):
+                self.assertEqual(occurrences(self.commander, needle), 1)
+
+    def test_old_route_is_absent(self):
+        self.assertEqual(occurrences(self.commander, SEEDED_OLD_ROUTE), 0)
+        for retired in RETIRED_COMMANDER:
+            with self.subTest(retired=retired):
+                self.assertEqual(occurrences(self.commander, retired), 0)
+
+    def test_gates_carries_the_deferral_sentence_once(self):
+        self.assertEqual(occurrences(self.gates, GATES_DEFERRAL), 1)
+        for clause in (
+            "A deferral that contradicts an Outcome or Evidence sentence is a finding.",
+            "it enters the next council round's question as an open blocking finding "
+            "that names its originating item and the sentence it contradicts",
+            "When none is ahead, it is a contradicted-premise stop for the owner.",
+            "It is never recorded as a known limitation.",
+        ):
+            with self.subTest(clause=clause[:40]):
+                self.assertEqual(occurrences(self.gates, clause), 1)
+
+
+class DeferralDetectorControlTests(unittest.TestCase):
+    def test_wrapped_copies_still_count_once(self):
+        wrapped = "  " + COMMANDER_CHECK.replace(" check it ", "\n  check it ")
+        self.assertEqual(occurrences(wrapped, COMMANDER_CHECK), 1)
+        wrapped = "  " + HISTORIAN_READ.replace(" before starting ", "\n  before starting ")
+        self.assertEqual(occurrences(wrapped, HISTORIAN_READ), 1)
+
+    def test_seeded_old_route_is_found(self):
+        sample = "Raise it " + SEEDED_OLD_ROUTE + "."
+        self.assertGreaterEqual(occurrences(sample, SEEDED_OLD_ROUTE), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -47,8 +47,17 @@ SYMLINK_SOURCE_REMEDY = (
 SUBMODULE_SOURCE_REMEDY = (
     "A submodule sits at or under a project-local skill root. A harness loads its skill files, "
     "but this repository's index does not list them, so the migration cannot read them. "
-    "Vendor the skill as regular files tracked in this repository, then remove the submodule. "
-    "`git ls-files -s` shows a submodule with mode 160000. Then rerun.")
+    "`git ls-files -s` shows a submodule with mode 160000. "
+    "To keep the skill as regular files, untrack the submodule with `git rm --cached <path>`. "
+    "`<name>` is the name of the `.gitmodules` section whose `path` is `<path>`. "
+    "`git config -f .gitmodules --get-regexp '\\.path$'` lists each section as `submodule.<name>.path <path>`. "
+    "When `.gitmodules` has such a section, remove it with "
+    "`git config -f .gitmodules --remove-section submodule.<name>` and stage it with "
+    "`git add .gitmodules`. "
+    "Then move the `.git` entry at the top of `<path>` out of the repository: moving it keeps the nested repository's history. "
+    "Do not delete it: deleting the `.git` directory of an embedded clone loses any history not pushed elsewhere. "
+    "While that entry remains, `git add` records the submodule again. "
+    "Then track the files with `git add <path>`, and rerun.")
 ABSENT_SOURCE_REMEDY = (
     "A tracked instruction or skill file is missing from the working tree. "
     "Restore it, stage its deletion with `git rm <path>`, or widen the sparse checkout to include it. "
@@ -618,6 +627,54 @@ def _canonical_mode(raw: bytes) -> bytes:
     return b"%06o" % mode
 
 
+def _object_bodies(repo: Path, identities: set[str], kind: bytes, max_bytes: int) -> dict[str, bytes]:
+    """Object bodies by id, refusing any of another kind or above `max_bytes`."""
+    global _object_memo_bytes
+    result = {}
+    for oid in identities:
+        ap.require(re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", oid) is not None, "history-unavailable")
+        if oid in _OBJECT_MEMO:
+            cached_kind, content = _OBJECT_MEMO[oid]
+            ap.require(cached_kind == kind, "history-unavailable")
+            ap.require(len(content) <= max_bytes, "migration-source-oversize")
+            result[oid] = content
+    wanted = sorted(identities.difference(result))
+    if not wanted: return result
+    request = ("\n".join(wanted) + "\n").encode()
+    args = ["git", "-C", str(repo), "cat-file"]
+    # Inspect sizes before asking Git to materialize any raw object bodies.
+    sizes = subprocess.run(args + ["--batch-check"], input=request, capture_output=True,
+                           env=_history_env())
+    ap.require(sizes.returncode == 0, "history-unavailable")
+    rows = sizes.stdout.splitlines()
+    ap.require(len(rows) == len(wanted), "history-unavailable")
+    lengths = []
+    for oid, row in zip(wanted, rows):
+        fields = row.split()
+        ap.require(len(fields) == 3 and fields[0].decode() == oid and fields[1] == kind,
+                   "history-unavailable")
+        size = int(fields[2]); lengths.append(size)
+        ap.require(0 <= size <= max_bytes, "migration-source-oversize")
+    bodies = subprocess.run(args + ["--batch"], input=request, capture_output=True,
+                            env=_history_env())
+    ap.require(bodies.returncode == 0, "history-unavailable")
+    cursor = 0
+    for oid, size in zip(wanted, lengths):
+        end = bodies.stdout.find(b"\n", cursor)
+        ap.require(end >= cursor and bodies.stdout[cursor:end] ==
+                   f"{oid} {kind.decode()} {size}".encode(), "history-unavailable")
+        cursor = end + 1; content = bodies.stdout[cursor:cursor + size]; cursor += size
+        ap.require(len(content) == size and bodies.stdout[cursor:cursor + 1] == b"\n",
+                   "history-unavailable")
+        result[oid] = content; cursor += 1
+    ap.require(cursor == len(bodies.stdout), "history-unavailable")
+    for oid in wanted:
+        if _object_memo_bytes + len(result[oid]) > _OBJECT_MEMO_LIMIT:
+            _OBJECT_MEMO.clear(); _object_memo_bytes = 0
+        _OBJECT_MEMO[oid] = (kind, result[oid]); _object_memo_bytes += len(result[oid])
+    return result
+
+
 class _InvocationHistory:
     """The reachable lineage of one read. Commits and HEAD are read fresh on every call;
     only immutable object bodies are shared, by object id."""
@@ -698,50 +755,7 @@ class _InvocationHistory:
 
     def _read(self, identities: set[str], kind: bytes, max_bytes: int) -> dict[str, bytes]:
         """Object bodies by id, refusing any of another kind or above `max_bytes`."""
-        global _object_memo_bytes
-        result = {}
-        for oid in identities:
-            ap.require(re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", oid) is not None, "history-unavailable")
-            if oid in _OBJECT_MEMO:
-                cached_kind, content = _OBJECT_MEMO[oid]
-                ap.require(cached_kind == kind, "history-unavailable")
-                ap.require(len(content) <= max_bytes, "migration-source-oversize")
-                result[oid] = content
-        wanted = sorted(identities.difference(result))
-        if not wanted: return result
-        request = ("\n".join(wanted) + "\n").encode()
-        args = ["git", "-C", str(self.repo), "cat-file"]
-        # Inspect sizes before asking Git to materialize any raw object bodies.
-        sizes = subprocess.run(args + ["--batch-check"], input=request, capture_output=True,
-                               env=_history_env())
-        ap.require(sizes.returncode == 0, "history-unavailable")
-        rows = sizes.stdout.splitlines()
-        ap.require(len(rows) == len(wanted), "history-unavailable")
-        lengths = []
-        for oid, row in zip(wanted, rows):
-            fields = row.split()
-            ap.require(len(fields) == 3 and fields[0].decode() == oid and fields[1] == kind,
-                       "history-unavailable")
-            size = int(fields[2]); lengths.append(size)
-            ap.require(0 <= size <= max_bytes, "migration-source-oversize")
-        bodies = subprocess.run(args + ["--batch"], input=request, capture_output=True,
-                                env=_history_env())
-        ap.require(bodies.returncode == 0, "history-unavailable")
-        cursor = 0
-        for oid, size in zip(wanted, lengths):
-            end = bodies.stdout.find(b"\n", cursor)
-            ap.require(end >= cursor and bodies.stdout[cursor:end] ==
-                       f"{oid} {kind.decode()} {size}".encode(), "history-unavailable")
-            cursor = end + 1; content = bodies.stdout[cursor:cursor + size]; cursor += size
-            ap.require(len(content) == size and bodies.stdout[cursor:cursor + 1] == b"\n",
-                       "history-unavailable")
-            result[oid] = content; cursor += 1
-        ap.require(cursor == len(bodies.stdout), "history-unavailable")
-        for oid in wanted:
-            if _object_memo_bytes + len(result[oid]) > _OBJECT_MEMO_LIMIT:
-                _OBJECT_MEMO.clear(); _object_memo_bytes = 0
-            _OBJECT_MEMO[oid] = (kind, result[oid]); _object_memo_bytes += len(result[oid])
-        return result
+        return _object_bodies(self.repo, identities, kind, max_bytes)
 
     def descendant(self, commit: str, ancestor: str) -> bool:
         pending = [commit]; seen = set()
@@ -1165,16 +1179,87 @@ def _manifest_allocation_only(repo: Path, rel: str, text: str, state) -> bool:
     return qualifies[0] == qualifies[1] == qualifies[2] and directories[0] == directories[1] == directories[2]
 
 
+def _unchanged_input(repo: Path, item: dict) -> None:
+    """The per-path check: the read, then the working tree, index and HEAD agree with the digest."""
+    text, _ = _read(repo, item["path"])
+    state = cr.path_state(repo, item["path"])
+    exact = _digest(text.encode()) == item["sha256"]
+    committed = state.clean and state.head == item["sha256"]
+    if exact and not committed and Path(item["path"]).name == "manifest.yml":
+        committed = _manifest_allocation_only(repo, item["path"], text, state)
+    ap.require(exact and committed,
+               "migration-input-not-committed")
+
+
+_FILE_MODES = ("100644", "100755")
+
+
+def _listing(repo: Path, *args: str) -> dict | None:
+    """`git <args> -z` records as {path: [(mode, a, b), ...]}, or None on any failure or malformed record."""
+    done = cr.git(repo, *args)
+    if done.returncode != 0:
+        return None
+    rows: dict = {}
+    for record in done.stdout.split(b"\0"):
+        if not record:
+            continue
+        meta, separator, raw = record.partition(b"\t")
+        fields = meta.decode("ascii", "replace").split(" ")
+        if not separator or not raw or len(fields) != 3:
+            return None
+        rows.setdefault(os.fsdecode(raw), []).append(tuple(fields))
+    return rows
+
+
 def _unchanged_inputs(repo: Path, fingerprints: list[dict]) -> None:
+    """Accept-only fast path over `_unchanged_input`: two listings and one two-call `cat-file`
+    batch replace three git children per path. An item the fast path cannot vouch for takes the
+    per-path check, so the fast path never refuses an item. The fast path is off when
+    `_repository_state` is None (for example, a linked worktree). When the state bytes move
+    during the loop, the entries the fast path relied on are compared again: a stat-only index
+    rewrite is accepted, and a changed index or HEAD entry for a path the fast path accepted is
+    refused."""
+    import git_read_cache
+    before = git_read_cache._repository_state(repo)
+    candidates: dict[str, str] = {}
+    blobs: dict[str, bytes] = {}
+    index = head = None
+    fast: set[str] = set()                               # rel paths the fast path accepted
+    if before is not None:
+        index = _listing(repo, "ls-files", "-s", "-z")
+        head = _listing(repo, "ls-tree", "-z", "-r", "HEAD")
+    if index is not None and head is not None:
+        for item in fingerprints:
+            rel = item["path"]; staged = index.get(rel, []); tip = head.get(rel, [])
+            if (len(staged) == 1 and staged[0][2] == "0" and staged[0][0] in _FILE_MODES
+                    and len(tip) == 1 and tip[0][1] == "blob" and tip[0][0] in _FILE_MODES
+                    and tip[0][2] == staged[0][1]):
+                candidates[rel] = staged[0][1]
+    if candidates:
+        try:
+            blobs = _object_bodies(repo, set(candidates.values()), b"blob", MAX_SOURCE_BYTES)
+        except (Refused, OSError, ValueError):
+            blobs = {}                                   # the fast path is off; every item falls back
     for item in fingerprints:
-        text, _ = _read(repo, item["path"])
-        state = cr.path_state(repo, item["path"])
-        exact = _digest(text.encode()) == item["sha256"]
-        committed = state.clean and state.head == item["sha256"]
-        if exact and not committed and Path(item["path"]).name == "manifest.yml":
-            committed = _manifest_allocation_only(repo, item["path"], text, state)
-        ap.require(exact and committed,
-                   "migration-input-not-committed")
+        rel = item["path"]
+        text, _ = _read(repo, rel)                       # symlink, containment and size refusals unchanged
+        body = blobs.get(candidates.get(rel))
+        absolute = repo / rel
+        if (body is not None and _digest(text.encode()) == item["sha256"]
+                and cr.sha256_bytes(body) == item["sha256"]
+                and not absolute.is_symlink() and absolute.is_file()
+                and cr.sha256_file(absolute) == item["sha256"]):
+            fast.add(rel)
+            continue
+        _unchanged_input(repo, item)
+    if fast and git_read_cache._repository_state(repo) != before:
+        # The state bytes include the index's stat data, which `git status` rewrites with no
+        # content change. Decide on the entries the fast path relied on.
+        now_index = _listing(repo, "ls-files", "-s", "-z")
+        now_head = _listing(repo, "ls-tree", "-z", "-r", "HEAD")
+        ap.require(now_index is not None and now_head is not None and all(
+            now_index.get(rel) == index[rel] and now_head.get(rel) == head[rel] for rel in fast),
+            "migration-history-head-changed")
 
 
 def _disposition_inputs(repo: Path, batch: dict, historical: dict, signed: list[dict],

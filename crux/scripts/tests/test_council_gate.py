@@ -1710,5 +1710,22 @@ class RegistryAdmissibilityTests(_Base):
         self.assertEqual((v.verdict, v.stops), ("stop", [4]), v.reasons)
 
 
+class FixtureRepoMaintenanceTests(unittest.TestCase):
+    """A fixture repo must not let git's detached auto-gc repack objects while a test copies it."""
+
+    def assert_maintenance_off(self, root):
+        self.assertEqual(sup.git(root, "config", "--local", "--get", "gc.auto").strip(), "0")
+        self.assertEqual(sup.git(root, "config", "--local", "--get", "maintenance.auto").strip(), "false")
+
+    def test_init_repo_disables_auto_gc_and_maintenance(self):
+        with tempfile.TemporaryDirectory() as td:
+            self.assert_maintenance_off(sup.init_repo(Path(td) / "repo"))
+
+    def test_writer_template_repo_disables_auto_gc_and_maintenance(self):
+        from test_implementation_cycles import WriterFixture
+        with tempfile.TemporaryDirectory() as td:
+            self.assert_maintenance_off(WriterFixture(Path(td) / "repo", migration=True).root)
+
+
 if __name__ == "__main__":
     unittest.main()

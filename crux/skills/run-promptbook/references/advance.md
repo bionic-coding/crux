@@ -4,7 +4,7 @@ Read this reference before the first advance side effect. Follow the shared obli
 
 ## The pipeline (mode: advance)
 
-Before you issue every prompt, run the gate-information query `uv run "${CRUX_PLUGIN_ROOT}/scripts/advance-run.py" <run-RUN-NNN.yaml> --book <book.yaml> --gate-info --prompt <n>`. It is read-only. Follow any `correction_notice` before you act on the prompt text, and read `gates.md` when the class is `council`, `module-close` or `independent-review`. A commander holds no shell, so it dispatches the historian to run the query.
+Before you issue every prompt, run the gate-information query `uv run "${CRUX_PLUGIN_ROOT}/scripts/advance-run.py" <run-RUN-NNN.yaml> --book <book.yaml> --gate-info --prompt <n>`. It is read-only. Follow any `correction_notice` before you act on the prompt text, and read `gates.md` when the class is `council`, `module-close` or `independent-review`. When `adr_acceptance_pending` is non-empty, do not issue the prompt; the "Module close on an `adr-*` module" paragraph in `gates.md` section 4 names the remedy for each entry. A commander holds no shell, so it dispatches the historian to run the query.
 
 ### 1. Locate the in-flight YAML snapshot
 

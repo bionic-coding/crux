@@ -96,6 +96,9 @@ def init_repo(root: Path) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     root = root.resolve()
     git(root, "init", "-q", "-b", "main")
+    # Detached auto-gc repacks loose objects after a commit and can delete one mid-copytree.
+    git(root, "config", "--local", "gc.auto", "0")
+    git(root, "config", "--local", "maintenance.auto", "false")
     return root
 
 

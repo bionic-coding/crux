@@ -188,6 +188,20 @@ class UserGuideTests(unittest.TestCase):
                       "a remedy line", text)
         self.assertIn("including a harmless mirror link", text)
         self.assertNotIn("Each of these readers also prints", text)
+        # The submodule steps match the remedy's order and conditions, and fit readers that
+        # print no remedy line.
+        steps = ("To keep a submodule's skill as regular files, follow these steps in order "
+                 "(summaries, doctrine and the authority view also print them as the remedy line): "
+                 "untrack the submodule with `git rm --cached`; if `.gitmodules` has the submodule's "
+                 "section, remove that section and stage `.gitmodules` with `git add`; move the `.git` "
+                 "entry at the top of the submodule path out of the repository (moving it keeps the "
+                 "nested repository's history; deleting an embedded clone's `.git` directory loses any "
+                 "history not pushed elsewhere); then `git add` the files.")
+        self.assertIn(steps, text)
+        # The condition covers the stage step too: on an embedded clone there is no
+        # `.gitmodules`, and `git add .gitmodules` exits 128.
+        self.assertNotIn("section if it has one and stage", text)
+        self.assertNotIn("the refusal's remedy line", text)
 
     def test_template_copy(self):
         self.check(CRUX / "templates" / "USER_GUIDE.md")

@@ -309,6 +309,60 @@ class PatchTemplateTests(unittest.TestCase):
         self.assertNotEqual(find_withdrawn_alternative(bad), [])
 
 
+class BaseCommitReproductionTests(unittest.TestCase):
+    """Each prompt-1 twin tells the reader to reproduce at the run's base commit."""
+
+    HEAD = ("Reproduce at the run's `base_commit`, and record that commit in the "
+            "Diagnosis.")
+    CLAUSES = (
+        "A textual reproduction quotes text",
+        "An executed reproduction runs code",
+        "`git diff --quiet <base_commit> -- <paths>` exits 0",
+        "`git ls-files --others --exclude-standard -- <paths>` prints nothing",
+        "where `<paths>` covers every input the reproduction reads",
+        "`git worktree add --detach <private scratch path> <base_commit>`",
+        "record that as a stated limit of the evidence, never as a reproduction",
+    )
+    TAIL = "When `base_commit` is null, say so and record the commit you used."
+
+    def twins(self):
+        return {
+            "verify": verify_module()[0],
+            "iterate": next(p for p in iterate_prompts() if p["n"] == 1),
+            "patch": patch_prompts()["verify"],
+        }
+
+    def paragraph(self, text):
+        flat = norm(text)
+        start = flat.index(self.HEAD)
+        end = flat.index(self.TAIL) + len(self.TAIL)
+        return flat[start:end]
+
+    def test_each_twin_carries_head_clauses_and_tail_once(self):
+        for name, prompt in self.twins().items():
+            flat = norm(prompt["prompt"])
+            for piece in (self.HEAD, *self.CLAUSES, self.TAIL):
+                self.assertEqual(flat.count(piece), 1, f"{name}: {piece}")
+
+    def test_paragraph_identical_across_twins(self):
+        paragraphs = {n: self.paragraph(p["prompt"]) for n, p in self.twins().items()}
+        self.assertEqual(len(set(paragraphs.values())), 1, paragraphs)
+
+    def test_expected_output_names_base_commit(self):
+        for name, prompt in self.twins().items():
+            flat = norm(prompt["expected_output"])
+            self.assertIn("the `base_commit` the reproduction ran at", flat, name)
+            self.assertIn("each reproduction's kind (textual or executed)", flat, name)
+            self.assertIn("any stated limit", flat, name)
+
+    def test_no_shared_tmp_path_or_head_diff(self):
+        for name, prompt in self.twins().items():
+            flat = norm(prompt["prompt"])
+            self.assertNotIn("<base_commit> HEAD --", flat, name)
+            self.assertNotIn("/tmp/", flat, name)
+            self.assertIn("never under a shared `/tmp` path", flat, name)
+
+
 class DetectorControlTests(unittest.TestCase):
 
     def test_model_token_detector_reports_a_model_name(self):

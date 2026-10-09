@@ -103,6 +103,16 @@ Plus the cross-checks the pass enforces: `cycle_kind: verify` ⟷ `modules:
 (**adr/verify mutual exclusion** — an iterate book never carries `adr-` tags),
 and exactly 2 untagged (prep + summary) prompts.
 
+## Orchestration rules a run follows
+
+The commander, dev-lead, developer and historian agent definitions, the cycle module templates and `run-promptbook`'s `references/gates.md` carry these rules. This section summarizes each rule; those sources carry the full text.
+
+- **Tester.** One designated tester runs the full suite; the dev-lead may run its own; one full suite runs at a time. The tester may reuse a matching passing record for an unchanged tree.
+- **Commit lane.** A run has one commit lane. The tester's window runs from the tester's dispatch until the tester returns. The agent that dispatched the tester holds the window. While it is open, that agent commits nothing to the main checkout, convenes no council, runs no live-tree tool, and dispatches no agent that does.
+- **Hand-back.** A hand-back with work in flight states that first, then lists each running dispatch with its result file.
+- **Worktree base.** Developer worktrees start from the run's current HEAD or are rebased before integration.
+- **Owner exception.** An owner-exception record is written only from the owner's own instruction. The owner's instruction is a decision the owner stated in the owner's own message in the session. An agent report, a result file, a run note or a council verdict is never an owner's instruction.
+
 ## When to use
 
 - User says: "iterate on X", "start an iterate cycle", "iterate-cycle for X",
@@ -303,6 +313,19 @@ both are cycle-kind promptbooks through the same validator.)
 Re-read `manifest.yml`, confirm `promptbook.next_number` is unchanged, increment,
 write back (write-then-increment, matches `author-promptbook`/`dev-cycle`). If it
 changed, another invocation raced — STOP, retry.
+
+While a tester's window is open, commit nothing and run no regenerator. The window runs from the tester's dispatch until the tester returns; outside a run there is none.
+
+After the counter bump, commit the allocated file together with the bump. Never commit the counter bump without the file it allocated. Stage only these paths (`git add -- <paths>`) and commit only them (`git commit -- <paths>`), so no change already staged is included. If a regenerator still exits 2 with `migration-input-not-committed`, another uncommitted input is in the tree: stop and name it; never commit a file this skill did not write.
+
+Then regenerate the summaries projection, then the doctrine projection, because the bump changes their input hash:
+
+```
+uv run "${CRUX_PLUGIN_ROOT}/scripts/summarize-adrs.py" --repo-root <repo-root>
+uv run "${CRUX_PLUGIN_ROOT}/scripts/compile-doctrine.py" --repo-root <repo-root>
+```
+
+Confirm `--dry-run` of each exits 0, then commit the regenerated projections so none stays uncommitted.
 
 ### 9. Regenerate `docs/promptbooks/index.md`
 

@@ -844,8 +844,15 @@ def _row_resolves(row: dict | None) -> bool:
     return row is not None and not row.get("historical") and row.get("review_state") != "unreviewed"
 
 
-def _historical_message(token: str, row: dict) -> str:
+#: The advice a brief gets for a demoted rule. crux/templates/BRIEF-template.md states the same.
+BRIEF_HISTORICAL_ADVICE = "in a brief, describe the former rule in prose without a citation token"
+
+
+def _historical_message(token: str, row: dict, *, brief: bool = False) -> str:
     cites = sorted({"rule:" + sp.slug_of(handle) for handle in row["replacements"]})
+    if brief:
+        tail = f", or cite its replacement {', '.join(cites)}" if cites else ""
+        return f"{token} cites historical implementation reasoning; {BRIEF_HISTORICAL_ADVICE}{tail}"
     return f"{token} cites historical implementation reasoning; replace with {', '.join(cites)}"
 
 
@@ -966,6 +973,7 @@ def find_unresolved(paths: list[Path], resolver: dict,
                     retired_handles: dict[str, list[str]] | None = None,
                     historical_slugs: dict[str, dict] | None = None,
                     authoring: bool = False,
+                    briefs: Path | None = None,
                     ) -> tuple[list[dict], list[dict], int, list[dict]]:
     """`(handle_findings, rule_findings, rule_tokens, refusals)` across `paths`.
 
@@ -993,6 +1001,11 @@ def find_unresolved(paths: list[Path], resolver: dict,
     reader's projection holds). Each path is read under the map its own location
     selects. `shipped_slugs` omitted means one map for every path, which is what
     a caller asking a single-surface question wants.
+
+    `briefs` is the absolute briefs directory of the tree. A path under it is a
+    brief, and a historical citation found there gets `BRIEF_HISTORICAL_ADVICE`
+    (describe the former rule in prose, or cite its replacement) instead of the
+    "replace with" advice every other surface gets. `None` treats every path as a non-brief surface.
     """
     slugs = slugs or {}
     retired_slugs = retired_slugs or {}
@@ -1014,6 +1027,7 @@ def find_unresolved(paths: list[Path], resolver: dict,
         here = (shipped_slugs if shipped_slugs is not None and is_shipped_surface(path)
                 else slugs)
         reader_history = historical_slugs if authoring or not is_shipped_surface(path) else {}
+        in_brief = briefs is not None and Path(os.path.abspath(path)).is_relative_to(briefs)
         offsets, proof = ({}, {})
         if frozen_root is not None and historical is not None and any(
                 token[5:] in retired_slugs or token[5:] in reader_history for token in find_rule_tokens(text)):
@@ -1031,7 +1045,7 @@ def find_unresolved(paths: list[Path], resolver: dict,
                 "path": str(path),
                 "handle": redact(handle, quoted=False),
                 "reason": "historical" if history_row is not None else "unresolved" if row is None else "unreviewed",
-                **({"message": _historical_message(redact(handle, quoted=False), history_row)} if history_row else {}),
+                **({"message": _historical_message(redact(handle, quoted=False), history_row, brief=in_brief)} if history_row else {}),
             })
         for m in RULE_RE.finditer(text):
             rule_tokens += 1
@@ -1060,7 +1074,7 @@ def find_unresolved(paths: list[Path], resolver: dict,
             safe = redact(token, quoted=False)
             if history_row is not None:
                 reason = "historical"
-                message = _historical_message(safe, history_row)
+                message = _historical_message(safe, history_row, brief=in_brief)
             elif named is not None:
                 # A live slug whose rule does not resolve. The two reasons are
                 # the handle leg's own words, so one condition carries one name
@@ -1168,7 +1182,8 @@ def main(argv=None) -> int:
             scan_paths, resolver, reader_slugs, retired_slugs,
             shipped_slugs=shipped_slugs, frozen_root=root if not args.path else None,
             historical=historical, retired_handles=retired_handles,
-            historical_slugs=overlay["historical_slugs"], authoring=authoring)
+            historical_slugs=overlay["historical_slugs"], authoring=authoring,
+            briefs=Path(os.path.abspath(sp.resolve_tree(root))) / "briefs")
     except migration.Refused as exc:
         reason = redact(exc, quoted=False)
         print(json.dumps({"refusals": [{"path": redact(root, quoted=False), "reason": reason}],

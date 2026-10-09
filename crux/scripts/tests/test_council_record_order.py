@@ -739,7 +739,8 @@ class OrderReadHardeningTests(_Order):
     def _plain_git(root, *args):
         """Run plain git in `root`, as the read would without its pins, returning raw bytes."""
         env = sup.scrubbed_env()
-        env.update({"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull})
+        env.update({"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull,
+                    "LC_ALL": "C", "LANGUAGE": "C"})
         return subprocess.run(["git", "-C", str(root), *args], capture_output=True, env=env)
 
     def _three_records(self, name):

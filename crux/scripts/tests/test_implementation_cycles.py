@@ -212,6 +212,18 @@ class StartBoundary(unittest.TestCase):
         self.assertEqual(errors, [])
         self.assertFalse(__import__("json").loads(result.stdout)["book_pointer_updated"])
 
+    def test_unquoted_date_book_starts_with_the_quoted_form_hash(self):
+        # The validator's CLI loader normalizes an unquoted date to an ISO string, so start must too.
+        text = self.path.read_text()
+        self.assertIn("created_at: '2026-10-01'", text)
+        self.path.write_text(text.replace("created_at: '2026-10-01'", "created_at: 2026-10-01"))
+        self.assertIsInstance(yaml.safe_load(self.path.read_bytes())["created_at"], __import__("datetime").date)
+        sup.commit_all(self.root, "synthetic unquoted date")
+        result = self.start()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        run = yaml.safe_load(self.output.read_bytes())
+        self.assertEqual(run["book_content_hash"], sup.vp.compute_book_hash(self.book))
+
     def test_actual_batch_start_explicitly_initializes_only_its_migration_container(self):
         declaration = self.book["implementation_slots"][0]
         declaration["scope"] = ["docs/adrs/migrations"]

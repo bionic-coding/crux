@@ -2725,6 +2725,104 @@ class SchemaGrowthTests(unittest.TestCase):
             self.assertEqual(control["verdict"], "computed")
 
     @unittest.skipUnless(GIT, "git is not on PATH")
+    def test_unborn_head_reports_no_history_yet(self):
+        closed = {"surface-not-comparable", "no-release-record", "baseline-ref-unresolved",
+                  "baseline-ref-ambiguous", "history-unavailable", "no-baseline",
+                  "surface-absent", "surface-unreadable", "surface-malformed"}
+        for label, changelog, expected in (
+                ("no changelog", None, "no-release-record"),
+                ("two dated headings",
+                 "# Changelog\n\n## [1.1.0] \u2014 2026-01-11\n\n- b\n\n"
+                 "## [1.0.0] \u2014 2026-01-01\n\n- a\n",
+                 "baseline-ref-unresolved")):
+            with self.subTest(label), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                _init_repo(root)
+                self._dev_repo(root)
+                self._seed(root, claude_lines=3, skills=2)
+                if changelog is not None:
+                    (root / "CHANGELOG.md").write_text(changelog, encoding="utf-8")
+                rec = self._growth(root)
+                self.assertEqual(rec["verdict"], "computed")
+                value = rec["value"]
+                self.assertEqual(value["current"], {"claude_md_lines": None, "skills": None})
+                self.assertEqual(value["baseline"],
+                                 {"ref": None, "release": None,
+                                  "claude_md_lines": None, "skills": None})
+                names = {entry["condition"] for entry in value["conditions"]}
+                self.assertIn(expected, names)
+                self.assertLessEqual(names, closed)
+                self.assertNotIn("history-unavailable", names)
+                self.assertIn("no history yet", rec["filter"])
+                self.assertIn("no history yet", rec["basis"])
+                self.assertNotIn("history-unavailable", rec["filter"])
+                self.assertNotIn("history-unavailable", rec["basis"])
+                self.assertNotIn("--end-of-options", json.dumps(rec))
+                table = sig.render_table({"active_adrs": 0, "signals": [rec]})
+                self.assertIn("'current'={\"claude_md_lines\": null, \"skills\": null}", table)
+                self.assertNotIn("\"claude_md_lines\": 0", table)
+                if changelog is not None:
+                    rc = sig.signal_release_cadence(root, "bionic")
+                    self.assertIn("no history yet", rc["filter"])
+                    self.assertIn("tag leg did not run (no history yet", rc["filter"])
+                    self.assertNotIn("--end-of-options", json.dumps(rc))
+
+    @unittest.skipUnless(GIT, "git is not on PATH")
+    def test_head_probe_failure_that_is_not_unborn_keeps_history_unavailable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _init_repo(root)
+            self._dev_repo(root)
+            self._seed(root, claude_lines=3, skills=2)
+            _commit(root, "first")
+            # An orphan branch: HEAD is unborn but another ref exists.
+            _run_git(root, "checkout", "-q", "--orphan", "fresh")
+            rec = self._growth(root)
+            self.assertEqual(rec["verdict"], "unmeasurable")
+            self.assertIsNone(rec["value"])
+            self.assertIn("history-unavailable", rec["filter"])
+            self.assertIn("the HEAD probe failed in this work tree", rec["basis"])
+            self.assertNotIn("at a resolvable HEAD", json.dumps(rec))
+
+    @unittest.skipUnless(GIT, "git is not on PATH")
+    def test_a_failed_unborn_probe_keeps_history_unavailable(self):
+        """Fail closed: on a repository with no commits, a later unborn probe that
+        fails (`symbolic-ref` or `for-each-ref`, as an unreadable refs directory
+        makes it) or cannot start never reads as "no history yet"."""
+        real_git = sig._git
+        for probe, raised in (("for-each-ref", sig.GitLegFailed),
+                              ("symbolic-ref", sig.GitLegFailed),
+                              ("for-each-ref", sig.GitUnavailable)):
+            with self.subTest(probe=probe, raised=raised.__name__), \
+                    tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                _init_repo(root)
+                self._dev_repo(root)
+                self._seed(root, claude_lines=3, skills=2)
+
+                def failing(where, *args, _probe=probe, _raised=raised):
+                    if args and args[0] == _probe:
+                        raise _raised(f"{_probe} failed")
+                    return real_git(where, *args)
+
+                with unittest.mock.patch.object(sig, "_git", failing):
+                    rec = self._growth(root)
+                self.assertEqual(rec["verdict"], "unmeasurable")
+                self.assertIsNone(rec["value"])
+                self.assertIn("history-unavailable", rec["filter"])
+                self.assertNotIn("no history yet", json.dumps(rec))
+        # PAIRED POSITIVE CONTROL: the same repository with every probe real
+        # reports "no history yet", so the fixture is an unborn HEAD.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _init_repo(root)
+            self._dev_repo(root)
+            self._seed(root, claude_lines=3, skills=2)
+            control = self._growth(root)
+            self.assertEqual(control["verdict"], "computed")
+            self.assertIn("no history yet", control["basis"])
+
+    @unittest.skipUnless(GIT, "git is not on PATH")
     def test_a_surface_failing_at_both_endpoints_names_baseline_only(self):
         """`claude_md_lines` absent at BOTH ends — ONE entry, naming `baseline`
         and never `current` alongside it (the member carries one condition).

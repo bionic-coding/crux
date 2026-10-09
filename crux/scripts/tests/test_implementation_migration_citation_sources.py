@@ -198,6 +198,113 @@ class Item1Sources(_Base):
         for step in ("160000", "regular files", "git ls-files -s"):
             self.assertIn(step, remedy)
         self.assertNotIn(".claude", remedy)
+        self.assertNotIn("Vendor the skill", remedy)
+        # The `.git` entry is moved, never deleted: an embedded clone keeps its only history there.
+        self.assertNotIn("or delete it", remedy)
+        self.assertIn("loses any history not pushed elsewhere", remedy)
+        # Only an embedded clone's `.git` directory holds history; a gitfile holds none, and a
+        # pushed clone's history survives elsewhere, so the warning claims neither.
+        self.assertNotIn("the only history", remedy)
+        self.assertIn("moving it keeps the nested repository's history", remedy)
+        self.assertIn("deleting the `.git` directory of an embedded clone loses any history not pushed elsewhere", remedy)
+        # `<name>` is defined, with the command that finds it.
+        self.assertIn("name of the `.gitmodules` section whose `path` is `<path>`", remedy)
+        self.assertIn("git config -f .gitmodules --get-regexp '\\.path$'", remedy)
+        untrack = remedy.index("git rm --cached <path>")
+        section = remedy.index("git config -f .gitmodules --remove-section submodule.<name>")
+        stage = remedy.index("git add .gitmodules")
+        entry = remedy.index("`.git` entry")
+        track = remedy.index("git add <path>")
+        self.assertLess(untrack, section)
+        self.assertLess(section, stage)
+        self.assertLess(stage, entry)
+        self.assertLess(entry, track)
+
+    def _git_ok(self, *args):
+        env = sup.scrubbed_env()
+        env.update({"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull})
+        done = sup.subprocess.run(["git", *args], cwd=self.root, capture_output=True, text=True, env=env)
+        self.assertEqual(done.returncode, 0, f"git {args}: {done.stderr}")
+        return done.stdout
+
+    def _make_submodule(self, shape, rel):
+        upstream = self.root.parent / "vendor-upstream"
+        upstream.mkdir()
+        (upstream / "SKILL.md").write_text(GOVERNING)
+        sup.git(upstream, "init", "-q")
+        sup.git(upstream, "add", "SKILL.md")
+        sup.git(upstream, "commit", "-q", "-m", "vendor skill")
+        if shape == "gitfile":
+            sup.git(self.root, "-c", "protocol.file.allow=always", "submodule", "add", "-q", "-f",
+                    str(upstream), rel)
+        else:
+            (self.root / rel).parent.mkdir(parents=True, exist_ok=True)
+            sup.git(self.root, "clone", "-q", str(upstream), rel)
+            sup.git(self.root, "add", "-f", rel)
+        sup.git(self.root, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "add submodule")
+        self.assertEqual(sup.git(self.root, "ls-files", "-s", rel).split()[0], "160000")
+
+    def test_submodule_remedy_followed_clears_the_refusal(self):
+        import shutil
+        import subprocess
+        rel = ".claude/skills/vendor"
+        for shape in ("gitfile", "embedded"):
+            with self.subTest(shape=shape):
+                self.setUp()
+                batch = self.prepare(CHANGELOG)
+                self._make_submodule(shape, rel)
+                with self.assertRaises(migration.Refused) as caught:
+                    migration._citation_inspection(self.root, batch)
+                self.assertEqual(caught.exception.remedy, migration.SUBMODULE_SOURCE_REMEDY)
+                # run the remedy's steps literally, in its order
+                for step in ("git rm --cached <path>",
+                             "git config -f .gitmodules --remove-section submodule.<name>",
+                             "git add .gitmodules", "`.git` entry", "git add <path>"):
+                    self.assertIn(step, caught.exception.remedy)
+                self._git_ok("rm", "--cached", rel)
+                gitmodules = self.root / ".gitmodules"
+                if gitmodules.is_file():
+                    names = [line.split()[0][len("submodule."):-len(".path")] for line in
+                             self._git_ok("config", "-f", ".gitmodules", "--get-regexp",
+                                          r"\.path$").splitlines()    # the command the remedy gives
+                             if line.split()[1] == rel]
+                    self.assertEqual(len(names), 1)
+                    self._git_ok("config", "-f", ".gitmodules", "--remove-section", f"submodule.{names[0]}")
+                    self._git_ok("add", ".gitmodules")
+                dot_git = self.root / rel / ".git"
+                # move the `.git` entry out of the repository; the remedy never deletes it
+                kept = self.root.parent / f"moved-dot-git-{shape}"
+                shutil.move(str(dot_git), str(kept))
+                self.assertTrue(kept.exists())
+                self._git_ok("add", rel)
+                modes = [line.split()[0] for line in
+                         self._git_ok("ls-files", "-s", "--", rel).splitlines()]
+                self.assertEqual(sup.git(self.root, "ls-files", "-s", rel + "/SKILL.md").split()[0],
+                                 "100644")
+                self.assertNotIn("160000", modes)
+                if gitmodules.is_file():
+                    self.assertNotIn(rel, gitmodules.read_text())
+                    self.assertNotIn(rel, self._git_ok("show", ":.gitmodules"))
+                _, kinds = migration._citation_inspection(self.root, batch)
+                self.assertIn(rel + "/SKILL.md", [row["path"] for row in kinds["governing"]])
+
+    def test_submodule_copy_that_keeps_the_dot_git_entry_stays_a_submodule(self):
+        # Positive control: the step the remedy names matters. Round-tripping the files while the
+        # .git entry stays leaves git recording the submodule again, and the rerun refuses.
+        import shutil
+        rel = ".claude/skills/vendor"
+        batch = self.prepare(CHANGELOG)
+        self._make_submodule("embedded", rel)
+        self._git_ok("rm", "--cached", rel)
+        shutil.copytree(self.root / rel, self.root / "tmp-copy", symlinks=True)
+        shutil.rmtree(self.root / rel)
+        shutil.copytree(self.root / "tmp-copy", self.root / rel, symlinks=True)
+        shutil.rmtree(self.root / "tmp-copy")
+        self._git_ok("add", rel)
+        self.assertEqual(sup.git(self.root, "ls-files", "-s", rel).split()[0], "160000")
+        with self.assertRaises(migration.Refused) as caught:
+            migration._citation_inspection(self.root, batch)
+        self.assertEqual(caught.exception.remedy, migration.SUBMODULE_SOURCE_REMEDY)
 
     def test_directory_link_to_a_tracked_in_repo_target_governs_at_the_real_path(self):
         # Positive control for the limitation below: a tracked target is scanned at its real path.

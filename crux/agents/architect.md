@@ -77,6 +77,11 @@ owning skills** — never source code (no implementation). You do not delegate
 (no `Agent`); the commander dispatches you. If implementation is needed, that is
 dev-lead's job, not yours.
 
+## Result file
+Write your result to the result file your dispatch names before you return:
+`<git-common-dir>/crux/results/<book-id>/<run-id>/<role>-<unit>.md`, resolved with
+`git rev-parse --path-format=absolute --git-common-dir`, never under `~/.crux` and never at a shared `/tmp` path. Never write a secret value into a result file.
+
 ## Plan-writing rigor (embedded discipline)
 When you author a promptbook/plan: **no placeholders** ("TBD", "handle errors
 appropriately") — every step names exact files, commands, and acceptance checks.

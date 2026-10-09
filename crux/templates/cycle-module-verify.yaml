@@ -69,6 +69,23 @@
     premise-contradiction stop, and the owner decides whether the cycle
     continues.
 
+    Reproduce at the run's `base_commit`, and record that commit in the
+    Diagnosis. Name each reproduction's kind. A textual reproduction quotes
+    text and reads it at the base with `git show <base_commit>:<path>`. An
+    executed reproduction runs code, a test or a command, and runs against the
+    base tree. The working tree stands in for the base tree only when
+    `git diff --quiet <base_commit> -- <paths>` exits 0 and
+    `git ls-files --others --exclude-standard -- <paths>` prints nothing,
+    where `<paths>` covers every input the reproduction reads: the code under
+    test, what it imports, its fixtures and configuration, and the test
+    itself. Equal files prove nothing about inputs the list leaves out. When
+    the check fails, run the reproduction in a private worktree,
+    `git worktree add --detach <private scratch path> <base_commit>`, never
+    under a shared `/tmp` path, and remove it afterwards. When a reproduction
+    cannot run at the base, record that as a stated limit of the evidence,
+    never as a reproduction. When `base_commit` is null, say so and record the
+    commit you used.
+
     Synthesize into a single **diagnosis** and write it into THIS run snapshot's
     `notes` field under the label `Diagnosis {M}` (problem · reproduction ·
     root cause · scope · proposed approach). Do NOT write an ADR — this is
@@ -83,7 +100,9 @@
     A later advance changes snapshot bytes; it does not renew this witness.
   expected_output: |
     A `Diagnosis {M}` block in the run snapshot `notes`: reproduction/evidence,
-    root cause, scope, and the proposed minimal approach.
+    root cause, scope, and the proposed minimal approach, plus the `base_commit`
+    the reproduction ran at, each reproduction's kind (textual or executed), and
+    any stated limit.
   side_effects: [query-docs]
 
 - title: "Verify {M}: convene LLM council to review the diagnosis"

@@ -315,6 +315,44 @@ class CitationKinds(unittest.TestCase):
         self.assertEqual(writer_driver('compile-doctrine').build(self.root), doctrine)
         self.assertEqual(self.f.snapshot(), before)
 
+    def run_lint(self, *paths):
+        import contextlib, io, json
+        lint = migration._reference_reader()
+        out = io.StringIO()
+        argv = ['--repo-root', str(self.root)] + [a for p in paths for a in ('--path', str(p))]
+        with contextlib.redirect_stdout(out):
+            code = lint.main(argv)
+        return code, json.loads(out.getvalue())
+
+    def test_lint_gives_a_brief_the_template_advice_for_a_demoted_slug(self):
+        lint = migration._reference_reader()
+        successor = 'rule:rotation-preserves-assessment-outcomes'
+        self.complete_governs()
+        self.prepare('# Changelog\n\n## [3.10.0] \u2014 2026-08-01\n\nrule:rotation\n')
+        self.f.close(); self.f.publish()
+        brief = self.root / 'docs/briefs/implementation-decisions.md'
+        brief.parent.mkdir(parents=True, exist_ok=True)
+        brief.write_text(self.BRIEF + '\nThe handle form ADR-0110/rotation also appears.\n')
+        sup.commit_all(self.root, 'synthetic brief filed after publication')
+        for paths in ((), (brief,)):
+            code, report = self.run_lint(*paths)
+            findings = report['rule_findings'] + report['unresolved']
+            self.assertEqual(code, 1, paths)
+            self.assertTrue(report['rule_findings'] and report['unresolved'], 'both legs report')
+            for finding in findings:
+                self.assertEqual(finding['reason'], 'historical', finding)
+                self.assertNotIn('replace with', finding['message'])
+                self.assertIn(lint.BRIEF_HISTORICAL_ADVICE, finding['message'])
+                self.assertIn(successor, finding['message'])
+        notes = self.root / 'notes/live.md'
+        notes.parent.mkdir(parents=True, exist_ok=True)
+        notes.write_text(self.BRIEF + '\nThe handle form ADR-0110/rotation also appears.\n')
+        code, report = self.run_lint(notes)
+        self.assertEqual(code, 1)
+        self.assertTrue(report['rule_findings'] and report['unresolved'], 'both legs report')
+        for finding in report['rule_findings'] + report['unresolved']:
+            self.assertIn('replace with ' + successor, finding['message'])
+
     def test_published_new_shipped_citation_of_demoted_slug_still_refuses(self):
         self.prepare('# Changelog\n\n## [3.10.0] — 2026-08-01\n\nrule:rotation\n')
         self.f.close(); self.f.publish()

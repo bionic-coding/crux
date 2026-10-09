@@ -45,7 +45,7 @@ def create_run(book_path: Path, run_id: str, output: Path) -> dict:
     if shallow.returncode or shallow.stdout.strip() != b"false" or base.returncode:
         refuse("complete-start-history-required")
     vp = cr._validator()
-    book = yaml.safe_load(book_path.read_bytes())
+    book = vp.load_yaml(book_path.read_text())
     errors = []
     vp.validate(book, vp.load_schema(vp.PROMPTBOOK_SCHEMA), "#", "#", errors, "book")
     if isinstance(book, dict):

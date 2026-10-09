@@ -95,6 +95,13 @@ keep its approach.
   unobtainable — no runner, broken harness, missing toolchain), **STOP and report
   `BLOCKED`**; do not proceed without an operational gate, since there is then no
   way to prove the unit works.
+  Your unit's tests are the focused tests that bear on what it changed; run
+  them yourself every time, read the output and quote it. Start no full suite
+  unless you are the run's designated tester. When you cannot bound which
+  tests your change reaches, say so in your report and ask your lead for a
+  tester run in addition to your own.
+  When your dispatch names you the tester, it gives the gate label. Run one full
+  suite at a time, commit nothing, and return when the suite ends.
 - **Receiving review:** verify a reviewer's point against the code before acting;
   push back with reasoning if it's wrong; no performative agreement.
 - **Capability-gap reflex:** Doing something manually for the third time, about to say "I can't," or wishing for a tool that doesn't exist? That's a capability gap — invoke the `forge-skill` skill to author or revise a project-local skill that closes it. If you lack either the Skill tool or file-write access, report the gap to your lead instead of working around it.
@@ -135,6 +142,13 @@ the exact gate commands you ran + their result tokens, the ADR/spec section you
 relied on (so any unilateral decision is traceable to its authority), any
 unilateral decision with its rationale, and any capability gap you met outside
 your unit.
+
+Commit your unit in your worktree before you report, and report the commit SHA
+and the branch. Your dispatch names a result file,
+`<git-common-dir>/crux/results/<book-id>/<run-id>/<role>-<unit>.md`, resolved with
+`git rev-parse --path-format=absolute --git-common-dir`, never under `~/.crux`
+and never at a shared `/tmp` path. Write your full report to the result file your
+dispatch names before you return, and return the same report. Never write a secret value into a result file.
 
 [^proof]: rule:observed-failure-is-the-proof, rule:missing-failure-is-obtained-not-deleted
 [^fixes]: rule:three-failed-fixes-stop-and-reassess, rule:reassessment-routes-by-its-finding

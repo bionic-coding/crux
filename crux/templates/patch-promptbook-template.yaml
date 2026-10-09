@@ -141,8 +141,26 @@ prompts:
       description), the root cause distinguished from the symptom, the scope, and
       the MINIMAL remediation approach. A failing test is a complete
       reproduction; do not build a corpus of inputs to demonstrate a class, and
-      do not let a security label on the finding widen the fix. The run snapshot
-      is a council subject. After each write of the `Diagnosis` block, record
+      do not let a security label on the finding widen the fix.
+
+      Reproduce at the run's `base_commit`, and record that commit in the
+      Diagnosis. Name each reproduction's kind. A textual reproduction quotes
+      text and reads it at the base with `git show <base_commit>:<path>`. An
+      executed reproduction runs code, a test or a command, and runs against the
+      base tree. The working tree stands in for the base tree only when
+      `git diff --quiet <base_commit> -- <paths>` exits 0 and
+      `git ls-files --others --exclude-standard -- <paths>` prints nothing,
+      where `<paths>` covers every input the reproduction reads: the code under
+      test, what it imports, its fixtures and configuration, and the test
+      itself. Equal files prove nothing about inputs the list leaves out. When
+      the check fails, run the reproduction in a private worktree,
+      `git worktree add --detach <private scratch path> <base_commit>`, never
+      under a shared `/tmp` path, and remove it afterwards. When a reproduction
+      cannot run at the base, record that as a stated limit of the evidence,
+      never as a reproduction. When `base_commit` is null, say so and record the
+      commit you used.
+
+      The run snapshot is a council subject. After each write of the `Diagnosis` block, record
       the write with the witness writer:
 
         uv run "${CRUX_PLUGIN_ROOT}/scripts/run-work-witness.py" record <run-RUN-NNN.yaml> --prompt <n> --path <run-RUN-NNN.yaml>
@@ -352,7 +370,8 @@ prompts:
       A `Diagnosis` block in the run `notes`; the council record's path attached,
       with per-seat decisions and blocking findings listed from it, covering the
       approach AND the blast-radius proportion; any escape verdict recorded
-      explicitly.
+      explicitly; the `base_commit` the reproduction ran at, each reproduction's
+      kind (textual or executed), and any stated limit.
     side_effects: [query-docs, council]
 
   - n: 2
@@ -403,6 +422,13 @@ prompts:
       Stay inside the declared blast radius and inside the approved scope. Record
       files changed, tests added or updated, and any unilateral decision with its
       rationale in this run snapshot's `notes`.
+
+      Integrate commits only outside the tester's window. The tester's window runs
+      from the tester's dispatch until the tester returns. The agent that dispatched
+      the tester holds the window. While it is open, that agent commits nothing to the main checkout, convenes no council, runs no live-tree tool, and dispatches no agent that does. Every dispatch you make while the window is open says so. The run has one commit
+      lane: no commit and no council while the tester's full suite or a live-tree
+      tool (compile-doctrine.py, summarize-adrs.py, derive-arch.py,
+      run-drift-gates.py, the council runner) runs.
     expected_output: |
       The change implemented with tests; files changed and decisions recorded in
       the run `notes`.
@@ -436,11 +462,30 @@ prompts:
       error); a crash / exit >= 2 / non-zero with empty or unparseable stdout = an
       environment-capability error (surface stderr; a distinct lane).
 
+      The run's designated tester runs the full suite. No agent other than the
+      tester or the dev-lead starts a full suite, and one full suite runs at a time.
+      The historian records the Tester record in the run notes under `Tester
+      record`: gate label, command, HEAD, clean-tree status at start and end, result
+      tokens and wall time. The quality-gate run carries the gate label `--gate
+      <book-id>/<run-id>/p<N>/quality-gate`. Gate labels come from the closed set
+      `integration`, `quality-gate`, `exit`. `<book-id>` is the book's `id` field
+      (for example `PB-0144`), and `<run-id>` is the run's `run_id` (for example
+      `RUN-001`). A cycle run labels its integration run `quality-gate`. `exit` labels the full suite at the
+      exit gate before merge is offered. `integration` labels an integration full
+      suite in a book that has no quality-gate prompt. Per-unit runs pass no
+      `--gate` and are never reusable. Before re-running a gate's full suite, the
+      tester may pass `--reuse` with that gate's label: the full-suite runner
+      reports the matching record and starts no second run, and otherwise runs the
+      suites. A record for another gate never matches `--reuse` for this one. A project whose full-suite runner takes no `--gate` or
+      `--reuse` option still names the gate label in the Tester record and runs the
+      suite each time. While the tester's full suite or a live-tree tool runs, no
+      agent commits and no council convenes.
+
       Then dispatch an independent reviewer over the diff — correctness against
       the diagnosed root cause, consistency with ADRs and `docs/AGENTS.md`,
       clarity, and security (injection, secrets incl. the `~/.crux/` contract,
       authz, supply-chain, unsafe file/shell/path ops). A `[SECURITY:Sn]` finding
-      on a reachable path is a non-downgradable MUST-FIX.
+      on a reachable path is a non-downgradable MUST-FIX. No reviewer starts a full suite; reviewers cite the Tester record.
 
       The reviewer receives the book's `goal` statements — the Outcome, the
       Evidence, and the Constraint. It judges the change against the Outcome,

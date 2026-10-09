@@ -137,7 +137,8 @@ the evidence is judged, never the `--result` text:
 * `blocked` needs `--artifacts`. A `stop` verdict writes the prompt `blocked` and keeps
   `current_prompt` on it. A `route` verdict moves the run to the module's ordinal-3 prompt
   (a patch `verify` phase writes nothing). A `refuse` verdict writes nothing.
-* A prompt that is not a gate advances as before.
+* A prompt that is not a gate advances as before, unless, in a format-two run, a closed `adr-*`
+  module's ADR is still pending acceptance (see `_prior_adr_closes_or_fail`).
 
 Every `--outcome` result carries a `gate` object. A gate prompt whose text carries the
 withdrawn council alternative also carries `withdrawn` and `correction_notice`; the book is
@@ -145,7 +146,7 @@ never rewritten. Only an explicit `--book` is rewritten, and only its `current_p
 
 `--gate-info [--prompt N]` is read-only: it prints the class, module, ordinal, phase and the
 evidence a prompt requires, plus the correction notice when its text carries the withdrawn
-alternative. It writes nothing anywhere.
+alternative, plus `adr_acceptance_pending` (null in a format-one run). It writes nothing anywhere.
 
 Symlinks. The run snapshot and an explicit `--book` are refused, with nothing written, when
 opening the path as given would follow a symlink at its leaf, or a symlink held in a directory
@@ -181,6 +182,7 @@ import datetime
 import json
 import os
 import re
+import stat
 import sys
 from pathlib import Path
 from typing import NoReturn
@@ -196,6 +198,7 @@ except ImportError:
 # `base_commit_pin.py` for the no-claim lane and the honest limit.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from base_commit_pin import divergence  # noqa: E402  (sys.path insert before import)
+import bionic_config  # noqa: E402  (sys.path insert before import)
 import council_gate  # noqa: E402  (sys.path insert before import)
 import council_records  # noqa: E402
 import implementation_approval  # noqa: E402
@@ -904,6 +907,237 @@ def _prior_implementation_closes_or_fail(run, book, run_path):
             _fail("formal DONE has no successful close binding; nothing was written")
 
 
+# An ADR file path under any `adrs/` directory, its identifier carrying the optional artifact
+# prefix (an upper-case lead such as `PB-`).
+_ADR_PATH = re.compile(r"^(?!/)(?:[^/]+/)*adrs/(?:archive/)?(?P<id>(?:[A-Z][A-Z0-9]*-)?ADR-\d{4})-[^/]+\.md$")
+_ADR_READ_LIMIT = 1 << 20
+_ABSENT = object()
+
+
+def _read_in_repo(repo, rel):
+    """The bytes of `rel` under `repo`; `_ABSENT` when a component does not exist; None when the
+    path is refused: absolute, a `..` or empty segment, a symlink at any component below the repo
+    root, a non-regular leaf, or unreadable. Never follows a symlink and never leaves the repo."""
+    if repo is None or not isinstance(rel, str) or not rel or "\x00" in rel or rel.startswith("/"):
+        return None
+    parts = rel.split("/")
+    if any(part in ("", ".", "..") for part in parts):
+        return None
+    cur = Path(repo)
+    for part in parts:
+        cur = cur / part
+        try:
+            mode = os.lstat(cur).st_mode
+        except FileNotFoundError:
+            return _ABSENT
+        except OSError:
+            return None
+        if stat.S_ISLNK(mode):
+            return None
+    if not stat.S_ISREG(mode):
+        return None
+    try:
+        fd = os.open(cur, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        with os.fdopen(fd, "rb") as stream:
+            return stream.read(_ADR_READ_LIMIT)
+    except OSError:
+        return None
+
+
+_ADR_CLEARING_STATUSES = frozenset({"accepted", "deprecated", "superseded"})
+
+
+def _adr_status(repo, rel):
+    """The `status:` of the ADR at `rel` (else the same basename under `adrs/archive/`), or
+    "unreadable". A path that exists but is refused is never retried under the archive."""
+    candidates = [rel]
+    head, _, base = rel.rpartition("/")
+    if not head.endswith("/archive"):
+        candidates.append(f"{head}/archive/{base}")
+    for candidate in candidates:
+        data = _read_in_repo(repo, candidate)
+        if data is _ABSENT:
+            continue
+        if data is None:
+            return "unreadable"
+        try:
+            text = data.decode("utf-8")
+            if not (text.startswith("---\n") or text.startswith("---\r\n")):
+                return "unreadable"
+            front = load_yaml(re.split(r"^---\s*$", text, maxsplit=2, flags=re.M)[1])
+        except (UnicodeDecodeError, IndexError, CatalogYamlError, yaml.YAMLError, ValueError):
+            return "unreadable"
+        status = front.get("status") if isinstance(front, dict) else None
+        return status.strip() if isinstance(status, str) and status.strip() else "unreadable"
+    return "unreadable"
+
+
+def _record_subjects(repo, rel):
+    """The ADR paths a committed council or refutation record names as subjects. The artifact is
+    resolved as the council gate resolves it, so a `./` or an absolute spelling reads the same
+    record the gate accepted."""
+    if repo is None:
+        return []
+    try:
+        _, rel = council_records.resolve_in_repo(repo, rel)
+    except council_records.PathRefused:
+        return []
+    data = _read_in_repo(repo, rel)
+    if not isinstance(data, bytes):
+        return []
+    try:
+        doc = json.loads(data)
+    except ValueError:
+        return []
+    if not isinstance(doc, dict) or doc.get("record_type") not in ("council-record", "refutation-record"):
+        return []
+    subjects = doc.get("subjects")
+    if not isinstance(subjects, list):
+        return []
+    return [s["path"] for s in subjects
+            if isinstance(s, dict) and isinstance(s.get("path"), str) and _ADR_PATH.match(s["path"])]
+
+
+def _tree_adr_path(repo):
+    """The pattern a path must match to name an ADR: an ADR file directly under
+    `<docs_dir>/adrs/` or `<docs_dir>/adrs/archive/`. When the layout config cannot be read, an
+    ADR file under any `adrs/` directory matches."""
+    try:
+        docs_dir = bionic_config.load_config(repo).docs_dir
+    except (bionic_config.BionicConfigError, OSError, ValueError, TypeError):
+        return _ADR_PATH
+    prefix = re.escape(os.path.normpath(docs_dir).strip("/"))
+    return re.compile(rf"^{prefix}/adrs/(?:archive/)?(?P<id>(?:[A-Z][A-Z0-9]*-)?ADR-\d{{4}})-[^/]+\.md$")
+
+
+def _named_adr(repo, text, pattern):
+    """`(id, repo-relative path)` when `text`, resolved as the council gate resolves an artifact
+    (`council_records.resolve_in_repo`, so a `./` or an absolute spelling counts), is an ADR file
+    path that `pattern` matches; None for anything else, including an identifier in free text."""
+    if repo is None or not isinstance(text, str):
+        return None
+    try:
+        _, rel = council_records.resolve_in_repo(repo, text)
+    except (council_records.PathRefused, OSError, ValueError):
+        return None
+    found = pattern.match(rel)
+    return (found.group("id"), rel) if found else None
+
+
+def _adr_acceptance_pending(run, book, run_dir, repo):
+    """None for a format-one run. Otherwise one entry per ADR of a closed `adr-*` module (its
+    fourth prompt is `done`) whose status is not Accepted, Deprecated or Superseded, or is
+    unreadable, or that cannot be identified.
+
+    Subjects are the ADR paths the module's council and refutation records (ordinals 2-4) name;
+    the deciding subjects are those of the records attached at the close (ordinal 4). The module
+    names an ADR only through an artifact (ordinals 1-4) or a run-work witness entry for its
+    prompts whose path is an ADR file under the tree's `adrs/` (`_named_adr`). The candidates are
+    the named ADRs, each read from every subject path that carries its identifier and from the
+    named path when no subject does; with none named, every ADR subject; with no ADR subject, one
+    `unidentified` entry. Each entry carries a `remedy`. `transition-adr` goes to a Proposed ADR
+    only when it is the one deciding subject the module names. Every other entry takes `owner`: an
+    ADR named only by the module, a second decided ADR, a subjects fallback, an unidentified or
+    unreadable ADR, and any other status."""
+    if run.get("format_version") != "2":
+        return None
+    states = {p["n"]: p for p in run.get("prompts") or []}
+    witness = None
+    if repo is not None:
+        try:
+            witness = _read_in_repo(repo, (Path(run_dir) / "run-work-witness.json").relative_to(repo).as_posix())
+        except ValueError:
+            witness = None
+    try:
+        entries = json.loads(witness).get("entries", []) if isinstance(witness, bytes) else []
+    except (ValueError, AttributeError):
+        entries = []
+    if not isinstance(entries, list):
+        entries = []
+    pending = []
+    pattern = _tree_adr_path(repo)
+    tags = sorted({p["module_tag"] for p in book["prompts"]
+                   if str(p.get("module_tag") or "").startswith("adr-")})
+    for tag in tags:
+        members = [p["n"] for p in book["prompts"] if p.get("module_tag") == tag]
+        close = states.get(members[-1])
+        if close is None or close.get("state") != "done":
+            continue
+        arts = {n: [a for a in (states.get(n, {}).get("artifacts") or []) if isinstance(a, str)]
+                for n in members}
+        subjects = []
+        for n in members[1:4]:
+            for art in arts[n]:
+                if art.endswith(".json"):
+                    subjects += [s for s in _record_subjects(repo, art) if s not in subjects]
+        deciding = []
+        for art in arts[members[-1]]:
+            if art.endswith(".json"):
+                deciding += [s for s in _record_subjects(repo, art) if s not in deciding]
+        named = {}
+        for n in members[:4]:
+            for art in arts[n]:
+                hit = _named_adr(repo, art, pattern)
+                if hit:
+                    named.setdefault(*hit)
+        for entry in entries:
+            if isinstance(entry, dict) and entry.get("prompt") in members:
+                hit = _named_adr(repo, entry.get("path"), pattern)
+                if hit:
+                    named.setdefault(*hit)
+        by_id = {}
+        for s in subjects:
+            by_id.setdefault(_ADR_PATH.match(s).group("id"), []).append(s)
+        # The ADRs the module's deciding record carries and the module names.
+        decided = [s for s in deciding if _ADR_PATH.match(s).group("id") in named]
+        if named:
+            # The module's own ADRs, whether or not a council subject names them.
+            candidates = []
+            for i in sorted(named):
+                if i in by_id:
+                    candidates += [(s, "subjects-and-module") for s in by_id[i]]
+                else:
+                    candidates.append((named[i], "module"))
+        elif subjects:
+            candidates = [(s, "subjects") for s in subjects]
+        else:
+            pending.append({"module_tag": tag, "path": None, "status": "unidentified",
+                            "identified_by": "subjects", "remedy": "owner"})
+            continue
+        for path, how in candidates:
+            status = _adr_status(repo, path)
+            if status == "unreadable" or status.lower() not in _ADR_CLEARING_STATUSES:
+                # Only the one Proposed ADR the council decided and the module named.
+                remedy = ("transition-adr" if status.lower() == "proposed" and how == "subjects-and-module"
+                          and decided == [path] else "owner")
+                pending.append({"module_tag": tag, "path": path, "status": status,
+                                "identified_by": how, "remedy": remedy})
+    return pending
+
+
+def _prior_adr_closes_or_fail(run, book, run_path):
+    """Refuse every advance but `--abandon` while a closed adr module's ADR is not Accepted,
+    Deprecated or Superseded, or is unreadable or unidentified. `blocked` and `skipped` are refused
+    too: at a prompt that is not a gate each outcome moves the pointer, and a run with no pending
+    prompt left reaches `completed` with the ADR still Proposed."""
+    pending = _adr_acceptance_pending(run, book, Path(run_path).resolve().parent,
+                                      council_records.repo_root(run_path))
+    if pending:
+        listing = "; ".join(f"{e['module_tag']}: {e['path'] or 'no ADR named'}, status {e['status']}, "
+                            f"remedy {e['remedy']}" for e in pending)
+        steps = []
+        if any(e["remedy"] == "transition-adr" for e in pending):
+            steps.append("Accept each ADR marked transition-adr with transition-adr, only if "
+                         "transition-adr has not yet run for this module; if it already ran, stop for "
+                         "the owner.")
+        if any(e["remedy"] == "owner" for e in pending):
+            steps.append("Report every entry marked owner to the owner, who restores an unreadable "
+                         "file or decides.")
+        _fail("a closed adr module's ADR is not Accepted, Deprecated or Superseded, or is unreadable or "
+              f"unidentified ({listing}). {' '.join(steps)} Otherwise abandon the run. Nothing was written.",
+              adr_acceptance_pending=pending)
+
+
 def _publish_format_two(run_path, content, before, retained):
     """One atomic run publication couples DONE and binding; cleanup only owned files."""
     repo = council_records.repo_root(run_path)
@@ -1002,6 +1236,8 @@ def gate_info(run: dict, run_path: Path, args) -> int:
         "prompt": n, "class": gate.cls, "module_tag": gate.module_tag, "ordinal": gate.ordinal,
         "phase": gate.phase, "cycle_fields": "run-start" if start.known else "unbound",
         "requires": _REQUIRES[gate.cls], **_withdrawn_fields(resolved.book, n),
+        "adr_acceptance_pending": _adr_acceptance_pending(
+            run, resolved.book, Path(run_path).resolve().parent, council_records.repo_root(run_path)),
     }))
     return 0
 
@@ -1130,6 +1366,7 @@ def main(argv: list[str]) -> int:
             except implementation_approval.Refused as exc:
                 _fail(exc.code + "; nothing was written")
             _prior_implementation_closes_or_fail(run, resolved.book, run_path)
+            _prior_adr_closes_or_fail(run, resolved.book, run_path)
         cur = run.get("current_prompt")
         start = _start_fields_or_fail(run, run_path, resolved)
         keep_blocked_evidence(run, args.outcome, args.result, artifacts, _notes_shape(text))

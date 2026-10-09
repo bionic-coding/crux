@@ -57,9 +57,9 @@
     book format supplies none. Preserve historical context bytes.
     Dispatch parallel `Agent` reviewers scoped to {SCOPE}, each blind to the
     others. **Three quality-dimension reviewers:**
-      (a) Correctness — re-runs the dev module's **full quality-gate suite**
-          (the COMPLETE test run, not a subset — same mandate as the dev gate),
-          then reads the diff for behavior bugs the gates can't catch.
+      (a) Correctness — checks the Tester record for the dev module's **full
+          quality-gate suite**, then reads the diff for behavior bugs the gates
+          can't catch. No reviewer starts a full suite; reviewers cite the Tester record.
       (b) Consistency — checks the change against the rules it cites: the
           `rule:<slug>` citations recorded in this run's Artifacts
           (INCLUDING every rule an ADR accepted earlier in this cycle

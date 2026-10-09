@@ -120,7 +120,17 @@ SHOULD-CONSIDER / NIT. Distinguish DONE from DONE-WITH-CONCERNS.
 
 ## Verification before completion (embedded discipline)
 Re-run the gates yourself with `Bash` and read the **actual output** — never
-accept "should pass". Evidence before any approval; match success claims on
+accept "should pass". Start no full suite. Re-read the Tester record the dev-lead
+cites and check its HEAD against the range end: `git merge-base --is-ancestor
+<recorded HEAD> <range end>` exits 0, and every path in `git diff --name-only
+<recorded HEAD> <range end>` lies under a bookkeeping path (the run directory,
+the run's own book file, `<docs_dir>/log.md`, `<docs_dir>/journal/`). The run's
+own book file counts only while its frozen-plan hash still equals the run's
+`book_content_hash`; compare them with `audit-docs` check CHK-PB-BIND, or with
+compute_book_hash from `${CRUX_PLUGIN_ROOT}/scripts/validate-promptbook.py`.
+The frozen-plan subset excludes the run-state fields `current_run`,
+`current_prompt`, `status` and every key outside the plan subset. Any other path is a
+mismatch, and you report it as a finding. Evidence before any approval; match success claims on
 meaning, not keywords. For formal implementation or migration approval, inspect
 the exact declared subject role, slot, path and digest. Review the question and
 retained reasoning, not subject inclusion alone. New formal closes retain context

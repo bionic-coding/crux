@@ -107,7 +107,26 @@ prompts:
       journal. Dispatch 2–3 research agents in parallel: each returns a
       reproduction (steps / failing test / concretely-cited drift, not a vague
       description), the root cause (cause vs. symptom), the scope, and a proposed
-      MINIMAL remediation approach. Synthesize into a `Diagnosis` block in this
+      MINIMAL remediation approach.
+
+      Reproduce at the run's `base_commit`, and record that commit in the
+      Diagnosis. Name each reproduction's kind. A textual reproduction quotes
+      text and reads it at the base with `git show <base_commit>:<path>`. An
+      executed reproduction runs code, a test or a command, and runs against the
+      base tree. The working tree stands in for the base tree only when
+      `git diff --quiet <base_commit> -- <paths>` exits 0 and
+      `git ls-files --others --exclude-standard -- <paths>` prints nothing,
+      where `<paths>` covers every input the reproduction reads: the code under
+      test, what it imports, its fixtures and configuration, and the test
+      itself. Equal files prove nothing about inputs the list leaves out. When
+      the check fails, run the reproduction in a private worktree,
+      `git worktree add --detach <private scratch path> <base_commit>`, never
+      under a shared `/tmp` path, and remove it afterwards. When a reproduction
+      cannot run at the base, record that as a stated limit of the evidence,
+      never as a reproduction. When `base_commit` is null, say so and record the
+      commit you used.
+
+      Synthesize into a `Diagnosis` block in this
       run snapshot's `notes`. Do NOT write an ADR; if the work turns out to be
       architectural, the council's escape verdict (next) routes it to `dev-cycle`.
       The snapshot is a later council subject. Immediately after each diagnosis
@@ -118,7 +137,8 @@ prompts:
       A later advance changes snapshot bytes; it does not renew this witness.
     expected_output: |
       A `Diagnosis` block in the run `notes`: reproduction/evidence, root cause,
-      scope, proposed minimal approach.
+      scope, proposed minimal approach, the `base_commit` the reproduction ran at,
+      each reproduction's kind (textual or executed), and any stated limit.
     side_effects: [query-docs]
 
   - n: 2
@@ -470,6 +490,13 @@ prompts:
       Each agent makes actual edits, adds/updates tests, and reports files
       changed + test results + any unilateral decisions. Integrate; reconcile
       overlaps. Stay within the approved minimal scope.
+
+      Integrate commits only outside the tester's window. The tester's window runs
+      from the tester's dispatch until the tester returns. The agent that dispatched
+      the tester holds the window. While it is open, that agent commits nothing to the main checkout, convenes no council, runs no live-tree tool, and dispatches no agent that does. Every dispatch you make while the window is open says so. The run has one commit
+      lane: no commit and no council while the tester's full suite or a live-tree
+      tool (compile-doctrine.py, summarize-adrs.py, derive-arch.py,
+      run-drift-gates.py, the council runner) runs.
     expected_output: |
       All work units implemented; per-agent reports collected.
     side_effects: []
@@ -501,6 +528,25 @@ prompts:
       (surface stderr; a distinct lane). Fix any
       failure (re-edit), then re-run the failed gate AND every subsequent gate.
       After 3 full loops without convergence, STOP and escalate.
+
+      The run's designated tester runs the full suite. No agent other than the
+      tester or the dev-lead starts a full suite, and one full suite runs at a time.
+      The historian records the Tester record in the run notes under `Tester
+      record`: gate label, command, HEAD, clean-tree status at start and end, result
+      tokens and wall time. The quality-gate run carries the gate label `--gate
+      <book-id>/<run-id>/p<N>/quality-gate`. Gate labels come from the closed set
+      `integration`, `quality-gate`, `exit`. `<book-id>` is the book's `id` field
+      (for example `PB-0144`), and `<run-id>` is the run's `run_id` (for example
+      `RUN-001`). A cycle run labels its integration run `quality-gate`. `exit` labels the full suite at the
+      exit gate before merge is offered. `integration` labels an integration full
+      suite in a book that has no quality-gate prompt. Per-unit runs pass no
+      `--gate` and are never reusable. Before re-running a gate's full suite, the
+      tester may pass `--reuse` with that gate's label: the full-suite runner
+      reports the matching record and starts no second run, and otherwise runs the
+      suites. A record for another gate never matches `--reuse` for this one. A project whose full-suite runner takes no `--gate` or
+      `--reuse` option still names the gate label in the Tester record and runs the
+      suite each time. While the tester's full suite or a live-tree tool runs, no
+      agent commits and no council convenes.
     expected_output: |
       All gates green; each gate's command + result token captured in `notes`.
     side_effects: [verify-code-docs]
@@ -518,10 +564,29 @@ prompts:
       Validate the committed approval binding and its retained context before
       treating reasoning as reviewed intent. Use the context's supported profile;
       book format supplies none. Preserve historical context bytes.
+      Precondition: This review requires the Tester record from this module's
+      quality-gate prompt. It holds when
+      `git merge-base --is-ancestor <recorded HEAD> HEAD` exits 0, every path printed
+      by `git diff --name-only <recorded HEAD> HEAD` lies under a bookkeeping path,
+      and `git status --porcelain --untracked-files=all` is empty. The bookkeeping
+      paths are the run directory, the run's own book file, `<docs_dir>/log.md` and
+      `<docs_dir>/journal/`. The book file counts only while its frozen-plan hash
+      equals the run's `book_content_hash`; compare them with audit-docs CHK-PB-BIND,
+      or compute_book_hash from `${CRUX_PLUGIN_ROOT}/scripts/validate-promptbook.py`.
+      The frozen-plan subset excludes the run-state fields `current_run`,
+      `current_prompt`, `status` and every key outside the plan subset. Name the
+      result in the run notes. This is citation, never a substitute for the
+      integration run, the exit gate or a release gate. When any precondition check
+      fails, the run stays at this prompt: no advance-run route returns it to the
+      quality-gate prompt. When `git status --porcelain --untracked-files=all` is not empty, the conductor first commits the run's own changes. It names every other path to the owner and stops; it deletes nothing. Then the conductor has the tester re-run the full suite of this module's quality-gate prompt, the historian records the new Tester
+      record, and the checks run again.
       Invoke the `code-review` skill (default effort, no `--comment` — a private
       dry-run) scoped to this loop's diff. Fix every `CONFIRMED` finding; evaluate
       `PLAUSIBLE`. Do NOT advance until every `CONFIRMED` is resolved or deferred
-      with rationale in the run `notes`.
+      with rationale in the run `notes`. When the fixes in this prompt touch any
+      path outside the bookkeeping paths, the tester runs a new full suite under
+      this module's quality-gate label at the post-fix HEAD, and the historian
+      records it as a new Tester record, before the review module cites one.
     expected_output: |
       Internal-review findings list and resolutions.
     side_effects: []
@@ -542,9 +607,10 @@ prompts:
       book format supplies none. Preserve historical context bytes.
       Dispatch parallel `Agent` reviewers, each blind to the others, scoped to the
       full cycle diff. **Three quality dimensions:** (a) Correctness — re-run the
-      Prompt 7 gates, then read the diff for behavior bugs + confirm the fix
+      Prompt 7 gates except the full test suite, for which check the Tester
+      record, then read the diff for behavior bugs + confirm the fix
       actually resolves the diagnosed root cause; (b) Consistency — vs ADRs,
-      `docs/AGENTS.md`, adjacent patterns; (c) Clarity. **PLUS a dedicated
+      `docs/AGENTS.md`, adjacent patterns; (c) Clarity. No reviewer starts a full suite; reviewers cite the Tester record. **PLUS a dedicated
       multi-subagent security review** — one `Agent` per threat class (S1
       injection, S2 secrets incl. `~/.crux/`, S3 authz, S4 supply-chain, S5
       unsafe file/shell/resource), scope-adaptive with MANDATORY N/A reports. A

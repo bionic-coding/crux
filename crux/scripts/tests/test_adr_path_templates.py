@@ -38,6 +38,7 @@ TEMPLATES = SCRIPTS.parent / "templates"
 ADR_MODULE = TEMPLATES / "cycle-module-adr.yaml"
 REVIEW_MODULE = TEMPLATES / "cycle-module-review.yaml"
 BOOK = TEMPLATES / "cycle-promptbook-template.yaml"
+GATES = TEMPLATES.parent / "skills" / "run-promptbook" / "references" / "gates.md"
 
 DIMENSIONS = ("Completeness", "Correctness", "Consistency", "Clarity", "Security")
 
@@ -143,6 +144,9 @@ def adr_close_problems(prompt: str) -> list[str]:
         problems.append("does not stop at the contradicted-premise stop")
     if "Do not re-run the gate check" not in text:
         problems.append("does not forbid re-running the gate check")
+    if ("Until the ADR is accepted, every later advance of this run refuses and "
+            "writes nothing; `--abandon` stays open.") not in text:
+        problems.append("does not say every later advance refuses while the ADR is Proposed")
     return problems
 
 
@@ -274,6 +278,13 @@ class CouncilPromptTests(unittest.TestCase):
         end = good.index("status to retry.") + len("status to retry.")
         self.assertEqual(len(adr_close_problems(good[:start] + good[end:])), 3)
 
+    def test_control_close_check_reports_a_missing_proposed_adr_refusal(self):
+        good = load(ADR_MODULE)[3]["prompt"]
+        self.assertEqual(adr_close_problems(good), [])
+        cut = good.replace("every later advance", "the next advance")
+        self.assertEqual(adr_close_problems(cut),
+                         ["does not say every later advance refuses while the ADR is Proposed"])
+
     def test_control_council_check_reports_each_seeded_violation(self):
         good = load(ADR_MODULE)[1]["prompt"]
         self.assertEqual(adr_council_problems(good), [])
@@ -362,6 +373,73 @@ class RoutingTests(unittest.TestCase):
                 self.assertIn("do not hand-edit state", text)
                 self.assertIn("Only after that advance writes this prompt `done`", text)
                 self.assertNotIn("After acceptance, advance", text)
+
+    def test_gates_reference_states_the_proposed_adr_refusal(self):
+        text = norm(GATES.read_text(encoding="utf-8"))
+        for needle in (
+            "In a format-two run, every later advance refuses and writes nothing while a "
+            "closed `adr-*` module's ADR is not Accepted, Deprecated or Superseded, or is unreadable or "
+            "unidentified: `done`, `blocked` and "
+            "`skipped` alike. `blocked` and `skipped` are refused because each moves the pointer at a "
+            "prompt that is not a gate, and a run with no pending prompt left reaches `completed` with "
+            "the ADR still Proposed.",
+            "A module names an ADR through an artifact or a run-work witness entry whose path, resolved "
+            "as the council gate resolves an artifact, is an ADR file under the tree's `adrs/` or "
+            "`adrs/archive/`. An ADR identifier anywhere else names nothing.",
+            "Only one entry can carry `transition-adr`: a Proposed ADR that the module names and that "
+            "the deciding record carries as a subject, when it is the only ADR the module names that the "
+            "deciding record carries. Dispatch the accepting architect to run it once. The gate cannot "
+            "see whether `transition-adr` already ran. When it already ran for the module and failed, "
+            "take a contradicted-premise stop for the owner, whatever the `remedy` field says. Every "
+            "other entry carries `owner`: an ADR the module names that no deciding record carries, every "
+            "ADR when the deciding record carries more than one ADR the module names, an entry "
+            "identified only from the council subjects, an `unidentified` or `unreadable` entry, and an "
+            "entry with any other status. Never instruct acceptance for an `owner` entry. Take a "
+            "contradicted-premise stop so the owner decides, or abandon the run.",
+            "`--abandon` stays open. Record the stop in the run Notes; it needs no advance. "
+            "It clears when the ADR's `status:` is Accepted, Deprecated or Superseded. An unreadable ADR "
+            "clears when the file at its path (the subject path, or the named path for an ADR no subject "
+            "carries), or the file of the same name under `adrs/archive/` "
+            "when no file is at that path, is a regular file reached without a symlink whose frontmatter "
+            "carries one of those statuses. A module that names no ADR file and whose records name no "
+            "ADR file clears only through `--abandon`.",
+            "plus one `unidentified` entry, with a null `path`, for a module that names no ADR file and "
+            "whose records name no ADR file.",
+            "The result always carries `adr_acceptance_pending`: null in a format-one run, otherwise a "
+            "list with one entry per pending ADR of a closed `adr-*` module",
+            "Each entry carries a `remedy`, `transition-adr` or `owner`. Do not issue the prompt while "
+            "the list is non-empty.",
+            "**ADR acceptance.** The advance reads the `status:` of each ADR the module's own "
+            "artifacts or run-work witnesses name by an ADR file path. It takes the path from each "
+            "council or refutation subject that carries the identifier, and from the named path "
+            "otherwise. A named ADR that cannot be read makes the advance refuse, with the status "
+            "`unreadable`. An ADR identifier outside an ADR file path names nothing, so a module that "
+            "cites its ADR only by identifier is judged by its subjects.",
+            "A module that names no ADR is judged by every ADR subject its records carry, so a "
+            "Proposed ADR cited only as context makes the advance refuse. It reads the working-tree file, so an "
+            "uncommitted status edit clears the refusal.",
+            "The gate-information query reports the pending ADR before that work starts.",
+        ):
+            with self.subTest(needle=needle[:40]):
+                self.assertEqual(text.count(needle), 1)
+
+    def test_gates_reference_retires_the_unseeable_remedy_claim(self):
+        # The gate cannot see a failed transition-adr, so no text may say the field reads `owner`.
+        text = norm(GATES.read_text(encoding="utf-8"))
+        self.assertEqual(text.count("and an entry whose `transition-adr` already failed"), 0)
+
+    def test_pending_pointer_names_the_module_close_paragraph(self):
+        skill = GATES.parent.parent / "SKILL.md"
+        advance = GATES.parent / "advance.md"
+        for path, ref in ((skill, "`references/gates.md`"), (advance, "`gates.md`")):
+            with self.subTest(path=path.name):
+                text = norm(path.read_text(encoding="utf-8"))
+                self.assertEqual(text.count(
+                    "When `adr_acceptance_pending` is non-empty, do not issue the prompt; the \"Module "
+                    f"close on an `adr-*` module\" paragraph in {ref} section 4 names the remedy for each "
+                    "entry."), 1)
+        self.assertEqual(norm(GATES.read_text(encoding="utf-8")).count(
+            "**Module close on an `adr-*` module.**"), 1)
 
     def test_book_titles_and_wording(self):
         book = book_module(load(BOOK), "adr-1")

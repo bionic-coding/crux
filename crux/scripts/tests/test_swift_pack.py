@@ -3204,22 +3204,139 @@ class SwiftPruneTests(unittest.TestCase):
         self.assertIn("/d/Leaf.swift` | `App` | folder-synced root App |", md)
 
 
-_TRAP = r"""
-import sys, json, hashlib
+# The promise this trap holds a derive to: no toolchain process, and no process
+# that runs repository code. Package.swift is executable Swift, so running the
+# toolchain would execute repository code. The one process a derive may create
+# is the pinned `git`: the executable the test linked into the child's single
+# entry `PATH` (`_BIN`). `subprocess.Popen` may name it `git` or by that exact
+# path, because Popen resolves a slash-less name through the event's env `PATH`.
+# `os.exec*` and `os.posix_spawn*` may name it by the exact path only: they do
+# not resolve through the event's env (execv and posix_spawn resolve a slash-less
+# name against the working directory, posix_spawnp against `os.environ["PATH"]`),
+# so a bare `git` there fires. It must carry exactly the three `-c` pairs below, as
+# the migration reader passes them (hooks, fsmonitor and the attributes file all
+# pointed away), and no other `-c`. Of git's global options only `-C <path>` and
+# `--no-lazy-fetch` are allowed, and the subcommand must be one of the three the
+# derive uses: `rev-parse`, `ls-files` and `ls-tree`, each a read. Everything
+# else fires the trap: `swift`, any other executable, `./git`, another path to
+# git, a `git` resolved through another `PATH`, a missing or changed pair, an
+# alias or any other `-c` key, a write subcommand, a shell command (`os.system`,
+# a string `Popen`), and a bare fork, which carries no argv to check.
+# `_posixsubprocess.fork_exec` is allowed once, as the follow-on of an allowed
+# `Popen`, and fires otherwise. That audit event exists on Python 3.14 and not on
+# 3.13: 3.13 raises only `subprocess.Popen`, so a direct `fork_exec` call is
+# invisible to any hook there. Where the 3.14 event fires it carries the
+# executable list and argv, and the hook checks both (the list must be the pinned
+# git alone, the argv must pass the same hardening check) rather than only
+# spending the credit an allowed Popen left. The credit is still a counter, so an
+# allowed Popen that raises before it forks leaves one credit that a later
+# `fork_exec` naming the pinned git with a hardened read argv can spend. The
+# derive cannot reach that, as it never calls `fork_exec`. The logic is split from
+# the hook so a control can call `_allowed` on a constructed event without
+# installing a hook in the runner.
+_TRAP_LOGIC = r"""
+import os
 fired = []
+_pending = [0]
+_BIN_GIT = os.path.join(_BIN, "git")
 _EVENTS = ("subprocess.Popen", "os.system", "os.exec", "os.posix_spawn", "os.spawn",
-           "os.fork", "os.forkpty")
+           "os.fork", "os.forkpty", "_posixsubprocess.fork_exec")
+_HARDENED = ("core.hooksPath=" + os.devnull, "core.fsmonitor=false",
+             "core.attributesFile=" + os.devnull)
+_SUBCOMMANDS = ("rev-parse", "ls-files", "ls-tree")
+def _path_of(env):
+    if env is None:
+        return os.environ.get("PATH")
+    if isinstance(env, dict):
+        return env.get("PATH")
+    return None
+def _hardened_git(path, argv, env, resolves=True):
+    # `path` is the executable the event names (None when Popen resolves argv[0]).
+    # `resolves` is True only for Popen, which resolves a slash-less name through
+    # the event's env PATH; the other legs take the full pinned path alone.
+    if resolves:
+        if path is not None and path not in ("git", _BIN_GIT):
+            return False
+    elif path != _BIN_GIT:
+        return False
+    if not isinstance(argv, (list, tuple)) or not argv or argv[0] not in ("git", _BIN_GIT):
+        return False
+    if resolves and "git" in (path, argv[0]) and _path_of(env) != _BIN:
+        return False
+    pairs, i = [], 1
+    while i < len(argv) and isinstance(argv[i], str) and argv[i].startswith("-"):
+        if argv[i] == "-c" and i + 1 < len(argv):
+            pairs.append(argv[i + 1])
+            i += 2
+        elif argv[i] == "-C" and i + 1 < len(argv):
+            i += 2
+        elif argv[i] == "--no-lazy-fetch":
+            i += 1
+        else:
+            return False
+    if sorted(pairs) != sorted(_HARDENED):
+        return False
+    return i < len(argv) and argv[i] in _SUBCOMMANDS
+def _allowed(event, args):
+    if event == "subprocess.Popen":
+        return _hardened_git(args[0], args[1], args[3] if len(args) > 3 else None)
+    if event in ("os.exec", "os.posix_spawn"):
+        return _hardened_git(args[0], args[1], args[2] if len(args) > 2 else None, False)
+    if event == "os.spawn":
+        return _hardened_git(args[1], args[2], args[3] if len(args) > 3 else None, False)
+    return False
+def _fork_exec_matches(args):
+    # The 3.14 event is (executable list, argv, env). An empty event carries
+    # nothing to check, and 3.13 never raises one.
+    if len(args) < 2:
+        return True
+    return tuple(args[0]) == (os.fsencode(_BIN_GIT),) and _hardened_git(_BIN_GIT, args[1], None, False)
 def _hook(event, args):
-    if event in _EVENTS:
-        fired.append(event)
-        raise RuntimeError("process creation trapped: " + event)
-sys.addaudithook(_hook)
+    if event not in _EVENTS:
+        return
+    if event == "_posixsubprocess.fork_exec":
+        if _pending[0] > 0 and _fork_exec_matches(args):
+            _pending[0] -= 1
+            return
+    elif _allowed(event, args):
+        if event == "subprocess.Popen":
+            _pending[0] += 1
+        return
+    fired.append(event)
+    raise RuntimeError("process creation trapped: " + event)
 """
 
 
+def _trap(bin_dir: str) -> str:
+    """The trap script for a child whose `PATH` is the single directory `bin_dir`."""
+    return ("import sys, json, hashlib\n" f"_BIN = {bin_dir!r}\n" + _TRAP_LOGIC
+            + "sys.addaudithook(_hook)\n")
+
+
+def _trap_namespace(bin_dir: str = "/pinned/bin") -> dict:
+    """The trap's functions without its hook, for controls on constructed events."""
+    ns: dict = {"_BIN": bin_dir}
+    exec(_TRAP_LOGIC, ns)
+    return ns
+
+
+_HARDENED_GIT = ["git", "-c", "core.hooksPath=" + os.devnull, "-c", "core.fsmonitor=false",
+                 "-c", "core.attributesFile=" + os.devnull]
+
+
 class NoExecutionTests(unittest.TestCase):
-    """ADR-0129 clause 2's postcondition: a derive with no `swift` on `PATH`
-    and process creation trapped completes with identical bytes."""
+    """A derive with no `swift` on `PATH` completes with identical bytes while the
+    trap above allows one executable: the pinned `git`, with the three hardening
+    pairs and one of three read subcommands. The derive spawns that executable
+    many times (41 `Popen` events on the pinned package). Every other process
+    creation fires the trap.
+
+    This is the narrower reading of the derive-decision's "process creation
+    trapped" postcondition. The decision's text still reads as the wider promise;
+    amending it is an open follow-up the owner decided on 2026-10-08 and routed
+    to dev-cycle. Until it lands, this test holds the narrower reading. The
+    `runs_no_process` method names keep their earlier wording because committed
+    records cite them."""
 
     def _tree(self, tmp: Path) -> Path:
         import shutil
@@ -3229,21 +3346,23 @@ class NoExecutionTests(unittest.TestCase):
         shutil.copy(MANIFESTS / "literal-subset" / "Package.swift", root / "Package.swift")
         return root
 
-    def _child(self, root: Path, spawn: bool = False):
+    def _child(self, root: Path, spawn: list[str] | None = None):
         import os
+        import shutil
         import subprocess
-        script = _TRAP + (
+        import tempfile
+        tail = (
             f"sys.path.insert(0, {str(SCRIPTS)!r})\n"
             "from pathlib import Path\n"
             "from crux.arch import core\n"
             "from crux.arch.packs import swift\n")
         if spawn:
-            script += (
+            tail += (
                 "import subprocess\n"
                 "_real = swift.extract_data_model\n"
                 "def _spawning(root, docs):\n"
                 "    try:\n"
-                "        subprocess.run(['swift', '--version'])\n"
+                f"        subprocess.run({spawn!r}, capture_output=True)\n"
                 "    except Exception:\n"
                 "        pass\n"
                 "    return _real(root, docs)\n"
@@ -3251,13 +3370,20 @@ class NoExecutionTests(unittest.TestCase):
                 "swift.probes = lambda: {'data-model': [core.Probe(swift._always_swift, _spawning, kind='parser')],\n"
                 "    'api-surface': [core.Probe(swift._always_swift, swift.extract_api_surface, kind='parser')],\n"
                 "    'module-graph': [core.Probe(swift._always_swift, swift.extract_module_graph, kind='parser')]}\n")
-        script += (
+        tail += (
             f"tree = core._build(Path({str(root)!r}), 'bionic')\n"
             "digest = hashlib.sha256(json.dumps(tree, sort_keys=True).encode()).hexdigest()\n"
             "print(json.dumps({'fired': fired, 'digest': digest}))\n")
         env = {k: v for k, v in os.environ.items() if k not in ("PATH",)}
-        env["PATH"] = "/nonexistent"
-        return subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, env=env)
+        # `PATH` holds `git` alone, so `swift` stays off it while hardened git resolves.
+        git = shutil.which("git")
+        with tempfile.TemporaryDirectory() as bin_dir:
+            if git is not None:
+                os.symlink(git, os.path.join(bin_dir, "git"))
+            env["PATH"] = bin_dir
+            script = _trap(bin_dir) + tail
+            return subprocess.run([sys.executable, "-c", script], capture_output=True, text=True,
+                                  env=env)
 
     def _parent_digest(self, root: Path) -> str:
         import hashlib
@@ -3289,14 +3415,211 @@ class NoExecutionTests(unittest.TestCase):
         self.assertEqual(head.read_text().strip(), PINNED_SAP_HEAD)
         self._assert_silent_and_identical(SAP_CACHE)
 
-    def test_positive_control_a_probe_that_spawns_fires_the_trap(self):
+    def _spawned(self, argv: list[str]) -> list[str]:
         import json
         import tempfile
         with tempfile.TemporaryDirectory() as d:
             root = self._tree(Path(d))
-            proc = self._child(root, spawn=True)
+            proc = self._child(root, spawn=argv)
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(json.loads(proc.stdout.strip().splitlines()[-1])["fired"], ["subprocess.Popen"])
+        return json.loads(proc.stdout.strip().splitlines()[-1])["fired"]
+
+    def test_positive_control_a_probe_that_spawns_fires_the_trap(self):
+        self.assertEqual(self._spawned(["swift", "--version"]), ["subprocess.Popen"])
+
+    def test_positive_control_an_unhardened_git_fires_the_trap(self):
+        self.assertEqual(self._spawned(["git", "rev-parse", "--show-toplevel"]), ["subprocess.Popen"])
+
+    def test_positive_control_a_git_missing_one_hardening_pair_fires_the_trap(self):
+        for drop in (1, 3, 5):
+            with self.subTest(dropped=_HARDENED_GIT[drop + 1]):
+                argv = _HARDENED_GIT[:drop] + _HARDENED_GIT[drop + 2:] + ["rev-parse", "--show-toplevel"]
+                self.assertEqual(self._spawned(argv), ["subprocess.Popen"])
+
+    def test_negative_control_a_hardened_git_does_not_fire_the_trap(self):
+        # `--version` is not a subcommand the derive uses, so the pinned git
+        # runs it only for the three read subcommands below.
+        self.assertEqual(self._spawned(_HARDENED_GIT + ["--version"]), ["subprocess.Popen"])
+        self.assertEqual(self._spawned(_HARDENED_GIT + ["rev-parse", "--show-toplevel"]), [])
+
+    def test_positive_control_an_alias_after_the_three_pairs_fires_the_trap(self):
+        argv = _HARDENED_GIT + ["-c", "alias.v=!sh v", "v"]
+        self.assertEqual(self._spawned(argv), ["subprocess.Popen"])
+
+    def _trapped(self, body: str, work: str):
+        """Run `body` in a child under the trap, `PATH` holding the pinned git alone."""
+        import os
+        import shutil
+        import subprocess
+        import tempfile
+        env = {k: v for k, v in os.environ.items() if k != "PATH"}
+        git = shutil.which("git")
+        with tempfile.TemporaryDirectory() as bin_dir:
+            if git is not None:
+                os.symlink(git, os.path.join(bin_dir, "git"))
+            env["PATH"] = bin_dir
+            script = (_trap(bin_dir) + f"import os\nwork = {work!r}\nhardened = {_HARDENED_GIT!r}\n"
+                      + body + "\nprint(json.dumps({'fired': fired}))\n")
+            return subprocess.run([sys.executable, "-c", script], capture_output=True, text=True,
+                                  env=env)
+
+    def _slashless_git_in_cwd(self, body: str):
+        """A fake `git` in the working directory writes a marker when it runs."""
+        import json
+        import tempfile
+        with tempfile.TemporaryDirectory() as work:
+            marker = Path(work) / "marker"
+            fake = Path(work) / "git"
+            # A shell builtin: the child's `PATH` holds no `touch`.
+            fake.write_text(f"#!/bin/sh\n: > {str(marker)!r}\n")
+            fake.chmod(0o755)
+            proc = self._trapped(body, work)
+            ran = marker.exists()
+        fired = None
+        if proc.stdout.strip():
+            fired = json.loads(proc.stdout.strip().splitlines()[-1])["fired"]
+        return ran, fired, proc
+
+    def test_positive_control_a_slashless_git_resolved_by_the_call_fires_the_trap(self):
+        # posix_spawn and execv resolve a slash-less name against the working
+        # directory, posix_spawnp against `os.environ["PATH"]`. Neither uses the
+        # event's env, so only the full pinned path is allowed on these legs.
+        argv = "['git'] + hardened[1:] + ['rev-parse', 'HEAD']"
+        calls = {
+            "posix_spawn": (f"os.chdir(work)\ntry:\n    os.posix_spawn('git', {argv}, {{'PATH': _BIN}})\n"
+                            "except RuntimeError:\n    pass\n"),
+            "posix_spawnp": (f"os.environ['PATH'] = work\ntry:\n    os.posix_spawnp('git', {argv}, {{'PATH': _BIN}})\n"
+                             "except RuntimeError:\n    pass\n"),
+            "execv": (f"os.chdir(work)\ntry:\n    os.execv('git', {argv})\n"
+                      "except RuntimeError:\n    pass\n"),
+        }
+        for name, body in calls.items():
+            with self.subTest(call=name):
+                ran, fired, proc = self._slashless_git_in_cwd(body)
+                self.assertFalse(ran, f"the fake git ran: {proc.stderr}")
+                self.assertEqual(fired, ["os.exec" if name == "execv" else "os.posix_spawn"], proc.stderr)
+
+    def test_the_full_pinned_path_is_allowed_on_the_exec_and_spawn_legs(self):
+        ns = _trap_namespace()
+        full = ns["_BIN_GIT"]
+        argv = [full] + _HARDENED_GIT[1:] + ["rev-parse", "HEAD"]
+        for event in ("os.exec", "os.posix_spawn"):
+            with self.subTest(event=event):
+                self.assertTrue(ns["_allowed"](event, (full, argv, {"PATH": "/elsewhere"})))
+                self.assertTrue(ns["_allowed"](event, (full, ["git"] + argv[1:], None)))
+        self.assertTrue(ns["_allowed"]("os.spawn", (0, full, argv, {"PATH": "/elsewhere"})))
+
+    def test_the_executable_path_is_held_alone_of_argv_zero(self):
+        # argv[0] is `git` and the executable is not the pinned name or path, so
+        # only the executable check refuses it.
+        tail = _HARDENED_GIT[1:] + ["rev-parse", "HEAD"]
+        for path in ("./git", "/usr/bin/git", "/pinned/bin/../git", "bin/git"):
+            with self.subTest(path=path):
+                self.assertFalse(self._popen(path, ["git"] + tail))
+
+    # Constructed events: `_allowed` called on the Popen event a spawn would raise.
+    def _popen(self, executable, argv, path=None):
+        ns = _trap_namespace()
+        env = {"PATH": ns["_BIN"] if path is None else path}
+        return ns["_allowed"]("subprocess.Popen", (executable, argv, None, env))
+
+    def test_the_constructed_derive_event_is_allowed(self):
+        for sub in (["rev-parse", "HEAD"], ["ls-files", "-z"], ["ls-tree", "-z", "HEAD"]):
+            with self.subTest(sub=sub[0]):
+                argv = _HARDENED_GIT + ["-C", "/repo", "--no-lazy-fetch"] + sub
+                self.assertTrue(self._popen("git", argv))
+                self.assertTrue(self._popen(None, argv))
+                self.assertTrue(self._popen("/pinned/bin/git", ["/pinned/bin/git"] + argv[1:]))
+
+    def test_positive_control_an_alias_event_fires(self):
+        argv = _HARDENED_GIT + ["-c", "alias.v=!sh v", "v"]
+        self.assertFalse(self._popen("git", argv))
+
+    def test_positive_control_any_other_c_key_fires(self):
+        for pair in ("core.pager=sh", "core.sshCommand=sh", "diff.external=sh", "core.editor=sh"):
+            with self.subTest(pair=pair):
+                argv = _HARDENED_GIT + ["-c", pair, "rev-parse", "HEAD"]
+                self.assertFalse(self._popen("git", argv))
+
+    def test_positive_control_a_relative_or_foreign_git_path_fires(self):
+        tail = _HARDENED_GIT[1:] + ["rev-parse", "HEAD"]
+        for path in ("./git", "/pinned/bin/../git", "/usr/bin/git", "/pinned/bin/sub/git",
+                     "bin/git"):
+            with self.subTest(path=path):
+                self.assertFalse(self._popen(path, [path] + tail))
+                self.assertFalse(self._popen(None, [path] + tail))
+                self.assertFalse(self._popen("git", [path] + tail))
+
+    def test_positive_control_a_git_resolved_through_another_path_fires(self):
+        argv = _HARDENED_GIT + ["rev-parse", "HEAD"]
+        self.assertFalse(self._popen("git", argv, path="/usr/bin"))
+        self.assertFalse(self._popen("git", argv, path="/pinned/bin:/usr/bin"))
+        ns = _trap_namespace()
+        self.assertFalse(ns["_allowed"]("subprocess.Popen", ("git", argv, None, {})))
+
+    def test_positive_control_a_later_override_of_a_hardened_key_fires(self):
+        for key, base in (("core.hooksPath", "/dev/null"), ("core.fsmonitor", "false"),
+                          ("core.attributesFile", "/dev/null")):
+            with self.subTest(key=key):
+                argv = _HARDENED_GIT + ["-c", f"{key}=/tmp/x", "rev-parse", "HEAD"]
+                self.assertFalse(self._popen("git", argv))
+                # An override placed first, with the hardened pair last, is also refused.
+                first = ["git", "-c", f"{key}=/tmp/x"] + _HARDENED_GIT[1:] + ["rev-parse", "HEAD"]
+                self.assertFalse(self._popen("git", first))
+
+    def test_positive_control_a_write_subcommand_fires(self):
+        for sub in (["commit", "-m", "x"], ["config", "user.name", "x"], ["checkout", "main"],
+                    ["fetch"], ["gc"], ["--version"], []):
+            with self.subTest(sub=sub):
+                self.assertFalse(self._popen("git", _HARDENED_GIT + sub))
+
+    def test_positive_control_another_global_option_fires(self):
+        for option in (["--exec-path=/tmp/x"], ["--git-dir=/tmp/x"], ["-p"], ["--work-tree=/tmp/x"],
+                       ["-ccore.pager=sh"]):
+            with self.subTest(option=option):
+                argv = _HARDENED_GIT + option + ["rev-parse", "HEAD"]
+                self.assertFalse(self._popen("git", argv))
+
+    def test_positive_control_a_bare_fork_exec_fires_unless_it_follows_an_allowed_popen(self):
+        ns = _trap_namespace()
+        allowed = ("git", _HARDENED_GIT + ["rev-parse", "HEAD"], None, {"PATH": ns["_BIN"]})
+        with self.assertRaises(RuntimeError):
+            ns["_hook"]("_posixsubprocess.fork_exec", ())
+        ns["_hook"]("subprocess.Popen", allowed)
+        ns["_hook"]("_posixsubprocess.fork_exec", ())
+        with self.assertRaises(RuntimeError):
+            ns["_hook"]("_posixsubprocess.fork_exec", ())
+        with self.assertRaises(RuntimeError):
+            ns["_hook"]("subprocess.Popen", ("swift", ["swift", "--version"], None, None))
+        self.assertEqual(ns["fired"], ["_posixsubprocess.fork_exec", "_posixsubprocess.fork_exec",
+                                       "subprocess.Popen"])
+
+    def test_a_3_14_fork_exec_event_is_checked_against_the_pinned_git(self):
+        # On 3.14 the event is (executable list, argv, env); an allowed Popen
+        # earns one credit, and only an event naming the pinned git spends it.
+        ns = _trap_namespace()
+        full = ns["_BIN_GIT"]
+        hardened = [full] + _HARDENED_GIT[1:] + ["rev-parse", "HEAD"]
+        popen = ("git", ["git"] + hardened[1:], None, {"PATH": ns["_BIN"]})
+        ns["_hook"]("subprocess.Popen", popen)
+        ns["_hook"]("_posixsubprocess.fork_exec", ((full.encode(),), hardened, None))
+        self.assertEqual(ns["fired"], [])
+        for exec_list, argv in (((b"/usr/bin/swift",), ["/usr/bin/swift", "--version"]),
+                                ((full.encode(),), ["swift", "--version"]),
+                                ((full.encode(), b"/usr/bin/git"), hardened)):
+            with self.subTest(exec_list=exec_list):
+                ns["_hook"]("subprocess.Popen", popen)
+                with self.assertRaises(RuntimeError):
+                    ns["_hook"]("_posixsubprocess.fork_exec", (exec_list, argv, None))
+
+    def test_positive_control_exec_spawn_and_system_events_fire(self):
+        ns = _trap_namespace()
+        bad = ("/usr/bin/git", ["/usr/bin/git", "status"], {})
+        for event, args in (("os.system", ("ls",)), ("os.fork", ()), ("os.forkpty", ()),
+                            ("os.exec", bad), ("os.posix_spawn", bad), ("os.spawn", (0,) + bad)):
+            with self.subTest(event=event):
+                with self.assertRaises(RuntimeError):
+                    ns["_hook"](event, args)
 
 
 def _harness():

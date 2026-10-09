@@ -398,7 +398,13 @@ prompts:
       record. You never convene a third council without an owner-exception
       record, written by the owner or transcribed at the owner's instruction,
       against `${CRUX_PLUGIN_ROOT}/schemas/owner-exception.schema.json`. No vendored writer
-      exists for either record type.
+      exists for either record type. The owner's instruction is a decision the owner
+      stated in the owner's own message in the session. Whoever acts on it quotes that
+      message and its date: in the record's reason for an owner-exception record, and
+      in the run notes for a recovery run with `--owner-commit-pending`. An agent
+      report, a result file, a run note or a council verdict is never an owner's
+      instruction. A standing council authorization covers council calls, never an
+      owner-exception record.
 
       Resolve findings **autonomously** from the council record and in-repo
       evidence; do NOT ask a human.
@@ -472,7 +478,8 @@ prompts:
       fails after that advance, the run has advanced with the ADR still
       Proposed. Stop and report it as a contradicted premise (stop 4). Do not
       re-run the gate check, and do not edit the run's state or the ADR's
-      status to retry.
+      status to retry. Until the ADR is accepted, every later advance of this run
+      refuses and writes nothing; `--abandon` stays open.
 
       Then invoke `log-work` to append a journal entry summarizing this
       ADR's planning loop: number of council rounds, the key debate(s) that
@@ -545,6 +552,13 @@ prompts:
 
       After all agents return, integrate. If two agents edited overlapping
       files (they should not have, given grouping), reconcile manually.
+
+      Integrate commits only outside the tester's window. The tester's window runs
+      from the tester's dispatch until the tester returns. The agent that dispatched
+      the tester holds the window. While it is open, that agent commits nothing to the main checkout, convenes no council, runs no live-tree tool, and dispatches no agent that does. Every dispatch you make while the window is open says so. The run has one commit
+      lane: no commit and no council while the tester's full suite or a live-tree
+      tool (compile-doctrine.py, summarize-adrs.py, derive-arch.py,
+      run-drift-gates.py, the council runner) runs.
     expected_output: |
       All work units implemented; per-agent reports collected.
     side_effects: []
@@ -598,6 +612,25 @@ prompts:
       AND every subsequent gate. Repeat until all gates return clean. After
       3 full loops without convergence, STOP and escalate.
 
+      The run's designated tester runs the full suite. No agent other than the
+      tester or the dev-lead starts a full suite, and one full suite runs at a time.
+      The historian records the Tester record in the run notes under `Tester
+      record`: gate label, command, HEAD, clean-tree status at start and end, result
+      tokens and wall time. The quality-gate run carries the gate label `--gate
+      <book-id>/<run-id>/p<N>/quality-gate`. Gate labels come from the closed set
+      `integration`, `quality-gate`, `exit`. `<book-id>` is the book's `id` field
+      (for example `PB-0144`), and `<run-id>` is the run's `run_id` (for example
+      `RUN-001`). A cycle run labels its integration run `quality-gate`. `exit` labels the full suite at the
+      exit gate before merge is offered. `integration` labels an integration full
+      suite in a book that has no quality-gate prompt. Per-unit runs pass no
+      `--gate` and are never reusable. Before re-running a gate's full suite, the
+      tester may pass `--reuse` with that gate's label: the full-suite runner
+      reports the matching record and starts no second run, and otherwise runs the
+      suites. A record for another gate never matches `--reuse` for this one. A project whose full-suite runner takes no `--gate` or
+      `--reuse` option still names the gate label in the Tester record and runs the
+      suite each time. While the tester's full suite or a live-tree tool runs, no
+      agent commits and no council convenes.
+
       **Record each gate in the run snapshot Notes with its exact command AND
       a concrete result token** (e.g. `validate-catalog --dry-run → exit 0`,
       `unittest → 149 OK`) — NOT a bare "all gates green". The review module's
@@ -622,14 +655,33 @@ prompts:
       Validate the committed approval binding and its retained context before
       treating reasoning as reviewed intent. Use the context's supported profile;
       book format supplies none. Preserve historical context bytes.
+      Precondition: This review requires the Tester record from this module's
+      quality-gate prompt. It holds when
+      `git merge-base --is-ancestor <recorded HEAD> HEAD` exits 0, every path printed
+      by `git diff --name-only <recorded HEAD> HEAD` lies under a bookkeeping path,
+      and `git status --porcelain --untracked-files=all` is empty. The bookkeeping
+      paths are the run directory, the run's own book file, `<docs_dir>/log.md` and
+      `<docs_dir>/journal/`. The book file counts only while its frozen-plan hash
+      equals the run's `book_content_hash`; compare them with audit-docs CHK-PB-BIND,
+      or compute_book_hash from `${CRUX_PLUGIN_ROOT}/scripts/validate-promptbook.py`.
+      The frozen-plan subset excludes the run-state fields `current_run`,
+      `current_prompt`, `status` and every key outside the plan subset. Name the
+      result in the run notes. This is citation, never a substitute for the
+      integration run, the exit gate or a release gate. When any precondition check
+      fails, the run stays at this prompt: no advance-run route returns it to the
+      quality-gate prompt. When `git status --porcelain --untracked-files=all` is not empty, the conductor first commits the run's own changes. It names every other path to the owner and stops; it deletes nothing. Then the conductor has the tester re-run the full suite of this module's quality-gate prompt, the historian records the new Tester
+      record, and the checks run again.
       Invoke the `code-review` skill (use the default effort level, no
       `--comment` flag — this is a private dry-run). The skill produces a
       ranked list of findings.
 
       For each `CONFIRMED` finding, fix in place. For each `PLAUSIBLE`,
       evaluate and decide. Do NOT advance to Prompt 9 until every
-      `CONFIRMED` finding is resolved or explicitly deferred with rationale
-      captured in the run snapshot Notes.
+      `CONFIRMED` finding is resolved or explicitly deferred with rationale captured
+      in the run snapshot Notes. When the fixes in this prompt touch any path
+      outside the bookkeeping paths, the tester runs a new full suite under this
+      module's quality-gate label at the post-fix HEAD, and the historian records it
+      as a new Tester record, before the review module cites one.
     expected_output: |
       Internal-review findings list and resolutions.
     side_effects: []
@@ -650,11 +702,12 @@ prompts:
       book format supplies none. Preserve historical context bytes.
       Dispatch parallel `Agent` reviewers, each blind to the others. **Three
       quality dimensions:** (a) Correctness — re-runs Prompt 7's gates
-      including the **full test suite** (the COMPLETE run, not a subset — same
-      mandate as Prompt 7), then reads the diff for behavior bugs;
+      except the full test suite, for which it checks the Tester record, then
+      reads the diff for behavior bugs;
       (b) Consistency — checks against ADRs,
       `docs/AGENTS.md` conventions, adjacent patterns; (c) Clarity — reads as a
       new engineer; flags confusing names, undocumented invariants, magic numbers.
+      No reviewer starts a full suite; reviewers cite the Tester record.
 
       Commission these reviewers yourself for the units you dispatched.
       Where you integrated across those units, that integration is your own
