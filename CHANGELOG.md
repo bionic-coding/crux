@@ -1,4 +1,4 @@
-<!-- generated-from: CHANGELOG.md@sha256:018e85a3a4473a072135d9f6b780aade020ba9d63f33251150d3cc1ea7f63b5d; model: claude-sonnet-5.5; date: 2026-10-08 -->
+<!-- generated-from: CHANGELOG.md@sha256:56c8262fbdcefe34996381bdabad94ed8d948f93624802001e3f18f835531fa2; model: claude-sonnet-5.5; date: 2026-10-09 -->
 # Changelog
 
 All notable changes to crux. The format roughly follows [Keep a Changelog](https://keepachangelog.com/) and the project adheres to [Semantic Versioning](https://semver.org/).
@@ -8,6 +8,20 @@ All notable changes to crux. The format roughly follows [Keep a Changelog](https
 ### Added
 
 ### Changed
+
+### Fixed
+
+### Removed
+
+## [3.27.2] — 2026-10-09
+
+### Added
+
+### Changed
+
+- Models: the flagship level now pins Claude Opus 5.5 by its full ID `claude-opus-5-5` instead of the `opus` family alias, so the architect, brainstormer and dev-lead run Opus 5.5 on every Claude Code provider.
+- Models: on OpenCode, the architect now runs Opus 5.5 and the commander runs Kimi K3. The `haiku-latest` alias now points at Haiku 5.5, and the unused `opus-stable` alias is removed.
+- Dev-lead: a new Testing section asks for evidence proportional to the change, a time estimate before expensive runs, and a full test suite that finishes in under 30 minutes.
 
 ### Fixed
 

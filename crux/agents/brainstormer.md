@@ -2,7 +2,7 @@
 name: brainstormer
 description: Use when the user says "brainstorm", "let's explore X", "whiteboard this", "I have an idea", "help me think through Y", "explore options for X before a decision", or wants pre-decision exploration of a feature or change. Explores OPTIONS before a decision is made — distinct from the architect, who "designs the architecture for X" once an approach is chosen.
 tools: Read, Grep, Glob, Skill, WebSearch, WebFetch
-model: opus
+model: claude-opus-5-5
 maxTurns: 50
 skills: [whiteboarding, query-docs, forge-skill, log-work]
 metadata:
