@@ -1,4 +1,4 @@
-<!-- generated-from: CHANGELOG.md@sha256:56c8262fbdcefe34996381bdabad94ed8d948f93624802001e3f18f835531fa2; model: claude-sonnet-5.5; date: 2026-10-09 -->
+<!-- generated-from: CHANGELOG.md@sha256:78804f9be24d5f679687316aa515a421ff6c8e9cbb587272070157677b6d1b3e; model: claude-sonnet-5.5; date: 2026-10-09 -->
 # Changelog
 
 All notable changes to crux. The format roughly follows [Keep a Changelog](https://keepachangelog.com/) and the project adheres to [Semantic Versioning](https://semver.org/).
@@ -10,6 +10,30 @@ All notable changes to crux. The format roughly follows [Keep a Changelog](https
 ### Changed
 
 ### Fixed
+
+### Removed
+
+## [3.27.4] — 2026-10-09
+
+### Added
+
+### Changed
+
+### Fixed
+
+- Codex: the librarian can now complete `query-docs` from its read-only sandbox, where `uv run` cannot start. It uses the authority-state output supplied by its caller. It runs `authority-view.py` itself only where `uv run` can start, and it refuses to answer when it has neither. When `query-docs` delegates to the librarian, it now tells the caller to run `authority-view.py state` and `retained-roots` first and pass along their output.
+
+### Removed
+
+## [3.27.3] — 2026-10-09
+
+### Added
+
+### Changed
+
+### Fixed
+
+- On Codex, the librarian can now read skill instructions and local files through the shell. Its instructions limit shell use to read-only retrieval, and its Codex sandbox stays `read-only`. On OpenCode, the librarian's shell permission changes from deny to allow.
 
 ### Removed
 

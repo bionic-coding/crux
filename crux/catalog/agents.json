@@ -234,6 +234,7 @@
       "Read",
       "Grep",
       "Glob",
+      "Bash",
       "Skill"
     ],
     "model": "claude-sonnet-5-5",

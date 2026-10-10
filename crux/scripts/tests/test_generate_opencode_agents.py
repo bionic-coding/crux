@@ -291,7 +291,7 @@ AGENT_VERDICTS = {
         "subagent_roles": frozenset(),
     },
     "librarian": {
-        "allowed": {"read", "grep", "glob", "list", "skill"},
+        "allowed": {"read", "grep", "glob", "list", "shell", "skill"},
         "subagent_roles": frozenset(),
     },
     "night-gardener": {

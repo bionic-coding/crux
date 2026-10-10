@@ -1,4 +1,4 @@
-<!-- generated-from: README.md@sha256:99e55248147da8e01daeddf145e3e43a1b7c5a24815adc14bcb08178ba41b601; model: claude-sonnet-5.5; date: 2026-10-09 -->
+<!-- generated-from: README.md@sha256:d0a05bb187cb9184c12a32f1ebabaf6b83a04f9454253be76b05e9f8e65d6b0d; model: claude-sonnet-5.5; date: 2026-10-09 -->
 # Crux
 
 An Agentic Harness plugin that maintains a `./bionic/` tree inside any software project, so that Claude can navigate, query, and update project knowledge without anyone having to remember where things go. Everything runs locally: no server, no accounts, no background service, just skills, scripts, and your repo.
@@ -439,4 +439,4 @@ If you spot something wrong (a stale page, a contradiction, a broken link), tell
 
 ## License & status
 
-MIT licensed (see [LICENSE](./LICENSE)). v3.27.2 — see [CHANGELOG.md](./CHANGELOG.md) for the per-release breakdown. Issues welcome; the public repo is regenerated on every release, so pull requests there cannot be merged.
+MIT licensed (see [LICENSE](./LICENSE)). v3.27.4 — see [CHANGELOG.md](./CHANGELOG.md) for the per-release breakdown. Issues welcome; the public repo is regenerated on every release, so pull requests there cannot be merged.
