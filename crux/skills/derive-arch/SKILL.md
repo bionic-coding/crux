@@ -7,6 +7,7 @@ metadata:
   tags: "arch, architecture, regeneration, derived-spine"
   bundles: "crux-docs"
   risk_level: "low"
+  requires_access: "write-tree"
   triggers: "build the arch | build the arch directory | derive arch | regenerate the architecture | refresh the architecture map | rebuild the arch spine | update the arch"
   routing_note: "Regenerative — rewrites `<docs_dir>/arch/` wholesale from the project's sources. `--dry-run` is the drift check. The primary current-state surface."
 ---

@@ -5,6 +5,7 @@ metadata:
   tags: "adrs, review, objectives, doctrine"
   bundles: "crux-docs"
   risk_level: "low"
+  requires_access: "write-tree"
   triggers: "review the decisions | run a decision review | do the decisions still serve the objectives | review the ADR set against the objectives | decision review | is the decision set still right"
   routing_note: "The periodic architect review of the decision set against `<docs_dir>/objectives.md`; at most five findings in one dated report. Proposes only — it transitions nothing, signs off nothing, and authors nothing."
 ---

@@ -5,6 +5,7 @@ metadata:
   tags: "research, refresh, synthesis"
   bundles: "crux-docs"
   risk_level: "low"
+  requires_access: "write-tree"
   triggers: "refresh synthesis | reconcile pages | clear flags | review research | what synthesis pages are stale? | what needs reconciliation?"
   routing_note: "Per-page user-supervised."
 ---

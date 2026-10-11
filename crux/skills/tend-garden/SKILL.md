@@ -7,6 +7,7 @@ metadata:
   tags: "garden, night-gardener, overnight, turn-based, orchestrator"
   bundles: "crux-core"
   risk_level: "medium"
+  requires_access: "write-tree"
   triggers: "tend the garden | run the night gardener | night pass | morning note"
   routing_note: "Turn-gated overnight review; silent skip when it isn't her turn."
 ---

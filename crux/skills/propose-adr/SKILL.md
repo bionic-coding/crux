@@ -5,6 +5,7 @@ metadata:
   tags: "adrs, decisions, authoring"
   bundles: "crux-docs"
   risk_level: "low"
+  requires_access: "write-tree"
   triggers: "propose ADR | record decision | new ADR | ADR for <topic>"
   routing_note: "Writes status: Proposed; never auto-accepts."
 ---

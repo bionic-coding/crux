@@ -5,6 +5,7 @@ metadata:
   tags: "arch, decision-recovery, adr, provenance"
   bundles: "crux-docs"
   risk_level: "low"
+  requires_access: "write-tree"
   triggers: "recover decisions | mine decisions from the code | what load-bearing decisions have no ADR"
 ---
 

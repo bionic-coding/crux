@@ -6,6 +6,7 @@ metadata:
   tags: "doctrine, reconciliation, invariants, human-gate"
   bundles: "crux-docs"
   risk_level: "medium"
+  requires_access: "write-tree"
   triggers: "sign off the reconciliation | reconcile INV-NNNN with ADR-NNNN | record the reconciliation verdict | this invariant is compatible with | mark the collision between"
   routing_note: "The single human write path for one doctrine reconciliation pairing: renders the invariant text and the rule text, takes the verdict (compatible | reconciled | collision) and rationale from the user, then upserts a digest-bound record and re-compiles doctrine on explicit confirmation. Human gate — excluded from run-execution autonomy; carries `disable-model-invocation`. Never chooses a verdict; never batch-signs."
 ---

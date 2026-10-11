@@ -1,4 +1,4 @@
-<!-- generated-from: CHANGELOG.md@sha256:78804f9be24d5f679687316aa515a421ff6c8e9cbb587272070157677b6d1b3e; model: claude-sonnet-5.5; date: 2026-10-09 -->
+<!-- generated-from: CHANGELOG.md@sha256:bd34239f349b9d2fb8434027fc532ec0b3e5c219880877c8ed6f14458db9ba2d; model: claude-sonnet-5.5; date: 2026-10-11 -->
 # Changelog
 
 All notable changes to crux. The format roughly follows [Keep a Changelog](https://keepachangelog.com/) and the project adheres to [Semantic Versioning](https://semver.org/).
@@ -6,6 +6,23 @@ All notable changes to crux. The format roughly follows [Keep a Changelog](https
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [3.28.0] — 2026-10-11
+
+### Added
+
+- `crux-mods`, a second plugin in the crux marketplace, holds Claude Code mods and is opt-in. Install it with `/plugin install crux-mods@crux`; installing crux alone changes nothing. It needs Claude Code v2.1.287 or later and does nothing in Codex or OpenCode.
+- The run dashboard is the first mod. A band above the prompt shows a summary of the run whose run file was written most recently. `/crux-dashboard` opens a pane with every prompt's state, each council round's per-seat decisions and aggregate action, the recorded gate results and live subagent status. It also returns a text answer that Claude reads. The command is `/crux-dashboard`, not `/dashboard`, because Claude Code reserves that name for a built-in. The dashboard makes no network request, calls no model, reads no secret and writes nothing in your tree. It starts only the installed crux's reader, offline through `uv`.
+- `visualize-run-progress.py --json --project-root` is a new read-only mode. It emits each in-progress run, or a single prompt book's run when you give that book's ID, with its progress, each council round's per-seat decisions and aggregate action, and the recorded gate results. A gate result is a gate prompt's state plus its evidence. For a council or module-close gate, the evidence is the attached council records the reader validated. For an independent-review gate, it is the number of attached files under `reviews/`, which the reader never opens. The mode stops itself after 8 seconds. The terminal and Markdown outputs are unchanged.
+- In the development repository, `crux-mods` now ships at crux's version in the same release step. The version lock-step spans five surfaces, the sync step stages `crux-mods/`, and both the release preflight and the sync step run a mods gate. The gate refuses an event or call outside the plugin's capability manifest, a behaviour-changing entry without an Accepted decision, a failing mods test, a Claude Code version outside the declared range, and a command-text hook on a command the plugin does not own. The sync step also refuses any staged file under `crux/` or `crux-mods/` that git does not track, including an ignored one.
+- Every skill now declares the access it needs in `metadata.requires_access`, and `validate-catalog` refuses a skill without it. A pairing gate checks each role's declared skills against that role's envelope in Claude Code, Codex and OpenCode. When a role cannot run a skill, the gate names the lane that can.
+- Known limit: 41 Codex role-and-skill pairs need `.git` writes, which a Codex workspace-write sandbox denies, so those skills do not run their commit steps in Codex. This limit predates this change. The pairing gate checks these pairs against the derived envelope only.
 
 ### Changed
 

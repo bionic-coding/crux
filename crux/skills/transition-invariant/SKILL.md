@@ -6,6 +6,7 @@ metadata:
   tags: "invariants, state-machine, ratification, human-gate"
   bundles: "crux-docs"
   risk_level: "low"
+  requires_access: "write-tree"
   triggers: "ratify invariant INV-NNNN | reject invariant INV-NNNN | retire invariant INV-NNNN | transition invariant"
 ---
 

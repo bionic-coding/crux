@@ -6,6 +6,7 @@ metadata:
   tags: "observations, ratification, survey, batch, human-gate"
   bundles: "crux-docs"
   risk_level: "low"
+  requires_access: "write-tree"
   triggers: "scaffold a survey sheet | start a batch review of observations | build the observation review sheet | survey the observed candidates | open a ratification batch | I want to review the observed candidates in one pass"
   routing_note: "Scaffolds one SVY-NNNN batch review sheet from the observation candidate state file, seeding the machine cells and leaving verdict, domain and rationale empty. Half of the batch-ratification pair; `survey-signoff` is the other half. Human gate — excluded from run-execution autonomy; carries `disable-model-invocation`. Never fills a verdict, never publishes a record."
 ---

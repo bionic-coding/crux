@@ -7,6 +7,7 @@ metadata:
   tags: "audit, integrity, validation, drift-detection"
   bundles: "crux-docs"
   risk_level: "low"
+  requires_access: "write-tree"
   triggers: "audit docs | check docs | find drift | verify docs integrity"
   routing_note: "Full vault-walk; mostly read-only."
 ---

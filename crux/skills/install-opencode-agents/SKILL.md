@@ -6,6 +6,7 @@ metadata:
   tags: "opencode, agents, installation, roles"
   bundles: "crux-infrastructure, crux-docs"
   risk_level: "medium"
+  requires_access: "write-tree"
   triggers: "install opencode agents | install crux agents for opencode | refresh the opencode agents"
 ---
 

@@ -5,6 +5,7 @@ metadata:
   tags: "promptbooks, workflow, fix, small-change, direct"
   bundles: "crux-docs"
   risk_level: "low"
+  requires_access: "write-tree"
   triggers: "just fix it | fix it directly | fix this directly | no book for this | this is small, skip the cycle | direct fix"
   routing_note: "The rung below the three cycle tiers (§11.C): no book, no council, no PB number. A failing test first, the smallest green change, the suite and the drift gates, one commit, one `log-work` entry. Passes the sizing test or escalates to `patch-cycle` / `iterate` / `dev-cycle`. See `fix-directly/SKILL.md`."
 ---

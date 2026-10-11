@@ -5,6 +5,7 @@ metadata:
   tags: "reasoning, dissent-resolution, council"
   bundles: "crux-core, crux-docs"
   risk_level: "low"
+  requires_access: "run-plugin-script"
   triggers: "resolve the dissent | run srde | resolve the council disagreement"
 ---
 

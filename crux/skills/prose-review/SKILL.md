@@ -5,6 +5,7 @@ metadata:
   tags: "writing, prose, review, style, editing"
   bundles: "crux-verification"
   risk_level: "low"
+  requires_access: "read-local"
   triggers: "review this prose | prose review | tighten this writing | check the writing rules | edit this text"
   routing_note: "Checks text against the seven §16 writing rules and returns a rewrite for every finding (`fix` | `confirm`); a finding without replacement text is not a finding. Mandatory at three points: `release-preflight` over `README.md` + `CHANGELOG.md` (advisory until the waiver path is vendored), the `dev-cycle`/`iterate` prep prompt, and `tend-garden` before the morning note."
 ---
@@ -298,6 +299,8 @@ per finding to the release artifact: the rule, the severity, the location, and w
 rejected the rewrite. The record exists because the acceptance evidence for these rules is self-graded — the same
 author who adopted them decides which findings to accept — so the disposition has to be auditable rather than
 remembered.
+
+A role that holds no file-write tool records nothing and returns the disposition lines to its caller to record.
 
 ## Apply the rules to your own report
 

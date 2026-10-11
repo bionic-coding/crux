@@ -39,8 +39,15 @@ public spec. Current shape:
       tags          (CSV string, e.g. "a, b, c")
       bundles       (CSV string)
       risk_level    (string; enum {low,medium,high})
+      requires_access (string; required; one ACCESS_LADDER token, ADR-0149)
+      supplied_access (string; optional; one ladder token strictly below
+                       requires_access, ADR-0149)
       requires_env  (CSV string of env var names; each ^[A-Z][A-Z0-9_]*$)
       routing_note  (string; optional §10 routing-table Notes cell)
+
+  - Under an agent's `metadata:`, ADR-0149 adds two optional double-quoted
+    flat strings: `shell_scope` (one ladder token, at most write-run) and
+    `skill_lanes` (comma-separated `skill=kind` entries).
 
   - CSV encoding: ", " (comma + single space). On parse: split on `,`,
     strip each token, reject empty tokens.
@@ -171,15 +178,33 @@ SCHEMA_KEYS = [
     "tags",
     "bundles",
     "risk_level",
+    "requires_access",
 ]
+
+# Per ADR-0149: the ordered access ladder. Each token covers the ones before
+# it. This tuple is the one home of the ladder: a skill's `requires_access` and
+# `supplied_access` and an agent's `shell_scope` read it. The role-skill pairing
+# gate keys its coverage table by these tokens in this order and refuses to run
+# when they differ.
+ACCESS_LADDER = ("read-local", "run-plugin-script", "write-run", "write-tree", "write-host")
+
+# The highest ladder token a role's `shell_scope` may name (ADR-0149 point 2).
+SHELL_SCOPE_CEILING = "write-run"
+
+# Scalar metadata keys that carry one ladder token. `_lift_metadata` keeps the
+# raw value for these, so a list or number is refused as what it is rather than
+# as the string `str()` would make of it.
+ACCESS_TOKEN_METADATA = {"requires_access", "supplied_access"}
 
 # Optional metadata keys. `requires_env` is the env-requirement list;
 # `routing_note` (ADR-0092 / the §10 routing-table generator) is the optional
-# Notes cell for a skill's routing-table row.
+# Notes cell for a skill's routing-table row; `supplied_access` (ADR-0149) is
+# the reduced need a caller-supplied output leaves.
 OPTIONAL_SCHEMA_KEYS = [
     "requires_env",
     "routing_note",
     "triggers",
+    "supplied_access",
 ]
 
 # Per ADR-0092: the Claude Code skill invocation-control top-level keys. These
@@ -213,6 +238,8 @@ OUTPUT_KEY_ORDER = [
     "tags",
     "bundles",
     "risk_level",
+    "requires_access",
+    "supplied_access",
     "requires_env",
     "routing_note",
     "triggers",
@@ -357,7 +384,12 @@ AGENT_METADATA_KEYS = [
 # The full set of keys recognized under an agent's `metadata:`. Anything else
 # is a validation error (strict metadata contract, extended to agents by
 # ADR-0092 so a lingering owner/version/status fails loudly).
-KNOWN_AGENT_METADATA_KEYS = set(AGENT_METADATA_KEYS)
+KNOWN_AGENT_METADATA_KEYS = set(AGENT_METADATA_KEYS) | {"shell_scope", "skill_lanes"}
+
+# Per ADR-0149 point 5: the lane kinds. `delegates:<role>` is the third kind and
+# carries a target, so it is matched by prefix.
+LANE_KINDS = ("caller-supplies", "returns-to-caller")
+LANE_DELEGATES_PREFIX = "delegates:"
 
 # Subset of agent metadata.* fields whose canonical form in agents.json is a
 # JSON list (CSV split on `,`, strip each token).
@@ -374,6 +406,8 @@ AGENT_OUTPUT_KEY_ORDER = [
     "tags",
     "bundles",
     "risk_level",
+    "shell_scope",
+    "skill_lanes",
     *AGENT_INVOCATION_KEYS,
 ]
 
@@ -439,11 +473,37 @@ def load_yaml(text: str) -> dict:
     """
     try:
         import yaml  # type: ignore
-
-        data = yaml.safe_load(text)
-        return data if isinstance(data, dict) else {}
     except ImportError:
         return _parse_minimal_yaml(text)
+    repeated = _repeated_top_level_key(text)
+    if repeated is not None:
+        raise ValueError(repeated)
+    data = yaml.safe_load(text)
+    return data if isinstance(data, dict) else {}
+
+
+def _repeated_top_level_key(text: str) -> str | None:
+    """Name the first top-level key PyYAML reads twice, or None.
+
+    safe_load keeps the last of two equal keys, so a second `metadata:` block
+    would replace the first with no error. Keys compare as composed, so a
+    quoted spelling counts. Needs PyYAML; the minimal parser, which also
+    extracts every agent, checks its own.
+    """
+    import yaml  # type: ignore
+
+    root = yaml.compose(text)
+    if not isinstance(root, yaml.MappingNode):
+        return None
+    keys = [k.value for k, _v in root.value if isinstance(k, yaml.ScalarNode)]
+    for key in keys:
+        if keys.count(key) > 1:
+            return _repeat_message(key, keys.count(key))
+    return None
+
+
+def _repeat_message(key: str, n: int) -> str:
+    return f"{key} appears {n} times at the top level of the frontmatter; declare it once"
 
 
 def _parse_minimal_yaml(text: str) -> dict:
@@ -453,6 +513,7 @@ def _parse_minimal_yaml(text: str) -> dict:
     no nested mappings beyond what frontmatter needs.
     """
     root: dict = {}
+    seen: dict[str, int] = {}
     lines = text.splitlines()
     i = 0
     while i < len(lines):
@@ -471,6 +532,9 @@ def _parse_minimal_yaml(text: str) -> dict:
         key, _, value = content.partition(":")
         key = key.strip()
         value = value.strip()
+        # Count each root key as parsed, so a quoted spelling counts too.
+        parsed_key = (_split_mapping_line(content) or (key, ""))[0]
+        seen[parsed_key] = seen.get(parsed_key, 0) + 1
         # Folded (`>`) or literal (`|`) block-scalar indicator (with optional
         # chomp marker `-` or `+`). Consume subsequent indented lines as the
         # scalar body. Common in crux SKILL.md frontmatter for long
@@ -555,9 +619,10 @@ def _parse_minimal_yaml(text: str) -> dict:
                     j += 1
                     continue
                 # Sub-mapping line: `subkey: value`.
-                if not saw_list and ":" in stripped:
-                    sk, _, sv = stripped.partition(":")
-                    submap[sk.strip()] = _parse_scalar(sv.strip())
+                split = None if saw_list else _split_mapping_line(stripped)
+                if split is not None:
+                    sk, sv = split
+                    submap[sk] = _parse_scalar(sv)
                     saw_mapping = True
                     j += 1
                     continue
@@ -576,7 +641,47 @@ def _parse_minimal_yaml(text: str) -> dict:
             continue
         root[key] = _parse_scalar(value)
         i += 1
+    # Both parsers keep the last of two equal keys; refuse rather than replace.
+    for parsed_key, n in seen.items():
+        if n > 1:
+            raise ValueError(_repeat_message(parsed_key, n))
     return root
+
+
+def _split_mapping_line(stripped: str) -> tuple[str, str] | None:
+    """Split one `key: value` line into (key, value), or None when it is not one.
+
+    The key is read as YAML reads it: whitespace before the colon is dropped
+    and one pair of matching quotes around the key is removed. A quoted key may
+    hold a colon. The minimal parser and the metadata key scan both call this,
+    so the two cannot read one line two ways.
+    """
+    if stripped[:1] in ('"', "'"):
+        quote = stripped[0]
+        end = 1
+        while end < len(stripped):
+            ch = stripped[end]
+            if quote == '"' and ch == "\\":
+                end += 2
+                continue
+            if ch == quote:
+                if quote == "'" and stripped[end + 1 : end + 2] == "'":
+                    end += 2
+                    continue
+                break
+            end += 1
+        else:
+            return None
+        rest = stripped[end + 1 :].lstrip()
+        if not rest.startswith(":"):
+            return None
+        key = stripped[1:end]
+        key = _unescape_yaml_double_quoted(key) if quote == '"' else key.replace("''", "'")
+        return key, rest[1:].strip()
+    if ":" not in stripped:
+        return None
+    key, _, value = stripped.partition(":")
+    return key.strip(), value.strip()
 
 
 def _strip_yaml_comment(line: str) -> str:
@@ -759,6 +864,10 @@ def _lift_metadata(raw_fm: dict) -> tuple[dict, list[str]]:
             else:
                 tokens = [t.strip() for t in str(mv).split(",") if t.strip()]
                 lifted[mk] = tokens
+        elif mk in ACCESS_TOKEN_METADATA:
+            if mv is None:
+                continue
+            lifted[mk] = mv
         else:
             # Scalar metadata fields stay as strings (after coercion).
             if mv is None:
@@ -851,6 +960,143 @@ def _validate_skill_loader_keys(fm: dict, rel: str, errors: list[dict]) -> None:
         bad("background", "background is only valid together with context: fork")
 
 
+def _access_token_problem(field: str, value: Any) -> str | None:
+    if not isinstance(value, str):
+        return f"{field} must be one ladder token as a string, not {type(value).__name__}"
+    if value not in ACCESS_LADDER:
+        return f"{field} {value!r} is not a ladder token; expected one of {list(ACCESS_LADDER)}"
+    return None
+
+
+EXPLICIT_KEY_MESSAGE = (
+    "explicit `?` keys are not allowed under metadata:; write `key: value`"
+)
+
+
+def _metadata_scan_lines(block: str) -> list[str] | None:
+    """Return the direct-child lines of the top-level `metadata:` mapping.
+
+    Reads from the `metadata:` line to the next unindented line. Lines nested
+    deeper than the first child (list items, wrapped values) are dropped, so a
+    block scalar elsewhere in the frontmatter never counts.
+    """
+    lines = block.splitlines()
+    start = next((i for i, ln in enumerate(lines) if re.match(r"metadata[ \t]*:[ \t]*(#.*)?$", ln)), None)
+    if start is None:
+        return None
+    children: list[str] = []
+    indent: int | None = None
+    for ln in lines[start + 1 :]:
+        if not ln.strip() or ln.lstrip().startswith("#"):
+            continue
+        width = len(ln) - len(ln.lstrip(" \t"))
+        if width == 0:
+            break
+        if indent is None:
+            indent = width
+        if width == indent:
+            children.append(ln.strip())
+    return children
+
+
+def _metadata_keys_by_scan(block: str) -> list[str]:
+    """Metadata keys by line scan, normalized the way the minimal parser reads them."""
+    keys: list[str] = []
+    for ln in _metadata_scan_lines(block) or []:
+        if ln.startswith("- ") or ln == "-" or ln.startswith("?"):
+            continue
+        split = _split_mapping_line(_strip_yaml_comment(ln).rstrip())
+        if split is not None:
+            keys.append(split[0])
+    return keys
+
+
+def _metadata_keys_by_yaml(block: str) -> list[str] | None:
+    """Metadata keys by PyYAML's node graph; None when PyYAML is absent or the block is no mapping."""
+    try:
+        import yaml  # type: ignore
+    except ImportError:
+        return None
+    try:
+        root = yaml.compose(block)
+    except yaml.YAMLError:
+        return None
+    if not isinstance(root, yaml.MappingNode):
+        return None
+    for key_node, value_node in root.value:
+        if getattr(key_node, "value", None) == "metadata":
+            if not isinstance(value_node, yaml.MappingNode):
+                return []
+            return [
+                k.value for k, _v in value_node.value if isinstance(k, yaml.ScalarNode)
+            ]
+    return []
+
+
+def _metadata_key_problems(block: str | None) -> list[tuple[str, str]]:
+    """Return (key, message) for each repeated metadata key and each `?` explicit key.
+
+    Both parsers keep the last of two equal keys, so a second line can lower a
+    need or raise a scope with no error. Keys are compared as parsed, not as
+    raw text, so a space before the colon or a quoted key still counts. A `?`
+    explicit key is refused outright: the minimal parser stops reading metadata
+    there and PyYAML does not.
+    """
+    if block is None:
+        return []
+    problems: list[tuple[str, str]] = []
+    for ln in _metadata_scan_lines(block) or []:
+        if ln.startswith("?"):
+            key = ln[1:].strip() or "?"
+            problems.append((key, EXPLICIT_KEY_MESSAGE))
+    keys = _metadata_keys_by_yaml(block)
+    if keys is None:
+        keys = _metadata_keys_by_scan(block)
+    counts: dict[str, int] = {}
+    for key in keys:
+        counts[key] = counts.get(key, 0) + 1
+    for key, n in counts.items():
+        if n > 1:
+            problems.append((key, f"{key} appears {n} times under metadata:; declare it once"))
+    return problems
+
+
+def _validate_access_keys(
+    fm: dict, rel: str, errors: list[dict], skill_path: Path | None = None
+) -> None:
+    """Check `requires_access` and `supplied_access` (ADR-0149 point 1).
+
+    A missing or empty `requires_access` is reported by the required-key loop;
+    this adds the type, enum and ordering checks. Nothing is defaulted.
+    """
+
+    def bad(field: str, msg: str) -> None:
+        errors.append({"file": rel, "field": field, "error": msg})
+
+    if skill_path is not None:
+        for key, message in _metadata_key_problems(_agent_frontmatter_block(skill_path)):
+            bad(key, message)
+
+    required = fm.get("requires_access")
+    required_ok = False
+    if required not in (None, ""):
+        problem = _access_token_problem("requires_access", required)
+        if problem:
+            bad("requires_access", problem)
+        else:
+            required_ok = True
+    supplied = fm.get("supplied_access")
+    if supplied is not None:
+        problem = _access_token_problem("supplied_access", supplied)
+        if problem:
+            bad("supplied_access", problem)
+        elif required_ok and ACCESS_LADDER.index(supplied) >= ACCESS_LADDER.index(required):
+            bad(
+                "supplied_access",
+                f"supplied_access {supplied!r} must be strictly below requires_access {required!r}",
+            )
+
+
 def validate_skill_frontmatter(fm: dict, skill_path: Path, plugin_dir: Path) -> tuple[dict | None, list[dict]]:
     """Validate one skill's frontmatter. Return (catalog_entry_or_None, errors).
 
@@ -904,6 +1150,8 @@ def validate_skill_frontmatter(fm: dict, skill_path: Path, plugin_dir: Path) -> 
             }
         )
 
+    _validate_access_keys(fm, rel, errors, skill_path)
+
     # ─── invocation-control loader keys (ADR-0092) ─────────────────────────
     _validate_skill_loader_keys(fm, rel, errors)
 
@@ -945,9 +1193,13 @@ def validate_skill_frontmatter(fm: dict, skill_path: Path, plugin_dir: Path) -> 
             )
 
     # If any errors prevent building a usable entry, return None.
-    fatal_fields = {"name", "description", "tags", "bundles", "risk_level"}
+    fatal_fields = {"name", "description", "tags", "bundles", "risk_level", "requires_access"}
     fatal = any(
         e["file"] == rel and e["field"] in fatal_fields and "missing required key" in e["error"] for e in errors
+    ) or any(
+        # A repeated `requires_access` line leaves no trustworthy need to project.
+        e["file"] == rel and e["field"] == "requires_access" and " times under metadata:" in e["error"]
+        for e in errors
     )
     if fatal:
         return None, errors
@@ -959,11 +1211,14 @@ def validate_skill_frontmatter(fm: dict, skill_path: Path, plugin_dir: Path) -> 
         "tags": fm.get("tags"),
         "bundles": fm.get("bundles"),
         "risk_level": fm.get("risk_level"),
+        "requires_access": fm.get("requires_access"),
     }
 
     # Only round-trip optional + invocation-control keys when they are actually
     # present (key exists AND value is not None). Skills that omit them must
     # omit them from JSON entirely — no null sentinels.
+    if "supplied_access" in fm and fm.get("supplied_access") is not None:
+        entry["supplied_access"] = fm["supplied_access"]
     if "requires_env" in fm and fm.get("requires_env") is not None:
         entry["requires_env"] = fm["requires_env"]
     if "routing_note" in fm and fm.get("routing_note") is not None:
@@ -1969,6 +2224,155 @@ def _reject_block_style_projection_keys(
             })
 
 
+def parse_skill_lanes(raw: str) -> tuple[dict[str, str], list[str]]:
+    """Parse a `metadata.skill_lanes` string. Syntax only (ADR-0149 point 2).
+
+    Returns ({skill: kind}, errors). `kind` is `caller-supplies`,
+    `returns-to-caller` or `delegates:<role>`. Context checks, which need the
+    role's declared skills and the plugin's roles, live in
+    `_validate_agent_access_keys`. The returned mapping holds every entry that
+    parsed, so a caller can report all defects in one pass.
+    """
+    lanes: dict[str, str] = {}
+    errors: list[str] = []
+    text = raw.strip()
+    if not text:
+        return lanes, ["skill_lanes is empty"]
+    if text.startswith(","):
+        errors.append("skill_lanes has a leading comma")
+        text = text[1:]
+    if text.endswith(","):
+        errors.append("skill_lanes has a trailing comma")
+        text = text[:-1]
+    for piece in text.split(","):
+        entry = piece.strip()
+        if not entry:
+            errors.append("skill_lanes has an empty entry")
+            continue
+        skill, sep, kind = (part.strip() for part in entry.partition("="))
+        if not sep:
+            errors.append(f"skill_lanes entry {entry!r} has no '=' between skill and kind")
+            continue
+        if not AGENT_SKILL_NAME_RE.fullmatch(skill):
+            errors.append(f"skill_lanes entry {entry!r} has a malformed skill name {skill!r}")
+            continue
+        if skill in lanes:
+            errors.append(f"skill_lanes names skill {skill!r} twice")
+            continue
+        if kind.startswith(LANE_DELEGATES_PREFIX):
+            target = kind[len(LANE_DELEGATES_PREFIX):]
+            if not AGENT_SKILL_NAME_RE.fullmatch(target):
+                errors.append(f"skill_lanes entry {entry!r} has a malformed delegates target {target!r}")
+                continue
+        elif kind not in LANE_KINDS:
+            errors.append(
+                f"skill_lanes entry {entry!r} has kind {kind!r}; expected one of "
+                f"{list(LANE_KINDS)} or '{LANE_DELEGATES_PREFIX}<role>'"
+            )
+            continue
+        lanes[skill] = kind
+    return lanes, errors
+
+
+def _effective_tool_names(fm: dict) -> set[str]:
+    """The tool names a role holds: `tools` less `disallowedTools` (ADR-0149 point 3).
+
+    A grant such as `Agent(architect)` counts under its base name.
+    """
+
+    def names(value: Any) -> set[str]:
+        if isinstance(value, str):
+            parts = re.split(r"[,\s]+", value)
+        elif isinstance(value, list):
+            parts = [str(v) for v in value]
+        else:
+            return set()
+        return {p.split("(", 1)[0].strip() for p in parts if p.strip()}
+
+    return names(fm.get("tools")) - names(fm.get("disallowedTools"))
+
+
+def _metadata_line_is_double_quoted(block: str | None, key: str) -> bool | None:
+    """True when every raw `key:` line holds a double-quoted flat string.
+
+    None when the block is unreadable or the key has no line. The minimal parser
+    and PyYAML return the same string for a quoted and an unquoted value, so
+    only the raw line can tell them apart.
+    """
+    if block is None:
+        return None
+    lines = []
+    for ln in _metadata_scan_lines(block) or []:
+        split = _split_mapping_line(ln)
+        if split is not None and split[0] == key:
+            lines.append(split[1])
+    if not lines:
+        return None
+    pattern = re.compile(r'"(?:[^"\\]|\\.)*"[ \t]*(?:#.*)?')
+    return all(pattern.fullmatch(line) for line in lines)
+
+
+def _validate_agent_access_keys(
+    fm: dict, metadata: dict, agent_path: Path, plugin_dir: Path, rel: str, errors: list[dict]
+) -> None:
+    """Check `shell_scope` and `skill_lanes` under an agent's `metadata:` (ADR-0149 point 2).
+
+    Reads the effective tools (tools less disallowedTools), so a Bash that
+    `disallowedTools` removes does not count as held.
+    """
+
+    def bad(field: str, msg: str) -> None:
+        errors.append({"file": rel, "field": f"metadata.{field}", "error": msg})
+
+    held = _effective_tool_names(fm)
+    has_bash = "Bash" in held
+    has_edit = "Edit" in held
+    has_write_pair = has_edit and "Write" in held
+    block = _agent_frontmatter_block(agent_path)
+
+    for key, message in _metadata_key_problems(block):
+        bad(key, message)
+
+    for key in ("shell_scope", "skill_lanes"):
+        if key in metadata and _metadata_line_is_double_quoted(block, key) is False:
+            bad(key, f"{key} must be a double-quoted flat string (extended metadata values are flat strings); the raw line is not")
+
+    scope = metadata.get("shell_scope")
+    if "shell_scope" in metadata:
+        problem = _access_token_problem("shell_scope", scope)
+        if problem:
+            bad("shell_scope", problem)
+        else:
+            if ACCESS_LADDER.index(scope) > ACCESS_LADDER.index(SHELL_SCOPE_CEILING):
+                bad("shell_scope", f"shell_scope {scope!r} is above {SHELL_SCOPE_CEILING!r}, the highest a shell may be scoped to")
+            if has_edit:
+                bad("shell_scope", "a role holding Edit must not declare shell_scope")
+            elif not has_bash and scope != ACCESS_LADDER[0]:
+                bad("shell_scope", f"a role without Bash may declare only {ACCESS_LADDER[0]!r}, not {scope!r}")
+    elif has_bash and not has_write_pair:
+        bad("shell_scope", "a role holding Bash without both Edit and Write must declare shell_scope")
+
+    if "skill_lanes" in metadata:
+        raw = metadata["skill_lanes"]
+        if not isinstance(raw, str):
+            bad("skill_lanes", f"skill_lanes must be a string, not {type(raw).__name__}")
+            return
+        lanes, parse_errors = parse_skill_lanes(raw)
+        for message in parse_errors:
+            bad("skill_lanes", message)
+        declared = fm.get("skills") if isinstance(fm.get("skills"), list) else []
+        roles = {p.stem for p in discover_agents(plugin_dir)}
+        for skill, kind in lanes.items():
+            if skill not in declared:
+                bad("skill_lanes", f"role does not declare skill {skill!r} in skills:, so it cannot name a lane for it")
+            if kind.startswith(LANE_DELEGATES_PREFIX):
+                target = kind[len(LANE_DELEGATES_PREFIX):]
+                if target == agent_path.stem:
+                    bad("skill_lanes", f"skill {skill!r} delegates to the role itself ({target!r})")
+                elif target not in roles:
+                    bad("skill_lanes", f"skill {skill!r} delegates to {target!r}, which is not a role in agents/")
+
+
 def validate_agent_frontmatter(
     fm: dict, agent_path: Path, plugin_dir: Path, allowed_models: set[str], skill_ids: set[str]
 ) -> tuple[dict | None, list[dict]]:
@@ -2070,6 +2474,7 @@ def validate_agent_frontmatter(
         errors.append({"file": rel, "field": "skills", "error": "missing required key 'skills'"})
     _validate_agent_invocation_keys(fm, rel, skill_ids, errors, plugin_dir)
     _reject_block_style_projection_keys(fm, agent_path, rel, errors)
+    _validate_agent_access_keys(fm, metadata, agent_path, plugin_dir, rel, errors)
 
     # ── unknown top-level keys ──────────────────────────────────────────────
     for key in fm.keys():
@@ -2097,6 +2502,14 @@ def validate_agent_frontmatter(
         "bundles": _csv_to_list(metadata.get("bundles")),
         "risk_level": metadata.get("risk_level"),
     }
+    # Access keys (ADR-0149), present-only. skill_lanes projects as an object
+    # from skill to kind, sorted by skill; a malformed value was reported above.
+    if isinstance(metadata.get("shell_scope"), str):
+        entry["shell_scope"] = metadata["shell_scope"]
+    if isinstance(metadata.get("skill_lanes"), str):
+        lanes, _ = parse_skill_lanes(metadata["skill_lanes"])
+        if lanes:
+            entry["skill_lanes"] = {k: lanes[k] for k in sorted(lanes)}
     # Invocation-control keys, present-only (no null sentinels).
     for key in AGENT_INVOCATION_KEYS:
         if key in fm and fm.get(key) is not None:

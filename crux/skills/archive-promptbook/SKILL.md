@@ -6,6 +6,7 @@ metadata:
   tags: "promptbooks, archive, lifecycle"
   bundles: "crux-docs"
   risk_level: "low"
+  requires_access: "write-tree"
   triggers: "archive promptbook | archive PB-NNNN | this promptbook is finished | close out the book"
   routing_note: "Only when all prompts terminal."
 ---

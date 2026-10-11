@@ -5,6 +5,7 @@ metadata:
   tags: "bootstrap, initialization, scaffolding"
   bundles: "crux-docs"
   risk_level: "low"
+  requires_access: "write-tree"
   triggers: "init docs | set up docs | bootstrap documentation"
   routing_note: "First-run; refuses to overwrite without `--force`."
 ---

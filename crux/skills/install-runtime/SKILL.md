@@ -6,6 +6,7 @@ metadata:
   tags: "spawner, deployment, infrastructure, lifecycle"
   bundles: "crux-infrastructure"
   risk_level: "low"
+  requires_access: "write-host"
   triggers: "install the crux runtime | deploy the crux runtime | spawn crux into this repo | bootstrap the agent team"
   requires_env: ""
 ---

@@ -5,6 +5,7 @@ metadata:
   tags: "promptbooks, authoring, planning"
   bundles: "crux-docs"
   risk_level: "low"
+  requires_access: "write-tree"
   triggers: "new promptbook | draft a plan-of-prompts | formalize a workflow"
   routing_note: "Allocates next `PB-NNNN`."
 ---

@@ -81,6 +81,7 @@ def _skill(root: Path, name: str, description: str) -> None:
         "  tags: \"a, b\"\n"
         "  bundles: \"crux-core\"\n"
         "  risk_level: \"low\"\n"
+        "  requires_access: \"read-local\"\n"
         f"---\n\n# {name}\n",
         encoding="utf-8",
     )

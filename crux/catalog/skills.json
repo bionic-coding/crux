@@ -12,6 +12,7 @@
       "crux-docs"
     ],
     "risk_level": "low",
+    "requires_access": "write-tree",
     "routing_note": "Only when all prompts terminal.",
     "triggers": [
       "archive promptbook",
@@ -37,6 +38,7 @@
       "crux-docs"
     ],
     "risk_level": "low",
+    "requires_access": "write-tree",
     "routing_note": "Full vault-walk; mostly read-only.",
     "triggers": [
       "audit docs",
@@ -60,6 +62,7 @@
       "crux-docs"
     ],
     "risk_level": "low",
+    "requires_access": "write-tree",
     "routing_note": "Allocates next `PB-NNNN`.",
     "triggers": [
       "new promptbook",
@@ -81,6 +84,7 @@
       "crux-docs"
     ],
     "risk_level": "low",
+    "requires_access": "write-tree",
     "routing_note": "The single owner write path for a governs backfill batch: verbatim rendering of every enumerated receipt, fail-closed validation, then the four surfaces (reviews `signed` flip, `adr.governs_backfilled` ledger append, `backfill` log op, journal hook) plus the completion marker when the cohort arithmetic holds. Idempotent; absence-conditional completion after a mid-write crash.",
     "triggers": [
       "sign off backfill batch <id>",
@@ -103,6 +107,7 @@
       "crux-docs"
     ],
     "risk_level": "medium",
+    "requires_access": "run-plugin-script",
     "requires_env": [
       "OPENROUTER_API_KEY"
     ],
@@ -122,6 +127,7 @@
       "crux-docs"
     ],
     "risk_level": "low",
+    "requires_access": "write-tree",
     "routing_note": "Read-only. Runs every enrolled regenerator's `--dry-run` gate in one pass and reports one table \u2014 gate, verdict, drifted paths, and the regenerator that fixes it; never regenerates. The whole-tree counterpart to `verify-code-docs`. Emits a `lint` log op.",
     "triggers": [
       "check drift",
@@ -147,6 +153,7 @@
       "crux-docs"
     ],
     "risk_level": "low",
+    "requires_access": "write-tree",
     "routing_note": "Forward-looking process-state scan; regenerates `docs/whats_next.md`. Distinct from `audit-docs` \u2014 proposes actions, never edits prose.",
     "triggers": [
       "cleanup",
@@ -170,6 +177,7 @@
       "crux-docs"
     ],
     "risk_level": "low",
+    "requires_access": "write-tree",
     "routing_note": "Regenerative \u2014 rewrites `<docs_dir>/adrs/doctrine/` wholesale from the summaries projection, reconciled against the ratified invariants and the human-signed reconciliation ledger. `--dry-run` is the drift check. Stops and recommends `summarize-adrs.py` first when the summaries projection has drifted; never writes `reconciliations.yml`.",
     "triggers": [
       "compile the doctrine",
@@ -195,6 +203,7 @@
       "crux-docs"
     ],
     "risk_level": "medium",
+    "requires_access": "write-run",
     "requires_env": [
       "OPENROUTER_API_KEY"
     ],
@@ -221,6 +230,7 @@
       "crux-docs"
     ],
     "risk_level": "low",
+    "requires_access": "write-tree",
     "routing_note": "Regenerative \u2014 rewrites `<docs_dir>/arch/` wholesale from the project's sources. `--dry-run` is the drift check. The primary current-state surface.",
     "triggers": [
       "build the arch",
@@ -248,6 +258,7 @@
       "crux-docs"
     ],
     "risk_level": "low",
+    "requires_access": "write-tree",
     "routing_note": "Architectural work or significant implementation choices under unchanged constraints. Allocates next `PB-NNNN`; assembles a modular cycle book (\u2265 13 prompts, kind adr or implementation) with council and independent review. See `dev-cycle/SKILL.md`.",
     "triggers": [
       "start a cycle",
@@ -274,6 +285,7 @@
       "crux-docs"
     ],
     "risk_level": "high",
+    "requires_access": "write-tree",
     "routing_note": "Human-invoked only. An optional fidelity upgrade a human may choose, never the remedy any crux surface points a reader at. Runs a Python target's import-time code in a subprocess-isolated child behind the two-factor `CRUX_ARCH_ALLOW_RUNTIME=1` consent gate; writes an advisory into `<docs_dir>/inbox/`, never into `arch/`.",
     "triggers": [
       "escalate the arch runtime",
@@ -296,6 +308,7 @@
       "crux-docs"
     ],
     "risk_level": "low",
+    "requires_access": "write-tree",
     "routing_note": "Regenerative \u2014 wipes `docs/code/`.",
     "triggers": [
       "extract docs",
@@ -320,6 +333,7 @@
       "crux-docs"
     ],
     "risk_level": "low",
+    "requires_access": "write-tree",
     "routing_note": "The rung below the three cycle tiers (\u00a711.C): no book, no council, no PB number. A failing test first, the smallest green change, the suite and the drift gates, one commit, one `log-work` entry. Passes the sizing test or escalates to `patch-cycle` / `iterate` / `dev-cycle`. See `fix-directly/SKILL.md`.",
     "triggers": [
       "just fix it",
@@ -346,6 +360,7 @@
       "crux-docs"
     ],
     "risk_level": "medium",
+    "requires_access": "write-tree",
     "routing_note": "Autonomous RSI loop; gates + forge log per an ADR.",
     "triggers": [
       "forge a skill",
@@ -368,6 +383,7 @@
       "crux-docs"
     ],
     "risk_level": "low",
+    "requires_access": "write-tree",
     "routing_note": "One source per invocation. Reads research items from the unified `docs/inbox/` (usually invoked by `process-inbox` with explicit paths).",
     "triggers": [
       "ingest",
@@ -390,6 +406,7 @@
       "crux-docs"
     ],
     "risk_level": "low",
+    "requires_access": "write-tree",
     "routing_note": "First-run; refuses to overwrite without `--force`.",
     "triggers": [
       "init docs",
@@ -412,6 +429,7 @@
       "crux-docs"
     ],
     "risk_level": "medium",
+    "requires_access": "write-host",
     "triggers": [
       "install codex agents",
       "install crux agents for codex",
@@ -432,6 +450,7 @@
       "crux-docs"
     ],
     "risk_level": "low",
+    "requires_access": "read-local",
     "routing_note": "Read-only active identity; install and upgrade instructions load on request.",
     "triggers": [
       "which crux version is active",
@@ -457,6 +476,7 @@
       "crux-docs"
     ],
     "risk_level": "medium",
+    "requires_access": "write-tree",
     "triggers": [
       "install opencode agents",
       "install crux agents for opencode",
@@ -478,6 +498,7 @@
       "crux-infrastructure"
     ],
     "risk_level": "low",
+    "requires_access": "write-host",
     "requires_env": [],
     "triggers": [
       "install the crux runtime",
@@ -502,6 +523,7 @@
       "crux-docs"
     ],
     "risk_level": "low",
+    "requires_access": "write-tree",
     "routing_note": "Non-architectural reactive work (bug / drift / refinement) \u2014 `dev-cycle` rigor with a **verify** module instead of an ADR (`cycle_kind: verify`, \u2265 13 prompts). See `iterate/SKILL.md`.",
     "triggers": [
       "iterate on X",
@@ -526,6 +548,7 @@
       "crux-docs"
     ],
     "risk_level": "low",
+    "requires_access": "write-tree",
     "routing_note": "Regenerates `docs/adrs/lineage.md` (Mermaid + table).",
     "triggers": [
       "show ADR lineage",
@@ -546,6 +569,7 @@
       "crux-docs"
     ],
     "risk_level": "low",
+    "requires_access": "write-tree",
     "routing_note": "Categorization required.",
     "triggers": [
       "log work",
@@ -569,6 +593,7 @@
       "crux-docs"
     ],
     "risk_level": "low",
+    "requires_access": "write-tree",
     "routing_note": "The third cycle tier: a small reversible non-architectural change, five phases (verify, plan, implement, review, summary) at one prompt each, so the formula is the constant 5 and the floor is 5. Declares a `blast_radius` at authoring; the verify council reviews it for proportion and the archive precondition checks it against the paths the run changed, drawn from git. Work needing an ADR is `dev-cycle`; a fix too large to bound is `iterate`. See `patch-cycle/SKILL.md`.",
     "triggers": [
       "patch this",
@@ -592,6 +617,7 @@
       "crux-docs"
     ],
     "risk_level": "medium",
+    "requires_access": "write-tree",
     "routing_note": "Classify \u2192 confirm \u2192 dispatch each dropped item to its owning skill (research \u2192 `ingest-research`, decision \u2192 `propose-adr`, brief \u2192 `propose-brief`, note \u2192 `log-work`). Classify-then-confirm; never auto-accepts ADRs.",
     "triggers": [
       "process inbox",
@@ -615,6 +641,7 @@
       "crux-docs"
     ],
     "risk_level": "low",
+    "requires_access": "write-tree",
     "routing_note": "Writes status: Proposed; never auto-accepts.",
     "triggers": [
       "propose ADR",
@@ -637,6 +664,7 @@
       "crux-docs"
     ],
     "risk_level": "low",
+    "requires_access": "write-tree",
     "routing_note": "Scaffolds the file + frontmatter; body is human-authored.",
     "triggers": [
       "draft a brief",
@@ -660,6 +688,7 @@
       "crux-docs"
     ],
     "risk_level": "low",
+    "requires_access": "write-tree",
     "routing_note": "Writes status: observed only; body is human-authored.",
     "triggers": [
       "propose observation",
@@ -685,6 +714,7 @@
       "crux-verification"
     ],
     "risk_level": "low",
+    "requires_access": "read-local",
     "routing_note": "Checks text against the seven \u00a716 writing rules and returns a rewrite for every finding (`fix` | `confirm`); a finding without replacement text is not a finding. Mandatory at three points: `release-preflight` over `README.md` + `CHANGELOG.md` (advisory until the waiver path is vendored), the `dev-cycle`/`iterate` prep prompt, and `tend-garden` before the morning note.",
     "triggers": [
       "review this prose",
@@ -707,6 +737,8 @@
       "crux-docs"
     ],
     "risk_level": "low",
+    "requires_access": "run-plugin-script",
+    "supplied_access": "read-local",
     "routing_note": "Index-first; cites sources.",
     "triggers": [
       "what does X do?",
@@ -736,6 +768,7 @@
       "crux-core"
     ],
     "risk_level": "medium",
+    "requires_access": "write-tree",
     "requires_env": [
       "PERPLEXITY_API_KEY"
     ],
@@ -763,6 +796,7 @@
       "crux-docs"
     ],
     "risk_level": "medium",
+    "requires_access": "write-tree",
     "routing_note": "The single human write path for one doctrine reconciliation pairing: renders the invariant text and the rule text, takes the verdict (compatible | reconciled | collision) and rationale from the user, then upserts a digest-bound record and re-compiles doctrine on explicit confirmation. Human gate \u2014 excluded from run-execution autonomy; carries `disable-model-invocation`. Never chooses a verdict; never batch-signs.",
     "triggers": [
       "sign off the reconciliation",
@@ -787,6 +821,7 @@
       "crux-docs"
     ],
     "risk_level": "low",
+    "requires_access": "write-tree",
     "triggers": [
       "recover decisions",
       "mine decisions from the code",
@@ -808,6 +843,7 @@
       "crux-docs"
     ],
     "risk_level": "medium",
+    "requires_access": "write-tree",
     "triggers": [
       "recover invariants",
       "mine invariants",
@@ -827,6 +863,7 @@
       "crux-docs"
     ],
     "risk_level": "low",
+    "requires_access": "write-tree",
     "routing_note": "Re-fetches stale sources; marks synthesis pages.",
     "triggers": [
       "refresh sources",
@@ -848,6 +885,7 @@
       "crux-docs"
     ],
     "risk_level": "low",
+    "requires_access": "write-tree",
     "routing_note": "Per-page user-supervised.",
     "triggers": [
       "refresh synthesis",
@@ -874,6 +912,7 @@
       "crux-docs"
     ],
     "risk_level": "medium",
+    "requires_access": "write-tree",
     "routing_note": "Deliberate reflection; \u22642 council-gated skill proposals built via forge-skill. Mines recent journal reflections, run notes, and log ops for recurring friction; 0 proposals is a legitimate outcome.",
     "triggers": [
       "run a retrospective",
@@ -898,6 +937,7 @@
       "crux-docs"
     ],
     "risk_level": "low",
+    "requires_access": "write-tree",
     "routing_note": "The periodic architect review of the decision set against `<docs_dir>/objectives.md`; at most five findings in one dated report. Proposes only \u2014 it transitions nothing, signs off nothing, and authors nothing.",
     "triggers": [
       "review the decisions",
@@ -923,6 +963,7 @@
       "crux-docs"
     ],
     "risk_level": "medium",
+    "requires_access": "write-tree",
     "requires_env": [
       "OPENROUTER_API_KEY"
     ],
@@ -950,6 +991,7 @@
       "crux-docs"
     ],
     "risk_level": "low",
+    "requires_access": "write-tree",
     "routing_note": "Start, advance, and abandon update run state and book pointers; status and terminal progress write nothing. Explicit Markdown writes a deterministic artifact and one promptbook log operation, without advancing.",
     "triggers": [
       "run promptbook",
@@ -992,6 +1034,7 @@
       "crux-docs"
     ],
     "risk_level": "low",
+    "requires_access": "run-plugin-script",
     "triggers": [
       "resolve the dissent",
       "run srde",
@@ -1013,6 +1056,7 @@
       "crux-docs"
     ],
     "risk_level": "low",
+    "requires_access": "write-tree",
     "routing_note": "Scaffolds one SVY-NNNN batch review sheet from the observation candidate state file, seeding the machine cells and leaving verdict, domain and rationale empty. Half of the batch-ratification pair; `survey-signoff` is the other half. Human gate \u2014 excluded from run-execution autonomy; carries `disable-model-invocation`. Never fills a verdict, never publishes a record.",
     "triggers": [
       "scaffold a survey sheet",
@@ -1039,6 +1083,7 @@
       "crux-docs"
     ],
     "risk_level": "medium",
+    "requires_access": "write-tree",
     "routing_note": "The single human write path that signs one filled-in SVY-NNNN review sheet and publishes its records under one digest-bound receipt. The only batch route past `observed`; `transition-observation` remains the only single-record route. Human gate \u2014 excluded from run-execution autonomy; carries `disable-model-invocation`. Never authors a verdict; never signs two batches at once.",
     "triggers": [
       "sign off the survey",
@@ -1066,6 +1111,7 @@
       "crux-core"
     ],
     "risk_level": "medium",
+    "requires_access": "write-tree",
     "routing_note": "Turn-gated overnight review; silent skip when it isn't her turn.",
     "triggers": [
       "tend the garden",
@@ -1089,6 +1135,7 @@
       "crux-docs"
     ],
     "risk_level": "low",
+    "requires_access": "write-tree",
     "routing_note": "Enforces state machine.",
     "triggers": [
       "accept ADR-NNNN",
@@ -1114,6 +1161,7 @@
       "crux-docs"
     ],
     "risk_level": "low",
+    "requires_access": "write-tree",
     "routing_note": "Transitions a brief `draft \u2192 published | abandoned`; mutates only frontmatter, never the body; updates the rollup + writes a `brief` op.",
     "triggers": [
       "publish brief",
@@ -1140,6 +1188,7 @@
       "crux-docs"
     ],
     "risk_level": "low",
+    "requires_access": "write-tree",
     "triggers": [
       "ratify decision <id>",
       "reject decision <id>",
@@ -1162,6 +1211,7 @@
       "crux-docs"
     ],
     "risk_level": "low",
+    "requires_access": "write-tree",
     "triggers": [
       "ratify invariant INV-NNNN",
       "reject invariant INV-NNNN",
@@ -1184,6 +1234,7 @@
       "crux-docs"
     ],
     "risk_level": "low",
+    "requires_access": "write-tree",
     "triggers": [
       "ratify observation OBS-NNNN",
       "reject observation OBS-NNNN",
@@ -1206,6 +1257,7 @@
       "crux-docs"
     ],
     "risk_level": "low",
+    "requires_access": "write-tree",
     "routing_note": "Read-only; emits `lint` log entry.",
     "triggers": [
       "verify docs",
@@ -1228,6 +1280,8 @@
       "crux-docs"
     ],
     "risk_level": "low",
+    "requires_access": "run-plugin-script",
+    "supplied_access": "read-local",
     "triggers": [
       "let's explore X",
       "brainstorm",

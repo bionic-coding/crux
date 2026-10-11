@@ -12,6 +12,14 @@
       "domain": "council-gates",
       "rule": "A responding seat in a counted round that returns any decision other than APPROVE or APPROVE_WITH_NITS and records no blocking finding holds the gate: its round buys no further round, no refutation record covers it, and the gate stops at the escalation-loop stop; an errored seat never holds."
     },
+    "access-need-covers-the-mandatory-path": {
+      "domain": "skill-access-need",
+      "rule": "A skill's requires_access is the highest need over the default path of every operation it exposes, counting the reference files that path routes to and the needs of every skill it invokes; a step taken only under an opt-in, which is a flag, a named request, an accepted offer or a mode its caller names, is left out."
+    },
+    "allowlist-enforces-duties-for-roles-without-a-shell": {
+      "domain": "agent-separation-of-duties",
+      "rule": "For every role without Bash, the tool allowlist is the sole enforcement of separation of duties in Claude Code and OpenCode; in Codex the read-only sandbox is the default write boundary of every role without Edit, and under a broader parent-session override its contract holds it to no write above its shell_scope, and to none where it declares no shell_scope; every other bound on a role rests on its contract."
+    },
     "an-ineligible-citation-refuses-the-projection": {
       "domain": "rule-citation",
       "rule": "An ineligible citation refuses the projection rather than being filtered out of it. The shipped catalog is not regenerated while any cited slug is ineligible, so a rule is never quietly dropped from the artifact while the surface citing it still ships. One run reports every ineligible citation rather than stopping at the first, so the remedy is one round trip. The refusal is a document-lane finding: it exits with the repository's findings code and a machine-readable payload naming, per citation, the citing path, the citation, the source record, that record's raw status and the reason. It leaves an existing catalog byte-unchanged, creates no absent one, and reports in every mode that reads the cited set, the drift mode included — because a status change moves no byte of the catalog, so a byte comparison alone can never see it."
@@ -51,6 +59,10 @@
     "blocking-finding-classification": {
       "domain": "council-round-routing",
       "rule": "A council finding is blocking only when a named check against a named artifact fails, or when such a check was not run."
+    },
+    "caller-supplies-needs-a-declared-reduced-need": {
+      "domain": "agent-skill-pairing",
+      "rule": "A caller-supplies lane passes only where the skill declares supplied_access and the role's envelope in that harness covers it."
     },
     "citation-resolves-by-its-citing-surface": {
       "domain": "rule-citation",
@@ -143,6 +155,10 @@
     "declared-triggers-first-prose-fallback": {
       "domain": "skill-trigger-declaration",
       "rule": "The routing-table regenerator reads a skill's declared triggers first and falls back to the quoted phrases in its description's first sentence only where the skill declares none. The fallback is what makes the declared field additive: a skill that still carries its triggers inline keeps routing unchanged, and no existing skill is forced to move."
+    },
+    "delegate-target-covers-the-need": {
+      "domain": "agent-skill-pairing",
+      "rule": "A delegates:<role> lane passes only where the target role declares the skill and covers its need by its own envelope in that harness, holding no lane for it; in Claude Code and OpenCode the delegator also holds a dispatch grant for the target."
     },
     "delegation-carries-objectives-context": {
       "domain": "agent-assignment",
@@ -240,6 +256,10 @@
       "domain": "journal-contract",
       "rule": "Derivation is the steady-state write rule for the journal index row rather than only a repair step, so on every write of that row each cell is derived from the entries the month's journal file holds and no cell is computed from the row it replaces. Existing journal entries keep their content. Each derived cell is required to be bounded — the count by a fence-aware split of that journal file built on the shared fence subset in crux/scripts/md_fences.py, the two dates by the month the file names, and the rollup by a match anchored on the journal's closed nine-member category enum. That bound constrains where a write lands and never whether a cell is right."
     },
+    "lane-has-a-model-visible-route": {
+      "domain": "agent-skill-pairing",
+      "rule": "Every lane has a route instruction the model reads in the role body, naming what is handed over, to whom, and who performs the act; a delegates lane's route also names who supplies each read the delegator's envelope does not cover, and a caller-supplies lane also has one in the skill body naming what the caller runs; a lane without one, or contradicted by one, does not ship."
+    },
     "losing-agents-file-is-moved-aside-and-reported": {
       "domain": "repository-instructions",
       "rule": "In a scope migration does not refuse, a loser whose bytes differ from the resulting AGENTS.md, whether tracked, dirty, untracked or ignored, is kept byte for byte in its own directory under a new, reported name that none of Claude Code, Codex and OpenCode loads by default, and the report says its content was inlined or is no longer loaded."
@@ -308,6 +328,10 @@
       "domain": "opencode-host-layout",
       "rule": "The OpenCode installer identifies a compatible runner by the version that runner reports rather than by its executable name, admitting only a major version this decision's evidence covers; when no probed candidate reports a compatible major it refuses to write, unconditionally where any probed candidate reports an older major and otherwise unless a human asserts the compatibility of a named resolved candidate through a recorded flag; and it keeps the plural `.opencode/agents/` target with its legacy-shadow and collision refusals."
     },
+    "opt-in-above-the-envelope-is-routed": {
+      "domain": "skill-access-need",
+      "rule": "Every opt-in step above the envelope of a role that declares the skill is routed or declined by an instruction the model reads, in the role body or the skill body; the lane review checks it, and a step without one does not ship."
+    },
     "orchestrators-read-objectives-at-startup-and-resume": {
       "domain": "objectives-alignment",
       "rule": "Commander and night gardener read the objectives file at startup and on resume, before selecting work or delegating. A commander without shell access receives the resolved path from its caller. The gardener's turn gate runs before every other act, reads included: a skipped turn reads nothing and stays silent; on a turn that proceeds the gardener reads objectives before selecting work, and any missing-objectives notice waits for output the gate permits."
@@ -364,6 +388,10 @@
       "domain": "code-docs-python",
       "rule": "Every target-derived string on a Python page or in a Python page's index entry renders in a fence sized for it or escaped for its context, with line breaks and control characters outside a fence rendered as visible escapes and link destinations percent-encoded, so no target byte opens or closes page structure."
     },
+    "read-only-shell-is-bounded-by-contract": {
+      "domain": "agent-separation-of-duties",
+      "rule": "A read-only role holding Bash or a shell_scope permit carries a role-contract sentence that forbids secret-store reads, any script beyond those it names, any write above its shell_scope, and any outbound relay of local content except the egress of a crux script it names; a role without that sentence does not ship."
+    },
     "reassessment-routes-by-its-finding": {
       "domain": "agent-embedded-disciplines",
       "rule": "A reassessment that names a hypothesis or environment fault inside the agent's own scope lets it correct that fault and continue; one that implicates the architecture, names no fault, or follows a second run of three failed fixes on the same problem hands the problem to the party that assigned the work, as a report inside the run rather than a stop."
@@ -387,6 +415,10 @@
     "retired-cite-fails-lint": {
       "domain": "rule-citation",
       "rule": "A rule: citation naming a retired slug fails the lint, and the failure names the rule that displaced it."
+    },
+    "returns-to-caller-passes-on-its-route": {
+      "domain": "agent-skill-pairing",
+      "rule": "A returns-to-caller lane passes in every harness on its route instruction alone, and the gate checks no envelope for it."
     },
     "review-gate-needs-a-reviewer-report": {
       "domain": "council-gates",
@@ -448,6 +480,10 @@
       "domain": "decision-review",
       "rule": "A decision-review report under the reviews directory dated after 2026-09-07 carries exactly six H2 sections in the order Propose, Amend, Repair, Revoke, Keep, Coverage, one summary table between its title and Propose, and exactly one data-framing note; a report dated on or before that date keeps the sections and the notes it was written with and is outside this rule. In a report this rule governs, a finding whose enacting act revokes a decision belongs under Revoke whatever it writes, and otherwise a finding whose act writes an ADR file belongs under Propose or Amend while one whose act writes no ADR file belongs under Repair. The five-finding per-pass cap counts across Propose, Amend, Repair and Revoke combined; Keep, Coverage, the summary table and the Revoke dispositions count against no cap; Keep, Coverage and the Revoke dispositions define no finding, and the summary table defines none, carrying in each row an id one of the four finding sections already defines. Keep and the Revoke dispositions carry no finding id at all. Coverage carries a finding id only where a lifecycle record references one: such a record names an identity another entry defines and defines none itself, so the no-definition clause governs Coverage unchanged."
     },
+    "skill-declares-its-access-need": {
+      "domain": "skill-access-need",
+      "rule": "Every distributed skill declares metadata.requires_access, one token from the ordered set read-local, run-plugin-script, write-run, write-tree, write-host; a missing, empty or unknown value fails catalog validation and the pairing gate, and no value is defaulted."
+    },
     "span-and-prep-are-different-counts": {
       "domain": "decision-review",
       "rule": "The signal set carries three delivery signals — release_cadence, schema_growth and gate_count — and this rule governs release_cadence. It reads the release record from the changelog's dated version headings, and names in its filter the rejected markers with their measured coverage. GIT-DEPENDENCE IS PER MEMBER, not per signal: the changelog alone supplies `releases` and the interval members `intervals_days`, `mean_interval_days` and `median_interval_days`, which compute with no git leg at all; the two per-release members below rest on the mark predicate, which is a first-parent commit test, so they and only they require git. Where the contained git session cannot be established those two members are null and the changelog-only members still compute, and the signal's verdict stays computed, because an absent git session is an absent input for two members rather than for the signal. The release-cadence signal reports two per-release members over the half-open interval that EXCLUDES the previous release's mark and INCLUDES this release's own mark, so consecutive intervals partition the history without overlap and both members read the same interval, and names each for what it counts. `span_commits` counts first-parent commits in that interval; it establishes that those commits lie between two release boundaries and establishes nothing about whether any of them was preparation, concerned that version, or was work that version required. `prep_commits` counts the commits in that same interval whose subject matches the declared preparation prefix; it counts DECLARATIONS and never the span. Zero and null are different values with different meanings on both members: zero means the interval is bounded and the count inside it is zero, and on `prep_commits` that establishes that nobody declared preparation rather than that the release had none; null means the interval is not bounded, and a null is never rendered as a zero. `prep_commits` is keyed by the version string and stays injective because the changelog carries at most one dated heading for a version at any commit, which a heading removed and later restored does not violate; it is never re-keyed on the publication event, because the repository holds no evidence of either event and an event-keyed map would be fabricated."
@@ -455,6 +491,10 @@
     "staging-publishes-no-untracked-bytes-and-drops-no-index-blob": {
       "domain": "repository-instructions",
       "rule": "Migration stages nothing in a scope whose result carries bytes read from an untracked or ignored entry, where the exact path AGENTS.md is untracked and git ignores it, or where an instruction-family index entry holds a blob that neither HEAD nor any working-tree entry holds."
+    },
+    "supplied-access-is-below-required-access": {
+      "domain": "skill-access-need",
+      "rule": "A skill declares metadata.supplied_access only where its body names the output a caller supplies, and its value is one ladder token strictly below the skill's requires_access; any other value fails catalog validation."
     },
     "swift-dependency-location-strips-credentials": {
       "domain": "arch-stack-pack-swift",

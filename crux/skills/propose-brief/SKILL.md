@@ -5,6 +5,7 @@ metadata:
   tags: "briefs, scaffolding, exploration, adr-precursor"
   bundles: "crux-docs"
   risk_level: "low"
+  requires_access: "write-tree"
   triggers: "draft a brief | scaffold a brief | new brief | BRIEF for <topic> | I want to explore X before deciding"
   routing_note: "Scaffolds the file + frontmatter; body is human-authored."
 ---

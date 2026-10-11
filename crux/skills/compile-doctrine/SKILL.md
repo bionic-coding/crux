@@ -5,6 +5,7 @@ metadata:
   tags: "doctrine, adrs, regeneration, drift-detection"
   bundles: "crux-docs"
   risk_level: "low"
+  requires_access: "write-tree"
   triggers: "compile the doctrine | build the doctrine | regenerate the doctrine | refresh the doctrine | is the doctrine current | doctrine drift"
   routing_note: "Regenerative — rewrites `<docs_dir>/adrs/doctrine/` wholesale from the summaries projection, reconciled against the ratified invariants and the human-signed reconciliation ledger. `--dry-run` is the drift check. Stops and recommends `summarize-adrs.py` first when the summaries projection has drifted; never writes `reconciliations.yml`."
 ---

@@ -6,6 +6,7 @@ metadata:
   tags: "promptbooks, execution, state"
   bundles: "crux-docs"
   risk_level: "low"
+  requires_access: "write-tree"
   triggers: "run promptbook | start promptbook | advance promptbook | next prompt | skip prompt | block on prompt | abandon this run | promptbook status | run status | visualize run progress | show run progress | how far along is PB-NNNN | progress of PB-NNNN | run progress bar/chart | where am I | where was I on PB-NNNN | resume my cycle | what's next on PB-NNNN | cycle status | how do I pick this run back up | how do I resume"
   routing_note: "Start, advance, and abandon update run state and book pointers; status and terminal progress write nothing. Explicit Markdown writes a deterministic artifact and one promptbook log operation, without advancing."
 ---

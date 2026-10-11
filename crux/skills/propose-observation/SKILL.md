@@ -5,6 +5,7 @@ metadata:
   tags: "observations, scaffolding, bronze, adr-less"
   bundles: "crux-docs"
   risk_level: "low"
+  requires_access: "write-tree"
   triggers: "propose observation | record an observation | new OBS | observe this | record what the code does | this is observed not decided"
   routing_note: "Writes status: observed only; body is human-authored."
 ---

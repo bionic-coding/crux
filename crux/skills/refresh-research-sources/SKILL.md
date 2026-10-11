@@ -5,6 +5,7 @@ metadata:
   tags: "research, refresh, sources"
   bundles: "crux-docs"
   risk_level: "low"
+  requires_access: "write-tree"
   triggers: "refresh sources | update from source | check for updates | find the old ones"
   routing_note: "Re-fetches stale sources; marks synthesis pages."
 ---

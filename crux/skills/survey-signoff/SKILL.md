@@ -6,6 +6,7 @@ metadata:
   tags: "observations, ratification, survey, receipts, human-gate"
   bundles: "crux-docs"
   risk_level: "medium"
+  requires_access: "write-tree"
   triggers: "sign off the survey | sign the survey sheet | sign off SVY-NNNN | publish the batch | batch-ratify the observations | I have filled in the review sheet | finish the observation batch"
   routing_note: "The single human write path that signs one filled-in SVY-NNNN review sheet and publishes its records under one digest-bound receipt. The only batch route past `observed`; `transition-observation` remains the only single-record route. Human gate — excluded from run-execution autonomy; carries `disable-model-invocation`. Never authors a verdict; never signs two batches at once."
 ---

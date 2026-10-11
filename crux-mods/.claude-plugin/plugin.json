@@ -1,0 +1,7 @@
+{
+  "name": "crux-mods",
+  "description": "Opt-in Claude Code mods for crux: a run dashboard that shows the active promptbook run above the prompt and in a /crux-dashboard pane.",
+  "version": "3.28.0",
+  "homepage": "https://bionic-coding.com/crux/",
+  "author": { "name": "Bionic Coding" }
+}

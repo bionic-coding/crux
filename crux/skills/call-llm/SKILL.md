@@ -6,6 +6,7 @@ metadata:
   tags: "llm, multi-model, gateway"
   bundles: "crux-core, crux-docs"
   risk_level: "medium"
+  requires_access: "run-plugin-script"
   requires_env: "OPENROUTER_API_KEY"
 ---
 

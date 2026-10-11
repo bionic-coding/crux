@@ -122,7 +122,7 @@ class RenderTests(unittest.TestCase):
     @unittest.skipUnless(HAVE_TOMLLIB, "tomllib not available — Python 3.11+ (or uv) required")
     def test_read_only_roles_do_not_gain_write_default(self):
         generated = agents.generate()
-        for source_name in ("brainstormer", "commander", "librarian", "reviewer"):
+        for source_name in ("brainstormer", "commander", "librarian", "reviewer", "wayfinder"):
             parsed = tomllib.loads(generated[agents.codex_agent_filename(source_name)])
             self.assertEqual(parsed["sandbox_mode"], "read-only")
 

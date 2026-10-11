@@ -5,6 +5,7 @@ metadata:
   tags: "drift-detection, regeneration, verification, release-gate"
   bundles: "crux-docs"
   risk_level: "low"
+  requires_access: "write-tree"
   triggers: "check drift | is the tree in sync | run the drift gates | any drift? | verify all regenerated outputs | pre-release drift check"
   routing_note: "Read-only. Runs every enrolled regenerator's `--dry-run` gate in one pass and reports one table — gate, verdict, drifted paths, and the regenerator that fixes it; never regenerates. The whole-tree counterpart to `verify-code-docs`. Emits a `lint` log op."
 ---

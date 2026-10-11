@@ -5,6 +5,7 @@ metadata:
   tags: "promptbooks, workflow, cycle, planning"
   bundles: "crux-docs"
   risk_level: "low"
+  requires_access: "write-tree"
   triggers: "start a cycle | new dev cycle | begin development cycle | cycle this feature | build a cycle promptbook | rigorous plan | do this the right way"
   routing_note: "Architectural work or significant implementation choices under unchanged constraints. Allocates next `PB-NNNN`; assembles a modular cycle book (≥ 13 prompts, kind adr or implementation) with council and independent review. See `dev-cycle/SKILL.md`."
 ---

@@ -577,9 +577,13 @@ Top-level optional (per spec):
 | `tags` | CSV string | yes | 2-5 kebab-case ASCII tags. CSV format: `", "` (comma + single space). On parse: split on `,`, strip each token, reject empty tokens. |
 | `bundles` | CSV string | yes | Bundle ids the skill belongs to. Same CSV encoding as `tags`. At minimum: `crux-core` or `crux-docs`. |
 | `risk_level` | enum | yes | `low \| medium \| high`. Default: `low`. |
+| `requires_access` | enum string | yes | The highest access the skill's default path needs: one of `read-local`, `run-plugin-script`, `write-run`, `write-tree`, `write-host`, each covering the ones before it. A step taken only under an opt-in is left out. A missing, empty or unknown value fails validation; there is no default. |
+| `supplied_access` | enum string | no | The lower need the skill runs at when its caller supplies the output of the steps above it. It must be strictly lower than `requires_access`. |
 | `requires_env` | CSV string | no | Env-var keys the skill needs at runtime. Each token must match `^[A-Z][A-Z0-9_]*$`. Empty string means "no env requirement." |
 | `routing_note` | string | no | The optional Notes cell for the skill's routing-table row. |
 | `triggers` | PIPE-separated string | no | The user phrases that route to this skill, projected into `catalog/skills.json` as a JSON array. The separator is `\|`, not the comma `tags`, `bundles` and `requires_env` use: a trigger is a natural-language phrase and may contain a comma, which a CSV split would cut in two. On parse: split on `\|` and strip each token; empty tokens are dropped. A non-string token is refused, and so is one carrying the separator, a control character, or a duplicate of another token. A skill that is `user-invocable: false` declares none, and that is not a gap. |
+
+Each `requires_access` token names what the skill's default path does. `read-local` reads and searches local files, its own instructions included. `run-plugin-script` also runs a crux script or a private temporary driver, and writes only uv's cache and a private temporary directory. `write-run` also writes records inside a run directory, only through a vendored crux writer, its own commit included. `write-tree` also writes anything else under the repository, commits included. `write-host` also writes outside the repository. Choose the highest token over every operation's default path. Count the reference files that path routes to and the need of every skill it invokes. Leave out a step taken only under an opt-in: a flag, a named request, an accepted offer, or a mode the caller names. A role's envelope in a harness is what that harness's projection lets it do: its effective tools in Claude Code, its sandbox mode and shell permit in Codex, and its permission rules in OpenCode. An opt-in step above the envelope of a role that declares the skill still needs an instruction, in the role body or the skill body, that routes or declines it. Declare `supplied_access` only where the skill body names the output a caller supplies.[^access]
 
 Concrete example:
 
@@ -594,6 +598,7 @@ metadata:
   version: "0.1.0"
   risk_level: "low"
   status: "production"
+  requires_access: "write-tree"
 ---
 ```
 
@@ -1643,3 +1648,4 @@ A migration writes one `schema` op, never one entry per file.
 [^gate]: rule:gate-reads-every-recorded-round, rule:convergence-is-derived-per-seat, rule:a-seat-without-a-blocking-finding-holds-the-gate, rule:council-gate-advances-on-convergence-or-refutation, rule:blocked-gate-needs-evidence
 [^defer]: rule:only-a-preflight-refusal-is-retried
 [^attempt]: rule:an-open-council-attempt-stops-the-gate, rule:council-evidence-matches-its-attempt, rule:recovery-never-deliberates-again
+[^access]: rule:skill-declares-its-access-need, rule:access-need-covers-the-mandatory-path, rule:opt-in-above-the-envelope-is-routed, rule:supplied-access-is-below-required-access

@@ -5,6 +5,7 @@ metadata:
   tags: "adrs, lineage, derivation, regenerative, visualization"
   bundles: "crux-docs"
   risk_level: "low"
+  requires_access: "write-tree"
   triggers: "show ADR lineage | render ADR graph | ADR dependency graph"
   routing_note: "Regenerates `docs/adrs/lineage.md` (Mermaid + table)."
 ---

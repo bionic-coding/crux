@@ -6,6 +6,7 @@ metadata:
   tags: "observations, state-machine, ratification, human-gate"
   bundles: "crux-docs"
   risk_level: "low"
+  requires_access: "write-tree"
   triggers: "ratify observation OBS-NNNN | reject observation OBS-NNNN | retire observation OBS-NNNN | mark observation OBS-NNNN decided | transition observation"
 ---
 

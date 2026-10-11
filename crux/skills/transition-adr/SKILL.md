@@ -6,6 +6,7 @@ metadata:
   tags: "adrs, state-machine, transitions"
   bundles: "crux-docs"
   risk_level: "low"
+  requires_access: "write-tree"
   triggers: "accept ADR-NNNN | deprecate ADR-NNNN | supersede ADR-NNNN with ADR-MMMM | retract ADR-NNNN"
   routing_note: "Enforces state machine."
 ---

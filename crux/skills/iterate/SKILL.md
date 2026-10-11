@@ -5,6 +5,7 @@ metadata:
   tags: "promptbooks, workflow, cycle, iterate, fix"
   bundles: "crux-docs"
   risk_level: "low"
+  requires_access: "write-tree"
   triggers: "iterate on X | start an iterate cycle | iterate-cycle for X | remediate X | fix X with rigor"
   routing_note: "Non-architectural reactive work (bug / drift / refinement) — `dev-cycle` rigor with a **verify** module instead of an ADR (`cycle_kind: verify`, ≥ 13 prompts). See `iterate/SKILL.md`."
 ---

@@ -44,7 +44,7 @@
   {
     "id": "brainstormer",
     "name": "brainstormer",
-    "description": "Use when the user says \"brainstorm\", \"let's explore X\", \"whiteboard this\", \"I have an idea\", \"help me think through Y\", \"explore options for X before a decision\", or wants pre-decision exploration of a feature or change. Explores OPTIONS before a decision is made \u2014 distinct from the architect, who \"designs the architecture for X\" once an approach is chosen.",
+    "description": "Use when the user says \"brainstorm\", \"let's explore X\", \"whiteboard this\", \"I have an idea\", \"help me think through Y\", \"explore options for X before a decision\", or wants pre-decision exploration of a feature or change. Explores OPTIONS before a decision is made \u2014 distinct from the architect, who \"designs the architecture for X\" once an approach is chosen. Its caller first runs `authority-view.py state` and `retained-roots` and passes their output with the recent `git log` lines and, for an implementation question, the `implementation-decisions.py query` output.",
     "tools": [
       "Read",
       "Grep",
@@ -64,18 +64,23 @@
       "crux-agents"
     ],
     "risk_level": "low",
+    "shell_scope": "read-local",
+    "skill_lanes": {
+      "forge-skill": "returns-to-caller",
+      "query-docs": "caller-supplies",
+      "whiteboarding": "caller-supplies"
+    },
     "maxTurns": 50,
     "skills": [
       "whiteboarding",
       "query-docs",
-      "forge-skill",
-      "log-work"
+      "forge-skill"
     ]
   },
   {
     "id": "commander",
     "name": "commander",
-    "description": "Use when the user says \"run promptbook\", \"run PB-NNNN\", \"start the cycle\", \"execute the promptbook\", \"advance the run\", \"orchestrate this build\", or wants a promptbook / dev-cycle driven to completion. A dedicated conductor to free the main thread \u2014 NOT the same as a direct `run-promptbook advance` call (which mutates one run snapshot); the commander delegates and gates the whole run.",
+    "description": "Use when the user says \"run promptbook\", \"run PB-NNNN\", \"start the cycle\", \"execute the promptbook\", \"advance the run\", \"orchestrate this build\", or wants a promptbook or cycle run driven to completion. A dedicated conductor to free the main thread \u2014 NOT the same as a direct `run-promptbook advance` call (which mutates one run snapshot); the commander delegates and gates the whole run.",
     "tools": [
       "Read",
       "Grep",
@@ -102,12 +107,16 @@
       "crux-agents"
     ],
     "risk_level": "medium",
+    "skill_lanes": {
+      "council": "delegates:architect",
+      "forge-skill": "returns-to-caller",
+      "log-work": "delegates:historian",
+      "run-promptbook": "delegates:historian"
+    },
     "maxTurns": 250,
     "skills": [
       "run-promptbook",
-      "dev-cycle",
       "council",
-      "srde",
       "forge-skill",
       "log-work"
     ]
@@ -248,12 +257,16 @@
       "crux-agents"
     ],
     "risk_level": "low",
+    "shell_scope": "run-plugin-script",
+    "skill_lanes": {
+      "forge-skill": "returns-to-caller",
+      "query-docs": "caller-supplies"
+    },
     "maxTurns": 50,
     "effort": "medium",
     "skills": [
       "query-docs",
-      "forge-skill",
-      "log-work"
+      "forge-skill"
     ]
   },
   {
@@ -326,14 +339,17 @@
       "crux-agents"
     ],
     "risk_level": "low",
+    "shell_scope": "write-run",
+    "skill_lanes": {
+      "council": "returns-to-caller",
+      "forge-skill": "returns-to-caller"
+    },
     "maxTurns": 200,
     "effort": "high",
     "skills": [
       "prose-review",
       "council",
-      "srde",
-      "forge-skill",
-      "log-work"
+      "forge-skill"
     ]
   },
   {

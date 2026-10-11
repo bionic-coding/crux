@@ -5,6 +5,7 @@ metadata:
   tags: "rsi, capability-gap, skill-authoring, autonomous, forge"
   bundles: "crux-core, crux-docs"
   risk_level: "medium"
+  requires_access: "write-tree"
   triggers: "forge a skill | author a skill for this | build yourself the capability | close this capability gap | teach yourself to X"
   routing_note: "Autonomous RSI loop; gates + forge log per an ADR."
 ---
@@ -319,7 +320,7 @@ The **graduation gate is unchanged**: promotion always runs through a dev-cycle 
 
 The graduation dev-cycle's ADR records the candidate, its evidence, and executes this transformation:
 
-1. **Frontmatter conformance** — the project-local shape (top-level `tags`/`requires_env` lists, `owner: project-local`) becomes the plugin contract: a `metadata:` block with CSV `tags`/`bundles` and `risk_level` (and `requires_env` when the skill needs it).
+1. **Frontmatter conformance** — the project-local shape (top-level `tags`/`requires_env` lists, `owner: project-local`) becomes the plugin contract: a `metadata:` block with CSV `tags`/`bundles`, `risk_level` and `requires_access` (and `requires_env` when the skill needs it).
 2. **Distributed-surface scrub** — no internal decision-record references in the skill body or description (inline rationale only), passing the release-content scan.
 3. **De-projectification** — repo-specific paths become `${CRUX_PLUGIN_ROOT}` forms; repo-pinned examples are parameterized; self-obsolete sections deleted.
 4. **House structure** — red flags, rationalization table, verification checklist to catalog standard; tests where mechanical.

@@ -5,6 +5,7 @@ metadata:
   tags: "code-docs, verification, drift-detection"
   bundles: "crux-docs"
   risk_level: "low"
+  requires_access: "write-tree"
   triggers: "verify docs | check code docs drift | are the code docs in sync? | lint docs"
   routing_note: "Read-only; emits `lint` log entry."
 ---

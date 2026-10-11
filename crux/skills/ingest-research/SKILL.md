@@ -5,6 +5,7 @@ metadata:
   tags: "research, ingest, sources"
   bundles: "crux-docs"
   risk_level: "low"
+  requires_access: "write-tree"
   triggers: "ingest | file this | capture this | save this | paste a URL"
   routing_note: "One source per invocation. Reads research items from the unified `docs/inbox/` (usually invoked by `process-inbox` with explicit paths)."
 ---

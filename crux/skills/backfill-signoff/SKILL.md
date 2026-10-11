@@ -6,6 +6,7 @@ metadata:
   tags: "backfill, sign-off, receipts, human-gate"
   bundles: "crux-docs"
   risk_level: "low"
+  requires_access: "write-tree"
   triggers: "sign off backfill batch <id> | backfill sign-off | sign the backfill"
   routing_note: "The single owner write path for a governs backfill batch: verbatim rendering of every enumerated receipt, fail-closed validation, then the four surfaces (reviews `signed` flip, `adr.governs_backfilled` ledger append, `backfill` log op, journal hook) plus the completion marker when the cohort arithmetic holds. Idempotent; absence-conditional completion after a mid-write crash."
 ---

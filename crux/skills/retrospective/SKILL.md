@@ -5,6 +5,7 @@ metadata:
   tags: "retrospective, reflection, harvest, skills, council"
   bundles: "crux-core, crux-docs"
   risk_level: "medium"
+  requires_access: "write-tree"
   triggers: "run a retrospective | retro this | retro the last few cycles | harvest skills from recent work | what should we learn from the last few cycles | purposeful reflection"
   routing_note: "Deliberate reflection; ≤2 council-gated skill proposals built via forge-skill. Mines recent journal reflections, run notes, and log ops for recurring friction; 0 proposals is a legitimate outcome."
 ---

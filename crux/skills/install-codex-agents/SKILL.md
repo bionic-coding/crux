@@ -6,6 +6,7 @@ metadata:
   tags: "codex, agents, installation, roles"
   bundles: "crux-infrastructure, crux-docs"
   risk_level: "medium"
+  requires_access: "write-host"
   triggers: "install codex agents | install crux agents for codex | refresh the codex agents"
 ---
 

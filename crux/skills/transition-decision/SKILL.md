@@ -6,6 +6,7 @@ metadata:
   tags: "arch, decision-recovery, adr, observations, ratification"
   bundles: "crux-docs"
   risk_level: "low"
+  requires_access: "write-tree"
   triggers: "ratify decision <id> | reject decision <id> | defer decision <id> | ratify decision <id> as observation"
 ---
 

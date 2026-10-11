@@ -6,6 +6,7 @@ metadata:
   tags: "arch, runtime, introspection, escalation, security"
   bundles: "crux-docs"
   risk_level: "high"
+  requires_access: "write-tree"
   triggers: "escalate the arch runtime | run the runtime arch introspection | recover the routes by running my app | introspect my FastAPI/Flask/Django app for arch"
   routing_note: "Human-invoked only. An optional fidelity upgrade a human may choose, never the remedy any crux surface points a reader at. Runs a Python target's import-time code in a subprocess-isolated child behind the two-factor `CRUX_ARCH_ALLOW_RUNTIME=1` consent gate; writes an advisory into `<docs_dir>/inbox/`, never into `arch/`."
 ---

@@ -5,6 +5,7 @@ metadata:
   tags: "promptbooks, workflow, cycle, patch, small-change"
   bundles: "crux-docs"
   risk_level: "low"
+  requires_access: "write-tree"
   triggers: "patch this | patch cycle | run a patch tier on X | small fix with the gates | this is too small for a cycle but it still needs a council and a review"
   routing_note: "The third cycle tier: a small reversible non-architectural change, five phases (verify, plan, implement, review, summary) at one prompt each, so the formula is the constant 5 and the floor is 5. Declares a `blast_radius` at authoring; the verify council reviews it for proportion and the archive precondition checks it against the paths the run changed, drawn from git. Work needing an ADR is `dev-cycle`; a fix too large to bound is `iterate`. See `patch-cycle/SKILL.md`."
 ---

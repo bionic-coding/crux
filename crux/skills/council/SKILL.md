@@ -7,6 +7,7 @@ metadata:
   tags: "verification, multi-model, council, anti-hallucination"
   bundles: "crux-verification, crux-docs"
   risk_level: "medium"
+  requires_access: "write-run"
   triggers: "run the council | convene the council | ask the council | get a multi-model opinion"
   requires_env: "OPENROUTER_API_KEY"
 ---

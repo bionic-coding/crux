@@ -5,6 +5,7 @@ metadata:
   tags: "installation, plugin, distribution"
   bundles: "crux-docs"
   risk_level: "low"
+  requires_access: "read-local"
   triggers: "which crux version is active | what crux plugin is loaded | install docs skills | add this plugin | set up crux | upgrade docs suite"
   routing_note: "Read-only active identity; install and upgrade instructions load on request."
 ---

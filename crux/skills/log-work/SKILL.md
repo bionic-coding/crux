@@ -5,6 +5,7 @@ metadata:
   tags: "journal, work-log, narrative"
   bundles: "crux-docs"
   risk_level: "low"
+  requires_access: "write-tree"
   triggers: "log work | journal this | record progress | log this"
   routing_note: "Categorization required."
 ---

@@ -1,0 +1,38 @@
+{
+  "success": true,
+  "strict": true,
+  "target": "<plugin-dir>/.claude-plugin/plugin.json",
+  "manifest": {
+    "file": "<plugin-dir>/.claude-plugin/plugin.json",
+    "type": "plugin",
+    "errors": [],
+    "warnings": [],
+    "notes": [],
+    "gatingHooks": []
+  },
+  "contents": [
+    {
+      "file": "<plugin-dir>/hooks/hooks.json",
+      "type": "hooks",
+      "errors": [],
+      "warnings": [],
+      "notes": [
+        "./register.tsx hooks: session.start, tool.call, ui.render{component=AbovePrompt}, ui.render{component=Pane}, command.run{command=crux-dashboard}",
+        "./register.tsx answers its own command: command.run{command=crux-dashboard}",
+        "./register.tsx gating hook without .catch: tool.call",
+        "./register.tsx calls: $.agent.list (via agentsOf), $.clock.after (via scheduleWriteRefresh), $.clock.every, $.command.register, $.env.get (via anyLoaderVarSet, planLaunch), $.fs.read (via planLaunch), $.fs.stat (via statOf), $.process.run (via runReader), $.session.root (via planLaunch), $.ui.invalidate (via refresh), $.ui.open, $.ui.resolve",
+        "./register.tsx env writes: nothing",
+        "./register.tsx env reads: CLAUDE_CONFIG_DIR, DYLD_FALLBACK_FRAMEWORK_PATH, DYLD_FALLBACK_LIBRARY_PATH, DYLD_FRAMEWORK_PATH, DYLD_IMAGE_SUFFIX, DYLD_INSERT_LIBRARIES, DYLD_LIBRARY_PATH, DYLD_ROOT_PATH, DYLD_VERSIONED_FRAMEWORK_PATH, DYLD_VERSIONED_LIBRARY_PATH, HOME, LD_AUDIT, LD_LIBRARY_PATH, LD_PRELOAD"
+      ],
+      "gatingHooks": [
+        {
+          "module": "./register.tsx",
+          "pattern": "tool.call",
+          "hook": "tool.call",
+          "hasCatch": false
+        }
+      ]
+    }
+  ],
+  "advice": []
+}

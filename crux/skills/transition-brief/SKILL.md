@@ -6,6 +6,7 @@ metadata:
   tags: "briefs, state-machine, transitions, lifecycle"
   bundles: "crux-docs"
   risk_level: "low"
+  requires_access: "write-tree"
   triggers: "publish brief | abandon brief | close out a brief | mark brief published | mark brief abandoned | transition BRIEF-<slug>"
   routing_note: "Transitions a brief `draft → published | abandoned`; mutates only frontmatter, never the body; updates the rollup + writes a `brief` op."
 ---

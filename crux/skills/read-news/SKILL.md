@@ -7,6 +7,7 @@ metadata:
   tags: "news, perplexity, retrieval, garden, research"
   bundles: "crux-core"
   risk_level: "medium"
+  requires_access: "write-tree"
   triggers: "read the news | news sweep | check the feeds | what's new in the ecosystem"
   requires_env: "PERPLEXITY_API_KEY"
   routing_note: "Perplexity-backed news pass: curated sources + exploratory sweep + research-wiki refresh; keepers via inbox."

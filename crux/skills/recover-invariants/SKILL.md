@@ -5,6 +5,7 @@ metadata:
   tags: "invariants, recovery, extraction, candidates, machine-proposes"
   bundles: "crux-docs"
   risk_level: "medium"
+  requires_access: "write-tree"
   triggers: "recover invariants | mine invariants | extract invariant candidates"
 ---
 

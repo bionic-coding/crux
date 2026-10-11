@@ -125,7 +125,7 @@ class TaskLocalProcedureTests(unittest.TestCase):
         commander = (SKILLS.parent / "agents" / "commander.md").read_text(encoding="utf-8")
         for intent in ("visualize run progress", "where am I", "resume my cycle"):
             self.assertIn(intent, entry)
-        self.assertIn("skills: [run-promptbook, dev-cycle", commander)
+        self.assertIn("skills: [run-promptbook, council", commander)
         self.assertNotIn("skills: [run-promptbook, visualize-run-progress", commander)
         self.assertIn("--run RUN-NNN", status)
         self.assertIn("book_content_hash", status)

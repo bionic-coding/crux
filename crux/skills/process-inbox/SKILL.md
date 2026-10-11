@@ -5,6 +5,7 @@ metadata:
   tags: "inbox, dispatcher, triage, orchestration"
   bundles: "crux-docs"
   risk_level: "medium"
+  requires_access: "write-tree"
   triggers: "process inbox | process my inbox | triage inbox | what's in my inbox | file my inbox | sort the inbox"
   routing_note: "Classify → confirm → dispatch each dropped item to its owning skill (research → `ingest-research`, decision → `propose-adr`, brief → `propose-brief`, note → `log-work`). Classify-then-confirm; never auto-accepts ADRs."
 ---

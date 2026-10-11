@@ -7,6 +7,7 @@ metadata:
   tags: "code-docs, extraction, regeneration"
   bundles: "crux-docs"
   risk_level: "low"
+  requires_access: "write-tree"
   triggers: "extract docs | refresh code docs | regenerate code docs"
   routing_note: "Regenerative — wipes `docs/code/`."
 ---

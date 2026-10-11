@@ -6,7 +6,8 @@ We exercise the `_atomic_write_text` helper directly — it's the shared
 behaviour change we care about; the rest of validate-catalog already has
 its own integration coverage via the catalog regeneration workflow.
 
-Stdlib only (unittest, tempfile, importlib, pathlib, sys).
+Stdlib only (unittest, tempfile, importlib, pathlib, sys), except the
+dependency-closure test, which reads the pairing gate and so needs PyYAML.
 """
 
 from __future__ import annotations
@@ -178,6 +179,7 @@ class StrictMetadataContractTests(unittest.TestCase):
                 '  tags: "a, b"\n'
                 '  bundles: "crux-core"\n'
                 '  risk_level: "low"\n'
+                '  requires_access: "read-local"\n'
                 '  origin: "legacy"\n'
                 "---\n\n# demo\n",
                 encoding="utf-8",
@@ -203,6 +205,7 @@ class StrictMetadataContractTests(unittest.TestCase):
                 '  tags: "a, b"\n'
                 '  bundles: "crux-core"\n'
                 '  risk_level: "low"\n'
+                '  requires_access: "read-local"\n'
                 '  requires_env: "SOME_KEY"\n'
                 "---\n\n# demo\n",
                 encoding="utf-8",
@@ -229,6 +232,7 @@ class StrictMetadataContractTests(unittest.TestCase):
                 '  tags: "a, b"\n'
                 '  bundles: "crux-core"\n'
                 '  risk_level: "low"\n'
+                '  requires_access: "read-local"\n'
                 "---\n\n# demo\n",
                 encoding="utf-8",
             )
@@ -269,6 +273,7 @@ def _write_skill(plugin_dir: Path, name: str, *, top: str = "", body: str = "# b
         f'  tags: "{tags}"\n'
         f'  bundles: "{bundles}"\n'
         '  risk_level: "low"\n'
+        '  requires_access: "read-local"\n'
         f"{extra_meta}"
         "---\n\n"
         f"{body}",
@@ -409,6 +414,39 @@ class InvocationControlAgentTests(unittest.TestCase):
         self.assertEqual(errs, [])
 
 
+# Delegates lanes that hand the whole skill to another role. A new delegates
+# lane stays inside the dependency closure until it is listed here.
+WHOLE_SKILL_DELEGATES = {("commander", "council"), ("commander", "log-work")}
+
+HARNESSES = ("claude-code", "codex", "opencode")
+
+
+def handed_off_skills(lane_carried, whole_skill_delegates, harnesses) -> dict[str, set[str]]:
+    """Return {role: skills} whose dependency closure the role does not expand.
+
+    `lane_carried` holds (role, skill, harness, kind) 4-tuples. A skill is
+    handed off when a returns-to-caller lane carries it in every harness, or a
+    delegates lane carries it in every harness and (role, skill) is in
+    `whole_skill_delegates`.
+    """
+    every = set(harnesses)
+    returned: dict[tuple[str, str], set[str]] = {}
+    delegated: dict[tuple[str, str], set[str]] = {}
+    for role, skill, harness, kind in lane_carried:
+        if kind == "returns-to-caller":
+            returned.setdefault((role, skill), set()).add(harness)
+        elif kind.startswith("delegates:"):
+            delegated.setdefault((role, skill), set()).add(harness)
+    handed: dict[str, set[str]] = {}
+    for (role, skill), got in returned.items():
+        if got == every:
+            handed.setdefault(role, set()).add(skill)
+    for (role, skill), got in delegated.items():
+        if got == every and (role, skill) in whole_skill_delegates:
+            handed.setdefault(role, set()).add(skill)
+    return handed
+
+
 class AgentSkillDeclarationTests(unittest.TestCase):
     """ADR-0111: every role declares the skills its workflows require."""
 
@@ -418,11 +456,8 @@ class AgentSkillDeclarationTests(unittest.TestCase):
             "author-promptbook", "dev-cycle", "link-adr-graph", "propose-brief",
             "log-work", "forge-skill",
         ],
-        "brainstormer": ["whiteboarding", "query-docs", "forge-skill", "log-work"],
-        "commander": [
-            "run-promptbook", "dev-cycle", "council", "srde",
-            "forge-skill", "log-work",
-        ],
+        "brainstormer": ["whiteboarding", "query-docs", "forge-skill"],
+        "commander": ["run-promptbook", "council", "forge-skill", "log-work"],
         "dev-lead": ["forge-skill", "log-work"],
         "developer": ["forge-skill", "log-work"],
         "historian": [
@@ -432,13 +467,13 @@ class AgentSkillDeclarationTests(unittest.TestCase):
             "archive-promptbook", "extract-code-docs", "verify-code-docs",
             "run-promptbook", "forge-skill",
         ],
-        "librarian": ["query-docs", "forge-skill", "log-work"],
+        "librarian": ["query-docs", "forge-skill"],
         "night-gardener": [
             "tend-garden", "cleanup-campsite", "read-news", "refresh-research-sources",
             "retrospective", "council", "srde", "whiteboarding", "query-docs", "prose-review",
             "forge-skill", "log-work",
         ],
-        "reviewer": ["prose-review", "council", "srde", "forge-skill", "log-work"],
+        "reviewer": ["prose-review", "council", "forge-skill"],
         "wayfinder": [],
     }
 
@@ -449,10 +484,7 @@ class AgentSkillDeclarationTests(unittest.TestCase):
             "forge-skill",
         },
         "brainstormer": {"whiteboarding", "query-docs", "forge-skill"},
-        "commander": {
-            "run-promptbook", "dev-cycle", "council", "srde",
-            "forge-skill",
-        },
+        "commander": {"run-promptbook", "council", "forge-skill"},
         "dev-lead": {"forge-skill"},
         "developer": {"forge-skill"},
         "historian": {
@@ -463,7 +495,7 @@ class AgentSkillDeclarationTests(unittest.TestCase):
         },
         "librarian": {"query-docs", "forge-skill"},
         "night-gardener": {"tend-garden", "forge-skill"},
-        "reviewer": {"prose-review", "council", "srde", "forge-skill"},
+        "reviewer": {"prose-review", "council", "forge-skill"},
         "wayfinder": set(),
     }
 
@@ -508,25 +540,143 @@ class AgentSkillDeclarationTests(unittest.TestCase):
         )
         return errors
 
-    def _shipped_role_skill_map(self) -> dict[str, list[str]]:
+    def _shipped_role_entries(self) -> list[dict]:
         plugin = REPO_ROOT / "crux"
         skill_ids = {path.parent.name for path in validator.discover_skills(plugin)}
         entries, errors = validator.regenerate_agents_json(plugin, verbose=False, skill_ids=skill_ids)
         hard_errors = [error for error in errors if error.get("severity") != "warning"]
         self.assertEqual(hard_errors, [], hard_errors)
-        return {entry["id"]: entry.get("skills") for entry in entries}
+        return entries
+
+    def _shipped_role_skill_map(self) -> dict[str, list[str]]:
+        return {entry["id"]: entry.get("skills") for entry in self._shipped_role_entries()}
+
+    # The dependency closure below expands a skill's required skills for each
+    # role. A skill drops out of the closure only when the role hands the whole
+    # act away: a returns-to-caller lane that carries it in every harness, or a
+    # delegates lane that carries it in every harness and is listed in
+    # WHOLE_SKILL_DELEGATES. A delegates lane may hand over only some steps (the
+    # commander's run-promptbook lane hands over the script runs and writes while
+    # the commander reads the book itself), so a delegates lane is not exempt
+    # until it is listed. A lane that carries only some harnesses leaves the role
+    # running the skill by its envelope in the rest, and a caller-supplies lane
+    # runs the skill in the role on supplied output, so those dependencies stay
+    # required. This reads the "needed to execute" wording in section 2 of the
+    # role-skill decision as the role's own execution; whether that reading is
+    # right is an open architect follow-up. The pairing gate decides which
+    # harnesses a lane carries; it reads the projections and needs PyYAML.
+    # rule:returns-to-caller-passes-on-its-route, rule:delegate-target-covers-the-need
+    def _handed_off_skills(self) -> dict[str, set[str]]:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import _role_skill_pairing as pairing  # noqa: PLC0415
+
+        return handed_off_skills(
+            pairing.evaluate(REPO_ROOT / "crux").lane_carried,
+            WHOLE_SKILL_DELEGATES,
+            pairing.HARNESSES,
+        )
+
+    def test_shipped_handed_off_set_is_pinned(self):
+        # run-promptbook is not whole-skill delegated: the commander reads the book
+        # and gates prompts itself, so its dependencies stay required (and
+        # REQUIRED_SKILL_DEPENDENCIES has no run-promptbook entry to expand).
+        self.assertEqual(
+            self._handed_off_skills(),
+            {
+                "brainstormer": {"forge-skill"},
+                "librarian": {"forge-skill"},
+                "reviewer": {"forge-skill"},
+                "commander": {"council", "forge-skill", "log-work"},
+            },
+        )
+        self.assertNotIn("run-promptbook", self.REQUIRED_SKILL_DEPENDENCIES)
+
+    def test_handed_off_needs_every_harness_for_a_returns_to_caller_lane(self):
+        carried = {("r", "s", "codex", "returns-to-caller")}
+        self.assertEqual(handed_off_skills(carried, set(), HARNESSES), {})
+
+    def test_handed_off_ignores_a_caller_supplies_lane(self):
+        carried = {("r", "s", h, "caller-supplies") for h in HARNESSES}
+        self.assertEqual(handed_off_skills(carried, set(), HARNESSES), {})
+
+    def test_handed_off_takes_a_returns_to_caller_lane_in_every_harness(self):
+        carried = {("r", "s", h, "returns-to-caller") for h in HARNESSES}
+        self.assertEqual(handed_off_skills(carried, set(), HARNESSES), {"r": {"s"}})
+
+    def test_handed_off_takes_a_listed_delegates_lane_in_every_harness(self):
+        carried = {("r", "s", h, "delegates:t") for h in HARNESSES}
+        self.assertEqual(handed_off_skills(carried, {("r", "s")}, HARNESSES), {"r": {"s"}})
+
+    def test_handed_off_refuses_an_unlisted_delegates_lane(self):
+        carried = {("r", "s", h, "delegates:t") for h in HARNESSES}
+        self.assertEqual(handed_off_skills(carried, set(), HARNESSES), {})
+        self.assertEqual(handed_off_skills(carried, {("r", "other")}, HARNESSES), {})
+
+    def test_handed_off_needs_every_harness_for_a_listed_delegates_lane(self):
+        carried = {("r", "s", "codex", "delegates:t")}
+        self.assertEqual(handed_off_skills(carried, {("r", "s")}, HARNESSES), {})
+
+    EXPECTED_SHELL_SCOPE = {
+        "brainstormer": "read-local",
+        "librarian": "run-plugin-script",
+        "reviewer": "write-run",
+        "commander": None,
+        "wayfinder": None,
+        "architect": None,
+        "dev-lead": None,
+        "developer": None,
+        "historian": None,
+        "night-gardener": None,
+    }
+
+    def test_shipped_roles_declare_the_exact_shell_scope_baseline(self):
+        actual = {entry["id"]: entry.get("shell_scope") for entry in self._shipped_role_entries()}
+        self.assertEqual(actual, self.EXPECTED_SHELL_SCOPE)
+
+    def _role_entries_from_copy(self, plugin: Path, raise_librarian: bool) -> list[dict]:
+        """Regenerate the role entries from a file copy of crux/agents and crux/skills."""
+        shutil.copytree(REPO_ROOT / "crux" / "skills", plugin / "skills")
+        if raise_librarian:
+            path = plugin / "agents" / "librarian.md"
+            text = path.read_text(encoding="utf-8")
+            self.assertEqual(text.count('shell_scope: "run-plugin-script"'), 1)
+            path.write_text(
+                text.replace('shell_scope: "run-plugin-script"', 'shell_scope: "write-run"'),
+                encoding="utf-8",
+            )
+        skill_ids = {p.parent.name for p in validator.discover_skills(plugin)}
+        entries, errors = validator.regenerate_agents_json(plugin, verbose=False, skill_ids=skill_ids)
+        hard_errors = [error for error in errors if error.get("severity") != "warning"]
+        self.assertEqual(hard_errors, [], hard_errors)
+        return entries
+
+    def test_shell_scope_baseline_catches_a_raised_scope(self):
+        # Positive control read from files: an unmodified copy of crux/agents
+        # equals the baseline; the same copy with librarian raised does not.
+        with tempfile.TemporaryDirectory() as td:
+            plugin = self._plugin_fixture(Path(td))
+            untouched = {e["id"]: e.get("shell_scope") for e in self._role_entries_from_copy(plugin, False)}
+        self.assertEqual(untouched, self.EXPECTED_SHELL_SCOPE)
+        with tempfile.TemporaryDirectory() as td:
+            plugin = self._plugin_fixture(Path(td))
+            raised = {e["id"]: e.get("shell_scope") for e in self._role_entries_from_copy(plugin, True)}
+        self.assertEqual(raised["librarian"], "write-run")
+        self.assertNotEqual(raised, self.EXPECTED_SHELL_SCOPE)
 
     def test_shipped_roles_declare_the_exact_workflow_skill_map(self):
         self.assertEqual(self._shipped_role_skill_map(), self.EXPECTED_ROLE_SKILLS)
 
     def test_declared_skills_cover_each_role_workflow_dependency_closure(self):
         declared_by_role = self._shipped_role_skill_map()
+        handed_off = self._handed_off_skills()
         for role, roots in self.DIRECT_ROLE_SKILLS.items():
             with self.subTest(role=role):
                 required = set(roots)
                 pending = list(roots)
                 while pending:
                     skill = pending.pop()
+                    if skill in handed_off.get(role, set()):
+                        continue
                     for dependency in self.REQUIRED_SKILL_DEPENDENCIES.get(skill, set()):
                         if dependency not in required:
                             required.add(dependency)

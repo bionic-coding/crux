@@ -6,6 +6,7 @@ metadata:
   tags: "council, adr, verification, multi-model"
   bundles: "crux-verification, crux-docs"
   risk_level: "medium"
+  requires_access: "write-tree"
   triggers: "run the council on ADR-NNNN | council review ADR-NNNN | run-adr-council ADR-NNNN | council-check this ADR"
   requires_env: "OPENROUTER_API_KEY"
   routing_note: "Inside a run it passes the ADR to run-council.py as a --subject, which run-council.py fences as data. Its council record is the gate evidence. Outside a run the async driver fences the ADR body itself and is informational. There is no per-ADR driver."
