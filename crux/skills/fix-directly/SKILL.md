@@ -48,6 +48,10 @@ A defect is a direct fix when every answer is yes. One no routes it to a tier.
    of a bug. If the failure cannot be pinned in a test → `iterate` (the diagnosis is open).
 3. **Does the fix change no contract?** No ADR, no schema, no rule in the tree's `AGENTS.md`, no
    regenerated-output roster row. If it does → `dev-cycle`.
+   Guidance text is no contract: a fix that changes what a guidance rule describes answers yes,
+   provided every binding rule still holds and the rest of this test still applies. Do not edit
+   the ADR's guidance text. Read a rule's standing in the summaries rule table's `## Rule
+   standing` section; a rule absent from it binds at its current wording.[^guidance]
 4. **Is one instance all the evidence there is?** One instance is a bug. A *class* earns a design
    when a second, independent instance exists — the same recurrence floor `retrospective` holds
    a skill proposal to. If you are designing for the class → stop, fix the instance, and record
@@ -152,6 +156,8 @@ Omit an item with nothing to report rather than writing it as `none`. A commissi
 three statements all arrived, whose test is the whole of the Evidence and whose Constraint held is
 five lines, not seven.
 
+When the fix changes what a guidance rule describes, the entry cites that rule.
+
 The assignment sentence belongs in the entry, not only in the chat. A later reader then recovers
 the acceptance bar from the tree rather than from a session that is gone. This entry is how
 `retrospective` and `cleanup-campsite` see the work; skip it and the fix is invisible to every
@@ -205,3 +211,5 @@ process that mines finished work.
 - `log-work` — writes the one journal entry a direct fix owes.
 - `check-drift` — the drift gates step 4 runs.
 - `docs/AGENTS.md` §11.C — the three cycle tiers this rung sits below.
+
+[^guidance]: rule:guidance-changes-without-a-decision

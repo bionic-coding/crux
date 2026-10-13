@@ -198,7 +198,6 @@ except ImportError:
 # `base_commit_pin.py` for the no-claim lane and the honest limit.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from base_commit_pin import divergence  # noqa: E402  (sys.path insert before import)
-import bionic_config  # noqa: E402  (sys.path insert before import)
 import council_gate  # noqa: E402  (sys.path insert before import)
 import council_records  # noqa: E402
 import implementation_approval  # noqa: E402
@@ -907,9 +906,9 @@ def _prior_implementation_closes_or_fail(run, book, run_path):
             _fail("formal DONE has no successful close binding; nothing was written")
 
 
-# An ADR file path under any `adrs/` directory, its identifier carrying the optional artifact
-# prefix (an upper-case lead such as `PB-`).
-_ADR_PATH = re.compile(r"^(?!/)(?:[^/]+/)*adrs/(?:archive/)?(?P<id>(?:[A-Z][A-Z0-9]*-)?ADR-\d{4})-[^/]+\.md$")
+# An ADR file path under any `adrs/` directory. The naming predicate lives in council_records,
+# which the provenance writer shares, so the gate and the writer name the same ADRs.
+_ADR_PATH = council_records.ADR_PATH
 _ADR_READ_LIMIT = 1 << 20
 _ABSENT = object()
 
@@ -998,30 +997,8 @@ def _record_subjects(repo, rel):
             if isinstance(s, dict) and isinstance(s.get("path"), str) and _ADR_PATH.match(s["path"])]
 
 
-def _tree_adr_path(repo):
-    """The pattern a path must match to name an ADR: an ADR file directly under
-    `<docs_dir>/adrs/` or `<docs_dir>/adrs/archive/`. When the layout config cannot be read, an
-    ADR file under any `adrs/` directory matches."""
-    try:
-        docs_dir = bionic_config.load_config(repo).docs_dir
-    except (bionic_config.BionicConfigError, OSError, ValueError, TypeError):
-        return _ADR_PATH
-    prefix = re.escape(os.path.normpath(docs_dir).strip("/"))
-    return re.compile(rf"^{prefix}/adrs/(?:archive/)?(?P<id>(?:[A-Z][A-Z0-9]*-)?ADR-\d{{4}})-[^/]+\.md$")
-
-
-def _named_adr(repo, text, pattern):
-    """`(id, repo-relative path)` when `text`, resolved as the council gate resolves an artifact
-    (`council_records.resolve_in_repo`, so a `./` or an absolute spelling counts), is an ADR file
-    path that `pattern` matches; None for anything else, including an identifier in free text."""
-    if repo is None or not isinstance(text, str):
-        return None
-    try:
-        _, rel = council_records.resolve_in_repo(repo, text)
-    except (council_records.PathRefused, OSError, ValueError):
-        return None
-    found = pattern.match(rel)
-    return (found.group("id"), rel) if found else None
+_tree_adr_path = council_records.tree_adr_path
+_named_adr = council_records.named_adr
 
 
 def _adr_acceptance_pending(run, book, run_dir, repo):

@@ -12,6 +12,10 @@
       "domain": "council-gates",
       "rule": "A responding seat in a counted round that returns any decision other than APPROVE or APPROVE_WITH_NITS and records no blocking finding holds the gate: its round buys no further round, no refutation record covers it, and the gate stops at the escalation-loop stop; an errored seat never holds."
     },
+    "accepting-cycle-requests-promotion": {
+      "domain": "decision-authority",
+      "rule": "A dev-cycle that accepts an ADR ends its final prompt with a promotion request that quotes each guidance rule exactly, with its origin, a recommendation and a safety-adjacent flag. The request is never a promotion and never pauses or holds the run."
+    },
     "access-need-covers-the-mandatory-path": {
       "domain": "skill-access-need",
       "rule": "A skill's requires_access is the highest need over the default path of every operation it exposes, counting the reference files that path routes to and the needs of every skill it invokes; a step taken only under an opt-in, which is a flag, a named request, an accepted offer or a mode its caller names, is left out."
@@ -236,6 +240,14 @@
       "domain": "code-docs-python",
       "rule": "The code-doc dispatcher's inline script metadata declares griffelib at one exact version with no extras and requires Python 3.13 or later, and the dispatcher never re-executes itself to obtain griffe or an interpreter."
     },
+    "guidance-changes-without-a-decision": {
+      "domain": "decision-authority",
+      "rule": "A fix-directly change or a patch may change what guidance describes, citing the guidance rule, with no ADR, provided every binding rule still holds. Guidance text is no contract for fix-directly's sizing test."
+    },
+    "guidance-rules-keep-resolving": {
+      "domain": "decision-authority",
+      "rule": "A guidance rule is never deleted and stays live, resolving as a rule citation wherever a binding rule resolves, with its guidance standing shown in the summaries and the doctrine."
+    },
     "introducing-commit-is-unique-and-read-in-isolation": {
       "domain": "council-gates",
       "rule": "Every path reachable history has held as a council or refutation record of the run takes part in the order, and one absent at the evaluated commit refuses. A record's introducing commit is the one non-merge commit that gives its path its current bytes. Only a council record whose current seal holds may have earlier blobs, and each must fail the seal; any other history refuses. Order reads use literal pathspecs and the isolated git environment, with replace objects off and a grafts file refused."
@@ -339,6 +351,10 @@
     "out-of-scope-is-surface-absent": {
       "domain": "regenerator-scope",
       "rule": "A gate that does not apply says so and exits 0 with a surface-absent verdict carrying its reason, having written nothing. A plugin-authoring regenerator running outside the plugin's authoring checkout takes that lane, and so does a projection regenerator whose marked target region exists nowhere in the tree. Exiting non-zero misreports an inapplicable check as a failure, and exiting 0 with a clean verdict misreports it as verified."
+    },
+    "owner-promotes-guidance": {
+      "domain": "decision-authority",
+      "rule": "Guidance becomes binding only when the owner promotes it, recorded in its ADR's provenance record from the owner's own instruction. Promotion is never a gate and never pauses a run."
     },
     "parity-counts-match-on-both-sides": {
       "domain": "template-parity",

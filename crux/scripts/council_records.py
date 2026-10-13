@@ -29,6 +29,11 @@ What lives here:
   run, scope, round and ordinal. `pending_dir` is the directory under the repository's
   git directory where the council runner keeps a pending copy of each record it writes,
   out of reach of `git clean` and `git stash -u`.
+* ADR naming. `named_adr` decides whether an artifact or a run-work witness path names an ADR:
+  resolved as `resolve_in_repo` resolves it, the path must be an ADR file directly under the
+  tree's `adrs/` or `adrs/archive/` (`tree_adr_path`). The module-close gate in `advance-run.py`
+  and the provenance writer in `adr-provenance.py` both call it, so the two cannot disagree
+  about which run names an ADR.
 * Book resolution. `resolve_book` finds the book a run snapshot was started from
   (the explicit path, then `<docs>/promptbooks/active/<dir>.yaml`, then
   `<docs>/promptbooks/archive/<dir>.yaml`) and verifies the run's
@@ -46,6 +51,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import stat
 import subprocess
 from dataclasses import dataclass
@@ -479,6 +485,38 @@ def below_repo(path: Path | str, repo: Path | str) -> tuple[str, ...] | None:
         if os.path.realpath(Path(*parts[:i])) == root:
             return parts[i:]
     return None
+
+
+#: An ADR file path under any `adrs/` directory, its identifier carrying the optional artifact
+#: prefix (an upper-case lead such as `PB-`).
+ADR_PATH = re.compile(r"^(?!/)(?:[^/]+/)*adrs/(?:archive/)?(?P<id>(?:[A-Z][A-Z0-9]*-)?ADR-\d{4})-[^/]+\.md$")
+
+
+def tree_adr_path(repo):
+    """The pattern a path must match to name an ADR: an ADR file directly under
+    `<docs_dir>/adrs/` or `<docs_dir>/adrs/archive/`. When the layout config cannot be read, an
+    ADR file under any `adrs/` directory matches."""
+    import bionic_config   # the layout reader, loaded only by the callers that name ADRs
+    try:
+        docs_dir = bionic_config.load_config(repo).docs_dir
+    except (bionic_config.BionicConfigError, OSError, ValueError, TypeError):
+        return ADR_PATH
+    prefix = re.escape(os.path.normpath(docs_dir).strip("/"))
+    return re.compile(rf"^{prefix}/adrs/(?:archive/)?(?P<id>(?:[A-Z][A-Z0-9]*-)?ADR-\d{{4}})-[^/]+\.md$")
+
+
+def named_adr(repo, text, pattern):
+    """`(id, repo-relative path)` when `text`, resolved as the council gate resolves an artifact
+    (`resolve_in_repo`, so a `./` or an absolute spelling counts), is an ADR file path that
+    `pattern` matches; None for anything else, including an identifier in free text."""
+    if repo is None or not isinstance(text, str):
+        return None
+    try:
+        _, rel = resolve_in_repo(repo, text)
+    except (PathRefused, OSError, ValueError):
+        return None
+    found = pattern.match(rel)
+    return (found.group("id"), rel) if found else None
 
 
 def symlink_below(repo: Path | str, rest: tuple[str, ...]) -> bool:

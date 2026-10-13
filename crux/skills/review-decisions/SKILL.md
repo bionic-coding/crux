@@ -247,7 +247,7 @@ What this skill adds:
 - **Call `redact()` on a mined value's stdin, never on its shell argument.** A shell argument is parsed by the shell before Python ever sees it, so a mined byte reaching one can inject a flag or a second command. Pipe the value instead:
 
   ```bash
-  printf '%s' "$value" | uv run python3 -P -c '
+  printf '%s' "$value" | uv run --no-project -p '>=3.13' -- python3 -P -c '
   import os, sys
   sys.path.insert(0, os.environ["CRUX_PLUGIN_ROOT"] + "/scripts")
   from untrusted import redact
@@ -255,7 +255,7 @@ What this skill adds:
   '
   ```
 
-  `-P` keeps the current directory off `sys.path`, so a misderived `CRUX_PLUGIN_ROOT` raises `ModuleNotFoundError` rather than importing `untrusted` from the repo under review.
+  `-P` keeps the current directory off `sys.path`, so a misderived `CRUX_PLUGIN_ROOT` raises `ModuleNotFoundError` rather than importing `untrusted` from the repo under review. `--no-project -p '>=3.13'` keeps the project's `.venv` out of the interpreter choice: a project `.venv` older than Python 3.13 would otherwise run the snippet and reject `-P`.
 
   The bracketed note that call prints is `redact()`'s own text, in its own order and number — never retyped by hand.
 - **What lands in the fence is that render, not the raw value.** `redact(value, quoted=False)` bounds the render at 120 characters, replaces every unprintable character with `U+FFFD`, and appends its own bracketed note. The note reads `[N unprintable character(s) redacted]`, `[truncated from N characters]`, or both joined by `; ` — the unprintable note first, then the truncation note. A single unprintable character reads `[1 unprintable character redacted]`, singular. Keep the note: it tells a reader the block is a bounded render rather than the whole value. "Verbatim" therefore **binds the re-grep and not the block**. The quote is re-grepped verbatim at its cited location before the report is written, and the block carries what `redact(value, quoted=False)` produced from it. A value longer than 120 characters is cited by an EVIDENCE POSITION rather than by a truncation, wherever an evidence position is enough to find it again. An evidence position is a line number, or a heading in the architect's own words, carrying no text copied out of the value. It is not the RECORD LOCATOR of Step 6, which is a field in a lifecycle record; the two names are kept apart because the two things are.

@@ -39,6 +39,12 @@ Key design points, honored exactly:
     number. Both field names are kept deliberately: renaming them would move
     the rule table's `source ADR` column header and the resolver's row key,
     and the zero-observation identity postcondition forbids that.
+  - The provenance records under `adrs/provenance/` are an optional input,
+    read by `provenance_entries` alone. A rule's standing and the rule text of
+    its binding version come from its ADR's record, never from git history; a
+    tree with no record projects byte-identically. A rule deleted by the run
+    that accepted its ADR stays a live record at its base_commit entry until
+    the owner promotes the deletion (`collect_records`).
 """
 
 from __future__ import annotations
@@ -46,6 +52,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import stat
 import sys
 from pathlib import Path
 
@@ -82,6 +89,24 @@ def _untrusted_module():
     m = sys.modules.get(key)
     if m is None:
         path = Path(__file__).resolve().parent / "untrusted.py"
+        spec = _ilu.spec_from_file_location(key, path)
+        m = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        sys.modules[key] = m
+    return m
+
+
+def _provenance_module():
+    """The ADR provenance record library, loaded BY PATH.
+
+    Same reason as `_evidence_module` above: this file is executed by
+    `spec_from_file_location` from modules that never put `crux/scripts/` on
+    `sys.path`."""
+    import importlib.util as _ilu
+    key = "_adr_provenance"
+    m = sys.modules.get(key)
+    if m is None:
+        path = Path(__file__).resolve().parent / "adr_provenance.py"
         spec = _ilu.spec_from_file_location(key, path)
         m = _ilu.module_from_spec(spec)
         spec.loader.exec_module(m)
@@ -281,8 +306,90 @@ OBSERVATION_PROVENANCE_ENUM = ("recovered", "reconstructed")
 # The closed set of source ids a summaries build can declare in
 # `_meta.json`'s `input_domain`. A declared member outside this set is a
 # projection this build does not understand, and it refuses to rewrite it.
+#
+# `provenance` is an OPTIONAL member: a build lists it only when the tree holds at
+# least one record under `adrs/provenance/`, so a tree with no record keeps the
+# member, its digest key and every output byte it had before records existed.
 INPUT_DOMAIN_KNOWN = ("adrs", "backfill-reviews", "observations",
-                      "survey-receipts", "implementation-migration")
+                      "survey-receipts", "implementation-migration", "provenance")
+
+
+def provenance_entries(adrs: Path, *, _source_io=None) -> list[tuple[str, bytes]]:
+    """The `adrs/provenance/` record files as (name, bytes), read through the `_source_*`
+    helpers: the one reader of that directory, for the projections and `adr-provenance.py`
+    alike. An absent directory is no records; a symlinked directory, a symlink, a subdirectory
+    or another non-regular entry refuses; dotfiles are skipped. [SECURITY:S5] The ancestor leg
+    is decided first: an `adrs` directory that does not resolve inside its tree refuses, as
+    `observations_root` refuses for its concern. A refusal is an `OSError`: the directory
+    cannot be read, which is the environment lane (exit 2), not a verdict on a record. Name
+    checks and parsing belong to `read_provenance`."""
+    name = _provenance_module().DIRNAME
+    directory = adrs / name
+
+    def refuse(what: str) -> OSError:
+        return OSError(f"refusing to read adrs/{name}: {what}")
+
+    if _source_contained(adrs.parent, adrs.name, _source_io) is None:
+        raise refuse("the adrs directory does not resolve inside the tree")
+
+    if _source_io is None:
+        if directory.is_symlink():
+            raise refuse("the provenance directory is a symlink")
+        if not directory.exists():
+            return []
+        if not directory.is_dir():
+            raise refuse("the provenance path is not a directory")
+        leaves = sorted(directory.iterdir())
+
+        def regular(leaf: Path) -> bool:
+            return not leaf.is_symlink() and leaf.is_file()
+    else:
+        meta = _source_io.metadata(directory)
+        if meta is None:
+            return []
+        if stat.S_ISLNK(meta["st_mode"]):
+            raise refuse("the provenance directory is a symlink")
+        if not stat.S_ISDIR(meta["st_mode"]):
+            raise refuse("the provenance path is not a directory")
+        leaves = sorted(_source_glob(directory, "*", _source_io))
+
+        def regular(leaf: Path) -> bool:
+            leaf_meta = _source_io.metadata(leaf)
+            return leaf_meta is not None and stat.S_ISREG(leaf_meta["st_mode"])
+    entries = []
+    for leaf in leaves:
+        if leaf.name.startswith("."):
+            continue
+        if not regular(leaf):
+            raise refuse(f"{leaf.name} is not a regular record file")
+        entries.append((leaf.name, _source_bytes(leaf, _source_io)))
+    return entries
+
+
+def read_provenance(adrs: Path, *, _source_io=None) -> tuple[dict[str, dict], str | None]:
+    """(records by ADR id, `records_sha256`), or ({}, None) when the tree holds no record.
+    Standing is read from these records only, never from git. A record that does not parse
+    is a `GovernsValidationError` (a document verdict, exit 1)."""
+    pv = _provenance_module()
+    entries = provenance_entries(adrs, _source_io=_source_io)
+    if not entries:
+        return {}, None
+    try:
+        return pv.parse_records(entries), pv.records_sha256(entries)
+    except pv.ProvenanceError as exc:
+        raise GovernsValidationError(exc.problems) from exc
+
+
+def provenance_standing(records: dict[str, dict], live_rows: list[dict]) -> dict[str, dict]:
+    """handle -> effective standing for the live rows a projection renders; see
+    `adr_provenance.join_standing`. A refusal is a `GovernsValidationError`."""
+    if not records:
+        return {}
+    pv = _provenance_module()
+    try:
+        return pv.join_standing(records, live_rows)
+    except pv.ProvenanceError as exc:
+        raise GovernsValidationError(exc.problems) from exc
 
 
 def observation_paths(obs: Path, *, _source_io=None) -> list[Path]:
@@ -586,6 +693,12 @@ def declared_domain_refusal(root: Path, manifest: dict, summaries: Path) -> str 
             return (f"_meta.json declares `observations` in its input_domain but "
                     f"this build cannot read that source: {problem} — refusing to "
                     "rewrite the projection without it")
+    if "provenance" in declared:
+        try:
+            provenance_entries(summaries.parent)
+        except OSError as exc:
+            return (f"_meta.json declares `provenance` in its input_domain but this build "
+                    f"cannot read that source: {exc} — refusing to rewrite the projection without it")
     if "implementation-migration" in declared:
         import implementation_migration as migration
         try:
@@ -1571,6 +1684,40 @@ def live_and_retired_slugs(
     return slugs, {slug: sorted(handles) for slug, handles in retired.items()}
 
 
+def _removal_records(adrs: Path, hosts: dict[str, tuple[int, object]], records: list[dict],
+                     *, _source_io=None) -> list[dict]:
+    """One record per rule an active ADR's provenance record lists as deleted in-run, while the
+    owner has not promoted the deletion: the rule still binds at its base_commit entry, so every
+    lane that collects records keeps it live at that entry
+    (rule:owner-promotes-guidance). It is read here, beside the reviews and
+    reconciliations `collect_records` already reads, so no lane can see a narrower rule set
+    than another. A deleted handle that is back in a governs block refuses rather than
+    projecting two rows. A tree with no record adds nothing."""
+    provenance, _digest = read_provenance(adrs, _source_io=_source_io)
+    if not provenance:
+        return []
+    pv = _provenance_module()
+    present = {r["handle"] for r in records}
+    out, problems = [], []
+    for adr, record in sorted(provenance.items()):
+        if adr not in hosts:
+            continue
+        num, status = hosts[adr]
+        for handle, base in pv.removed_entries(record):
+            if handle in present:
+                problems.append({"source_adr": adr, "handle": handle,
+                                 "problem": "a rule its provenance record lists as deleted in-run "
+                                 "is back in the governs block"})
+                continue
+            entry = {**base, "handle": handle}
+            problems.extend(_domain_line_problems([(adr, [entry])]))
+            problems.extend(_subfield_problems(entry, adr, handle, GOVERNS_SUBFIELDS))
+            out.append(_record_from_entry(entry, adr, num, status=status))
+    if problems:
+        raise GovernsValidationError(problems)
+    return out
+
+
 def collect_records(adrs: Path, governs_from: int | None = None,
                     observations: Path | None = None, *, _source_io=None) -> list[dict]:
     """One record per governs entry across active ADRs UNION `ratified`
@@ -1613,6 +1760,7 @@ def collect_records(adrs: Path, governs_from: int | None = None,
     artifact builder applies it at its own entry.
     """
     records: list[dict] = []
+    hosts: dict[str, tuple[int, object]] = {}
     entries_by_adr: list[tuple[str, list]] = []
     anchored_by_adr: list[tuple[str, list, str]] = []
     for path in adr_paths(adrs, _source_io=_source_io):
@@ -1624,6 +1772,7 @@ def collect_records(adrs: Path, governs_from: int | None = None,
         if not src:
             continue
         num = adr_num(src)
+        hosts[src] = (num, fm.get("status"))
         raw = raw_governs_entries(fm)
         entries_by_adr.append((src, raw))
         anchored_by_adr.append((src, raw, _adr_body(text)))
@@ -1694,6 +1843,7 @@ def collect_records(adrs: Path, governs_from: int | None = None,
     anchor_problems = _governs_anchor_problems(anchored_by_adr, governs_from)
     if anchor_problems:
         raise GovernsValidationError(anchor_problems)
+    records.extend(_removal_records(adrs, hosts, records, _source_io=_source_io))
 
     records.sort(key=record_sort_key)
     # ADR-0097 part 6. The retirement rules are validated in EVERY lane that
@@ -1958,6 +2108,9 @@ def _plan_summary_outputs(loaded_inputs: dict, migration_facts: dict,
     expected = {"tree", "paths", "records", "reviews", "aliases", "governs_from",
         "implementation_map", "metadata", "archived_handles", "signed_handles",
         "historical_clauses", "publication_history"}
+    has_provenance = isinstance(loaded_inputs, dict) and "provenance" in loaded_inputs
+    if has_provenance:
+        expected = expected | {"provenance"}
     _projection_require(isinstance(loaded_inputs, dict) and set(loaded_inputs) == expected,
                         "summaries loaded input shape invalid")
     data = {k: v for k, v in loaded_inputs.items() if k not in ("tree", "paths")}
@@ -2050,13 +2203,20 @@ def _plan_summary_outputs(loaded_inputs: dict, migration_facts: dict,
     metadata = dict(data["metadata"])
     _projection_require(set(metadata) == {"adr_frontmatter_sha256", "backfill_reviews_sha256",
         "observations_sha256", "survey_receipts_sha256", "input_domain", "schema", "tool"}
+        | ({"provenance_sha256"} if has_provenance else set())
         and metadata["schema"] == "6" and metadata["tool"] == "summarize-adrs.py"
         and isinstance(metadata["input_domain"], list) and all(isinstance(x, str)
             and x in INPUT_DOMAIN_KNOWN for x in metadata["input_domain"])
-        and len(set(metadata["input_domain"])) == len(metadata["input_domain"]),
+        and len(set(metadata["input_domain"])) == len(metadata["input_domain"])
+        and ("provenance" in metadata["input_domain"]) == has_provenance,
         "summaries metadata contract invalid")
-    for key in ("adr_frontmatter_sha256", "backfill_reviews_sha256", "observations_sha256", "survey_receipts_sha256"):
-        _projection_require((key != "adr_frontmatter_sha256" and metadata[key] is None) or
+    if has_provenance:
+        _projection_require(isinstance(data["provenance"], dict) and data["provenance"] and
+            all(isinstance(k, str) and isinstance(v, dict) and v.get("adr") == k
+                for k, v in data["provenance"].items()), "summaries provenance records invalid")
+    for key in ("adr_frontmatter_sha256", "backfill_reviews_sha256", "observations_sha256", "survey_receipts_sha256",
+                *(("provenance_sha256",) if has_provenance else ())):
+        _projection_require((key not in ("adr_frontmatter_sha256", "provenance_sha256") and metadata[key] is None) or
             isinstance(metadata[key], str) and _DIGEST_RE.fullmatch(metadata[key]), "summaries input digest invalid")
     clauses = data["historical_clauses"]
     _projection_require(isinstance(clauses, list), "summaries historical clause roster invalid")
@@ -2084,8 +2244,10 @@ def _plan_summary_outputs(loaded_inputs: dict, migration_facts: dict,
             and re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", ref["publication_commit"]),
             "summaries publication history fields invalid")
     rows = overlay["records"]
-    table = build_rule_table(rows, reviews, gf)
-    resolver = {**build_resolver(rows, reviews, gf, aliases), "slugs": overlay["slugs"],
+    standing = (provenance_standing(data["provenance"], sorted(live_records(rows), key=record_sort_key))
+                if has_provenance else None)
+    table = build_rule_table(rows, reviews, gf, standing)
+    resolver = {**build_resolver(rows, reviews, gf, aliases, standing), "slugs": overlay["slugs"],
         "retired_slugs": overlay["retired_slugs"], "historical_slugs": overlay["historical_slugs"],
         "historical_displacements": overlay["historical_displacements"], "historical_clauses": clauses}
     if overlay["historical_slugs"]:
@@ -3162,7 +3324,8 @@ def _cell(value: str) -> str:
 
 
 def build_rule_table(records: list[dict], reviews: dict | None = None,
-                     governs_from: int | None = None) -> str:
+                     governs_from: int | None = None,
+                     standing: dict[str, dict] | None = None) -> str:
     """The rule table: rows sorted by (ADR num, handle).
 
     With `reviews` threaded (ADR-0088 clause 6), an unreviewed row's handle
@@ -3190,6 +3353,15 @@ def build_rule_table(records: list[dict], reviews: dict | None = None,
     retired entry's own untouched frontmatter, and `retired by` from the
     retiring entries'. A tree with no retirement renders byte-identically to
     one built before this section existed.
+
+    `standing` (handle -> effective standing, from `provenance_standing`) adds a
+    last trailing `## Rule standing` section, in live-row order, for the rules
+    whose ADR carries a provenance record: each rule's standing, the rule text of
+    its binding version, and its unpromoted in-run change. It changes no row above
+    it: a guidance rule stays live and resolves like a binding one
+    (rule:guidance-rules-keep-resolving), and a rule deleted in-run stays a live
+    row at its base_commit entry until the owner promotes the deletion. Empty or
+    None renders nothing, so a tree with no record is byte-identical.
     """
     ordered = sorted(live_records(records), key=record_sort_key)
     out = [
@@ -3246,14 +3418,41 @@ def build_rule_table(records: list[dict], reviews: dict | None = None,
             out.append(
                 f"| {_cell(r['handle'])} | {_cell(r['rule'])} "
                 f"| {_cell(r['source_adr'])} | {_cell(', '.join(r['retired_by']))} |")
+    if standing:
+        out += [
+            "",
+            "## Rule standing",
+            "",
+            "_Standing of each rule whose ADR carries a provenance record under "
+            "`adrs/provenance/`. A guidance rule stays live and resolves like a "
+            "binding one. `in-run edit` names the in-run change the owner has not "
+            "promoted: `added`, `deleted-in-run`, or the governs fields edited. The record "
+            "holds each rule's binding version in full. A rule absent from this "
+            "table has no record._",
+            "",
+            "| handle | standing | binding wording | in-run edit |",
+            "|--------|----------|-----------------|-------------|",
+        ]
+        for r in ordered:
+            row = standing.get(r["handle"])
+            if row is not None:
+                out.append(f"| {_cell(r['handle'])} | {_cell(row['standing'])} "
+                           f"| {_cell(row['binding_rule'] if row['binding_rule'] is not None else '—')} "
+                           f"| {_cell(', '.join(row['in_run_edit']) or '—')} |")
     return "\n".join(out) + "\n"
 
 
 def build_resolver(records: list[dict], reviews: dict | None = None,
                    governs_from: int | None = None,
-                   alias_rows: dict[str, dict] | None = None) -> dict:
+                   alias_rows: dict[str, dict] | None = None,
+                   standing: dict[str, dict] | None = None) -> dict:
     """handle -> {rule, provenance, disposition, authority, source_adr,
     [review_state]}, plus one alias row per `decided` observation handle.
+
+    `standing` (from `provenance_standing`) adds `standing`, `binding_rule` (the rule
+    text of the binding version, or null) and `in_run_edit` (the unpromoted in-run
+    change: `added`, `deleted-in-run`, or the governs fields edited; empty when none) to
+    each row that has one, and nothing else changes.
 
     disposition and authority are DERIVED from provenance, never stored —
     `authority_for` already yields `descriptive` for observed provenance, so
@@ -3304,6 +3503,10 @@ def build_resolver(records: list[dict], reviews: dict | None = None,
         }
         if reviews is not None and r.get("source_kind", "adr") == "adr":
             row["review_state"] = review_state(r, reviews, governs_from)
+        if standing and r["handle"] in standing:
+            row["standing"] = standing[r["handle"]]["standing"]
+            row["binding_rule"] = standing[r["handle"]]["binding_rule"]
+            row["in_run_edit"] = list(standing[r["handle"]]["in_run_edit"])
         resolver[r["handle"]] = row
     for handle in sorted(alias_rows or {}):
         if handle in resolver:

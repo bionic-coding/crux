@@ -824,10 +824,17 @@ def _md_escape(value: str) -> str:
 
 
 def build_index(entries: list[dict], exempt_entries: list[dict],
-                digests: dict) -> str:
+                digests: dict, standing: dict[str, dict] | None = None) -> str:
     """The doctrine index — one section per governs domain, an exempt-ADR
     roster, and a provenance block carrying the input digests. Templated prose,
-    no model, no timestamp: byte-stable across runs on unchanged inputs."""
+    no model, no timestamp: byte-stable across runs on unchanged inputs.
+
+    `standing` (handle -> effective standing, from `sp.provenance_standing`) adds a
+    `_Standing (from provenance records):_` table to each domain that holds a rule
+    with a joined standing: its standing, the rule text of its binding version, and
+    its unpromoted in-run change. The rules table, the domain state and the liveness of
+    every rule are unchanged (rule:guidance-rules-keep-resolving); with no standing
+    the output is byte-identical to a build that never read a record."""
     out = [
         "# doctrine — current beliefs, per governs domain",
         "",
@@ -906,6 +913,19 @@ def build_index(entries: list[dict], exempt_entries: list[dict],
                 f"| {_md_escape(r['disposition'])} "
                 f"| {_md_escape(r['basis'])} |")
         out.append("")
+        held = [r for r in e["rules"] if standing and r["handle"] in standing]
+        if held:
+            out.append("_Standing (from provenance records):_")
+            out.append("")
+            out.append("| handle | standing | binding wording | in-run edit |")
+            out.append("|--------|----------|-----------------|-------------|")
+            for r in held:
+                row = standing[r["handle"]]
+                out.append(
+                    f"| {_md_escape(r['handle'])} | {_md_escape(row['standing'])} "
+                    f"| {_md_escape(row['binding_rule'] if row['binding_rule'] is not None else '—')} "
+                    f"| {_md_escape(', '.join(row['in_run_edit']) or '—')} |")
+            out.append("")
         if e.get("evidence"):
             out.append("_Observed evidence:_")
             out.append("")
@@ -1136,6 +1156,9 @@ def _plan_doctrine_outputs(loaded_inputs: dict, migration_facts: dict,
                            pending_publication: dict | None) -> _DoctrineOutputPlan:
     expected = {"tree", "paths", "records", "invariants", "reconciliations", "bindings", "governs_from",
         "tree_name", "evidence_facts", "exempt_entries", "digests", "aliases", "removed", "publication_history", "ledger", "archived_handles"}
+    has_provenance = isinstance(loaded_inputs, dict) and "provenance" in loaded_inputs
+    if has_provenance:
+        expected = expected | {"provenance"}
     sp._projection_require(isinstance(loaded_inputs, dict) and set(loaded_inputs) == expected,
                           "doctrine loaded shape invalid")
     data = {k: v for k, v in loaded_inputs.items() if k not in ("tree", "paths")}
@@ -1174,11 +1197,20 @@ def _plan_doctrine_outputs(loaded_inputs: dict, migration_facts: dict,
     digests = dict(data["digests"])
     sp._projection_require(set(digests) == {"adr_frontmatter_sha256", "invariants_sha256", "reconciliations_sha256",
         "observations_sha256", "survey_receipts_sha256", "governs_from", "schema", "tool", "run_bindings_sha256",
-        "input_domain"} and digests["schema"] == "5" and digests["tool"] == "compile-doctrine.py"
+        "input_domain"} | ({"provenance_sha256"} if has_provenance else set())
+        and digests["schema"] == "5" and digests["tool"] == "compile-doctrine.py"
         and digests["governs_from"] == data["governs_from"] and isinstance(digests["input_domain"], list)
         and len(set(digests["input_domain"])) == len(digests["input_domain"])
-        and set(digests["input_domain"]) <= {"adrs", "invariants", "reconciliations", "run-bindings", "observations", "survey-receipts"},
+        and set(digests["input_domain"]) <= {"adrs", "invariants", "reconciliations", "run-bindings", "observations", "survey-receipts", "provenance"}
+        and ("provenance" in digests["input_domain"]) == has_provenance,
         "doctrine digest model invalid")
+    if has_provenance:
+        sp._projection_require(isinstance(data["provenance"], dict) and data["provenance"] and
+            all(isinstance(k, str) and isinstance(v, dict) and v.get("adr") == k
+                for k, v in data["provenance"].items()), "doctrine provenance records invalid")
+    standing = (sp.provenance_standing(data["provenance"], sorted(sp.live_records(overlay["records"]),
+                                                                  key=sp.record_sort_key))
+                if has_provenance else None)
     for key, value in digests.items():
         if key.endswith("_sha256"):
             sp._projection_require(value is None and key in {"observations_sha256", "survey_receipts_sha256", "reconciliations_sha256"} or
@@ -1191,7 +1223,7 @@ def _plan_doctrine_outputs(loaded_inputs: dict, migration_facts: dict,
         all(ref["sha256"] == ledger_digest for ref in migration_facts["dependency_fingerprints"]
             if ref["path"] == data["ledger"]["path"]), "doctrine bound raw ledger frame mismatch")
     frame = _doctrine_migration_frame(migration_facts, pending_publication, overlay, data["publication_history"])
-    index_parts = (build_index(entries, data["exempt_entries"], digests),)
+    index_parts = (build_index(entries, data["exempt_entries"], digests, standing),)
     if frame is not None:
         fingerprint = sp._SummaryHashSlot(sp._compile_summary_json(frame, pretty=False))
         digests.update(migration=frame, migration_inputs_sha256=fingerprint,
@@ -1218,8 +1250,10 @@ def _load_doctrine_inputs(root: Path, manifest: dict) -> tuple[dict, dict, dict 
     view = migration.authority_view(root)
     declared = sp.declared_input_domain(doctrine_dir(root))
     sp._projection_require(declared is None or isinstance(declared, list) and
-        set(declared) <= {"adrs", "invariants", "reconciliations", "run-bindings", "observations", "survey-receipts", "implementation-migration"},
+        set(declared) <= {"adrs", "invariants", "reconciliations", "run-bindings", "observations", "survey-receipts", "implementation-migration", "provenance"},
         "doctrine declared input domain invalid")
+    if declared and "provenance" in declared:
+        sp.provenance_entries(sp.adrs_dir(root))    # an OSError here is the environment lane
     sp._projection_require(not declared or "implementation-migration" not in declared or view["state"] == "published",
                           "doctrine declared migration input unavailable")
     sp._projection_require(not declared or "observations" not in declared or
@@ -1244,8 +1278,10 @@ def _load_doctrine_inputs(root: Path, manifest: dict) -> tuple[dict, dict, dict 
         for row in sp.live_records(overlay["records"]) if row.get("source_kind") == "observation"
         for ev in sorted(set(row.get("evidence", [])))]
     digests = input_digests(root, records, invariants, gf, observations)
+    provenance, provenance_digest = sp.read_provenance(adrs)
     digests.update(schema="5", input_domain=["adrs", "invariants", "reconciliations", "run-bindings"] +
-        (["observations", "survey-receipts"] if observations is not None else []),
+        (["observations", "survey-receipts"] if observations is not None else []) +
+        (["provenance"] if provenance else []),
         run_bindings_sha256=hashlib.sha256(json.dumps(bindings, sort_keys=True, separators=(",", ":")).encode()).hexdigest())
     loaded = dict(tree=tree, paths={name: tree / "adrs/doctrine" / name for name in ("index.md", "_meta.json")},
         records=records, invariants=[{**inv, "path": str(inv["path"]) if inv["path"] is not None else None} for inv in invariants],
@@ -1255,6 +1291,9 @@ def _load_doctrine_inputs(root: Path, manifest: dict) -> tuple[dict, dict, dict 
         archived_handles=sorted(sp.archived_handles(adrs)),
         publication_history=[{k: row[k] for k in ("path", "sha256", "publication_commit")}
             for row in view["publications"][:-1]])
+    if provenance:      # optional member: no record, no key, no bytes changed
+        digests["provenance_sha256"] = provenance_digest
+        loaded["provenance"] = provenance
     pending = actual = None
     if view["state"] == "published":
         # Reuse the accepted exact batch/selected-clause loader; no proof parser fork.

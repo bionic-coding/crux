@@ -1125,7 +1125,7 @@
   {
     "id": "transition-adr",
     "name": "transition-adr",
-    "description": "Accept, deprecate, supersede, or retract an existing ADR. Update status and relationships without changing its narrative body.",
+    "description": "Accept, deprecate, supersede, or retract an existing ADR, or promote in-run guidance on the owner's instruction (\"promote ADR-NNNN: rules N\"). Update status and relationships without changing its narrative body.",
     "tags": [
       "adrs",
       "state-machine",
@@ -1141,7 +1141,8 @@
       "accept ADR-NNNN",
       "deprecate ADR-NNNN",
       "supersede ADR-NNNN with ADR-MMMM",
-      "retract ADR-NNNN"
+      "retract ADR-NNNN",
+      "promote ADR-NNNN: rules N"
     ],
     "arguments": [
       "adr"

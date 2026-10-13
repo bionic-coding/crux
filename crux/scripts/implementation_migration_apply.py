@@ -480,23 +480,29 @@ def _compile_raw_models(root,facts,pending,prior,batch,*,_source_io):
         "migration-apply-source-unavailable")
     _declared_sources(root,manifest,adrs/"summaries",sp.INPUT_DOMAIN_KNOWN,_source_io=_source_io)
     _declared_sources(root,manifest,adrs/"doctrine",("adrs","invariants","reconciliations","run-bindings",
-        "observations","survey-receipts","implementation-migration"),_source_io=_source_io)
+        "observations","survey-receipts","implementation-migration","provenance"),_source_io=_source_io)
+    declared=sp.declared_input_domain(adrs/"doctrine",_source_io=_source_io)
+    if declared and "provenance" in declared:sp.provenance_entries(adrs,_source_io=_source_io)  # OSError: environment lane
     gf=sp.governs_from(manifest);observations=sp.observations_source(root,manifest,_source_io=_source_io)
     records=sp.collect_records(adrs,governs_from=gf,observations=observations,_source_io=_source_io)
     reviews=sp.read_reviews(adrs,_source_io=_source_io)
     aliases=sp.collect_observation_alias_rows(observations,records,_source_io=_source_io)
     history=[{k:row[k] for k in ("path","sha256","publication_commit")} for row in prior]
+    provenance,provenance_digest=sp.read_provenance(adrs,_source_io=_source_io)
     metadata=dict(adr_frontmatter_sha256=sp.adr_frontmatter_sha256(adrs,_source_io=_source_io),
         backfill_reviews_sha256=sp.backfill_reviews_sha256(adrs,_source_io=_source_io),
         input_domain=["adrs","backfill-reviews"]+(["observations","survey-receipts"] if observations is not None else []),
         observations_sha256=sp.observations_sha256(observations,_source_io=_source_io) if observations is not None else None,
         survey_receipts_sha256=sp.survey_receipts_sha256(observations,_source_io=_source_io) if observations is not None else None,
         schema="6",tool="summarize-adrs.py")
+    if provenance:      # optional member: no record, no key, no bytes changed
+        metadata["input_domain"].append("provenance");metadata["provenance_sha256"]=provenance_digest
     summary_loaded=dict(tree=tree,paths=paths,records=records,reviews=reviews,aliases=aliases,governs_from=gf,
         implementation_map=sp.build_implementation_map(adrs,sp.runs_dir(root,_source_io=_source_io),repo_root=root,_source_io=_source_io),metadata=metadata,
         archived_handles=sorted(sp.archived_handles(adrs,_source_io=_source_io)),
         signed_handles=sorted(sp.signed_reconciliation_handles(adrs,_source_io=_source_io)),
         historical_clauses=_candidate_clauses(batch,facts),publication_history=history)
+    if provenance:summary_loaded["provenance"]=provenance
     summary_plan=sp._plan_summary_outputs(summary_loaded,facts,pending)
     removed=sp.removed_handles(reviews)
     overlay=sp._summary_authority_records(records,facts,removed,aliases)
@@ -511,7 +517,7 @@ def _compile_raw_models(root,facts,pending,prior,batch,*,_source_io):
         for ev in sorted(set(row.get("evidence",[])))]
     digests=dp.input_digests(root,records,invariants,gf,observations,_source_io=_source_io)
     digests.update(schema="5",input_domain=["adrs","invariants","reconciliations","run-bindings"]+
-        (["observations","survey-receipts"] if observations is not None else []),
+        (["observations","survey-receipts"] if observations is not None else [])+(["provenance"] if provenance else []),
         run_bindings_sha256=hashlib.sha256(json.dumps(bindings,sort_keys=True,separators=(",",":")).encode()).hexdigest())
     doctrine_loaded=dict(tree=tree,paths={name:tree/"adrs/doctrine"/name for name in ("index.md","_meta.json")},
         records=records,invariants=[{**inv,"path":str(inv["path"]) if inv["path"] is not None else None} for inv in invariants],
@@ -519,6 +525,7 @@ def _compile_raw_models(root,facts,pending,prior,batch,*,_source_io):
         evidence_facts=evidence,exempt_entries=sp.governs_exempt_entries(manifest),digests=digests,
         aliases=aliases,removed=removed,ledger=dict(path=ledger_path.relative_to(root).as_posix(),text=ledger_text),
         archived_handles=sorted(sp.archived_handles(adrs,_source_io=_source_io)),publication_history=history)
+    if provenance:digests["provenance_sha256"]=provenance_digest;doctrine_loaded["provenance"]=provenance
     doctrine_plan=dp._plan_doctrine_outputs(doctrine_loaded,facts,pending)
     plugin=root/"crux";target=plugin/"catalog/rules.json"
     entry=_source_io.metadata(target)

@@ -1,0 +1,208 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "crux ADR provenance record (schema 1)",
+  "description": "One record per ADR accepted inside a run, at <docs_dir>/adrs/provenance/ADR-NNNN.yaml. It names the run whose ADR module accepted the ADR and that run's base_commit, and gives each governs rule its standing. Each rule carries entry, its governs entry as accepted, and base, its governs entry at base_commit; both omit handle. A rule absent from the ADR at base_commit is guidance and has a null base. A rule present there is binding at its base entry, and an in-run edit to any of its fields but provenance is guidance. A rule present at base_commit that the run deleted is listed in removed_in_run and stays binding at its base entry until the owner promotes the deletion. An ADR first proposed inside the run has no base_path, so every rule is guidance. Promotions are appended from the owner's own instruction, quoted verbatim with its date. A promotion never changes base: a promoted rule is binding at its entry, and a promoted deletion takes effect. The summaries and doctrine projections read standing from these records and never from git history. The parser in crux/scripts/adr_provenance.py enforces this shape and the cross-field rules a JSON Schema cannot state.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "adr",
+    "run",
+    "base_commit",
+    "base_path",
+    "base_sha256",
+    "rules",
+    "removed_in_run",
+    "promotions"
+  ],
+  "properties": {
+    "schema": {
+      "const": "1"
+    },
+    "adr": {
+      "type": "string",
+      "pattern": "^ADR-[0-9]{4}$"
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "book_id",
+        "run_id",
+        "snapshot"
+      ],
+      "properties": {
+        "book_id": {
+          "type": "string",
+          "pattern": "^(?:[A-Z][A-Z0-9]{1,9}-)?PB-[0-9]{4}$"
+        },
+        "run_id": {
+          "type": "string",
+          "pattern": "^RUN-[0-9]{3,}$"
+        },
+        "snapshot": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "base_commit": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "base_path": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "base_sha256": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "handle",
+          "standing",
+          "entry",
+          "base"
+        ],
+        "properties": {
+          "handle": {
+            "type": "string",
+            "pattern": "^ADR-[0-9]{4}/[a-z][a-z0-9-]*$"
+          },
+          "standing": {
+            "enum": [
+              "binding",
+              "guidance"
+            ]
+          },
+          "entry": {
+            "$ref": "#/$defs/entry",
+            "description": "The rule's governs entry as accepted, without its handle."
+          },
+          "base": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/$defs/entry"
+              }
+            ],
+            "description": "The rule's governs entry at base_commit, without its handle; null for a guidance rule. A promotion leaves it unchanged."
+          }
+        }
+      }
+    },
+    "removed_in_run": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "handle",
+          "base"
+        ],
+        "properties": {
+          "handle": {
+            "type": "string",
+            "pattern": "^ADR-[0-9]{4}/[a-z][a-z0-9-]*$"
+          },
+          "base": {
+            "$ref": "#/$defs/entry",
+            "description": "The deleted rule's governs entry at base_commit, at which it binds until the owner promotes the deletion."
+          }
+        }
+      }
+    },
+    "promotions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "date",
+          "instruction",
+          "handles",
+          "body"
+        ],
+        "properties": {
+          "date": {
+            "type": "string",
+            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+            "description": "The date of the owner's instruction."
+          },
+          "instruction": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The owner's own words, verbatim. An agent report, a run note or a council verdict is never this instruction."
+          },
+          "handles": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^ADR-[0-9]{4}/[a-z][a-z0-9-]*$"
+            },
+            "description": "The rules, and the deletions, whose in-run change this promotion makes binding."
+          },
+          "body": {
+            "type": "boolean",
+            "description": "True records that the owner promoted the ADR's in-run body passages. No projection reads it, because the projections read governs rules only."
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rule"
+      ],
+      "properties": {
+        "domain": {
+          "type": "string"
+        },
+        "rule": {
+          "type": "string",
+          "minLength": 1
+        },
+        "scope": {
+          "type": "string"
+        },
+        "anchor": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
+        },
+        "provenance": {
+          "type": "string"
+        },
+        "retires": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

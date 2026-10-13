@@ -550,6 +550,49 @@ class ActualCloseTests(_ActualCloseFixture):
             self.assertIn("old-rotation",resolver["retired_slugs"])
             self.assertEqual(json.loads(outputs[self.root/"docs/adrs/summaries/_meta.json"])["migration"]["publication"]["publication_commit"],"a"*size)
 
+    def _compile_outputs(self):
+        mod=writer();proof,run_rel=mod._select_close(self.root,self.batch_path)
+        batch=migration.load_batch(self.root,self.batch_path);facts=migration._validated_inputs(self.root,proof)
+        raw,pending=mod._locator(proof,run_rel,batch)
+        plans=mod._compile_models(self.root,facts,pending,[],batch)
+        return mod._materialize(plans,pending,dict(path=pending["path"],sha256=pending["sha256"],publication_commit="a"*40))
+
+    def _write_provenance_record(self,*,declare):
+        import adr_provenance as ap
+        path=next(self.root.glob("docs/adrs/ADR-0110-*.md"))
+        governs=sp.read_frontmatter(path.read_text())["governs"]
+        record={"schema":"1","adr":"ADR-0110","run":{"book_id":"PB-0900","run_id":"RUN-001",
+            "snapshot":"docs/promptbooks/runs/PB-0900-x/run-RUN-001.yaml"},
+            "base_commit":"b"*40,"base_path":None,"base_sha256":None,
+            "rules":[{"handle":g["handle"],"standing":"guidance","entry":ap.normal_entry(
+                {k:v for k,v in g.items() if k!="handle"}),"base":None} for g in governs],
+            "removed_in_run":[],"promotions":[]}
+        directory=self.root/"docs/adrs/provenance";directory.mkdir()
+        (directory/"ADR-0110.yaml").write_text(ap.render_record(record))
+        if declare:
+            doctrine=self.root/"docs/adrs/doctrine";doctrine.mkdir(parents=True,exist_ok=True)
+            (doctrine/"_meta.json").write_text(json.dumps(dict(input_domain=
+                ["adrs","invariants","reconciliations","run-bindings","provenance"])))
+        sup.commit_all(self.root,"synthetic provenance record")
+
+    def test_apply_path_honours_provenance_records_like_the_live_projections(self):
+        # Positive control: no record, the same fixture compiles and carries no standing.
+        control=self._compile_outputs()
+        resolver=json.loads(control[self.root/"docs/adrs/summaries/resolver.json"])
+        self.assertNotIn("standing",resolver["ADR-0110/surviving"])
+        self.assertNotIn("## Rule standing",control[self.root/"docs/adrs/summaries/rule-table.md"].decode())
+        self.assertNotIn("provenance",json.loads(control[self.root/"docs/adrs/summaries/_meta.json"])["input_domain"])
+        self._write_provenance_record(declare=True)
+        outputs=self._compile_outputs()   # (b) a doctrine _meta.json declaring provenance is not refused
+        resolver=json.loads(outputs[self.root/"docs/adrs/summaries/resolver.json"])
+        self.assertEqual(resolver["ADR-0110/surviving"]["standing"],"guidance")
+        self.assertIn("## Rule standing",outputs[self.root/"docs/adrs/summaries/rule-table.md"].decode())
+        meta=json.loads(outputs[self.root/"docs/adrs/summaries/_meta.json"])
+        self.assertIn("provenance",meta["input_domain"]);self.assertRegex(meta["provenance_sha256"],r"^[0-9a-f]{64}$")
+        self.assertIn("_Standing (from provenance records):_",outputs[self.root/"docs/adrs/doctrine/index.md"].decode())
+        dmeta=json.loads(outputs[self.root/"docs/adrs/doctrine/_meta.json"])
+        self.assertIn("provenance",dmeta["input_domain"]);self.assertRegex(dmeta["provenance_sha256"],r"^[0-9a-f]{64}$")
+
     def test_invalid_late_catalog_policy_refuses_before_publication(self):
         mod=writer();source=self.root/"crux/skills/example/SKILL.md"
         source.write_text("Use rule:unresolved-fixture.\n");sup.commit_all(self.root,"synthetic mutable historical citation")

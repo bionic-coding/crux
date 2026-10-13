@@ -72,11 +72,11 @@
     preflight refusal: a subject with no witness taken at its write goes to
     the owner.
 
-    Record the ADR id (`ADR-NNNN`) in this run snapshot's Artifacts field
-    under the label `ADR {M}`, and beside it the ADR's rule citations — one
+    Record the ADR's file path (`<docs_dir>/adrs/ADR-NNNN-<slug>.md`) in this run
+    snapshot's Artifacts field under the label `ADR {M}`, and beside it the ADR's rule citations — one
     `rule:<slug>` per `governs` entry, the slug being the part of the handle
-    after the slash. The id is the machine field the accept prompt reads;
-    the citations are what the dev and review modules implement and check.
+    after the slash. The path is the machine field the accept prompt and the provenance
+    writer read; the citations are what the dev and review modules implement and check.
 
     Then run the rule-length advisory and read its `warnings` list:
 
@@ -427,10 +427,12 @@
     Proposed: do not hand-edit state, and do not accept the ADR.
 
     Only after that advance writes this prompt `done`, invoke `transition-adr`
-    with: `accept ADR-NNNN` (where `NNNN` is the id this module's drafting
-    prompt recorded in this run snapshot's Artifacts). This sets
+    with: `accept ADR-NNNN --run <run-RUN-NNN.yaml>` (where `NNNN` is the id in the ADR file path this
+    module's drafting prompt recorded in this run snapshot's Artifacts). This sets
     `status: Accepted`, stamps `accepted_at:`, and writes both the
-    `adr | accept` log entry and the index update. When `transition-adr`
+    `adr | accept` log entry and the index update. Inside the run it also
+    writes the ADR's provenance record.
+    When `transition-adr`
     fails after that advance, the run has advanced with the ADR still
     Proposed. Stop and report it as a contradicted premise (stop 4). Do not
     re-run the gate check, and do not edit the run's state or the ADR's

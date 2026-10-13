@@ -21,19 +21,27 @@ artifact bindings and builds three derived artifacts behind ONE drift gate:
   - rule-table.md          handle -> governing rule, one row per governs entry
                              (a backfill entry not yet signed is marked
                              `unreviewed`; a trailing `## Removed handles`
-                             section lists tombstoned handles, per ADR-0088)
+                             section lists tombstoned handles, per ADR-0088;
+                             a trailing `## Rule standing` section gives the
+                             standing of each rule whose ADR has a provenance
+                             record)
   - resolver.json           handle -> {rule, provenance, disposition, authority,
-                             source_adr, review_state}; a `decided`
+                             source_adr, review_state}, plus standing,
+                             binding_rule and in_run_edit for a rule whose ADR
+                             has a provenance record; a `decided`
                              observation's handle maps to an alias row
                              {alias_of, alias_handles} instead (ADR-0095)
   - implementation-map.md  ADR <-> run implementation map
   - _meta.json              input-hash + schema metadata for the projection:
                              schema "6" declares `input_domain` (the sources
-                             the build read) and `observations_sha256`
+                             the build read), `observations_sha256`, and
+                             `provenance_sha256` when any provenance record
+                             exists
 
 The input domain is active ADRs UNION `ratified` observations
 (docs/AGENTS.md §17; ADR-0095 requirement 4) — read iff `observations` is in
-the tree's `concerns_enabled`. The regenerator refuses, fail-closed, to rewrite
+the tree's `concerns_enabled` — plus the provenance records under
+`adrs/provenance/` when any exist. The regenerator refuses, fail-closed, to rewrite
 a projection whose declared domain names a source it cannot read (requirement
 6); the refusal runs before the build, in --dry-run too, and exits 2.
 
@@ -224,18 +232,24 @@ def _load_summary_inputs(root: Path, manifest: dict) -> tuple[dict, dict, dict |
     records = sp.collect_records(adrs, governs_from=gf, observations=observations)
     aliases = sp.collect_observation_alias_rows(observations, records)
     clauses, locator = _historical_summary_clauses(root, view)
+    provenance, provenance_digest = sp.read_provenance(adrs)
     metadata = dict(adr_frontmatter_sha256=sp.adr_frontmatter_sha256(adrs),
         backfill_reviews_sha256=sp.backfill_reviews_sha256(adrs),
         input_domain=["adrs", "backfill-reviews"] + (["observations", "survey-receipts"] if observations is not None else []),
         observations_sha256=sp.observations_sha256(observations) if observations is not None else None,
         survey_receipts_sha256=sp.survey_receipts_sha256(observations) if observations is not None else None,
         schema="6", tool="summarize-adrs.py")
+    if provenance:      # optional member: no record, no key, no bytes changed
+        metadata["input_domain"].append("provenance")
+        metadata["provenance_sha256"] = provenance_digest
     loaded = dict(tree=tree, paths=paths, records=records, reviews=reviews, aliases=aliases,
         governs_from=gf, implementation_map=sp.build_implementation_map(adrs, sp.runs_dir(root), repo_root=root),
         metadata=metadata, archived_handles=sorted(sp.archived_handles(adrs)),
         signed_handles=sorted(sp.signed_reconciliation_handles(adrs)), historical_clauses=clauses,
         publication_history=[{k: row[k] for k in ("path", "sha256", "publication_commit")}
                              for row in view["publications"][:-1]])
+    if provenance:
+        loaded["provenance"] = provenance
     pending = actual = None
     if locator is not None:
         actual = {k: view["publications"][-1][k] for k in ("path", "sha256", "publication_commit")}

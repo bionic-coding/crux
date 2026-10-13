@@ -38,7 +38,7 @@ The output is `docs/whats_next.md` — a regenerated, prioritized action backlog
 
 Cleanup does NOT invoke `audit-docs` internally — different cadence (session-start vs. before-release), different exit semantics (audit's BROKEN findings block; cleanup's are suggestions), different write footprint. Cleanup CHECKS whether audit has run recently and emits a P1 "run audit-docs" suggestion if it hasn't.
 
-Cleanup ships **20 implemented scan rules** (CLN-* IDs) plus **one reserved id** for v0.2 (`CLN-XR-1`) and **two retired ids**, for 23 `CLN-*` ids total. The 20 implemented rules: `CLN-PJ-1a`, `CLN-PJ-1b`, `CLN-PJ-1c`, `CLN-PJ-2` (one rule, four sub-findings — three version-mismatch checks, against the Claude bare manifest, the Codex plugin manifest and the `crux-mods` plugin manifest, since all three joined the same version lock-step, plus the marketplace owner-placeholder check; still counted as a single rule id); `CLN-ADR-2`, `CLN-ADR-4`, `CLN-ADR-5` (decision-review cadence); `CLN-OBJ-1` (objectives unpopulated); `CLN-PB-1`, `CLN-PB-2`, `CLN-PB-3`, `CLN-PB-4`; `CLN-JR-1`, `CLN-JR-2`; `CLN-WN-1`; `CLN-AUD-1` (audit-recency); `CLN-FG-1` (forged-skill staleness); `CLN-FG-2` (used-but-never-evaluated); `CLN-RETRO-1` (retrospective cadence); `CLN-TMPL-1` (dogfood↔template clause parity). (`CLN-AUD-1` was formerly the un-prefixed `cleanup-audit-stale` "not-a-CLN-rule" check; it now carries a standard rule id so the count is exact and the verification checklist needs no special-case exemption.) **Retired rule ids (never reused, never reimplemented):** `CLN-ADR-1`, `CLN-ADR-3`. See their stubs below for why. The count dropped by one for each rather than being backfilled, and `CLN-WN-1`'s stale-dismissal check skips any dismissal keyed to a retired id — those records are history that is being kept on purpose, not dead weight to age out.
+Cleanup ships **21 implemented scan rules** (CLN-* IDs) plus **one reserved id** for v0.2 (`CLN-XR-1`) and **two retired ids**, for 24 `CLN-*` ids total. The 21 implemented rules: `CLN-PJ-1a`, `CLN-PJ-1b`, `CLN-PJ-1c`, `CLN-PJ-2` (one rule, four sub-findings — three version-mismatch checks, against the Claude bare manifest, the Codex plugin manifest and the `crux-mods` plugin manifest, since all three joined the same version lock-step, plus the marketplace owner-placeholder check; still counted as a single rule id); `CLN-ADR-2`, `CLN-ADR-4`, `CLN-ADR-5` (decision-review cadence); `CLN-ADR-6` (open promotion requests); `CLN-OBJ-1` (objectives unpopulated); `CLN-PB-1`, `CLN-PB-2`, `CLN-PB-3`, `CLN-PB-4`; `CLN-JR-1`, `CLN-JR-2`; `CLN-WN-1`; `CLN-AUD-1` (audit-recency); `CLN-FG-1` (forged-skill staleness); `CLN-FG-2` (used-but-never-evaluated); `CLN-RETRO-1` (retrospective cadence); `CLN-TMPL-1` (dogfood↔template clause parity). (`CLN-AUD-1` was formerly the un-prefixed `cleanup-audit-stale` "not-a-CLN-rule" check; it now carries a standard rule id so the count is exact and the verification checklist needs no special-case exemption.) **Retired rule ids (never reused, never reimplemented):** `CLN-ADR-1`, `CLN-ADR-3`. See their stubs below for why. The count dropped by one for each rather than being backfilled, and `CLN-WN-1`'s stale-dismissal check skips any dismissal keyed to a retired id — those records are history that is being kept on purpose, not dead weight to age out.
 
 ### What cleanup writes vs. what it proposes
 
@@ -210,6 +210,15 @@ The id is not reused. This stub exists so a future reader finds the reasoning in
 - **Category:** `adr-review`. **Severity:** P2.
 - **Proposed action:** "Run `review-decisions` — the newest decision review is <N> days old against a threshold of <T> days." With no review on disk: "Run `review-decisions` — no decision review has been filed; the threshold is <T> days."
 - **Actor boundary:** proposes only. Never writes under `docs/adrs/reviews/` and never invokes `review-decisions`. The review is the architect's act.
+
+#### CLN-ADR-6 — open promotion requests
+
+- **Reads:** the output of `uv run "${CRUX_PLUGIN_ROOT}/scripts/adr-provenance.py" open --repo-root <repo-root>`. It lists, per ADR with unpromoted in-run text, the rules the accepting run's written promotion request covers: `guidance` rules, `edited` binding rules and `removed` rules. Exit 0 whether or not any is open.
+- **Looks for:** one `open` entry per ADR.
+- **Stable id:** `cleanup-CLN-ADR-6-ADR-<NNNN>`.
+- **Category:** `adr-followon`. **Severity:** P3.
+- **Proposed action:** "Review the accepting run's promotion request and reply `promote ADR-NNNN: rules …`, or dismiss this entry to leave the rules as guidance."
+- **Actor boundary:** proposes only. A "leave" answer closes through the existing `dismissed:` frontmatter mechanism. The rule never refuses, blocks or promotes anything; promotion is the owner's own instruction.[^promotion]
 
 #### CLN-OBJ-1 — the objectives file is unpopulated
 
@@ -501,7 +510,7 @@ excuse→reality mapping and the recurring-mistake catalog, read
 [`references/pitfalls.md`](references/pitfalls.md).
 ## See also
 
-- `docs/AGENTS.md` §5.A (the whats_next.md schema) and §11 (the audit-docs boundary); the scan-rule roster is in this file's Overview (20 implemented + 2 retired + 1 reserved, for 23 ids).
+- `docs/AGENTS.md` §5.A (the whats_next.md schema) and §11 (the audit-docs boundary); the scan-rule roster is in this file's Overview (21 implemented + 2 retired + 1 reserved, for 24 ids).
 - `audit-docs/SKILL.md` — the boundary partner. Cleanup CHECKS whether audit ran recently; it does NOT invoke it.
 - `log-work/SKILL.md` (v0.2.0) — establishes the journal-as-reflection contract that cleanup honors (CLN-JR-1 surfaces missing entries as suggestions; never auto-drafts the entry itself).
 - `archive-promptbook/SKILL.md` — what users invoke after a CLN-PB-3 finding.
@@ -509,3 +518,5 @@ excuse→reality mapping and the recurring-mistake catalog, read
 - `run-promptbook/SKILL.md` — what users invoke after a CLN-PB-1 or CLN-PB-2 finding.
 - `query-docs/SKILL.md` — cleanup does NOT invoke this; orthogonal capability.
 - `retrospective/SKILL.md` — the skill CLN-RETRO-1 nudges the user to invoke; deliberate reflection that harvests ≤2 skill proposals from finished work.
+
+[^promotion]: rule:owner-promotes-guidance

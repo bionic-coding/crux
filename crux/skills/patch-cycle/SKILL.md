@@ -78,6 +78,8 @@ Do **not** use this skill for:
 - **A bespoke plan that needs no gates at all.** That is `author-promptbook`.
 - **Authoring a non-cycle plan** (`author-promptbook`) or running a book (`run-promptbook`).
 
+A patch may change what a guidance rule describes with no ADR, citing the rule, provided every binding rule still holds. It keeps its own council and review. The ADR's guidance text is not edited, and a patch that writes an ADR still fails containment.[^guidance]
+
 ### The cycle taxonomy (the routing question)
 
 > *Deciding something new / architectural* → **`dev-cycle`**. *Fixing something that exists, at a size that needs room* → **`iterate`**. *A reversible fix you can bound by declared paths and finish in one implement prompt* → **`patch-cycle`**. *A defect whose files, failing test, and unchanged contracts you can name now* → **`fix-directly`** (no book). *A bespoke plan that needs no gate* → **`author-promptbook`**.
@@ -239,3 +241,4 @@ Body: id, title, `total_prompts: 5`, the declared blast radius, and the note `pa
 
 [^council]: rule:council-is-never-harness-native, rule:council-gate-needs-a-runner-record
 [^review]: rule:review-gate-needs-a-reviewer-report
+[^guidance]: rule:guidance-changes-without-a-decision

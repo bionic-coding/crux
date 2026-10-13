@@ -301,7 +301,7 @@ class ReviewDecisionsUnfencedCellAndSnippetTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
     def test_the_redact_snippet_isolates_the_interpreter_from_the_cwd(self):
-        self.assertIn("uv run python3 -P -c", self.step5)
+        self.assertIn("python3 -P -c", self.step5)
 
     def test_the_snippet_says_why_the_isolation_flag_is_there(self):
         self.assertIn("keeps the current directory off `sys.path`", self.step5)

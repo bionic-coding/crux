@@ -219,7 +219,7 @@ class AdrModuleTests(unittest.TestCase):
         self.assertIn("ADR-NNNN", first, "the id stays — beside, not instead")
         self.assertRegex(first, r"`rule:<slug>`", "the rule citations are recorded in Artifacts")
         # Beside: the id and the citations are recorded in the same instruction.
-        record = _section(first, "Record the ADR id", "expected_output")
+        record = _section(first, "Record the ADR's file path", "expected_output")
         self.assertIn("rule:", record)
 
 

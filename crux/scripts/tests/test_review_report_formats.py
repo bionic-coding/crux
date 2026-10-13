@@ -228,13 +228,25 @@ class ProfileThreeUnchanged(unittest.TestCase):
         self.assertNotIn(b"reviewer-report-format-2", contract)
         self.assertNotIn(b"reviewer_report_errors", contract)
         before = hashlib.sha256(approval.gate_contract_bytes("4")).hexdigest()
-        original = FORMAT_2_SCHEMA.read_bytes()
-        try:
-            FORMAT_2_SCHEMA.write_bytes(original + b"\n")
-            after = hashlib.sha256(approval.gate_contract_bytes("4")).hexdigest()
-        finally:
-            FORMAT_2_SCHEMA.write_bytes(original)
-        self.assertEqual(before, after, "editing the format-2 schema moved the profile-4 digest")
+        # The edit is made in memory, never on disk: writing the live schema moved its
+        # metadata under a concurrent test that scans the checkout through a guarded reader,
+        # which then refused the scan.
+        self.assertEqual(self._digest_with_edited(FORMAT_2_SCHEMA), before,
+                         "editing the format-2 schema moved the profile-4 digest")
+        # Positive control: the same in-memory edit of a schema profile 4 binds moves it.
+        self.assertNotEqual(self._digest_with_edited(FORMAT_1_SCHEMA), before)
+
+    @staticmethod
+    def _digest_with_edited(schema: Path) -> str:
+        """The profile-4 digest with `schema` read as its bytes plus one newline."""
+        target, real = schema.resolve(), Path.read_bytes
+
+        def read_bytes(self):
+            data = real(self)
+            return data + b"\n" if self.resolve() == target else data
+
+        with mock.patch.object(Path, "read_bytes", read_bytes):
+            return hashlib.sha256(approval.gate_contract_bytes("4")).hexdigest()
 
 
 class FormatDispatch(unittest.TestCase):

@@ -1,13 +1,13 @@
 ---
 name: transition-adr
-description: "Accept, deprecate, supersede, or retract an existing ADR. Update status and relationships without changing its narrative body."
+description: "Accept, deprecate, supersede, or retract an existing ADR, or promote in-run guidance on the owner's instruction (\"promote ADR-NNNN: rules N\"). Update status and relationships without changing its narrative body."
 arguments: [adr]
 metadata:
   tags: "adrs, state-machine, transitions"
   bundles: "crux-docs"
   risk_level: "low"
   requires_access: "write-tree"
-  triggers: "accept ADR-NNNN | deprecate ADR-NNNN | supersede ADR-NNNN with ADR-MMMM | retract ADR-NNNN"
+  triggers: "accept ADR-NNNN | deprecate ADR-NNNN | supersede ADR-NNNN with ADR-MMMM | retract ADR-NNNN | promote ADR-NNNN: rules N"
   routing_note: "Enforces state machine."
 ---
 
@@ -74,6 +74,7 @@ Subcommand form: `transition-adr <op> <target> [<replacement>]` where:
 - `<replacement>`: required only for `supersede`; the new ADR id (e.g., `ADR-MMMM`).
 
 Flags:
+- `--run <run snapshot path>` — names the run whose ADR module accepts the ADR. A cycle's accept prompt passes its own snapshot. Meaningful only for `accept`; outside a run, omit it.
 - `--repair` — used only by `audit-docs` to fix detected supersession asymmetries; ignores some state-machine validations to restore consistency. Logs a `lint` op.
 
 ## The pipeline
@@ -191,6 +192,14 @@ While a tester's window is open, commit nothing and run no regenerator. The wind
 
 Commit this skill's own writes first: the ADR file or files, including the move into `adrs/archive/` for a supersede or deprecate, `adrs/index.md`, `log.md` and `docs/index.md`. Stage only these paths (`git add -- <paths>`) and commit only them (`git commit -- <paths>`), so no change already staged is included. If a regenerator still exits 2 with `migration-input-not-committed`, another uncommitted input is in the tree: stop and name it; never commit a file this skill did not write. The commit comes first because, in a tree whose projections declare migration inputs, a regenerator refuses an uncommitted ADR input with exit 2 (`migration-input-not-committed`).
 
+For `accept` with `--run`, write the provenance record now, after that commit and before any regenerator:
+
+```
+uv run "${CRUX_PLUGIN_ROOT}/scripts/adr-provenance.py" record --repo-root <repo-root> --adr ${target} --run <run snapshot path>
+```
+
+The record fixes each rule's standing at acceptance: text added to the ADR during the run is guidance, and text it carried at the run's `base_commit` is binding. The writer reads the run's status, start date and named ADR from the run snapshot as committed, so commit the snapshot first. It refuses unless that run is in progress and names the ADR's file in a prompt artifact or a run-work witness entry. On a non-zero exit, stop and report it; never write a record by hand. Commit the record with the regenerated projections. Outside a run no record is written.
+
 Then run the regenerators in this order, before the hand-off.
 
 ```
@@ -227,6 +236,24 @@ Confirm `--dry-run` of each regenerator exits 0, then commit the regenerated pro
 - Remind: the body of the transitioned ADR is now frozen (or remained frozen).
 - Optionally call `log-work --silent --category decision --subject "ADR-${target} ${op}${suffix}"` for user-meaningful transitions (acceptances and supersessions; deprecations of Proposed are usually too minor to journal).
 
+## Promote guidance (owner instruction)
+
+Text added to an ADR during the run that accepts it is guidance. The owner promotes guidance to binding with a message such as "promote ADR-NNNN: rules N". This is not a state transition: it writes a promotion into the ADR's provenance record and leaves the ADR file unchanged.[^promote]
+
+1. The instruction must be the owner's own message. An agent report, a run note or a council verdict is never that instruction. Quote the owner's own words, and use the date of the owner's message.
+2. Run the command. Numbers follow `open`'s numbering; `all` selects every unpromoted in-run change:
+
+   ```
+   uv run "${CRUX_PLUGIN_ROOT}/scripts/adr-provenance.py" promote --repo-root <repo-root> --adr ADR-NNNN --rules <N,N|all> --instruction '<the owner message, verbatim>' --date <YYYY-MM-DD>
+   ```
+
+   Write a single quote inside the owner's words as `'\''`.
+3. On any non-zero exit, stop and report it to the owner; never edit the record by hand. An exit 2 that names a field means the secret scan matched the owner's words; never alter them.
+4. Some promoted rules grant a provenance record to an ADR accepted earlier: the rule's wording names that ADR and says it receives a record. For each such rule, write that record now, before any regenerator: `record --adr <that ADR> --run <its accepting run's snapshot> --authorized-by <the promoted rule's handle>`. `--authorized-by` names an owner-promoted rule whose ADR lists the target in `amends` and whose wording names the target. It lifts only the in-progress requirement. On a non-zero exit, stop and report it; never write a record by hand.
+5. Then regenerate: `summarize-adrs.py`, then `compile-doctrine.py`. Then run the `check-drift` skill to find any other projection whose input drifted, for example the rules catalog, and regenerate it.
+6. Commit the record or records with the regenerated projections. Stage only those paths.
+7. Promotion is never a gate and never pauses a run.
+
 ## Verification checklist
 
 - [ ] Target ADR frontmatter `status:` equals the new state.
@@ -242,9 +269,11 @@ Confirm `--dry-run` of each regenerator exits 0, then commit the regenerated pro
 - [ ] `docs/log.md` has the appropriate `adr` entry (and `lint` entry for Proposed→Deprecated or `--repair`).
 - [ ] `docs/index.md` `_Last updated:_` is `${TODAY}`.
 - [ ] The ADR writes, the index, the log entry and the docs-index update are committed before any regenerator runs.
+- [ ] For `accept` with `--run`: `adrs/provenance/${target}.yaml` exists and is committed with the regenerated projections; without `--run` none was written.
 - [ ] `generate-lineage.py --dry-run`, `generate-index-rollup.py --dry-run`, `summarize-adrs.py --dry-run` and `compile-doctrine.py --dry-run` exit 0.
 - [ ] When `arch` is in `concerns_enabled` and the transition changed the Accepted set, `derive-arch.py --dry-run` exits 0.
 - [ ] The regenerated projections are committed.
+- [ ] For a promotion: the instruction quotes the owner's own message and `adr-provenance.py promote` exited 0. Every record the promotion grants was written before the regenerators ran. The summaries, doctrine and any other drifted projection were regenerated and committed with those records.
 
 ## Red flags — STOP and reconsider
 
@@ -286,3 +315,5 @@ Confirm `--dry-run` of each regenerator exits 0, then commit the regenerated pro
 ## ADR archival cold tier (SP-4)
 
 On a transition to **Superseded** or **Deprecated**, additionally move the ADR file into `<docs_dir>/adrs/archive/`: **preflight the destination** (refuse fail-closed on a basename collision, before any mutation), then **write the frontmatter, then git-move** the file (basename preserved; not a body edit — immutability is by content). The two file steps are not atomic; a crash between them leaves a terminal-status ADR in the active dir that `audit-docs` `CHK-ADR-ARCHIVE` auto-repairs by completing the move. Accepted/Proposed ADRs stay in `adrs/`. Do **not** hand-edit `adrs/index.md` — its active table + `## Archived` roster are regenerated by `scripts/generate-adr-index.py` (both tiers). Wiki-links to ADRs resolve across both tiers (via the lifecycle-agnostic resolver).
+
+[^promote]: rule:owner-promotes-guidance

@@ -23,9 +23,12 @@ them, report drift/write status as JSON. All shared machinery lives in
 
   - index.md     one section per governs domain (rules + source_status +
                  disposition + basis +
-                 reconciliation status + state), an exempt-ADR roster, and a
-                 provenance block of input digests
-  - _meta.json   the input-digest + schema block for the projection
+                 reconciliation status + state, and a standing sub-table when
+                 the domain holds a rule whose ADR has a provenance record),
+                 an exempt-ADR roster, and a provenance block of input digests
+  - _meta.json   the input-digest + schema block for the projection; it adds
+                 `provenance` to `input_domain`, with `provenance_sha256`,
+                 when any record exists under `adrs/provenance/`
 
 `adrs/doctrine/reconciliations.yml` is a compile INPUT, not an output of this
 script: it is read (via `doctrine_projection.read_reconciliations`) and its

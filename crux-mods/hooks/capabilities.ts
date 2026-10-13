@@ -5,10 +5,10 @@
 // The object between the markers is strict JSON: the gate parses it with a
 // JSON parser, so it carries no comment, no single quote and no trailing comma.
 //
-// claude_code: min is the first Claude Code with strict validation of mods; max is
-// the newest version whose validator output is recorded under
-// tests/fixtures/validator/. The validator's listing format is not yet stable, so
-// each newer Claude Code needs its own recorded fixture before max moves.
+// claude_code: min is the first Claude Code with strict validation of mods. There
+// is no max: the gate refuses a newer Claude Code only when its validator listing
+// does not parse or differs from this manifest. Each recorded output under
+// tests/fixtures/validator/ keeps the parser tested against a real listing.
 // events: behaviour is observe, draw or command-text (no decision needed: the hook
 // changes nothing Claude Code does, and command-text answers only a command this
 // module registers), or a behaviour-changing value that names an Accepted decision.
@@ -20,7 +20,7 @@
 export const capabilities = {
   "format_version": 1,
   "plugin": "crux-mods",
-  "claude_code": {"min": "2.1.287", "max": "2.1.296"},
+  "claude_code": {"min": "2.1.287"},
   "events": [
     {"event": "session.start", "behaviour": "observe", "decision": null},
     {"event": "tool.call", "behaviour": "observe", "decision": null, "gating": true, "has_catch": false},

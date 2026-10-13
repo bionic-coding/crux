@@ -1,4 +1,4 @@
-<!-- generated-from: CHANGELOG.md@sha256:bd34239f349b9d2fb8434027fc532ec0b3e5c219880877c8ed6f14458db9ba2d; model: claude-sonnet-5.5; date: 2026-10-11 -->
+<!-- generated-from: CHANGELOG.md@sha256:202376b4cf9daf7e461ba1c1a6095ab1ddc27f75320d602d025db0c279b30cfc; model: claude-sonnet-5.5; date: 2026-10-13 -->
 # Changelog
 
 All notable changes to crux. The format roughly follows [Keep a Changelog](https://keepachangelog.com/) and the project adheres to [Semantic Versioning](https://semver.org/).
@@ -10,6 +10,22 @@ All notable changes to crux. The format roughly follows [Keep a Changelog](https
 ### Changed
 
 ### Fixed
+
+### Removed
+
+## [3.29.0] — 2026-10-13
+
+### Added
+
+- Text added to an ADR during the run that accepts it is now treated as guidance until the owner promotes it, whether the drafter or a council added it. Accepting an ADR writes a provenance record under `adrs/provenance/` in the documentation tree, and the ADR provenance helper reads and promotes it. A `fix-directly` change or a patch may change guidance without an ADR. A guidance rule is never deleted, and its citations keep resolving. The owner promotes guidance by replying "promote ADR-NNNN: rules N". The provenance record schema is new in this release.
+
+### Changed
+
+- In the development repository, crux-mods no longer declares a newest supported Claude Code version, so a Claude Code update no longer blocks a release by itself. The release gate still refuses a Claude Code older than 2.1.287, one whose plugin validation output it cannot parse, or one whose output differs from the capability manifest.
+
+### Fixed
+
+- `review-decisions` ran its redaction step on the project's `.venv` interpreter, and a `.venv` older than Python 3.13 rejected the step's `-P` flag. The step now asks uv for Python 3.13 or newer and ignores the project environment.
 
 ### Removed
 

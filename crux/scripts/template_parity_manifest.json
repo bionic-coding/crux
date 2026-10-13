@@ -528,6 +528,14 @@
       "twin": "crux/templates/AGENTS.md.tmpl",
       "anchor": "## 3. Directory layout",
       "pattern": "Snapshot of one run \\(structured YAML; format versions \"1\" and \"2\"\\)|New cycle books use format two; each run inherits its book's format at start\\."
+    },
+    {
+      "id": "adrs-provenance-records-standing-clauses",
+      "section": "adrs: the provenance-records bullet keeps its base_commit wording, deleted-rule, in-run edit and body-passage clauses",
+      "canonical": "bionic/AGENTS.md",
+      "twin": "crux/templates/AGENTS.md.tmpl",
+      "anchor": "- **Provenance records.**",
+      "pattern": "A provenance record is distinct from a governs entry's `provenance` field, which says how the rule text was produced\\.|A rule the run deleted stays binding at its base_commit wording until the owner promotes the deletion\\.|A binding rule edited in any governs field \\(rule, scope, domain, anchor, retires\\) carries an in-run edit\\.|An in-run body passage's binding text is the ADR body at the record's `base_commit`, read from `base_path` at that commit\\."
     }
   ]
 }

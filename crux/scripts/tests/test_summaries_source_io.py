@@ -1,6 +1,7 @@
 """Private source I/O must reach every admission summaries read."""
 import contextlib
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,7 +10,7 @@ from unittest.mock import patch
 import summaries_projection as sp
 
 _PATH_METHODS = {name: getattr(Path, name) for name in
-                 ("read_text", "resolve", "glob", "is_file", "is_dir", "exists")}
+                 ("read_text", "read_bytes", "resolve", "glob", "is_file", "is_dir", "exists")}
 
 
 class RecordingIO:
@@ -41,6 +42,18 @@ class RecordingIO:
     def glob(self, path, pattern):
         self.calls.append(("glob", path))
         return [path / entry.name for entry in _PATH_METHODS["glob"](self.resolve(path), pattern)]
+
+    def read_bytes(self, path):
+        self.calls.append(("read_bytes", path))
+        return _PATH_METHODS["read_bytes"](self.resolve(path))
+
+    def metadata(self, path):
+        """The leaf's own lstat mode, its parent resolved under the guard."""
+        self.calls.append(("metadata", path))
+        try:
+            return {"st_mode": os.lstat(self.resolve(path.parent) / path.name).st_mode}
+        except FileNotFoundError:
+            return None
 
 
 def record(identity, status="Accepted", decided_by=None):
@@ -75,6 +88,17 @@ class SummariesSourceIOTests(unittest.TestCase):
         (self.adrs / "doctrine" / "reconciliations.yml").write_text(
             "reconciliations:\n- handle: ADR-0001/rule\n  signed: 2026-10-03\n")
         (self.adrs / "summaries" / "_meta.json").write_text(json.dumps({"input_domain": ["unknown"]}))
+        # A provenance record whose deleted rule `collect_records` keeps live: the record read
+        # goes through the same callbacks as every other source.
+        (self.adrs / "provenance").mkdir()
+        entry = "{domain: test, rule: Preserve the constraint., scope: source, provenance: authored}"
+        (self.adrs / "provenance" / "ADR-0001.yaml").write_text(
+            "schema: '1'\nadr: ADR-0001\nrun: {book_id: PB-0001, run_id: RUN-001, snapshot: r.yaml}\n"
+            f"base_commit: {'a' * 40}\nbase_path: nested/knowledge/adrs/ADR-0001-rule.md\n"
+            f"base_sha256: {'b' * 64}\nrules:\n- handle: ADR-0001/adr-0001\n  standing: binding\n"
+            f"  entry: {entry}\n  base: {entry}\nremoved_in_run:\n- handle: ADR-0001/deleted-in-run\n"
+            f"  base: {{domain: test, rule: Deleted in the run., scope: source, provenance: authored}}\n"
+            "promotions: []\n")
 
     def exercise(self, source_io=None):
         kwargs = {} if source_io is None else {"_source_io": source_io}
@@ -111,6 +135,8 @@ class SummariesSourceIOTests(unittest.TestCase):
                          self.adrs / "summaries" / "_meta.json"}.issubset(reads))
         self.assertNotIn(self.obs / "index.md", reads)
         self.assertEqual(["unknown"], actual["declared"])
+        self.assertIn(("read_bytes", self.adrs / "provenance" / "ADR-0001.yaml"), guard.calls)
+        self.assertIn("ADR-0001/deleted-in-run", {r["handle"] for r in actual["records"]})
 
     def test_contained_leaf_aliases_preserve_canonical_results(self):
         for directory, name in ((self.adrs, "ADR-0001-rule.md"),
