@@ -156,7 +156,7 @@ class CouncilGateBasicTests(_Base):
         r1 = self.env.write("r1.json", doc)
         self.assertTrue(doc["degraded"])
         self.assertEqual(doc["errored_seats"][0]["role"], "google_top")
-        self.assertEqual(doc["errored_seats"][0]["requested_model"], "google/gemini-3.1-pro-preview")
+        self.assertEqual(doc["errored_seats"][0]["requested_model"], "google/gemini-4-argon")
         v = self.at_council(r1)
         self.assertEqual(v.verdict, "pass", v.reasons)
 

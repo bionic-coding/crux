@@ -344,6 +344,16 @@ class ConditionedAndNitApprovalTests(unittest.TestCase):
     def agg(self, votes):
         return self.c._aggregate_votes(votes)
 
+    def test_vote_instruction_admits_the_approval_tokens_a_question_offers(self):
+        # A question that puts APPROVE_WITH_CONDITIONS or APPROVE_WITH_NITS on its scale
+        # must not end with an instruction whose decision field forbids them. The three
+        # default tokens stay listed, and the other two are tied to the question.
+        instruction = AsyncCouncil._VOTE_JSON_INSTRUCTION
+        for token in ("APPROVE", "REJECT", "DEFER_TO_HUMAN",
+                      "APPROVE_WITH_CONDITIONS", "APPROVE_WITH_NITS"):
+            self.assertIn(f'"{token}"', instruction)
+        self.assertIn("question", instruction)
+
     def three(self, decisions, conf=0.9, dissents=None):
         dissents = dissents or {}
         return self.agg([vote(p, d, conf, dissents=dissents.get(p))

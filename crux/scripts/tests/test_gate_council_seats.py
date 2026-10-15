@@ -1,6 +1,6 @@
 """Gate council seats against the REAL shipped registry.
 
-The Google seat requests `google/gemini-3.1-pro-preview` pinned to
+The Google seat requests `google/gemini-4-argon` pinned to
 `google-ai-studio`; every vote records role, registry key, requested model and
 what the gateway reported serving. No network and no key: an
 `httpx.MockTransport` answers, and the gateway key is a dummy.
@@ -91,7 +91,7 @@ class GoogleSeatRequestTests(unittest.TestCase):
         vote = seat_vote(gateway, "gemini")
         self.assertEqual(len(gateway.requests), 1)
         payload = gateway.requests[0]
-        self.assertEqual(payload["model"], "google/gemini-3.1-pro-preview")
+        self.assertEqual(payload["model"], "google/gemini-4-argon")
         self.assertEqual(payload["provider"]["only"], ["google-ai-studio"])
         self.assertEqual(payload["provider"]["data_collection"], "deny")
         self.assertFalse(vote.errored)
@@ -99,9 +99,9 @@ class GoogleSeatRequestTests(unittest.TestCase):
     def test_the_vote_records_the_request_and_what_the_gateway_reported(self):
         vote = seat_vote(Gateway(), "gemini")
         self.assertEqual(vote.role, "google_top")
-        self.assertEqual(vote.registry_key, "gemini-3.1-pro-preview")
-        self.assertEqual(vote.requested_model, "google/gemini-3.1-pro-preview")
-        self.assertEqual(vote.served_model, "google/gemini-3.1-pro-preview")
+        self.assertEqual(vote.registry_key, "gemini-4-argon")
+        self.assertEqual(vote.requested_model, "google/gemini-4-argon")
+        self.assertEqual(vote.served_model, "google/gemini-4-argon")
         self.assertEqual(vote.served_provider, "Google AI Studio")
         self.assertEqual(vote.generation_id, "gen-google-1")
 
@@ -364,7 +364,7 @@ class EscapedSeatFaultTests(unittest.TestCase):
         result = self.deliberate_with(Gateway(), RuntimeError("escaped the wrapper"))
         google = next(v for v in result.votes if v.provider == "gemini")
         self.assertTrue(google.errored)
-        self.assertEqual((google.role, google.registry_key), ("google_top", "gemini-3.1-pro-preview"))
+        self.assertEqual((google.role, google.registry_key), ("google_top", "gemini-4-argon"))
         self.assertEqual(sorted(v.role for v in result.votes), ["anthropic_top", "google_top", "openai_top"])
         # Positive control: the same council with no escaped fault seats the same roles, unerrored.
         clean = self.deliberate_with(Gateway(), None)

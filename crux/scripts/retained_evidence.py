@@ -163,7 +163,9 @@ def _resolve_until_holding(root: Path, path: Path, *,
             if _source_io is not None and metadata is None:
                 raise FileNotFoundError
             mode = current.lstat().st_mode if _source_io is None else metadata["st_mode"]
-        except FileNotFoundError:
+        except (FileNotFoundError, NotADirectoryError):
+            # A component under a regular file names nothing, as a missing one does; a
+            # linked worktree's .git file is the common case.
             if _source_boundary is not None:
                 return None
             continue

@@ -55,13 +55,17 @@ PLUGIN_AUTHORING = (
     "generate-routing-table.py",
     "generate-runtime-compat.py",
     "generate-rules-catalog.py",
+    "generate-mods-reach-tables.py",
 )
 # The plugin-authoring gates whose canonical input lives OUTSIDE `crux/` -- the
-# repo-root `AGENTS.md`, the tree's `AGENTS.md`, this tree's own ADRs. The release
-# artifact ships `crux/` without any of them, so on the stage these three correctly
-# report surface-absent rather than inspecting anything.
+# repo-root `AGENTS.md`, the tree's `AGENTS.md`, this tree's own ADRs, the repo-root
+# `USER_GUIDE.md` and the crux-mods capability manifest. The release artifact ships
+# `crux/` without the first three, and its `USER_GUIDE.md` is the fingerprinted public
+# rendition, so on the stage these four correctly report surface-absent rather than
+# inspecting anything.
 DEV_TREE_GATES = frozenset(
-    {"generate-writing-rules.py", "generate-routing-table.py", "generate-rules-catalog.py"}
+    {"generate-writing-rules.py", "generate-routing-table.py", "generate-rules-catalog.py",
+     "generate-mods-reach-tables.py"}
 )
 
 PROJECT_SCOPED = (
@@ -532,7 +536,7 @@ class OutOfScopeTests(unittest.TestCase):
             root = Path(tmp) / "clone"
             (root).mkdir()
             # A faithful public clone: the whole plugin directory, nothing else.
-            # `tests/` is excluded: it is not part of what these three gates read, and
+            # `tests/` is excluded: it is not part of what these four gates read, and
             # its arch corpus cache carries dangling symlinks that fail a plain copy.
             shutil.copytree(
                 plugin, root / "crux",
@@ -542,7 +546,7 @@ class OutOfScopeTests(unittest.TestCase):
                 "# crux\n\nMIT licensed (see [LICENSE](./LICENSE)). v0.0.0 tail\n",
                 encoding="utf-8")
             for name in ("generate-writing-rules.py", "generate-routing-table.py",
-                         "generate-rules-catalog.py"):
+                         "generate-rules-catalog.py", "generate-mods-reach-tables.py"):
                 with self.subTest(script=name):
                     result = subprocess.run(
                         [sys.executable, str(root / "crux" / "scripts" / name),
@@ -786,7 +790,7 @@ class RosterScopeTests(unittest.TestCase):
             self.assertIn(scope, {"project", "plugin-authoring"}, lines[i][:80])
             rows += 1
             i += 1
-        self.assertEqual(17, rows, "roster row count moved; update the scope map here too")
+        self.assertEqual(18, rows, "roster row count moved; update the scope map here too")
 
     def test_the_check_drift_gate_table_declares_the_same_scopes(self):
         skill = SCRIPTS.parent / "skills" / "check-drift" / "SKILL.md"

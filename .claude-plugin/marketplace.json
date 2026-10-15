@@ -14,7 +14,7 @@
     },
     {
       "name": "crux-mods",
-      "description": "Opt-in Claude Code mods for crux: a run dashboard that shows the active promptbook run above the prompt and in a /crux-dashboard pane.",
+      "description": "Opt-in Claude Code mods for crux: a run dashboard that shows the active promptbook run above the prompt and in a /crux-dashboard pane. crux-mods reads the text and origin kind of every prompt you submit, keeps none of it, and stops reading when read_prompts is off.",
       "source": "./crux-mods",
       "category": "developer-tools"
     }

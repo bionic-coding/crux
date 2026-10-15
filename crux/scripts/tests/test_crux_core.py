@@ -186,6 +186,50 @@ class TestTracerEnvVar(unittest.TestCase):
         )
 
 
+def _call_argon_through_a_fake_client():
+    """Run call_model on gemini-4-argon against a fake httpx client.
+
+    Returns call_model's output and the url, headers and json the client saw.
+    """
+    import os
+    from unittest import mock
+
+    from crux.core import llm_caller
+
+    recorded = {}
+
+    class _FakeResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"choices": [{"finish_reason": "stop",
+                                 "message": {"content": "ok"}}]}
+
+    class _FakeClient:
+        def __init__(self, *a, **kw):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def post(self, url, json=None, headers=None, **kw):
+            recorded["url"] = url
+            recorded["headers"] = headers or {}
+            recorded["json"] = json
+            return _FakeResponse()
+
+    with mock.patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-key-123"}):
+        with mock.patch.object(llm_caller.httpx, "Client", _FakeClient):
+            out = llm_caller.call_model("gemini-4-argon", "hi")
+    return out, recorded
+
+
 class TestGatewayKeyTransport(unittest.TestCase):
     """The gateway API key travels in the Authorization header, never the URL
     query string — httpx error text embeds the full URL, and council consumers
@@ -198,45 +242,25 @@ class TestGatewayKeyTransport(unittest.TestCase):
     """
 
     def test_key_in_header_not_url(self):
-        import os
-        from unittest import mock
-
-        from crux.core import llm_caller
-
-        recorded = {}
-
-        class _FakeResponse:
-            status_code = 200
-
-            def raise_for_status(self):
-                pass
-
-            def json(self):
-                return {"choices": [{"finish_reason": "stop",
-                                     "message": {"content": "ok"}}]}
-
-        class _FakeClient:
-            def __init__(self, *a, **kw):
-                pass
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *a):
-                return False
-
-            def post(self, url, json=None, headers=None, **kw):
-                recorded["url"] = url
-                recorded["headers"] = headers or {}
-                return _FakeResponse()
-
-        with mock.patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-key-123"}):
-            with mock.patch.object(llm_caller.httpx, "Client", _FakeClient):
-                out = llm_caller.call_model("gemini-3.1-pro-preview", "hi")
+        out, recorded = _call_argon_through_a_fake_client()
         self.assertEqual(out, "ok")
         self.assertNotIn("key=", recorded["url"])
         self.assertNotIn("test-key-123", recorded["url"])
         self.assertEqual(recorded["headers"].get("Authorization"), "Bearer test-key-123")
+
+
+class TestArgonRequestDefaults(unittest.TestCase):
+    """call_model's default request to gemini-4-argon, end to end through the fake client."""
+
+    def test_call_model_sends_the_argon_defaults(self):
+        # End to end through call_model: the default budget is the entry's
+        # 65,536-token synchronous cap, and the default temperature 0.7 is
+        # dropped because the model ignores it.
+        out, recorded = _call_argon_through_a_fake_client()
+        self.assertEqual(out, "ok")
+        self.assertEqual(recorded["json"]["model"], "google/gemini-4-argon")
+        self.assertEqual(recorded["json"]["max_tokens"], 65536)
+        self.assertNotIn("temperature", recorded["json"])
 
 
 if __name__ == "__main__":

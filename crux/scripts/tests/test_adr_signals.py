@@ -1574,6 +1574,10 @@ def _run_git(path: Path | None, *args: str) -> None:
 
 def _init_repo(path: Path) -> None:
     _run_git(None, "init", "-q", str(path))
+    # Detached auto-maintenance after a commit can write .git/objects/maintenance.lock
+    # or pack files between a test's before and after snapshots.
+    _run_git(path, "config", "--local", "gc.auto", "0")
+    _run_git(path, "config", "--local", "maintenance.auto", "false")
 
 
 def _commit(path: Path, subject: str) -> None:
@@ -1795,6 +1799,24 @@ class ReleaseCadenceTests(unittest.TestCase):
 # bounds. Each case below is independently hand-calculated in its own
 # comment, never asserted by calling the function under test a second time.
 # --------------------------------------------------------------------------
+
+class FixtureRepoMaintenanceTests(unittest.TestCase):
+    """A fixture repository must not let git's detached auto-maintenance write
+    `.git/objects/maintenance.lock` or pack files while a test compares snapshots."""
+
+    @unittest.skipUnless(GIT, "git is not on PATH")
+    def test_init_repo_disables_auto_gc_and_maintenance(self):
+        def config(root: Path, key: str) -> str:
+            return subprocess.run(
+                ["git", "-C", str(root), "config", "--local", "--get", key],
+                capture_output=True, text=True, env=_git_env()).stdout.strip()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _init_repo(root)
+            self.assertEqual(config(root, "gc.auto"), "0")
+            self.assertEqual(config(root, "maintenance.auto"), "false")
+
 
 class ReleaseMarkTests(unittest.TestCase):
     def _marks(self, root: Path):

@@ -699,6 +699,27 @@ class CycleKindFlipAtArchiveTests(unittest.TestCase):
                         "the validator call must precede the cycle_kind branch")
 
 
+class ArchiveMoveCommitFormTests(unittest.TestCase):
+    """Step 3 of `archive-promptbook` moves the book with `git mv` and names the commit
+    form. After `git mv` the old active path matches nothing in the tree or the index,
+    so a `git add` that names it exits 128. Two archives in a row hit that."""
+
+    def setUp(self):
+        skill = REPO_ROOT / "crux" / "skills" / "archive-promptbook" / "SKILL.md"
+        text = skill.read_text(encoding="utf-8")
+        start = text.index("### 3. Move the active book file to archive")
+        self.step = text[start:text.index("### 4.", start)]
+
+    def test_the_move_is_git_mv_only(self):
+        self.assertIn("`git mv`", self.step)
+        self.assertNotIn("(or `mv`)", self.step,
+                         "a plain mv leaves the archive path untracked, so the commit form below fails")
+
+    def test_the_old_path_is_named_only_in_git_commit(self):
+        self.assertIn("never in `git add`", self.step)
+        self.assertIn("`git commit -- <paths>`", self.step)
+
+
 class PatchCycleCoverageTests(unittest.TestCase):
     """ADR-0077 clause 1 — the `patch` tier's own formula (the constant 5), its own
     floor, and the fixed five-phase sequence."""

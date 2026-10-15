@@ -187,7 +187,7 @@ class ModelConfig:
     auth_header: str
     auth_prefix: str
     effort: Optional[str] = None  # reasoning effort pinned by the registry entry (top-level reasoning_effort)
-    supports_temperature: bool = True  # several current models reject the temperature param
+    supports_temperature: bool = True  # false: omit temperature; the model rejects or ignores it
     # OpenRouter serving-provider allowlist for this entry (provider.only). Empty
     # means "let the gateway route"; the council seats pin one host each so the
     # three seats resolve to three distinct serving providers.
@@ -774,7 +774,7 @@ def call_model(
         prompt: The user prompt
         system: Optional system prompt
         max_tokens: Maximum output tokens (uses model default if not specified)
-        temperature: Sampling temperature (0-1); omitted for models that reject it
+        temperature: Sampling temperature (0-1); omitted for models that reject or ignore it
 
     Returns:
         The model's response text

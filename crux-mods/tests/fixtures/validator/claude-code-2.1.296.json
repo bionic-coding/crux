@@ -7,7 +7,10 @@
     "type": "plugin",
     "errors": [],
     "warnings": [],
-    "notes": [],
+    "notes": [
+      "types ./types/index.d.ts declares on $: nothing (no EngineInterface member)",
+      "types ./types/index.d.ts declares state: crux-mods.current"
+    ],
     "gatingHooks": []
   },
   "contents": [
@@ -17,14 +20,23 @@
       "errors": [],
       "warnings": [],
       "notes": [
-        "./register.tsx hooks: session.start, tool.call, ui.render{component=AbovePrompt}, ui.render{component=Pane}, command.run{command=crux-dashboard}",
+        "./register.tsx hooks: prompt.submit, session.start, tool.call, ui.render{component=AbovePrompt}, ui.render{component=Pane}, command.run{command=crux-dashboard}",
         "./register.tsx answers its own command: command.run{command=crux-dashboard}",
+        "./register.tsx gating hook without .catch: prompt.submit",
         "./register.tsx gating hook without .catch: tool.call",
-        "./register.tsx calls: $.agent.list (via agentsOf), $.clock.after (via scheduleWriteRefresh), $.clock.every, $.command.register, $.env.get (via anyLoaderVarSet, planLaunch), $.fs.read (via planLaunch), $.fs.stat (via statOf), $.process.run (via runReader), $.session.root (via planLaunch), $.ui.invalidate (via refresh), $.ui.open, $.ui.resolve",
+        "./register.tsx calls: $.agent.list (via agentsOf), $.clock.after (via scheduleOpenRefresh, scheduleWriteRefresh), $.clock.every, $.command.register, $.env.get (via anyLoaderVarSet, planLaunch), $.fs.read (via planLaunch), $.fs.stat (via statOf), $.process.run (via runReader), $.session.root (via planLaunch), $.state.get, $.state.set, $.ui.invalidate (via refresh), $.ui.open, $.ui.resolve",
         "./register.tsx env writes: nothing",
-        "./register.tsx env reads: CLAUDE_CONFIG_DIR, DYLD_FALLBACK_FRAMEWORK_PATH, DYLD_FALLBACK_LIBRARY_PATH, DYLD_FRAMEWORK_PATH, DYLD_IMAGE_SUFFIX, DYLD_INSERT_LIBRARIES, DYLD_LIBRARY_PATH, DYLD_ROOT_PATH, DYLD_VERSIONED_FRAMEWORK_PATH, DYLD_VERSIONED_LIBRARY_PATH, HOME, LD_AUDIT, LD_LIBRARY_PATH, LD_PRELOAD"
+        "./register.tsx env reads: CLAUDE_CONFIG_DIR, DYLD_FALLBACK_FRAMEWORK_PATH, DYLD_FALLBACK_LIBRARY_PATH, DYLD_FRAMEWORK_PATH, DYLD_IMAGE_SUFFIX, DYLD_INSERT_LIBRARIES, DYLD_LIBRARY_PATH, DYLD_ROOT_PATH, DYLD_VERSIONED_FRAMEWORK_PATH, DYLD_VERSIONED_LIBRARY_PATH, HOME, LD_AUDIT, LD_LIBRARY_PATH, LD_PRELOAD",
+        "./register.tsx state writes: crux-mods.current",
+        "./register.tsx state reads: crux-mods.current"
       ],
       "gatingHooks": [
+        {
+          "module": "./register.tsx",
+          "pattern": "prompt.submit",
+          "hook": "prompt.submit",
+          "hasCatch": false
+        },
         {
           "module": "./register.tsx",
           "pattern": "tool.call",

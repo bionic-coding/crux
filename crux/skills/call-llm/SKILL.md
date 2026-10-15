@@ -96,7 +96,7 @@ response = call_model(
     prompt="Analyze this architecture for potential issues...",
     system="You are a senior software architect.",
     max_tokens=8000,         # optional; the registry entry's default if None
-    temperature=0.7,         # optional; omitted for models that reject it
+    temperature=0.7,         # optional; omitted for models that reject or ignore it
 )
 print(response)              # a string
 ```
@@ -139,7 +139,7 @@ The resolved registry entry. Fields worth knowing:
 | `api_string` | The model id sent to the gateway. |
 | `max_output_tokens` | The default output budget when a call passes none. |
 | `effort` | The reasoning-effort pin, sent as the top-level `reasoning_effort`. |
-| `supports_temperature` | When false, `temperature` is omitted rather than sent and rejected. |
+| `supports_temperature` | When false, `temperature` is omitted: the model rejects it or ignores it. |
 | `serving_providers` | The upstream hosts this entry may route to (`provider.only`). Empty means the gateway chooses. |
 | `data_collection` | The retention pin, sent on **every** request. Defaults to `"deny"`. |
 

@@ -14,7 +14,9 @@ rather than of three per-provider branches. What is locked in here:
    `temperature` param; the builder must omit it for them and keep sending it
    for models that accept it (Haiku 4.5). NOTE: Sonnet 5.5 REJECTS
    temperature — a behavior change from the retired Sonnet 4.6, which
-   accepted it.
+   accepted it. Gemini 4 Argon IGNORES temperature, top_p and top_k (Google's
+   "What's new in Gemini 4 Argon" page), so its entry is also false and
+   the builder omits the param rather than send one the model discards.
 3. One address for every text model — every `type: text` entry posts to the same
    `/chat/completions` URL under `Authorization: Bearer`. The per-endpoint
    `openai_endpoint` split is gone; a second URL appearing here would mean a
@@ -61,12 +63,16 @@ TEMPERATURE_REJECT_SET = (
     'gpt-6-luna', 'gpt-6-astra', 'claude-opus-5.5', 'claude-opus-5.5-xhigh',
 )
 
+# Registry entries whose model ignores temperature rather than rejecting it.
+# The flag is false here too, so the builder never sends the param.
+TEMPERATURE_IGNORED_SET = ('gemini-4-argon',)
+
 # Serving-provider slugs read from each seat's OpenRouter endpoints data
 # (Astra verified 2026-09-04). Three seats, three distinct hosts.
 COUNCIL_SEAT_SERVING_PROVIDERS = {
     'gpt-6-astra': ['openai'],
     'claude-opus-5.5-xhigh': ['anthropic'],
-    'gemini-3.1-pro-preview': ['google-ai-studio'],
+    'gemini-4-argon': ['google-ai-studio'],
 }
 
 
@@ -116,6 +122,10 @@ class LlmRouterRegistryTests(unittest.TestCase):
             self.assertFalse(
                 self.llm.get_model_config(name).supports_temperature,
                 f"{name} must have supports_temperature: false (API rejects the param)")
+        for name in TEMPERATURE_IGNORED_SET:
+            self.assertFalse(
+                self.llm.get_model_config(name).supports_temperature,
+                f"{name} must have supports_temperature: false (the model ignores the param)")
         for name in accepts:
             self.assertTrue(self.llm.get_model_config(name).supports_temperature)
 
@@ -157,11 +167,11 @@ class LlmRouterRegistryTests(unittest.TestCase):
         # Weighted council seats resolve against the GPT-6 baseline lineup:
         # anthropic_top -> claude-opus-5.5-xhigh (1.5), openai_top ->
         # gpt-6-astra (1.4, replacing the stale/removed gpt-5.5), google_top ->
-        # gemini-3.1-pro-preview (1.3).
+        # gemini-4-argon (1.3).
         from crux.council.council import _get_model_weight
         self.assertEqual(_get_model_weight('claude-opus-5.5-xhigh'), 1.5)
         self.assertEqual(_get_model_weight('gpt-6-astra'), 1.4)
-        self.assertEqual(_get_model_weight('gemini-3.1-pro-preview'), 1.3)
+        self.assertEqual(_get_model_weight('gemini-4-argon'), 1.3)
 
 
 # The five keys the GPT-6 switch removed, and the two the GPT-6.1 Sol switch
@@ -194,7 +204,7 @@ class Gpt6RoleAndRegistryTests(unittest.TestCase):
     # (a) the moved role slot
     def test_list_roles_carry_gpt_6_1_sol_first(self):
         expected = {
-            'council_default': ['gpt-6.1-sol', 'gemini-3.1-pro-preview',
+            'council_default': ['gpt-6.1-sol', 'gemini-4-argon',
                                 'claude-opus-5.5-xhigh'],
         }
         for role, models in expected.items():
@@ -335,7 +345,7 @@ class OpusRoutingTests(unittest.TestCase):
     def test_sync_council_default_anthropic_seat_uses_xhigh_opus(self):
         self.assertEqual(
             list(self.llm.get_default_models('council_default')),
-            ['gpt-6.1-sol', 'gemini-3.1-pro-preview', 'claude-opus-5.5-xhigh'],
+            ['gpt-6.1-sol', 'gemini-4-argon', 'claude-opus-5.5-xhigh'],
         )
 
     def test_weighted_vote_follows_the_repointed_role(self):
@@ -494,6 +504,151 @@ class SonnetRoutingTests(unittest.TestCase):
         self.assertEqual(payload['reasoning_effort'], 'high')
 
 
+@unittest.skipUnless(HAVE_HTTPX, "httpx not installed — run under uv")
+class GeminiArgonRoleAndRegistryTests(unittest.TestCase):
+    """The Google seat moves to Gemini 4 Argon; Gemini 3.1 Pro is retired.
+
+    gemini-3.1-pro-preview is REMOVED as a deliberate compatibility break and
+    is never aliased: it appears only in retired_models.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        from crux.core import llm_caller
+        cls.llm = llm_caller
+        cls.cfg = llm_caller.load_router_config()
+
+    def test_google_top_resolves_to_argon(self):
+        self.assertEqual(self.llm.get_default_model('google_top'), 'gemini-4-argon')
+
+    def test_council_default_google_member_is_argon(self):
+        self.assertEqual(list(self.llm.get_default_models('council_default'))[1], 'gemini-4-argon')
+
+    def test_gemini_3_1_pro_is_retired_not_aliased(self):
+        self.assertIn('gemini-3.1-pro-preview', self.cfg['retired_models'])
+        self.assertNotIn('gemini-3.1-pro-preview', self.cfg['models'])
+        with self.assertRaisesRegex(ValueError, 'Unknown model'):
+            self.llm.get_model_config('gemini-3.1-pro-preview')
+        with self.assertRaisesRegex(ValueError, 'Unknown model'):
+            self.llm.get_model_info('gemini-3.1-pro-preview')
+        # POSITIVE CONTROL: the same lookups answer the successor.
+        self.assertEqual(self.llm.get_model_config('gemini-4-argon').api_string,
+                         'google/gemini-4-argon')
+
+    # The exact key set proves the omitted keys (capabilities, tier,
+    # judge_eligible, judge_tier, can_judge, routing_hints, latency_profile,
+    # effort) absent, not merely unchecked.
+    def test_argon_entry_key_set_and_values(self):
+        entry = self.llm.get_model_info('gemini-4-argon')
+        self.assertEqual(
+            set(entry.keys()),
+            {'provider', 'api_string', 'serving_providers', 'accepted_served_models',
+             'accepted_served_providers', 'display_name', 'type', 'context_window',
+             'max_output_tokens', 'supports_temperature', 'cost', '_pricing_note',
+             '_note'})
+        self.assertEqual(entry['provider'], 'openrouter')
+        self.assertEqual(entry['api_string'], 'google/gemini-4-argon')
+        self.assertEqual(entry['serving_providers'], ['google-ai-studio'])
+        self.assertEqual(entry['accepted_served_models'], ['google/gemini-4-argon'])
+        self.assertEqual(entry['accepted_served_providers'], ['Google AI Studio'])
+        self.assertEqual(entry['display_name'], 'Gemini 4 Argon')
+        self.assertEqual(entry['type'], 'text')
+        self.assertEqual(entry['context_window'], 1048576)
+        # Google's long-decode and thinking pages cap a synchronous request,
+        # streaming or not, at 65,536 output tokens; a larger value returns 400.
+        # The default output budget is that cap.
+        self.assertEqual(entry['max_output_tokens'], 65536)
+        self.assertIs(entry['supports_temperature'], False)
+        # The cost block holds Google's prices from 2026-12-01, registered early so the
+        # registry is not stale on that date.
+        self.assertEqual(entry['cost'], {'input_per_1m': 4.0, 'output_per_1m': 20.0,
+                                          'cached_input_per_1m': 0.2})
+        for phrase in ('research/sources/gemini-4-argon-migration',
+                       'The cost block holds the prices from 2026-12-01',
+                       'the OpenRouter listing and endpoints, research/sources/gemini-4-argon.',
+                       'no tier above 200K',
+                       '2026-11-30', '2026-12-01', '$4', '$20', '$0.20',
+                       'implicit', 'supports_implicit_caching false',
+                       'Explicit caching'):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, entry['_pricing_note'])
+        # Google's captured pages are silent on grounding-instruction billing,
+        # so the pricing note says so and states no such charge as fact.
+        self.assertIn('silent on billing for grounding', entry['_pricing_note'])
+        self.assertNotIn('including grounding tool instructions', entry['_pricing_note'])
+        for phrase in ('one shared window', '65536', '400', 'temperature',
+                       'only the efforts low, medium and high', 'minimal is not offered',
+                       'no capture observes either through OpenRouter',
+                       'Owner-relayed notes state a 32768 non-streaming cap',
+                       'research/sources/gemini-4-argon-migration',
+                       'the OpenRouter listing and the owner-relayed notes, '
+                       'research/sources/gemini-4-argon.',
+                       'Explicit caching'):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, entry['_note'])
+        # The 32,768 non-streaming cap came from owner-relayed notes. Google's
+        # captured pages do not contradict it: their only 32K limit is the
+        # GenerateContent client-side-continuation figure, while 65,536 comes
+        # from the Interactions API pages. It is never the entry's limit.
+        self.assertNotIn('max_output_tokens is 32768', entry['_note'])
+        self.assertNotIn('captured pages contradict it', entry['_note'])
+        for phrase in ('do not contradict it', '32K per non-streaming request',
+                       'client-side continuation', 'Interactions API'):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, entry['_note'])
+
+    def test_argon_request_pins_the_host_and_its_default_output_budget(self):
+        with mock.patch.dict(os.environ, {'OPENROUTER_API_KEY': 'sk-or-test-dummy'}):
+            cfg = self.llm.get_model_config(self.llm.get_default_model('google_top'))
+            _, _, payload = self.llm.build_gateway_request(cfg, 'q')
+        self.assertEqual(payload['model'], 'google/gemini-4-argon')
+        self.assertEqual(payload['provider']['only'], ['google-ai-studio'])
+        self.assertEqual(payload['max_tokens'], 65536)
+        # No effort pin by council ruling: the predecessor carried none and the
+        # live call succeeded at the gateway default. A future pin edits this.
+        self.assertNotIn('reasoning_effort', payload)
+
+    def test_argon_default_call_sends_no_temperature(self):
+        # call_model and call_gemini_pro pass temperature 0.7 by default. Argon
+        # ignores it, so the builder must drop it for this entry.
+        with mock.patch.dict(os.environ, {'OPENROUTER_API_KEY': 'sk-or-test-dummy'}):
+            cfg = self.llm.get_model_config('gemini-4-argon')
+            _, _, payload = self.llm.build_gateway_request(cfg, 'q', system='s',
+                                                           temperature=0.7)
+        self.assertNotIn('temperature', payload)
+
+    def test_argon_payload_carries_only_the_four_builder_keys(self):
+        # Google's pages: explicit caching unsupported, sampling params ignored.
+        # Owner-relayed notes add thinking_budget, candidate_count, penalties
+        # and prefilled model turns; Google's captured pages are silent on
+        # those. A default call's whole key set for this entry is four keys,
+        # and its messages are system + user, so none of them is sent on it.
+        # A council seat call adds response_format, which is not one of them.
+        with mock.patch.dict(os.environ, {'OPENROUTER_API_KEY': 'sk-or-test-dummy'}):
+            cfg = self.llm.get_model_config('gemini-4-argon')
+            _, _, payload = self.llm.build_gateway_request(cfg, 'q', system='s')
+        self.assertEqual(set(payload), {'model', 'messages', 'max_tokens', 'provider'})
+        self.assertEqual([m['role'] for m in payload['messages']], ['system', 'user'])
+
+    def test_argon_effort_is_never_minimal(self):
+        # Google's thinking page lists low, medium and high for Argon; minimal
+        # appears only for other models. crux sends only reasoning_effort, from
+        # the entry pin or a per-call override. The entry pins none;
+        # transcribe-video's overrides, which a --model naming Argon would
+        # carry, are all efforts Argon accepts.
+        import importlib.util
+        allowed = {'high', 'medium', 'low'}
+        effort = self.llm.get_model_config('gemini-4-argon').effort
+        self.assertTrue(effort is None or effort in allowed, effort)
+        spec = importlib.util.spec_from_file_location(
+            'transcribe_video_effort_probe', SCRIPTS_DIR / 'transcribe-video.py')
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        action = next(a for a in mod.build_parser()._actions if '--thinking' in a.option_strings)
+        self.assertTrue(set(action.choices) <= allowed, action.choices)
+        self.assertIn(action.default, allowed)
+
+
 # The twelve roles no crux code or shipped doc reads, deleted by owner
 # directive on 2026-09-28. None is aliased to a surviving role.
 DELETED_ROLES = (
@@ -505,12 +660,12 @@ DELETED_ROLES = (
 # Every surviving role and the model it resolves to. council_default is the
 # one list role left.
 KEPT_ROLES = {
-    'google_top': 'gemini-3.1-pro-preview',
+    'google_top': 'gemini-4-argon',
     'google_fast': 'gemini-3.5-flash',
     'anthropic_top': 'claude-opus-5.5-xhigh',
     'anthropic_balanced': 'claude-opus-5.5',
     'openai_top': 'gpt-6-astra',
-    'council_default': ['gpt-6.1-sol', 'gemini-3.1-pro-preview', 'claude-opus-5.5-xhigh'],
+    'council_default': ['gpt-6.1-sol', 'gemini-4-argon', 'claude-opus-5.5-xhigh'],
     'council_arbiter': 'claude-opus-5.5-xhigh',
     'release_docs': 'claude-sonnet-5.5',
 }
@@ -523,7 +678,7 @@ RETIRED_ANTHROPIC_KEYS = ('claude-opus-5', 'claude-sonnet-5')
 # as it stood before the deletions. Deleting anthropic_council must move none.
 COUNCIL_MEMBER_WEIGHTS = {
     'gpt-6.1-sol': 1.0,
-    'gemini-3.1-pro-preview': 1.3,
+    'gemini-4-argon': 1.3,
     'claude-opus-5.5-xhigh': 1.5,
     'gpt-6-astra': 1.4,
 }

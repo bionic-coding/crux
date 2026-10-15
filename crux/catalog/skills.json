@@ -994,6 +994,7 @@
     "requires_access": "write-tree",
     "routing_note": "Start, advance, and abandon update run state and book pointers; status and terminal progress write nothing. Explicit Markdown writes a deterministic artifact and one promptbook log operation, without advancing.",
     "triggers": [
+      "show the run",
       "run promptbook",
       "start promptbook",
       "advance promptbook",

@@ -170,7 +170,7 @@ class AsyncCouncilSeatRequestTests(unittest.TestCase):
         self.assertEqual(vote.model, "OpenAI/gpt-6-astra")
 
     def test_seat_identity_is_the_vendor_namespace_not_the_gateway(self):
-        ac = self._council(gemini="gemini-3.1-pro-preview")
+        ac = self._council(gemini="gemini-4-argon")
         vote = self._run(
             lambda: ac._call_seat_async("gemini", "Question?"),
             _content_body('{"decision": "REJECT", "confidence": 0.4, '

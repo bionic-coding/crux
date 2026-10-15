@@ -29,48 +29,147 @@ JSON mode (`--json --project-root <ABSOLUTE_DIR> [PB-NNNN [--run RUN-NNN]]`)
 is a third, contained rendering for a dashboard to draw. It reads the project
 only through an anchored SourceIO rooted at `--project-root`, admits a tree file
 only when it resolves inside the resolved documentation tree, validates in
-memory, never re-execs through uv and never writes. It prints exactly one JSON
-object and a newline on stdout and nothing on stderr for every outcome. It
-emits no run `result`, `notes` or `artifacts` text and no council reasoning or
-finding text; titles lose control characters and stop at 200 characters.
+memory, never re-execs through uv and never writes. It runs no git and reads
+nothing under `.git/`. It prints exactly one JSON object and a newline on stdout
+and nothing on stderr for every outcome. It emits no run `result`, `notes` or
+`artifacts` text and no council reasoning or finding text. The free text it
+emits is titles, which lose control characters and stop at 200 code points, and
+the summary of the last completed run, as control-free lines.
+Free text is not safe to draw as emitted. Titles and summary lines keep U+2028,
+U+2029 and the bidirectional format characters U+061C, U+200E, U+200F, U+202A
+to U+202E and U+2066 to U+2069, and a title can keep a lone surrogate. A
+consumer removes them before drawing, as crux-mods' safeText does.
 Exit codes: 0 ok; 1 error envelope; 2 error envelope with code `yaml-unavailable`.
 
-The JSON document (format `crux.run-progress`, format_version 1). crux-mods checks
-the exact key set at every level and accepts format_version 1 only, so adding,
+The JSON document (format `crux.run-progress`, format_version 2). crux-mods checks
+the exact key set at every level and accepts format_version 2 only, so adding,
 removing or renaming any key is a breaking change: bump JSON_FORMAT_VERSION and
-the mod in the same release.
+the mod in the same release. A time is whole epoch seconds, floored, in
+0 to 4102444800, or null. A count is a non-negative integer.
 
-  success: {format, format_version, ok: true, reader_version, docs_dir,
-            runs: [RunView], runs_skipped}
+  success: {format, format_version, ok: true, reader_version, docs_dir, now_s,
+            runs: [RunView], runs_skipped, last_completed: RunView | null,
+            last_completed_status, last_completed_undated,
+            last_completed_unresolved}
   RunView: {book_id, run_id, status, current_prompt, run_path, book_path,
-            modified_s, tag_joined, progress: {total, terminal, done, pct,
+            modified_s, started_s, completed_s, tag_joined,
+            progress: {total, terminal, done, pct,
             counts: {done, skipped, blocked, running, pending}},
-            prompts: [{n, state, module_tag, title}],
-            councils: [Council], councils_skipped, gates: [Gate]}
+            prompts: [{n, state, module_tag, title, started_s, completed_s}],
+            councils: [Council], councils_skipped, gates: [Gate],
+            summary: [string], summary_truncated, escalations: [Escalation]}
   Council: {record_path, prompt, module_tag, council_kind, round, outcome,
-            quorum_met, degraded, aggregate_action, seats: [{role, decision,
-            errored, findings: {blocking, nit}}]}
+            quorum_met, degraded, aggregate_action, converged, seats: [{role,
+            decision, errored, findings: {blocking, nit}}]}
   Gate:    {n, gate_class, state, evidence: [path], evidence_count}
-  error:   {format, format_version, ok: false, error: {code}}
+  Escalation: {prompt, module_tag, round}
+  error:   {format, format_version: 2, ok: false, error: {code}}
 
-Paths are relative to the documentation tree. `modified_s` is the run file's
-modification time in whole seconds since the epoch, 0 when the time cannot be read
-or lies beyond 2100-01-01; crux-mods draws the band for the run with the newest one.
-A seat `decision` is a council decision token
-(run-council.py's _DECISION_TOKENS) and `aggregate_action` is a route action
-(JSON_ROUTE_ACTIONS); a value outside its set is null. `gates` lists each prompt
-the cycle gate classifies by position as `council`, `module-close` or
-`independent-review` (council_gate.classify, read with the book's own cycle
-fields because this mode runs no git), with the run's recorded state and its evidence. A council or
-module-close gate's `evidence` lists only the attached artifacts that equal the
-`record_path` of a council record this same view opened and validated (an attempt
-record, an owner-exception record or a refused file never appears), and
-`evidence_count` is its length. An independent-review gate's `evidence` is always
-empty: its `evidence_count` is the number of distinct attached artifacts that name an
+Paths are relative to the documentation tree. `now_s` is this reader's own clock
+when it built the document, null when that lies outside the time range.
+`modified_s` is the run file's modification time in whole seconds since the epoch,
+0 when the time cannot be read or lies beyond 2100-01-01; crux-mods draws the band
+for the run with the newest one. `started_s` and `completed_s` come from the run's
+`started_at` and `completed_at`, and a prompt's from its `started` and `completed`.
+A time is a string of the form `YYYY-MM-DD`, `T` or one space, `HH:MM:SS`, an
+optional fraction, then `Z` or a numeric offset, in ASCII digits, or a
+timezone-aware datetime. A naive time, any other string, an impossible
+calendar date such as `2026-02-30` and a time outside the range give null.
+A seat `decision` is a council decision token (run-council.py's
+_DECISION_TOKENS) and `aggregate_action` is a route action (JSON_ROUTE_ACTIONS);
+a value outside its set is null. A council's `converged` holds when the record
+ran, its quorum is met, every seat that did not error approved, and no such seat
+carries a blocking finding: the gate's per-record rule
+(rule:convergence-is-derived-per-seat), held equal to council_history_v4 by a
+test. `gates` lists each prompt the cycle gate classifies by position as
+`council`, `module-close` or `independent-review` (council_gate.classify, read
+with the book's own cycle fields because this mode runs no git), with the run's
+recorded state and its evidence. A council or module-close gate's `evidence`
+lists only the attached artifacts that equal the `record_path` of a council
+record this same view opened and validated (an attempt record, an
+owner-exception record or a refused file never appears), and `evidence_count`
+is its length. An independent-review gate's `evidence` is always empty: its
+`evidence_count` is the number of distinct attached artifacts that name an
 existing file in the run's own `reviews/` directory, at most 20, and the reader
 never reads such a file. `gates` is empty when the book does not join the run.
-`runs_skipped` and `councils_skipped` count
-files the reader refused or could not read.
+`runs_skipped` and `councils_skipped` count files the reader refused or could
+not read.
+
+`escalations` lists, in ascending `prompt`, each module whose recorded rounds show
+an escalation stop coming. A module is a module tag that a prompt of the joined
+book carries, with the run's councils tagged so; or, for councils with a null tag
+(a patch book), a prompt that those councils bind. A module gets one entry when
+the run is `in_progress`, the book joins the run, the module has an open prompt
+(not `done` or `skipped`), `councils_skipped` is 0, its `ran` records carry the
+rounds 1 to k exactly once with k at least 3, every one has its quorum met, and
+none converged. The entry holds the round-k record's prompt, the tag (null for a
+patch module) and k. The entry says what the files show. It does not say that the
+gate stops: the gate counts only records whose seals and committed history hold,
+and this mode reads no git, no attempt record and no refutation or
+owner-exception record.
+
+Active mode (no PB argument) reports `runs`: every schema-valid in-progress YAML
+run. `last_completed` is the last completed run, set only when no run can be in
+progress. `last_completed_status` is one of `not-requested` (target mode, which
+also gives null, 0 and 0), `run-in-progress` (a schema-valid in-progress run was
+found, so no search runs), `undetermined`, `none`, `latest` and `latest-dated`.
+The scan decides in this order. An entry the scan cannot read counts in
+`last_completed_unresolved`: an entry whose name is outside the path alphabet
+and that is not a regular file, a link leaving the tree or the project root, an
+entry that vanished, a listing or a read that was refused, a file over 4 MiB, a
+file that is not UTF-8, a misnamed run file, or a file that is neither plain
+closed form nor a valid run. Any unresolved entry gives `undetermined`. An
+entry that holds no run counts in neither `last_completed_unresolved` nor
+`last_completed_undated`: a loose file under `runs/`, a progress render, a
+legacy Markdown run and an abandoned run. A legacy Markdown run, and a loose
+file whose name is outside the path alphabet, still count in `runs_skipped`.
+A completed run is a candidate, dated by its completion time
+(`last_completed_undated` counts those that give no seconds). With no dated
+candidate the status is `none`, or `undetermined` when some candidate is undated.
+Otherwise the reader parses the newest dated candidate only (equal dates rank by
+run path in descending code-point order). It wins when its document validates, is
+still `completed`, carries the same completion seconds as its scan, and its view
+builds. A winner gives `latest`, or `latest-dated` when some candidate is undated.
+Any other result is `undetermined`, counted in `last_completed_unresolved` and
+`runs_skipped`. `latest` and `latest-dated` rank schema-valid YAML runs only, so
+either label means the latest YAML run.
+
+`summary` holds the last completed run's summary, in no other view (the others
+carry `[]` and false). It splits on CRLF, LF and CR only; every C0, DEL and C1
+character and every surrogate code point is removed from each line; U+2028 and
+U+2029 stay inside their line. A line is cut to 1000 code points, and at most 240
+lines and 32000 code points in all are kept. `summary_truncated` is true when a cap
+cut text. An interior empty line is kept as an empty string.
+
+Plain closed form. Active mode never parses a run file whose text is in plain
+closed form: the scanned `status` and `completed_at` decide. `_plain_closed(text)`
+accepts a text when all seven rules hold:
+  P1  no CR, NEL (U+0085), U+2028 or U+2029, so LF is the only line break;
+  P2  every column-0 line (not empty, first character not a space) is a comment,
+      a sequence entry, or a plain key of `_RUN_TOP_KEYS` (the top-level
+      properties of run.schema.json);
+  P3  the first line that is not empty and not a column-0 comment is a plain-key
+      line, with no indented line before it;
+  P4  no key occurs on two plain-key lines;
+  P5  after the `status:` and `completed_at:` lines, the next non-empty line does
+      not begin with a space or a tab;
+  P6  a `status:` line exists and names `completed` or `abandoned`, bare or in
+      matching quotes, then only spaces, or at least one space and a comment;
+  P7  a `completed_at:` line exists and holds `null` or a time, bare or in
+      matching quotes, then only spaces.
+Invariant: for a text in plain closed form that loads to a schema-valid run, the
+loader's root `status` is the scanned word and its `completed_at` gives the same
+seconds as the scanned time. P1 makes the loader's lines the scan's lines. P3 makes
+the root a block mapping at indentation 0 whose keys start their lines. P2 and P4
+make the two scanned lines the only root key lines for those keys, so a column-0
+line inside a quoted or flow value that repeats a key is refused by P4. P5 stops a
+bare value from continuing, and P6 and P7 leave no escape, anchor, tag or comment
+that could change the value. A text in plain closed form that is no schema-valid
+run is never shown and is never taken for a newer run: ranked first its parse
+fails and the status is `undetermined`, and ranked lower it changes nothing.
+Undated, it counts in `last_completed_undated`, which lowers `latest` to
+`latest-dated`, or gives `undetermined` when no candidate is dated. A file that
+breaks any rule is parsed in full.
 
 Error codes: usage (a malformed command line); project-root-invalid (not an
 absolute directory); config-invalid (the layout config cannot be read);
@@ -85,13 +184,17 @@ from __future__ import annotations
 
 import argparse
 import ast
+import datetime
 import importlib.util
 import json
+import math
 import os
 import re
 import signal
 import sys
+import time
 from collections import Counter
+from typing import NamedTuple
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
@@ -436,7 +539,11 @@ def render_markdown(model: dict) -> str:
 # JSON mode (contained rendering for a dashboard)
 # ----------------------------------------------------------------------------
 JSON_FORMAT = "crux.run-progress"
-JSON_FORMAT_VERSION = 1
+JSON_FORMAT_VERSION = 2
+# What `last_completed_status` says about the last completed run (active mode only).
+JSON_LAST_COMPLETED_STATUSES = (
+    "not-requested", "run-in-progress", "undetermined", "none", "latest", "latest-dated",
+)
 # The closed error-code set. An error envelope carries one of these and no other key.
 JSON_ERROR_CODES = (
     "usage", "project-root-invalid", "config-invalid", "tree-missing", "containment",
@@ -455,6 +562,18 @@ _JSON_TIME_LIMIT_S = 8
 # Matches crux-mods view.ts EPOCH_MAX (2100-01-01); a parity test holds them equal.
 _JSON_EPOCH_MAX = 4_102_444_800
 _TITLE_CAP = 200
+# The round bound of a module's council loop: an escalation entry needs the recorded rounds 1 to
+# at least this round. crux-mods view.ts holds the same value as ESCALATION_ROUND; a parity test
+# holds the two equal.
+_ESCALATION_ROUND = 3
+# The caps on the last completed run's summary, in code points; crux-mods holds the same three.
+_SUMMARY_LINES_CAP = 240
+_SUMMARY_LINE_CAP = 1000
+_SUMMARY_TOTAL_CAP = 32000
+# A summary splits on CRLF, LF and CR only. C0, DEL, C1 and the surrogate code points are
+# removed from each line; U+2028 and U+2029 stay, because the mod removes them when it draws.
+_SUMMARY_BREAK_RE = re.compile(r"\r\n|\n|\r")
+_SUMMARY_STRIP_RE = re.compile("[\x00-\x1f\x7f-\x9f\ud800-\udfff]")
 # One path segment of the mod's path alphabet; every name the reader reads or emits fits it.
 _SAFE_NAME_RE = re.compile(r"[A-Za-z0-9._-]+", re.ASCII)
 _MAX_READ_BYTES = 4 * 1024 * 1024
@@ -468,29 +587,125 @@ _EVIDENCE_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,199}\.json", re.ASC
 _RUN_YAML_RE = re.compile(r"^run-RUN-(\d{3})\.yaml$", re.ASCII)
 _RUN_LEGACY_RE = re.compile(r"^run-RUN-(\d{3})\.md$", re.ASCII)
 _RUN_PROGRESS_RE = re.compile(r"^run-RUN-\d{3}-progress\.md$", re.ASCII)
-# A top-level `status:` line. Active mode parses a run only when it could be in
-# progress: a file whose every top-level status line names a closed status is
-# never shown, so it is never parsed or validated either. The pattern takes the
-# rest of the line in one character class and _top_statuses trims it in Python:
-# a lazy group followed by optional blanks backtracks quadratically on a long
-# run of spaces, and this scan runs on untrusted text before any parse.
-_TOP_STATUS_RE = re.compile(r"^status:([^\n]*)", re.M)
-_CLOSED_STATUS_RE = re.compile(r"""^(["']?)(completed|abandoned)\1(?:[ \t]+#.*)?$""")
+# The one time form the reader accepts as text: ASCII digits, `T` or one space, optional
+# fraction, then `Z` or a numeric offset. Applied with fullmatch. `_TIME_TEXT` holds no
+# group, so the plain closed form embeds it.
+_TIME_TEXT = r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})"
+_TIME_RE = re.compile(_TIME_TEXT, re.ASCII)
 _RUN_ID_RE = re.compile(r"RUN-\d{3}", re.ASCII)
 _SEMVER_RE = re.compile(r"\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]+)?", re.ASCII)
 # Where the decision-token set is read from. Read by `ast`, never imported.
 _RUN_COUNCIL = _HERE / "run-council.py"
 
 
-def _top_statuses(text: str) -> list[str]:
-    """Each top-level `status:` value, without surrounding blanks or a trailing CR."""
-    out = []
-    for value in _TOP_STATUS_RE.findall(text):
-        value = value.rstrip(" \t")
-        if value.endswith("\r"):
-            value = value[:-1]
-        out.append(value.strip(" \t"))
-    return out
+# The top-level keys of crux/schemas/run.schema.json. A test holds the two equal, so a
+# schema change fails that test; until this set is updated, a file that uses a new key is
+# parsed and never skipped.
+_RUN_TOP_KEYS = frozenset({
+    "abandonment", "base_commit", "book_content_hash", "book_id", "completed_at", "current_prompt",
+    "format_version", "implementation_bindings", "migration_bindings", "notes", "pr_draft",
+    "prompts", "run_id", "started_at", "status", "summary",
+})
+# The line patterns of the plain closed form. Each is applied with fullmatch, at most once
+# per line, and nests no quantifier, so its time is linear in the line.
+_PLAIN_ENTRY_RE = re.compile(r"-(?: .*)?")
+_PLAIN_KEY_RE = re.compile(r"([a-z_]+):(?: .*)?")
+_PLAIN_STATUS_RE = re.compile(r"""status: +(["']?)(completed|abandoned)\1(?: *| +#.*)""")
+_PLAIN_DATE_RE = re.compile(
+    rf"""completed_at: +(?:(null)|({_TIME_TEXT})|'({_TIME_TEXT})'|"({_TIME_TEXT})") *""", re.ASCII)
+# Every line break a YAML loader reads besides LF. A text that holds one is never plain.
+_PLAIN_FOREIGN_BREAKS = ("\r", "\x85", "\u2028", "\u2029")
+
+
+def _plain_scan(text: str) -> tuple[list[str], tuple[str, str] | None]:
+    """Check `text` against the seven rules of the plain closed form, all of them.
+
+    Returns the broken rules (`P1` to `P7`, sorted) and, when none is broken, the scanned
+    (status, completed_at text) pair. The completed_at text has its matching quotes removed.
+    The rules, with LF the only line break (P1) and a column-0 line one that is not empty
+    and does not begin with a space:
+      P2  every column-0 line is a comment, a sequence entry or a plain key of `_RUN_TOP_KEYS`;
+      P3  the first line that is not empty and not a column-0 comment is a plain-key line;
+      P4  no key occurs on two plain-key lines;
+      P5  the next non-empty line after the status and completed_at lines is not indented;
+      P6  a `status:` line exists and names a closed status;
+      P7  a `completed_at:` line exists and holds `null` or a time.
+    Under these a loader reads the same root `status` and `completed_at` as this scan does,
+    for every text that loads to a schema-valid run; the module docstring states the proof."""
+    broken: set[str] = set()
+    if any(ch in text for ch in _PLAIN_FOREIGN_BREAKS):
+        broken.add("P1")
+    lines = text.split("\n")
+    key_lines: dict[str, list[int]] = {}
+    first = None  # the kind of the first line that is not empty and not a column-0 comment
+    for index, line in enumerate(lines):
+        if not line:
+            continue
+        lead = line[0]
+        if lead == " ":
+            kind = None
+        elif lead == "#":
+            continue
+        elif lead == "-" and _PLAIN_ENTRY_RE.fullmatch(line):
+            kind = "entry"
+        else:
+            match = _PLAIN_KEY_RE.fullmatch(line)
+            if match is not None and match.group(1) in _RUN_TOP_KEYS:
+                kind = "key"
+                key_lines.setdefault(match.group(1), []).append(index)
+            else:
+                kind = "bad"
+                broken.add("P2")
+        if first is None:
+            first = kind if lead != " " else "indented"
+        # (an indented line is no column-0 line, so P2 does not read it)
+    if first != "key":
+        broken.add("P3")
+    if any(len(places) > 1 for places in key_lines.values()):
+        broken.add("P4")
+
+    def indented_next(index: int) -> bool:
+        index += 1
+        while index < len(lines) and not lines[index]:
+            index += 1
+        return index < len(lines) and lines[index][0] in " \t"
+
+    status = date = None
+    for key in ("status", "completed_at"):
+        for index in key_lines.get(key, []):
+            if indented_next(index):
+                broken.add("P5")
+    status_places = key_lines.get("status", [])
+    date_places = key_lines.get("completed_at", [])
+    for index in status_places:
+        match = _PLAIN_STATUS_RE.fullmatch(lines[index])
+        if match is None:
+            broken.add("P6")
+        elif status is None:
+            status = match.group(2)
+    if not status_places:
+        broken.add("P6")
+    for index in date_places:
+        match = _PLAIN_DATE_RE.fullmatch(lines[index])
+        if match is None:
+            broken.add("P7")
+        elif date is None:
+            date = next(g for g in match.groups() if g is not None)
+    if not date_places:
+        broken.add("P7")
+    if broken:
+        return sorted(broken), None
+    return [], (status, date)
+
+
+def _plain_broken_rules(text: str) -> list[str]:
+    """The rules of the plain closed form that `text` breaks; empty when it is plain."""
+    return _plain_scan(text)[0]
+
+
+def _plain_closed(text: str) -> tuple[str, str] | None:
+    """The scanned (status, completed_at text) of a text in plain closed form, else None."""
+    return _plain_scan(text)[1]
 
 
 class _OverTimeLimit(BaseException):
@@ -560,10 +775,83 @@ class _Refused(Exception):
 
 
 def _json_title(title) -> str:
-    """A prompt title for drawing: control characters removed, at most 200 characters."""
+    """A prompt title for drawing: control characters removed, at most 200 code points."""
     if not isinstance(title, str):
         return ""
     return _JSON_CONTROL_RE.sub("", title)[:_TITLE_CAP]
+
+
+def _summary_lines(text) -> tuple[list[str], bool]:
+    """The summary as control-free lines, and whether a cap cut text.
+
+    The final empty line that a trailing break leaves is dropped; an interior empty line and a
+    line that control stripping empties stay as empty strings. Lines are kept in order, each cut
+    to `_SUMMARY_LINE_CAP` code points, until `_SUMMARY_LINES_CAP` lines are kept or the total
+    reaches `_SUMMARY_TOTAL_CAP`; the line that crosses the total is cut to fit and the rest
+    drop. The flag is set when a cap removed any text."""
+    if not isinstance(text, str) or not text:
+        return [], False
+    raw = _SUMMARY_BREAK_RE.split(text)
+    if len(raw) > 1 and raw[-1] == "":
+        raw.pop()
+    kept: list[str] = []
+    truncated = False
+    used = 0
+    for line in raw:
+        line = _SUMMARY_STRIP_RE.sub("", line)
+        if len(kept) >= _SUMMARY_LINES_CAP or used >= _SUMMARY_TOTAL_CAP:
+            truncated = truncated or bool(line)
+            continue
+        cut = line[:min(_SUMMARY_LINE_CAP, _SUMMARY_TOTAL_CAP - used)]
+        truncated = truncated or len(cut) < len(line)
+        kept.append(cut)
+        used += len(cut)
+    return kept, truncated
+
+
+def _epoch_in_range(seconds: int) -> int | None:
+    return seconds if 0 <= seconds <= _JSON_EPOCH_MAX else None
+
+
+def _time_s(value) -> int | None:
+    """A time as whole epoch seconds, floored, or None.
+
+    `value` is a string that fullmatches `_TIME_RE`, or a timezone-aware datetime. A naive
+    time, any other value, an impossible date and a time outside 0 to `_JSON_EPOCH_MAX`
+    give None. The fraction is dropped."""
+    if isinstance(value, datetime.datetime):
+        if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
+            return None
+        try:
+            return _epoch_in_range(math.floor(value.timestamp()))
+        except (OverflowError, OSError, ValueError):
+            return None
+    if not isinstance(value, str) or _TIME_RE.fullmatch(value) is None:
+        return None
+    try:
+        if value[-1] == "Z":
+            tz = datetime.timezone.utc
+        else:
+            offset = datetime.timedelta(hours=int(value[-5:-3]), minutes=int(value[-2:]))
+            tz = datetime.timezone(-offset if value[-6] == "-" else offset)
+        when = datetime.datetime(int(value[0:4]), int(value[5:7]), int(value[8:10]),
+                                 int(value[11:13]), int(value[14:16]), int(value[17:19]), tzinfo=tz)
+        return _epoch_in_range(math.floor(when.timestamp()))
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
+def _clock() -> float:
+    """The reader's one clock read: the wall clock, in seconds since the epoch."""
+    return time.time()
+
+
+def _now_s() -> int | None:
+    """The reader's clock at document build, floored; None when it lies outside the range."""
+    try:
+        return _epoch_in_range(math.floor(_clock()))
+    except (OverflowError, ValueError, TypeError):
+        return None
 
 
 def _decision_tokens() -> frozenset:
@@ -719,11 +1007,12 @@ class _TreeReader:
 
 def _json_run_view(reader: _TreeReader, council_records, council_gate, tokens: frozenset,
                    run: dict, run_dir: Path, run_name: str, book, strict_book: bool,
-                   docs_dir: str) -> dict:
+                   docs_dir: str, with_summary: bool = False) -> dict:
     """Build one RunView. `book` is (sub, path) or None. A book that cannot be used
     raises in strict (target) mode and degrades to no book in active mode. A run
     whose ids are not exact ids raises _Refused: the schema checks them with `$`,
-    which admits a trailing newline."""
+    which admits a trailing newline. Only the last completed run's view carries a summary
+    (`with_summary`); every other view has an empty one."""
     if not (isinstance(run.get("run_id"), str) and _RUN_ID_RE.fullmatch(run["run_id"])
             and isinstance(run.get("book_id"), str) and _BOOK_ID_RE.fullmatch(run["book_id"])):
         raise _Refused("invalid")
@@ -756,6 +1045,7 @@ def _json_run_view(reader: _TreeReader, council_records, council_gate, tokens: f
             "n": p["n"], "title": _json_title(p.get("title", "")),
             "module_tag": tag_by_n.get(p["n"]) if joined else None,
             "state": state if state in STATES else "pending",
+            "started_s": _time_s(p.get("started")), "completed_s": _time_s(p.get("completed")),
         })
     counts, total, terminal, pct = _summarize(rows)
     councils, skipped = _json_councils(reader, council_records, tokens, run["book_id"],
@@ -763,17 +1053,66 @@ def _json_run_view(reader: _TreeReader, council_records, council_gate, tokens: f
     current = run.get("current_prompt")
     gates = _json_gates(reader, council_gate, book_doc if joined else None, run, run_dir, docs_dir,
                         frozenset(c["record_path"] for c in councils))
+    summary, summary_truncated = _summary_lines(run.get("summary")) if with_summary else ([], False)
     return {
         "book_id": run["book_id"], "run_id": run["run_id"], "status": run["status"],
         "current_prompt": current if isinstance(current, int) and not isinstance(current, bool) else None,
         "run_path": reader.rel(run_dir_rel, run_name), "book_path": book_rel,
-        "modified_s": _modified_s(reader, run_dir / run_name), "tag_joined": joined,
+        "modified_s": _modified_s(reader, run_dir / run_name),
+        "started_s": _time_s(run.get("started_at")), "completed_s": _time_s(run.get("completed_at")),
+        "tag_joined": joined,
         "progress": {"total": total, "terminal": terminal, "done": counts.get("done", 0), "pct": pct,
                      "counts": {s: counts.get(s, 0) for s in STATES}},
         "prompts": [{"n": r["n"], "state": r["state"], "module_tag": r["module_tag"],
-                     "title": r["title"]} for r in rows],
+                     "title": r["title"], "started_s": r["started_s"], "completed_s": r["completed_s"]}
+                    for r in rows],
         "councils": councils, "councils_skipped": skipped, "gates": gates,
+        "summary": summary, "summary_truncated": summary_truncated,
+        "escalations": _json_escalations(run["status"], joined, rows, councils, skipped),
     }
+
+
+def _json_escalations(status: str, joined: bool, rows: list[dict], councils: list[dict],
+                      councils_skipped: int) -> list[dict]:
+    """The modules whose recorded rounds show an escalation stop coming.
+
+    A module is a module tag that a prompt of the joined book carries, with the run's councils
+    tagged so; or, for councils with no tag (a patch book), a prompt that those councils bind. A
+    module gets one entry when the run is in progress, the book joins, the module has an open
+    prompt (one not `done` or `skipped`), no council file was refused, its `ran` records carry
+    the rounds 1 to k exactly once with k at least `_ESCALATION_ROUND` (3), every one has its
+    quorum met and none converged. The entry names the round-k record's prompt. The reader reads no attempt,
+    refutation or owner-exception record and no git, so the entry says what the files show and
+    never that the gate will stop: the gate counts only records whose seals and committed
+    history hold (rule:gate-reads-every-recorded-round, rule:council-record-order-is-committed-order,
+    rule:introducing-commit-is-unique-and-read-in-isolation)."""
+    if status != "in_progress" or not joined or councils_skipped:
+        return []
+    state_of = {r["n"]: r["state"] for r in rows}
+    tags = {r["module_tag"] for r in rows if r["module_tag"]}
+    groups: dict[tuple, list[dict]] = {}
+    for council in councils:
+        tag = council["module_tag"]
+        if tag is not None:
+            if tag in tags:
+                groups.setdefault((tag, None), []).append(council)
+        elif council["prompt"] in state_of:
+            groups.setdefault((None, council["prompt"]), []).append(council)
+    entries = []
+    for (tag, bound), group in groups.items():
+        prompts = [r["n"] for r in rows if r["module_tag"] == tag] if tag is not None else [bound]
+        if not any(state_of[n] not in ("done", "skipped") for n in prompts):
+            continue
+        ran = sorted((c for c in group if c["outcome"] == "ran"), key=lambda c: c["round"])
+        rounds = [c["round"] for c in ran]
+        k = len(ran)
+        if k < _ESCALATION_ROUND or rounds != list(range(1, k + 1)):
+            continue
+        if not all(c["quorum_met"] for c in ran) or any(c["converged"] for c in ran):
+            continue
+        entries.append({"prompt": ran[-1]["prompt"], "module_tag": tag, "round": k})
+    entries.sort(key=lambda e: (e["prompt"], e["module_tag"] or ""))
+    return entries
 
 
 def _modified_s(reader: _TreeReader, path: Path) -> int:
@@ -898,6 +1237,28 @@ def _is_nit(finding: dict) -> bool:
             and dim.strip().lower() != "security" and finding.get("safety_adjacent") is False)
 
 
+_APPROVING = ("APPROVE", "APPROVE_WITH_NITS")
+
+
+def _converged(doc: dict) -> bool:
+    """Whether one council record converged, by the gate's per-record rule
+    (rule:convergence-is-derived-per-seat): the record ran, its quorum is met, every seat
+    that did not error approved, and no such seat carries a blocking finding. A test holds
+    this equal to `council_history_v4._analyze`, which the reader never calls: that module
+    holds the gate's git readers, and JSON mode runs no git. (council_gate imports the
+    module; importing it runs no git.)"""
+    if doc.get("outcome") != "ran" or not doc.get("quorum_met"):
+        return False
+    for seat in doc.get("seats", []):
+        if seat.get("errored"):
+            continue
+        if seat.get("decision") not in _APPROVING:
+            return False
+        if not all(_is_nit(f) for f in seat.get("findings", [])):
+            return False
+    return True
+
+
 def _json_council_view(doc: dict, tokens: frozenset, record_path: str) -> dict:
     seats = []
     for seat in doc["seats"]:
@@ -912,54 +1273,133 @@ def _json_council_view(doc: dict, tokens: frozenset, record_path: str) -> dict:
         "module_tag": doc["binding"]["module_tag"], "council_kind": doc["council_kind"],
         "round": doc["round"], "outcome": doc["outcome"], "quorum_met": bool(doc["quorum_met"]),
         "degraded": bool(doc["degraded"]),
-        "aggregate_action": _closed(doc["aggregate"].get("action"), JSON_ROUTE_ACTIONS), "seats": seats,
+        "aggregate_action": _closed(doc["aggregate"].get("action"), JSON_ROUTE_ACTIONS),
+        "converged": _converged(doc), "seats": seats,
     }
 
 
-def _active_runs(reader: _TreeReader) -> tuple[list[tuple], int]:
-    """Every schema-valid in-progress YAML run under `promptbooks/runs/`, plus the refused count."""
+class _Candidate(NamedTuple):
+    """A dated completed run the scan saw: its discovery date in epoch seconds, its path
+    relative to the tree (the tie-break) and the places a view needs. An undated completed run
+    is only counted, never made a candidate."""
+
+    date: int
+    rel: str
+    path: Path
+    entry: Path
+
+
+class _RunScan(NamedTuple):
+    found: list  # (doc, path, entry) for each schema-valid in-progress run
+    skipped: int  # files the reader refused or could not read
+    unresolved: int  # entries that may hold a run in progress or a newer completed run
+    undated: int  # completed candidates whose date gives no seconds
+    dated: list  # the dated _Candidate list
+
+
+def _active_runs(reader: _TreeReader) -> _RunScan:
+    """Scan `promptbooks/runs/` for schema-valid in-progress YAML runs and for completed ones.
+
+    A file in plain closed form is never parsed: its scanned status and date decide. Any other
+    file is parsed in full. Every path that could hide a run in progress or a newer completed
+    run counts in `unresolved`. The paths that cannot (a loose file, a progress render, a
+    legacy Markdown run, an abandoned run) count in neither `unresolved` nor `undated`; a legacy
+    Markdown run, and a loose file whose name is outside the path alphabet, still count in
+    `skipped`."""
     runs_dir = reader.tree / "promptbooks" / "runs"
     if not reader.inside(runs_dir):
         raise _JsonFailure("containment")
-    found, skipped = [], 0
+    found: list = []
+    dated: list = []
+    skipped = unresolved = undated = 0
     try:
         entries = reader.glob(runs_dir, "*")
     except _Refused:
         raise _JsonFailure("containment")
+
+    def candidate(date, path, entry):
+        nonlocal undated
+        if date is None:
+            undated += 1
+        else:
+            dated.append(_Candidate(date, reader.rel("promptbooks", "runs", entry.name, path.name), path, entry))
+
     for entry in entries:
         try:
             if not reader.safe_name(entry.name):
+                if reader.kind(entry) == "file":
+                    skipped += 1  # a loose file holds no run, whatever its name
+                    continue
                 raise _Refused("invalid")
-            if reader.kind(entry) != "directory":
+            kind = reader.kind(entry)
+            if kind is None:
+                unresolved += 1  # the entry vanished after the listing
                 continue
+            if kind != "directory":
+                continue  # a loose file holds no run: a run lives at runs/<book>/run-RUN-NNN.yaml
             if not reader.inside(entry):
                 raise _Refused("containment")
             files = reader.glob(entry, "run-RUN-*")
         except _Refused:
             skipped += 1
+            unresolved += 1
             continue
         for path in files:
             name = path.name
             if _RUN_PROGRESS_RE.fullmatch(name):
+                continue  # this reader's own Markdown render
+            if _RUN_LEGACY_RE.fullmatch(name):
+                skipped += 1  # a legacy Markdown run is never in progress and never ranked
                 continue
             if not _RUN_YAML_RE.fullmatch(name):
-                skipped += 1  # legacy .md run, or a name outside the run-file pattern
+                skipped += 1  # a name outside the run-file pattern
+                unresolved += 1
                 continue
             try:
-                statuses = _top_statuses(reader.read(path))
+                text = reader.read(path)
             except _Refused:
                 skipped += 1
+                unresolved += 1
                 continue
-            if statuses and all(_CLOSED_STATUS_RE.fullmatch(v) for v in statuses):
+            plain = _plain_closed(text)
+            if plain is not None:
+                if plain[0] == "completed":
+                    candidate(_time_s(plain[1]), path, entry)
                 continue  # a closed run is never reported, so it is not parsed
             try:
                 doc = reader.yaml(path, "run")
             except _Refused:
                 skipped += 1
+                unresolved += 1
                 continue
             if doc.get("status") == "in_progress":
                 found.append((doc, path, entry))
-    return found, skipped
+            elif doc.get("status") == "completed":
+                candidate(_time_s(doc.get("completed_at")), path, entry)
+    return _RunScan(found, skipped, unresolved, undated, dated)
+
+
+def _last_completed_view(reader: _TreeReader, council_records, council_gate, tokens: frozenset,
+                         top: _Candidate, docs_dir: str):
+    """The RunView of the newest dated completed run, or None when the run cannot be shown.
+
+    This is the one parse of the search. The run must validate, still be `completed`, and carry
+    the same completion time in seconds as the scan dated it by; a file that changed between
+    the two reads, or a defect in `_plain_closed`, gives None and the caller reports
+    `undetermined`."""
+    try:
+        doc = reader.yaml(top.path, "run")
+        if doc.get("status") != "completed" or _time_s(doc.get("completed_at")) != top.date:
+            return None
+        try:
+            book = reader.find_book(doc["book_id"])
+        except _Refused:
+            book = None
+        return _json_run_view(reader, council_records, council_gate, tokens, doc, top.entry,
+                              top.path.name, book, strict_book=False, docs_dir=docs_dir,
+                              with_summary=True)
+    except _Refused:
+        return None
 
 
 def _target_run(reader: _TreeReader, target: str, run_id):
@@ -1061,9 +1501,12 @@ def _build_json_document(args) -> dict:
         version = _reader_version()
         reader = _TreeReader(sio, cfg.docs_root, refusal)
         views, skipped = [], 0
+        now_s = _now_s()
+        last_completed, last_status, undated, unresolved = None, "not-requested", 0, 0
         if args.target is None:
-            found, skipped = _active_runs(reader)
-            for doc, path, run_dir in found:
+            scan = _active_runs(reader)
+            skipped, undated, unresolved = scan.skipped, scan.undated, scan.unresolved
+            for doc, path, run_dir in scan.found:
                 try:
                     book = reader.find_book(doc["book_id"])
                 except _Refused:
@@ -1074,6 +1517,22 @@ def _build_json_document(args) -> dict:
                                                 docs_dir=cfg.docs_dir))
                 except _Refused:
                     skipped += 1
+            if scan.found:
+                last_status = "run-in-progress"
+            elif unresolved:
+                last_status = "undetermined"
+            elif not scan.dated:
+                last_status = "none" if undated == 0 else "undetermined"
+            else:
+                top = max(scan.dated, key=lambda c: (c.date, c.rel))
+                last_completed = _last_completed_view(reader, council_records, council_gate, tokens,
+                                                      top, cfg.docs_dir)
+                if last_completed is None:
+                    last_status = "undetermined"
+                    skipped += 1
+                    unresolved += 1
+                else:
+                    last_status = "latest" if undated == 0 else "latest-dated"
         else:
             doc, path, run_dir, book = _target_run(reader, args.target, args.run)
             try:
@@ -1085,8 +1544,10 @@ def _build_json_document(args) -> dict:
         views.sort(key=lambda r: (r["book_id"], r["run_id"]))
         return {
             "format": JSON_FORMAT, "format_version": JSON_FORMAT_VERSION, "ok": True,
-            "reader_version": version, "docs_dir": cfg.docs_dir,
-            "runs": views, "runs_skipped": skipped,
+            "reader_version": version, "docs_dir": cfg.docs_dir, "now_s": now_s,
+            "runs": views, "runs_skipped": skipped, "last_completed": last_completed,
+            "last_completed_status": last_status, "last_completed_undated": undated,
+            "last_completed_unresolved": unresolved,
         }
     except _Refused:
         raise _JsonFailure("containment")

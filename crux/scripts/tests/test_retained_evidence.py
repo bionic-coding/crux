@@ -75,6 +75,17 @@ class RetainedEvidenceTests(unittest.TestCase):
         ordinary = self.repo / "src" / "retained-repositories" / "ADR-0146.md"
         self.assertFalse(retained.is_retained_evidence_path(self.docs, ordinary))
 
+    def test_path_under_a_regular_file_is_absent_and_other_os_errors_still_refuse(self):
+        # A linked git worktree's .git is a regular file, so a run artifact such as
+        # .git/crux/results/report.md names nothing: it is not held, and it does not refuse.
+        (self.repo / ".git").write_text("gitdir: /elsewhere\n")
+        under_file = self.repo / ".git" / "crux" / "results" / "report.md"
+        self.assertFalse(retained.is_retained_evidence_path(self.docs, under_file))
+        self.assertTrue(retained.is_retained_evidence_path(self.docs, self.holding / "report.md"))
+        with patch.object(Path, "lstat", side_effect=PermissionError("denied")):
+            with self.assertRaises(retained.RetainedEvidenceRefusal):
+                retained.is_retained_evidence_path(self.docs, self.repo / "src" / "source.py")
+
     def test_relative_paths_are_explicitly_docs_root_relative(self):
         relative = self.holding.relative_to(self.docs)
         self.assertTrue(retained.is_retained_evidence_path(self.docs, relative / "source.py"))

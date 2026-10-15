@@ -43,11 +43,13 @@ if HAVE_COUNCIL:
 DUMMY_KEY = "sk-or-test-dummy"
 REAL_REGISTRY = SCRIPTS / "crux" / "_config" / "llm_router_config.json"
 PINNED_TEXT = ("gpt-6-astra", "gpt-6.1-sol", "claude-fable-5.1", "claude-opus-5.5",
-               "claude-opus-5.5-xhigh", "gemini-3.1-pro-preview")
-#: The served-provider seeds, one per entry the round-1 council record seated, each the
-#: label that record observed for the entry's serving_providers pin.
+               "claude-opus-5.5-xhigh", "gemini-4-argon")
+#: The served-provider seeds, each the label observed for the entry's serving_providers
+#: pin. gpt-6-astra and claude-opus-5.5-xhigh carry the labels the PB-0136 round-1
+#: council record observed; gemini-4-argon carries the label PB-0153's live single-seat
+#: call observed (run notes R3), because that record never seated it.
 PROVIDER_SEEDS = {"gpt-6-astra": ["OpenAI"], "claude-opus-5.5-xhigh": ["Anthropic"],
-                  "gemini-3.1-pro-preview": ["Google AI Studio"]}
+                  "gemini-4-argon": ["Google AI Studio"]}
 #: What the gateway reports as `provider` for each vendor namespace.
 DISPLAY = {"openai": "OpenAI", "anthropic": "Anthropic", "google": "Google AI Studio"}
 
@@ -62,7 +64,8 @@ class ShippedRegistryTests(unittest.TestCase):
         self.config = real_registry()
 
     def test_the_version_names_this_schema_change(self):
-        self.assertEqual(self.config["version"], "4.2.0")
+        # 5.0.0 removed gemini-3.1-pro-preview, a major bump; 5.0.1 moves gemini-4-argon's prices.
+        self.assertEqual(self.config["version"], "5.0.1")
 
     def test_the_provider_sets_are_exactly_the_observed_seeds(self):
         declared = {k: v["accepted_served_providers"] for k, v in self.config["models"].items()
@@ -79,10 +82,34 @@ class ShippedRegistryTests(unittest.TestCase):
                 self.assertEqual(labels, [hosts[slug] for slug in pin])
 
     def test_the_changelog_cites_the_observing_record(self):
-        latest = self.config["_changelog"].split(" | ")[0]
-        self.assertIn("4.2.0", latest)
+        # The 4.2.0 entry, found by its version: later entries are prepended.
+        entry = next((e for e in self.config["_changelog"].split(" | ")
+                      if e.startswith("2026-10-01: 4.2.0.")), None)
+        self.assertIsNotNone(entry, "the 4.2.0 changelog entry is missing")
         self.assertIn("bionic/promptbooks/runs/PB-0136-separate-council-deliberation-from-independent/"
-                      "council/RUN-001-p2-r1.json", latest)
+                      "council/RUN-001-p2-r1.json", entry)
+
+    def test_the_latest_changelog_entry_records_the_argon_price_move(self):
+        latest = self.config["_changelog"].split(" | ")[0]
+        self.assertTrue(latest.startswith("2026-10-15: 5.0.1."), latest[:40])
+        for phrase in ("gemini-4-argon", "2026-12-01", "$4", "$20", "$0.20"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, latest)
+
+    def test_the_5_0_0_changelog_entry_records_the_argon_move(self):
+        # Found by its version: later entries are prepended.
+        latest = next((e for e in self.config["_changelog"].split(" | ")
+                       if e.startswith("2026-10-13: 5.0.0.")), None)
+        self.assertIsNotNone(latest, "the 5.0.0 changelog entry is missing")
+        for phrase in ("gemini-4-argon", "gemini-3.1-pro-preview", "research/sources/gemini-4-argon;",
+                       "research/sources/gemini-4-argon-migration",
+                       "deliberate compatibility break", "never aliased"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, latest)
+        # Google's pages do not contradict the relayed 32768 cap: their 32K limit is a
+        # different API's figure, so the entry says where it applies.
+        self.assertNotIn("captured pages contradict it", latest)
+        self.assertIn("32K per non-streaming request", latest)
 
     def test_the_unobserved_pinned_entries_are_not_council_eligible(self):
         # Fail-closed: a pinned entry with no observed label declares no set.
@@ -136,9 +163,9 @@ class ShippedRegistryTests(unittest.TestCase):
                     self.assertNotIn("accepted_served_models", entry)
 
     def test_the_loader_reads_the_sets_and_the_tombstones(self):
-        self.assertEqual(llm_caller.get_model_config("gemini-3.1-pro-preview")
-                         .accepted_served_models, ("google/gemini-3.1-pro-preview",))
-        self.assertEqual(llm_caller.get_model_config("gemini-3.1-pro-preview")
+        self.assertEqual(llm_caller.get_model_config("gemini-4-argon")
+                         .accepted_served_models, ("google/gemini-4-argon",))
+        self.assertEqual(llm_caller.get_model_config("gemini-4-argon")
                          .accepted_served_providers, ("Google AI Studio",))
         self.assertIsNone(llm_caller.get_model_config("claude-sonnet-5.5")
                           .accepted_served_providers)
@@ -149,17 +176,17 @@ class ShippedRegistryTests(unittest.TestCase):
     def test_the_three_gate_roles_are_eligible_today(self):
         self.assertEqual(validate_gate_assignment(), {
             "openai_top": "gpt-6-astra", "anthropic_top": "claude-opus-5.5-xhigh",
-            "google_top": "gemini-3.1-pro-preview"})
+            "google_top": "gemini-4-argon"})
 
-    #: Every role as the 4.1.0 registry holds it, copied from the file. A role that
+    #: Every role as the 5.0.0 registry holds it, copied from the file. A role that
     #: moves fails this test.
     PINNED_ROLES = {
-        "google_top": "gemini-3.1-pro-preview",
+        "google_top": "gemini-4-argon",
         "google_fast": "gemini-3.5-flash",
         "anthropic_top": "claude-opus-5.5-xhigh",
         "anthropic_balanced": "claude-opus-5.5",
         "openai_top": "gpt-6-astra",
-        "council_default": ["gpt-6.1-sol", "gemini-3.1-pro-preview", "claude-opus-5.5-xhigh"],
+        "council_default": ["gpt-6.1-sol", "gemini-4-argon", "claude-opus-5.5-xhigh"],
         "council_arbiter": "claude-opus-5.5-xhigh",
         "release_docs": "claude-sonnet-5.5",
     }
@@ -443,7 +470,7 @@ class GateRefusalTests(TempRegistry):
             del config["models"]["claude-opus-5.5-xhigh"]["accepted_served_providers"]
 
         def empty_provider_set(config):
-            config["models"]["gemini-3.1-pro-preview"]["accepted_served_providers"] = []
+            config["models"]["gemini-4-argon"]["accepted_served_providers"] = []
 
         def two_roles_one_namespace(config):
             # gpt-6.1-sol declares no provider set; give it one so the namespace
@@ -458,7 +485,7 @@ class GateRefusalTests(TempRegistry):
             del config["model_roles"]["google_top"]
 
         def non_string_role(config):
-            config["model_roles"]["google_top"] = ["gemini-3.1-pro-preview"]
+            config["model_roles"]["google_top"] = ["gemini-4-argon"]
 
         def tombstone_present_in_models(config):
             config["retired_models"].append("gpt-6-astra")
@@ -485,7 +512,7 @@ class GateRefusalTests(TempRegistry):
             "model-set-but-no-provider-set": (no_provider_set, "refused-assignment",
                                               ["anthropic_top", "claude-opus-5.5-xhigh"]),
             "model-set-but-empty-provider-set": (empty_provider_set, "refused-assignment",
-                                                 ["google_top", "gemini-3.1-pro-preview"]),
+                                                 ["google_top", "gemini-4-argon"]),
             "unseeded-seat": (unseeded_seat, "refused-assignment", ["openai_top", "gpt-6.1-sol"]),
             "unknown-key": (self.point("openai_top", "no-such-model"),
                             "refused-assignment", ["no-such-model"]),
@@ -748,7 +775,7 @@ class GateRefusalTests(TempRegistry):
         counter = Counter()
         config = gate_config(counter)
         self.assertEqual((config.openai_model, config.anthropic_model, config.gemini_model),
-                         ("gpt-6-astra", "claude-opus-5.5-xhigh", "gemini-3.1-pro-preview"))
+                         ("gpt-6-astra", "claude-opus-5.5-xhigh", "gemini-4-argon"))
 
 
 

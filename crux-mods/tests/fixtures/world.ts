@@ -26,8 +26,9 @@ export type Opts = {
   ownVersion?: string
   // `throw` for a plugin.json of this mod that cannot be read.
   ownRead?: 'throw'
-  // The reader process: a result, or `throw` for a process that cannot start.
-  reader?: Reader | 'throw'
+  // The reader process: a result, `throw` for a process that cannot start, or `timeout` for one
+  // still running at the launch's timeout.
+  reader?: Reader | 'throw' | 'timeout'
   // Successive reader results, the last repeating; overrides `reader`.
   readers?: Reader[]
   // `throw` for an agent list the engine cannot answer.
@@ -97,6 +98,11 @@ export function install(on: any, o: Opts = {}): World {
     w.runs.push({ argv: [...e.argv], init: e.init })
     const r = o.readers !== undefined ? o.readers[Math.min(w.runs.length - 1, o.readers.length - 1)]! : (o.reader ?? { exitCode: 0, stdout: '' })
     if (r === 'throw') throw new Error('cannot start')
+    // A hook that throws counts as absent: the call falls to the kit's floor, which rejects with its
+    // own message. The kit does not enforce timeoutMs either. A `{ deny }` answer rejects the mod's
+    // call with a message that ends with the reason. So the timeout is a deny in the wording Claude
+    // Code rejects with at the launch's own timeoutMs, observed in 2.1.296 and unchanged in 2.1.299.
+    if (r === 'timeout') return { deny: `aborted: still running after ${e.init?.timeoutMs}ms` } as any
     if (r.delayMs !== undefined) await clock.sleep(r.delayMs)
     return { value: { exitCode: r.exitCode, stdout: r.stdout, stderr: r.stderr ?? '', isStdoutTruncated: r.truncated === true, isStderrTruncated: false } } as any
   })
@@ -137,5 +143,43 @@ export function texts(tree: unknown): string[] {
   return out
 }
 
+// Every drawn Text with its string and the three style props the mod draws with: bold,
+// dimColor and color. A string with no style prop reads as plain. A Text that holds only
+// nested Texts is a wrapper: the nested Texts are listed in its place.
+export type Styled = { text: string; bold: boolean; dim: boolean; color: string | undefined }
+
+export function styled(tree: unknown): Styled[] {
+  const out: Styled[] = []
+  const walk = (n: unknown) => {
+    if (n === null || typeof n !== 'object') return
+    if (Array.isArray(n)) {
+      n.forEach(walk)
+      return
+    }
+    const o = n as Record<string, unknown>
+    const props = (o.props ?? {}) as Record<string, unknown>
+    if (o.type === 'Text') {
+      const kids = (Array.isArray(o.children) ? o.children : []).flat(Infinity)
+      const nested = kids.filter(k => k !== null && typeof k === 'object')
+      if (nested.length > 0 && !kids.some(k => typeof k === 'string')) {
+        walk(nested)
+        return
+      }
+      out.push({
+        text: kids.filter(k => typeof k === 'string').join(''),
+        bold: props.bold === true,
+        dim: props.dimColor === true,
+        color: typeof props.color === 'string' ? props.color : undefined,
+      })
+      return
+    }
+    walk(o.children)
+  }
+  walk(tree)
+  return out
+}
+
 export const BAND = { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 6 }, view: {} }
-export const PANE = { title: 'Dashboard', isFocused: false, bodyColumns: 100, placement: 'inline' as const, scroll: { offset: 0, bodyRows: 30 }, view: {} }
+// The pane docked beside the conversation, where it draws its full layout; a test of the mini
+// layout sets placement inline.
+export const PANE = { title: 'Dashboard', isFocused: false, bodyColumns: 100, placement: 'dock' as 'dock' | 'inline', scroll: { offset: 0, bodyRows: 30 }, view: {} }

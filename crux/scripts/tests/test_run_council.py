@@ -248,12 +248,12 @@ class RanRecordTests(_Base):
         self.assertEqual([s["role"] for s in doc["seats"]], ["openai_top", "anthropic_top", "google_top"])
         g = self.seat(doc, "google_top")
         self.assertEqual((g["registry_key"], g["requested_model"], g["provider_namespace"]),
-                         ("gemini-3.1-pro-preview", "google/gemini-3.1-pro-preview", "google"))
+                         ("gemini-4-argon", "google/gemini-4-argon", "google"))
         self.assertEqual((g["served_model"], g["served_provider"], g["generation_id"]),
-                         ("google/gemini-3.1-pro-preview", "Google AI Studio", "gen-google-1"))
+                         ("google/gemini-4-argon", "Google AI Studio", "gen-google-1"))
         self.assertEqual(g["serving_providers"], ["google-ai-studio"])
         self.assertEqual(g["attempts"], [{
-            "attempt": 1, "replied": True, "served_model": "google/gemini-3.1-pro-preview",
+            "attempt": 1, "replied": True, "served_model": "google/gemini-4-argon",
             "served_provider": "Google AI Studio", "generation_id": "gen-google-1",
             "finish_reason": "stop", "fault_label": None, "served_model_match": True,
             "served_provider_match": True}])
@@ -261,7 +261,7 @@ class RanRecordTests(_Base):
             self.assertEqual(len(seat["attempts"]), 1, seat["role"])
         self.assertEqual(len(gw.requests), 3)
         req = gw.request_for("google")
-        self.assertEqual(req["model"], "google/gemini-3.1-pro-preview")
+        self.assertEqual(req["model"], "google/gemini-4-argon")
         self.assertEqual(req["provider"]["only"], ["google-ai-studio"])
         self.assertEqual({p["max_tokens"] for p in gw.requests}, {64000})
         self.assertEqual(doc["registry"]["version"], json.loads(Path(llm_caller.CONFIG_PATH).read_text())["version"])
@@ -289,13 +289,26 @@ class RanRecordTests(_Base):
         self.assertEqual([s["role"] for s in summary["seats"]], ["openai_top", "anthropic_top", "google_top"])
         g = summary["seats"][2]
         self.assertEqual((g["registry_key"], g["requested_model"], g["served_model"], g["decision"],
-                          g["errored"]), ("gemini-3.1-pro-preview", "google/gemini-3.1-pro-preview",
-                                          "google/gemini-3.1-pro-preview", "APPROVE", False))
+                          g["errored"]), ("gemini-4-argon", "google/gemini-4-argon",
+                                          "google/gemini-4-argon", "APPROVE", False))
 
     def test_max_tokens_and_the_timeout_are_taken_from_the_command_line(self):
         rc, _, _, gw = self.run_main(self.argv("--max-tokens", "1234", "--timeout", "30"))
         self.assertEqual(rc, 0)
         self.assertEqual({p["max_tokens"] for p in gw.requests}, {1234})
+
+    def test_max_tokens_above_the_smallest_seat_cap_is_refused_before_any_call(self):
+        # gemini-4-argon's 65,536-token cap is the smallest seat cap, and Google returns 400 above it.
+        rc, out, err, gw = self.run_main(self.argv("--max-tokens", "65537"))
+        self.assertEqual((rc, gw.requests, self.records(), self.attempts()), (2, [], [], []), err)
+        self.assertIn("--max-tokens 65537", err)
+        self.assertIn("65536 (gemini-4-argon)", err)
+
+    def test_max_tokens_at_the_smallest_seat_cap_is_sent(self):
+        # Positive control: the cap itself is allowed and reaches every seat.
+        rc, _, err, gw = self.run_main(self.argv("--max-tokens", "65536"))
+        self.assertEqual(rc, 0, err)
+        self.assertEqual({p["max_tokens"] for p in gw.requests}, {65536})
 
     def test_the_prompt_defaults_to_the_runs_current_prompt(self):
         rc, *_ = self.run_main(self.argv(prompt=None))
@@ -1410,7 +1423,7 @@ class AssignmentFaultTests(_RegistryBase):
                 rc, _, _, gw = self.run_main(self.argv(round_=2))
                 self.assertEqual((rc, gw.requests), (1, []))
                 path, doc = self.newest_record()
-                self.defer(doc, "refused-assignment", ["google_top", "gemini-3.1-pro-preview"])
+                self.defer(doc, "refused-assignment", ["google_top", "gemini-4-argon"])
                 self.assertEqual(doc["round"], 2)
 
     def test_an_entry_with_no_accepted_served_model_set_refuses_the_council(self):
@@ -1643,7 +1656,7 @@ class EscapedSeatFaultRecordTests(_Base):
         _, doc = self.only_record()
         google = self.seat(doc, "google_top")
         self.assertTrue(google["errored"])
-        self.assertEqual(google["registry_key"], "gemini-3.1-pro-preview")
+        self.assertEqual(google["registry_key"], "gemini-4-argon")
         self.assertEqual(doc["errored_seats"][0]["role"], "google_top")
         self.assertTrue(doc["degraded"])
         # Positive control: the same run without the escaped fault errors no seat (round 2).
@@ -1856,7 +1869,9 @@ class UnnormalisedPathTests(_CliBase):
         self.assertEqual(json.loads(proc.stdout)["refusal_reason"]["code"], "no-key")
 
 
-class HelpTextTests(unittest.TestCase):
+class HelpTextSubprocessTests(unittest.TestCase):
+    """`run-council.py --help`, read as a user's shell prints it."""
+
     def help_text(self) -> str:
         proc = subprocess.run([sys.executable, str(RUN_COUNCIL), "--help"], capture_output=True, text=True,
                               env=sup.scrubbed_env())
@@ -1866,7 +1881,8 @@ class HelpTextTests(unittest.TestCase):
     def test_max_tokens_help_explains_its_default(self):
         text = self.help_text()
         for phrase in ("per-seat output-token cap for one reply", "The default 64000 is twice the council "
-                       "library's own default of 32000", "a truncated seat fault and is retried once"):
+                       "library's own default of 32000", "a truncated seat fault and is retried once",
+                       "above the smallest seat's output cap in the router registry is refused before any call"):
             self.assertIn(phrase, text)
 
     def test_round_help_states_the_round_rule(self):
@@ -1888,7 +1904,7 @@ class HelpTextTests(unittest.TestCase):
 
     def test_the_help_documents_recovery(self):
         text = self.help_text()
-        self.assertIn("run-council.py --recover <run-RUN-NNN.yaml> [--prompt N] [--book B] [--probe] "
+        self.assertIn("run-council.py --recover <run-RUN-NNN.yaml> --prompt <n> [--book B] [--probe] "
                       "[--owner-commit-pending]", text)
         self.assertIn("makes no gateway request and reads no key", text)
 
@@ -1989,6 +2005,36 @@ class HelpTextTests(unittest.TestCase):
         self.assertIn("the per-seat-call deadline, in seconds", text)
         self.assertNotIn("per-attempt", text)
         self.assertNotIn("preflight record", text.replace("preflight could-not-run record", ""))
+
+
+def _seats_below(config: dict, limit: int) -> list:
+    """Every gate-seat or council_default registry key whose output cap is below `limit`.
+
+    A seat entry that declares no cap is reported too: the fit cannot be shown for it.
+    """
+    roles = config["model_roles"]
+    keys = [roles[r] for r in rc_mod.SEAT_ROLES] + list(roles["council_default"])
+    return sorted({k for k in keys if config["models"][k].get("max_output_tokens", 0) < limit})
+
+
+@unittest.skipUnless(HAVE_COUNCIL, "council/router deps unavailable — run under uv")
+class DefaultMaxTokensFitsEverySeatTests(unittest.TestCase):
+    """The runner sends DEFAULT_MAX_TOKENS to every seat, so no seat's cap may sit below it.
+
+    Google's pages cap a synchronous Gemini 4 Argon request at 65,536 tokens and return
+    400 above it; the runner's 64,000 default fits under that cap.
+    """
+
+    def setUp(self):
+        self.config = json.loads(Path(llm_caller.CONFIG_PATH).read_text())
+
+    def test_the_default_fits_under_every_seat_cap(self):
+        self.assertEqual(_seats_below(self.config, rc_mod.DEFAULT_MAX_TOKENS), [])
+
+    def test_a_seat_cap_below_the_default_is_caught(self):
+        # POSITIVE CONTROL: the 32,768 cap the owner-relayed notes proposed would fail.
+        self.config["models"]["gemini-4-argon"]["max_output_tokens"] = 32768
+        self.assertEqual(_seats_below(self.config, rc_mod.DEFAULT_MAX_TOKENS), ["gemini-4-argon"])
 
 
 if __name__ == "__main__":

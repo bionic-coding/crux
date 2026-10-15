@@ -61,7 +61,7 @@ REAL_REGISTRY = SCRIPTS / "crux" / "_config" / "llm_router_config.json"
 SEATS = {
     "openai": ("openai/gpt-6-astra", "OpenAI"),
     "anthropic": ("anthropic/claude-opus-5.5", "Anthropic"),
-    "gemini": ("google/gemini-3.1-pro-preview", "Google AI Studio"),
+    "gemini": ("google/gemini-4-argon", "Google AI Studio"),
 }
 #: Each seat's `serving_providers` pin slug, as the request sends it.
 PIN_SLUG = {"openai": "openai", "anthropic": "anthropic", "gemini": "google-ai-studio"}

@@ -1,7 +1,16 @@
 {
   "name": "crux-mods",
-  "description": "Opt-in Claude Code mods for crux: a run dashboard that shows the active promptbook run above the prompt and in a /crux-dashboard pane.",
-  "version": "3.29.0",
+  "description": "Opt-in Claude Code mods for crux: a run dashboard that shows the active promptbook run above the prompt and in a /crux-dashboard pane. crux-mods reads the text and origin kind of every prompt you submit, keeps none of it, and stops reading when read_prompts is off.",
+  "version": "3.31.1",
   "homepage": "https://bionic-coding.com/crux/",
-  "author": { "name": "Bionic Coding" }
+  "author": { "name": "Bionic Coding" },
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "read_prompts": {
+      "type": "boolean",
+      "default": true,
+      "title": "Read prompts",
+      "description": "Read the text and origin kind of each prompt you submit, so that a request such as \"show the run\" opens the run dashboard pane. crux-mods keeps none of it. When off, crux-mods reads no prompt; the band, the pane and /crux-dashboard keep working."
+    }
+  }
 }

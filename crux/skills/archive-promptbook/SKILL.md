@@ -172,7 +172,8 @@ In `docs/promptbooks/runs/<id>-<slug>/run-<current_run>.yaml`:
 
 ### 3. Move the active book file to archive
 
-- `git mv` (or `mv`) `docs/promptbooks/active/<id>-<slug>.yaml` → `docs/promptbooks/archive/<id>-<slug>.yaml`.
+- `git mv` `docs/promptbooks/active/<id>-<slug>.yaml` → `docs/promptbooks/archive/<id>-<slug>.yaml`. A plain `mv` leaves the archive path untracked, so do not use it.
+- `git mv` stages the removal of the old path. When you commit the archive, name the old active path only in `git commit -- <paths>`, never in `git add`: after the move it matches no file in the tree or the index, and `git add` exits 128.
 - The filename — including `<id>`, `<slug>`, and `.yaml` — does not change. Only the directory.
 - The book's run snapshots under `docs/promptbooks/runs/<id>-<slug>/` **stay where they are**. They are referenced by both active and archived paths via (extension-less) wiki-links; moving them would break references.
 

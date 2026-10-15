@@ -7,7 +7,7 @@ metadata:
   bundles: "crux-docs"
   risk_level: "low"
   requires_access: "write-tree"
-  triggers: "run promptbook | start promptbook | advance promptbook | next prompt | skip prompt | block on prompt | abandon this run | promptbook status | run status | visualize run progress | show run progress | how far along is PB-NNNN | progress of PB-NNNN | run progress bar/chart | where am I | where was I on PB-NNNN | resume my cycle | what's next on PB-NNNN | cycle status | how do I pick this run back up | how do I resume"
+  triggers: "show the run | run promptbook | start promptbook | advance promptbook | next prompt | skip prompt | block on prompt | abandon this run | promptbook status | run status | visualize run progress | show run progress | how far along is PB-NNNN | progress of PB-NNNN | run progress bar/chart | where am I | where was I on PB-NNNN | resume my cycle | what's next on PB-NNNN | cycle status | how do I pick this run back up | how do I resume"
   routing_note: "Start, advance, and abandon update run state and book pointers; status and terminal progress write nothing. Explicit Markdown writes a deterministic artifact and one promptbook log operation, without advancing."
 ---
 
@@ -134,5 +134,5 @@ The commander, dev-lead, developer and historian agent definitions, the cycle mo
 - "run promptbook", "start promptbook" → start.
 - "advance promptbook", "next prompt", "mark done", "skip prompt", "block on prompt" → advance.
 - "abandon this run" → abandon.
-- "visualize run progress", "show run progress", "cycle status", "where am I", "resume my cycle", "how do I resume" → status.
+- "show the run", "visualize run progress", "show run progress", "run status", "promptbook status", "cycle status", "where am I", "resume my cycle", "how do I resume" → status.
 - Author a book with `author-promptbook`; archive a completed book with `archive-promptbook`.

@@ -1398,6 +1398,26 @@ def _positive_int(text: str) -> int:
     return value
 
 
+def _check_max_tokens(max_tokens: int) -> None:
+    """Refuse a per-seat cap above the smallest seat's output cap in the router registry.
+
+    A request above a model's output cap returns HTTP 400 (Google's pages say so for
+    gemini-4-argon at 65,536), so the round would lose that seat to a fault it cannot retry.
+    A registry that cannot name the seats or their caps is left to the assignment check, which
+    refuses it with a record.
+    """
+    try:
+        cap, key = min((llm_caller.get_model_config(k).max_output_tokens, k)
+                       for k in (llm_caller.get_default_model(role) for role in SEAT_ROLES))
+    except Exception:  # noqa: BLE001 - any registry fault belongs to the assignment check
+        return
+    if not isinstance(cap, int) or isinstance(cap, bool):
+        return
+    if max_tokens > cap:
+        raise Fatal(f"--max-tokens {max_tokens} is above the smallest seat output cap, {cap} ({key}); "
+                    f"a larger request returns HTTP 400, so pass at most {cap}")
+
+
 def _positive_float(text: str) -> float:
     try:
         value = float(text)
@@ -1467,7 +1487,8 @@ def _parser() -> argparse.ArgumentParser:
                          f"{DEFAULT_MAX_TOKENS} is twice the council library's own default of 32000, "
                          "so a long reply from a reasoning model is not cut off. A reply that stops "
                          "on the cap is a truncated seat fault and is retried once; raise this value "
-                         "when you see one.")
+                         "when you see one. A value above the smallest seat's output cap in the router "
+                         "registry is refused before any call, because that seat's provider returns HTTP 400.")
     ap.add_argument("--timeout", type=_positive_float, default=DEFAULT_TIMEOUT,
                     help=f"the per-seat-call deadline, in seconds (default {DEFAULT_TIMEOUT:g})")
     return ap
@@ -1661,6 +1682,7 @@ def main(argv: list[str] | None = None, *, transport: Any = None) -> int:
         # the first git child, and not at the first commit with a claim left uncommitted.
         council_commit.git_child_env()
         args = _parser().parse_args(argv)
+        _check_max_tokens(args.max_tokens)
         return _run(args, key, transport)
     except SystemExit as exc:
         return int(exc.code) if isinstance(exc.code, int) else 2

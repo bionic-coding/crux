@@ -505,10 +505,14 @@ class AsyncCouncil:
     _SEAT_ORDER = ("openai", "anthropic", "gemini")
     _SEAT_LABELS = {"openai": "OpenAI", "anthropic": "Anthropic", "gemini": "Gemini"}
 
+    #: The two qualified approvals are offered only where the question puts them on its
+    #: scale, so `conditioned` still fires only when the caller asks for it (ADR-0141).
     _VOTE_JSON_INSTRUCTION = (
         '\n\nRespond with valid JSON: {"decision": "APPROVE"|"REJECT"|"DEFER_TO_HUMAN", '
         '"confidence": 0.0-1.0, "dissents": [{"point": "...", "severity": '
-        '"critical"|"high"|"medium"|"low"}], "reasoning": "..."}'
+        '"critical"|"high"|"medium"|"low"}], "reasoning": "..."} '
+        'The decision may instead be "APPROVE_WITH_CONDITIONS" or "APPROVE_WITH_NITS" '
+        'when the question offers that token.'
     )
 
     _VISION_JSON_INSTRUCTION = (

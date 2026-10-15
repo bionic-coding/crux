@@ -1,4 +1,4 @@
-<!-- generated-from: CHANGELOG.md@sha256:202376b4cf9daf7e461ba1c1a6095ab1ddc27f75320d602d025db0c279b30cfc; model: claude-sonnet-5.5; date: 2026-10-13 -->
+<!-- generated-from: CHANGELOG.md@sha256:2b845cddcd2d5176197fdd7daad590c71994da88c5a52d871d291a3a2f9d9cc6; model: claude-sonnet-5.5; date: 2026-10-15 -->
 # Changelog
 
 All notable changes to crux. The format roughly follows [Keep a Changelog](https://keepachangelog.com/) and the project adheres to [Semantic Versioning](https://semver.org/).
@@ -12,6 +12,62 @@ All notable changes to crux. The format roughly follows [Keep a Changelog](https
 ### Fixed
 
 ### Removed
+
+## [3.31.1] — 2026-10-15
+
+### Added
+
+### Changed
+
+- The dashboard band's last-run line now reads as sentences and names crux, for example `CRUX: Last run <promptbook> RUN-001 completed 2h23m ago. Progress: 13/13. Time: 7h48m.` It replaces the old `last run … completed 2h23m ago 12/13 done  took 7h48m` format. Progress now counts every finished prompt, whether done, skipped or blocked, so a completed run reads 13/13.
+
+- The router registry now prices Gemini 4 Argon at Google's rates effective 2026-12-01: $4 input, $20 output and $0.20 cached input per 1M tokens. The change lands early, so until that date cost estimates for the council's Google seat run at twice the billed rate.
+
+### Fixed
+
+- `run-council.py --max-tokens` now refuses a value above the smallest council seat's output cap in the router registry. It does so before making any call or claim. Google's documentation states that a direct Gemini 4 Argon request above its cap of 65,536 output tokens returns HTTP 400. The default of 64,000 is unchanged.
+
+### Removed
+
+## [3.31.0] — 2026-10-15
+
+### Added
+
+- The `/crux-dashboard` pane now draws each run's prompts as lanes on one time axis, in each run panel and in the last-run panel, so you can see where the run's time went. A run with more than 100 prompts, or whose lanes would exceed the pane's size budget, shows `lanes withheld` instead. From 30 columns up, while the pane fits its size budget, a run's times and every prompt duration stay whole: the times wrap part by part, and a prompt row cuts its title first, then its module tag, and keeps its duration. A completed run shows its recorded times only.
+- The user guide's crux-mods section now has a "What it can reach" table and a "Shows / From" table, generated from the `crux-mods` capability manifest by a script in the development repository. The first table lists every event, call, environment variable and process the mod can reach, with what it sees and what it keeps. The second names the source of each part the band and the pane draw. In the development repository, the generator has a `--dry-run` drift check and refuses a manifest name that has no note. A change that alters a drawn part, a reader key, an event property the dashboard reads or the manifest's `notes.never` text must also declare the generator's test, and a change that adds a manifest name must add its note.
+- In Claude Code, typing `show the run`, `show run progress`, `visualize run progress`, `run status`, `promptbook status` or `cycle status` as a whole prompt now opens the `/crux-dashboard` pane. Every harness answers the same words through `run-promptbook`'s status route. An existing crux-mods install gains this hook through a routine update. crux-mods reads the text and origin kind of every prompt you submit, keeps none of it, and stops reading when the `read_prompts` setting in `/config` is off.
+- The approved reasoning for opening the pane from a typed phrase is recorded as reviewed intent in the development repository's promptbook records.
+
+### Changed
+
+- The dashboard band now adds a strip of one glyph per prompt, with `|` between modules and the current module's kind shown as a word.
+- The `/crux-dashboard` pane now draws a legend and a bordered panel for each run. Each run panel holds the prompt strip, a progress bar, the run's times and counts, the stall and escalation lines, and every prompt. A council grid (a row per seat, a column per council record) replaces the council and seat rows, a gate strip replaces the gate rows, and subagent rows follow. The pane no longer draws each seat's blocking and nit counts, each gate's evidence, or the kind, quorum, degraded flag and aggregate action of a council record older than the newest. The `/crux-dashboard` text answer still carries all of them.
+- The band and the pane now fit the width Claude Code reports, or 40 columns when it reports none. The pane drops its borders below 40 columns and draws two columns from 110. Inline above the prompt it draws at most 8 rows and names what it left out. A narrow band drops its least important segments first and keeps the stall and escalation signals to the last, and a status keeps its code and loses its prefix first.
+- Each dashboard colour is now a theme key, and a glyph or a word always says what the colour says. The dashboard also removes format, zero-width, invisible and tag characters from the text it draws. The `/crux-dashboard` text answer is unchanged.
+
+### Fixed
+
+- Reloading the crux-mods code, such as a `--plugin-dir` hot reload or `/reload-plugins` after an update, no longer blanks the dashboard band and the `/crux-dashboard` pane until the next reader run. The mod keeps its last reader result in Claude Code's session state under `crux-mods.current`; Claude Code holds that state in memory, writes it to no file, and lets other plugins in the session read it. In the development repository, the release check now compares the session state Claude Code lists with the capability manifest.
+- The dashboard band no longer misses a run-promptbook advance for up to 15 seconds. A Bash command that names a run file now refreshes the dashboard 1.5 seconds after it finishes, as a Write, Edit, MultiEdit or NotebookEdit of a run file already did. The user guide now says so.
+
+### Removed
+
+## [3.30.0] — 2026-10-13
+
+### Added
+
+### Changed
+
+- The run dashboard now shows what the run is doing and for how long. The band names the current prompt and its elapsed time. It flags a run file unchanged for 20 minutes while this session lists no subagent. It flags a council loop that recorded three rounds without converging, where a further round needs an owner exception. It also shows the last completed run for 48 hours after it ends. The `/crux-dashboard` pane adds each prompt's start, end and duration, the last run's summary with control and bidirectional characters removed, and a bold `▸` marker on the current prompt. The text answer adds the reader's clock, run and prompt times, each council's convergence and the escalation lines.
+- Breaking: the reader's JSON format version is now 2. crux and crux-mods must be at the same version, and a crux-mods that meets another format version reports `reader-format-mismatch`. The terminal and Markdown views are unchanged.
+- The approved reasoning behind the dashboard timing, stall and last-run change is recorded as reviewed intent in the development repository.
+- The council's Google seat (`google_top` and `council_default`) now runs `google/gemini-4-argon`, pinned to Google AI Studio with a 65,536-token output limit. crux sends no temperature to it, because Google ignores sampling parameters for this model. The model registry is now version 5.0.0. The change followed a diagnosis made on 2026-10-13.
+
+### Fixed
+
+### Removed
+
+- The `gemini-3.1-pro-preview` registry entry. The key is retired and never aliased, so a caller that names it now gets "Unknown model". Name `gemini-4-argon` instead.
 
 ## [3.29.0] — 2026-10-13
 

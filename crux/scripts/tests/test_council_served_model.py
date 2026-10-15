@@ -47,7 +47,7 @@ DUMMY_KEY = "sk-or-test-dummy"
 SERVED = {  # the registry's api_strings, as the gateway reports them
     "openai/gpt-6-astra": "OpenAI",
     "anthropic/claude-opus-5.5": "Anthropic",
-    "google/gemini-3.1-pro-preview": "Google AI Studio",
+    "google/gemini-4-argon": "Google AI Studio",
 }
 GOOD_VOTE = json.dumps({"decision": "APPROVE", "confidence": 0.9, "reasoning": "ok",
                         "findings": []})
@@ -99,9 +99,9 @@ class ParseProvenanceTests(unittest.TestCase):
 
     def test_present_values_are_kept(self):
         reply = parse_gateway_reply(
-            self.body(model="google/gemini-3.1-pro-preview", provider="Google AI Studio",
+            self.body(model="google/gemini-4-argon", provider="Google AI Studio",
                       id="gen-abc"), "m")
-        self.assertEqual(reply.served_model, "google/gemini-3.1-pro-preview")
+        self.assertEqual(reply.served_model, "google/gemini-4-argon")
         self.assertEqual(reply.served_provider, "Google AI Studio")
         self.assertEqual(reply.generation_id, "gen-abc")
 
@@ -170,6 +170,16 @@ class CheckServedTests(unittest.TestCase):
         for served in ("g/m-20260903", "G/M", "g/m ", "g/", "g/m:free", "gm"):
             with self.subTest(served=served), self.assertRaises(ServedModelMismatchError):
                 check_served(cfg, self.reply(served))
+
+    def test_the_gemini_seat_refuses_its_dated_slug(self):
+        # The listing's canonical slug for the Gemini seat is dated. The gate
+        # accepts only the undated api_string, so a served dated slug fails.
+        from crux.core import llm_caller
+        cfg = llm_caller.get_model_config("gemini-4-argon")
+        with self.assertRaises(ServedModelMismatchError):
+            check_served(cfg, self.reply("google/gemini-4-argon-20261013"))
+        # POSITIVE CONTROL: the same entry accepts its undated api_string.
+        self.assertIsNone(check_served(cfg, self.reply("google/gemini-4-argon")))
 
     def test_absent_served_model_is_refused(self):
         with self.assertRaises(ServedModelMismatchError):

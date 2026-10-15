@@ -80,6 +80,7 @@ Run each command below from the repo root — **both tables**: the roster gates 
 | `<docs_dir>/adrs/reviews/index.md` | project | `generate-reviews-index.py --dry-run` | `generate-reviews-index.py` |
 | `<docs_dir>/journal/index.md` | project | `generate-journal-index.py --dry-run` | `generate-journal-index.py` |
 | `crux/catalog/rules.json` (the rules the plugin ships) | plugin-authoring | `generate-rules-catalog.py --dry-run` | `generate-rules-catalog.py` |
+| `USER_GUIDE.md` crux-mods reach-table region | plugin-authoring | `generate-mods-reach-tables.py --dry-run` | `generate-mods-reach-tables.py` |
 
 > **This row's gate answers two questions, and only one of them is drift.** Beside the byte comparison it checks PUBLICATION ELIGIBILITY: every slug cited on a shipped surface must resolve to a source record whose decision has been accepted.[^pubelig] A refusal exits 1 with a `validation_errors` list rather than a `drift` key, and each row names the citing path, the citation, the source record, its raw status and the reason. **File such a row BROKEN, never DRIFT, and do not name the regenerator as its remedy** — re-running it refuses again. The remedy depends on the row's reason: accept a Proposed decision; for a Deprecated or Superseded one, migrate the citation to the rule that displaced it or remove it; an observation-backed rule needs an owner decision before it can ship. A status change moves no byte of the catalog, so a row reported clean by byte comparison alone would be a false green here.
 
@@ -102,9 +103,10 @@ These answer real questions and are executed by the same runner, but they regene
 verdict about this project and a verdict about the plugin. A `project` row's output lives in the
 documentation tree, so its gate measures the project wherever the plugin is installed. A
 `plugin-authoring` row's output lives in the plugin's own source checkout — the catalogs, the
-`opencode/` projection, the plugin `README.md` footer, and the writing-rules, routing-table and
-runtime-compatibility regions. **Every one of those eight roster rows is inapplicable in a consuming
-project, and its gate reports so itself:** exit 0 with `"surface_absent": true` and a `reason`, having
+`opencode/` projection, the plugin `README.md` footer, and the writing-rules, routing-table,
+runtime-compatibility and crux-mods reach-table regions. **Every one of those nine roster rows is
+inapplicable in a consuming project, and its gate reports so itself:** exit 0 with
+`"surface_absent": true` and a `reason`, having
 written nothing. Report those rows N/A with the reason, never as clean and never as broken.
 
 Run the whole roster every time. Do not decide in advance which rows apply — the gate is what
@@ -165,7 +167,7 @@ no evidence         <E>   rows whose gate exited 0 having inspected ZERO configu
 
 **Count ROWS, not commands.** The unit is the repo-root roster row, because that is what
 membership means; one command may cover several rows (`validate-catalog.py` covers both
-`skills.json` and `agents.json`, so the step-1 table runs sixteen commands over seventeen
+`skills.json` and `agents.json`, so the step-1 table runs seventeen commands over eighteen
 rows). Attribute a command's verdict to every row it covers, or the identity below fails
 for a reason that has nothing to do with drift.
 
