@@ -1,6 +1,7 @@
 import { test, expect } from 'claude-code/testing'
 import { capabilities } from '../hooks/capabilities.ts'
-import { LAUNCH_CODES, SLOW_CODES, classifyFinished, classifyRejection, isSlow, ownMarketplace } from '../hooks/lib/launch.ts'
+import { SLOW_CODES, classifyFinished, isSlow } from '../hooks/lib/launch.ts'
+import { LAUNCH_CODES, classifyRejection, ownMarketplace } from '../hooks/lib/claude.ts'
 import { READER_ERROR_CODES } from '../hooks/lib/view.ts'
 import { READER_OK, readerError } from './fixtures/reader-output.ts'
 import { install, baseEnv, baseRecord, CRUX, UV } from './fixtures/world.ts'
@@ -103,11 +104,17 @@ test('the refusals above are not vacuous: the baseline machine starts the reader
   expect(text.includes('status ok')).toBe(true)
 })
 
-for (const name of capabilities.launch.loader_vars) {
-  test(`refuses a session with ${name} set: loader-var-set`, async ($, on) => {
-    const { w, text } = await ask($, on, { env: { ...baseEnv, [name]: '/evil/lib' } })
-    expect(text).toContain('status loader-var-set')
-    expect(w.runs.length).toBe(0)
+// The names are a literal list: the manifest no longer declares loader variables.
+for (const name of ['LD_LIBRARY_PATH', 'DYLD_LIBRARY_PATH', 'LD_PRELOAD']) {
+  test(`a session with ${name} set still starts the reader: status ok`, async ($, on) => {
+    const { w, text } = await ask($, on, { env: { ...baseEnv, [name]: '/opt/lib' } })
+    expect(text).toContain('status ok')
+    expect(w.runs.length).toBe(1)
+    const argv = w.runs[0]!.argv
+    expect(argv).toEqual(expectedArgv)
+    expect(argv[0]).toBe('/usr/bin/env')
+    expect(argv[1]).toBe('-i')
+    expect(argv.some(a => a.includes(name))).toBe(false)
   })
 }
 
@@ -258,9 +265,9 @@ test('the refresh backs off after the reader runs out of time, by either clock',
 test('a reader the kernel stopped at its CPU limit is reader-cpu-limit', () => {
   // uv exits 128 + the signal number when its child dies by a signal; SIGXCPU is 24 on
   // Darwin and Linux, and uv 0.12.24 was observed exiting 152 for a reader stopped there.
-  const dead = { exitCode: 152, stdout: '', stderr: '', isStdoutTruncated: false }
+  const dead = { exit: 152, stdout: '', stderr: '', truncated: false }
   expect(classifyFinished(dead)).toEqual({ ok: false, code: 'reader-cpu-limit' })
   // Positive controls: another exit code, or a JSON answer, is not a CPU-limit stop.
-  expect(classifyFinished({ ...dead, exitCode: 1 })).toEqual({ ok: false, code: 'reader-failed' })
+  expect(classifyFinished({ ...dead, exit: 1 })).toEqual({ ok: false, code: 'reader-failed' })
   expect(classifyFinished({ ...dead, stdout: '{"ok": false}' })).toEqual({ ok: true, stdout: '{"ok": false}' })
 })

@@ -11,7 +11,7 @@
 // safeText, then a cut to a display width.
 import type { Agents, Council, Escalation, Gate, Parsed, Prompt, ReaderView, RunView, Time } from './view.ts'
 import {
-  COUNCIL_KINDS, ESCALATION_NOTE, MAX_SHOWN_RUNS, QUIET, ROUTE_ACTIONS, RUN_STATUS, STALL_NOTE, STATES, bandRun, counted, currentEscalation,
+  COUNCIL_KINDS, ESCALATION_NOTE, MAX_SHOWN_RUNS, QUIET, ROUTE_ACTIONS, RUN_STATUS, STATES, bandRun, counted, currentEscalation,
   currentPrompt, escalationText, laneCells, lastRunAge, openElapsed, promptBounds, promptSpan, runAxis, runTimes, safeText, stallIdle,
 } from './view.ts'
 import { ELLIPSIS, MAX_WIDTH, cells, drawingWidth, fit, head, wrap } from './width.ts'
@@ -498,7 +498,7 @@ const escalationShort = (e: Escalation) => `escalation p${e.prompt} r${e.round}`
 // rows, the lanes or the withheld word, the counts, the stall and the escalations with their notes,
 // every prompt, and the refused files. In phase1 mode the times stand on one row and each prompt row
 // is cut at its tail, with no lane output.
-export function runLines(r: RunView, v: ReaderView, ag: Agents, live: boolean, n: number, lanes: LaneMode = 'draw'): Line[] {
+export function runLines(r: RunView, v: ReaderView, ag: Agents, live: boolean, n: number, harness: Harness, lanes: LaneMode = 'draw'): Line[] {
   const room = lanes === 'phase1' ? Infinity : n
   const lines: Line[] = [headerLine(r)]
   const strip = stripLine(r, n)
@@ -510,7 +510,7 @@ export function runLines(r: RunView, v: ReaderView, ag: Agents, live: boolean, n
   const idle = live ? stallIdle(r, v.now_s, ag) : null
   if (idle !== null) {
     lines.push([span(stallFull(idle), { color: 'error' })])
-    lines.push(...dimLines(wrapWords(STALL_NOTE, n)))
+    lines.push(...dimLines(wrapWords(harness.stallNote, n)))
   }
   if (live) {
     for (const e of r.escalations) lines.push([span(escalationText(e), { color: 'error' })])
@@ -570,9 +570,9 @@ function wrapLine(line: Line, n: number): Line[] {
 
 // The run panel's rows when no run is listed: the last run with its summary, or the one sentence
 // that says why it is not shown. Nothing in target mode with no listed run.
-export function idleLines(v: ReaderView, ag: Agents, n: number, lanes: LaneMode = 'draw'): Line[] {
+export function idleLines(v: ReaderView, ag: Agents, n: number, harness: Harness, lanes: LaneMode = 'draw'): Line[] {
   const r = v.last_completed
-  if (r !== null) return [[span(lastRunTitle(v), { bold: true })], ...runLines(r, v, ag, false, n, lanes), ...summaryLines(r.summary, r.summary_truncated, n)]
+  if (r !== null) return [[span(lastRunTitle(v), { bold: true })], ...runLines(r, v, ag, false, n, harness, lanes), ...summaryLines(r.summary, r.summary_truncated, n)]
   const sentence = idleSentence(v)
   return sentence === null ? [] : wrapLine(sentence, n)
 }
@@ -602,7 +602,12 @@ export const PANEL_BORDER: ThemeKey = 'subtle'
 // The band draws this gap between segments.
 export const SEGMENT_GAP = '  '
 
-const BAND_STATUS = 'crux-mods dashboard: '
+// The values the importing package passes in: the prefix of the band's status line, which says
+// which plugin drew it, and the note under a stalled run, which says what the agent list cannot see.
+export type Harness = { bandPrefix: string; stallNote: string }
+// The pane's two layouts: a short one for a small region, and the full one.
+export type PaneLayout = 'mini' | 'docked'
+
 const PANE_STATUS = 'Dashboard unavailable: '
 
 const lineBlock = (line: Line, n: number): Block => ({ kind: 'line', line: merged(fitLine(line, n)) })
@@ -678,9 +683,9 @@ export function lanesAdmitted(words: Size, gains: Size[], budget: Size = LANE_BU
 // The docked pane with the lanes the budget admits. The drawing with every shown run's lanes stands
 // when it fits. Otherwise each run's gain is measured at its own panel's inner width, and the pane is
 // drawn again with the lanes lanesAdmitted keeps, or in phase1 mode when it keeps none.
-function budgeted(v: ReaderView, ag: Agents, w: number): Block {
+function budgeted(v: ReaderView, ag: Agents, w: number, harness: Harness): Block {
   const widths: number[] = []
-  const all = docked(v, ag, w, (i, n) => {
+  const all = docked(v, ag, w, harness, (i, n) => {
     widths[i] = n
     return 'draw'
   })
@@ -690,21 +695,21 @@ function budgeted(v: ReaderView, ag: Agents, w: number): Block {
   const rows = (lines: Line[], n: number) => lines.reduce((t: Size, l) => plus(t, blockSize(lineBlock(l, n))), { units: 0, nodes: 0 })
   const gains = shown.map((r, i) => minus(rows(laneLines(r, v.now_s, widths[i]!, 'draw'), widths[i]!), rows(laneLines(r, v.now_s, widths[i]!, 'withhold'), widths[i]!)))
   const k = lanesAdmitted(gains.reduce(minus, size), gains)
-  return docked(v, ag, w, i => (k < 0 ? 'phase1' : i < k ? 'draw' : 'withhold'))
+  return docked(v, ag, w, harness, i => (k < 0 ? 'phase1' : i < k ? 'draw' : 'withhold'))
 }
 
 // --- the pane ---------------------------------------------------------------------------------------
 
-// The pane at its reported width and placement. Placement inline draws the mini layout; any other
-// placement draws one column, and two from TWO_COLUMNS_MIN. A status is the first and only row.
-export function pane(p: Parsed, ag: Agents, cols: unknown, placement: unknown): Block {
+// The pane at its reported width and layout. The mini layout draws a few rows; the docked layout
+// draws one column, and two from TWO_COLUMNS_MIN. A status is the first and only row.
+export function pane(p: Parsed, ag: Agents, cols: unknown, layout: PaneLayout, harness: Harness): Block {
   const w = drawingWidth(cols)
   if (!p.ok) return columnBox(w, [lineBlock(statusLine(PANE_STATUS, p.code, w), w)])
-  return placement === 'inline' ? mini(p.view, ag, w) : budgeted(p.view, ag, w)
+  return layout === 'mini' ? mini(p.view, ag, w) : budgeted(p.view, ag, w, harness)
 }
 
 // `lanes` says what each shown run's panel draws on the time axis, given the panel's inner width.
-function docked(v: ReaderView, ag: Agents, w: number, lanes: (i: number, n: number) => LaneMode): Block {
+function docked(v: ReaderView, ag: Agents, w: number, harness: Harness, lanes: (i: number, n: number) => LaneMode): Block {
   const bordered = w >= BORDER_MIN
   const listed = v.runs.slice(0, MAX_SHOWN_RUNS)
   const shown = listed.length > 0 ? listed : v.last_completed !== null ? [v.last_completed] : []
@@ -714,10 +719,10 @@ function docked(v: ReaderView, ag: Agents, w: number, lanes: (i: number, n: numb
   const runBlocks = (width: number): Block[] => {
     const out: Block[] = []
     if (listed.length === 0) {
-      const idle = idleLines(v, ag, inner(width), lanes(0, inner(width)))
+      const idle = idleLines(v, ag, inner(width), harness, lanes(0, inner(width)))
       if (idle.length > 0) out.push(panel(idle, width, bordered))
     }
-    listed.forEach((r, i) => out.push(panel(runLines(r, v, ag, true, inner(width), lanes(i, inner(width))), width, bordered)))
+    listed.forEach((r, i) => out.push(panel(runLines(r, v, ag, true, inner(width), harness, lanes(i, inner(width))), width, bordered)))
     if (v.runs.length > listed.length) out.push(lineBlock(moreRuns(v.runs.length - listed.length), width))
     return out
   }
@@ -876,8 +881,8 @@ function fitSegments(items: BandItem[], w: number): Segment[] {
 // line in place of the run; the two quiet statuses keep it empty. With no listed run the band shows
 // the last run for 48 hours after it completed, or the refusal when the reader refused a run.
 // The last run's progress counts every terminal prompt (done, skipped or blocked), because the run finished.
-export function bandSegments(p: Parsed, ag: Agents, w: number): Segment[] | null {
-  if (!p.ok) return QUIET.includes(p.code) ? null : [{ name: 'status', line: statusLine(BAND_STATUS, p.code, w, { dim: true }) }]
+export function bandSegments(p: Parsed, ag: Agents, w: number, harness: Harness): Segment[] | null {
+  if (!p.ok) return QUIET.includes(p.code) ? null : [{ name: 'status', line: statusLine(harness.bandPrefix, p.code, w, { dim: true }) }]
   const v = p.view
   const r = bandRun(v.runs)
   if (r === undefined) {
@@ -924,9 +929,9 @@ export function bandSegments(p: Parsed, ag: Agents, w: number): Segment[] | null
 }
 
 // The band at its reported width: one borderless line, or null when it draws nothing.
-export function band(p: Parsed, ag: Agents, cols: unknown): Block | null {
+export function band(p: Parsed, ag: Agents, cols: unknown, harness: Harness): Block | null {
   const w = drawingWidth(cols)
-  const segs = bandSegments(p, ag, w)
+  const segs = bandSegments(p, ag, w, harness)
   if (segs === null || segs.length === 0) return null
   return columnBox(w, [lineBlock(joined(segs.map(s => s.line), SEGMENT_GAP), w)])
 }

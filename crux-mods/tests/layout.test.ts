@@ -6,8 +6,8 @@ import * as draw from '../hooks/lib/draw.ts'
 import { THEME_KEYS } from '../hooks/lib/draw.ts'
 import type { Block } from '../hooks/lib/draw.ts'
 import * as width from '../hooks/lib/width.ts'
-import { LAUNCH_CODES } from '../hooks/lib/launch.ts'
-import { READER_ERROR_CODES, VIEW_CODES, agents, answer, parseReader } from '../hooks/lib/view.ts'
+import { HARNESS, LAUNCH_CODES, agents, layoutOf } from '../hooks/lib/claude.ts'
+import { READER_ERROR_CODES, VIEW_CODES, answer, parseReader } from '../hooks/lib/view.ts'
 import type { Parsed } from '../hooks/lib/view.ts'
 import {
   HOSTILE_TITLE, IDLE_LATEST, IDLE_LATEST_DATED, IDLE_NO_SUMMARY, IDLE_RUN_IN_PROGRESS, IDLE_UNDETERMINED, IDLE_WIDE, READER_AT_CAP,
@@ -321,7 +321,7 @@ test('the inline pane for the last run names its summary, which it does not draw
 
 // --- the band ---------------------------------------------------------------------------------
 
-const segments = (doc: unknown, list: unknown, w: number) => draw.bandSegments(P(doc), agents(list), w)?.map(s => s.name)
+const segments = (doc: unknown, list: unknown, w: number) => draw.bandSegments(P(doc), agents(list), w, HARNESS)?.map(s => s.name)
 
 test('the band keeps the stall and the escalation ahead of the ids and the strip at 30 and 40 columns', async ($, on) => {
   await load($, on, { reader: ok(READER_STALLED_ESCALATED), agents: [] })
@@ -339,7 +339,7 @@ test('the band at 30 columns differs from the band at 120, and each fits', async
 })
 
 test('the band draws the full stall and escalation sentences when they fit', () => {
-  const t = draw.bandSegments(P(READER_STALLED_ESCALATED), agents([]), 400)!
+  const t = draw.bandSegments(P(READER_STALLED_ESCALATED), agents([]), 400, HARNESS)!
   expect(t.map(s => s.line.map(x => x.text).join(''))).toContain('run file unchanged 25m, no subagent running in this session')
   expect(t.map(s => s.line.map(x => x.text).join(''))).toContain('escalation p3: records r1-r3 show quorum met, none converged; a counted round past 3 needs an owner exception')
 })
@@ -361,7 +361,7 @@ test('as the band narrows it drops segments from the least important up, never s
 })
 
 test('the band draws the strip with the current module kind as a word; no strip cell takes a kind colour', () => {
-  const segs = draw.bandSegments(P(READER_OK), agents([]), 400)!
+  const segs = draw.bandSegments(P(READER_OK), agents([]), 400, HARNESS)!
   const strip = segs.find(s => s.name === 'strip')!
   const kind = segs.find(s => s.name === 'kind')!
   expect(strip.line.map(s => s.text).join('')).toBe('\u{2713}\u{2717}|\u{25B8}\u{25CC}')
@@ -372,14 +372,14 @@ test('the band draws the strip with the current module kind as a word; no strip 
 })
 
 test('a strip too wide for the band keeps the cells nearest the current prompt and counts the rest', () => {
-  const segs = draw.bandSegments(P(READER_TEN), agents([]), 34)!
+  const segs = draw.bandSegments(P(READER_TEN), agents([]), 34, HARNESS)!
   expect(segs.map(s => s.name)).toEqual(['ids', 'strip', 'position', 'percent'])
   // The strip shrinks to the three cells nearest the fifth prompt and counts the other seven.
   expect(segs[1]!.line.map(s => s.text).join('')).toBe('\u{2713}\u{25B8}\u{25CC}+7')
 })
 
 test('below the width of its smallest segment the band still draws its most important segment, cut with an ellipsis', () => {
-  const line = (doc: unknown, list: unknown, w: number) => texts(asTree(draw.band(P(doc), agents(list), w)))
+  const line = (doc: unknown, list: unknown, w: number) => texts(asTree(draw.band(P(doc), agents(list), w, HARNESS)))
   expect(line(READER_STALLED_ESCALATED, [], 5)).toEqual(['stal\u{2026}'])
   expect(line(READER_OK, [], 3)).toEqual(['p3\u{2026}'])
   expect(line(READER_OK, [], 1)).toEqual(['\u{2026}'])
@@ -411,7 +411,7 @@ test('a drawn line holds one Text per run of spans in one style, so a grid row i
 test('the summary draws at most 4000 rows and counts the rows it cut, so a narrow pane stays under the engine\'s element limit', () => {
   const v = P(READER_AT_CAP)
   if (!v.ok) throw new Error('fixture invalid')
-  const rowsAt = (n: number) => draw.idleLines(v.view, agents([]), n).map(l => l.map(x => x.text).join(''))
+  const rowsAt = (n: number) => draw.idleLines(v.view, agents([]), n, HARNESS).map(l => l.map(x => x.text).join(''))
   // At 15 cells 31 lines of 1000 two-cell faces take 143 rows each, the boundary line 14 and the last
   // line 115: 4562 rows, 562 past the cap.
   const at15 = rowsAt(15)
@@ -426,10 +426,10 @@ test('the summary draws at most 4000 rows and counts the rows it cut, so a narro
 
 // --- statuses ---------------------------------------------------------------------------------
 
-test('the statuses are the launch codes, reader-failed with each reader error code, and the view codes: 31 in all', () => {
+test('the statuses are the launch codes, reader-failed with each reader error code, and the view codes: 30 in all', () => {
   const expected = new Set<string>([...LAUNCH_CODES, ...READER_ERROR_CODES.map(c => `reader-failed:${c}`), ...VIEW_CODES])
   expect(new Set(STATUS_CODES)).toEqual(expected)
-  expect(STATUS_CODES.length).toBe(31)
+  expect(STATUS_CODES.length).toBe(30)
 })
 
 test('every status has a mocked machine, reader-timeout included, so each one is mounted', () => {
@@ -437,19 +437,19 @@ test('every status has a mocked machine, reader-timeout included, so each one is
   expect(STATUS_MACHINES['reader-timeout']).toEqual({ reader: 'timeout' })
 })
 
-const firstRow = (code: string, w: number | undefined, placement: 'inline' | 'dock') => texts(asTree(draw.pane({ ok: false, code }, agents([]), w, placement)))
-const bandRow = (code: string, w: number | undefined) => texts(asTree(draw.band({ ok: false, code }, agents([]), w)))
+const firstRow = (code: string, w: number | undefined, placement: 'inline' | 'dock') => texts(asTree(draw.pane({ ok: false, code }, agents([]), w, layoutOf(placement), HARNESS)))
+const bandRow = (code: string, w: number | undefined) => texts(asTree(draw.band({ ok: false, code }, agents([]), w, HARNESS)))
 
 test('at 30 columns each status draws one distinct row in the pane and the band, the two quiet statuses none in the band', () => {
   const pane30 = STATUS_CODES.map(c => firstRow(c, 30, 'dock'))
   expect(pane30.every(rows => rows.length === 1)).toBe(true)
-  expect(new Set(pane30.map(r => r[0])).size).toBe(31)
+  expect(new Set(pane30.map(r => r[0])).size).toBe(30)
   for (const c of STATUS_CODES) expect([c, firstRow(c, 30, 'inline')]).toEqual([c, firstRow(c, 30, 'dock')])
   const quiet = ['no-active-run', 'reader-failed:tree-missing']
   for (const c of quiet) expect([c, bandRow(c, 30)]).toEqual([c, []])
   const band30 = STATUS_CODES.filter(c => !quiet.includes(c)).map(c => bandRow(c, 30))
   expect(band30.every(rows => rows.length === 1)).toBe(true)
-  expect(new Set(band30.map(r => r[0])).size).toBe(29)
+  expect(new Set(band30.map(r => r[0])).size).toBe(28)
   // Only the two codes longer than 30 cells are cut; every other code is whole.
   const cut = pane30.map(r => r[0]!).filter(t => t.endsWith('\u{2026}'))
   expect(cut).toEqual(['reader-failed:project-root-in\u{2026}', 'reader-failed:token-set-unava\u{2026}'])
@@ -467,11 +467,11 @@ test('reader-timeout draws through the builders with its prefix from 37 cells an
   for (const w of [...WIDTHS, ...SMALL]) {
     const n = drawingWidth(w)
     for (const placement of ['inline', 'dock'] as const) {
-      const tree = asTree(draw.pane({ ok: false, code: 'reader-timeout' }, agents([]), w, placement))
+      const tree = asTree(draw.pane({ ok: false, code: 'reader-timeout' }, agents([]), w, layoutOf(placement), HARNESS))
       check(tree, n, placement, `reader-timeout ${placement} ${w}`)
       expect([w, texts(tree)]).toEqual([w, [n >= 37 ? 'Dashboard unavailable: reader-timeout' : width.fit('reader-timeout', n)]])
     }
-    check(asTree(draw.band({ ok: false, code: 'reader-timeout' }, agents([]), w)), n, 'band', `reader-timeout band ${w}`)
+    check(asTree(draw.band({ ok: false, code: 'reader-timeout' }, agents([]), w, HARNESS)), n, 'band', `reader-timeout band ${w}`)
   }
 })
 
@@ -555,11 +555,11 @@ test('removal-class characters in any free value never draw, and every line stil
     for (const w of [...WIDTHS, ...SMALL]) {
       const n = drawingWidth(w)
       for (const placement of ['inline', 'dock'] as const) {
-        const tree = asTree(draw.pane({ ok: true, view }, ag, w, placement))
+        const tree = asTree(draw.pane({ ok: true, view }, ag, w, layoutOf(placement), HARNESS))
         check(tree, n, placement, `direct ${placement} ${w}`)
         all.push(...texts(tree))
       }
-      const band = asTree(draw.band({ ok: true, view }, ag, w))
+      const band = asTree(draw.band({ ok: true, view }, ag, w, HARNESS))
       check(band, n, 'band', `direct band ${w}`)
       all.push(...texts(band))
     }
@@ -581,9 +581,9 @@ test('no layout reads a clock: the band and the pane draw every fixture with eve
   expect(() => withoutClock(() => {
     for (const doc of docs) {
       for (const w of [...WIDTHS, ...SMALL]) {
-        draw.band(P(doc), agents([RUNNING]), w)
-        draw.pane(P(doc), agents([RUNNING]), w, 'inline')
-        draw.pane(P(doc), agents('x'), w, 'dock')
+        draw.band(P(doc), agents([RUNNING]), w, HARNESS)
+        draw.pane(P(doc), agents([RUNNING]), w, 'mini', HARNESS)
+        draw.pane(P(doc), agents('x'), w, 'docked', HARNESS)
       }
     }
   })).not.toThrow()
@@ -631,7 +631,6 @@ const GOLDEN: [string, string, number][] = [
   ['reader-failed:time-limit', 'c520d865', 130],
   ['reader-failed:internal', '3c3d801b', 128],
   ['code:no-env-binary', 'e61da50a', 119],
-  ['code:loader-var-set', '9d0b0a37', 120],
   ['code:config-dir-mismatch', '8d197f00', 125],
   ['code:inside-project', 'e8a0bd95', 120],
   ['code:project-root-invalid', '642cdb77', 126],
@@ -650,7 +649,7 @@ const GOLDEN: [string, string, number][] = [
   ['code:reader-format-mismatch', '07001c21', 128],
 ]
 
-test('the text answer is byte for byte the base commit\'s for 12 documents, the 13 reader failures and the 18 other codes', () => {
+test('the text answer is byte for byte the base commit\'s for 12 documents, the 13 reader failures and the 17 other codes', () => {
   const docs: Record<string, unknown> = {
     READER_OK, READER_EMPTY, READER_TWO, READER_STALLED, READER_ESCALATED, IDLE_LATEST, IDLE_LATEST_DATED, IDLE_UNDETERMINED,
     IDLE_RUN_IN_PROGRESS, 'not-requested': idleDoc('not-requested'), READER_AT_CAP, 'readerAt(null)': readerAt(null),
@@ -661,7 +660,7 @@ test('the text answer is byte for byte the base commit\'s for 12 documents, the 
     const a = name.startsWith('code:') ? answer({ ok: false, code: name.slice(5) }) : answer(P(docs[name]))
     got.push([name, fnv1a(a), a.length])
   }
-  expect(GOLDEN.length).toBe(43)
+  expect(GOLDEN.length).toBe(42)
   expect(got).toEqual(GOLDEN)
   // Positive control: a changed byte changes the checksum.
   expect(fnv1a(answer(P(READER_OK)) + ' ')).not.toBe(GOLDEN[0]![1])

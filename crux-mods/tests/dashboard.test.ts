@@ -1,6 +1,6 @@
 import { test, expect } from 'claude-code/testing'
-import { LAUNCH_CODES } from '../hooks/lib/launch.ts'
-import { READER_ERROR_CODES, agents, answer, drawText, fenced, parseReader, safeText } from '../hooks/lib/view.ts'
+import { HARNESS, LAUNCH_CODES, agents } from '../hooks/lib/claude.ts'
+import { READER_ERROR_CODES, answer, drawText, fenced, parseReader, safeText } from '../hooks/lib/view.ts'
 import * as view from '../hooks/lib/view.ts'
 import * as draw from '../hooks/lib/draw.ts'
 import { cells } from '../hooks/lib/width.ts'
@@ -908,7 +908,7 @@ test('agents counts a running agent past the 30 it shows', () => {
 
 // The band's segments at a width every segment fits, and their texts. layout.test.ts holds what the
 // band keeps when it is narrower.
-const segsOf = (doc: unknown, list: unknown = [], w = 400) => draw.bandSegments(parseReader(JSON.stringify(doc)), agents(list), w)
+const segsOf = (doc: unknown, list: unknown = [], w = 400) => draw.bandSegments(parseReader(JSON.stringify(doc)), agents(list), w, HARNESS)
 const textOfLine = (l: { text: string }[]) => l.map(s => s.text).join('')
 const textsOf = (doc: unknown, list: unknown = [], w = 400) => segsOf(doc, list, w)?.map(s => textOfLine(s.line))
 const segmentOf = (doc: unknown, name: string, list: unknown = []) => segsOf(doc, list)?.find(s => s.name === name)
@@ -1005,7 +1005,7 @@ test('the band draws the current prompt\'s elapsed time only while it is running
     return doc
   }
   const bandElapsed = (state: string) => segmentOf(withState(state), 'elapsed') === undefined ? undefined : textOfLine(segmentOf(withState(state), 'elapsed')!.line)
-  const paneRow = (state: string) => blockRows(draw.pane(parseReader(JSON.stringify(withState(state))), agents([]), 100, 'dock')).find(r => r.startsWith('\u{25B8} p3  '))
+  const paneRow = (state: string) => blockRows(draw.pane(parseReader(JSON.stringify(withState(state))), agents([]), 100, 'docked', HARNESS)).find(r => r.startsWith('\u{25B8} p3  '))
   for (const state of ['pending', 'done', 'skipped']) {
     expect([state, bandElapsed(state)]).toEqual([state, undefined])
     expect([state, paneRow(state)?.endsWith('12m')]).toEqual([state, false])
@@ -1406,7 +1406,7 @@ test('an undetermined last run with no unresolved entry says only that no comple
 })
 
 // The first row of the pane's last-run panel, at a width the whole sentence fits.
-const lastRow = (doc: unknown) => blockRows(draw.pane(parseReader(JSON.stringify(doc)), agents([]), 400, 'dock')).find(r => r.startsWith('Last'))
+const lastRow = (doc: unknown) => blockRows(draw.pane(parseReader(JSON.stringify(doc)), agents([]), 400, 'docked', HARNESS)).find(r => r.startsWith('Last'))
 
 test('the undetermined and last dated rows name one entry and one run in the singular', () => {
   const firstRow = lastRow

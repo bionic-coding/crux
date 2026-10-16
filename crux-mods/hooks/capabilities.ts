@@ -43,7 +43,7 @@ export const capabilities = {
     {"event": "command.run{command=crux-dashboard}", "behaviour": "command-text", "decision": null}
   ],
   "calls": ["$.agent.list", "$.clock.after", "$.clock.every", "$.command.register", "$.env.get", "$.fs.read", "$.fs.stat", "$.process.run", "$.session.root", "$.state.get", "$.state.set", "$.ui.invalidate", "$.ui.open", "$.ui.resolve"],
-  "env_reads": ["CLAUDE_CONFIG_DIR", "DYLD_FALLBACK_FRAMEWORK_PATH", "DYLD_FALLBACK_LIBRARY_PATH", "DYLD_FRAMEWORK_PATH", "DYLD_IMAGE_SUFFIX", "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH", "DYLD_ROOT_PATH", "DYLD_VERSIONED_FRAMEWORK_PATH", "DYLD_VERSIONED_LIBRARY_PATH", "HOME", "LD_AUDIT", "LD_LIBRARY_PATH", "LD_PRELOAD"],
+  "env_reads": ["CLAUDE_CONFIG_DIR", "HOME"],
   "env_writes": [],
   "state_declared": ["crux-mods.current"],
   "state_reads": ["crux-mods.current"],
@@ -56,7 +56,6 @@ export const capabilities = {
     "env_allow": ["HOME", "PATH", "UV_OFFLINE", "UV_NO_CONFIG", "UV_PYTHON_DOWNLOADS", "PYTHONDONTWRITEBYTECODE", "CRUX_NO_UV_REEXEC", "NO_COLOR"],
     "env_constants": {"PATH": "/usr/bin:/bin", "UV_OFFLINE": "1", "UV_NO_CONFIG": "1", "UV_PYTHON_DOWNLOADS": "never", "PYTHONDONTWRITEBYTECODE": "1", "CRUX_NO_UV_REEXEC": "1", "NO_COLOR": "1"},
     "env_derived": {"HOME": "env:HOME"},
-    "loader_vars": ["LD_PRELOAD", "LD_AUDIT", "LD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH", "DYLD_FRAMEWORK_PATH", "DYLD_FALLBACK_LIBRARY_PATH", "DYLD_FALLBACK_FRAMEWORK_PATH", "DYLD_VERSIONED_LIBRARY_PATH", "DYLD_VERSIONED_FRAMEWORK_PATH", "DYLD_ROOT_PATH", "DYLD_IMAGE_SUFFIX"],
     "scripts": {"visualize-run-progress": {"path": "scripts/visualize-run-progress.py", "args": ["--json", "--project-root", "{project_root}"]}},
     "timeout_ms": 10000
   },
@@ -89,7 +88,6 @@ export const capabilities = {
       "CLAUDE_CONFIG_DIR": {"sees": "Its value, to find the Claude config directory and to refuse one that differs from where the plugin was loaded.", "keeps": "Nothing between launches."},
       "HOME": {"sees": "Its value, to find uv, uv's cache, uv's interpreter directory and the default Claude config directory.", "keeps": "Nothing between launches. The reader starts with it as its `HOME`."}
     },
-    "loader_vars": {"sees": "Whether any is set. The mod starts no reader while one is, because `/usr/bin/env` would start under it.", "keeps": "Nothing."},
     "env_writes": {},
     "launch": {
       "visualize-run-progress": {"sees": "Your project's crux configuration and the runs, books and council records in its documentation tree, read by the installed crux's reader.", "keeps": "Nothing. The reader writes no file and answers with one JSON object on its standard output."}

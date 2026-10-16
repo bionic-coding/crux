@@ -5,7 +5,7 @@
 // module or read the manifest directly.
 import { test, expect } from 'claude-code/testing'
 import { capabilities } from '../hooks/capabilities.ts'
-import { LAUNCH_CODES } from '../hooks/lib/launch.ts'
+import { LAUNCH_CODES } from '../hooks/lib/claude.ts'
 import { MAX_PROMPT_UNITS, PHRASES, asksForTheRun, matchesPhrase } from '../hooks/lib/phrases.ts'
 import { register } from '../hooks/register.tsx'
 import { READER_OK } from './fixtures/reader-output.ts'

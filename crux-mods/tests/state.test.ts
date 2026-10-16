@@ -3,6 +3,7 @@
 // through kept(), which accepts exactly what a refresh writes. Every expected value is written by hand.
 import { test, expect } from 'claude-code/testing'
 import { classifyFinished } from '../hooks/lib/launch.ts'
+import { KEPT_CODES } from '../hooks/lib/claude.ts'
 import { KEPT_SHAPE, READER_ERROR_CODES, READER_FORMAT_VERSION, kept, parseReader } from '../hooks/lib/view.ts'
 import { READER_EMPTY, READER_OK, readerError } from './fixtures/reader-output.ts'
 import { STATUS_CODES } from './fixtures/statuses.ts'
@@ -88,9 +89,9 @@ for (const [name, doc, code] of REFUSED) {
     // The case is what it claims: parseReader alone gives this code.
     expect(parseReader(JSON.stringify(doc))).toEqual({ ok: false, code })
     // Positive control: the valid success envelope reads as its view.
-    const good = kept(VALID)
+    const good = kept(VALID, KEPT_CODES)
     expect(good !== null && good.ok ? good.view.runs[0]!.book_id : null).toBe('PB-0149')
-    expect(kept(success(doc))).toEqual(INVALID_PARSED)
+    expect(kept(success(doc), KEPT_CODES)).toEqual(INVALID_PARSED)
   })
 }
 
@@ -128,10 +129,10 @@ test('F1 control: a closed status kept in the code envelope draws that status', 
 })
 
 test('F1 control: every status a refresh can write reads back as itself', () => {
-  expect(STATUS_CODES.length).toBe(31)
-  for (const code of STATUS_CODES) expect(kept({ ok: false, code })).toEqual({ ok: false, code })
-  expect(kept({ ok: false, code: FOREIGN })).toEqual(INVALID_PARSED)
-  expect(kept({ ok: false, code: 'reader-failed:no-such-code' })).toEqual(INVALID_PARSED)
+  expect(STATUS_CODES.length).toBe(30)
+  for (const code of STATUS_CODES) expect(kept({ ok: false, code }, KEPT_CODES)).toEqual({ ok: false, code })
+  expect(kept({ ok: false, code: FOREIGN }, KEPT_CODES)).toEqual(INVALID_PARSED)
+  expect(kept({ ok: false, code: 'reader-failed:no-such-code' }, KEPT_CODES)).toEqual(INVALID_PARSED)
 })
 
 // --- the reader output cap --------------------------------------------------------------------
@@ -143,34 +144,34 @@ test('F4: a success envelope past the 1 MiB output cap reads as reader-output-in
   expect([at.length, past.length]).toEqual([1048576, 1048577])
   // parseReader alone accepts both, so the cap is what tells them apart.
   expect([parseReader(at).ok, parseReader(past).ok]).toEqual([true, true])
-  expect(kept({ ok: true, stdout: at })?.ok).toBe(true)
-  expect(kept({ ok: true, stdout: past })).toEqual(INVALID_PARSED)
+  expect(kept({ ok: true, stdout: at }, KEPT_CODES)?.ok).toBe(true)
+  expect(kept({ ok: true, stdout: past }, KEPT_CODES)).toEqual(INVALID_PARSED)
 })
 
 // --- the envelope is exactly a refresh write --------------------------------------------------
 
 test('F5: an envelope that is not exactly a refresh write reads as reader-output-invalid', () => {
-  expect(kept(VALID)?.ok).toBe(true)
-  expect(kept({ ok: false, code: 'no-active-run' })).toEqual({ ok: false, code: 'no-active-run' })
-  expect(kept({ ...VALID, extra: 1 })).toEqual(INVALID_PARSED)
-  expect(kept({ ok: true })).toEqual(INVALID_PARSED)
-  expect(kept([VALID])).toEqual(INVALID_PARSED)
-  expect(kept({ ok: 'true', stdout: VALID.stdout })).toEqual(INVALID_PARSED)
-  expect(kept({ ok: true, stdout: READER_OK })).toEqual(INVALID_PARSED)
-  expect(kept({ ok: false, code: 'no-active-run', extra: 1 })).toEqual(INVALID_PARSED)
-  expect(kept({ ok: false })).toEqual(INVALID_PARSED)
-  expect(kept({ ok: false, code: 7 })).toEqual(INVALID_PARSED)
-  expect(kept('x')).toEqual(INVALID_PARSED)
-  expect(kept(null)).toBe(null)
-  expect(kept(undefined)).toBe(null)
+  expect(kept(VALID, KEPT_CODES)?.ok).toBe(true)
+  expect(kept({ ok: false, code: 'no-active-run' }, KEPT_CODES)).toEqual({ ok: false, code: 'no-active-run' })
+  expect(kept({ ...VALID, extra: 1 }, KEPT_CODES)).toEqual(INVALID_PARSED)
+  expect(kept({ ok: true }, KEPT_CODES)).toEqual(INVALID_PARSED)
+  expect(kept([VALID], KEPT_CODES)).toEqual(INVALID_PARSED)
+  expect(kept({ ok: 'true', stdout: VALID.stdout }, KEPT_CODES)).toEqual(INVALID_PARSED)
+  expect(kept({ ok: true, stdout: READER_OK }, KEPT_CODES)).toEqual(INVALID_PARSED)
+  expect(kept({ ok: false, code: 'no-active-run', extra: 1 }, KEPT_CODES)).toEqual(INVALID_PARSED)
+  expect(kept({ ok: false }, KEPT_CODES)).toEqual(INVALID_PARSED)
+  expect(kept({ ok: false, code: 7 }, KEPT_CODES)).toEqual(INVALID_PARSED)
+  expect(kept('x', KEPT_CODES)).toEqual(INVALID_PARSED)
+  expect(kept(null, KEPT_CODES)).toBe(null)
+  expect(kept(undefined, KEPT_CODES)).toBe(null)
 })
 
 // --- classifyFinished accepts on the stdout alone ---------------------------------------------
 
 test('H: classifyFinished accepts a stdout that opens with a brace whatever the exit code and standard error', () => {
   const stdout = JSON.stringify(READER_OK)
-  for (const exitCode of [0, 1, 2, 152]) {
-    expect(classifyFinished({ exitCode, stdout, stderr: 'usage: crux\n', isStdoutTruncated: false })).toEqual({ ok: true, stdout })
+  for (const exit of [0, 1, 2, 152]) {
+    expect(classifyFinished({ exit, stdout, stderr: 'usage: crux\n', truncated: false })).toEqual({ ok: true, stdout })
   }
 })
 

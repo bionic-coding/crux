@@ -47,7 +47,12 @@ SIX_0150 = ["mods-gate-refuses-what-it-cannot-check", "mods-start-only-the-fixed
 SIX_0151 = ["in-run-adr-text-is-guidance", "guidance-rules-keep-resolving",
             "guidance-changes-without-a-decision", "provenance-is-recorded-at-acceptance",
             "owner-promotes-guidance", "accepting-cycle-requests-promotion"]
-SLUGS = SIX_0150 + SIX_0151
+# ADR-0159 retired one of ADR-0150's guidance rules and restated it, without its loader clause, as
+# ADR-0159/mod-launch-values-come-from-fixed-sources. The retired slug leaves the resolver and the
+# doctrine; RetiredSlugTests holds that it went where a retirement sends it.
+RETIRED_0150 = ["launch-values-have-fixed-sources"]
+LIVE_0150 = [s for s in SIX_0150 if s not in RETIRED_0150]
+SLUGS = LIVE_0150 + SIX_0151
 
 
 def _load(name: str, filename: str):
@@ -95,9 +100,9 @@ class LiveCitationTests(unittest.TestCase):
         self.resolver = json.loads(RESOLVER.read_text(encoding="utf-8"))
         self.doctrine = DOCTRINE.read_text(encoding="utf-8")
 
-    def test_twelve_slugs_resolve_and_appear_in_the_doctrine(self):
+    def test_live_slugs_resolve_and_appear_in_the_doctrine(self):
         rows = _slug_rows(self.resolver, SLUGS)
-        self.assertEqual(len(rows), 12)
+        self.assertEqual(len(rows), 11)
         for slug in SLUGS:
             handle = self.resolver["slugs"][slug]
             self.assertTrue(handle.endswith("/" + slug), handle)
@@ -119,7 +124,7 @@ class LiveCitationTests(unittest.TestCase):
         _check_standing(self, _slug_rows(self.resolver, SIX_0151), "ADR-0151", SIX_0151, record)
 
     def test_adr_0150_rows_follow_its_live_record_or_carry_no_standing(self):
-        _check_standing(self, _slug_rows(self.resolver, SIX_0150), "ADR-0150", SIX_0150,
+        _check_standing(self, _slug_rows(self.resolver, LIVE_0150), "ADR-0150", LIVE_0150,
                         _live_record("ADR-0150"))
 
     def test_standing_check_rejects_a_wrong_row(self):
@@ -153,6 +158,26 @@ class LiveCitationTests(unittest.TestCase):
         unpromoted[SIX_0151[0]].update({"standing": "guidance", "binding_rule": None})
         with self.assertRaises(AssertionError):
             _check_standing(self, unpromoted, "ADR-0151", SIX_0151, promoted)
+
+
+class RetiredSlugTests(unittest.TestCase):
+    """A slug ADR-0159 retired leaves the live resolver and stands in the rule table's retired roster."""
+
+    def setUp(self):
+        require_dev_surface(self, RESOLVER, "summaries resolver")
+        self.resolver = json.loads(RESOLVER.read_text(encoding="utf-8"))
+        self.table = (ADRS / "summaries" / "rule-table.md").read_text(encoding="utf-8")
+
+    def test_retired_slugs_are_not_live_and_stand_in_the_retired_roster(self):
+        roster = self.table.split("## Retired handles", 1)[1].split("\n## ", 1)[0]
+        for slug in RETIRED_0150:
+            self.assertNotIn(slug, self.resolver["slugs"], slug)
+            self.assertIn(f"ADR-0150/{slug}", roster, slug)
+        self.assertIn("mod-launch-values-come-from-fixed-sources", self.resolver["slugs"])
+
+    def test_control_a_live_slug_is_not_in_the_retired_roster(self):
+        roster = self.table.split("## Retired handles", 1)[1].split("\n## ", 1)[0]
+        self.assertNotIn(f"ADR-0150/{LIVE_0150[0]}", roster)
 
 
 class PromotionPathTests(unittest.TestCase):
@@ -211,7 +236,7 @@ class PromotionPathTests(unittest.TestCase):
 
     def test_the_record_makes_six_guidance_and_twelve_binding_rows(self):
         resolver = self._summary_resolver(self._with_record(self.summ, self.record_text))
-        rows = _slug_rows(resolver, SIX_0150)
+        rows = _slug_rows(resolver, LIVE_0150)
         for slug, row in rows.items():
             self.assertEqual(row["standing"], "guidance", slug)
             self.assertIsNone(row["binding_rule"], slug)
@@ -243,7 +268,7 @@ class PromotionPathTests(unittest.TestCase):
     def test_doctrine_index_holds_a_standing_row_for_each_guidance_handle(self):
         index = self._doctrine_index(self._with_record(self.doct, self.record_text, digest_key="digests"))
         self.assertIn("_Standing (from provenance records):_", index)
-        for slug in SIX_0150:
+        for slug in LIVE_0150:
             self.assertRegex(index, rf"\| ADR-0150/{re.escape(slug)} \| guidance \| — \| added \|")
         self.assertRegex(index, r"\| ADR-0150/mods-plugin-is-versioned-and-released-with-crux "
                                 r"\| binding \|[^\n]*\| scope \|")

@@ -9,7 +9,7 @@
 // path or a member of a closed set. Each is checked against its pattern or its range
 // before it is drawn or answered. Times are whole epoch seconds from the reader.
 
-import { LAUNCH_CODES, classifyFinished } from './launch.ts'
+import { classifyFinished } from './launch.ts'
 
 // Closed sets copied from crux. A value outside its set makes the whole reader
 // output invalid, so a member added on the Python side must be added here in the
@@ -58,7 +58,6 @@ const MAX_COUNCILS = 200
 const MAX_SEATS = 12
 const MAX_ANSWER_RUNS = 5
 const MAX_ANSWER_LINES = 400
-const MAX_AGENTS = 30
 const MAX_GATES = 100
 const MAX_EVIDENCE = 20
 
@@ -343,10 +342,6 @@ export function parseReader(stdout: string): Parsed {
 // a test holds its number equal to READER_FORMAT_VERSION.
 export const KEPT_SHAPE = 'reader-stdout-2'
 
-// Every status a refresh can end with and keep: the launch codes, the view's own codes and
-// reader-failed:<each reader error code>. Together they are the 31 statuses the tests list.
-const KEPT_CODES: readonly string[] = [...LAUNCH_CODES, ...VIEW_CODES, ...READER_ERROR_CODES.map(c => `reader-failed:${c}`)]
-
 // A value read back from session state, as a result to draw, or null when nothing is kept. A refresh
 // writes one of two envelopes: the reader's stdout under ok true, or a status code under ok false.
 // After a refused write it writes null. Every other value reads as reader-output-invalid, never as
@@ -359,18 +354,21 @@ const KEPT_CODES: readonly string[] = [...LAUNCH_CODES, ...VIEW_CODES, ...READER
 //   flag is false: it applies the output cap and the opening-brace check. A test holds this.
 // - Another plugin can rewrite the value through a state hook, so a value that is not exactly what a
 //   refresh writes reads as reader-output-invalid.
-export function kept(v: unknown): Parsed | null {
+// - `codes` is the set of status codes the importer keeps: every code a refresh can end with and
+//   write, the view's own codes (VIEW_CODES) and reader-failed:<each reader error code> among them.
+//   A code outside it reads as reader-output-invalid.
+export function kept(v: unknown, codes: readonly string[]): Parsed | null {
   if (v === null || v === undefined) return null
   const invalid: Parsed = { ok: false, code: 'reader-output-invalid' }
   if (typeof v !== 'object' || Array.isArray(v)) return invalid
   const o = v as Obj
   const keys = Object.keys(o).sort().join(',')
   if (keys === 'ok,stdout' && o.ok === true && typeof o.stdout === 'string') {
-    if (!classifyFinished({ exitCode: 0, stdout: o.stdout, stderr: '', isStdoutTruncated: false }).ok) return invalid
+    if (!classifyFinished({ exit: 0, stdout: o.stdout, stderr: '', truncated: false }).ok) return invalid
     const p = parseReader(o.stdout)
     return p.ok ? p : invalid
   }
-  if (keys === 'code,ok' && o.ok === false && typeof o.code === 'string' && KEPT_CODES.includes(o.code)) return { ok: false, code: o.code }
+  if (keys === 'code,ok' && o.ok === false && typeof o.code === 'string' && codes.includes(o.code)) return { ok: false, code: o.code }
   return invalid
 }
 
@@ -429,30 +427,11 @@ export function answer(p: Parsed): string {
 // draw.ts builds every line the band and the pane draw. This file gives it the agent list and the
 // values computed from the reader's times, so every time arithmetic stays here, beside utc.
 
-// What the engine's agent list says about this session. A list that cannot be read is
+// What the importer's agent list says about this session. A list that cannot be read is
 // unavailable, which is different from a list with no running agent: the stall draws only on a
-// list that was read. `running` counts the whole list; `shown` is cut to MAX_AGENTS (30).
+// list that was read. `running` counts the whole list; `shown` is cut by the importer, which
+// builds the value.
 export type Agents = { available: boolean; running: number; shown: Agent[] }
-
-export function agents(list: unknown): Agents {
-  if (!Array.isArray(list)) return { available: false, running: 0, shown: [] }
-  const shown: Agent[] = []
-  let running = 0
-  for (const a of list) {
-    if (a === null || typeof a !== 'object') continue
-    const o = a as Obj
-    const status = typeof o.status === 'string' ? drawText(o.status, 20) : 'unknown'
-    if (status === 'running') running++
-    if (shown.length < MAX_AGENTS) {
-      shown.push({
-        status,
-        type: typeof o.type === 'string' ? drawText(o.type, 40) : '',
-        description: typeof o.description === 'string' ? drawText(o.description, 120) : '',
-      })
-    }
-  }
-  return { available: true, running, shown }
-}
 
 // The run the band summarises: the one whose run file was modified last, because
 // every advance rewrites the run file of the run being driven. A tie keeps the
@@ -599,24 +578,7 @@ export function lastRunAge(v: ReaderView): { age: string; took: string | null } 
   return { age, took: interval(r.started_s, r.completed_s) }
 }
 
-export const STALL_NOTE = "This session's agent list cannot see subagents in another Claude Code session, work in Codex or OpenCode, main-thread work or a background command; each can run for a long time without changing the run file."
 export const ESCALATION_NOTE = 'Read from council records in the working tree. Whether each record counts, and whether the gate stops, is decided by the gate check, which reads committed history.'
 
 // `n` and the noun, singular for one.
 export const counted = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
-
-// --- observing tool calls ---------------------------------------------------
-
-const WRITING_TOOLS = ['Write', 'Edit', 'MultiEdit', 'NotebookEdit']
-
-// True when a tool call writes a file under a promptbook run directory, or is a
-// shell command naming one: run-promptbook advances a run through Bash. The
-// answer is the only thing taken from the event; none of it is kept.
-export function touchesRunFile(e: unknown): boolean {
-  if (e === null || typeof e !== 'object') return false
-  const o = e as Obj
-  if (o.tool === 'Bash') return typeof o.command === 'string' && o.command.includes('/promptbooks/runs/')
-  if (typeof o.tool !== 'string' || !WRITING_TOOLS.includes(o.tool)) return false
-  const path = typeof o.file_path === 'string' ? o.file_path : typeof o.notebook_path === 'string' ? o.notebook_path : ''
-  return path.includes('/promptbooks/runs/')
-}

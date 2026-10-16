@@ -13,7 +13,8 @@
 import { test, expect } from 'claude-code/testing'
 import * as draw from '../hooks/lib/draw.ts'
 import * as view from '../hooks/lib/view.ts'
-import { agents, parseReader } from '../hooks/lib/view.ts'
+import { parseReader } from '../hooks/lib/view.ts'
+import { HARNESS, agents } from '../hooks/lib/claude.ts'
 import type { Parsed } from '../hooks/lib/view.ts'
 import { AMBIGUOUS } from './fixtures/eaw-ambiguous.ts'
 import { HOSTILE_TITLE, IDLE_LATEST, NOW_S, READER_NO_PROMPTS, READER_OK, RUN, clone, readerAt } from './fixtures/reader-output.ts'
@@ -201,8 +202,8 @@ test('the band draws no lane', async ($, on) => {
 test('the pane draws with every clock read throwing', () => {
   expect(() => withoutClock(() => {
     for (const doc of [READER_OK, readerAt(null), IDLE_LATEST]) for (const w of [...WIDTHS, 12, 13]) {
-      draw.pane(P(doc), agents([]), w, 'dock')
-      draw.pane(P(doc), agents([]), w, 'inline')
+      draw.pane(P(doc), agents([]), w, 'docked', HARNESS)
+      draw.pane(P(doc), agents([]), w, 'mini', HARNESS)
     }
   })).not.toThrow()
 })
@@ -488,8 +489,8 @@ test('the clock guard throws on Date() and on new Date without parentheses, and 
   expect(() => withoutClock(() => {
     for (const doc of [targetCompleted(NOW_S), targetCompleted(null), targetAbandoned(NOW_S), READER_ZERO_AT_END, readerOf(range(100))]) {
       for (const w of [...WIDTHS, 12, 13, 29]) {
-        draw.pane(P(doc), agents([]), w, 'dock')
-        draw.pane(P(doc), agents([]), w, 'inline')
+        draw.pane(P(doc), agents([]), w, 'docked', HARNESS)
+        draw.pane(P(doc), agents([]), w, 'mini', HARNESS)
       }
     }
   })).not.toThrow()
@@ -888,7 +889,7 @@ for (const [name, doc] of [['the live run', READER_OK], ['the last run', IDLE_LA
     await load($, on, { reader: ok(doc), agents: [AGENT] })
     for (const w of [15, 30, 120, 400]) {
       const tree = await drawPane($, w, 'dock')
-      expect([w, draw.blockSize(draw.pane(P(doc), agents([AGENT]), w, 'dock'))]).toEqual([w, drawnSize(tree)])
+      expect([w, draw.blockSize(draw.pane(P(doc), agents([AGENT]), w, 'docked', HARNESS))]).toEqual([w, drawnSize(tree)])
       // The last run's summary has an empty line, drawn as a line whose only string is empty.
       if (doc === IDLE_LATEST) expect([w, lineStrings(tree).filter(s => s.length === 1 && s[0] === '').length]).toEqual([w, 1])
     }
@@ -938,9 +939,9 @@ test('the band and both pane layouts draw every axis fixture under the wider clo
   expect(() => withoutAnyClock(() => {
     for (const doc of [SEAT_SHAPE, textEdge(56), textEdge(57), nodeHeavyDoc(1582), seatDoc([100, 100, 100, 3, 100], 150), READER_OK, IDLE_LATEST, targetCompleted(null), targetAbandoned(NOW_S), READER_ZERO_AT_END]) {
       for (const w of [15, 30, 120, 400]) {
-        draw.pane(P(doc), agents([AGENT]), w, 'dock')
-        draw.pane(P(doc), agents([AGENT]), w, 'inline')
-        draw.band(P(doc), agents([AGENT]), w)
+        draw.pane(P(doc), agents([AGENT]), w, 'docked', HARNESS)
+        draw.pane(P(doc), agents([AGENT]), w, 'mini', HARNESS)
+        draw.band(P(doc), agents([AGENT]), w, HARNESS)
       }
     }
   })).not.toThrow()

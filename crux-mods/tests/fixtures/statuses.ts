@@ -1,6 +1,6 @@
 // Every status the dashboard reports, with a mocked machine that makes the launch report it. A test
 // holds this set equal to the launch codes, reader-failed:<each reader error code> and the view's
-// own codes: 31 statuses in all.
+// own codes: 30 statuses in all.
 //
 // reader-timeout's machine is a process hook that answers `{ deny }` in Claude Code's own timeout
 // wording; world.ts says why a thrown error cannot stand in for it.
@@ -19,7 +19,6 @@ const READER_CODES = [
 
 export const STATUS_MACHINES: Record<string, Opts> = {
   'no-env-binary': { files: { '/usr/bin/env': 'other' } },
-  'loader-var-set': { env: { ...baseEnv, LD_PRELOAD: '/evil/lib' } },
   'config-dir-mismatch': { installedAt: 'ancestor', env: { HOME: '/home/u', CLAUDE_CONFIG_DIR: '/other' } },
   'inside-project': { env: { HOME: '/proj/home', CLAUDE_CONFIG_DIR: '/cfg' } },
   'project-root-invalid': { files: { '/proj': 'file' } },

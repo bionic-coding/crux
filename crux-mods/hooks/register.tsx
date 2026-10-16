@@ -1,11 +1,12 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
+import { ancestorsOf, buildLaunch, classifyFinished, isInside, isSlow, parseOwnVersion, trimSlash, uvCandidates } from './lib/launch.ts'
+import type { Launch } from './lib/launch.ts'
 import {
-  LAUNCH, RECORD, ancestorsOf, buildLaunch, classifyFinished, classifyRejection, isInside, isSlow, ownMarketplace,
-  parseEntry, parseOwnVersion, trimSlash, uvCandidates,
-} from './lib/launch.ts'
-import type { Launch, LaunchCode, Outcome } from './lib/launch.ts'
-import { KEPT_SHAPE, agents, answer, kept, parseReader, touchesRunFile } from './lib/view.ts'
+  HARNESS, KEPT_CODES, LAUNCH, RECORD, agents, classifyRejection, finishedOf, layoutOf, ownMarketplace, parseEntry, touchesRunFile,
+} from './lib/claude.ts'
+import type { LaunchCode, Result } from './lib/claude.ts'
+import { KEPT_SHAPE, answer, kept, parseReader } from './lib/view.ts'
 import type { Parsed } from './lib/view.ts'
 import type { Kept } from '../types'
 import { band, pane, styleOf } from './lib/draw.ts'
@@ -67,29 +68,7 @@ async function sameDir($: Eng, a: string, b: string): Promise<boolean> {
   return sa?.realPath !== undefined && sa.realPath === sb?.realPath
 }
 
-// Every loader variable is a literal call so the validator lists each name. The
-// mod refuses instead of relying on `env -i`: /usr/bin/env itself starts under the
-// inherited environment before it clears anything, so a dynamic-loader variable
-// could run code inside env.
-async function anyLoaderVarSet($: Eng): Promise<boolean> {
-  const values = await Promise.all([
-    $.env.get('LD_PRELOAD'),
-    $.env.get('LD_AUDIT'),
-    $.env.get('LD_LIBRARY_PATH'),
-    $.env.get('DYLD_INSERT_LIBRARIES'),
-    $.env.get('DYLD_LIBRARY_PATH'),
-    $.env.get('DYLD_FRAMEWORK_PATH'),
-    $.env.get('DYLD_FALLBACK_LIBRARY_PATH'),
-    $.env.get('DYLD_FALLBACK_FRAMEWORK_PATH'),
-    $.env.get('DYLD_VERSIONED_LIBRARY_PATH'),
-    $.env.get('DYLD_VERSIONED_FRAMEWORK_PATH'),
-    $.env.get('DYLD_ROOT_PATH'),
-    $.env.get('DYLD_IMAGE_SUFFIX'),
-  ])
-  return values.some(v => v !== undefined)
-}
-
-// Refusals run in a fixed order: the launcher, the loader, the project root,
+// Refusals run in a fixed order: the launcher, the project root, HOME,
 // the record, the paths that must lie outside the project, uv, the version.
 async function planLaunch($: Eng): Promise<Plan> {
   const no = (code: LaunchCode): Plan => ({ ok: false, code })
@@ -97,8 +76,6 @@ async function planLaunch($: Eng): Promise<Plan> {
 
   const launcher = await statOf($, LAUNCH.launcher)
   if (launcher === undefined || launcher.kind !== 'file') return no('no-env-binary')
-
-  if (await anyLoaderVarSet($)) return no('loader-var-set')
 
   // The session's project root, which a shell `cd` does not move; the directory
   // the session runs in can be a subdirectory or another repository.
@@ -147,7 +124,7 @@ async function planLaunch($: Eng): Promise<Plan> {
   if (entry === undefined) return no('crux-not-installed')
 
   let uv: string | undefined
-  for (const path of uvCandidates(home)) {
+  for (const path of uvCandidates(LAUNCH, home)) {
     const st = await statOf($, path)
     if (st !== undefined && st.kind === 'file') {
       uv = path
@@ -172,15 +149,15 @@ async function planLaunch($: Eng): Promise<Plan> {
   }
   if (own === undefined || own !== entry.version) return no('version-mismatch')
 
-  return { ok: true, launch: buildLaunch(uv, entry, home, projectRoot) }
+  return { ok: true, launch: buildLaunch(LAUNCH, uv, entry.installPath, home, projectRoot) }
 }
 
-async function runReader($: Eng): Promise<Outcome> {
+async function runReader($: Eng): Promise<Result> {
   const plan = await planLaunch($)
   if (!plan.ok) return plan
   try {
     const res = await $.process.run(plan.launch.argv, { cwd: plan.launch.cwd, timeoutMs: plan.launch.timeoutMs })
-    return classifyFinished(res)
+    return classifyFinished(finishedOf(res))
   } catch (err) {
     return classifyRejection(err)
   }
@@ -191,7 +168,7 @@ async function runReader($: Eng): Promise<Outcome> {
 // list.
 async function keptNow($: Eng): Promise<Parsed | null> {
   try {
-    return kept(await read($, current))
+    return kept(await read($, current), KEPT_CODES)
   } catch {
     return null
   }
@@ -364,7 +341,7 @@ export const register: Register = (on, options) => {
     if (e.props.hasSurvey) return next(e)
     const now = await keptNow($)
     if (now === null) return next(e)
-    const block = band(now, await agentsOf($), e.props.bodyColumns)
+    const block = band(now, await agentsOf($), e.props.bodyColumns, HARNESS)
     if (block === null) return next(e)
     const { Box, Text } = $.ui.resolve(e) as any
     return element(Box, Text, block)
@@ -376,7 +353,7 @@ export const register: Register = (on, options) => {
     if (e.requestId !== PANE_ID) return next(e)
     const now = await keptNow($)
     if (now === null) return next(e)
-    const block = pane(now, await agentsOf($), e.props.bodyColumns, e.props.placement)
+    const block = pane(now, await agentsOf($), e.props.bodyColumns, layoutOf(e.props.placement), HARNESS)
     const { Box, Text } = $.ui.resolve(e) as any
     return element(Box, Text, block)
   })

@@ -1,4 +1,4 @@
-<!-- generated-from: CHANGELOG.md@sha256:2b845cddcd2d5176197fdd7daad590c71994da88c5a52d871d291a3a2f9d9cc6; model: claude-sonnet-5.5; date: 2026-10-15 -->
+<!-- generated-from: CHANGELOG.md@sha256:d76b5d8dae1da261e8427aae384a7bd25ee2a70368dfeaa9d88cc627ec69b5e4; model: claude-sonnet-5.5; date: 2026-10-16 -->
 # Changelog
 
 All notable changes to crux. The format roughly follows [Keep a Changelog](https://keepachangelog.com/) and the project adheres to [Semantic Versioning](https://semver.org/).
@@ -6,6 +6,46 @@ All notable changes to crux. The format roughly follows [Keep a Changelog](https
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [3.32.2] — 2026-10-16
+
+### Added
+
+### Changed
+
+### Fixed
+
+- Both the Claude Code and OpenCode dashboards now start the reader when your environment sets a dynamic-loader variable such as `LD_LIBRARY_PATH` or `DYLD_LIBRARY_PATH` (set by conda, CUDA, Homebrew and some IDEs). Previously the dashboards showed a `loader-var-set` status instead of your run; that status no longer exists.
+
+### Removed
+
+- The crux-opencode release gate in the development repository no longer pins a fixed set of twelve loader variables. Both release gates still refuse a loader-variable read that is added without a manifest declaration, and the crux-opencode gate also refuses one that is declared without an accepted decision.
+
+## [3.32.1] — 2026-10-16
+
+### Added
+
+### Changed
+
+### Fixed
+
+- In OpenCode, `/crux-dashboard` now toggles the dashboard panel: run it again to close the panel. Previously, the panel could not be closed once it was open. The palette entry now reads "Toggle the crux dashboard".
+
+### Removed
+
+## [3.32.0] — 2026-10-16
+
+### Added
+
+- The crux run dashboard now has an OpenCode 2 terminal interface version in `crux-opencode/`. It draws the run band above the composer, the panel, and a `/crux-dashboard` command that opens the panel. To use it, list the path to `crux-opencode/` in your clone in `~/.config/opencode/cli.json`; nothing is published to a package registry. It uses the same reader and view core as the Claude Code dashboard, which is unchanged.
+- In the development repository, the release preflight and `sync.sh` now run a source gate on `crux-opencode/` that compares its source to its capability manifest. The gate needs no OpenCode on the release machine. A live OpenCode 2 check from the beta install is still owed before the official release.
+- The approved reasoning behind the OpenCode 2 dashboard is recorded in the development repository as reviewed intent.
 
 ### Changed
 

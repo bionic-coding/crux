@@ -75,7 +75,7 @@ def base_manifest():
             {"event": OBS, "behaviour": "observe", "decision": None},
         ],
         "calls": ["$.agent.list", "$.fs.read"],
-        "env_reads": ["HOME", "LD_PRELOAD", "LD_AUDIT"],
+        "env_reads": ["HOME"],
         "env_writes": [],
         "launch": {
             "launcher": "/usr/bin/env",
@@ -83,7 +83,6 @@ def base_manifest():
             "uv_locations": ["/opt/uv", "{HOME}/.local/bin/uv"],
             "uv_args": ["run", "--offline"],
             "env_allow": ["HOME", "PATH"],
-            "loader_vars": ["LD_PRELOAD", "LD_AUDIT"],
             "scripts": {"reader-one": {"path": "scripts/reader-one.py",
                                        "args": ["--json", "{project_root}"]}},
             "timeout_ms": 10000,
@@ -100,7 +99,6 @@ def base_manifest():
                 "$.fs.read": entry("run files, using `$.fs.read`", "nothing"),
             },
             "env_reads": {"HOME": entry("your home directory", "the path passed to the reader")},
-            "loader_vars": entry("the dynamic loader settings", "nothing; each is refused"),
             "env_writes": {},
             "launch": {"reader-one": entry("the project's run files", "nothing")},
             "never": "It makes no network request.",
@@ -131,8 +129,6 @@ REGION_HEAD = (
     "| `$.agent.list` | call | the running subagents | nothing |\n"
     "| `$.fs.read` | call | run files, using `$.fs.read` | nothing |\n"
     "| `HOME` | environment read | your home directory | the path passed to the reader |\n"
-    "| `LD_PRELOAD`, `LD_AUDIT` | environment read (dynamic loader) | "
-    "the dynamic loader settings | nothing; each is refused |\n"
 )
 REGION_PROCESS_ROW = "| `reader-one` | process | the project's run files | nothing |\n\n"
 REGION_WRITE_ROW = "| `CRUX_FLAG` | environment write | a flag it sets | the flag value |\n"
@@ -490,26 +486,11 @@ class ValidationTests(TmpTestCase):
         self.check(lambda m: m["notes"]["events"].update({"has space": entry("a", "b")}),
                    ("orphan-note", "notes.events[#2]"))
 
-    # the loader set
+    # a loader note is no longer a notes key
 
-    def test_double_note(self):
-        self.check(lambda m: m["notes"]["env_reads"].update({"LD_PRELOAD": entry("a", "b")}),
-                   ("double-note", "notes.env_reads[LD_PRELOAD]"))
-
-    def test_missing_loader_note(self):
-        self.check(lambda m: m["notes"].pop("loader_vars"),
-                   ("missing-loader-note", "notes.loader_vars"))
-
-    def test_orphan_loader_note(self):
-        def mutate(m):
-            m["launch"]["loader_vars"] = []
-            m["notes"]["env_reads"]["LD_PRELOAD"] = entry("a", "b")
-            m["notes"]["env_reads"]["LD_AUDIT"] = entry("a", "b")
-        self.check(mutate, ("orphan-loader-note", "notes.loader_vars"))
-
-    def test_loader_var_unread(self):
-        self.check(lambda m: m["env_reads"].remove("LD_AUDIT"),
-                   ("loader-var-unread", "launch.loader_vars[1]"))
+    def test_a_loader_note_is_an_unknown_notes_key(self):
+        self.check(lambda m: m["notes"].update({"loader_vars": entry("a", "b")}),
+                   ("unknown-notes-key", "notes.loader_vars"))
 
     # the closed key sets
 
@@ -719,8 +700,6 @@ class ValidationTests(TmpTestCase):
                    ("bad-note-text", "notes.events[ui.render{component=Band}].surface"))
         self.check(lambda m: m["notes"]["surfaces"][0].update({"part": "a<b"}),
                    ("bad-note-text", "notes.surfaces[0].part"))
-        self.check(lambda m: m["notes"]["loader_vars"].update({"keeps": "a<b"}),
-                   ("bad-note-text", "notes.loader_vars.keeps"))
 
     # the guide's markers and the manifest's parse
 
@@ -776,11 +755,9 @@ class ValidationTests(TmpTestCase):
         cases = {
             "events": (lambda m: m["events"].append(
                 {"event": OBS, "behaviour": "observe", "decision": None}), "events[2].event"),
-            "env_reads": (lambda m: m["env_reads"].append("HOME"), "env_reads[3]"),
+            "env_reads": (lambda m: m["env_reads"].append("HOME"), "env_reads[1]"),
             "env_writes": (lambda m: m.update({"env_writes": ["CRUX_FLAG", "CRUX_FLAG"]}),
                            "env_writes[1]"),
-            "loader_vars": (lambda m: m["launch"]["loader_vars"].append("LD_PRELOAD"),
-                            "launch.loader_vars[2]"),
         }
         for label, (mutate, where) in cases.items():
             with self.subTest(key=label):
@@ -920,6 +897,7 @@ class ContainmentTests(TmpTestCase):
 _LIVE_SCRIPT = Path(__file__).resolve().parents[1] / "generate-mods-reach-tables.py"
 _LIVE_MANIFEST = REPO_ROOT / "crux-mods" / "hooks" / "capabilities.ts"
 _LIVE_VIEW = REPO_ROOT / "crux-mods" / "hooks" / "lib" / "view.ts"
+_LIVE_CLAUDE = REPO_ROOT / "crux-mods" / "hooks" / "lib" / "claude.ts"
 _LIVE_REGISTER = REPO_ROOT / "crux-mods" / "hooks" / "register.tsx"
 _LIVE_GATE = REPO_ROOT / "tools" / "mods_gate.py"
 _LIVE_PUBLIC_GUIDE = REPO_ROOT / "public" / "USER_GUIDE.md"
@@ -1009,9 +987,9 @@ def reader_keys(view_ts: str) -> set[str]:
     return keys
 
 
-def agent_fields(view_ts: str) -> set[str]:
+def agent_fields(claude_ts: str) -> set[str]:
     """The fields `agents()` reads from each entry of the engine's agent list."""
-    m = re.search(r"export function agents\(list: unknown\): Agents \{(.*?)\n\}\n", view_ts, re.S)
+    m = re.search(r"export function agents\(list: unknown\): Agents \{(.*?)\n\}\n", claude_ts, re.S)
     return set() if m is None else set(re.findall(r"\bo\.([A-Za-z_][A-Za-z0-9_]*)", m.group(1)))
 
 
@@ -1093,13 +1071,14 @@ class FromCrossCheckTests(unittest.TestCase):
     def setUp(self):
         require_dev_surface(self, REPO_ROOT / "AGENTS.md", "repo-root AGENTS.md")
         view = _LIVE_VIEW.read_text(encoding="utf-8")
+        claude = _LIVE_CLAUDE.read_text(encoding="utf-8")
         register = _LIVE_REGISTER.read_text(encoding="utf-8")
         regen = _load_live_module(_LIVE_SCRIPT, "_live_regen_x")
         self.manifest = regen.load_manifest(_LIVE_MANIFEST)
         self.ctx = {
             "scripts": set(self.manifest["launch"]["scripts"]),
             "keys": reader_keys(view),
-            "agents": agent_fields(view),
+            "agents": agent_fields(claude),
             "props": event_props(register),
         }
 
@@ -1157,7 +1136,7 @@ class ParserParityTests(unittest.TestCase):
                 self.assertEqual(projected[key], parsed[key])
         self.assertEqual(6, len(parsed["events"]))
         self.assertEqual(14, len(parsed["calls"]))
-        self.assertEqual(14, len(parsed["env_reads"]))
+        self.assertEqual(2, len(parsed["env_reads"]))
         self.assertEqual([], parsed["env_writes"])
         self.assertEqual(["crux-mods.current"], parsed["state_declared"])
         self.assertEqual(["crux-mods.current"], parsed["state_reads"])

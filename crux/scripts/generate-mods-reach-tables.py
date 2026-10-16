@@ -30,8 +30,7 @@ headings, column labels and lead-in sentences are constants of this script.
 FAIL CLOSED. Every join is checked and every failure is collected, then the run
 exits 1 with `{"validation_errors": [{"code", "where"}, ...]}` and writes nothing.
 A refusal names the field and the code and never the offending text. The codes are:
-missing-note, orphan-note, double-note, missing-loader-note, orphan-loader-note,
-loader-var-unread, unknown-notes-key, missing-notes-key, unknown-note-key,
+missing-note, orphan-note, unknown-notes-key, missing-notes-key, unknown-note-key,
 missing-note-key, missing-surface, surface-on-non-draw, row-not-draw,
 draw-without-row, duplicate-row, empty-from, duplicate-source, bad-origin,
 bad-launch-field, bad-field, bad-note-text, bad-name, unexplained-placeholder,
@@ -137,7 +136,7 @@ ADMITTED_NON_ASCII = frozenset(
 )
 
 NOTES_REQUIRED = ("events", "calls", "env_reads", "env_writes", "launch", "never", "surfaces")
-NOTES_ALLOWED = NOTES_REQUIRED[:3] + ("loader_vars",) + NOTES_REQUIRED[3:]
+NOTES_ALLOWED = NOTES_REQUIRED
 ENTRY_KEYS = ("sees", "keeps")
 SURFACE_KEYS = ("event", "part", "from")
 
@@ -273,7 +272,6 @@ def _check_shape(data) -> None:
     _str_list(launch, "uv_locations", "launch.uv_locations", unique=False)
     _str_list(launch, "uv_args", "launch.uv_args", unique=False)
     _str_list(launch, "env_allow", "launch.env_allow", unique=False)
-    _str_list(launch, "loader_vars", "launch.loader_vars", unique=True)
     scripts = launch.get("scripts")
     if not isinstance(scripts, dict):
         raise ManifestError("launch.scripts", "expected an object")
@@ -357,7 +355,7 @@ def _check_names(manifest: dict, rep: _Report) -> None:
     launch = manifest["launch"]
     if not NAME_RE.fullmatch(launch["launcher"]):
         rep.add("bad-name", "launch.launcher")
-    for key in ("launcher_args", "uv_locations", "uv_args", "env_allow", "loader_vars"):
+    for key in ("launcher_args", "uv_locations", "uv_args", "env_allow"):
         for i, name in enumerate(launch[key]):
             if not NAME_RE.fullmatch(name):
                 rep.add("bad-name", f"launch.{key}[{i}]")
@@ -369,9 +367,6 @@ def _check_names(manifest: dict, rep: _Report) -> None:
         for j, arg in enumerate(script["args"]):
             if not NAME_RE.fullmatch(arg):
                 rep.add("bad-name", f"launch.scripts[{i}].args[{j}]")
-    for i, name in enumerate(launch["loader_vars"]):
-        if name not in manifest["env_reads"]:
-            rep.add("loader-var-unread", f"launch.loader_vars[{i}]")
     for where, value in _launch_strings(launch):
         rest = value
         for token in PLACEHOLDERS:
@@ -422,7 +417,7 @@ def _check_entry(where: str, entry, rep: _Report, *, behaviour: str | None = Non
         rep.add("surface-on-non-draw", f"{where}.surface")
 
 
-def _check_section(label: str, expected: list[str], section: dict, loader: set[str],
+def _check_section(label: str, expected: list[str], section: dict,
                    behaviours: dict[str, str] | None, rep: _Report) -> None:
     for i, name in enumerate(expected):
         where = f"notes.{label}[{_safe(name, i)}]"
@@ -435,10 +430,7 @@ def _check_section(label: str, expected: list[str], section: dict, loader: set[s
         if key in expected:
             continue
         where = f"notes.{label}[{_safe(key, i)}]"
-        if label == "env_reads" and key in loader:
-            rep.add("double-note", where)
-        else:
-            rep.add("orphan-note", where)
+        rep.add("orphan-note", where)
 
 
 def _check_source(where: str, source, row_event, launch_scripts: dict, calls: list[str],
@@ -537,29 +529,18 @@ def validate(manifest: dict) -> list[dict]:
             rep.add("missing-notes-key" if key != "never" else "bad-note-text", f"notes.{key}")
             wrong_type.add(key)
     launch = manifest["launch"]
-    loader = set(launch["loader_vars"])
     events = manifest["events"]
     behaviours = {e["event"]: e["behaviour"] for e in events}
     if "events" not in wrong_type:
-        _check_section("events", [e["event"] for e in events], notes["events"], loader, behaviours, rep)
+        _check_section("events", [e["event"] for e in events], notes["events"], behaviours, rep)
     if "calls" not in wrong_type:
-        _check_section("calls", manifest["calls"], notes["calls"], loader, None, rep)
+        _check_section("calls", manifest["calls"], notes["calls"], None, rep)
     if "env_reads" not in wrong_type:
-        reads = [n for n in manifest["env_reads"] if n not in loader]
-        _check_section("env_reads", reads, notes["env_reads"], loader, None, rep)
-    if "loader_vars" in notes:
-        if not loader:
-            rep.add("orphan-loader-note", "notes.loader_vars")
-        elif not isinstance(notes["loader_vars"], dict):
-            rep.add("missing-notes-key", "notes.loader_vars")
-        else:
-            _check_entry("notes.loader_vars", notes["loader_vars"], rep)
-    elif loader:
-        rep.add("missing-loader-note", "notes.loader_vars")
+        _check_section("env_reads", manifest["env_reads"], notes["env_reads"], None, rep)
     if "env_writes" not in wrong_type:
-        _check_section("env_writes", manifest["env_writes"], notes["env_writes"], loader, None, rep)
+        _check_section("env_writes", manifest["env_writes"], notes["env_writes"], None, rep)
     if "launch" not in wrong_type:
-        _check_section("launch", list(launch["scripts"]), notes["launch"], loader, None, rep)
+        _check_section("launch", list(launch["scripts"]), notes["launch"], None, rep)
     if "never" not in wrong_type:
         never = notes["never"]
         if not check_text(never) or not never[:1].isascii() or not never[:1].isalpha():
@@ -595,7 +576,6 @@ def render_region(manifest: dict) -> str:
     """The region body: everything strictly between the two marker lines."""
     notes = manifest["notes"]
     launch = manifest["launch"]
-    loader = launch["loader_vars"]
     rows = [REACH_HEADER]
     for e in manifest["events"]:
         n = notes["events"][e["event"]]
@@ -605,14 +585,8 @@ def render_region(manifest: dict) -> str:
         n = notes["calls"][name]
         rows.append(_row(_code(name), "call", _cell(n["sees"]), _cell(n["keeps"])))
     for name in manifest["env_reads"]:
-        if name in loader:
-            continue
         n = notes["env_reads"][name]
         rows.append(_row(_code(name), "environment read", _cell(n["sees"]), _cell(n["keeps"])))
-    if loader:
-        n = notes["loader_vars"]
-        rows.append(_row(", ".join(_code(v) for v in loader), "environment read (dynamic loader)",
-                         _cell(n["sees"]), _cell(n["keeps"])))
     for name in manifest["env_writes"]:
         n = notes["env_writes"][name]
         rows.append(_row(_code(name), "environment write", _cell(n["sees"]), _cell(n["keeps"])))

@@ -1,4 +1,4 @@
-<!-- generated-from: OPENCODE.md@sha256:4428fa1966b87210185e0b6ee987b8d685eedb320519075b19d50be091a3ac87; model: deterministic-copy; date: 2026-10-06 -->
+<!-- generated-from: OPENCODE.md@sha256:48a5037b9af4885806829be09536ac5203c0c9a2667166de52d948f3568437ae; model: deterministic-copy; date: 2026-10-16 -->
 # Install Crux for OpenCode
 
 Crux has no native OpenCode marketplace package. OpenCode installation uses a stable clone of the public Crux repository. This guide covers machine-wide and project-only installation for humans and agents.
@@ -135,6 +135,89 @@ uv run python3 crux/scripts/generate-opencode-agents.py --dry-run
 
 Project-only installations do not update through the global symlinks. Invoke `install-opencode-agents` again in each project and review drift before using `--force`.
 
+## Run dashboard in the OpenCode TUI (optional)
+
+`crux-opencode` is a separate, optional plugin for OpenCode's terminal interface (the TUI) in OpenCode 2. It lives in the `crux-opencode/` directory of your clone, beside `crux/`. It draws the state of a crux promptbook run inside OpenCode:
+
+- **A band above the composer.** One line for the run in progress, shown on a session screen. The home screen shows nothing.
+- **A panel.** The run dashboard panel, named `crux-dashboard`, opens beside the session.
+- **A command.** `/crux-dashboard` opens the panel. It adds nothing to the transcript, to your prompt or to a model request. When no panel can open, such as outside a session, it shows a toast that carries only a status code.
+
+It draws the same run progress as the Claude Code dashboard, because it uses the same reader (`visualize-run-progress`) and the same drawing code from your clone. Installing the crux skills loads nothing in OpenCode's terminal interface. You opt in with the entry below.
+
+### 1. Add the plugin to `cli.json`
+
+OpenCode 2 reads terminal plugins from `~/.config/opencode/cli.json`. Create the file if it is absent, and merge this entry. Replace `/Users/you/.local/share/crux` with the absolute path of your clone:
+
+```json
+{
+  "plugins": ["/Users/you/.local/share/crux/crux-opencode"]
+}
+```
+
+Keep the other keys and entries that the file already holds. The entry names the directory itself, not a file in it. Use an absolute path. Do not list `crux-opencode` in `opencode.json`: it has no server half. See OpenCode's CLI plugin docs: <https://opencode.ai/v2/docs/build/plugins/cli/>.
+
+Before you restart, warm the `uv` cache while you are online. The plugin runs `uv` with `--offline`, so a Python or PyYAML missing from the cache shows `offline-unavailable`. Run these once, with the absolute path of any project in place of `<project path>`:
+
+```bash
+uv python install 3.13
+cd ~/.local/share/crux/crux
+uv run --no-project --no-config scripts/visualize-run-progress.py --json --project-root "<project path>"
+```
+
+Then fully quit and restart OpenCode's terminal interface. There is nothing to install or build. crux-opencode is never published to npm or any other package registry, and it carries no version of its own: it is the version of your clone.
+
+### 2. What you see
+
+Open a session in a project that has a crux documentation tree and a run in progress. The first view appears at least 4 seconds after OpenCode's terminal interface starts. After that the band and the panel refresh every 10 seconds, when the panel opens and when you run `/crux-dashboard`. After a slow status (`reader-timeout`, `reader-cpu-limit` or `reader-failed:time-limit`), the 10-second refresh pauses. Opening the panel or running the command still refreshes both. The 10-second refresh resumes after a refresh that ends with any other result.
+
+- The band draws at most 40 columns, because OpenCode's band slot reports no width. The panel fits the width OpenCode reports for it.
+- Every colour is a token of your OpenCode theme, and no colour carries a meaning alone: a glyph or a word repeats it.
+- The dashboard is static. It draws no motion and no pictures, reads none of your prompts, shows subagent status only as `agents unavailable`, and adds no stop to a run.
+
+### 3. When it shows a status instead of a view
+
+The dashboard draws a status code when it cannot check the run safely. It refuses and does not guess. The band reads `crux-opencode dashboard: <code>` and the panel reads `Dashboard unavailable: <code>`. For `unsupported OpenCode version`, both read `crux-opencode dashboard: unsupported OpenCode version` when that line fits the region, and the words alone when it does not. The band is 40 columns wide, so it always shows the words alone. The band stays empty for `no-active-run`, which means no run is in progress.
+
+| Code | Meaning | What to do |
+|---|---|---|
+| `unsupported OpenCode version` | OpenCode reports a version other than 2.x, or none. The plugin starts no process. | Use OpenCode 2.x. |
+| `inside-project` | The project root holds your crux clone, `uv`, its cache or its interpreter directory. The home directory counts, and so does a workspace folder that holds the clone. | Start OpenCode in the project's own directory. |
+| `project-root-unresolved` | The directory OpenCode names for the session does not resolve to an existing directory, for example because it was removed after OpenCode's terminal interface started. | Restore the directory. The next refresh picks it up. |
+| `crux-not-found` | The plugin cannot find `crux/` in the clone that holds `crux-opencode/`. | List the plugin by its path in a complete clone. |
+| `version-mismatch` | `crux/plugin.json` and the crux-mods manifest in the clone carry different versions. | Update the clone with `git pull --ff-only`. |
+| `home-invalid` | `HOME` is unset or not an absolute path. | Start OpenCode with `HOME` set to an absolute path. |
+| `uv-not-found` | `uv` is not at one of the places the plugin looks: `/opt/homebrew/bin/uv`, `/usr/local/bin/uv`, `~/.local/bin/uv` or `~/.cargo/bin/uv`. | Install `uv` at one of those places. |
+| `reader-timeout` | The reader was still running after 10 seconds. | Retry. A cold `uv` cache can be slow the first time. |
+| `reader-cannot-start` | The plugin could not start the reader process. | Check that `/usr/bin/env` and `uv` are executable. |
+| `reader-cpu-limit` | The system stopped the reader at its CPU limit. | Retry. If the code persists, run the reader command below. |
+| `offline-unavailable` | `uv` cannot run the reader without the network, because a Python or PyYAML is not in its cache. | Run `uv python install 3.13` once. Then, while online, run `cd ~/.local/share/crux/crux && uv run --no-project --no-config scripts/visualize-run-progress.py --json --project-root "<project path>"` once. |
+| `reader-no-json-mode` | The crux in your clone is too old to have the reader's JSON mode. | Update the clone with `git pull --ff-only`. |
+| `reader-format-mismatch` | The reader answered with a JSON format version the plugin does not accept. | Update the clone with `git pull --ff-only`. |
+| `reader-failed:<code>` | The reader answered with an error code, such as `tree-missing` (no crux tree in this project). | For `tree-missing`, start OpenCode at the project root. Otherwise run the reader command below. |
+| `reader-failed`, `reader-output-invalid` | The reader failed without an answer, or its output did not match the shape the plugin accepts. | Run the reader command below to see the cause. |
+| `panel-unavailable` | The command shows this in a toast when no panel can open. | Open a session, then run the command again. |
+
+To see the reader's own answer, run it from the clone's `crux/` directory and never from inside the project, in a shell with no virtual environment active:
+
+```bash
+cd ~/.local/share/crux/crux
+uv run --offline --no-project --no-config scripts/visualize-run-progress.py --json --project-root "<project path>"
+```
+
+### 4. Limits
+
+- **OpenCode 2.x only.** The plugin draws a view only when OpenCode reports a 2.x version. It was written against OpenCode 2.0.26, and OpenCode documents its plugin interface as unstable, so a later 2.x release can break the view until a fix ships.
+- **Local projects.** The plugin reads only the directory OpenCode names for the session. A terminal attached to a remote server shows the run state of that local directory, which can differ from the server's project.
+- **The reader is your clone's, never the project's.** OpenCode itself loads TUI plugins from a project's `.opencode/plugins/` into the same process without asking, and crux-opencode's guarantee does not cover that code. The plugin runs only the reader in your clone, through `uv`, offline, with a fixed environment. It never runs a script, interpreter or environment variable that the project supplies.
+- **POSIX systems.** The plugin starts its reader through `/usr/bin/env`. On a host without it, such as native Windows, it starts no process and shows no view.
+- **Paths compare case-sensitively.** The `inside-project` check compares paths case-sensitively. On a case-insensitive APFS volume, a path inside the project that spells the project's path in different case is not seen as inside it.
+- **No dogfooding in place.** The project root cannot hold the clone, so OpenCode run inside a crux checkout shows a status, not that checkout's runs. Keep a second clone, list that one in `cli.json`, and run OpenCode in the first.
+
+### 5. Updating and turning it off
+
+The plugin updates with the clone. Run `git pull --ff-only`, then restart OpenCode's terminal interface. It needs no regeneration. To turn it off, remove its entry from `cli.json` and restart. Your documentation tree and runs are unchanged.
+
 ## Model gateway
 
 Most Crux skills work without external model credentials. A cycle's council gates need the gateway key. An ad-hoc council and the LLM-backed skills use it too. All of them read one OpenRouter key stored outside the repository:
@@ -165,3 +248,5 @@ Council deliberation runs only through the council runner (`run-council.py`). Wi
 Do not commit `~/.config/opencode/opencode.json`, API keys, or user-level agent links into a project. Do not run generated V2 roles with the V1 `opencode` binary.
 
 The machine-wide setup uses no Crux installer code after projection generation. The project installer only manages the ten current role filenames and preserves unrelated files.
+
+The `crux-opencode` plugin reads only its own files, the clone's `crux/` and `crux-mods/` files, the `uv` locations and environment values it declares, and the reader's output. It keeps nothing outside OpenCode's in-memory plugin storage, writes nothing in your documentation tree, and never reads `~/.crux/` or another credential file.
