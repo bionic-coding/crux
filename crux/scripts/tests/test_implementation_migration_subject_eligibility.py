@@ -248,7 +248,7 @@ class PublishedChain(unittest.TestCase):
         bp=self.book_path.with_name('PB-0997-fixture.yaml');bp.write_text(yaml.safe_dump(book,sort_keys=False))
         run=bp.parent.parent/'runs/PB-0997-fixture/run-RUN-001.yaml'
         sup.commit_all(self.root,'synthetic separately declared C')
-        result=subprocess.run([sys.executable,str(sup.SCRIPTS/'start-run.py'),str(bp),'--run-id','RUN-001',
+        result=subprocess.run([sys.executable,str(sup.SCRIPTS/'start-run.py'), "--historical-replay",str(bp),'--run-id','RUN-001',
             '--output',str(run)],capture_output=True,env=sup.scrubbed_env())
         self.assertEqual(result.returncode,0,result.stdout+result.stderr)
         book.update(current_run='RUN-001',current_prompt=1);bp.write_text(yaml.safe_dump(book,sort_keys=False))
@@ -273,7 +273,7 @@ class PublishedChain(unittest.TestCase):
         candidate_path.write_text(yaml.safe_dump(candidate,sort_keys=False))
         candidate_run=candidate_path.parent.parent/'runs/PB-0996-fixture/run-RUN-001.yaml'
         sup.commit_all(self.root,'synthetic new declared subject cannot borrow B publication')
-        result=subprocess.run([sys.executable,str(sup.SCRIPTS/'start-run.py'),str(candidate_path),
+        result=subprocess.run([sys.executable,str(sup.SCRIPTS/'start-run.py'), "--historical-replay",str(candidate_path),
             '--run-id','RUN-001','--output',str(candidate_run)],capture_output=True,env=sup.scrubbed_env())
         self.assertEqual(result.returncode,0,result.stdout+result.stderr)
         sup.commit_all(self.root,'synthetic exact new subject started after C')

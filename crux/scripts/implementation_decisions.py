@@ -110,6 +110,8 @@ def unchecked_rules_text(repo_root, decision_path) -> str:
     for row in rows:
         lines += ["## " + row["handle"], "", "Scope: " + (row["scope"] or "(none)"), "",
                   "Rule: " + row["rule"], ""]
+        if row.get("amended_by"):
+            lines += ["Amended by: " + ", ".join(row["amended_by"]), ""]
     return "\n".join(lines).rstrip("\n") + "\n"
 
 

@@ -8,6 +8,52 @@ This guide is for humans. If you are an LLM agent picking up this repo, read `bi
 
 _This guide names the default `bionic/` layout. If this repo's root `.bionic.yml` sets a different `docs_dir`, that directory takes the place of `bionic/` everywhere below._
 
+## Working in cycles
+
+Say "start a cycle", "quick fix", "refactor this", or "release cycle". Crux uses
+one undertaking with a visible plan, tasks, phase, pass count, evidence, and history.
+There is no prompt minimum or repeat run. Pausing and resuming keeps the same cycle.
+
+| Type | Sequence | Pass limit |
+|---|---|---:|
+| dev (major change) | Plan → Build → Test → Review → Reflect | 7 |
+| iterate (minor change) | Plan → Build → Test → Review → Reflect | 2 |
+| refactor (nonfunctional improvement) | Plan → Build → Test → Review → Reflect | 7 |
+| quick-fix (bounded correction) | Build → Test → Review → Reflect | 1 |
+| release | Plan → Release → Reflect | 2 |
+
+Limits include the initial attempt. Tests and blocking review findings return to
+Plan, or Build for quick-fix. Crux pauses sooner if progress stalls; extra passes
+need your approval. Changing type preserves history and pass count.
+
+Dev requires a council-approved IDR. Other types need one only for material choices.
+A cycle can propose an ADR after council justifies its creation; approving the draft
+is a separate council decision. Acceptance requires you by default and makes its
+rules binding. Configure the defaults in `.bionic.yml`:
+
+```yaml
+review:
+  scrutiny: standard
+adr:
+  acceptance: council-and-human
+```
+
+Review alternatives are `focused` and `intensive`; ADR acceptance can explicitly
+use `council-only`. Every cycle retains independent review, with targeted specialists
+for actual risks rather than a fixed security panel. Quick-fix review stays slim.
+
+Test results belong to the repository. Matching evidence is reused across cycles,
+including releases; changes to relevant inputs or freshness requirements trigger
+new checks. Reviewers inspect evidence without rerunning suites by default. Packaging
+and deployment checks still establish their own coverage. Release review precedes
+publication, which requires authorization for its destinations.
+
+Records live in the configured tree's `cycles/<CYC-NNNN>/cycle.json`. The cycle
+progress reader shows phases, tasks, passes, loops, and approval waits. Completed
+or abandoned cycles close permanently with a reflection. Follow-up work starts a
+new cycle. Historical promptbook sections below describe existing records only;
+new work never creates a promptbook or repeats its run.
+
 ## At a glance (the 30,000ft view)
 
 crux turns a `./bionic/` folder into a maintained knowledge base that you and Claude share. There are four moving parts:
@@ -15,7 +61,7 @@ crux turns a `./bionic/` folder into a maintained knowledge base that you and Cl
 1. **The `bionic/` tree — seven concerns.** Code docs, research wiki, ADRs, briefs, work journal, promptbooks, invariants. You curate and decide; Claude does the bookkeeping. → [The seven concerns](#the-seven-concerns)
 2. **Skills — natural language, no slash commands.** "propose an ADR", "process inbox", "audit docs", "start a cycle", "forge a skill". Each is triggered by a phrase routed through the skill's description. → [What to say to Claude](#what-to-say-to-claude)
 3. **Agents — ten roles over the skills.** `commander`, `architect`, `dev-lead`, `developer`, `reviewer`, `historian`, `librarian`, `brainstormer`, `night-gardener`, and `wayfinder` divide planning, implementation, review, preservation, retrieval, exploration, overnight work, and reconnaissance. → [The agent layer](#the-agent-layer)
-4. **Three workflows for change.** `dev-cycle` (architectural constraints as ADRs, or a replaceable implementation choice as a council-reviewed Implementation Decision — council + review), `iterate` (non-architectural fixes — verify + council + review, no ADR), and `patch-cycle` (a small reversible fix — five phases, one prompt each, with a declared blast radius). All three are tracked promptbooks. Trivial work: a plain promptbook or the skills directly. → [Planning multi-step work](#planning-multi-step-work--promptbooks--cycles)
+4. **One workflow for change.** The `cycle` skill selects dev, iterate, refactor, quick-fix, or release. Plans and evidence scale with the task. → [Working in cycles](#working-in-cycles)
 
 Under the hood: stdlib Python **scripts** (extractors, validators, the LLM router) that the skills call for you, plus the `crux-env` **CLI** for secrets. → [Tools & scripts](#tools--scripts)
 
@@ -38,7 +84,7 @@ Under the hood: stdlib Python **scripts** (extractors, validators, the LLM route
 │  • Capture decisions as ADRs                     │
 │  • Ingest sources into the research wiki         │
 │  • Journal what got done                         │
-│  • Track promptbook progress                     │
+│  • Track cycle progress                          │
 │  • Extract code docs from source                 │
 │  • Audit for drift                               │
 └─────────────────┬───────────────────────────────┘
@@ -61,7 +107,8 @@ You read the wiki. Claude writes it.
 | `bionic/adrs/` | Architecture Decision Records — the "why" of every load-bearing decision | You decide; Claude writes the ADR. **Once `Accepted`, the body is frozen.** |
 | `bionic/briefs/` | Pre-decision exploration documents (`BRIEF-<slug>.md`) | You write; Claude tracks them |
 | `bionic/journal/` | Day-by-day record of work performed (`YYYY-MM.md`) | Claude appends entries; you ask for them |
-| `bionic/promptbooks/` | Plans of prompts you'd like to execute, plus immutable run snapshots | Co-authored. Mutable plan + frozen run history |
+| `bionic/cycles/` | Plans, tasks, phase evidence, decisions, and pass history | Maintained by the cycle workflow |
+| `bionic/promptbooks/` | Historical plans and immutable run snapshots | Preserved with their original meaning |
 | `bionic/invariants/` | Pinned, executable statements of *what must be true* — a ledger page per pin plus the executable check suite in `invariants/checks/`, reconciled via `invariants/reconciliation.yml` | **Machine proposes, you ratify.** `recover-invariants` mines candidates as `observed`; you ratify/reject/retire via `transition-invariant`. Recovery never self-ratifies. |
 | `bionic/arch/` (default-on) | Derived architecture spine — the current-state map: data model, interface surface, module graph, decision index, plus a synthesized overview | **Regenerated — never edit by hand.** The primary way to answer "how is this project shaped now?" Enrolled by default on new trees; say **"build the arch"** (`derive-arch`) to build the spine, and `audit-docs` keeps it current. |
 
@@ -76,7 +123,7 @@ source agents from the plugin. Codex and OpenCode use generated native forms.
 
 | Agent | Reach for it when you want… | Bounded so it cannot… |
 |---|---|---|
-| `commander` | a whole cycle/promptbook driven end-to-end (it delegates each step) | edit code or docs itself |
+| `commander` | a cycle or existing historical run driven end-to-end (it delegates each step) | edit code or docs itself |
 | `brainstormer` | to explore a fuzzy idea before committing (drives `whiteboarding`) | write files or touch code |
 | `architect` | a decision recorded + council-reviewed (`propose-adr` → `council` → accept) | implement code |
 | `dev-lead` | implementation coordinated across parallel units | merge / push (human-gated) |
@@ -142,25 +189,26 @@ Categories: `decision | implementation | bug | learning | blocker | refactor | m
 
 `log-work` selects one procedure before writing. An interactive journal request adds a reflective monthly entry, regenerates the journal index, and records one `journal` operation. A silent call defaults to log-only: it requires a valid operation and writes only `bionic/log.md`. The bundled writer checks the request before writing and reports `complete`, `refused`, or `partial`. Keep the original request and its explicit local UTC offset for retry. A month-only partial entry cannot prove that offset; the writer warns `offset unverified`. If the offset was lost, stop automated replay and resolve it from evidence. A journal body allows 1–10 authored lines; an optional `Refs:` line is separate from that limit.
 
-### Planning multi-step work — promptbooks & cycles
+### Planning multi-step work — cycles
 
-Four ways to drive multi-step work, in increasing rigor:
+Say **"start a cycle for X"** and provide the outcome, constraints, and acceptance evidence.
+Select dev for major changes, iterate for minor changes, refactor for nonfunctional
+improvements, quick-fix for bounded corrections, or release for publication work.
+The [cycle overview](#working-in-cycles) describes their phases and pass limits.
 
-- **"Start a cycle for X"** (`dev-cycle`) — for **architectural** work, or a significant **replaceable implementation choice** under unchanged architecture. Assembles a tracked promptbook of ADR or implementation + dev + review modules: an enduring constraint is recorded as an ADR, a replaceable choice as an Implementation Decision, each council-reviewed, implemented, then independently reviewed (≥13 prompts). See [Implementation Decisions](#implementation-decisions).
-- **"Iterate on X"** / **"remediate X"** (`iterate`) — for **non-architectural fixes** (bugs, drift, refinements to existing behavior). Same council + review rigor, but a *verify* module (reproduce + root-cause + council-review the diagnosis) instead of an ADR. When you commit to a replaceable approach that later readers must be able to explain, declare an implementation slot and the verify council also reviews that approach as a formal Implementation Decision. If the verify council finds the work *is* actually architectural, it stops and routes you to `dev-cycle`.
-- **"Patch this"** (`patch-cycle`) — for a **small reversible** non-architectural change you can bound by naming the paths it may touch. Five phases (verify, plan, implement, review, summary), one prompt each. You declare a *blast radius* up front: the council checks it is no wider than the work needs, and archival checks the paths the run actually changed against it, using git. A change that reaches outside the declaration cannot archive as delivered — it is re-authored as an `iterate` or a `dev-cycle`. Work needing an ADR is not a patch.
-- **"New promptbook for X"** (`author-promptbook`) — a bespoke multi-prompt plan you co-author, with **no** enforced council/review. For sequences that don't need the ceremony.
+Say **"cycle status"** to inspect phases, tasks, evidence, approval waits, and pass history.
+The plan remains visible as work proceeds. Returns preserve earlier plans; pausing and
+resuming never starts another run. New work requested through `dev-cycle`, `iterate`,
+`patch-cycle`, `fix-directly`, or `author-promptbook` routes to the unified cycle workflow.
 
-Then drive any of them: **"run it"** starts an immutable run snapshot under `bionic/promptbooks/runs/PB-NNNN-<slug>/run-RUN-NNN.yaml`; **"advance"** / **"next prompt"** marks the current prompt done and moves on; **"abandon this run"** closes a run that will not finish; **"archive promptbook"** closes the book once its run has either completed with every prompt terminal (done / skipped / blocked) or been deliberately abandoned.
-
-**"Promptbook status"** reads the current run through the existing progress renderer. The `run-promptbook` status procedure owns the read-only view. A terminal view or status answer writes nothing; a Markdown progress artifact requires an explicit `--markdown` request. Advancing changes the run snapshot and active book pointer only; it writes no per-prompt log entry.
-
+`run-promptbook` and `archive-promptbook` remain for existing historical records.
+They do not create new work or repeat a completed run.
 
 For installations upgrading from the seven retired entries, use these routes:
 
 | Former entry | Current route |
 |---|---|
-| `task-planner` | `whiteboarding` for exploration; `author-promptbook` or a cycle for a tracked plan. The Python task-planner API remains in `box/runtime-apis.md`. |
+| `task-planner` | `whiteboarding` for exploration; a cycle for a tracked plan. The Python task-planner API remains in `box/runtime-apis.md`. |
 | `author-runbook` | Tracked planning by default; explicit generator instructions in `box/operator-services.md`. |
 | `visualize-run-progress` | `run-promptbook` status; the renderer script remains available. |
 | `trace-runtime-ops`, `semantic-bridge`, `agent-identity` | Python APIs in `box/runtime-apis.md`. |
@@ -168,13 +216,13 @@ For installations upgrading from the seven retired entries, use these routes:
 
 These names no longer select installed skills. Existing runs, runbooks, identities, and Python modules remain in place.
 
-Books and runs are structured `.yaml` documents validated against a JSON Schema (the cycle kinds also pass the cycle-coverage invariants). Edit the prompts list mid-run? You can't — abandon the run, then author a successor book that names its predecessor. Numbers are never reused.
+Historical books and runs remain structured `.yaml` records with their original validation. New work uses cycle records; do not author successor books.
 
 #### Implementation Decisions
 
 An ADR records an enduring constraint the project must keep. A choice of how to build something within those constraints is an **Implementation Decision**, and it needs no ADR.
 
-- **Implementation-only cycles.** "Start a cycle for X" with a replaceable choice under unchanged architecture builds an `implementation` cycle: implementation, dev and review modules, no ADR module, and still at least 13 prompts. Council review, independent review, authorization and the direct-fix path do not change.
+- **New cycles.** Dev requires a council-approved IDR; other cycle types require one for material choices. Approval binds the exact reviewed revision. IDRs record reasoning, not governing rules.
 - **Preserved history.** Replacing an earlier choice in a later cycle needs no revocation, deprecation or supersession of the earlier record. Its reasoning and council evidence stay readable.
 - **A material revision needs a fresh council.** An approval binds the exact revision the council reviewed. Any change to the reviewed record needs a new revision and a new council. Only a correction to the display title or a source label is a separate annotation that keeps the reviewed original.
 - **Intent, delivery and current state stay separate.** An approval records what was reviewed. A result records what was delivered and independently reviewed. Neither says what holds today: `query-docs` reads the source at the source revision you name (`HEAD` by default) and answers `UNOBSERVED` when it finds no evidence. A proposal alone is never current. The `implementation-decisions.py` command (`validate`, `result`, `annotate` and `query`) is documented in the `query-docs` skill; only `result` and `annotate` write.
@@ -186,18 +234,21 @@ An ADR records an enduring constraint the project must keep. A choice of how to 
 - **Missing or linked instruction files.** In a tree that has published a clause migration, every governing reader (summaries, doctrine, rules catalog, arch, reviews index and the `query-docs` authority view) refuses with `migration-source-unreadable` while a tracked instruction or skill file is missing from the working tree. Each refuses with `migration-symlink-refused` on a linked instruction or skill path. A tracked link anywhere under a project-local skill root refuses, including a harmless mirror link from one harness's skill root to another's. A submodule at or under a skill root refuses with `migration-citation-scope-refused`. Summaries, doctrine and the authority view also print the `{"remedy": "<next step>"}` line on stderr. The rules catalog, arch and the reviews index print the code without a remedy line. Restore the file or stage its deletion with `git rm`. Replace a link with a copy of the regular file or directory it points to. To keep a submodule's skill as regular files, follow these steps in order (summaries, doctrine and the authority view also print them as the remedy line): untrack the submodule with `git rm --cached`; if `.gitmodules` has the submodule's section, remove that section and stage `.gitmodules` with `git add`; move the `.git` entry at the top of the submodule path out of the repository (moving it keeps the nested repository's history; deleting an embedded clone's `.git` directory loses any history not pushed elsewhere); then `git add` the files.
 - **Host verification.** The tests behind this feature run on a developer machine. They exercise schemas, projections and the command line. No test has run the feature inside a native Claude Code, Codex or OpenCode session, so its behaviour in each host is unobserved.
 
-#### Councils and independent reviews
+#### Historical promptbook councils and independent reviews
+
+This subsection applies only to existing promptbook runs. New cycles use
+`cycle-council.py` and the review policy in [Working in cycles](#working-in-cycles).
 
 Council deliberation runs only through the council runner, and its council record is the only evidence a council gate accepts.[^council] Independent review is a reviewer's examination, and its reviewer report is the only evidence an independent-review gate accepts.[^review] Neither satisfies the other's gate.
 
-- **The key.** The council runner calls three model providers through one gateway. Store its key with `crux-env set OPENROUTER_API_KEY …` (see "Working with secrets and API keys"). Without the key the council cannot run. The council runner writes a DEFER_TO_HUMAN record, and the run stops for you.[^defer] No subagent casts a seat's vote.
+- **The key.** Standard and Strict call three provider seats through the gateway and require `OPENROUTER_API_KEY` in `crux-env`. Native Lite needs no OpenRouter account; follow "Council review modes" below. Historical promptbooks retain their gateway-only policy and stop when the key is unavailable.[^defer]
 - **After an upgrade.** Refresh the installed roles so they carry the new council and review text. Claude Code reads the roles from the plugin, so restart the session. In Codex, run `install-codex-agents` again. In OpenCode, run `install-opencode-agents` again for a project install, or regenerate the symlinked tree and restart.
 - **Before a gate prompt.** Store the key. Commit every council subject, because the council runner accepts only a tracked, clean subject. The council runner commits the attempt record and the council record itself, and the gate check reads only committed records.[^attempt]
 - **Preflight refusals.** A preflight refusal is raised before any council request and names its repair. A preflight refusal the conductor may repair writes no council record. The conductor repairs the input (retype the path, or commit a subject the run wrote with `run-work-witness.py commit`) and runs the council runner again. The council runner refuses a `--prompt` that is not the run's current prompt, so the retry count always names the prompt the run is at. The third refusal at one convening prompt stops the run for you, and so does a refusal the conductor may not repair.[^defer]
 - **Recovery.** When the council runner exits 2 and stderr names `timeout`, or names outside work the commit moved, the owner's remedy under **Hooks** below comes first: restore the set-aside work, then remove a stale `index.lock`. After those two steps, and after any other exit 2, run the process check: confirm that no council runner you started for this module is still running. Then probe the attempt's lock with `run-council.py --recover <run> --prompt <n> --probe`. Once no live council runner holds the lock, run `run-council.py --recover <run> --prompt <n>`. Recovery makes no council request and reads no key. A persistence failure is never a reason to convene another round.[^attempt]
 - **Hooks.** A hook that rewrites a council file (a JSON formatter with another indent or key order, for example) must exclude `<docs_dir>/promptbooks/runs/`, for example `exclude: ^<docs_dir>/promptbooks/runs/` in the pre-commit framework. Otherwise each council commit whose file the hook rewrites fails closed (`hook-or-commit-failed`, or `mismatch` when the hook re-stages its rewrite) and stops for you. A hook slower than the commit's 120-second bound makes the commit time out and leaves the attempt open. When the commit times out, or a refused commit names outside work it moved, look first for the work the hook set aside (`git stash list`; the pre-commit framework keeps a backup patch under its cache directory) and restore it. Only then remove a stale `index.lock` in the git directory, and run recovery. Councils in a promptbook run need `fcntl`, which native Windows lacks. There the council runner exits 2 before it claims a round, and recovery and the run-work witness writer exit 2 as well, so no council gate can pass. Run promptbook councils on macOS, Linux or WSL.
 - **Run directory files.** After each council record, the council runner also commits the run's diagnostics log (`council-preflight.jsonl`) and run-work witness (`run-work-witness.json`), each when its bytes differ from HEAD's. A retryable refusal's diagnostics line stays uncommitted until the next such commit, or your commit of the run snapshot, carries it.
-- **Stops.** A stop for a council that could not run clears: fix its cause and reconvene at the same round number. A stop on a round no owner exception authorizes clears when the owner commits an owner-exception record and that round converges. An open council attempt stops the gate until recovery commits its original record or the owner voids it with a void-attempt owner-exception record. Every other council stop is permanent for the module once its record is committed: abandon the run and author a successor book.
+- **Stops.** A stop for a council that could not run clears: fix its cause and reconvene at the same round number. A stop on a round no owner exception authorizes clears when the owner commits an owner-exception record and that round converges. An open council attempt stops the gate until recovery commits its original record or the owner voids it with a void-attempt owner-exception record. Every other council stop is permanent for the module once its record is committed: abandon the run and start a new cycle for follow-up work.
 - **Runs in flight.** The gate check applies to every cycle run that is active when you upgrade, at its next gate prompt. A module whose council ran before council records existed closes only on a council-runner round convened at module close. No book's bytes change.
 - **Templates.** A change to a template reaches only books you author afterward. It fixes no book that already exists. The gate check corrects an existing book when that book runs.[^correct]
 - **Limits.** The gate check binds hashes, not content, and it cannot see councils outside a promptbook. The `run-promptbook` skill's `references/gates.md` holds the procedure and states what the gate check cannot see.
@@ -213,7 +264,7 @@ Configure which extractors run by editing `code.extractors:` in `bionic/manifest
 
 - **"What does X do?"** → searches `bionic/code/`, cites pages.
 - **"Why did we choose Y?"** → searches `bionic/adrs/` and `bionic/briefs/`. For a replaceable implementation choice, `query-docs` also reads the run's Implementation Decision and reports it as reviewed intent, with no authority.
-- **"What's the plan for Z?"** → checks active promptbooks.
+- **"What's the plan for Z?"** → checks cycles and relevant historical plans.
 - **"What do we know about W?"** → searches research.
 
 Good answers can be filed back into `bionic/research/ideas/` — Claude will offer.
@@ -224,7 +275,7 @@ Good answers can be filed back into `bionic/research/ideas/` — Claude will off
 
 Run after every ~10 writes, after a large refresh, before any release.
 
-- **"Review the decisions"** / "run a decision review" / "decision review" / "do the decisions still serve the objectives" / "review the ADR set against the objectives" / "is the decision set still right" → `review-decisions` reads the decision set and measures it against `bionic/objectives.md`. It writes one dated report per pass at `bionic/adrs/reviews/YYYY-MM-DD.md`. **Findings live in four sections — Propose, Amend, Repair, and Revoke — and at most five findings survive across all four, per pass.** Two further sections carry no findings and no cap: Keep lists decisions read this pass that still serve, and Coverage names what the pass could not see. Zero findings is a legitimate outcome. The report is hand-kept; only `bionic/adrs/reviews/index.md` is regenerated. The boundary: the review proposes findings and transitions nothing. Enacting a finding is a separate act — "propose ADR" or "accept ADR-NNNN" — that the review never invokes.[^review-boundary]
+- **"Migrate ADRs"** / "review historic ADRs" / "review the decisions" → `migrate-adrs` asks the architect to assess clauses against current objectives. Pages contain five ADRs by default, with drill-in and durable resume. Exact council and configured owner approval precede committed publication. Historical reports and ADR bodies stay unchanged.
 
 Run the review weekly. `cleanup-campsite` nudges when the newest report is older than `adr_review_due_days`, which is seven by default.
 
@@ -249,7 +300,7 @@ Everything Claude does is backed by Python under the plugin's `scripts/` directo
 | Script | What it does |
 |---|---|
 | `validate-catalog.py` | Regenerates the plugin's `catalog/skills.json` (+ `agents.json`) from SKILL.md / agent frontmatter; `--dry-run` reports drift. The frontmatter is the source of truth. |
-| `validate-promptbook.py` | Validates a promptbook or run `.yaml` against its draft-2020-12 JSON Schema **and** the cycle-coverage invariants (`--kind promptbook\|run`). This is the gate `dev-cycle` and `iterate` books must pass. |
+| `validate-promptbook.py` | Validates a promptbook or run `.yaml` against its draft-2020-12 JSON Schema **and** the cycle-coverage invariants (`--kind promptbook\|run`). This preserves validation for historical books and runs. |
 
 > **Dependency resolution for shipped scripts (PEP 723).** Shipped scripts whose documented invocation is `uv run …` carry PEP 723 inline metadata; on first use, `uv` resolves those dependencies — **unpinned by hash** — from *your configured uv index* (cached afterwards). Hermetic or locked-down environments should pre-provision the declared dependencies themselves rather than letting first use touch the network; for stricter reproducibility pin resolution with `uv run --exclude-newer <date>` (or the `UV_EXCLUDE_NEWER` environment variable). `uv` itself is a prerequisite for those invocations — without it the command fails at the shell (`command not found`); install it from https://docs.astral.sh/uv/.
 
@@ -355,7 +406,7 @@ You just cloned this repo. Read in this order:
 3. **`bionic/adrs/`** — start at the meta-ADR (numbered 0000), walk forward in number order. This is the "why" of the project.
 4. **`bionic/journal/`** — the most recent month tells you what's happening now.
 5. **`bionic/research/sources.md`** — registry of external context the project draws from.
-6. **`bionic/promptbooks/index.md`** — what work is in flight.
+6. **`bionic/cycles/`** — current work and its recorded progress; `bionic/promptbooks/index.md` retains historical runs.
 
 ---
 
@@ -375,7 +426,7 @@ If something feels wrong (a contradiction, a stale page, a missing source), say 
 ## What you SHOULD do by hand
 
 - Write `bionic/briefs/BRIEF-<slug>.md` files — these are *your* pre-decision exploration. Claude tracks them but doesn't author them.
-- Co-author the `## Goal`, `## Strategy`, and `## Prompts` sections of an active promptbook.
+- Discuss the cycle goal, plan, tasks, and acceptance criteria with the assistant; let the cycle commands maintain its record.
 - Edit the repo-root `AGENTS.md` to add project-specific notes your agents should know about. When the repository root holds no `AGENTS.md` or `CLAUDE.md` in any letter case, `init-docs` creates that file with a ``See `bionic/AGENTS.md` for documentation operations.`` line and an instruction to read `bionic/objectives.md`. A `CLAUDE.local.md` does not block that create. When an exact `AGENTS.md` exists, `init-docs` appends each of the two where it is missing. Keep both when you edit. `init-docs` writes nothing to a `CLAUDE.md` in any letter case, to a case variant of `AGENTS.md`, or through a symlink. The init summary reports each such entry with its remedy, which names `audit-docs --migrate` where that migration applies. The `See` line is plain text, not an include.
 
 ---
@@ -386,7 +437,7 @@ You're in a fresh repo with `bionic/` just initialized. To start using it:
 
 1. **Capture today's intent as an ADR.** Say: *"Propose an ADR explaining why we're using crux for this project."* You'll review, then *"Accept ADR-NNNN"* (using the number it was assigned).
 2. **Capture the planning material.** Drop your existing design notes / specs / chat exports into `bionic/inbox/` and say *"Process inbox."*
-3. **Plan the first chunk of work.** Say: *"New promptbook for <thing>."* Co-author the prompt list. Then *"Run it."*
+3. **Plan the first chunk of work.** Say: *"Start a cycle for <thing>."* Agree on the outcome and acceptance evidence.
 4. **Journal at end of day.** Say: *"Log today's work — `<one line summary>`."*
 5. **Audit after the first ten writes.** Say: *"Audit docs."* Confirm there's no drift.
 
@@ -400,7 +451,7 @@ You're in a fresh repo with `bionic/` just initialized. To start using it:
 | `bionic/code/` has stale content | Run *"extract code docs"* — it regenerates fully. |
 | ADR was accepted but it's wrong | Don't edit — write a new ADR that supersedes it. |
 | Research synthesis page contradicts itself | Run *"refresh synthesis"* — Claude walks you through reconciliation. |
-| Lost track of a promptbook's progress | `bionic/promptbooks/index.md` shows current_run and percent complete. |
+| Lost track of current work | Say *"cycle status"* for phases, tasks, pass count, and approval waits. Historical runs remain in `bionic/promptbooks/index.md`. |
 | Whole `bionic/` tree feels broken | Run *"audit docs"* — 45 checks across all concerns. |
 
 ---
@@ -422,7 +473,7 @@ ten Crux role agents personally with the `install-codex-agents` skill.
 
 ### Recover older trees and Markdown promptbooks
 
-The current plugin operates on tree schema 5 and executes YAML promptbooks only.
+The current plugin operates on tree schema 5. New work uses cycles; existing YAML promptbook runs remain supported.
 For a schema-2, schema-3, or schema-4 tree, work on a copy or backup with the
 public `v3.23.2` release. Verify its annotated tag and commit before using its
 schema ladder:
@@ -448,7 +499,7 @@ run with that release's `migrate-promptbooks` skill. It preserves Markdown
 originals. Validate the YAML files and their content-hash binding before
 returning to the current plugin. The tag cannot deliberately abandon a
 Markdown run. If one cannot finish, keep its bytes unchanged as stranded,
-readable history. Continue separate work in new YAML books; do not mark that
+readable history. Continue separate work in new cycles; do not mark that
 run complete, skip unfinished prompts to migrate, or convert it in place.
 
 Use a separate project copy for recovery. Before starting any host, inspect
@@ -511,9 +562,34 @@ requires those three host observations.
 
 _Generated by `init-docs` from `${CRUX_PLUGIN_ROOT}/templates/USER_GUIDE.md` (the shipped template this file was created from) on {{today}}. Re-running `init-docs --force` overwrites this file._
 
-[^review-boundary]: rule:review-proposes-and-enacts-nothing
 [^council]: rule:council-is-never-harness-native, rule:council-gate-needs-a-runner-record
 [^review]: rule:review-gate-needs-a-reviewer-report
 [^defer]: rule:only-a-preflight-refusal-is-retried
 [^attempt]: rule:an-open-council-attempt-stops-the-gate, rule:council-evidence-matches-its-attempt, rule:recovery-never-deliberates-again
 [^correct]: rule:existing-books-are-corrected-at-execution
+
+## Council review modes
+
+Configure council review independently of human acceptance in `.bionic.yml`:
+
+```yaml
+council:
+  mode: standard
+  max_attempts: 7
+  overrides:
+    idr: lite
+adr:
+  acceptance: council-and-human
+```
+
+Lite uses native Apex challenge and fresh final review with architect agreement;
+it needs no OpenRouter account. Codex and Claude CLI have verified host adapters.
+Standard requires two of three gateway provider approvals and a reasoned architect
+disposition of dissent. Strict requires all three approvals without blockers.
+Demonstrated binding failures and missing authorization block every mode.
+
+New setup records Standard explicitly and offers Lite. Existing projects retain
+Strict until an explicit owner instruction changes policy. Historical and in-flight
+reviews keep their original policy. Review attempts stop on stalled progress or the
+configured limit; extensions beyond seven need owner approval. Missing capability
+or credentials never silently change the mode or model.

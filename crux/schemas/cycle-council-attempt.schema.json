@@ -1,0 +1,247 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Prospective frozen council attempt",
+  "type": "object",
+  "required": [
+    "format"
+  ],
+  "properties": {
+    "format": {
+      "enum": [
+        "crux.cycle-council-attempt",
+        "crux.cycle-council-attempt.v2"
+      ]
+    }
+  },
+  "if": {
+    "properties": {
+      "format": {
+        "const": "crux.cycle-council-attempt.v2"
+      }
+    }
+  },
+  "then": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "id",
+      "purpose",
+      "logical_id",
+      "subject",
+      "subject_sha256",
+      "cycle_id",
+      "policy",
+      "passes",
+      "format",
+      "status",
+      "started_at",
+      "round",
+      "progress",
+      "question",
+      "question_sha256",
+      "history",
+      "author_context"
+    ],
+    "properties": {
+      "id": {
+        "type": "string"
+      },
+      "purpose": {
+        "enum": [
+          "idr",
+          "adr",
+          "adr-creation",
+          "consultation",
+          "disposition"
+        ]
+      },
+      "logical_id": {
+        "type": "string"
+      },
+      "subject": {
+        "type": "string"
+      },
+      "subject_sha256": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "cycle_id": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "policy": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "mode",
+          "settings",
+          "human_policy",
+          "max_attempts",
+          "policy_inputs",
+          "initialization",
+          "models"
+        ],
+        "properties": {
+          "mode": {
+            "enum": [
+              "lite",
+              "standard",
+              "strict"
+            ]
+          },
+          "settings": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "mode",
+              "overrides",
+              "max_attempts",
+              "human_policy"
+            ],
+            "properties": {
+              "mode": {
+                "enum": [
+                  "lite",
+                  "standard",
+                  "strict"
+                ]
+              },
+              "overrides": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "adr": {
+                    "enum": [
+                      "lite",
+                      "standard",
+                      "strict"
+                    ]
+                  },
+                  "idr": {
+                    "enum": [
+                      "lite",
+                      "standard",
+                      "strict"
+                    ]
+                  },
+                  "migration": {
+                    "enum": [
+                      "lite",
+                      "standard",
+                      "strict"
+                    ]
+                  }
+                }
+              },
+              "max_attempts": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "human_policy": {
+                "enum": [
+                  "council-and-human",
+                  "council-only"
+                ]
+              }
+            }
+          },
+          "human_policy": {
+            "enum": [
+              "council-and-human",
+              "council-only"
+            ]
+          },
+          "max_attempts": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "policy_inputs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path",
+                "sha256"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              }
+            }
+          },
+          "initialization": {
+            "type": "boolean"
+          },
+          "models": {
+            "type": "object"
+          }
+        }
+      },
+      "passes": {
+        "type": "array"
+      },
+      "format": {
+        "const": "crux.cycle-council-attempt.v2"
+      },
+      "status": {
+        "enum": [
+          "running",
+          "finished",
+          "failed"
+        ]
+      },
+      "started_at": {
+        "type": "string"
+      },
+      "round": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "progress": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "question": {
+        "type": "string"
+      },
+      "question_sha256": {
+        "type": "string"
+      },
+      "history": {
+        "type": "array"
+      },
+      "author_context": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "record": {
+        "type": "string"
+      },
+      "finished_at": {
+        "type": "string"
+      },
+      "harness": {
+        "type": "string"
+      },
+      "readiness": {
+        "type": "object"
+      },
+      "review_bundle_sha256": {
+        "type": "string"
+      }
+    }
+  }
+}

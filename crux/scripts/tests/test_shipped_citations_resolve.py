@@ -15,6 +15,7 @@ catalog must turn the same comparison red, or the greens above are vacuous.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import re
 import tempfile
@@ -156,3 +157,28 @@ class ShippedCitationsResolveTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CatalogReferenceProjectionTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location('catalog_reference_probe',
+            PLUGIN_ROOT / 'scripts/generate-rules-catalog.py')
+        cls.generator = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.generator)
+
+    def test_handle_is_projected_to_portable_rule_citation(self):
+        source = 'ADR-0146/authority-migration-is-reviewed-and-source-bound governs historical publications only.'
+        self.assertEqual(self.generator._portable_rule_text(source),
+            'rule:authority-migration-is-reviewed-and-source-bound governs historical publications only.')
+        self.assertEqual(self.generator._portable_rule_text('Keep every original byte.'),
+            'Keep every original byte.')
+        payload = dict(schema='1', rules={'synthetic': dict(domain='testing', rule=source)}, unresolved=[])
+        rendered = json.loads(self.generator.render(payload))
+        self.assertEqual(rendered['rules']['synthetic']['rule'],
+            'rule:authority-migration-is-reviewed-and-source-bound governs historical publications only.')
+        self.assertEqual(payload['rules']['synthetic']['rule'], source)
+
+    def test_bare_private_identifier_refuses_instead_of_erasing_meaning(self):
+        with self.assertRaises(self.generator.sp.GovernsValidationError):
+            self.generator._portable_rule_text('See ADR-0146 for the required behavior.')

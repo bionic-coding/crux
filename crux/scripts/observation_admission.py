@@ -217,10 +217,14 @@ def _complete_context_inputs(layout, sp, migration):
     removed = sp.removed_handles(reviews)
     aliases = sp.collect_observation_alias_rows(observations, records, _source_io=source_io)
     overlay = sp._summary_authority_records(records, facts, removed, aliases)
-    _, locator = _summary_driver()._historical_summary_clauses(root, facts)
     spans = []
     fingerprints = {ref["path"]: ref["sha256"] for ref in facts["dependency_fingerprints"]}
-    if locator is not None:
+    # Only historical applications prove exact body spans. Prospective packages
+    # govern clauses through the validated overlay, not the old batch schema.
+    historical = [row for row in facts["publications"] if row["path"].endswith('.application.json')]
+    if historical:
+        _, locator = _summary_driver()._historical_batch_summary_clauses(
+            root, facts, historical[-1], mixed=historical[-1] != facts["publications"][-1])
         batch, raw = migration._load_batch(root, locator["batch"]["path"])
         if hashlib.sha256(raw).hexdigest() != locator["batch"]["sha256"]:
             raise AdmissionRefusal("admission-proved-batch-changed")
@@ -229,8 +233,8 @@ def _complete_context_inputs(layout, sp, migration):
             span["disposition"] = entry["disposition"]
             spans.append(span)
             fingerprints[span["path"]] = span["source_sha256"]
-        latest = facts["publications"][-1]
-        fingerprints[latest["path"]] = latest["sha256"]
+    for publication in facts["publications"]:
+        fingerprints[publication["path"]] = publication["sha256"]
     proof_fingerprints = dict(fingerprints)
     for path, digest in corpus.items():
         if path in fingerprints and fingerprints[path] != digest:

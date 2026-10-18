@@ -24,6 +24,14 @@ This skill is portable across Claude Code, Codex, and OpenCode. This section ove
 - Argument placeholders such as `$adr` and `$book` bind only in Claude Code. On a host without argument binding they are unset — take the value from the user's phrase. The "Fields OpenCode ignores" section of `OPENCODE_GUIDE.md` names the invocation-control fields OpenCode ignores.
 <!-- END GENERATED: runtime-compat -->
 
+## Current cycle work
+
+Include paused and active records under `<docs_dir>/cycles/` in unfinished-work
+inspection. Use the cycle reader to report current phase, pass limit, blockers,
+and next action. Never advance a cycle during a hygiene scan. Promptbook guidance
+below applies only to historical records; do not recommend new promptbooks.
+
+
 
 ## Overview
 
@@ -38,7 +46,7 @@ The output is `docs/whats_next.md` — a regenerated, prioritized action backlog
 
 Cleanup does NOT invoke `audit-docs` internally — different cadence (session-start vs. before-release), different exit semantics (audit's BROKEN findings block; cleanup's are suggestions), different write footprint. Cleanup CHECKS whether audit has run recently and emits a P1 "run audit-docs" suggestion if it hasn't.
 
-Cleanup ships **21 implemented scan rules** (CLN-* IDs) plus **one reserved id** for v0.2 (`CLN-XR-1`) and **two retired ids**, for 24 `CLN-*` ids total. The 21 implemented rules: `CLN-PJ-1a`, `CLN-PJ-1b`, `CLN-PJ-1c`, `CLN-PJ-2` (one rule, four sub-findings — three version-mismatch checks, against the Claude bare manifest, the Codex plugin manifest and the `crux-mods` plugin manifest, since all three joined the same version lock-step, plus the marketplace owner-placeholder check; still counted as a single rule id); `CLN-ADR-2`, `CLN-ADR-4`, `CLN-ADR-5` (decision-review cadence); `CLN-ADR-6` (open promotion requests); `CLN-OBJ-1` (objectives unpopulated); `CLN-PB-1`, `CLN-PB-2`, `CLN-PB-3`, `CLN-PB-4`; `CLN-JR-1`, `CLN-JR-2`; `CLN-WN-1`; `CLN-AUD-1` (audit-recency); `CLN-FG-1` (forged-skill staleness); `CLN-FG-2` (used-but-never-evaluated); `CLN-RETRO-1` (retrospective cadence); `CLN-TMPL-1` (dogfood↔template clause parity). (`CLN-AUD-1` was formerly the un-prefixed `cleanup-audit-stale` "not-a-CLN-rule" check; it now carries a standard rule id so the count is exact and the verification checklist needs no special-case exemption.) **Retired rule ids (never reused, never reimplemented):** `CLN-ADR-1`, `CLN-ADR-3`. See their stubs below for why. The count dropped by one for each rather than being backfilled, and `CLN-WN-1`'s stale-dismissal check skips any dismissal keyed to a retired id — those records are history that is being kept on purpose, not dead weight to age out.
+Cleanup ships **21 implemented scan rules** (CLN-* IDs) plus **one reserved id** for v0.2 (`CLN-XR-1`) and **two retired ids**, for 24 `CLN-*` ids total. The 21 implemented rules: `CLN-PJ-1a`, `CLN-PJ-1b`, `CLN-PJ-1c`, `CLN-PJ-2` (one rule, four sub-findings — three version-mismatch checks, against the Claude bare manifest, the Codex plugin manifest and the `crux-mods` plugin manifest, since all three joined the same version lock-step, plus the marketplace owner-placeholder check; still counted as a single rule id); `CLN-ADR-2`, `CLN-ADR-4`, `CLN-ADR-5` (decision-migration suggestion); `CLN-ADR-6` (open promotion requests); `CLN-OBJ-1` (objectives unpopulated); `CLN-PB-1`, `CLN-PB-2`, `CLN-PB-3`, `CLN-PB-4`; `CLN-JR-1`, `CLN-JR-2`; `CLN-WN-1`; `CLN-AUD-1` (audit-recency); `CLN-FG-1` (forged-skill staleness); `CLN-FG-2` (used-but-never-evaluated); `CLN-RETRO-1` (retrospective cadence); `CLN-TMPL-1` (dogfood↔template clause parity). (`CLN-AUD-1` was formerly the un-prefixed `cleanup-audit-stale` "not-a-CLN-rule" check; it now carries a standard rule id so the count is exact and the verification checklist needs no special-case exemption.) **Retired rule ids (never reused, never reimplemented):** `CLN-ADR-1`, `CLN-ADR-3`. See their stubs below for why. The count dropped by one for each rather than being backfilled, and `CLN-WN-1`'s stale-dismissal check skips any dismissal keyed to a retired id — those records are history that is being kept on purpose, not dead weight to age out.
 
 ### What cleanup writes vs. what it proposes
 
@@ -201,15 +209,14 @@ The rule read exactly one surface — Accepted ADR bodies — so exempting them 
 
 The id is not reused. This stub exists so a future reader finds the reasoning instead of the gap, and so nobody re-adds the rule from the dismissal ledger.
 
-#### CLN-ADR-5 — the decision review is overdue
+#### CLN-ADR-5 — consider architectural decision migration
 
-- **Reads:** `docs/adrs/reviews/*.md`, taking the newest filename date. The derived index in that directory is not a report; skip it.
-- **Looks for:** no review at all, or a newest review whose filename date is older than `adr_review_due_days` (default 7).
-- **Cadence anchor:** the newest report's **filename date**, ignoring any filename that is not an ISO calendar date or whose date lies in the future — so a future-dated file cannot suppress this nudge.
-- **Stable id:** `cleanup-CLN-ADR-5-due` (singleton — the finding is the cadence state as a whole, not a per-report artifact).
+- **Reads:** `docs/adrs/reviews/*.md`, taking the newest valid filename date; skip the derived index and future dates.
+- **Looks for:** no historical review, or a newest review older than `adr_review_due_days` (default 7).
+- **Stable id:** `cleanup-CLN-ADR-5-due`.
 - **Category:** `adr-review`. **Severity:** P2.
-- **Proposed action:** "Run `review-decisions` — the newest decision review is <N> days old against a threshold of <T> days." With no review on disk: "Run `review-decisions` — no decision review has been filed; the threshold is <T> days."
-- **Actor boundary:** proposes only. Never writes under `docs/adrs/reviews/` and never invokes `review-decisions`. The review is the architect's act.
+- **Proposed action:** "Consider a `migrate-adrs` session against current objectives."
+- **Actor boundary:** suggest only. This nudge forces no pass, report or measurement, writes no historical report and invokes no migration.
 
 #### CLN-ADR-6 — open promotion requests
 

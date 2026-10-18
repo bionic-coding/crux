@@ -24,6 +24,14 @@ This skill is portable across Claude Code, Codex, and OpenCode. This section ove
 - Argument placeholders such as `$adr` and `$book` bind only in Claude Code. On a host without argument binding they are unset — take the value from the user's phrase. The "Fields OpenCode ignores" section of `OPENCODE_GUIDE.md` names the invocation-control fields OpenCode ignores.
 <!-- END GENERATED: runtime-compat -->
 
+## Decision handoff
+
+A whiteboarding outcome can initiate an ADR proposal when it identifies an enduring
+constraint that merits a decision. File the session through inbox processing and
+hand the proposal to the architect. Do not automatically accept it. Council approval
+and configured human acceptance remain required. Implementation work uses `cycle`.
+
+
 
 Turn an idea into a fully-formed design through collaborative dialogue, then
 capture it as a **brainstorming session** that flows into the docs tree. This is

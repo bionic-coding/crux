@@ -2,7 +2,7 @@
   {
     "id": "archive-promptbook",
     "name": "archive-promptbook",
-    "description": "Archive a promptbook after its current run completes or is deliberately abandoned. Refuse runs still in progress.",
+    "description": "Archive a completed or abandoned historical promptbook; new cycles close without repeat runs.",
     "tags": [
       "promptbooks",
       "archive",
@@ -13,7 +13,7 @@
     ],
     "risk_level": "low",
     "requires_access": "write-tree",
-    "routing_note": "Only when all prompts terminal.",
+    "routing_note": "Archive terminal historical books only. New cycles close through cycle.py.",
     "triggers": [
       "archive promptbook",
       "archive PB-NNNN",
@@ -52,7 +52,7 @@
   {
     "id": "author-promptbook",
     "name": "author-promptbook",
-    "description": "Create a tracked, multi-prompt plan without enforced cycle gates. Use for ad-hoc workflows or a successor to an abandoned book.",
+    "description": "Compatibility entry point that routes new tracked plans to cycle; preserves historical promptbook authoring documentation.",
     "tags": [
       "promptbooks",
       "authoring",
@@ -63,7 +63,7 @@
     ],
     "risk_level": "low",
     "requires_access": "write-tree",
-    "routing_note": "Allocates next `PB-NNNN`.",
+    "routing_note": "Compatibility alias for new cycle plans; historical authoring text is replay-only.",
     "triggers": [
       "new promptbook",
       "draft a plan-of-prompts",
@@ -191,7 +191,7 @@
   {
     "id": "council",
     "name": "council",
-    "description": "Convene a three-provider council to judge a decision (\"run the council\", \"ask the council\"); inside a cycle run, the council runner writes the council record that is the gate's evidence.",
+    "description": "Convene configured Lite, Standard or Strict council review; the owning writer records exact-subject approval evidence.",
     "tags": [
       "verification",
       "multi-model",
@@ -204,9 +204,6 @@
     ],
     "risk_level": "medium",
     "requires_access": "write-run",
-    "requires_env": [
-      "OPENROUTER_API_KEY"
-    ],
     "triggers": [
       "run the council",
       "convene the council",
@@ -215,6 +212,34 @@
     ],
     "context": "fork",
     "model": "opus"
+  },
+  {
+    "id": "cycle",
+    "name": "cycle",
+    "description": "Plan, execute, resume, or inspect one development cycle. Use for major changes, minor changes, quick fixes, refactoring, and releases.",
+    "tags": [
+      "cycles",
+      "workflow",
+      "planning",
+      "implementation"
+    ],
+    "bundles": [
+      "crux-docs"
+    ],
+    "risk_level": "high",
+    "requires_access": "write-tree",
+    "routing_note": "One undertaking with type-specific phases, bounded passes, independent review, and shared test evidence; no prompt minimum or repeated runs.",
+    "triggers": [
+      "start a cycle",
+      "run the cycle",
+      "resume the cycle",
+      "cycle status",
+      "new dev cycle",
+      "iterate on this",
+      "quick fix",
+      "refactor this",
+      "release cycle"
+    ]
   },
   {
     "id": "derive-arch",
@@ -247,7 +272,7 @@
   {
     "id": "dev-cycle",
     "name": "dev-cycle",
-    "description": "Plan an architectural change or a replaceable implementation choice through council review, implementation, and independent review.",
+    "description": "Compatibility alias: route dev-cycle requests to the unified cycle workflow with type dev.",
     "tags": [
       "promptbooks",
       "workflow",
@@ -259,10 +284,8 @@
     ],
     "risk_level": "low",
     "requires_access": "write-tree",
-    "routing_note": "Architectural work or significant implementation choices under unchanged constraints. Allocates next `PB-NNNN`; assembles a modular cycle book (\u2265 13 prompts, kind adr or implementation) with council and independent review. See `dev-cycle/SKILL.md`.",
+    "routing_note": "New work uses cycle with type dev; no promptbook is allocated.",
     "triggers": [
-      "start a cycle",
-      "new dev cycle",
       "begin development cycle",
       "cycle this feature",
       "build a cycle promptbook",
@@ -321,7 +344,7 @@
   {
     "id": "fix-directly",
     "name": "fix-directly",
-    "description": "Fix a bounded defect with a failing test first, no contract changes, and no promptbook or council.",
+    "description": "Compatibility alias: route fix-directly requests to the unified cycle workflow with type quick-fix.",
     "tags": [
       "promptbooks",
       "workflow",
@@ -334,7 +357,7 @@
     ],
     "risk_level": "low",
     "requires_access": "write-tree",
-    "routing_note": "The rung below the three cycle tiers (\u00a711.C): no book, no council, no PB number. A failing test first, the smallest green change, the suite and the drift gates, one commit, one `log-work` entry. Passes the sizing test or escalates to `patch-cycle` / `iterate` / `dev-cycle`. See `fix-directly/SKILL.md`.",
+    "routing_note": "New work uses cycle with type quick-fix; no promptbook is allocated.",
     "triggers": [
       "just fix it",
       "fix it directly",
@@ -511,7 +534,7 @@
   {
     "id": "iterate",
     "name": "iterate",
-    "description": "Plan a non-architectural fix through diagnosis, council review, implementation, and independent review without an ADR.",
+    "description": "Compatibility alias: route iterate requests to the unified cycle workflow with type iterate.",
     "tags": [
       "promptbooks",
       "workflow",
@@ -524,7 +547,7 @@
     ],
     "risk_level": "low",
     "requires_access": "write-tree",
-    "routing_note": "Non-architectural reactive work (bug / drift / refinement) \u2014 `dev-cycle` rigor with a **verify** module instead of an ADR (`cycle_kind: verify`, \u2265 13 prompts). See `iterate/SKILL.md`.",
+    "routing_note": "New work uses cycle with type iterate; no promptbook is allocated.",
     "triggers": [
       "iterate on X",
       "start an iterate cycle",
@@ -579,9 +602,34 @@
     ]
   },
   {
+    "id": "migrate-adrs",
+    "name": "migrate-adrs",
+    "description": "Assess historical architectural decisions against current objectives and migrate approved clause dispositions. Use for ADR migration, decision cleanup, or reviewing whether old decisions still serve the project.",
+    "tags": [
+      "adrs",
+      "migration",
+      "objectives",
+      "doctrine"
+    ],
+    "bundles": [
+      "crux-docs"
+    ],
+    "risk_level": "high",
+    "requires_access": "write-tree",
+    "routing_note": "Architect-led clause assessment with resumable pages of five ADRs by default; exact council and configured owner approval precede committed publication.",
+    "triggers": [
+      "migrate ADRs",
+      "review historic ADRs",
+      "retire obsolete decisions",
+      "clean up decision authority",
+      "review the decisions",
+      "do the decisions still serve the objectives"
+    ]
+  },
+  {
     "id": "patch-cycle",
     "name": "patch-cycle",
-    "description": "Plan a small, reversible, non-architectural change as a five-prompt cycle with declared scope, council, and review gates.",
+    "description": "Compatibility alias: route patch-cycle requests to the unified cycle workflow with type quick-fix.",
     "tags": [
       "promptbooks",
       "workflow",
@@ -594,7 +642,7 @@
     ],
     "risk_level": "low",
     "requires_access": "write-tree",
-    "routing_note": "The third cycle tier: a small reversible non-architectural change, five phases (verify, plan, implement, review, summary) at one prompt each, so the formula is the constant 5 and the floor is 5. Declares a `blast_radius` at authoring; the verify council reviews it for proportion and the archive precondition checks it against the paths the run changed, drawn from git. Work needing an ADR is `dev-cycle`; a fix too large to bound is `iterate`. See `patch-cycle/SKILL.md`.",
+    "routing_note": "New work uses cycle with type quick-fix; no promptbook is allocated.",
     "triggers": [
       "patch this",
       "patch cycle",
@@ -715,7 +763,7 @@
     ],
     "risk_level": "low",
     "requires_access": "read-local",
-    "routing_note": "Checks text against the seven \u00a716 writing rules and returns a rewrite for every finding (`fix` | `confirm`); a finding without replacement text is not a finding. Mandatory at three points: `release-preflight` over `README.md` + `CHANGELOG.md` (advisory until the waiver path is vendored), the `dev-cycle`/`iterate` prep prompt, and `tend-garden` before the morning note.",
+    "routing_note": "Checks text against the project's seven writing rules and returns a rewrite for every finding (`fix` | `confirm`); a finding without replacement text is not a finding. Mandatory at three points: `release-preflight` over `README.md` + `CHANGELOG.md` (advisory until the waiver path is vendored), the `dev-cycle`/`iterate` prep prompt, and `tend-garden` before the morning note.",
     "triggers": [
       "review this prose",
       "prose review",
@@ -924,34 +972,9 @@
     ]
   },
   {
-    "id": "review-decisions",
-    "name": "review-decisions",
-    "description": "Review accepted decisions against project objectives and propose findings. Does not enact changes or transition records.",
-    "tags": [
-      "adrs",
-      "review",
-      "objectives",
-      "doctrine"
-    ],
-    "bundles": [
-      "crux-docs"
-    ],
-    "risk_level": "low",
-    "requires_access": "write-tree",
-    "routing_note": "The periodic architect review of the decision set against `<docs_dir>/objectives.md`; at most five findings in one dated report. Proposes only \u2014 it transitions nothing, signs off nothing, and authors nothing.",
-    "triggers": [
-      "review the decisions",
-      "run a decision review",
-      "do the decisions still serve the objectives",
-      "review the ADR set against the objectives",
-      "decision review",
-      "is the decision set still right"
-    ]
-  },
-  {
     "id": "run-adr-council",
     "name": "run-adr-council",
-    "description": "Run a multi-model council review of a specified ADR; inside a cycle run, its council record is the ADR approval gate's evidence.",
+    "description": "Review an exact ADR through its configured council mode; the owning writer records approval evidence.",
     "tags": [
       "council",
       "adr",
@@ -964,10 +987,7 @@
     ],
     "risk_level": "medium",
     "requires_access": "write-tree",
-    "requires_env": [
-      "OPENROUTER_API_KEY"
-    ],
-    "routing_note": "Inside a run it passes the ADR to run-council.py as a --subject, which run-council.py fences as data. Its council record is the gate evidence. Outside a run the async driver fences the ADR body itself and is informational. There is no per-ADR driver.",
+    "routing_note": "New-policy exact-subject approval uses cycle-council.py; historical runs retain their original council gate.",
     "triggers": [
       "run the council on ADR-NNNN",
       "council review ADR-NNNN",
@@ -981,7 +1001,7 @@
   {
     "id": "run-promptbook",
     "name": "run-promptbook",
-    "description": "Start, advance, abandon, or inspect a promptbook run. Report status and progress without advancing it.",
+    "description": "Inspect, finish, or archive an existing historical promptbook run; route all new work to cycle.",
     "tags": [
       "promptbooks",
       "execution",
@@ -992,7 +1012,7 @@
     ],
     "risk_level": "low",
     "requires_access": "write-tree",
-    "routing_note": "Start, advance, and abandon update run state and book pointers; status and terminal progress write nothing. Explicit Markdown writes a deterministic artifact and one promptbook log operation, without advancing.",
+    "routing_note": "Inspect, finish, or archive existing historical runs. New work uses cycle; never start repeat runs.",
     "triggers": [
       "show the run",
       "run promptbook",
@@ -1013,7 +1033,6 @@
       "where was I on PB-NNNN",
       "resume my cycle",
       "what's next on PB-NNNN",
-      "cycle status",
       "how do I pick this run back up",
       "how do I resume"
     ],

@@ -30,11 +30,10 @@
     "skills": [
       "propose-adr",
       "transition-adr",
-      "review-decisions",
+      "migrate-adrs",
       "council",
       "srde",
-      "author-promptbook",
-      "dev-cycle",
+      "cycle",
       "link-adr-graph",
       "propose-brief",
       "log-work",
@@ -80,7 +79,7 @@
   {
     "id": "commander",
     "name": "commander",
-    "description": "Use when the user says \"run promptbook\", \"run PB-NNNN\", \"start the cycle\", \"execute the promptbook\", \"advance the run\", \"orchestrate this build\", or wants a promptbook or cycle run driven to completion. A dedicated conductor to free the main thread \u2014 NOT the same as a direct `run-promptbook advance` call (which mutates one run snapshot); the commander delegates and gates the whole run.",
+    "description": "Use when the user asks to start, execute, resume, or inspect a cycle, orchestrate a build, or finish an existing historical promptbook run.",
     "tools": [
       "Read",
       "Grep",
@@ -109,12 +108,14 @@
     "risk_level": "medium",
     "skill_lanes": {
       "council": "delegates:architect",
+      "cycle": "delegates:historian",
       "forge-skill": "returns-to-caller",
       "log-work": "delegates:historian",
       "run-promptbook": "delegates:historian"
     },
     "maxTurns": 250,
     "skills": [
+      "cycle",
       "run-promptbook",
       "council",
       "forge-skill",
@@ -152,6 +153,7 @@
     "risk_level": "high",
     "maxTurns": 250,
     "skills": [
+      "cycle",
       "forge-skill",
       "log-work"
     ]
@@ -216,6 +218,7 @@
     "maxTurns": 100,
     "effort": "medium",
     "skills": [
+      "cycle",
       "init-docs",
       "audit-docs",
       "cleanup-campsite",

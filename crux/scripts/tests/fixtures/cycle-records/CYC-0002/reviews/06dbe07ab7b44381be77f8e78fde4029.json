@@ -1,0 +1,44 @@
+{
+  "advisory": [
+    "Phase colour keys overlap state keys (test=success, build=claude, release=permission); use keys disjoint from the progress keys or one neutral key",
+    "Title is bold with no theme key; confirm AC4 intent (bold title)",
+    "Compact strip cuts from the right and can drop the active task glyph; anchor it on the active task as stripAnchor does",
+    "Blocker row uses \u2717/error while the status uses \u2298/warning for the same paused state",
+    "The fit test cannot fail; a width test asserting the current phase survives at 40 columns carries more weight"
+  ],
+  "at": "2026-10-16T20:40:57.994044+00:00",
+  "basis_sha256": "ad395ba9e3e1cbb931ab569c6872e9043f0cc517b7d29ccfb6689eb4e7f90cae",
+  "blocking": [
+    {
+      "consequence": "At the 40-column default width the phase track is cut from the right with no run-panel-style fallback, so a late current phase (reflect) is not drawn at all; AC2 and AC4 fail at that width and the base pane showed the phase in full",
+      "evidence": "render-plain.txt at 40 columns ends '\u2713 test \u2192 \u2713 revie\u2026'; a 5-phase track takes 48 cells against a 36-cell inner width; no test covers a late phase below 52 columns",
+      "path": "crux-mods/hooks/lib/draw.ts"
+    },
+    {
+      "consequence": "ARROW U+2192 is East Asian Ambiguous, contrary to the one-cell glyph constraint and the new comment declaring the panel's cells Narrow or Neutral; it draws two cells on ambiguous-wide terminals, and the new glyphs are absent from the draw.test.ts glyph test",
+      "evidence": "unicodedata.east_asian_width('\\u2192') == 'A'; draw.test.ts GLYPHS omits LOOP_GLYPH and ARROW",
+      "path": "crux-mods/hooks/lib/draw.ts"
+    }
+  ],
+  "cosmetic": [
+    "PAUSED_GLYPH duplicates STATE_GLYPHS.skipped rather than reusing it",
+    "The 3-cell ' \u2192 ' gap costs 12 cells on a 5-phase track"
+  ],
+  "evidence": [
+    "Working-tree crux-mods matches commit 5a8977fc; diff confined to draw.ts cycle helpers and the cycle test file",
+    "Reused TE-511fdde3c2d24cc59ef5372423613209 (602 pass), TE-73a53b889cfd4bf8a501ece5f812f5f1 (manifest unchanged), TE-f7f2a182aba346909b1d41557f0a399e (280 OpenCode pass)",
+    "Coordinator renderings at 100, 40 and 20 columns",
+    "unicodedata.east_asian_width probe over the cycle glyphs",
+    "Free text reaches a line only through drawn(); closed sets checked by the parser"
+  ],
+  "input_sha256": "bed2e1bf091cdaccb6bd196f5b0c947b67e1f7041ba0cdc262676f7be619c989",
+  "pass": 1,
+  "rationale": "Untrusted text, band and answer invariance, manifest invariance, task glyphs and the loop icon verified; two local defects block: the narrow-width track loses the current phase, and the arrow separator is East Asian Ambiguous.",
+  "reviewer": "crux:reviewer",
+  "scope": [
+    "crux-mods/hooks/lib/draw.ts",
+    "crux-mods/tests/cycle-dashboard.test.ts"
+  ],
+  "scrutiny": "standard",
+  "verdict": "changes-required"
+}

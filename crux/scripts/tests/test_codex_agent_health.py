@@ -197,13 +197,13 @@ class HealthTests(unittest.TestCase):
             health.codex_agents.write(target, generated)
             architect = target / "crux-architect.toml"
             text = architect.read_text(encoding="utf-8").replace(
-                str(plugin / "skills" / "author-promptbook" / "SKILL.md"), "/old/crux/skills/author-promptbook/SKILL.md"
+                str(plugin / "skills" / "cycle" / "SKILL.md"), "/old/crux/skills/cycle/SKILL.md"
             )
             architect.write_text(text, encoding="utf-8")
             report = health.inspect_install(target=target, plugin_root=plugin, scope="personal")
         installed = next(item for item in report["installed"]["roles"] if item["role"] == "architect")
-        binding = next(item for item in installed["skill_bindings"] if item["skill"] == "author-promptbook")
-        self.assertEqual(binding["installed_path"], "/old/crux/skills/author-promptbook/SKILL.md")
+        binding = next(item for item in installed["skill_bindings"] if item["skill"] == "cycle")
+        self.assertEqual(binding["installed_path"], "/old/crux/skills/cycle/SKILL.md")
         self.assertEqual(binding["status"], "missing")
 
     def test_plugin_manifest_invalid_utf8_or_nonobject_is_a_spec_violation(self):

@@ -195,7 +195,7 @@ class StartBoundary(unittest.TestCase):
         self.output = self.root / "docs/promptbooks/runs/PB-0999-fixture/run-RUN-001.yaml"
 
     def start(self):
-        return subprocess.run([sys.executable, str(sup.SCRIPTS / "start-run.py"), str(self.path),
+        return subprocess.run([sys.executable, str(sup.SCRIPTS / "start-run.py"), "--historical-replay", str(self.path),
             "--run-id", "RUN-001", "--output", str(self.output)], capture_output=True,
             env=sup.scrubbed_env())
 
@@ -308,7 +308,7 @@ class WriterFixture:
             (constraint.parent / "ADR-0146-authorizer.md").write_text("---\n" + yaml.safe_dump(authorizer) + "---\n")
         (self.root / "widget.txt").write_text("before\n")
         sup.commit_all(self.root, "synthetic initial sources")
-        started = subprocess.run([sys.executable, str(sup.SCRIPTS / "start-run.py"), str(self.book_path),
+        started = subprocess.run([sys.executable, str(sup.SCRIPTS / "start-run.py"), "--historical-replay", str(self.book_path),
             "--run-id", "RUN-001", "--output", str(self.run_path)], capture_output=True, env=sup.scrubbed_env())
         if started.returncode: raise AssertionError(started.stdout + started.stderr)
         self.book.update(current_run="RUN-001", current_prompt=1)

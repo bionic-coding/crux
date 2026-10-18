@@ -246,6 +246,7 @@ from __future__ import annotations
 
 import argparse
 import errno
+import importlib.util
 import json
 import os
 import re
@@ -273,8 +274,8 @@ redact = sp.redact
 # Symmetric, jointly-exhaustive pair (see module docstring): a handle's slug
 # must start with a lowercase letter, so the doc-ref lookahead need only
 # exclude "/" + letter, not "/" + [letter-or-digit].
-DOC_REF_RE = re.compile(r"(?:ADR|OBS)-\d{4}(?!/[a-z])")
-HANDLE_RE = re.compile(r"(?:ADR|OBS)-\d{4}/[a-z][a-z0-9-]*")
+DOC_REF_RE = re.compile(r"(?:(?:[A-Z][A-Z0-9]{1,9}-)?ADR|OBS)-\d{4}(?!/[a-z])")
+HANDLE_RE = re.compile(r"(?:(?:[A-Z][A-Z0-9]{1,9}-)?ADR|OBS)-\d{4}/[a-z][a-z0-9-]*")
 # ADR-0099 clause 1: the citation. Letter-led, so `rule:<slug>` is a non-token.
 RULE_RE = re.compile(r"rule:[a-z][a-z0-9-]*")
 
@@ -330,6 +331,9 @@ TREE_EXCLUDED_PREFIXES = (
 
 # Relative to <repo_root>/crux.
 PLUGIN_EXCLUDED_PREFIXES = (
+    # Immutable copy of the replaced workflow, preserved for historical reading.
+    # Naming it explicitly with --path retains ordinary citation lint.
+    "box/history/review-decisions.md",
     # Regenerated projections.
     "catalog/skills.json", "catalog/agents.json",
     # Honesty note (a) in the docstring: an AMENDMENT of clause 7(b).
@@ -531,11 +535,22 @@ def default_scan_roots(root: Path, *, _source_io=None) -> list[Path]:
 
 def excluded_paths(root: Path, *, _source_io=None) -> frozenset[Path]:
     """The absolute (joined, unresolved) prefix exclusions for `root`."""
+    from cycle_workflow import ID as cycle_id
     tree = sp.resolve_tree(root) if _source_io is None else sp.resolve_tree(root, _source_io=_source_io)
     plugin = root / "crux"
+    # A cycle directory holds dated execution state, decisions and evidence.
+    # Current guidance beside those records remains in scope; explicit --path
+    # scans ignore these exclusions, just as they do for historical promptbooks.
+    cycles = tree / "cycles"
+    if _source_io is None:
+        children = [] if cycles.is_symlink() else cycles.glob('*')
+    else:
+        metadata = _source_io.metadata(cycles)
+        children = _source_io.glob(cycles, '*') if metadata and stat.S_ISDIR(metadata['st_mode']) else []
+    records = [path for path in children if cycle_id.fullmatch(path.name)]
     return frozenset(
         [tree / p for p in TREE_EXCLUDED_PREFIXES]
-        + [plugin / p for p in PLUGIN_EXCLUDED_PREFIXES])
+        + [plugin / p for p in PLUGIN_EXCLUDED_PREFIXES] + records)
 
 
 
@@ -656,13 +671,24 @@ def catalog_collisions(tree_slugs: dict[str, str], catalog: dict[str, str],
     ways. That is neither a substitution nor an override, and reporting it would
     make every authoring run red against itself. A slug whose two texts DIFFER
     is the act the clause names, and it is reported.
+
+    Authoring compares the expected text through the generator's portability
+    helper. Catalog text stays untouched, so private handles in the artifact
+    still differ from canonical output. Consumer definitions remain independent.
     """
+    if authoring:
+        spec = importlib.util.spec_from_file_location(
+            "_lint_catalog_projection", Path(__file__).with_name("generate-rules-catalog.py"))
+        catalog_projection = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(catalog_projection)
     out: list[dict] = []
     for slug, cat_rule in sorted(catalog.items()):
         handle = tree_slugs.get(slug)
         if handle is None:
             continue
         tree_rule = (resolver.get(handle) or {}).get("rule", "")
+        if authoring:
+            tree_rule = catalog_projection._portable_rule_text(tree_rule)
         if " ".join(tree_rule.split()) == " ".join(cat_rule.split()):
             continue
         # In the authoring checkout the catalog is DERIVED from this very projection,

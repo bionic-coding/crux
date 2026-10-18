@@ -301,6 +301,29 @@ class OrdinaryAdmission(unittest.TestCase):
         path.write_text("---\n" + yaml.safe_dump(document) + "---\nA factual observation.\n")
         return path
 
+    def test_checker_reuses_git_reads_within_one_check_and_recomputes_next_operation(self):
+        import check_observations
+        import git_read_cache
+        import implementation_migration as migration
+        from _council_gate_support import git, commit_all
+        self.write_observation()
+        git(self.root, 'init', '-b', 'main')
+        commit_all(self.root, 'Synthetic observation fixture')
+        actual_run = git_read_cache.subprocess.run
+        head_reads = []
+        def observe(args, *pargs, **kwargs):
+            if args == ['git', '-C', str(self.root), 'rev-parse', 'HEAD']:
+                head_reads.append(tuple(args))
+            return actual_run(args, *pargs, **kwargs)
+        with mock.patch.object(git_read_cache.subprocess, 'run', observe):
+            first = check_observations.check(self.root)
+            self.assertFalse(any('CHK-OBS-EVIDENCE' in p for p in first['broken']), first)
+            self.assertEqual(len(head_reads), 1)
+            second = check_observations.check(self.root)
+            self.assertEqual(first, second)
+            self.assertEqual(len(head_reads), 2)
+        self.assertIsNone(migration._VIEW_MEMO.get())
+
     def test_audit_refuses_reasoning_evidence_but_factual_own_record_passes(self):
         import check_observations
         self.write_observation()
@@ -630,6 +653,45 @@ class OrdinaryAdmission(unittest.TestCase):
                 with self.assertRaises(ValueError): admission._revalidate(context)
 
 
+class ProspectiveAdmission(unittest.TestCase):
+    def test_actual_prospective_publication_reserves_slugs_without_inventing_body_spans(self):
+        import json
+        from test_adr_migration_publication import PublicationTests
+        fixture = PublicationTests(methodName='runTest')
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        fixture.approve()
+        publication = 'bionic/adrs/migrations/publication-one.publication.json'
+        fixture.write(publication, json.loads((fixture.root / fixture.candidate).read_bytes()))
+        fixture.commit('Actual prospective admission fixture')
+        context = admission._load_context(fixture.root)
+        self.addCleanup(context['source_io'].close)
+        self.assertEqual(context['spans'], [])
+        self.assertIn('preserve-approvals', context['reservations']['historical_slugs'])
+        self.assertEqual(admission._source_problems(context, ['proof/source.py:1-1']), [])
+        self.assertEqual(admission._slug_problems(context['reservations'], 'preserve-approvals'),
+                         ['admission-historical-slug-reserved'])
+        self.assertEqual(context['proof_fingerprints'][publication], fixture.bind(publication)['sha256'])
+        # The source ADR remains exactly bound; a prospective governs retirement
+        # does not invent a historical classification for its entire body.
+        source = fixture.root / 'bionic' / fixture.subject
+        line = source.read_text().splitlines().index('Preserve approvals.') + 1
+        self.assertEqual(admission._source_problems(context,
+            [f'bionic/{fixture.subject}:{line}-{line}']), [])
+        for relative in (publication, fixture.package_path, 'bionic/' + fixture.subject):
+            with self.subTest(tampered=relative):
+                path = fixture.root / relative
+                before = path.read_bytes()
+                try:
+                    path.write_bytes(before + b'\nchanged\n')
+                    changed = path.read_bytes()
+                    self.assertTrue(admission.admission_problems(fixture.root,
+                        slug='distinct', evidence=['proof/source.py:1-1']))
+                    self.assertEqual(path.read_bytes(), changed)
+                finally:
+                    path.write_bytes(before)
+
+
 class PublishedAdmission(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -714,6 +776,49 @@ class PublishedAdmission(unittest.TestCase):
             span = next(s for s in context["spans"] if s["disposition"] == disposition)
             self.assertEqual(admission.recovery_source_problems(self.root,
                 evidence=[f'{span["path"]}:{span["line_start"]}-{span["line_end"]}']), [])
+
+    def test_mixed_consumer_preserves_old_spans_and_binds_prospective_dependencies(self):
+        import copy
+        import json
+        import shutil
+        import implementation_migration as migration
+        import _council_gate_support as support
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name) / 'mixed'
+        shutil.copytree(self.root, root)
+        original = admission._load_context(root)
+        self.addCleanup(original['source_io'].close)
+        facts = migration.admission_authority_view(root)
+        # This consumer-level seam starts with actually proved old spans. The
+        # prospective admission proof is exercised separately above; this tail
+        # stands for its already-validated view, never for a new approval.
+        package = root / 'docs/adrs/migrations/mixed-package.json'
+        publication = root / 'docs/adrs/migrations/mixed-tail.publication.json'
+        package.write_text(json.dumps({'format': 'crux.adr-migration-package.v1'}))
+        package_ref = dict(path=package.relative_to(root).as_posix(),
+                           sha256=migration._digest(package.read_bytes()))
+        publication.write_text(json.dumps(dict(format='crux.adr-migration-publication.v1',
+            id='mixed-tail', authority='none', package=package_ref, approval=package_ref)))
+        support.commit_all(root, 'Synthetic combined-view consumer inputs')
+        mixed = copy.deepcopy(facts)
+        mixed['publications'].append(dict(path=publication.relative_to(root).as_posix(),
+            sha256=migration._digest(publication.read_bytes()), publication_commit=support.git(root, 'rev-parse', 'HEAD').strip()))
+        mixed['dependency_fingerprints'].append(package_ref)
+        with mock.patch.object(migration, 'admission_authority_view', return_value=mixed):
+            context = admission._load_context(root)
+            self.addCleanup(context['source_io'].close)
+            self.assertEqual(context['spans'], original['spans'])
+            self.assertEqual(context['reservations'], original['reservations'])
+            self.assertEqual(context['proof_fingerprints'][package_ref['path']], package_ref['sha256'])
+            self.assertIn(publication.relative_to(root).as_posix(), context['proof_fingerprints'])
+            span = next(s for s in context['spans'] if s['disposition'] == 'historical-implementation')
+            self.assertIn('admission-historical-reasoning-refused', admission._source_problems(context,
+                [f'{span["path"]}:{span["line_start"]}-{span["line_end"]}']))
+            self.assertEqual(admission._source_problems(context, [self.fact_evidence]), [])
+            package.write_text(package.read_text() + '\nchanged\n')
+            with self.assertRaisesRegex(ValueError, 'migration-input-not-committed'):
+                admission._revalidate(context)
 
     def test_invalid_proof_overrides_source_positive_and_preserves_all_bytes(self):
         import json

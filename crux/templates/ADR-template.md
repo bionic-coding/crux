@@ -2,6 +2,7 @@
 id: ADR-NNNN
 title: "<Decision title in declarative present tense, e.g., 'Use SQLite for local-first storage'>"
 status: Proposed
+acceptance_format: crux.adr-acceptance.v1
 date: YYYY-MM-DD
 proposed_date: YYYY-MM-DD
 accepted_date: null

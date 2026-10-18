@@ -740,6 +740,12 @@ def derived_adr_ids(batch: dict) -> list[str]:
                   | set(batch["no_rule"]), key=adr_num)
 
 
+def _is_adr_filename(name: str) -> bool:
+    # Keep bare historical discovery unchanged; prefixes use the config grammar.
+    return (name.startswith("ADR-") and name.endswith(".md")) or bool(
+        re.fullmatch(r"[A-Z][A-Z0-9]{1,9}-ADR-\d{4}(?:-.+)?\.md", name))
+
+
 def adr_paths(adrs: Path, *, _source_io=None) -> list[Path]:
     """Sorted active ADR files (top-level only; excludes archive/).
 
@@ -766,7 +772,9 @@ def adr_paths(adrs: Path, *, _source_io=None) -> list[Path]:
     committed artifacts, which is the same escape pointed the other way.
     """
     out = []
-    for p in sorted(_source_glob(adrs, "ADR-*.md", _source_io)):
+    for p in sorted(_source_glob(adrs, "*.md", _source_io)):
+        if not _is_adr_filename(p.name):
+            continue
         resolved = _source_contained(adrs, p.name, _source_io)
         if resolved is None:
             raise ValueError(
@@ -815,6 +823,16 @@ def adr_frontmatter_sha256(adrs: Path, *, _source_io=None) -> str:
         h.update(b"\0")
         h.update(block.encode("utf-8"))
         h.update(b"\0")
+    # Prospective authority includes acceptance evidence. Historical trees
+    # without these sidecars retain their original fingerprint.
+    for directory in ('proposals', 'acceptances'):
+        for path in sorted(_source_glob(adrs / directory, '*.json', _source_io)):
+            safe = _source_contained(adrs, f'{directory}/{path.name}', _source_io)
+            _projection_require(safe is not None, 'authority sidecar escapes ADR tree')
+            h.update(f'{directory}/{path.name}'.encode())
+            h.update(b'\0')
+            h.update(_source_bytes(safe, _source_io))
+            h.update(b'\0')
     return h.hexdigest()
 
 
@@ -881,7 +899,7 @@ GOVERNS_SUBFIELDS = ("domain", "rule", "scope", "handle", "anchor",
 # with a letter-led slug — and its four-digit number must equal the source ADR's
 # own number. The shape mirrors lint-governs-references.py's HANDLE_RE, anchored
 # end-to-end and capturing the number for the cross-anchor check.
-_HANDLE_ANCHOR_RE = re.compile(r"^ADR-(\d{4})/[a-z][a-z0-9-]*$")
+_HANDLE_ANCHOR_RE = re.compile(r"^(?:[A-Z][A-Z0-9]{1,9}-)?ADR-(\d{4})/[a-z][a-z0-9-]*$")
 
 # §17.1: an observation handle is namespaced by its host record id —
 # `OBS-NNNN/rule-slug` — so it cannot collide across records or with an ADR
@@ -893,7 +911,7 @@ _OBS_HANDLE_ANCHOR_RE = re.compile(r"^OBS-(\d{4})/[a-z][a-z0-9-]*$")
 # The bare ADR-id shape, for surfaces that name ADRs rather than handles (batch
 # `no_rule` members, the recorded cohort). Validated BEFORE any `adr_num` call
 # so an authored document error is a validation finding, never an int() crash.
-_ADR_ID_SHAPE_RE = re.compile(r"^ADR-\d{4}$")
+_ADR_ID_SHAPE_RE = re.compile(r"^(?:[A-Z][A-Z0-9]{1,9}-)?ADR-\d{4}$")
 
 # The observation-id shape, the §17.1 twin of the ADR shape above and validated
 # for the same reason: `adr_num` is called on a record's `id`, so an authored
@@ -994,11 +1012,11 @@ def _governs_shape_problems(entries_by_adr: list[tuple[str, list]]) -> list[dict
                         "problem": f"handle {redact(handle)} is not ADR-anchored "
                         "(must match ^ADR-NNNN/[a-z][a-z0-9-]*$)",
                     })
-                elif int(m.group(1)) != adr_num(source_adr):
+                elif handle.split("/", 1)[0] != source_adr:
                     problems.append({
                         "source_adr": source_adr,
                         "handle": handle,
-                        "problem": f"handle {redact(handle)} anchors ADR-{redact(m.group(1), quoted=False)} "
+                        "problem": f"handle {redact(handle)} anchors {redact(handle.partition('/')[0], quoted=False)} "
                         f"but is authored by {redact(source_adr, quoted=False)}",
                     })
             provenance = e.get("provenance")
@@ -1428,7 +1446,9 @@ def archived_handles(adrs: Path, *, _source_io=None) -> set[str]:
     archive = adrs / "archive"
     if not _source_is_dir(archive, _source_io):
         return out
-    for path in sorted(_source_glob(archive, "ADR-*.md", _source_io)):
+    for path in sorted(_source_glob(archive, "*.md", _source_io)):
+        if not _is_adr_filename(path.name):
+            continue
         resolved = _source_contained(archive, path.name, _source_io)
         if resolved is None:
             raise ValueError(
@@ -1541,14 +1561,9 @@ def _stamp_retirements(records: list[dict]) -> None:
     ADR-0097 part 6 calls a retirement "a later decision displacing a rule",
     and Accepted is the point in the ADR state machine (§11) where a
     proposal BECOMES a decision — so a `retires` entry takes EFFECT only
-    when its own host ADR's `source_status` is `Accepted`. The asymmetry is
-    deliberate: publishing a Proposed ADR's own rule is additive and
-    reversible (a later Deprecated/rejection just stops citing it), while a
-    retirement silently drops another ADR's live row — so a retirement that
-    fired on a mere proposal would let an unreviewed ADR displace an accepted
-    rule before anyone reviewed it. `propose-adr` regenerates the summaries
-    projection at proposal time, so this gate is what stops that regeneration
-    from silently dropping a live rule.
+    when its own host ADR's `source_status` is `Accepted`. Proposed records
+    remain collected for validation and non-governing retrieval. Neither their
+    own rules nor their retirement declarations change governing authority.
 
     Observation-sourced records need no extra condition here: `collect_records`
     only ever constructs one at `OBSERVATION_PROJECTED_STATUS` ("ratified"),
@@ -1573,7 +1588,7 @@ def _stamp_retirements(records: list[dict]) -> None:
 
 
 def live_records(records: list[dict]) -> list[dict]:
-    """`records` minus every retired one — THE one filter, applied by each
+    """`records` minus retired, historical, and Proposed rules — the shared filter, applied by each
     artifact builder at its own entry rather than at collection.
 
     It is not applied inside `collect_records` because the backfill/coverage
@@ -1584,7 +1599,42 @@ def live_records(records: list[dict]) -> list[dict]:
     withdrawn without a tombstone. Idempotent, so double application is a
     no-op.
     """
-    return [r for r in records if not r.get("retired_by") and not r.get("historical")]
+    return [r for r in records if not r.get("retired_by") and not r.get("historical")
+            and not is_proposed(r)]
+
+
+def is_proposed(record: dict) -> bool:
+    """Explicit ADR proposals are evidence, never current governing rules.
+
+    Other lifecycle values retain their historical interpretation. In particular,
+    this correction does not reinterpret legacy records whose status is absent.
+    """
+    return record.get("source_kind", "adr") == "adr" and record.get("source_status") == "Proposed"
+
+
+def proposed_records(records: list[dict]) -> list[dict]:
+    return sorted((r for r in records if is_proposed(r)), key=record_sort_key)
+
+
+# The authored governs schema has no clause-amendment field. Declare this
+# approved relationship explicitly rather than guessing that a citation or an
+# ADR-level `amends` relation changes another rule's scope. The application below
+# is shared by every record reader; it never edits frozen source wording/digests.
+ACCEPTANCE_SCOPE_AMENDMENTS = (
+    ("ADR-0146/authority-migration-is-reviewed-and-source-bound",
+     "ADR-0160/historical-migration-proof-is-unchanged"),
+)
+
+
+def _apply_acceptance_amendments(records: list[dict], accepted_amends: dict) -> None:
+    live = {r["handle"]: r for r in live_records(records)}
+    for target, amender in ACCEPTANCE_SCOPE_AMENDMENTS:
+        source = live.get(amender)
+        if source is None or target.split("/")[0] not in accepted_amends.get(source["source_adr"], []):
+            continue
+        _projection_require(target in live, "accepted scope amendment target is not live")
+        row = live[target]
+        row.update(effective_rule=source["rule"], effective_scope=source["scope"], amended_by=[amender])
 
 
 def retired_records(records: list[dict]) -> list[dict]:
@@ -1760,6 +1810,7 @@ def collect_records(adrs: Path, governs_from: int | None = None,
     artifact builder applies it at its own entry.
     """
     records: list[dict] = []
+    accepted_amends: dict[str, list] = {}
     hosts: dict[str, tuple[int, object]] = {}
     entries_by_adr: list[tuple[str, list]] = []
     anchored_by_adr: list[tuple[str, list, str]] = []
@@ -1767,6 +1818,33 @@ def collect_records(adrs: Path, governs_from: int | None = None,
         text = _source_text(path, _source_io)
         fm = read_frontmatter(text)
         src = str(fm.get("id") or "")
+        if src:
+            proposal = _source_contained(adrs, f"proposals/{src}.json", _source_io)
+            receipt_path = _source_contained(adrs, f"acceptances/{src}.json", _source_io)
+            _projection_require(fm.get('acceptance_format') in (None, 'crux.adr-acceptance.v1'),
+                                'unknown ADR acceptance format')
+            prospective = (fm.get('acceptance_format') == 'crux.adr-acceptance.v1'
+                           or (proposal is not None and _source_is_file(proposal, _source_io))
+                           or (receipt_path is not None and _source_is_file(receipt_path, _source_io)))
+            if prospective and fm.get("status") == "Accepted":
+                try:
+                    from decision_policy import validate_receipt_data
+                    if receipt_path is None or not _source_is_file(receipt_path, _source_io):
+                        raise ValueError("acceptance receipt missing")
+                    receipt = json.loads(_source_text(receipt_path, _source_io))
+                    council = _source_contained(adrs.parent, receipt['council'], _source_io)
+                    if council is None:
+                        raise ValueError("acceptance council escapes documentation tree")
+                    def proof_reader(relative):
+                        proof=_source_contained(adrs.parent,relative,_source_io)
+                        if proof is None:raise ValueError('native council proof escapes documentation tree')
+                        return _source_bytes(proof,_source_io)
+                    validate_receipt_data(receipt, f"adrs/{path.name}", _source_bytes(council, _source_io),proof_reader=proof_reader)
+                    if receipt['accepted_sha256'] != hashlib.sha256(text.encode()).hexdigest():
+                        raise ValueError("accepted decision contents changed")
+                    accepted_amends[src] = fm.get("amends") or []
+                except (ValueError, OSError, KeyError, TypeError) as exc:
+                    _projection_require(False, f"invalid prospective ADR acceptance for {src}: {exc}")
         _projection_require("record_type" not in fm,
                             "summaries typed non-ADR payload cannot supply architectural authority")
         if not src:
@@ -1858,6 +1936,7 @@ def collect_records(adrs: Path, governs_from: int | None = None,
     if retirement:
         raise GovernsValidationError(retirement)
     _stamp_retirements(records)
+    _apply_acceptance_amendments(records, accepted_amends)
     return records
 
 
@@ -1868,7 +1947,7 @@ def _projection_require(condition: bool, problem: str) -> None:
 
 
 def _summary_authority_records(records: list[dict], facts: dict, removed: dict,
-                               aliases: dict) -> dict:
+                               aliases: dict, *, _prepared=False) -> dict:
     """Pure overlay of already validated migration facts, never an approval API.
 
     Raw admission records remain available to receipt readers. Original retirements
@@ -1876,6 +1955,16 @@ def _summary_authority_records(records: list[dict], facts: dict, removed: dict,
     """
     import copy
     rows = copy.deepcopy(records)
+    for row in rows:
+        amendment=facts.get('amendments',{}).get(row['handle'])
+        if amendment is not None:
+            handles=amendment['amending_handles']
+            # U0 already represents acceptance-time narrowing. Ordinary later
+            # amendments carry the exact approved continuing obligations.
+            if not set(handles)<=set(row.get('amended_by',[])):
+                row['effective_rule']='; '.join(amendment['continuing']) or 'No source obligations continue.'
+                row['effective_scope']='Specified continuing obligations only; amended by '+', '.join(handles)
+                row['amended_by']=sorted(set(row.get('amended_by',[]))|set(handles))
     _projection_require(len({r["handle"] for r in rows}) == len(rows),
                         "summaries duplicate source handle")
     _stamp_retirements(rows)
@@ -1920,6 +2009,10 @@ def _summary_authority_records(records: list[dict], facts: dict, removed: dict,
         if row["handle"] in historical:
             row["historical"] = True
     slugs, retired_slugs = live_and_retired_slugs(rows)
+    live_architecture={r['handle'] for r in live_records(rows) if r.get('source_status')=='Accepted'}
+    _projection_require(all(set(a['amending_handles'])<=live_architecture
+        for h,a in facts.get('amendments',{}).items() if h in live_architecture),
+        'summaries amendment successor is not live architecture')
     live_displacers = {}
     for row in live_records(rows):
         if row.get("source_status") == "Accepted":
@@ -1944,7 +2037,18 @@ def _summary_authority_records(records: list[dict], facts: dict, removed: dict,
         replacements = fact["replacements"]
         live_handles = {row["handle"] for row in live_records(rows)
                         if row.get("source_status") == "Accepted" and row.get("source_kind", "adr") == "adr"}
-        _projection_require(isinstance(replacements, list) and replacements and
+        origin = facts.get('origins', {}).get(handle, {})
+        ref = origin.get('publication_ref', {})
+        prospective = (origin.get('origin') == 'prospective-publication' and isinstance(ref,dict)
+            and set(ref)=={'path','sha256','publication_commit'} and _summary_relative_path(ref['path'])
+            and ref['path'].endswith('.publication.json') and isinstance(ref['sha256'],str)
+            and _DIGEST_RE.fullmatch(ref['sha256']) and isinstance(ref['publication_commit'],str)
+            and re.fullmatch(r'(?:[0-9a-f]{40}|[0-9a-f]{64})',ref['publication_commit']))
+        prepared = (_prepared and origin.get('origin')=='prospective-prepared' and isinstance(ref,dict)
+            and set(ref)=={'path','sha256'} and _summary_relative_path(ref['path'])
+            and ref['path'].endswith('.publication.json') and isinstance(ref['sha256'],str)
+            and _DIGEST_RE.fullmatch(ref['sha256']))
+        _projection_require(isinstance(replacements, list) and (replacements or prospective or prepared) and
             all(isinstance(h, str) and h in live_handles for h in replacements) and
             len(set(replacements)) == len(replacements), "summaries replacement is not live architecture")
         slug = slug_of(handle)
@@ -2038,6 +2142,12 @@ def _summary_pending_publication(pending) -> None:
         and _summary_relative_path(pending["path"]) and isinstance(pending["sha256"], str)
         and _DIGEST_RE.fullmatch(pending["sha256"]), "summaries pending witness invalid")
     close = pending["close_identity"]
+    if isinstance(close, dict) and close.get('format') == 'crux.adr-migration-publication.v1':
+        _projection_require(set(close)=={'format','batch'} and isinstance(close['batch'],dict)
+            and set(close['batch'])=={'path','sha256'} and _summary_relative_path(close['batch']['path'])
+            and isinstance(close['batch']['sha256'],str) and _DIGEST_RE.fullmatch(close['batch']['sha256']),
+            'summaries prospective package identity invalid')
+        return
     _projection_require(isinstance(close, dict) and set(close) == {
         "batch", "book_id", "run_id", "book_content_hash", "slot", "gate_prompt"},
         "summaries pending close identity invalid")
@@ -2184,7 +2294,8 @@ def _plan_summary_outputs(loaded_inputs: dict, migration_facts: dict,
     problems = retirement_problems(rows, removed_handles(reviews), set(data["signed_handles"]),
                                    set(data["archived_handles"]))
     if problems: raise GovernsValidationError(problems)
-    overlay = _summary_authority_records(rows, migration_facts, removed_handles(reviews), aliases)
+    overlay = _summary_authority_records(rows, migration_facts, removed_handles(reviews), aliases,
+        _prepared=pending_publication is not None and pending_publication['close_identity'].get('format')=='crux.adr-migration-publication.v1')
     for group in overlay["historical_displacements"].values():
         for edge in group:
             source = selected.get(edge["source_identity"])
@@ -2204,12 +2315,13 @@ def _plan_summary_outputs(loaded_inputs: dict, migration_facts: dict,
     _projection_require(set(metadata) == {"adr_frontmatter_sha256", "backfill_reviews_sha256",
         "observations_sha256", "survey_receipts_sha256", "input_domain", "schema", "tool"}
         | ({"provenance_sha256"} if has_provenance else set())
-        and metadata["schema"] == "6" and metadata["tool"] == "summarize-adrs.py"
+        and metadata["schema"] in ("6", "7") and metadata["tool"] == "summarize-adrs.py"
         and isinstance(metadata["input_domain"], list) and all(isinstance(x, str)
             and x in INPUT_DOMAIN_KNOWN for x in metadata["input_domain"])
         and len(set(metadata["input_domain"])) == len(metadata["input_domain"])
         and ("provenance" in metadata["input_domain"]) == has_provenance,
         "summaries metadata contract invalid")
+    metadata["schema"] = "7"
     if has_provenance:
         _projection_require(isinstance(data["provenance"], dict) and data["provenance"] and
             all(isinstance(k, str) and isinstance(v, dict) and v.get("adr") == k
@@ -2269,11 +2381,19 @@ def _plan_summary_outputs(loaded_inputs: dict, migration_facts: dict,
             pending_publication["close_identity"]["batch"]["sha256"], "summaries pending batch absent from input snapshot")
         publication = dict(path=pending_publication["path"], sha256=pending_publication["sha256"],
                            publication_commit=_PublicationCommitSlot())
+        if pending_publication['close_identity'].get('format')=='crux.adr-migration-publication.v1':
+            # The introducing commit is derived by the runtime reader. Embedding
+            # its SHA into files in that same commit would be self-referential.
+            publication.pop('publication_commit')
         for group in resolver["historical_displacements"].values():
             for edge in group:
                 if "publication_ref" in edge:
-                    _committed_publication_ref(pending_publication, edge["publication_ref"])
-                edge["publication_ref"] = publication
+                    _projection_require(edge["publication_ref"] in data["publication_history"] or
+                        edge["publication_ref"]["path"]==pending_publication["path"] and
+                        edge["publication_ref"]["sha256"]==pending_publication["sha256"],
+                        "unknown historical publication reference")
+                else:
+                    edge["publication_ref"] = publication
         frame = dict(publication=publication, close_identity=pending_publication["close_identity"],
             publication_history=data["publication_history"], source_refs=migration_facts["source_refs"],
             dependency_fingerprints=migration_facts["dependency_fingerprints"],
@@ -2774,7 +2894,9 @@ def _adr_ids_including_archive(adrs: Path) -> set[str]:
     the list (ADR-0088 clause 7)."""
     ids: set[str] = set()
     for d in (adrs, adrs / "archive"):
-        for path in sorted(d.glob("ADR-*.md")):
+        for path in sorted(d.glob("*.md")):
+            if not _is_adr_filename(path.name):
+                continue
             resolved = _evidence_module().resolve_contained(d, path.name)
             if resolved is None:
                 raise ValueError(
@@ -3131,7 +3253,7 @@ def backfill_problems(root: Path, adrs: Path, manifest: dict) -> tuple[list[dict
                     # The shape guard runs BEFORE the numeric sort: a garbage
                     # token is an authored document error (this entry fails to
                     # corroborate), never an adr_num crash.
-                    if all(re.fullmatch(r"ADR-\d{4}", i) for i in ids) \
+                    if all(_ADR_ID_SHAPE_RE.fullmatch(i) for i in ids) \
                             and sorted(ids, key=adr_num) == derived:
                         ok = True
                         break
@@ -3379,9 +3501,23 @@ def build_rule_table(records: list[dict], reviews: dict | None = None,
                 and review_state(r, reviews, governs_from) == "unreviewed":
             handle_cell += " **unreviewed**"
         out.append(
-            f"| {handle_cell} | {_cell(r['domain'])} | {_cell(r['rule'])} "
-            f"| {_cell(r['scope'])} | {_cell(r['provenance'])} | {_cell(r['source_adr'])} |"
+            f"| {handle_cell} | {_cell(r['domain'])} | {_cell(r.get('effective_rule', r['rule']))} "
+            f"| {_cell(r.get('effective_scope', r['scope']))} | {_cell(r['provenance'])} | {_cell(r['source_adr'])} |"
         )
+    amended = [r for r in ordered if r.get("amended_by")]
+    if amended:
+        out += ["", "## Amended live rules", "",
+                "_The handle remains live. Current wording and scope above include the accepted amendment; source wording and content digests remain unchanged._", "",
+                "| handle | amended by |", "|--------|------------|"]
+        out += [f"| {_cell(r['handle'])} | {_cell(', '.join(r['amended_by']))} |" for r in amended]
+    proposed = proposed_records(records)
+    if proposed:
+        out += ["", "## Proposed rules — not governing", "",
+                "_Proposed source text is retained for retrieval. These entries establish no governing authority._", "",
+                "| handle | domain | rule | scope | source_status | authority |",
+                "|--------|--------|------|-------|---------------|-----------|"]
+        for r in proposed:
+            out.append(f"| {_cell(r['handle'])} | {_cell(r['domain'])} | {_cell(r['rule'])} | {_cell(r['scope'])} | Proposed | none |")
     if reviews is not None:
         removed = removed_handles(reviews)
         if removed:
@@ -3446,8 +3582,10 @@ def build_resolver(records: list[dict], reviews: dict | None = None,
                    governs_from: int | None = None,
                    alias_rows: dict[str, dict] | None = None,
                    standing: dict[str, dict] | None = None) -> dict:
-    """handle -> {rule, provenance, disposition, authority, source_adr,
-    [review_state]}, plus one alias row per `decided` observation handle.
+    """Governing handle rows, observation aliases, and a separate `proposed` map.
+
+    Proposed source text is retrievable only inside that non-governing map;
+    it contributes no live handle or governing slug.
 
     `standing` (from `provenance_standing`) adds `standing`, `binding_rule` (the rule
     text of the binding version, or null) and `in_run_edit` (the unpromoted in-run
@@ -3480,7 +3618,7 @@ def build_resolver(records: list[dict], reviews: dict | None = None,
     for r in sorted(live_records(records), key=record_sort_key):
         prov = r["provenance"]
         row = {
-            "rule": r["rule"],
+            "rule": r.get("effective_rule", r["rule"]),
             "provenance": prov,
             "disposition": disposition_for(prov),
             "authority": authority_for(prov),
@@ -3503,6 +3641,9 @@ def build_resolver(records: list[dict], reviews: dict | None = None,
         }
         if reviews is not None and r.get("source_kind", "adr") == "adr":
             row["review_state"] = review_state(r, reviews, governs_from)
+        if r.get("amended_by"):
+            row.update(scope=r["effective_scope"], amended_by=list(r["amended_by"]),
+                       source_rule=r["rule"], source_scope=r["scope"])
         if standing and r["handle"] in standing:
             row["standing"] = standing[r["handle"]]["standing"]
             row["binding_rule"] = standing[r["handle"]]["binding_rule"]
@@ -3515,6 +3656,11 @@ def build_resolver(records: list[dict], reviews: dict | None = None,
                 "problem": "alias handle also used by a rule row — handles must be "
                 "globally unique"}])
         resolver[handle] = dict(alias_rows[handle])
+    proposed = proposed_records(records)
+    if proposed:
+        resolver["proposed"] = {r["handle"]: dict(rule=r["rule"], scope=r["scope"],
+            source_adr=r["source_adr"], source_status="Proposed", authority="none",
+            disposition="proposed-not-governing") for r in proposed}
     return resolver
 
 

@@ -90,10 +90,12 @@ export const capabilities = {
     },
     "env_writes": {},
     "launch": {
-      "visualize-run-progress": {"sees": "Your project's crux configuration and the runs, books and council records in its documentation tree, read by the installed crux's reader.", "keeps": "Nothing. The reader writes no file and answers with one JSON object on its standard output."}
+      "visualize-run-progress": {"sees": "Your project's crux configuration and the cycles and historical runs, books and council records in its documentation tree, read by the installed crux's reader.", "keeps": "Nothing. The reader writes no file and answers with one JSON object on its standard output."}
     },
     "never": "Directly or through the process it starts, it makes no network request, calls no model and reads no credential or environment secret. It writes nothing in your documentation tree or your project: its only write is uv's cache, and it refuses a uv cache inside your project.",
     "surfaces": [
+      {"event": "ui.render{component=AbovePrompt}", "part": "the current cycle type, phase and pass limit", "from": ["visualize-run-progress:cycles[].id", "visualize-run-progress:cycles[].type", "visualize-run-progress:cycles[].phase", "visualize-run-progress:cycles[].pass", "visualize-run-progress:cycles[].pass_limit", "visualize-run-progress:cycles[].status"]},
+      {"event": "ui.render{component=Pane}", "part": "cycle phases, task progress, returns, approval waits and outcome", "from": ["visualize-run-progress:cycles[].phases", "visualize-run-progress:cycles[].tasks", "visualize-run-progress:cycles[].returns", "visualize-run-progress:cycles[].waits", "visualize-run-progress:cycles[].blocker", "visualize-run-progress:cycles[].reflection"]},
       {"event": "ui.render{component=AbovePrompt}", "part": "the book and run of the run whose run file changed last", "from": ["visualize-run-progress:runs[].book_id", "visualize-run-progress:runs[].run_id", "visualize-run-progress:runs[].modified_s"]},
       {"event": "ui.render{component=AbovePrompt}", "part": "the prompt strip: one glyph per prompt, with `|` between modules", "from": ["visualize-run-progress:runs[].prompts[].state", "visualize-run-progress:runs[].prompts[].module_tag", "visualize-run-progress:runs[].current_prompt", "visualize-run-progress:runs[].prompts[].n"]},
       {"event": "ui.render{component=AbovePrompt}", "part": "the current prompt's module kind word", "from": ["visualize-run-progress:runs[].prompts[].module_tag", "visualize-run-progress:runs[].current_prompt", "visualize-run-progress:runs[].prompts[].n"]},

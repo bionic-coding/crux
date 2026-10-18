@@ -19,13 +19,16 @@ import re
 import unittest
 from pathlib import Path
 
+# Frozen historical orchestration contract; live-cycle coverage is separate.
+from _legacy_workflow_prose import legacy_path
+
 from _dev_surface import IS_STAGED_ARTIFACT, REPO_ROOT as ROOT, require_dev_surface
 
 CRUX = ROOT / "crux"
 
 
 def flat(path: Path) -> str:
-    return re.sub(r"\s+", " ", path.read_text(encoding="utf-8"))
+    return re.sub(r"\s+", " ", legacy_path(path).read_text(encoding="utf-8"))
 
 
 def between(text: str, start: str, end: str | None) -> str:

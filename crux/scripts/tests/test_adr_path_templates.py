@@ -27,6 +27,9 @@ import sys
 import unittest
 from pathlib import Path
 
+# Frozen historical orchestration contract; live-cycle coverage is separate.
+from _legacy_workflow_prose import legacy_path
+
 import yaml
 
 SCRIPTS = Path(__file__).resolve().parent.parent
@@ -67,7 +70,7 @@ FORBIDDEN_LINE_START = re.compile(r"^\s*(?:rule:|\[|\{|--)")
 
 
 def load(path: Path):
-    return yaml.safe_load(path.read_text(encoding="utf-8"))
+    return yaml.safe_load(legacy_path(path).read_text(encoding="utf-8"))
 
 
 def norm(text: str) -> str:
@@ -375,7 +378,7 @@ class RoutingTests(unittest.TestCase):
                 self.assertNotIn("After acceptance, advance", text)
 
     def test_gates_reference_states_the_proposed_adr_refusal(self):
-        text = norm(GATES.read_text(encoding="utf-8"))
+        text = norm(legacy_path(GATES).read_text(encoding="utf-8"))
         for needle in (
             "In a format-two run, every later advance refuses and writes nothing while a "
             "closed `adr-*` module's ADR is not Accepted, Deprecated or Superseded, or is unreadable or "
@@ -425,7 +428,7 @@ class RoutingTests(unittest.TestCase):
 
     def test_gates_reference_retires_the_unseeable_remedy_claim(self):
         # The gate cannot see a failed transition-adr, so no text may say the field reads `owner`.
-        text = norm(GATES.read_text(encoding="utf-8"))
+        text = norm(legacy_path(GATES).read_text(encoding="utf-8"))
         self.assertEqual(text.count("and an entry whose `transition-adr` already failed"), 0)
 
     def test_pending_pointer_names_the_module_close_paragraph(self):
@@ -433,12 +436,12 @@ class RoutingTests(unittest.TestCase):
         advance = GATES.parent / "advance.md"
         for path, ref in ((skill, "`references/gates.md`"), (advance, "`gates.md`")):
             with self.subTest(path=path.name):
-                text = norm(path.read_text(encoding="utf-8"))
+                text = norm(legacy_path(path).read_text(encoding="utf-8"))
                 self.assertEqual(text.count(
                     "When `adr_acceptance_pending` is non-empty, do not issue the prompt; the \"Module "
                     f"close on an `adr-*` module\" paragraph in {ref} section 4 names the remedy for each "
                     "entry."), 1)
-        self.assertEqual(norm(GATES.read_text(encoding="utf-8")).count(
+        self.assertEqual(norm(legacy_path(GATES).read_text(encoding="utf-8")).count(
             "**Module close on an `adr-*` module.**"), 1)
 
     def test_book_titles_and_wording(self):
@@ -453,7 +456,7 @@ class RoutingTests(unittest.TestCase):
         for path in (BOOK, REVIEW_MODULE):
             with self.subTest(template=path.name):
                 lines = []
-                for line in path.read_text(encoding="utf-8").splitlines():
+                for line in legacy_path(path).read_text(encoding="utf-8").splitlines():
                     if not line.startswith("#"):
                         break
                     lines.append(line.lstrip("# ").strip())
@@ -643,7 +646,7 @@ class RoundAndCommitRuleTests(unittest.TestCase):
     def test_the_council_family_skills_state_the_round_rule_and_the_commit_rule(self):
         skills = TEMPLATES.parent / "skills"
         for name in ("council", "run-adr-council", "dev-cycle", "iterate"):
-            text = norm((skills / name / "SKILL.md").read_text(encoding="utf-8"))
+            text = norm((legacy_path(skills / name / "SKILL.md")).read_text(encoding="utf-8"))
             with self.subTest(skill=name):
                 self.assertIn("the number of council records with outcome `ran` already", text)
                 self.assertIn("could-not-run record takes no place", text)
@@ -685,9 +688,9 @@ class RecoveryRouteProseTests(unittest.TestCase):
     NEVER_BEFORE = re.compile(r"(?:until|before) recovery reports")
 
     def texts(self) -> dict[str, str]:
-        out = {name: norm((self.ROOT / name).read_text(encoding="utf-8")) for name in self.SKILL_FILES}
+        out = {name: norm((legacy_path(self.ROOT / name)).read_text(encoding="utf-8")) for name in self.SKILL_FILES}
         for name in self.TEMPLATE_FILES:
-            out["templates/" + name] = norm((TEMPLATES / name).read_text(encoding="utf-8"))
+            out["templates/" + name] = norm((legacy_path(TEMPLATES / name)).read_text(encoding="utf-8"))
         return out
 
     @staticmethod
@@ -759,7 +762,7 @@ class WitnessRefusalAndLandedRouteTests(unittest.TestCase):
         out = {}
         for name in self.SURFACES + ("agents/dev-lead.md", "agents/reviewer.md", "skills/council/SKILL.md"):
             path = TEMPLATES / name[len("templates/"):] if name.startswith("templates/") else self.ROOT / name
-            out[name] = norm(path.read_text(encoding="utf-8"))
+            out[name] = norm(legacy_path(path).read_text(encoding="utf-8"))
         return out
 
     @classmethod
@@ -851,7 +854,7 @@ class WitnessRefusalAndLandedRouteTests(unittest.TestCase):
     def test_the_templates_have_no_orphan_word_lines_and_no_double_space(self):
         for name in RoundAndCommitRuleTests.TEMPLATE_NAMES:
             with self.subTest(template=name):
-                raw = (TEMPLATES / name).read_text(encoding="utf-8")
+                raw = (legacy_path(TEMPLATES / name)).read_text(encoding="utf-8")
                 self.assertEqual([l for l in raw.splitlines() if l.strip() in ("to", "this", "for")], [])
                 self.assertNotIn("owner.  When", raw)
 
@@ -940,7 +943,7 @@ class LineStartTests(unittest.TestCase):
     def test_no_block_scalar_line_opens_with_a_forbidden_shape(self):
         for path in (ADR_MODULE, REVIEW_MODULE, BOOK):
             with self.subTest(template=path.name):
-                self.assertEqual(line_start_problems(path.read_text(encoding="utf-8")), [])
+                self.assertEqual(line_start_problems(legacy_path(path).read_text(encoding="utf-8")), [])
 
     def test_control_the_scan_sees_each_forbidden_shape(self):
         for bad in ("rule:some-slug", "[link]", "{token}", "--flag"):

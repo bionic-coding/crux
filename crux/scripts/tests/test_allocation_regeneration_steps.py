@@ -6,6 +6,9 @@ import re
 import unittest
 from pathlib import Path
 
+# Frozen historical orchestration contract; live-cycle coverage is separate.
+from _legacy_workflow_prose import legacy_path
+
 SKILLS = Path(__file__).resolve().parents[2] / "skills"
 
 # skill -> heading prefix of the counter-increment step
@@ -20,7 +23,7 @@ ALLOCATORS = {
 
 
 def read(name):
-    return (SKILLS / name / "SKILL.md").read_text(encoding="utf-8")
+    return (legacy_path(SKILLS / name / "SKILL.md")).read_text(encoding="utf-8")
 
 
 def section(text, heading_prefix):

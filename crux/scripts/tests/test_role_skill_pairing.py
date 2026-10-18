@@ -23,13 +23,13 @@ import _role_skill_pairing as gate  # noqa: E402
 GREEN = Path(__file__).resolve().parent / "fixtures" / "role_skill_pairing" / "green"
 ALL = ("claude-code", "codex", "opencode")
 CS, RC = "caller-supplies", "returns-to-caller"
-# 55 pairs = the sum of the `skills:` entries over the ten roles; 165 triples = pairs x 3 harnesses;
-# 29 = the lane-carried set `_expected_lane_carried` builds below.
-EXPECTED_PAIRS, EXPECTED_TRIPLES = 55, 165
+# 57 pairs = the sum of the `skills:` entries over the ten roles; 171 triples = pairs x 3 harnesses;
+# 32 = the lane-carried set `_expected_lane_carried` builds below.
+EXPECTED_PAIRS, EXPECTED_TRIPLES = 57, 171
 SCRIPT = Path(gate.__file__).resolve()
 # Residual facts over the passing real-tree triples; each name is a fact about a host the static gate cannot see.
-EXPECTED_RESIDUALS = {"opencode-external-read": 51, "codex-skill-binding": 50, "codex-egress": 45,
-                      "codex-uv-cache": 45, "codex-git-writable": 41, "codex-shell-permit": 2}
+EXPECTED_RESIDUALS = {"opencode-external-read": 53, "codex-skill-binding": 52, "codex-egress": 47,
+                      "codex-uv-cache": 47, "codex-git-writable": 43, "codex-shell-permit": 2}
 GREEN_CARRIED = {(r, s, h, k) for r, s, k in (("reader", "supplied-skill", CS), ("reader", "report-skill", RC),
                                               ("conductor", "tree-skill", "delegates:writer")) for h in ALL}
 
@@ -43,6 +43,7 @@ def _expected_lane_carried() -> set:
     for role in ("brainstormer", "librarian", "reviewer", "commander"):
         out |= each(role, "forge-skill", RC)
     out |= each("reviewer", "council", RC, ("codex",))
+    out |= each("commander", "cycle", "delegates:historian")
     out |= each("commander", "run-promptbook", "delegates:historian")
     out |= each("commander", "log-work", "delegates:historian")
     out |= each("commander", "council", "delegates:architect")
@@ -69,7 +70,7 @@ class RealTreeTests(unittest.TestCase):
 
     def test_lane_carried_set_is_exact(self):
         expected = _expected_lane_carried()
-        self.assertEqual(len(expected), 29)
+        self.assertEqual(len(expected), 32)
         assert_lane_set(self, self.report, expected)
 
     def test_every_lane_carries_a_triple(self):

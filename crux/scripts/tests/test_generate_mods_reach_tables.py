@@ -909,6 +909,8 @@ _PANE = "ui.render{component=Pane}"
 # hand from `crux-mods/hooks/lib/draw.ts` (bandSegments, docked, runLines, idleLines, mini). A
 # book that changes a drawn part edits this list and the manifest's notes together.
 LIVE_PARTS = [
+    (_BAND, "the current cycle type, phase and pass limit"),
+    (_PANE, "cycle phases, task progress, returns, approval waits and outcome"),
     (_BAND, "the book and run of the run whose run file changed last"),
     (_BAND, "the prompt strip: one glyph per prompt, with `|` between modules"),
     (_BAND, "the current prompt's module kind word"),
@@ -977,9 +979,9 @@ def _quoted_names(text: str) -> set[str]:
 
 
 def reader_keys(view_ts: str) -> set[str]:
-    """Every key name in `view.ts`'s `obj(<value>, [<keys>])` calls, with `STATES`."""
+    """Every key in the strict legacy `obj` and cycle `cycleObject` readers, with `STATES`."""
     keys: set[str] = set()
-    for m in re.finditer(r"\bobj\(\s*[^,()]+,\s*\[([^\]]*)\]\s*\)", view_ts):
+    for m in re.finditer(r"\b(?:obj|cycleObject)\(\s*[^,()]+,\s*\[([^\]]*)\]\s*\)", view_ts):
         keys |= _quoted_names(m.group(1))
     states = re.search(r"export const STATES = \[([^\]]*)\]", view_ts)
     if states is not None:
@@ -1083,7 +1085,8 @@ class FromCrossCheckTests(unittest.TestCase):
         }
 
     def test_the_extraction_is_not_vacuous(self):
-        for key in ("runs", "prompts", "started_s", "state", "status"):
+        for key in ("runs", "prompts", "started_s", "state", "status",
+                    "cycles", "phases", "pass", "pass_limit", "tasks", "returns", "waits", "blocker", "reflection"):
             self.assertIn(key, self.ctx["keys"])
         self.assertEqual({"status", "type", "description"}, self.ctx["agents"])
         self.assertEqual({"hasSurvey", "bodyColumns"}, self.ctx["props"].get(_BAND))
@@ -1099,11 +1102,13 @@ class FromCrossCheckTests(unittest.TestCase):
                 with self.subTest(part=row["part"], source=source):
                     self.assertTrue(cross_check(source, row["event"], **self.ctx), source)
             checked += 1
-        self.assertEqual(40, checked, "every surface row is checked")
+        self.assertEqual(42, checked, "every historical-run and cycle surface row is checked")
 
     def test_seeded_sources_fail_the_cross_check(self):
         for source, event in (
             ("visualize-run-progress:runs[].no_such_key", _PANE),
+            ("visualize-run-progress:cycles[].no_such_key", _PANE),
+            ("visualize-run-progress:cycles[].pass_count", _BAND),
             ("$.agent.list:no_such_field", _PANE),
             ("ui.render{component=Pane}:props.no_such_prop", _PANE),
             # Only the pane handler reads `placement`.

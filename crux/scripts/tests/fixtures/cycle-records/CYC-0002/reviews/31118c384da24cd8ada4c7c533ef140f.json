@@ -1,0 +1,32 @@
+{
+  "advisory": [
+    "The narrow-width test's positive control simulates the old track; the developer's 6-failing-tests claim against 5a8977fc is unobserved by review",
+    "Abandoned cycles are absent from the narrow-width test (same code path as paused)",
+    "A loop of 10 or more cuts the status word at 20 columns; its glyph remains"
+  ],
+  "at": "2026-10-16T20:45:52.599229+00:00",
+  "basis_sha256": "72ebc4f5528bfcb3ff1dba752bad8c72daa422f8484f7dc42df56249743bb014",
+  "blocking": [],
+  "cosmetic": [
+    "Identical ternary branches in cycle-dashboard.test.ts",
+    "review (subtle) and reflect (inactive) phase words are both grey on common themes; the word distinguishes them"
+  ],
+  "evidence": [
+    "Loop 2 review of git diff 5a8977fc f184ae9f and its consequences; loop 1 conclusions on parsing, band, answer() and the capability manifest still hold",
+    "Working-tree crux-mods matches f184ae9f",
+    "Reused TE-c2afc49cc7bd4aefa726aa66833ce4ed (604 pass), TE-fb1d26617efe4dccb9b1af879cc6782c (manifest unchanged), TE-bd84c16ea93b4a9da98355ec7201c463 (280 OpenCode pass)",
+    "Real renderings at 100, 40 and 20 columns",
+    "unicodedata probe: U+203A is East Asian Width N"
+  ],
+  "input_sha256": "125344e932258aeb3fd0e0883f0d0d925b37ac466aec9837a7f6e7cbcfa9278e",
+  "pass": 2,
+  "rationale": "Both loop 1 blockers are fixed and tested: the narrow track and strip keep the current phase and anchor on the active task, and the separator is one cell under the glyph test. All five advisories are addressed, the plan revision 4 criterion is verified, free text still passes through drawn(), and the official checks pass on these bytes.",
+  "reviewer": "crux:reviewer",
+  "scope": [
+    "crux-mods/hooks/lib/draw.ts",
+    "crux-mods/tests/cycle-dashboard.test.ts",
+    "crux-mods/tests/draw.test.ts"
+  ],
+  "scrutiny": "standard",
+  "verdict": "approve"
+}

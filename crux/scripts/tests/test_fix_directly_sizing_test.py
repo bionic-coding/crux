@@ -13,6 +13,9 @@ import re
 import unittest
 from pathlib import Path
 
+# Frozen historical orchestration contract; live-cycle coverage is separate.
+from _legacy_workflow_prose import legacy_path
+
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent.parent
 SKILL = PLUGIN_ROOT / "skills" / "fix-directly" / "SKILL.md"
 
@@ -26,7 +29,7 @@ def _sizing_questions(text: str) -> dict[int, str]:
 
 class SizingTestPolarityTests(unittest.TestCase):
     def setUp(self):
-        self.text = SKILL.read_text(encoding="utf-8")
+        self.text = legacy_path(SKILL).read_text(encoding="utf-8")
         self.questions = _sizing_questions(self.text)
 
     def test_preamble_says_every_yes_is_a_direct_fix(self):

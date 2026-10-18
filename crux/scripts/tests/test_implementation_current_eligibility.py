@@ -163,7 +163,7 @@ class RecoveryMechanisms(unittest.TestCase):
         run_path = self.root / f"docs/promptbooks/runs/{book_id}-fixture/run-RUN-001.yaml"
         book_path.write_text(yaml.safe_dump(book, sort_keys=False))
         support.commit_all(self.root, "synthetic separately reviewed recovery book and batch")
-        started = subprocess.run([sys.executable, str(support.SCRIPTS / "start-run.py"),
+        started = subprocess.run([sys.executable, str(support.SCRIPTS / "start-run.py"), "--historical-replay",
             str(book_path), "--run-id", "RUN-001", "--output", str(run_path)],
             capture_output=True, env=support.scrubbed_env())
         self.assertEqual(started.returncode, 0, started.stdout + started.stderr)
@@ -369,7 +369,7 @@ class CurrentMechanisms(unittest.TestCase):
         run_path = self.root / "docs/promptbooks/runs/PB-0998-fixture/run-RUN-001.yaml"
         book_path.write_text(yaml.safe_dump(book, sort_keys=False))
         support.commit_all(self.root, "synthetic new ordinary book")
-        response = subprocess.run([sys.executable, str(support.SCRIPTS / "start-run.py"),
+        response = subprocess.run([sys.executable, str(support.SCRIPTS / "start-run.py"), "--historical-replay",
             str(book_path), "--run-id", "RUN-001", "--output", str(run_path)],
             capture_output=True, env=support.scrubbed_env())
         self.assertEqual(response.returncode, 0, response.stdout + response.stderr)

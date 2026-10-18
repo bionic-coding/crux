@@ -1,0 +1,462 @@
+{
+  "blocker": null,
+  "completion": {
+    "commits": [
+      "6e9e972451c4676cf377a98e8c85f7599a5a92e5"
+    ],
+    "exception": null,
+    "input_sha256": "ff36b3a3da622ed4a0259b8fc2b77fed46cba682145c48142b3e2c7aebd8be4d",
+    "remaining": "Only final cycle bookkeeping awaits commit. The untracked bionic/cycles/.lock is cycle.py lock state and stays uncommitted. Pre-existing harness worktrees under .claude/worktrees are unrelated to this cycle."
+  },
+  "coordinator": "crux:dev-lead",
+  "coverage": {
+    "affected": [
+      "Cycle panel phase-word colour in the shared pane (crux-mods/hooks/lib/draw.ts PHASE_KEYS), as drawn by Claude Code and by crux-opencode",
+      "crux-opencode render path for cycle reader documents: readView, bandNode, panelNode and theme token resolution"
+    ],
+    "checks": [
+      {
+        "check_id": "mods-tests",
+        "rationale": "Runs the crux-mods suite, including cycle-dashboard and draw tests that import draw.ts and pin the cycle pane and band"
+      },
+      {
+        "check_id": "opencode-gate-dev",
+        "rationale": "Runs the crux-opencode source check and tests, which import draw.ts by relative path, including the new cycle-panel tests"
+      },
+      {
+        "check_id": "mods-gate-dev",
+        "rationale": "Confirms the capability manifest and reach tables are unchanged"
+      }
+    ],
+    "not_selected": "The Python suites (crux/scripts/tests, tools/tests) are not selected: no Python source, schema, or cycle reader script changes, and the reader document contract is unchanged. Release preflight and staged gates are not selected: no release. No input exclusion is needed, because none of the three checks declares bionic/ as an input."
+  },
+  "created_at": "2026-10-16T21:58:36.562785+00:00",
+  "decisions": [],
+  "evidence": [
+    {
+      "check_id": "mods-tests",
+      "evidence_id": "TE-a22f864d289f4a799912644e49e5180d",
+      "pass": 1,
+      "use": "executed"
+    },
+    {
+      "check_id": "mods-gate-dev",
+      "evidence_id": "TE-947e684dd790495f8cfbadb819291a36",
+      "pass": 1,
+      "use": "executed"
+    },
+    {
+      "check_id": "opencode-gate-dev",
+      "evidence_id": "TE-7e8d510cdf9b400e8435074de0136db8",
+      "pass": 1,
+      "use": "executed"
+    }
+  ],
+  "extensions": [],
+  "goal": "OpenCode draws the cycle panel as Claude Code does, tests pin it, and every phase word of a cycle type draws in a distinct OpenCode colour",
+  "history": [
+    {
+      "action": "created",
+      "at": "2026-10-16T21:58:36.562952+00:00",
+      "pass": 1,
+      "phase": "plan"
+    },
+    {
+      "action": "plan-revised",
+      "at": "2026-10-16T21:58:46.445410+00:00",
+      "pass": 1,
+      "phase": "plan",
+      "previous": {
+        "acceptance": [
+          "A crux-opencode test draws a `crux.cycle-progress` reader document through readView, bandNode and panelNode and pins the band text, the panel's state glyphs, the loop icon with 'loop N', the phase track with its separator, and the phase-labelled task strip",
+          "That test pins bold on the title, the current phase and the active task, and the OpenCode token each phase word, status word and glyph resolves to",
+          "Within every cycle type (dev, iterate, refactor, quick-fix, release) each phase word resolves to a distinct OpenCode token, pinned by a test that enumerates every type's phase sequence",
+          "Phase words use keys disjoint from the progress keys (success, claude, warning, error), and every colour distinction is also drawn by a glyph or word",
+          "The band, the /crux-dashboard answer text, the capability manifest and OpenCode's refresh behaviour are unchanged",
+          "The crux-mods tests, the crux-mods dev gate and the crux-opencode dev gate pass"
+        ],
+        "constraints": [],
+        "revision": 1,
+        "scope": [
+          "crux-mods/hooks/lib/draw.ts",
+          "crux-mods/tests/cycle-dashboard.test.ts",
+          "crux-mods/tests/draw.test.ts",
+          "crux-opencode/tests"
+        ],
+        "tasks": [],
+        "verification": []
+      },
+      "reason": "Initial plan: phase-key decision (review subtle -> text) and OpenCode cycle-panel coverage"
+    },
+    {
+      "action": "plan",
+      "at": "2026-10-16T21:58:46.445570+00:00",
+      "pass": 1,
+      "phase": "plan",
+      "reason": "Initial plan: phase-key decision (review subtle -> text) and OpenCode cycle-panel coverage"
+    },
+    {
+      "action": "checks",
+      "at": "2026-10-16T21:58:46.505019+00:00",
+      "pass": 1,
+      "phase": "plan"
+    },
+    {
+      "action": "scrutiny",
+      "at": "2026-10-16T21:58:46.563138+00:00",
+      "pass": 1,
+      "phase": "plan"
+    },
+    {
+      "action": "coverage",
+      "at": "2026-10-16T21:58:46.622475+00:00",
+      "pass": 1,
+      "phase": "plan"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-16T21:58:46.682576+00:00",
+      "pass": 1,
+      "phase": "plan",
+      "state": "done",
+      "task": "plan-design"
+    },
+    {
+      "action": "task",
+      "at": "2026-10-16T21:58:46.682734+00:00",
+      "pass": 1,
+      "phase": "plan"
+    },
+    {
+      "action": "advance",
+      "at": "2026-10-16T21:58:46.741327+00:00",
+      "pass": 1,
+      "phase": "build"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-16T22:09:58.226317+00:00",
+      "pass": 1,
+      "phase": "build",
+      "state": "done",
+      "task": "build-phase-key"
+    },
+    {
+      "action": "task",
+      "at": "2026-10-16T22:09:58.226449+00:00",
+      "pass": 1,
+      "phase": "build"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-16T22:09:58.277691+00:00",
+      "pass": 1,
+      "phase": "build",
+      "state": "done",
+      "task": "build-opencode-tests"
+    },
+    {
+      "action": "task",
+      "at": "2026-10-16T22:09:58.277915+00:00",
+      "pass": 1,
+      "phase": "build"
+    },
+    {
+      "action": "advance",
+      "at": "2026-10-16T22:09:58.330009+00:00",
+      "pass": 1,
+      "phase": "test"
+    },
+    {
+      "action": "evidence",
+      "at": "2026-10-16T22:09:58.570153+00:00",
+      "pass": 1,
+      "phase": "test"
+    },
+    {
+      "action": "evidence",
+      "at": "2026-10-16T22:09:58.721318+00:00",
+      "pass": 1,
+      "phase": "test"
+    },
+    {
+      "action": "evidence",
+      "at": "2026-10-16T22:09:58.907870+00:00",
+      "pass": 1,
+      "phase": "test"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-16T22:09:58.962044+00:00",
+      "pass": 1,
+      "phase": "test",
+      "state": "done",
+      "task": "test-checks"
+    },
+    {
+      "action": "task",
+      "at": "2026-10-16T22:09:58.962178+00:00",
+      "pass": 1,
+      "phase": "test"
+    },
+    {
+      "action": "advance",
+      "at": "2026-10-16T22:09:59.399800+00:00",
+      "pass": 1,
+      "phase": "review"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-16T22:09:59.458220+00:00",
+      "pass": 1,
+      "phase": "review",
+      "state": "active",
+      "task": "review-independent"
+    },
+    {
+      "action": "task",
+      "at": "2026-10-16T22:09:59.458359+00:00",
+      "pass": 1,
+      "phase": "review"
+    },
+    {
+      "action": "review",
+      "at": "2026-10-16T22:17:20.880338+00:00",
+      "pass": 1,
+      "phase": "review"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-16T22:17:26.463932+00:00",
+      "pass": 1,
+      "phase": "review",
+      "state": "done",
+      "task": "review-independent"
+    },
+    {
+      "action": "task",
+      "at": "2026-10-16T22:17:26.464082+00:00",
+      "pass": 1,
+      "phase": "review"
+    },
+    {
+      "action": "advance",
+      "at": "2026-10-16T22:17:26.977613+00:00",
+      "pass": 1,
+      "phase": "reflect"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-16T22:17:27.058398+00:00",
+      "pass": 1,
+      "phase": "reflect",
+      "state": "active",
+      "task": "reflect"
+    },
+    {
+      "action": "task",
+      "at": "2026-10-16T22:17:27.058555+00:00",
+      "pass": 1,
+      "phase": "reflect"
+    },
+    {
+      "action": "reflect",
+      "at": "2026-10-16T22:17:37.339907+00:00",
+      "pass": 1,
+      "phase": "reflect"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-16T22:17:37.414821+00:00",
+      "pass": 1,
+      "phase": "reflect",
+      "state": "done",
+      "task": "reflect"
+    },
+    {
+      "action": "task",
+      "at": "2026-10-16T22:17:37.414976+00:00",
+      "pass": 1,
+      "phase": "reflect"
+    },
+    {
+      "action": "completion",
+      "at": "2026-10-16T22:17:37.586699+00:00",
+      "pass": 1,
+      "phase": "reflect"
+    },
+    {
+      "action": "advance",
+      "at": "2026-10-16T22:17:38.115438+00:00",
+      "pass": 1,
+      "phase": "reflect"
+    }
+  ],
+  "id": "CYC-0003",
+  "implementers": [
+    "crux:dev-lead"
+  ],
+  "pass": 1,
+  "pass_limit": 2,
+  "phase": "reflect",
+  "plan": {
+    "acceptance": [
+      "A crux-opencode test draws a `crux.cycle-progress` reader document through readView, bandNode and panelNode and pins the band text, the panel's state glyphs, the loop icon with 'loop N', the phase track with its separator, and the phase-labelled task strip",
+      "That test pins bold on the title, the current phase and the active task, and the OpenCode token each phase word, status word and glyph resolves to",
+      "Within every cycle type (dev, iterate, refactor, quick-fix, release) each phase word resolves to a distinct OpenCode token, pinned by a test that enumerates every type's phase sequence",
+      "Phase words use keys disjoint from the progress keys (success, claude, warning, error), and every colour distinction is also drawn by a glyph or word",
+      "The band, the /crux-dashboard answer text, the capability manifest and OpenCode's refresh behaviour are unchanged",
+      "The crux-mods tests, the crux-mods dev gate and the crux-opencode dev gate pass"
+    ],
+    "constraints": [
+      "Phase-key decision: change PHASE_KEYS in draw.ts only for review, from subtle to text; plan stays merged, build suggestion, test permission, release text, reflect inactive",
+      "Rationale: crux-opencode TOKEN_TABLE maps subtle and inactive to text.muted, so review and reflect drew in one token in dev, iterate, refactor and quick-fix. With review on text, dev/iterate/refactor resolve to syntax.keyword, text.feedback.info.base, syntax.type, text.base, text.muted; quick-fix to info, type, base, muted; release to keyword, base, muted. Review and release share text but never share a type",
+      "Rejected alternatives: remapping subtle in crux-opencode's TOKEN_TABLE would recolour every panel frame, because subtle is PANEL_BORDER; adding a theme key would break the closed ten-key THEME_KEYS set both harnesses share",
+      "The type word keeps the permission key and shares syntax.type with the test phase word; it is not a phase word and its place on the meta line tells it apart. Record this in the draw.ts comment",
+      "Claude Code effect: the review phase word draws in the default text colour instead of subtle, which resolves the CYC-0002 low-contrast review note",
+      "Do not change the band (band(), bandSegments()) or its text in either harness",
+      "Do not change capabilities.ts, the 10 s refresh tick or the event subscriptions; event-driven refresh is out of scope",
+      "Do not change crux-opencode/lib or tui.tsx; if a test exposes a defect there, the dev-lead reports the scope change to the commander before editing",
+      "Free text reaches a line only through drawn(); the new OpenCode test includes a cycle title and task description carrying terminal control characters and asserts they are stripped",
+      "Every colour stays paired with a glyph or word; progress keys (success, claude, warning, error) never colour a phase word",
+      "Live OpenCode render runs only with HOME and every XDG_* in a scratch directory, a scratch clone of the repository, and a pseudo-terminal at 120x40; never read or write the user's real OpenCode configuration; it does not replace the live check owed from the beta install before an official release",
+      "No ADR or IDR: a presentation key choice inside the existing drawing contract, with its alternatives recorded here",
+      "Cycle bookkeeping under bionic/cycles is mutated only through cycle.py by the historian and is not part of the delivery commit"
+    ],
+    "revision": 2,
+    "scope": [
+      "crux-mods/hooks/lib/draw.ts",
+      "crux-mods/tests/cycle-dashboard.test.ts",
+      "crux-mods/tests/draw.test.ts",
+      "crux-opencode/tests"
+    ],
+    "tasks": [
+      {
+        "depends_on": [],
+        "description": "Decide the phase-key map and the OpenCode cycle-panel coverage",
+        "expected_evidence": [
+          "This plan revision"
+        ],
+        "id": "plan-design",
+        "phase": "plan",
+        "status": "done"
+      },
+      {
+        "depends_on": [
+          "plan-design"
+        ],
+        "description": "Move review from subtle to text in PHASE_KEYS, update its comment, update crux-mods tests that pin the old key, and add a crux-mods test that each type's phase keys are distinct and disjoint from progress keys",
+        "expected_evidence": [
+          "draw.ts and crux-mods test diff"
+        ],
+        "id": "build-phase-key",
+        "phase": "build",
+        "status": "done"
+      },
+      {
+        "depends_on": [
+          "plan-design"
+        ],
+        "description": "Add crux-opencode tests that draw a cycle reader document through readView, bandNode and panelNode and pin band text, glyphs, loop wording, track, strip, bold, tokens, per-type distinct phase tokens and control-character stripping",
+        "expected_evidence": [
+          "crux-opencode test diff with a positive control"
+        ],
+        "id": "build-opencode-tests",
+        "phase": "build",
+        "status": "done"
+      },
+      {
+        "depends_on": [
+          "build-phase-key",
+          "build-opencode-tests"
+        ],
+        "description": "Run or reuse mods-tests, mods-gate-dev and opencode-gate-dev; render the OpenCode panel offline and attempt a live render",
+        "expected_evidence": [
+          "Evidence IDs for the three checks",
+          "Offline and live render captures"
+        ],
+        "id": "test-checks",
+        "phase": "test",
+        "status": "done"
+      },
+      {
+        "depends_on": [
+          "test-checks"
+        ],
+        "description": "Independent standard-scrutiny review by crux:reviewer",
+        "expected_evidence": [
+          "Review report recorded on the cycle"
+        ],
+        "id": "review-independent",
+        "phase": "review",
+        "status": "done"
+      },
+      {
+        "depends_on": [
+          "review-independent"
+        ],
+        "description": "Record outcome, lessons and follow-ups, including the owed beta-install live check",
+        "expected_evidence": [
+          "Reflection recorded on the cycle"
+        ],
+        "id": "reflect",
+        "phase": "reflect",
+        "status": "done"
+      }
+    ],
+    "verification": [
+      "check mods-tests: claude plugin test crux-mods passes (604 at 639423b6) including updated phase-key tests",
+      "check mods-gate-dev: capability manifest unchanged and matching",
+      "check opencode-gate-dev: source check and crux-opencode tests pass (280 at 639423b6) plus the new cycle-panel tests",
+      "Positive control: the per-type distinct-token test fails when review is mapped back to subtle",
+      "Offline render of the OpenCode panel for an active cycle at 120 and 40 columns, inspected",
+      "Live OpenCode 2.0.31 render under isolation, with a plain-text capture or the recorded obstacle",
+      "Independent review by crux:reviewer at standard scrutiny"
+    ]
+  },
+  "reflection": {
+    "lessons": [
+      "The crux-opencode source check also scans test files and refuses JSON.stringify and Object.fromEntries there; an OpenCode test author should read the gate's rules first.",
+      "A live OpenCode render needs no prompt or credentials: create an empty session with `opencode api --standalone session.create`, open it with -s, and route HTTP to a dead proxy. A call without --standalone tries the port of the user's own managed OpenCode service.",
+      "Test colour distinctness at the host's token level: the Claude Code key-level check passed against the old map, and only the OpenCode token check caught the collision.",
+      "The review writer requires the report scope to equal the plan scope exactly. The first submission listed the diff and integration points and was refused; a review commission should name the declared paths as the scope and put integration points in evidence.",
+      "Cosmetic review findings were not applied after approval, because changing scoped inputs would invalidate the evidence and the review basis without a recorded return.",
+      "Nested dispatch from commander to historian, dev-lead (and its developer) and reviewer worked in the Claude Code harness under the 4.0.1 contract."
+    ],
+    "outcome": "Delivered in one loop. The review phase word moves from subtle to text in the shared pane, so every phase word of each cycle type draws in a distinct OpenCode token: dev, iterate and refactor resolve to syntax.keyword, text.feedback.info.base, syntax.type, text.base and text.muted. Six new crux-opencode tests draw cycle documents through readView, bandNode and panelNode and pin the band, glyphs, loop wording, track, strip, bold and tokens, with a positive control on the old review/reflect collision. A live OpenCode 2.0.31 render under an isolated HOME showed the cycle panel and band with five distinct strip colours. The band, answer text, capability manifest and refresh are unchanged. mods-tests 605 pass, the mods dev gate passes, and the OpenCode dev gate passes with 286 tests. Independent review approved with no blocking findings.",
+    "remaining": [
+      "The official release owes a live OpenCode 2 check from the beta install, because draw.ts is a core file crux-opencode imports.",
+      "Cosmetic: correct the 'positive control' comment in crux-mods/tests/cycle-dashboard.test.ts and the 'decision names' comment in crux-opencode/tests/cycle.test.ts, and split the draw.ts PHASE_KEYS comment (writing rule 5).",
+      "Advisory: export the parser's cycle phase lists or assert its type set, so a new cycle type is enumerated by the token-distinctness tests.",
+      "Follow-up: the text sanitiser leaves the printable rest of an escape sequence, such as [31m, in titles; readability only.",
+      "Unverified: whether Claude Code's theme gives the permission and suggestion keys visibly different colours.",
+      "Event-driven refresh in OpenCode stays out of scope; it refreshes on a 10 s tick.",
+      "Authority-reset candidate recorded: the review writer's exact-set scope rule."
+    ]
+  },
+  "release": null,
+  "required_checks": [
+    "mods-tests",
+    "mods-gate-dev",
+    "opencode-gate-dev"
+  ],
+  "review_policy": {
+    "rationale": "Repository default. A one-key change to the shared drawing module plus new tests; the module renders reader-supplied free text and ships to Claude Code and OpenCode, so review confirms drawn() still strips control text and both harnesses draw the intended tokens.",
+    "risks": [
+      "shared-core-two-harnesses",
+      "untrusted-text-rendering"
+    ],
+    "scrutiny": "standard"
+  },
+  "reviews": [
+    {
+      "path": "cycles/CYC-0003/reviews/93a798b50ad042d89ab423410488c455.json",
+      "sha256": "5cfecfda762b95316eeeee01e32225ab11b990411c802fe2443159734913c044"
+    }
+  ],
+  "schema_version": 2,
+  "status": "completed",
+  "title": "Bring the cycle panel to OpenCode with distinct phase colours",
+  "type": "iterate",
+  "updated_at": "2026-10-16T22:17:38.115608+00:00"
+}

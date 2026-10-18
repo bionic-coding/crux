@@ -345,8 +345,8 @@ class MaturityBranchFixtureTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        skills = Path(__file__).resolve().parent.parent.parent / "skills"
-        cls.text = (skills / "review-decisions" / "SKILL.md").read_text(
+        skills = Path(__file__).resolve().parent / "fixtures/legacy_workflow/skills"
+        cls.text = (skills / "review-decisions" / "SKILL.md.fixture").read_text(
             encoding="utf-8")
 
     def test_missing_and_placeholder_stop_the_dependent_assessment(self):
@@ -626,8 +626,8 @@ class NullBaselineGuidanceTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        skills = Path(__file__).resolve().parent.parent.parent / "skills"
-        cls.text = (skills / "review-decisions" / "SKILL.md").read_text(
+        skills = Path(__file__).resolve().parent / "fixtures/legacy_workflow/skills"
+        cls.text = (skills / "review-decisions" / "SKILL.md.fixture").read_text(
             encoding="utf-8")
 
     def test_the_arithmetic_that_motivates_the_guidance_holds(self):

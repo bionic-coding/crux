@@ -275,11 +275,12 @@ class _Scope:
     """
 
     __slots__ = ("kind", "parent", "bind_lines", "del_lines",
-                 "declared_global", "declared_nonlocal", "opaque")
+                 "declared_global", "declared_nonlocal", "opaque", "origin")
 
     def __init__(self, kind: str, parent):
         self.kind = kind          # module | function | class | comprehension
         self.parent = parent
+        self.origin = None       # branch overlay of this same lexical scope
         self.bind_lines: dict[str, int] = {}
         self.del_lines: dict[str, int] = {}
         self.declared_global: set[str] = set()
@@ -318,6 +319,10 @@ class _ScopeAnalysis:
 
     def resolves(self, name: str, scope: _Scope) -> bool:
         """Whether `name` is visible from `scope`, by Python's own rules."""
+        # A branch-local global/nonlocal import is visible on that branch,
+        # without establishing a binding on other paths through the scope.
+        if scope.origin is not None and scope.live(name):
+            return True
         start = scope
         if name in scope.declared_global:
             start = self.module
@@ -328,7 +333,7 @@ class _ScopeAnalysis:
         cursor = start
         while cursor is not None:
             chain.append(cursor)
-            cursor = cursor.parent
+            cursor = cursor.origin if cursor.origin is not None else cursor.parent
 
         for depth, entry in enumerate(chain):
             # A class body's names are not in the lexical chain of anything
@@ -367,7 +372,11 @@ class _ScopeAnalysis:
         if conditional:
             return
         target = scope
-        if name in scope.declared_global:
+        if scope.origin is not None:
+            # Speculative branch stores remain private until the guaranteed
+            # intersection is installed in the original lexical scope.
+            target = scope
+        elif name in scope.declared_global:
             target = self.module
         elif name in scope.declared_nonlocal and scope.parent is not None:
             target = scope.parent
@@ -480,7 +489,10 @@ class _ScopeAnalysis:
                 injected = _globals_subscript_name(target)
                 if injected is not None:
                     if not conditional:
-                        self.module.bind(injected, node.lineno)
+                        # A traceable global store on one try path must not
+                        # escape its branch before the guaranteed intersection.
+                        target = scope if scope.origin is not None else self.module
+                        target.bind(injected, node.lineno)
                     continue
                 self._visit(target, scope, conditional)
             self._visit(node.value, scope, conditional)
@@ -521,6 +533,18 @@ class _ScopeAnalysis:
         for child in ast.iter_child_nodes(node):
             self._visit(child, scope, conditional)
 
+    @staticmethod
+    def _branch_scope(scope: _Scope) -> _Scope:
+        """An alternative path through the same lexical scope, without leaking bindings."""
+        branch = _Scope(scope.kind, scope.parent)
+        branch.origin = scope
+        branch.bind_lines = dict(scope.bind_lines)
+        branch.del_lines = dict(scope.del_lines)
+        branch.declared_global = set(scope.declared_global)
+        branch.declared_nonlocal = set(scope.declared_nonlocal)
+        branch.opaque = scope.opaque
+        return branch
+
     def _visit_try(self, node, scope: _Scope, conditional: bool) -> None:
         """A `try` binds a name for its successors only when EVERY path out of
         it binds that name.
@@ -541,13 +565,13 @@ class _ScopeAnalysis:
                 guaranteed &= self._branch_bindings(handler.body, kind)
         guaranteed |= self._branch_bindings(node.finalbody, kind)
 
-        # Everything inside the branches is walked as CONDITIONAL, so only the
-        # names computed above land as bindings. The walk still happens: calls
-        # and nested scopes inside the branches are part of the module.
-        self._visit_body(node.body, scope, True)
+        # Calls inside a branch see imports made on that branch. Its bindings
+        # cannot satisfy successors unless every fall-through path binds them.
+        body_scope = self._branch_scope(scope)
+        self._visit_body(node.body, body_scope, conditional)
+        self._visit_body(node.orelse, body_scope, conditional)
         for handler in node.handlers:
-            self._visit(handler, scope, True)
-        self._visit_body(node.orelse, scope, True)
+            self._visit(handler, self._branch_scope(scope), conditional)
         # `finally` runs on every path, so its bindings are not conditional.
         self._visit_body(node.finalbody, scope, conditional)
 

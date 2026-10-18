@@ -1497,6 +1497,16 @@ def _build_json_document(args) -> dict:
         if (_JSON_CONTROL_RE.search(cfg.docs_dir)
                 or not all(_SAFE_NAME_RE.fullmatch(seg) for seg in cfg.docs_dir.split("/"))):
             raise _JsonFailure("config-invalid")
+        # Cycle selection shares the installed-import guard, no-bytecode guard,
+        # argument validation and process limits used by the historical reader.
+        if args.target is None and args.run is None:
+            from cycle_progress import view as cycle_view
+            try:
+                cycle_document = cycle_view(root_text)
+            except (ValueError, OSError, KeyError, TypeError):
+                raise _JsonFailure("run-invalid")
+            if cycle_document['cycles']:
+                return cycle_document
         tokens = _decision_tokens()
         version = _reader_version()
         reader = _TreeReader(sio, cfg.docs_root, refusal)

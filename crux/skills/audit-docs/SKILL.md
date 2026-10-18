@@ -28,6 +28,14 @@ This skill is portable across Claude Code, Codex, and OpenCode. This section ove
 - Argument placeholders such as `$adr` and `$book` bind only in Claude Code. On a host without argument binding they are unset — take the value from the user's phrase. The "Fields OpenCode ignores" section of `OPENCODE_GUIDE.md` names the invocation-control fields OpenCode ignores.
 <!-- END GENERATED: runtime-compat -->
 
+## Current cycle records
+
+Validate new cycle records through `cycle.py show` and the cycle schema. Review
+identity, phase/pass state, references, history, and evidence. Legacy CHK-CYCLE and
+promptbook minimum/module checks below apply only to historical promptbooks; never
+apply them to new cycle records or repair a cycle into a promptbook.
+
+
 
 ## Overview
 

@@ -1,6 +1,6 @@
 # crux
 
-A Claude Code plugin that maintains a `./bionic/` tree inside a software project — **52 skills** and a **10-agent role layer** across seven concerns: **code docs**, **research wiki**, **ADRs**, **briefs**, **work journal**, **promptbooks**, **invariants**. You curate, decide, and discuss; Claude does the bookkeeping.
+A Claude Code plugin that maintains a `./bionic/` tree inside a software project — **53 skills** and a **10-agent role layer** across seven concerns: **code docs**, **research wiki**, **ADRs**, **briefs**, **work journal**, **promptbooks**, **invariants**. You curate, decide, and discuss; Claude does the bookkeeping.
 
 ## Install
 
@@ -29,7 +29,8 @@ bionic/
   adrs/                Architecture Decision Records (append-only history).
   briefs/              Pre-decision exploration docs referenced by ADRs.
   journal/             Work journal, one file per month.
-  promptbooks/         Plan-of-prompts artifacts with run snapshots.
+  cycles/             Current plans, phase evidence, and pass history.
+  promptbooks/         Historical plans with run snapshots.
   invariants/          Pinned, ratified, executable statements of what must be true.
   arch/                Regenerated current-state architecture spine. NEVER hand-edit.
   observations/        Ratified records of what the code already does, each evidenced by path:line-range.
@@ -44,12 +45,13 @@ Everything is natural language — no slash commands after install. Each phrase 
 | Phrase | What happens |
 |---|---|
 | "init docs" / "set up docs" | Bootstrap the seven-concern `bionic/` tree (`init-docs`) |
-| "start a cycle for X" / "iterate on X" | Drive a feature or fix through the full plan → ADR/verify → develop → review loop (`dev-cycle` / `iterate`) |
+| "start a cycle for X" / "iterate on X" | Start a task-sized dev, iterate, refactor, quick-fix, or release cycle (`cycle`) |
 | "process inbox" (after dropping files/URLs in `bionic/inbox/`) | Classify and route each item (`process-inbox`) |
 | "ingest this" / "file this" | Capture a source into the research wiki (`ingest-research`) |
 | "propose ADR" / "accept ADR-NNNN" | Record and transition decisions (`propose-adr` / `transition-adr`) |
 | "log work" / "journal this" | Append to the work journal (`log-work`) |
-| "new promptbook" / "run promptbook" / "advance" | Author and execute plan-of-prompts artifacts |
+| "cycle status" / "advance" | Inspect or advance cycle phases and evidence |
+| "run promptbook" | Inspect or finish an existing historical run |
 | "extract code docs" / "verify code docs" | Regenerate / drift-check `bionic/code/` from source |
 | "audit docs" / "what's next" | Integrity checks (`audit-docs`) / forward-looking hygiene (`cleanup-campsite`) |
 | "what does X do?" / "why did we choose Y?" | Cited answers from the docs tree (`query-docs`) |

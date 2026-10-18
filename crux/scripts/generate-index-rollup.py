@@ -93,7 +93,7 @@ def load_adrs(adrs_dir: Path, rel=None) -> list[dict]:
     adr_frontmatter.validated_adr_paths(adrs_dir, rel or str)
     # Walk BOTH tiers (active + cold archive), per ADR-0063: an archived ADR stays
     # in the master rollup and lineage; only the active-index reading path shrinks.
-    both = glob.glob(str(adrs_dir / "ADR-*.md")) + glob.glob(str(adrs_dir / "archive" / "ADR-*.md"))
+    both = adr_frontmatter.adr_paths(adrs_dir)
     for p in sorted(both):
         path = Path(p)
         # The fence is read through the ONE shared reader. `validated_adr_paths`

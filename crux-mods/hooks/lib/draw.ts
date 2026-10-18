@@ -9,7 +9,7 @@
 // recognise draws as the visible unknown cell `?`. A number is computed from the inputs. Every other
 // value is free text, and it reaches a line only through drawn(): the removal of view.ts's
 // safeText, then a cut to a display width.
-import type { Agents, Council, Escalation, Gate, Parsed, Prompt, ReaderView, RunView, Time } from './view.ts'
+import type { Agents, Council, CycleView, Escalation, Gate, Parsed, Prompt, ReaderView, RunView, Time } from './view.ts'
 import {
   COUNCIL_KINDS, ESCALATION_NOTE, MAX_SHOWN_RUNS, QUIET, ROUTE_ACTIONS, RUN_STATUS, STATES, bandRun, counted, currentEscalation,
   currentPrompt, escalationText, laneCells, lastRunAge, openElapsed, promptBounds, promptSpan, runAxis, runTimes, safeText, stallIdle,
@@ -698,6 +698,126 @@ function budgeted(v: ReaderView, ag: Agents, w: number, harness: Harness): Block
   return docked(v, ag, w, harness, i => (k < 0 ? 'phase1' : i < k ? 'draw' : 'withhold'))
 }
 
+// --- the cycle panel -----------------------------------------------------------------------------
+
+// The cycle panel's own cells. Each is East Asian Narrow or Neutral and none is an emoji, so each
+// takes one cell. The loop icon is the clockwise open circle arrow and the track separator is the
+// single right-pointing angle quotation mark.
+export const LOOP_GLYPH = '\u{21BB}'
+export const TRACK_SEP = '\u{203A}'
+// A phase's theme key, disjoint from the keys that draw progress (success, claude, warning, error).
+// The word is always drawn beside the colour. The phase words of one cycle type use distinct keys,
+// and each key resolves to its own token in the OpenCode theme: review takes `text` because `subtle`
+// and `inactive` both resolve to text.muted there. The type word shares the `permission` key with
+// the test phase word and is told apart by its place on the meta line.
+const PHASE_KEYS: Readonly<Record<string, ThemeKey>> = { plan: 'merged', build: 'suggestion', test: 'permission', review: 'text', release: 'text', reflect: 'inactive' }
+const phaseKey = (phase: string): ThemeKey => own(PHASE_KEYS, phase) ?? 'text'
+// A cycle status: its glyph and theme key. The word is drawn beside both.
+const CYCLE_STATUS: Readonly<Record<string, { glyph: string; color: ThemeKey }>> = {
+  active: { glyph: STATE_GLYPHS.running!, color: 'claude' },
+  completed: { glyph: STATE_GLYPHS.done!, color: 'success' },
+  paused: { glyph: STATE_GLYPHS.skipped!, color: 'warning' },
+  abandoned: { glyph: STATE_GLYPHS.blocked!, color: 'error' },
+}
+const statusOf = (status: string) => own(CYCLE_STATUS, status) ?? { glyph: UNKNOWN, color: 'warning' as ThemeKey }
+// A task's state glyph: the cycle's `active` is the run's running glyph.
+const TASK_STYLES: Readonly<Record<string, Omit<Span, 'text'>>> = {
+  done: { color: 'success' }, active: { color: 'claude', bold: true }, blocked: { color: 'error' }, pending: { dim: true },
+}
+const taskCell = (status: string): Span => span(stateGlyph(status === 'active' ? 'running' : status), own(TASK_STYLES, status) ?? { color: 'warning' })
+
+// One phase of the track. A phase before the current one is done, the current phase takes the
+// cycle's status, a later phase is pending. A completed cycle has finished every phase.
+function trackCell(c: CycleView, i: number): Line {
+  const cur = c.phases.indexOf(c.phase)
+  const word = c.phases[i]!
+  if (c.status === 'completed' || i < cur) return [span(STATE_GLYPHS.done!, { color: 'success' }), span(' '), span(word, { color: 'success' })]
+  if (i > cur) return [span(STATE_GLYPHS.pending!, { dim: true }), span(' '), span(word, { dim: true })]
+  const st = statusOf(c.status)
+  return [span(st.glyph, { color: st.color, bold: true }), span(' '), span(word, { color: st.color, bold: true })]
+}
+
+// The current phase's index in the track.
+const currentPhase = (c: CycleView): number => Math.max(0, c.phases.indexOf(c.phase))
+
+// The compact track: a glyph per phase, and the current phase's glyph and word. The band draws it too.
+const compactTrack = (c: CycleView): Line => joined(c.phases.map((_, i) => (i === currentPhase(c) ? trackCell(c, i) : trackCell(c, i).slice(0, 1))), ' ')
+
+// The phase track: a glyph and word per phase when that fits n cells; else the compact track; else
+// the current phase alone. The current phase never drops out.
+function cycleTrack(c: CycleView, n: number): Line {
+  const full = joined(c.phases.map((_, i) => trackCell(c, i)), ` ${TRACK_SEP} `)
+  if (lineCells(full) <= n) return full
+  const compact = compactTrack(c)
+  if (lineCells(compact) <= n) return compact
+  return fitLine(trackCell(c, currentPhase(c)), n)
+}
+
+// The pieces of the meta line the band shares: the loop icon and number, the status glyph and word
+// in the status key, and the type word.
+const loopMark = (c: CycleView): Line => [span(LOOP_GLYPH), span(` loop ${c.pass}`)]
+const statusGlyph = (c: CycleView): Span => {
+  const st = statusOf(c.status)
+  return span(st.glyph, { color: st.color, bold: true })
+}
+const statusMark = (c: CycleView): Line => [statusGlyph(c), span(' '), span(c.status, { color: statusOf(c.status).color, bold: true })]
+const typeWord = (c: CycleView): Line => [span(c.type, { color: 'permission' })]
+// The task count, as the pane's bar and the band draw it.
+const taskCount = (c: CycleView): string => `${c.tasks.filter(t => t.status === 'done').length}/${c.tasks.length} tasks`
+
+// The tasks in the order the panel draws them: by phase order, stable within a phase.
+const orderedTasks = (c: CycleView) => c.tasks.map((t, i) => ({ t, i })).sort((x, y) => c.phases.indexOf(x.t.phase) - c.phases.indexOf(y.t.phase) || x.i - y.i).map(x => x.t)
+
+// The task strip: each phase that has tasks as its word in its key and a glyph per task. When that
+// does not fit n cells it is the current phase's word and the glyphs nearest the active task (else
+// the current phase's first task), with `+N` for the cells left out.
+function cycleStrip(c: CycleView, n: number): Line {
+  const tasks = orderedTasks(c)
+  const groups = c.phases.map(phase => ({ phase, tasks: tasks.filter(t => t.phase === phase) })).filter(g => g.tasks.length > 0)
+  const labelled = joined(groups.map(g => [span(g.phase, { color: phaseKey(g.phase) }), span(' '), ...g.tasks.map(t => taskCell(t.status))]), ' ')
+  if (lineCells(labelled) <= n) return labelled
+  const found = [tasks.findIndex(t => t.status === 'active'), tasks.findIndex(t => t.phase === c.phase), tasks.findIndex(t => t.status !== 'done')].find(i => i >= 0)
+  const word = [span(c.phase, { color: phaseKey(c.phase) }), span(' ')]
+  const cellsOf = (lo: number, hi: number): Line => {
+    const out: Line = []
+    for (let i = lo; i < hi; i++) {
+      if (i > lo && tasks[i]!.phase !== tasks[i - 1]!.phase) out.push(span(GROUP_SEP, { dim: true }))
+      out.push(taskCell(tasks[i]!.status))
+    }
+    return out
+  }
+  const rest = fitCells(tasks.length, found ?? 0, n - lineCells(word), cellsOf)
+  return rest.length > 0 ? [...word, ...rest] : fitCells(tasks.length, found ?? 0, n, cellsOf)
+}
+
+// The lines of one cycle's panel at inner width n. The panel fits each line.
+function cycleLines(c: CycleView, n: number): Line[] {
+  const done = c.tasks.filter(t => t.status === 'done').length
+  const count = taskCount(c)
+  // The type word gives way first when the line does not fit n cells.
+  const loop = [...loopMark(c), span(' '), ...statusMark(c)]
+  const typed = [...typeWord(c), span(' '), ...loop]
+  const meta = lineCells(typed) <= n ? typed : loop
+  const lines: Line[] = [
+    [span(`${c.id} ${drawn(c.title)}`, { bold: true })],
+    meta,
+    cycleTrack(c, n),
+  ]
+  if (c.tasks.length > 0) {
+    lines.push(cycleStrip(c, n))
+    lines.push(joined([bar(Math.round((100 * done) / c.tasks.length), Math.min(BAR_WIDTH, Math.max(0, n - cells(count) - 1))), [span(count, { dim: true })]], ' '))
+  }
+  for (const t of orderedTasks(c)) {
+    const style: Omit<Span, 'text'> = t.status === 'active' ? { bold: true } : t.status === 'blocked' ? { color: 'error' } : {}
+    lines.push([taskCell(t.status), span(' '), span(t.phase, { color: phaseKey(t.phase) }), span(': '), span(drawn(t.description), style)])
+  }
+  for (const r of c.returns) lines.push([span(LOOP_GLYPH, { color: 'warning' }), span(` loop ${r.pass} returned from ${r.phase}: ${drawn(r.reason)}`, { color: 'warning' })])
+  for (const wait of c.waits) lines.push([span(STATE_GLYPHS.skipped!, { color: 'warning' }), span(` Approval wait: ${drawn(wait)}`, { color: 'warning' })])
+  if (c.blocker) lines.push([span(STATE_GLYPHS.skipped!, { color: 'warning' }), span(` Paused: ${drawn(c.blocker)}`, { color: 'warning' })])
+  if (c.reflection) lines.push([span(`Outcome: ${drawn(c.reflection)}`, c.status === 'completed' ? { color: 'success' } : {})])
+  return lines
+}
+
 // --- the pane ---------------------------------------------------------------------------------------
 
 // The pane at its reported width and layout. The mini layout draws a few rows; the docked layout
@@ -705,6 +825,12 @@ function budgeted(v: ReaderView, ag: Agents, w: number, harness: Harness): Block
 export function pane(p: Parsed, ag: Agents, cols: unknown, layout: PaneLayout, harness: Harness): Block {
   const w = drawingWidth(cols)
   if (!p.ok) return columnBox(w, [lineBlock(statusLine(PANE_STATUS, p.code, w), w)])
+  if (p.view.cycles !== undefined) {
+    const rows: Block[] = []
+    const bordered = w >= BORDER_MIN
+    for (const c of p.view.cycles.slice(0, 5)) rows.push(panel(cycleLines(c, bordered ? w - PANEL_FRAME : w), w, bordered))
+    return columnBox(w,rows)
+  }
   return layout === 'mini' ? mini(p.view, ag, w) : budgeted(p.view, ag, w, harness)
 }
 
@@ -877,6 +1003,25 @@ function fitSegments(items: BandItem[], w: number): Segment[] {
   return items.filter(i => live.has(i)).sort((a, b) => a.order - b.order).map(i => ({ name: i.name, line: live.get(i)! }))
 }
 
+// A cycle's band: the cycle panel's id, meta line, compact track and task count on one line, each
+// drawn by the panel's own helpers. Narrowing, the type word drops first, then the task count, then
+// the loop, then the track's other glyphs, leaving the current phase's glyph and word. The loop goes
+// before the track glyphs: it reads `loop 1` in most cycles, and the glyphs show how far along the
+// cycle is. Then the status word goes and leaves its glyph. Then the status glyph goes, because the
+// current phase draws the same glyph in the same key. Then the id goes. The current phase is the
+// last segment left.
+function cycleBandItems(c: CycleView): BandItem[] {
+  const items: BandItem[] = [
+    { name: 'id', order: 0, rank: 2, line: [span(c.id, { bold: true })] },
+    { name: 'type', order: 1, rank: 8, line: typeWord(c) },
+    { name: 'loop', order: 2, rank: 6, line: loopMark(c) },
+    { name: 'track', order: 3, rank: 1, line: compactTrack(c), short: trackCell(c, currentPhase(c)), shortRank: 5 },
+    { name: 'status', order: 4, rank: 3, line: statusMark(c), short: [statusGlyph(c)], shortRank: 4 },
+  ]
+  if (c.tasks.length > 0) items.push({ name: 'tasks', order: 5, rank: 7, line: [span(taskCount(c), { dim: true })] })
+  return items
+}
+
 // The band's segments at width w, or null when the band draws nothing. A status takes the band's
 // line in place of the run; the two quiet statuses keep it empty. With no listed run the band shows
 // the last run for 48 hours after it completed, or the refusal when the reader refused a run.
@@ -884,6 +1029,10 @@ function fitSegments(items: BandItem[], w: number): Segment[] {
 export function bandSegments(p: Parsed, ag: Agents, w: number, harness: Harness): Segment[] | null {
   if (!p.ok) return QUIET.includes(p.code) ? null : [{ name: 'status', line: statusLine(harness.bandPrefix, p.code, w, { dim: true }) }]
   const v = p.view
+  if (v.cycles !== undefined) {
+    const c = v.cycles[0]
+    return c === undefined ? null : fitSegments(cycleBandItems(c), w)
+  }
   const r = bandRun(v.runs)
   if (r === undefined) {
     if (v.last_completed_status === 'run-in-progress') return [{ name: 'last run', line: [span('run in progress, view refused', { dim: true })] }]

@@ -39,9 +39,9 @@ REQUIRED_SENTENCES = {
     "reviewer": [
         "In every harness, never read `~/.crux/`, env files, key files or credential files yourself.",
         "Never run a command that prints a value from them, such as `crux-env.py get` or `crux-env.py load`.",
-        "Only the two vendored writers, `run-council.py` and `write-review-report.py`, may read the gateway key through `crux_env`, each inside its own process.",
+        "Only the legacy vendored writer, `write-review-report.py`, may read the gateway key through `crux_env`, inside its own process.",
         "Never relay local content outbound",
-        "Your Bash exception stays limited to the two vendored writers.",
+        "Your Bash exception stays limited to the legacy review writer.",
     ],
 }
 
@@ -183,8 +183,8 @@ class RoleContractLimitTests(unittest.TestCase):
     def test_naming_only_the_council_runner_as_a_key_reader_turns_the_check_red(self):
         # The review-gate writer reads the gateway key too; a sentence naming
         # only the council runner forbids a writer the contract requires.
-        sentence = ("Only the two vendored writers, `run-council.py` and `write-review-report.py`, "
-                    "may read the gateway key through `crux_env`, each inside its own process.")
+        sentence = ("Only the legacy vendored writer, `write-review-report.py`, "
+                    "may read the gateway key through `crux_env`, inside its own process.")
         old = "Only `run-council.py` may read its key through `crux_env`, inside its own process."
         gaps = self._seeded("reviewer", sentence, old)
         self.assertEqual(gaps, [f"reviewer: missing {sentence!r}"])

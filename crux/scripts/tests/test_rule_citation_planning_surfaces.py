@@ -36,6 +36,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+# Frozen historical orchestration contract; live-cycle coverage is separate.
+from _legacy_workflow_prose import legacy_path
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _dev_surface import TREE, require_dev_surface  # noqa: E402
 
@@ -98,7 +101,7 @@ TEXT_SUFFIXES = {".md", ".yaml", ".yml", ".py", ".json", ".tmpl", ".txt"}
 
 
 def _read(p: Path) -> str:
-    return p.read_text(encoding="utf-8")
+    return legacy_path(p).read_text(encoding="utf-8")
 
 
 def _files_containing(root: Path, needle: str) -> list[Path]:
@@ -107,7 +110,7 @@ def _files_containing(root: Path, needle: str) -> list[Path]:
     for p in sorted(root.rglob("*")):
         if not p.is_file() or p.suffix not in TEXT_SUFFIXES:
             continue
-        if needle in p.read_text(encoding="utf-8", errors="replace"):
+        if needle in legacy_path(p).read_text(encoding="utf-8", errors="replace"):
             hits.append(p)
     return hits
 

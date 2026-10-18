@@ -1,0 +1,274 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "format": {
+      "const": "crux.adr-migration-queue.v1"
+    },
+    "history": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "at": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+              "type": "string"
+            },
+            "minItems": 0,
+            "type": "array"
+          }
+        },
+        "required": [
+          "at",
+          "action",
+          "items"
+        ],
+        "type": "object"
+      },
+      "minItems": 0,
+      "type": "array"
+    },
+    "id": {
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+      "type": "string"
+    },
+    "items": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "bindings": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "sha256": {
+                  "pattern": "^[0-9a-f]{64}$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "sha256"
+              ],
+              "type": "object"
+            },
+            "minItems": 0,
+            "type": "array"
+          },
+          "depends_on": {
+            "items": {
+              "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+              "type": "string"
+            },
+            "minItems": 0,
+            "type": "array"
+          },
+          "evidence": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "sha256": {
+                  "pattern": "^[0-9a-f]{64}$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "sha256"
+              ],
+              "type": "object"
+            },
+            "minItems": 0,
+            "type": "array"
+          },
+          "id": {
+            "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+            "type": "string"
+          },
+          "revision": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "assessed",
+              "approved",
+              "done",
+              "invalidated",
+              "blocked"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "bindings",
+          "depends_on",
+          "revision",
+          "status",
+          "evidence"
+        ],
+        "type": "object"
+      },
+      "minItems": 0,
+      "type": "array"
+    },
+    "owner_stops": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+            "type": "string"
+          },
+          "instruction": {
+            "additionalProperties": false,
+            "properties": {
+              "action": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "at": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "conversation": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "origin": {
+                "const": "owner-conversation"
+              },
+              "presented": {
+                "additionalProperties": false,
+                "properties": {
+                  "path": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "sha256": {
+                    "pattern": "^[0-9a-f]{64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path",
+                  "sha256"
+                ],
+                "type": "object"
+              },
+              "quote": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "origin",
+              "quote",
+              "action",
+              "at",
+              "conversation",
+              "presented"
+            ],
+            "type": "object"
+          },
+          "items": {
+            "items": {
+              "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "resolution": {
+            "additionalProperties": false,
+            "properties": {
+              "action": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "at": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "conversation": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "origin": {
+                "const": "owner-conversation"
+              },
+              "presented": {
+                "additionalProperties": false,
+                "properties": {
+                  "path": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "sha256": {
+                    "pattern": "^[0-9a-f]{64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path",
+                  "sha256"
+                ],
+                "type": "object"
+              },
+              "quote": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "origin",
+              "quote",
+              "action",
+              "at",
+              "conversation",
+              "presented"
+            ],
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "items",
+          "instruction",
+          "resolution"
+        ],
+        "type": "object"
+      },
+      "minItems": 0,
+      "type": "array"
+    }
+  },
+  "required": [
+    "format",
+    "id",
+    "items",
+    "owner_stops",
+    "history"
+  ],
+  "title": "Prospective ADR migration queue",
+  "type": "object"
+}

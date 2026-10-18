@@ -144,7 +144,7 @@ class SurveyReceiptProjectionTests(unittest.TestCase):
         self.assertRegex(meta["survey_receipts_sha256"], r"^[0-9a-f]{64}$")
         self.assertIn("survey-receipts", meta["input_domain"])
         # Hard literal, plus the superseded value asserted absent.
-        self.assertEqual(meta["schema"], "6")
+        self.assertEqual(meta["schema"], "7")
         self.assertNotEqual(meta["schema"], "5")
         self.assertEqual(self._compile().returncode, 0)
 

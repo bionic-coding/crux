@@ -8,7 +8,8 @@
 The fourteenth regenerative output (ADR-0056 enrollment discipline, introduced by
 [[adrs/ADR-0092]]). One source of truth — skill frontmatter, read from the
 already-regenerated `crux/catalog/skills.json` — projected into the §10 "Skill
-invocation table" of `<tree>/AGENTS.md`, between the markers:
+invocation table" of `<tree>/AGENTS.md` and `crux/templates/AGENTS.md.tmpl`,
+where present, between the markers:
 
     <!-- BEGIN GENERATED: routing-table -->
     <!-- END GENERATED: routing-table -->
@@ -256,27 +257,32 @@ def run(root: Path, dry_run: bool) -> tuple[int, dict]:
 
     region, no_triggers = build_region(skills)
 
-    rel = f"{_tree_name(root)}/AGENTS.md"
-    path = root / rel
-    if not path.is_file():
+    targets = [f"{_tree_name(root)}/AGENTS.md", "crux/templates/AGENTS.md.tmpl"]
+    present = [rel for rel in targets if (root / rel).is_file()]
+    if not present:
         return 0, _scope.surface_absent_payload(
-            reason=f"{rel} holds the routing-table region and is not present here; "
+            reason=f"Neither {' nor '.join(targets)} is present here; "
                    "this tree owns no region to project into")
-    text = read_text_verbatim(path)
-    i, j = find_region(text, rel)
-    current = text[i:j]
+    # Validate every present surface before writing any. A missing region in an
+    # owned template is a defect, even when the operational table is already clean.
+    changes: list[tuple[str, str]] = []
+    for rel in present:
+        text = read_text_verbatim(root / rel)
+        i, j = find_region(text, rel)
+        newline = "\r\n" if "\r\n" in text else "\n"
+        # The marker matcher includes its trailing CR, so the first LF completes
+        # that existing CRLF; subsequent line endings belong to the body.
+        body = "\n" + region[1:].replace("\n", newline)
+        if text[i:j] != body:
+            changes.append((rel, text[:i] + body + text[j:]))
 
-    payload: dict = {"target": rel, "no_trigger_skills": no_triggers}
-    if current == region:
-        if dry_run:
-            return 0, {"drift": False, "paths": [], **payload}
-        return 0, {"written": [], **payload}
-
+    payload: dict = {"targets": present, "no_trigger_skills": no_triggers}
     if dry_run:
-        return 1, {"drift": True, "paths": [rel], **payload}
+        return int(bool(changes)), {"drift": bool(changes), "paths": [rel for rel, _ in changes], **payload}
 
-    write_text_atomically(path, text[:i] + region + text[j:])
-    return 0, {"written": [rel], **payload}
+    for rel, text in changes:
+        write_text_atomically(root / rel, text)
+    return 0, {"written": [rel for rel, _ in changes], **payload}
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -49,7 +49,13 @@ from pathlib import Path
 FENCE_RE = re.compile(r"^---\n(.*?)\n---\n", re.S)
 
 #: The input glob all three generators walk, in both tiers.
-ADR_GLOB = "ADR-*.md"
+ADR_GLOB = "*.md"
+_PREFIXED_ADR_FILENAME_RE = re.compile(r"^[A-Z][A-Z0-9]{1,9}-ADR-\d{4}(?:-.+)?\.md$")
+
+
+def is_adr_filename(name: str) -> bool:
+    """Preserve the historical bare glob and admit canonical prefixed ADR names."""
+    return (name.startswith("ADR-") and name.endswith(".md")) or bool(_PREFIXED_ADR_FILENAME_RE.fullmatch(name))
 
 #: The one explanation every refusal carries. It names the glob, so a reader
 #: knows why the file was considered at all, and it names the fence, so they
@@ -86,7 +92,7 @@ def adr_paths(adrs_dir: Path, *, include_archive: bool = True) -> list[Path]:
     found = _glob.glob(str(Path(adrs_dir) / ADR_GLOB))
     if include_archive:
         found += _glob.glob(str(Path(adrs_dir) / "archive" / ADR_GLOB))
-    return [Path(p) for p in sorted(found)]
+    return [Path(p) for p in sorted(found) if is_adr_filename(Path(p).name)]
 
 
 def frontmatter_block(text: str) -> str | None:

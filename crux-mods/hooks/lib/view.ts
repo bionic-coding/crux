@@ -84,7 +84,14 @@ export type RunView = {
   prompts: Prompt[]; councils: Council[]; councils_skipped: number; gates: Gate[]
   summary: string[]; summary_truncated: boolean; escalations: Escalation[]
 }
+export type CycleView = {
+  id: string; title: string; type: string; status: string; phase: string; pass: number; pass_limit: number
+  phases: string[]; tasks: {id: string; phase: string; description: string; status: string}[]
+  returns: {pass: number; phase: string; reason: string}[]; waits: string[]
+  blocker: string | null; reflection: string | null; modified_s: number
+}
 export type ReaderView = {
+  cycles?: CycleView[]
   reader_version: string; docs_dir: string; now_s: Time; runs: RunView[]; runs_skipped: number
   last_completed: RunView | null; last_completed_status: string; last_completed_undated: number; last_completed_unresolved: number
 }
@@ -300,6 +307,7 @@ function run(v: unknown): RunView {
 export function parseReader(stdout: string): Parsed {
   try {
     const doc: unknown = JSON.parse(stdout)
+    if (doc !== null && typeof doc === 'object' && (doc as Obj).format === 'crux.cycle-progress') return parseCycles(doc)
     if (doc !== null && typeof doc === 'object' && !Array.isArray(doc)) {
       const d = doc as Obj
       if (d.format === 'crux.run-progress' && Number.isInteger(d.format_version) && d.format_version !== READER_FORMAT_VERSION) {
@@ -334,6 +342,46 @@ export function parseReader(stdout: string): Parsed {
   } catch {
     return { ok: false, code: 'reader-output-invalid' }
   }
+}
+
+// Cycle JSON has its own version and key contract; legacy run keys stay frozen.
+const CYCLE_PHASES: Record<string, string[]> = {
+  dev: ['plan','build','test','review','reflect'], iterate: ['plan','build','test','review','reflect'],
+  refactor: ['plan','build','test','review','reflect'], 'quick-fix': ['build','test','review','reflect'],
+  release: ['plan','release','reflect'],
+}
+function cycleObject(value: unknown, keys: string[]): Obj {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return bad()
+  const o = value as Obj
+  return Object.keys(o).length === keys.length && keys.every(k => Object.prototype.hasOwnProperty.call(o, k)) ? o : bad()
+}
+function parseCycles(doc: unknown): Parsed {
+  const d = doc as Obj
+  if (d.format_version !== 1) return {ok:false,code:'reader-format-mismatch'}
+  if (d.ok === false) {
+    const o=cycleObject(doc,['format','format_version','ok','error'])
+    const e=cycleObject(o.error,['code'])
+    return typeof e.code==='string' && READER_ERROR_CODES.includes(e.code) ? {ok:false,code:`reader-failed:${e.code}`} : bad()
+  }
+  const o=cycleObject(doc,['format','format_version','ok','docs_dir','now_s','cycles'])
+  if (o.ok !== true) return bad()
+  const cycles=arr(o.cycles,20).map(value => {
+    const c=cycleObject(value,['id','title','type','status','phase','pass','pass_limit','phases','tasks','returns','waits','blocker','reflection','modified_s'])
+    const kind=oneOf(c.type,Object.keys(CYCLE_PHASES))
+    const phases=arr(c.phases,6).map(p=>oneOf(p,CYCLE_PHASES[kind]!))
+    if (phases.join(',')!==CYCLE_PHASES[kind]!.join(',')) return bad()
+    const pass=int(c.pass), limit=int(c.pass_limit)
+    if (pass<1 || pass>limit) return bad()
+    return {
+      id:str(c.id,/^(?:[A-Z][A-Z0-9]{1,9}-)?CYC-[0-9]{4,}$/),title:free(c.title),type:kind,
+      status:oneOf(c.status,['active','paused','completed','abandoned']),phase:oneOf(c.phase,phases),
+      pass,pass_limit:limit,phases,
+      tasks:arr(c.tasks,500).map(v=>{const t=cycleObject(v,['id','phase','description','status']);return {id:free(t.id),phase:oneOf(t.phase,phases),description:free(t.description),status:oneOf(t.status,['pending','active','done','blocked'])}}),
+      returns:arr(c.returns,20).map(v=>{const r=cycleObject(v,['pass','phase','reason']);return {pass:int(r.pass),phase:oneOf(r.phase,['plan','build','test','review','release','reflect']),reason:free(r.reason)}}),
+      waits:arr(c.waits,20).map(free),blocker:orNull(c.blocker,free),reflection:orNull(c.reflection,free),modified_s:int(c.modified_s,4102444800),
+    }
+  })
+  return {ok:true,view:{reader_version:'0.0.0',docs_dir:tpath(o.docs_dir),now_s:time(o.now_s),cycles,runs:[],runs_skipped:0,last_completed:null,last_completed_status:'none',last_completed_undated:0,last_completed_unresolved:0}}
 }
 
 // --- the kept result ---------------------------------------------------------
@@ -411,6 +459,14 @@ export function answer(p: Parsed): string {
     lines.push(`dashboard status ${p.code}`)
   } else {
     const v = p.view
+    if (v.cycles !== undefined) {
+      lines.push(`dashboard status ok cycles ${v.cycles.length}`)
+      for (const c of v.cycles) {
+        lines.push(`cycle ${c.id} type ${c.type} status ${c.status} phase ${c.phase} pass ${c.pass} limit ${c.pass_limit}`)
+        lines.push(`tasks done ${c.tasks.filter(t=>t.status==='done').length} total ${c.tasks.length} returns ${c.returns.length} approval-waits ${c.waits.length}`)
+      }
+      return `${NOTE}\n\n\`\`\`text\n${lines.join('\n')}\n\`\`\``
+    }
     lines.push(`dashboard status ok reader ${v.reader_version} runs ${v.runs.length}`)
     lines.push(`now ${timeWord(v.now_s)}`)
     for (const r of v.runs.slice(0, MAX_ANSWER_RUNS)) lines.push(...runLines(r, 'run'))

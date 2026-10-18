@@ -1,0 +1,920 @@
+{
+  "blocker": null,
+  "coordinator": "claude-code-main-session",
+  "created_at": "2026-10-16T20:29:07.301752+00:00",
+  "decisions": [],
+  "evidence": [
+    {
+      "check_id": "mods-tests",
+      "evidence_id": "TE-511fdde3c2d24cc59ef5372423613209",
+      "pass": 1,
+      "use": "executed"
+    },
+    {
+      "check_id": "mods-gate-dev",
+      "evidence_id": "TE-73a53b889cfd4bf8a501ece5f812f5f1",
+      "pass": 1,
+      "use": "executed"
+    },
+    {
+      "check_id": "opencode-gate-dev",
+      "evidence_id": "TE-f7f2a182aba346909b1d41557f0a399e",
+      "pass": 1,
+      "use": "executed"
+    },
+    {
+      "check_id": "mods-tests",
+      "evidence_id": "TE-c2afc49cc7bd4aefa726aa66833ce4ed",
+      "pass": 2,
+      "use": "executed"
+    },
+    {
+      "check_id": "mods-gate-dev",
+      "evidence_id": "TE-fb1d26617efe4dccb9b1af879cc6782c",
+      "pass": 2,
+      "use": "executed"
+    },
+    {
+      "check_id": "opencode-gate-dev",
+      "evidence_id": "TE-bd84c16ea93b4a9da98355ec7201c463",
+      "pass": 2,
+      "use": "executed"
+    }
+  ],
+  "extensions": [],
+  "goal": "The cycle pane shows status glyphs, a coloured phase track and task strip, a loop icon, and bold and colour emphasis, in Claude Code and OpenCode",
+  "history": [
+    {
+      "action": "created",
+      "at": "2026-10-16T20:29:07.301900+00:00",
+      "pass": 1,
+      "phase": "plan"
+    },
+    {
+      "action": "plan-revised",
+      "at": "2026-10-16T20:30:12.974396+00:00",
+      "pass": 1,
+      "phase": "plan",
+      "previous": {
+        "acceptance": [
+          "Task rows show a state glyph (done, active, pending, blocked) instead of the status word",
+          "The pane draws a phase track and a phase-labelled task strip with a progress bar, in the style of the historical run panel",
+          "The pane shows the current loop as an icon and \"loop N\", not \"Pass N of M\"",
+          "The title, current phase and status carry bold and theme colour; every colour distinction is also drawn by a glyph or word",
+          "The band and the /crux-dashboard answer text are unchanged",
+          "The crux-mods and crux-opencode dev gates pass"
+        ],
+        "constraints": [],
+        "revision": 1,
+        "scope": [
+          "crux-mods/hooks/lib/draw.ts",
+          "crux-mods/tests/cycle-dashboard.test.ts"
+        ],
+        "tasks": [],
+        "verification": []
+      },
+      "reason": "Initial plan: design mapped to the run-panel vocabulary; baseline checks recorded"
+    },
+    {
+      "action": "plan",
+      "at": "2026-10-16T20:30:12.974520+00:00",
+      "pass": 1,
+      "phase": "plan",
+      "reason": "Initial plan: design mapped to the run-panel vocabulary; baseline checks recorded"
+    },
+    {
+      "action": "checks",
+      "at": "2026-10-16T20:30:13.026564+00:00",
+      "pass": 1,
+      "phase": "plan"
+    },
+    {
+      "action": "scrutiny",
+      "at": "2026-10-16T20:30:13.079471+00:00",
+      "pass": 1,
+      "phase": "plan"
+    },
+    {
+      "action": "advance",
+      "at": "2026-10-16T20:30:13.134938+00:00",
+      "pass": 1,
+      "phase": "build"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-16T20:30:13.188666+00:00",
+      "pass": 1,
+      "phase": "build",
+      "state": "active",
+      "task": "build-pane"
+    },
+    {
+      "action": "task",
+      "at": "2026-10-16T20:30:13.188814+00:00",
+      "pass": 1,
+      "phase": "build"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-16T20:30:13.242785+00:00",
+      "pass": 1,
+      "phase": "build",
+      "state": "active",
+      "task": "build-tests"
+    },
+    {
+      "action": "task",
+      "at": "2026-10-16T20:30:13.242936+00:00",
+      "pass": 1,
+      "phase": "build"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-16T20:36:31.317825+00:00",
+      "pass": 1,
+      "phase": "build",
+      "state": "done",
+      "task": "build-pane"
+    },
+    {
+      "action": "task",
+      "at": "2026-10-16T20:36:31.317983+00:00",
+      "pass": 1,
+      "phase": "build"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-16T20:36:31.375652+00:00",
+      "pass": 1,
+      "phase": "build",
+      "state": "done",
+      "task": "build-tests"
+    },
+    {
+      "action": "task",
+      "at": "2026-10-16T20:36:31.375802+00:00",
+      "pass": 1,
+      "phase": "build"
+    },
+    {
+      "action": "advance",
+      "at": "2026-10-16T20:36:31.431230+00:00",
+      "pass": 1,
+      "phase": "test"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-16T20:36:31.484968+00:00",
+      "pass": 1,
+      "phase": "test",
+      "state": "active",
+      "task": "test-checks"
+    },
+    {
+      "action": "task",
+      "at": "2026-10-16T20:36:31.485143+00:00",
+      "pass": 1,
+      "phase": "test"
+    },
+    {
+      "action": "evidence",
+      "at": "2026-10-16T20:37:36.788096+00:00",
+      "pass": 1,
+      "phase": "test"
+    },
+    {
+      "action": "evidence",
+      "at": "2026-10-16T20:37:36.927967+00:00",
+      "pass": 1,
+      "phase": "test"
+    },
+    {
+      "action": "evidence",
+      "at": "2026-10-16T20:37:37.137933+00:00",
+      "pass": 1,
+      "phase": "test"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-16T20:37:37.193294+00:00",
+      "pass": 1,
+      "phase": "test",
+      "state": "done",
+      "task": "test-checks"
+    },
+    {
+      "action": "task",
+      "at": "2026-10-16T20:37:37.193463+00:00",
+      "pass": 1,
+      "phase": "test"
+    },
+    {
+      "action": "advance",
+      "at": "2026-10-16T20:37:37.603737+00:00",
+      "pass": 1,
+      "phase": "review"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-16T20:37:37.660199+00:00",
+      "pass": 1,
+      "phase": "review",
+      "state": "active",
+      "task": "review-independent"
+    },
+    {
+      "action": "task",
+      "at": "2026-10-16T20:37:37.660353+00:00",
+      "pass": 1,
+      "phase": "review"
+    },
+    {
+      "action": "review",
+      "at": "2026-10-16T20:40:57.994593+00:00",
+      "pass": 1,
+      "phase": "review"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-16T20:40:58.056558+00:00",
+      "pass": 1,
+      "phase": "review",
+      "state": "done",
+      "task": "review-independent"
+    },
+    {
+      "action": "task",
+      "at": "2026-10-16T20:40:58.056719+00:00",
+      "pass": 1,
+      "phase": "review"
+    },
+    {
+      "action": "return-requested",
+      "assessment": {
+        "improved": "Glyph task rows, loop icon with loop N, coloured phase track, phase-labelled strip and progress bar delivered and verified at 100 columns; band, answer text, capability manifest and both dev gates unchanged or passing",
+        "justification": "Both blockers are local to the cycle helpers in draw.ts with a concrete fix named by the reviewer; the first loop made measurable progress and one loop remains within the iterate limit",
+        "next_change": "Add a run-panel-style compact track and strip that always keep and anchor on the current phase and active task; replace the separator with a Narrow/Neutral glyph; add the new glyphs to the glyph test; take the colour and paused-glyph advisories",
+        "unresolved": "Blocking: at 40 columns the phase track loses the current phase; the arrow separator U+2192 is East Asian Ambiguous and the new glyphs are not in the glyph-width test"
+      },
+      "at": "2026-10-16T20:40:58.113302+00:00",
+      "pass": 1,
+      "phase": "review",
+      "plan": {
+        "acceptance": [
+          "Task rows show a state glyph (done, active, pending, blocked) instead of the status word",
+          "The pane draws a phase track and a phase-labelled task strip with a progress bar, in the style of the historical run panel",
+          "The pane shows the current loop as an icon and \"loop N\", not \"Pass N of M\"",
+          "The title, current phase and status carry bold and theme colour; every colour distinction is also drawn by a glyph or word",
+          "The band and the /crux-dashboard answer text are unchanged",
+          "The crux-mods and crux-opencode dev gates pass"
+        ],
+        "constraints": [
+          "Change only the cycle branch of pane() and the helpers it needs in draw.ts; leave bandSegments(), answer() in view.ts, the reader contract, the parser, and every historical run panel unchanged",
+          "Reuse the existing vocabulary: STATE_GLYPHS (done \u2713, active \u2192 the running \u25b8 glyph, pending \u25cc, blocked \u2717), glyphSpan, BAR_ON/BAR_OFF, bar(), GROUP_SEP, joined(), fitLine(), panel(); colours are THEME_KEYS only",
+          "Every glyph is one terminal cell: East Asian Narrow or Neutral and not an emoji or emoji-presentation code point, as draw.ts already requires",
+          "Every colour distinction is also drawn by a glyph or a word (draw.ts accessibility rule)",
+          "Free text reaches a line only through drawn(); every line passes fitLine() at the panel's inner width, at every width the existing tests cover",
+          "The pane is shared with crux-opencode through its relative import, so the change must keep the OpenCode gate passing; the official release owes a live OpenCode 2 check from the beta install",
+          "capabilities.ts reads no new reader field, so the reach tables stay unchanged",
+          "No ADR or IDR: presentation choices inside an existing drawing contract"
+        ],
+        "revision": 2,
+        "scope": [
+          "crux-mods/hooks/lib/draw.ts",
+          "crux-mods/tests/cycle-dashboard.test.ts"
+        ],
+        "tasks": [
+          {
+            "depends_on": [],
+            "description": "Map the request to the existing run-panel vocabulary and fix the pane layout",
+            "expected_evidence": [
+              "This plan revision"
+            ],
+            "id": "plan-design",
+            "phase": "plan",
+            "status": "done"
+          },
+          {
+            "depends_on": [
+              "plan-design"
+            ],
+            "description": "Redraw the cycle pane: bold title; type, loop icon with 'loop N', status glyph and coloured status word; phase track with done/current/upcoming glyphs; phase-labelled task strip and progress bar; tasks grouped by phase order with state glyphs; coloured return, wait, pause and outcome rows",
+            "expected_evidence": [
+              "draw.ts diff confined to the cycle pane"
+            ],
+            "id": "build-pane",
+            "phase": "build",
+            "status": "done"
+          },
+          {
+            "depends_on": [
+              "plan-design"
+            ],
+            "description": "Update and extend cycle-dashboard tests: glyphs replace words, loop wording, phase track states, task grouping, colour and bold spans, narrow-width fit, band and answer unchanged",
+            "expected_evidence": [
+              "Test diff with positive controls"
+            ],
+            "id": "build-tests",
+            "phase": "build",
+            "status": "done"
+          },
+          {
+            "depends_on": [
+              "build-pane",
+              "build-tests"
+            ],
+            "description": "Run or reuse mods-tests, mods-gate-dev and opencode-gate-dev; render sample panes",
+            "expected_evidence": [
+              "Evidence IDs for the three checks; rendered sample"
+            ],
+            "id": "test-checks",
+            "phase": "test",
+            "status": "done"
+          },
+          {
+            "depends_on": [
+              "test-checks"
+            ],
+            "description": "Independent standard-scrutiny review by crux:reviewer",
+            "expected_evidence": [
+              "Review report recorded on the cycle"
+            ],
+            "id": "review-independent",
+            "phase": "review",
+            "status": "done"
+          },
+          {
+            "depends_on": [
+              "review-independent"
+            ],
+            "description": "Record outcome, lessons and follow-ups, including the owed live OpenCode check",
+            "expected_evidence": [
+              "Reflection recorded on the cycle"
+            ],
+            "id": "reflect",
+            "phase": "reflect",
+            "status": "pending"
+          }
+        ],
+        "verification": [
+          "check mods-tests: claude plugin test crux-mods passes (baseline 594 pass, TE-ce989e1c8b0c4bd5979f78fd239e65dc), including new cycle pane tests",
+          "check mods-gate-dev: capability manifest unchanged and matching (baseline TE-7bb39866ccc0407bb7b7cefcf7108d90)",
+          "check opencode-gate-dev: source check and 280 OpenCode tests pass (baseline TE-3f44eabaa71b41d38d039ec7e5753c42)",
+          "Render the pane for CYC-0001 and CYC-0002 at 100 and 40 columns and inspect it",
+          "Independent review by crux:reviewer at standard scrutiny"
+        ]
+      },
+      "release": null
+    },
+    {
+      "action": "return",
+      "at": "2026-10-16T20:40:58.113457+00:00",
+      "pass": 2,
+      "phase": "plan"
+    },
+    {
+      "action": "plan-revised",
+      "at": "2026-10-16T20:41:14.601831+00:00",
+      "pass": 2,
+      "phase": "plan",
+      "previous": {
+        "acceptance": [
+          "Task rows show a state glyph (done, active, pending, blocked) instead of the status word",
+          "The pane draws a phase track and a phase-labelled task strip with a progress bar, in the style of the historical run panel",
+          "The pane shows the current loop as an icon and \"loop N\", not \"Pass N of M\"",
+          "The title, current phase and status carry bold and theme colour; every colour distinction is also drawn by a glyph or word",
+          "The band and the /crux-dashboard answer text are unchanged",
+          "The crux-mods and crux-opencode dev gates pass"
+        ],
+        "constraints": [
+          "Change only the cycle branch of pane() and the helpers it needs in draw.ts; leave bandSegments(), answer() in view.ts, the reader contract, the parser, and every historical run panel unchanged",
+          "Reuse the existing vocabulary: STATE_GLYPHS (done \u2713, active \u2192 the running \u25b8 glyph, pending \u25cc, blocked \u2717), glyphSpan, BAR_ON/BAR_OFF, bar(), GROUP_SEP, joined(), fitLine(), panel(); colours are THEME_KEYS only",
+          "Every glyph is one terminal cell: East Asian Narrow or Neutral and not an emoji or emoji-presentation code point, as draw.ts already requires",
+          "Every colour distinction is also drawn by a glyph or a word (draw.ts accessibility rule)",
+          "Free text reaches a line only through drawn(); every line passes fitLine() at the panel's inner width, at every width the existing tests cover",
+          "The pane is shared with crux-opencode through its relative import, so the change must keep the OpenCode gate passing; the official release owes a live OpenCode 2 check from the beta install",
+          "capabilities.ts reads no new reader field, so the reach tables stay unchanged",
+          "No ADR or IDR: presentation choices inside an existing drawing contract"
+        ],
+        "revision": 3,
+        "scope": [
+          "crux-mods/hooks/lib/draw.ts",
+          "crux-mods/tests/cycle-dashboard.test.ts"
+        ],
+        "tasks": [
+          {
+            "depends_on": [],
+            "description": "Map the request to the existing run-panel vocabulary and fix the pane layout",
+            "expected_evidence": [
+              "This plan revision"
+            ],
+            "id": "plan-design",
+            "phase": "plan",
+            "status": "pending"
+          },
+          {
+            "depends_on": [
+              "plan-design"
+            ],
+            "description": "Redraw the cycle pane: bold title; type, loop icon with 'loop N', status glyph and coloured status word; phase track with done/current/upcoming glyphs; phase-labelled task strip and progress bar; tasks grouped by phase order with state glyphs; coloured return, wait, pause and outcome rows",
+            "expected_evidence": [
+              "draw.ts diff confined to the cycle pane"
+            ],
+            "id": "build-pane",
+            "phase": "build",
+            "status": "pending"
+          },
+          {
+            "depends_on": [
+              "plan-design"
+            ],
+            "description": "Update and extend cycle-dashboard tests: glyphs replace words, loop wording, phase track states, task grouping, colour and bold spans, narrow-width fit, band and answer unchanged",
+            "expected_evidence": [
+              "Test diff with positive controls"
+            ],
+            "id": "build-tests",
+            "phase": "build",
+            "status": "pending"
+          },
+          {
+            "depends_on": [
+              "build-pane",
+              "build-tests"
+            ],
+            "description": "Run or reuse mods-tests, mods-gate-dev and opencode-gate-dev; render sample panes",
+            "expected_evidence": [
+              "Evidence IDs for the three checks; rendered sample"
+            ],
+            "id": "test-checks",
+            "phase": "test",
+            "status": "pending"
+          },
+          {
+            "depends_on": [
+              "test-checks"
+            ],
+            "description": "Independent standard-scrutiny review by crux:reviewer",
+            "expected_evidence": [
+              "Review report recorded on the cycle"
+            ],
+            "id": "review-independent",
+            "phase": "review",
+            "status": "pending"
+          },
+          {
+            "depends_on": [
+              "review-independent"
+            ],
+            "description": "Record outcome, lessons and follow-ups, including the owed live OpenCode check",
+            "expected_evidence": [
+              "Reflection recorded on the cycle"
+            ],
+            "id": "reflect",
+            "phase": "reflect",
+            "status": "pending"
+          }
+        ],
+        "verification": [
+          "check mods-tests: claude plugin test crux-mods passes (baseline 594 pass, TE-ce989e1c8b0c4bd5979f78fd239e65dc), including new cycle pane tests",
+          "check mods-gate-dev: capability manifest unchanged and matching (baseline TE-7bb39866ccc0407bb7b7cefcf7108d90)",
+          "check opencode-gate-dev: source check and 280 OpenCode tests pass (baseline TE-3f44eabaa71b41d38d039ec7e5753c42)",
+          "Render the pane for CYC-0001 and CYC-0002 at 100 and 40 columns and inspect it",
+          "Independent review by crux:reviewer at standard scrutiny"
+        ]
+      },
+      "reason": "Loop 2 after review changes-required: two blocking findings (narrow-width track loses current phase; Ambiguous arrow separator) plus accepted advisories"
+    },
+    {
+      "action": "plan",
+      "at": "2026-10-16T20:41:14.601978+00:00",
+      "pass": 2,
+      "phase": "plan",
+      "reason": "Loop 2 after review changes-required: two blocking findings (narrow-width track loses current phase; Ambiguous arrow separator) plus accepted advisories"
+    },
+    {
+      "action": "advance",
+      "at": "2026-10-16T20:41:14.659668+00:00",
+      "pass": 2,
+      "phase": "build"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-16T20:41:14.715331+00:00",
+      "pass": 2,
+      "phase": "build",
+      "state": "active",
+      "task": "build-narrow"
+    },
+    {
+      "action": "task",
+      "at": "2026-10-16T20:41:14.715503+00:00",
+      "pass": 2,
+      "phase": "build"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-16T20:41:14.769040+00:00",
+      "pass": 2,
+      "phase": "build",
+      "state": "active",
+      "task": "build-glyphs-colours"
+    },
+    {
+      "action": "task",
+      "at": "2026-10-16T20:41:14.769205+00:00",
+      "pass": 2,
+      "phase": "build"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-16T20:43:54.841972+00:00",
+      "pass": 2,
+      "phase": "build",
+      "state": "done",
+      "task": "build-narrow"
+    },
+    {
+      "action": "task",
+      "at": "2026-10-16T20:43:54.842148+00:00",
+      "pass": 2,
+      "phase": "build"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-16T20:43:54.897376+00:00",
+      "pass": 2,
+      "phase": "build",
+      "state": "done",
+      "task": "build-glyphs-colours"
+    },
+    {
+      "action": "task",
+      "at": "2026-10-16T20:43:54.897545+00:00",
+      "pass": 2,
+      "phase": "build"
+    },
+    {
+      "action": "advance",
+      "at": "2026-10-16T20:43:54.953727+00:00",
+      "pass": 2,
+      "phase": "test"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-16T20:43:55.008322+00:00",
+      "pass": 2,
+      "phase": "test",
+      "state": "active",
+      "task": "test-loop2"
+    },
+    {
+      "action": "task",
+      "at": "2026-10-16T20:43:55.008589+00:00",
+      "pass": 2,
+      "phase": "test"
+    },
+    {
+      "action": "evidence",
+      "at": "2026-10-16T20:44:26.210481+00:00",
+      "pass": 2,
+      "phase": "test"
+    },
+    {
+      "action": "evidence",
+      "at": "2026-10-16T20:44:26.350995+00:00",
+      "pass": 2,
+      "phase": "test"
+    },
+    {
+      "action": "evidence",
+      "at": "2026-10-16T20:44:26.527725+00:00",
+      "pass": 2,
+      "phase": "test"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-16T20:44:26.583019+00:00",
+      "pass": 2,
+      "phase": "test",
+      "state": "done",
+      "task": "test-loop2"
+    },
+    {
+      "action": "task",
+      "at": "2026-10-16T20:44:26.583150+00:00",
+      "pass": 2,
+      "phase": "test"
+    },
+    {
+      "action": "advance",
+      "at": "2026-10-16T20:44:26.995538+00:00",
+      "pass": 2,
+      "phase": "review"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-16T20:44:27.054374+00:00",
+      "pass": 2,
+      "phase": "review",
+      "state": "active",
+      "task": "review-loop2"
+    },
+    {
+      "action": "task",
+      "at": "2026-10-16T20:44:27.054528+00:00",
+      "pass": 2,
+      "phase": "review"
+    },
+    {
+      "action": "review",
+      "at": "2026-10-16T20:45:52.599744+00:00",
+      "pass": 2,
+      "phase": "review"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-16T20:45:52.658403+00:00",
+      "pass": 2,
+      "phase": "review",
+      "state": "done",
+      "task": "review-loop2"
+    },
+    {
+      "action": "task",
+      "at": "2026-10-16T20:45:52.658559+00:00",
+      "pass": 2,
+      "phase": "review"
+    },
+    {
+      "action": "advance",
+      "at": "2026-10-16T20:45:53.072161+00:00",
+      "pass": 2,
+      "phase": "reflect"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-16T20:45:53.131292+00:00",
+      "pass": 2,
+      "phase": "reflect",
+      "state": "active",
+      "task": "reflect"
+    },
+    {
+      "action": "task",
+      "at": "2026-10-16T20:45:53.131417+00:00",
+      "pass": 2,
+      "phase": "reflect"
+    },
+    {
+      "action": "reflect",
+      "at": "2026-10-16T20:46:06.140761+00:00",
+      "pass": 2,
+      "phase": "reflect"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-16T20:46:06.196795+00:00",
+      "pass": 2,
+      "phase": "reflect",
+      "state": "done",
+      "task": "reflect"
+    },
+    {
+      "action": "task",
+      "at": "2026-10-16T20:46:06.196937+00:00",
+      "pass": 2,
+      "phase": "reflect"
+    },
+    {
+      "action": "advance",
+      "at": "2026-10-16T20:46:06.672458+00:00",
+      "pass": 2,
+      "phase": "reflect"
+    }
+  ],
+  "id": "CYC-0002",
+  "implementers": [
+    "crux:developer"
+  ],
+  "pass": 2,
+  "pass_limit": 2,
+  "phase": "reflect",
+  "plan": {
+    "acceptance": [
+      "Task rows show a state glyph (done, active, pending, blocked) instead of the status word",
+      "The pane draws a phase track and a phase-labelled task strip with a progress bar, in the style of the historical run panel",
+      "The pane shows the current loop as an icon and \"loop N\", not \"Pass N of M\"",
+      "The title, current phase and status carry bold and theme colour; every colour distinction is also drawn by a glyph or word",
+      "The band and the /crux-dashboard answer text are unchanged",
+      "The crux-mods and crux-opencode dev gates pass",
+      "At 40 and 20 columns the pane still names the current phase and shows the active task's glyph, for a cycle in every phase including reflect"
+    ],
+    "constraints": [
+      "Change only the cycle branch of pane() and the helpers it needs in draw.ts; leave bandSegments(), answer() in view.ts, the reader contract, the parser, and every historical run panel unchanged",
+      "Reuse the existing vocabulary: STATE_GLYPHS (done \u2713, active \u2192 the running \u25b8 glyph, pending \u25cc, blocked \u2717), glyphSpan, BAR_ON/BAR_OFF, bar(), GROUP_SEP, joined(), fitLine(), panel(); colours are THEME_KEYS only",
+      "Every glyph is one terminal cell: East Asian Narrow or Neutral and not an emoji or emoji-presentation code point, as draw.ts already requires",
+      "Every colour distinction is also drawn by a glyph or a word (draw.ts accessibility rule)",
+      "Free text reaches a line only through drawn(); every line passes fitLine() at the panel's inner width, at every width the existing tests cover",
+      "The pane is shared with crux-opencode through its relative import, so the change must keep the OpenCode gate passing; the official release owes a live OpenCode 2 check from the beta install",
+      "capabilities.ts reads no new reader field, so the reach tables stay unchanged",
+      "No ADR or IDR: presentation choices inside an existing drawing contract",
+      "Loop 2: the phase track and task strip keep the current phase and active task visible at every width down to 20 columns, mirroring stripLine/fitCells/stripAnchor: when the full form does not fit, draw a compact form (per-phase glyphs plus the current phase word in its key) anchored on the current phase or active task",
+      "Loop 2: the phase separator is East Asian Narrow or Neutral and not an emoji; LOOP_GLYPH, the separator and any new glyph join the draw.test.ts glyph-width test",
+      "Loop 2: phase-word colours use theme keys disjoint from the progress keys (success, claude, warning, error); the paused state draws one glyph and one key everywhere, reusing STATE_GLYPHS.skipped",
+      "Loop 2: the title stays bold without a theme key (AC4 intent: bold title)"
+    ],
+    "revision": 4,
+    "scope": [
+      "crux-mods/hooks/lib/draw.ts",
+      "crux-mods/tests/cycle-dashboard.test.ts",
+      "crux-mods/tests/draw.test.ts"
+    ],
+    "tasks": [
+      {
+        "depends_on": [],
+        "description": "Map the request to the existing run-panel vocabulary and fix the pane layout",
+        "expected_evidence": [
+          "This plan revision"
+        ],
+        "id": "plan-design",
+        "phase": "plan",
+        "status": "done"
+      },
+      {
+        "depends_on": [
+          "plan-design"
+        ],
+        "description": "Redraw the cycle pane: bold title; type, loop icon with 'loop N', status glyph and coloured status word; phase track with done/current/upcoming glyphs; phase-labelled task strip and progress bar; tasks grouped by phase order with state glyphs; coloured return, wait, pause and outcome rows",
+        "expected_evidence": [
+          "draw.ts diff confined to the cycle pane"
+        ],
+        "id": "build-pane",
+        "phase": "build",
+        "status": "done"
+      },
+      {
+        "depends_on": [
+          "plan-design"
+        ],
+        "description": "Update and extend cycle-dashboard tests: glyphs replace words, loop wording, phase track states, task grouping, colour and bold spans, narrow-width fit, band and answer unchanged",
+        "expected_evidence": [
+          "Test diff with positive controls"
+        ],
+        "id": "build-tests",
+        "phase": "build",
+        "status": "done"
+      },
+      {
+        "depends_on": [
+          "build-pane",
+          "build-tests"
+        ],
+        "description": "Run or reuse mods-tests, mods-gate-dev and opencode-gate-dev; render sample panes",
+        "expected_evidence": [
+          "Evidence IDs for the three checks; rendered sample"
+        ],
+        "id": "test-checks",
+        "phase": "test",
+        "status": "done"
+      },
+      {
+        "depends_on": [
+          "test-checks"
+        ],
+        "description": "Independent standard-scrutiny review by crux:reviewer",
+        "expected_evidence": [
+          "Review report recorded on the cycle"
+        ],
+        "id": "review-independent",
+        "phase": "review",
+        "status": "done"
+      },
+      {
+        "depends_on": [
+          "review-independent"
+        ],
+        "description": "Plan loop 2 from the two blocking review findings and the accepted advisories",
+        "expected_evidence": [
+          "Plan revision 2"
+        ],
+        "id": "plan-loop2",
+        "phase": "plan",
+        "status": "done"
+      },
+      {
+        "depends_on": [
+          "plan-loop2"
+        ],
+        "description": "Compact phase track and strip that keep the current phase word and anchor on the active task at narrow widths",
+        "expected_evidence": [
+          "draw.ts diff; tests at 40 and 20 columns for review and reflect phases"
+        ],
+        "id": "build-narrow",
+        "phase": "build",
+        "status": "done"
+      },
+      {
+        "depends_on": [
+          "plan-loop2"
+        ],
+        "description": "Narrow/Neutral separator, glyph-width test coverage, disjoint phase colours, one paused glyph and key",
+        "expected_evidence": [
+          "draw.ts and draw.test.ts diff"
+        ],
+        "id": "build-glyphs-colours",
+        "phase": "build",
+        "status": "done"
+      },
+      {
+        "depends_on": [
+          "build-narrow",
+          "build-glyphs-colours"
+        ],
+        "description": "Re-run mods-tests, mods-gate-dev and opencode-gate-dev on the loop 2 inputs; render narrow panes",
+        "expected_evidence": [
+          "Evidence IDs; renderings"
+        ],
+        "id": "test-loop2",
+        "phase": "test",
+        "status": "done"
+      },
+      {
+        "depends_on": [
+          "test-loop2"
+        ],
+        "description": "Independent review of the loop 2 changes and the affected behaviour",
+        "expected_evidence": [
+          "Review report"
+        ],
+        "id": "review-loop2",
+        "phase": "review",
+        "status": "done"
+      },
+      {
+        "depends_on": [
+          "review-independent"
+        ],
+        "description": "Record outcome, lessons and follow-ups, including the owed live OpenCode check",
+        "expected_evidence": [
+          "Reflection recorded on the cycle"
+        ],
+        "id": "reflect",
+        "phase": "reflect",
+        "status": "done"
+      }
+    ],
+    "verification": [
+      "check mods-tests: claude plugin test crux-mods passes (baseline 594 pass, TE-ce989e1c8b0c4bd5979f78fd239e65dc), including new cycle pane tests",
+      "check mods-gate-dev: capability manifest unchanged and matching (baseline TE-7bb39866ccc0407bb7b7cefcf7108d90)",
+      "check opencode-gate-dev: source check and 280 OpenCode tests pass (baseline TE-3f44eabaa71b41d38d039ec7e5753c42)",
+      "Render the pane for CYC-0001 and CYC-0002 at 100 and 40 columns and inspect it",
+      "Independent review by crux:reviewer at standard scrutiny",
+      "Loop 2 renders an active cycle in reflect and in review at 40 and 20 columns; re-run the three checks because draw.ts and the tests change"
+    ]
+  },
+  "reflection": {
+    "lessons": [
+      "The review return path worked as designed: a changes-required verdict returned the cycle to Plan with a recorded assessment, loop 2 revised the plan and passed, and the pass limit would have paused a third loop for owner approval.",
+      "The crux:developer role requires a base SHA, a result-file path and a worktree commit in its dispatch; the cycle skill's assignment guidance does not name these, so the first loop-1 dispatch returned NEEDS_CONTEXT.",
+      "Claude Code removes an unchanged agent worktree when the agent returns; resuming that agent then finds no worktree. The developer recovered by creating a named worktree from the base SHA. Dispatches should carry the base SHA from the start.",
+      "The mods gate in dev phase checks only the capability manifest; the mods test suite needs its own declared check.",
+      "Rendering the real pane from the cycle records with a small deno renderer exposed the narrow-width defect before review confirmed it."
+    ],
+    "outcome": "Delivered in two loops. The cycle pane now draws a bold title; the type, a loop icon with 'loop N' and a status glyph and word; a phase track; a phase-labelled task strip with a progress bar; and task rows grouped by phase with state glyphs. Colour and bold mark progress, and a glyph or word carries every distinction. Loop 1 failed review on two blockers: the narrow track lost the current phase, and the arrow separator was East Asian Ambiguous. Loop 2 fixed both, took five advisories, and was approved. The band and the /crux-dashboard answer text are unchanged. mods-tests 604 pass, the mods manifest is unchanged, and the OpenCode dev gate passes with 280 tests.",
+    "remaining": [
+      "The official release owes a live OpenCode 2 check from the beta install, because draw.ts is a core file crux-opencode imports.",
+      "Optional review notes: an abandoned-cycle case in the narrow-width test, the identical ternary in cycle-dashboard.test.ts, and the low-contrast subtle key for the review phase word.",
+      "Name the developer dispatch contract (base SHA, result file, worktree commit) in the cycle skill's delegation guidance.",
+      "Merge branch cyc-0002-cycle-pane or commit the applied working-tree change, then remove the agent worktrees."
+    ]
+  },
+  "release": null,
+  "required_checks": [
+    "mods-tests",
+    "mods-gate-dev",
+    "opencode-gate-dev"
+  ],
+  "review_policy": {
+    "rationale": "Repository default. Presentation-only change to a shared drawing module; it renders reader-supplied free text, so the review confirms text still passes drawn() and terminal-control stripping. It ships to two harnesses.",
+    "risks": [
+      "untrusted-text-rendering",
+      "shared-core-two-harnesses"
+    ],
+    "scrutiny": "standard"
+  },
+  "reviews": [
+    {
+      "path": "cycles/CYC-0002/reviews/06dbe07ab7b44381be77f8e78fde4029.json",
+      "sha256": "aac4f9eb66378f4a36050e77beb900a853719a78cd448b29d0b2d3d7531009b9"
+    },
+    {
+      "path": "cycles/CYC-0002/reviews/31118c384da24cd8ada4c7c533ef140f.json",
+      "sha256": "1c5dd220f5d90148182d2674bc5c9eee6fa3b7017da39709290d74321e44c893"
+    }
+  ],
+  "schema_version": 1,
+  "status": "completed",
+  "title": "Make the cycle dashboard pane glanceable",
+  "type": "iterate",
+  "updated_at": "2026-10-16T20:46:06.672617+00:00"
+}

@@ -438,12 +438,17 @@ def _load_manifest(root: Path, docs_dir: str) -> dict:
 def check(root: Path, docs_dir: str | None = None) -> dict:
     _ensure_scripts_on_path()
     import observation_admission as admission
+    import implementation_migration as migration
     root = Path(root).resolve()
     source_io = admission._AdmissionIO(root)
     try:
-        selected = _tree_name(root, _source_io=source_io) if docs_dir is None else docs_dir
-        layout = admission._layout_inputs(root, selected, source_io)
-        return _check(layout)
+        # One read-only audit shares existing authority and git proofs across
+        # layout selection, record admission and survey checks. The scope ends
+        # with this operation; later checks must validate their inputs again.
+        with migration.read_scope():
+            selected = _tree_name(root, _source_io=source_io) if docs_dir is None else docs_dir
+            layout = admission._layout_inputs(root, selected, source_io)
+            return _check(layout)
     except (ValueError, OSError, RuntimeError) as exc:
         raise ObservationsRefusal("admission-context-or-source-refused") from exc
     finally:

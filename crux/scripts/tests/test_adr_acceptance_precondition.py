@@ -60,7 +60,7 @@ class Fixture:
             (self.root / rel).parent.mkdir(parents=True, exist_ok=True)
             (self.root / rel).write_text(text)
         sup.commit_all(self.root, "synthetic initial sources")
-        started = subprocess.run([sys.executable, str(sup.SCRIPTS / "start-run.py"), str(self.book_path),
+        started = subprocess.run([sys.executable, str(sup.SCRIPTS / "start-run.py"), "--historical-replay", str(self.book_path),
             "--run-id", "RUN-001", "--output", str(self.run_path)], capture_output=True, env=sup.scrubbed_env())
         if started.returncode:
             raise AssertionError(started.stdout + started.stderr)

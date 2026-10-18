@@ -76,9 +76,11 @@ class ShippedSkillsPinPythonTests(unittest.TestCase):
                 offenders.append(f"{path.relative_to(SKILLS)}:{number}: {line}")
         self.assertEqual(offenders, [], "unpinned `uv run python` in shipped skills")
 
-    def test_the_guard_reads_the_review_decisions_invocation(self):
-        text = (SKILLS / "review-decisions" / "SKILL.md").read_text(encoding="utf-8")
-        self.assertRegex(text, r"uv run [^\n]*python3 -P -c")
+    def test_migration_uses_the_canonical_script_entrypoint(self):
+        text = (SKILLS / "migrate-adrs" / "SKILL.md").read_text(encoding="utf-8")
+        reference=(SKILLS / "migrate-adrs" / "references" / "publication.md").read_text(encoding="utf-8")
+        self.assertIn('uv run "${CRUX_PLUGIN_ROOT}/scripts/adr-migration.py"',reference)
+        self.assertEqual(unpinned_invocations(text+reference),[])
 
 
 @unittest.skipUnless(shutil.which("uv"), "uv is not installed")

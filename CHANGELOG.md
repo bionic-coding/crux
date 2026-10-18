@@ -1,4 +1,4 @@
-<!-- generated-from: CHANGELOG.md@sha256:d76b5d8dae1da261e8427aae384a7bd25ee2a70368dfeaa9d88cc627ec69b5e4; model: claude-sonnet-5.5; date: 2026-10-16 -->
+<!-- generated-from: CHANGELOG.md@sha256:b13464a15cf4b19e6c042d2133d30bd859523e1a600eb656660e18358a23bdbc; model: claude-sonnet-5.5; date: 2026-10-17 -->
 # Changelog
 
 All notable changes to crux. The format roughly follows [Keep a Changelog](https://keepachangelog.com/) and the project adheres to [Semantic Versioning](https://semver.org/).
@@ -13,45 +13,70 @@ All notable changes to crux. The format roughly follows [Keep a Changelog](https
 
 ### Removed
 
-## [3.32.2] — 2026-10-16
+## [4.0.2] — 2026-10-17
 
 ### Added
 
+- Council review now has configurable Lite, Standard, and Strict modes, with per-decision-type overrides and a separate human acceptance policy. Lite uses two fresh Apex review contexts through Codex or Claude adapters and does not need OpenRouter. Standard requires approval from two of three providers plus architect agreement. Strict still requires unanimity.
+- `migrate-adrs` reviews historical decision clauses against your current objectives. It works in resumable batches with exact approval packages and validated publication, so history is preserved while current authority changes.
+
 ### Changed
+
+- Existing projects without a council-mode setting stay on Strict, while new project setup asks you to choose Standard or Lite. Review attempts preserve the policy, findings, revision bindings, and total attempt count. An unavailable capability never causes a silent fallback to another mode.
+- The cycle band now shares the panel's phase track, status glyphs, loop count, and narrow-width behavior. OpenCode cycle phases use distinct colours.
 
 ### Fixed
 
-- Both the Claude Code and OpenCode dashboards now start the reader when your environment sets a dynamic-loader variable such as `LD_LIBRARY_PATH` or `DYLD_LIBRARY_PATH` (set by conda, CUDA, Homebrew and some IDEs). Previously the dashboards showed a `loader-var-set` status instead of your run; that status no longer exists.
+- Proposed decision rules can still be retrieved, but they no longer appear as governing authority.
+- Retrieval of historical clauses now preserves clauses that have no rule handle. Published migration proof also survives unrelated changes to objectives.
+
+- A review now stays bound to its cycle when a Reflect task is added after approval, so the cycle can complete. New reports record `basis_version: 2`, and earlier reports keep their existing binding. Quick-fix records gain `cycle.py plan-details` for constraints and verification, and `task-add` for the current or any later phase.
 
 ### Removed
 
-- The crux-opencode release gate in the development repository no longer pins a fixed set of twelve loader variables. Both release gates still refuse a loader-variable read that is added without a manifest declaration, and the crux-opencode gate also refuses one that is declared without an accepted decision.
+- `review-decisions` is removed and replaced by `migrate-adrs`. The cadence reminder now suggests a migration session.
 
-## [3.32.1] — 2026-10-16
+## [4.0.1] — 2026-10-16
 
 ### Added
 
+- New cycle records must now include related-test coverage and evidence of the completion commit. If you explicitly request work that stays uncommitted, that is accepted as an exception. Existing cycle records remain readable.
+
 ### Changed
+
+- Cycle requests are now routed through Commander and Dev Lead. Developer assignments include a base commit and an integration owner, and independent review remains a separate step.
+- Release commands now plan the test-suite evidence they need before running anything. Publication reuses passing evidence or stops. Refreshing baselines requires an explicit dry run.
+- The cycle dashboard now shows state glyphs, a phase track, a task strip, progress, and the loop number. In narrow panes, the current phase and active task stay visible.
 
 ### Fixed
 
-- In OpenCode, `/crux-dashboard` now toggles the dashboard panel: run it again to close the panel. Previously, the panel could not be closed once it was open. The palette entry now reads "Toggle the crux dashboard".
+- Routing for new projects now follows the skill catalog, including current cycle phrases and historical promptbook aliases.
+- Testing guidance now documents input exclusions, so cycle bookkeeping no longer invalidates unrelated checks. Known acceptance failures now return to planning during the Test phase.
+- Template parity checks in the development repository now reference the current guide headings.
 
 ### Removed
 
-## [3.32.0] — 2026-10-16
+## [4.0.0] — 2026-10-16
 
 ### Added
 
-- The crux run dashboard now has an OpenCode 2 terminal interface version in `crux-opencode/`. It draws the run band above the composer, the panel, and a `/crux-dashboard` command that opens the panel. To use it, list the path to `crux-opencode/` in your clone in `~/.config/opencode/cli.json`; nothing is published to a package registry. It uses the same reader and view core as the Claude Code dashboard, which is unchanged.
-- In the development repository, the release preflight and `sync.sh` now run a source gate on `crux-opencode/` that compares its source to its capability manifest. The gate needs no OpenCode on the release machine. A live OpenCode 2 check from the beta install is still owed before the official release.
-- The approved reasoning behind the OpenCode 2 dashboard is recorded in the development repository as reviewed intent.
+- A single `cycle` workflow now covers dev, iterate, refactor, quick-fix, and release work. Cycle records keep plans, tasks, decisions, evidence, pass history, and approval waits.
+- Test evidence is now owned by the repository and can be reused across phases and cycles. Its validity depends on the relevant inputs, dependencies, toolchain, and environment. Matching executions share a lock, and failures and retry reasons stay visible.
+- Cycle progress now appears in the portable reader and the Claude Code dashboard, alongside the historical run views.
 
 ### Changed
 
-### Fixed
+- Plans now scale with the task and no longer have a prompt minimum. Dev and refactor default to seven passes, iterate and release to two, and quick-fix to one. Work pauses when progress stalls, and extra passes need human approval.
+- Dev, iterate, and refactor follow Plan → Build → Test → Review → Reflect. Quick-fix skips Plan and keeps its remaining phases slim. Release follows Plan → Release → Reflect, with an independent review before publication.
+- Dev cycles require an approved implementation decision record. Other cycle types require one for material choices. Creating an architecture decision record (ADR) inside a cycle now requires a justification, and the draft is reviewed separately afterward.
+- Accepting a new ADR now requires both council and human approval by default. `.bionic.yml` can switch this to council-only acceptance. Once accepted, the new rules are binding without a separate promotion step, and historical records keep their original interpretation.
+- Independent review now defaults to Standard scrutiny, which you can configure as focused or intensive. Specialist review follows the risks that actually apply. Reviewers reuse valid tests and route blocking fixes through the cycle's pass limit.
+- Release checks now consult the shared test evidence instead of treating an unchanged commit as proof that tests are still valid. Packaging and installation keep their own artifact coverage.
 
 ### Removed
+
+- Authoring of new promptbooks and repeated completed runs are removed. Compatibility entry points now route new work to cycles, and existing historical runs remain readable and can still be finished.
+- Fixed prompt counts and the mandatory security-review fan-out for every change are removed.
 
 ## [3.31.1] — 2026-10-15
 

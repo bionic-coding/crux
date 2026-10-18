@@ -1,5 +1,6 @@
 """Synthetic pure projection facts supply no council or publication approval."""
 import copy
+import importlib.util
 import json
 from pathlib import Path
 import tempfile
@@ -312,3 +313,88 @@ class CompiledPlans(unittest.TestCase):
 
 
 if __name__ == "__main__": unittest.main()
+
+
+class MixedHistoricalClauseLoading(unittest.TestCase):
+    """Pure proved-view inputs: no fabricated council or publication approval."""
+    def setUp(self):
+        import implementation_migration as migration
+        from test_implementation_migration import document
+        self.m=migration
+        self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
+        self.root=Path(self.temp.name).resolve()
+        spec=importlib.util.spec_from_file_location('_mixed_clause_driver',Path(__file__).resolve().parents[1]/'summarize-adrs.py')
+        self.driver=importlib.util.module_from_spec(spec);spec.loader.exec_module(self.driver)
+        batch=document()
+        body='Preserve a historical clause without a governs handle.\n'
+        identity=migration._canonical_digest({'source_adr':'ADR-0093','clause':body,'affected_governs':[]})
+        batch['entries'].append(dict(source_adr='ADR-0093',clause=dict(text=body,sha256=migration._digest(body.encode())),
+            affected_governs=[],source_identity=identity,disposition='historical-implementation',
+            rationale='Preserve body-only history.',historical_destination=dict(source_adr='ADR-0093',
+                clause_sha256=migration._digest(body.encode())),replacement_handles=['ADR-0146/constraint']))
+        self.batch_path='docs/adrs/migrations/implementation-pilot-001.yaml'
+        import yaml
+        raw=yaml.safe_dump(batch,sort_keys=False).encode()
+        self.write(self.batch_path,raw)
+        batch_ref=dict(path=self.batch_path,sha256=migration._digest(raw))
+        old_path='docs/adrs/migrations/implementation-pilot-001.application.json'
+        old_raw=json.dumps({'batch':batch_ref}).encode();self.write(old_path,old_raw)
+        import adr_migration as prospective
+        self.candidate=dict(format=prospective.FORMATS['publication'],id='next',authority='none',
+            package=dict(path='docs/adrs/migrations/packages/next.json',sha256='a'*64),
+            approval=dict(path='docs/adrs/migrations/approvals/next.json',sha256='b'*64))
+        new_path='docs/adrs/migrations/next.publication.json'
+        new_raw=prospective.encoded(self.candidate);self.write(new_path,new_raw)
+        sources=[]
+        self.expected=[]
+        for entry in batch['entries']:
+            source=dict(path='docs/adrs/'+entry['source_adr']+'-source.md',source_adr=entry['source_adr'],
+                clause_sha256=entry['clause']['sha256'],source_identity=entry['source_identity'])
+            sources.append(source)
+            self.expected.append(dict(source_identity=source['source_identity'],
+                source_ref={k:source[k] for k in ('path','source_adr','clause_sha256')},
+                destination=entry['historical_destination'],replacements=entry['replacement_handles']))
+        newer=dict(path='docs/adrs/ADR-0160-source.md',source_adr='ADR-0160',clause_sha256='d'*64,source_identity='c'*64)
+        sources.append(newer)
+        self.expected.append(dict(source_identity=newer['source_identity'],source_ref={k:newer[k] for k in
+            ('path','source_adr','clause_sha256')},destination=dict(source_adr='ADR-0160',clause_sha256='d'*64),replacements=[]))
+        self.view=dict(state='published',publications=[dict(path=old_path,sha256=migration._digest(old_raw),publication_commit='1'*40),
+            dict(path=new_path,sha256=migration._digest(new_raw),publication_commit='2'*40)],source_refs=sources,
+            dependency_fingerprints=[batch_ref],historical_handles={})
+        for handle,row in zip(('ADR-0110/rotation','ADR-0160/new-clause'),(self.expected[0],self.expected[2])):
+            self.view['historical_handles'][handle]={k:row[k] for k in ('source_identity','destination','replacements')}
+
+    def write(self,path,raw):
+        target=self.root/path;target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(raw)
+
+    def test_mixed_publications_preserve_exact_handleless_row_without_duplicates(self):
+        rows,locator=self.driver._historical_summary_clauses(self.root,self.view)
+        self.assertEqual(rows,sorted(self.expected,key=lambda row:row['source_identity']))
+        self.assertEqual(len({row['source_identity'] for row in rows}),3)
+        self.assertEqual(locator,dict(format=self.candidate['format'],batch=self.candidate['package']))
+        prepared,_=self.driver._historical_summary_clauses(self.root,self.view,_candidate=self.candidate)
+        self.assertEqual(prepared,rows)
+
+    def test_historical_only_and_prospective_only_keep_original_rows(self):
+        old=copy.deepcopy(self.view);old['publications']=old['publications'][:1];old['source_refs']=old['source_refs'][:2]
+        old['historical_handles'].pop('ADR-0160/new-clause')
+        rows,_=self.driver._historical_summary_clauses(self.root,old)
+        self.assertEqual(rows,sorted(self.expected[:2],key=lambda row:row['source_identity']))
+        new=copy.deepcopy(self.view);new['publications']=new['publications'][1:];new['source_refs']=new['source_refs'][2:]
+        new['historical_handles'].pop('ADR-0110/rotation');new['dependency_fingerprints']=[]
+        self.assertEqual(self.driver._historical_summary_clauses(self.root,new)[0],self.expected[2:])
+
+    def test_mixed_view_refuses_changed_batch_or_missing_snapshot_binding(self):
+        path=self.root/self.batch_path;raw=path.read_bytes();path.write_bytes(raw+b'# changed\n')
+        with self.assertRaises(sp.GovernsValidationError):self.driver._historical_summary_clauses(self.root,self.view)
+        path.write_bytes(raw)
+        view=copy.deepcopy(self.view);view['dependency_fingerprints']=[]
+        with self.assertRaises(sp.GovernsValidationError):self.driver._historical_summary_clauses(self.root,view)
+
+    def test_mixed_view_refuses_changed_old_source_identity_binding(self):
+        view=copy.deepcopy(self.view);view['source_refs'][1]['clause_sha256']='f'*64
+        with self.assertRaises(sp.GovernsValidationError):self.driver._historical_summary_clauses(self.root,view)
+
+    def test_same_identity_with_conflicting_historical_facts_is_not_deduplicated(self):
+        view=copy.deepcopy(self.view);view['historical_handles']['ADR-0110/rotation']['replacements']=['ADR-0160/other']
+        with self.assertRaises(sp.GovernsValidationError):self.driver._historical_summary_clauses(self.root,view)

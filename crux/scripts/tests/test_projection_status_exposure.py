@@ -1,25 +1,7 @@
-"""A projected rule says which lifecycle status its source record carried.
+"""Lifecycle status remains explicit while Proposed rules stay non-governing.
 
-THE DEFECT. The summaries projection reads ACTIVE ADRs whether Proposed or
-Accepted — deliberately, so a `rule:<slug>` citation resolves as soon as an
-ADR is written. It never said which it had read. A rule from a Proposed ADR
-and one from an Accepted ADR projected identical rows, so a consumer citing
-the rule table could not tell a resolvable handle from an adopted obligation.
-
-WHY A NEW FIELD AND NOT AN EXISTING ONE. `disposition` and `authority` are
-both pure functions of `provenance` and partition the decision-versus-
-observation axis; `review_state` is a closed five-value enum about the
-backfill-receipt chain, where `accepted-with-adr` means "prospective, so it
-needs no receipt". None concerns the ADR state machine and none has a spare
-value.
-
-WHAT MUST NOT MOVE. `source_status` stays outside `canonical_string`, so
-accepting an ADR leaves every entry's content digest byte-identical and every
-signed backfill receipt and reconciliation valid. That is asserted here, not
-assumed: it is the property that makes this change safe to ship.
-
-Run:
-  uv run python3 -m unittest discover -s crux/scripts/tests -p 'test_projection_status_exposure.py'
+Acceptance preserves raw governs digests and historical signed receipts.
+Proposed source text remains retrievable through a separate resolver lane.
 """
 
 from __future__ import annotations
@@ -113,38 +95,35 @@ class ResolverExposesStatusTests(StatusExposureTestCase):
     def test_proposed_and_accepted_rows_differ_on_source_status(self):
         r = self.resolver()
         acc = r["ADR-0001/fixture-rule-1"]
-        pro = r["ADR-0002/fixture-rule-2"]
+        pro = r["proposed"]["ADR-0002/fixture-rule-2"]
         self.assertEqual(acc["source_status"], "Accepted")
         self.assertEqual(pro["source_status"], "Proposed")
 
-    def test_they_agree_on_every_other_facet(self):
-        # PAIRED CONTROL: the new field is the ONLY thing that separates them,
-        # so nothing else silently changed meaning.
+    def test_proposal_retains_source_text_without_adopted_facets(self):
         r = self.resolver()
         acc = dict(r["ADR-0001/fixture-rule-1"])
-        pro = dict(r["ADR-0002/fixture-rule-2"])
-        for d in (acc, pro):
-            d.pop("source_status"); d.pop("source_adr"); d.pop("rule")
-        self.assertEqual(acc, pro)
+        pro = r["proposed"]["ADR-0002/fixture-rule-2"]
+        self.assertEqual(pro["rule"], next(x["rule"] for x in self.records()
+            if x["handle"] == "ADR-0002/fixture-rule-2"))
+        self.assertEqual(pro["authority"], "none")
+        self.assertNotIn("review_state", pro)
 
     def test_disposition_and_authority_keep_their_meanings(self):
         # Both are functions of provenance alone and must not have learned
         # anything about lifecycle.
         r = self.resolver()
-        for h in ("ADR-0001/fixture-rule-1", "ADR-0002/fixture-rule-2"):
-            self.assertEqual(r[h]["disposition"], "decided")
-            self.assertEqual(r[h]["authority"], "prescriptive")
+        self.assertEqual(r["ADR-0001/fixture-rule-1"]["disposition"], "decided")
+        self.assertEqual(r["ADR-0001/fixture-rule-1"]["authority"], "prescriptive")
+        self.assertEqual(r["proposed"]["ADR-0002/fixture-rule-2"]["disposition"], "proposed-not-governing")
 
-    def test_a_proposed_handle_still_resolves(self):
-        # The existing contract requires it: a citation resolves as soon as
-        # the ADR is written. Exposure must not become filtering.
+    def test_a_proposed_handle_is_retrievable_without_governing_resolution(self):
         r = self.resolver()
-        self.assertIn("ADR-0002/fixture-rule-2", r)
-        self.assertTrue(r["ADR-0002/fixture-rule-2"]["rule"])
+        self.assertNotIn("ADR-0002/fixture-rule-2", r)
+        self.assertTrue(r["proposed"]["ADR-0002/fixture-rule-2"]["rule"])
 
-    def test_a_proposed_slug_satisfies_the_citation_maps(self):
+    def test_a_proposed_slug_is_not_a_governing_citation(self):
         live, _retired = sp.live_and_retired_slugs(self.records())
-        self.assertEqual(live.get("fixture-rule-2"), "ADR-0002/fixture-rule-2")
+        self.assertNotIn("fixture-rule-2", live)
 
     def test_an_absent_status_is_null_not_a_sentinel_string(self):
         # On the MACHINE surface a missing status must be JSON null, never the
@@ -190,7 +169,7 @@ class DigestAndSignatureCompatibilityTests(StatusExposureTestCase):
     def test_the_status_really_did_change(self):
         # PAIRED CONTROL for the three tests above: they would all pass
         # vacuously if rewriting the fixture changed nothing.
-        self.assertEqual(self.resolver()["ADR-0002/fixture-rule-2"]["source_status"], "Proposed")
+        self.assertEqual(self.resolver()["proposed"]["ADR-0002/fixture-rule-2"]["source_status"], "Proposed")
         self.write_adr(2, "Accepted")
         self.assertEqual(self.resolver()["ADR-0002/fixture-rule-2"]["source_status"], "Accepted")
 
@@ -237,7 +216,8 @@ class DoctrineIndexTests(StatusExposureTestCase):
     def test_both_statuses_render(self):
         body = self.run_doctrine()
         self.assertRegex(body, r"\| ADR-0001 \| Accepted \| decided \|")
-        self.assertRegex(body, r"\| ADR-0002 \| Proposed \| decided \|")
+        self.assertIn("## Proposed rules — not governing", body)
+        self.assertRegex(body, r"\| ADR-0002/fixture-rule-2 .*\| Proposed \| none \|")
 
 
 if __name__ == "__main__":

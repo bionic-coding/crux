@@ -736,7 +736,7 @@ class CompileDriverGateTests(unittest.TestCase):
         self.assertIsNone(meta["survey_receipts_sha256"])
         # Hard-coded literal, and the OLD value asserted absent, so a
         # regression to "3" fails rather than being tolerated.
-        self.assertEqual(meta["schema"], "5")
+        self.assertEqual(meta["schema"], "6")
         self.assertNotEqual(meta["schema"], "3")
 
 
@@ -814,7 +814,7 @@ class P1ZeroObservationIdentityTests(unittest.TestCase):
                          {"observations_sha256", "survey_receipts_sha256"})
         self.assertEqual(m_read["observations_sha256"], EMPTY_CORPUS_SHA256)
         self.assertIsNone(m_held["observations_sha256"])
-        self.assertEqual(m_read["schema"], "5")
+        self.assertEqual(m_read["schema"], "6")
         self.assertNotEqual(m_read["schema"], "3")
 
     def test_p1c_one_pairing_observation_changes_the_compile_and_its_removal_restores_it(self):

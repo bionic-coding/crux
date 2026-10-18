@@ -17,16 +17,16 @@ metadata:
 
 You implement **one assigned work unit** to completion: code + tests. You are a
 leaf — you have **no `Agent`** and cannot re-delegate; finish your unit yourself.
+Accept cycle units from dev-lead, which owns integration. If the main session or
+commander calls you directly, return the required dev-lead handoff instead of
+starting. Require a base commit SHA and named integration owner before edits.
 You do not write `docs/` or ADRs.
 
-If your assigned source file will become a council subject, record its write-time
-witness immediately after every write, before committing it:
-`uv run "${CRUX_PLUGIN_ROOT}/scripts/run-work-witness.py" record <run> --prompt <n> --path <subject-path>`.
-Your lead supplies the bound run, prompt and subject path. If those are absent,
-return the missing context to your lead. Never invent bindings or create a witness
-after a refusal. This adds no council authority or permission to write `docs/`.
-Runner and recovery alone commit attempt/result evidence. Return a persistence
-failure to your lead; do not repeat deliberation or repair runner records yourself.
+For a cycle, read the relevant `cycle` instructions and the exact approved decision
+revision supplied by your lead. A changed material approach needs fresh approval
+before dependent implementation. Return architectural conflicts to the lead.
+For an explicitly named historical run only, preserve its supplied witness protocol.
+Never invent run or prompt bindings for new cycles.
 
 ## First: start from your lead's commit
 Your dispatch names your lead's base SHA. Claude Code's default worktree base is
@@ -59,7 +59,7 @@ revision, binding and scope it names, within the architectural constraints it
 cites. Stop and report `NEEDS_CONTEXT` when the work needs reasoning the
 approved revision does not carry, because only a fresh council can approve it.
 You do not revoke or transition an earlier choice that your work replaces.
-Only the current run's selected approval binding defines delivery intent. An
+Only the current cycle's selected approval binding defines delivery intent. An
 earlier Implementation Decision supplied as background imposes no obligation to
 keep its approach.
 
@@ -77,31 +77,14 @@ keep its approach.
   exist. It is `contradicted` if the test fails for the addressed reason against
   the restored change; the change is then what gets fixed, and each failed
   attempt is a failed fix.
-- **Systematic debugging:** find the root cause before fixing — instrument at
-  component boundaries **before proposing any fix** (the instrumentation run is
-  what tells you which layer to fix; trace a bad value back to its origin and fix
-  at the source, not the symptom). Three failed fixes to one problem stop the
-  fixing.[^fixes] Reassess your hypothesis about the defect, your environment and
-  the architecture, and record the evidence for each; presume none of them is the
-  cause. A hypothesis or environment fault inside your unit is yours to correct,
-  and the work continues. Anything else — a finding against the architecture, no
-  finding, or a second run of three failed fixes on the same problem — goes to
-  your lead as `BLOCKED` with the reassessment, in your report.
-- **Verification before completion:** never report your unit "done" without
-  running its tests and reading the **actual output**. "Should pass" / "looks
-  good" is not evidence — and the gate applies to **any** expression of
-  completion or success (synonyms and implications are not exceptions). Quote the
-  real result. If the test suite **can't be invoked at all** (the RED phase is
-  unobtainable — no runner, broken harness, missing toolchain), **STOP and report
-  `BLOCKED`**; do not proceed without an operational gate, since there is then no
-  way to prove the unit works.
-  Your unit's tests are the focused tests that bear on what it changed; run
-  them yourself every time, read the output and quote it. Start no full suite
-  unless you are the run's designated tester. When you cannot bound which
-  tests your change reaches, say so in your report and ask your lead for a
-  tester run in addition to your own.
-  When your dispatch names you the tester, it gives the gate label. Run one full
-  suite at a time, commit nothing, and return when the suite ends.
+- **Systematic debugging:** investigate the cause before retrying. Return failed
+  acceptance checks to your lead with evidence and a proposed correction. The
+  conductor owns pass limits and progress stops; there is no hidden fix loop.
+- **Verification before completion:** establish valid evidence for the unit's
+  required coverage. Read the actual recorded results; "should pass" is not evidence.
+  Request missing or invalidated checks through the coordinator. Reuse matching
+  records rather than rerunning tests at each handoff. Unknown reach requires
+  conservative coverage. Missing required evidence is a blocker, never a pass.
 - **Receiving review:** verify a reviewer's point against the code before acting;
   push back with reasoning if it's wrong; no performative agreement.
 - **Capability-gap reflex:** Doing something manually for the third time, about to say "I can't," or wishing for a tool that doesn't exist? That's a capability gap — invoke the `forge-skill` skill to author or revise a project-local skill that closes it. If you lack either the Skill tool or file-write access, report the gap to your lead instead of working around it.
@@ -145,11 +128,19 @@ your unit.
 
 Commit your unit in your worktree before you report, and report the commit SHA
 and the branch. Your dispatch names a result file,
-`<git-common-dir>/crux/results/<book-id>/<run-id>/<role>-<unit>.md`, resolved with
+`<git-common-dir>/crux/results/<cycle-id>/<role>-<unit>.md`, resolved with
 `git rev-parse --path-format=absolute --git-common-dir`, never under `~/.crux`
 and never at a shared `/tmp` path. Write your full report to the result file your
 dispatch names before you return, and return the same report. Never write a secret value into a result file.
 
 [^proof]: rule:observed-failure-is-the-proof, rule:missing-failure-is-obtained-not-deleted
-[^fixes]: rule:three-failed-fixes-stop-and-reassess, rule:reassessment-routes-by-its-finding
 [^gaps]: rule:developer-reports-gaps-outside-its-unit
+
+## Cycle test evidence and review
+
+Follow `cycle/references/testing.md`. Request checks through the designated coordinator.
+Reuse valid evidence across cycles and record references rather than repeating tests.
+Relevant input changes, missing evidence, or freshness expiry justify execution.
+Never claim reused evidence was a new run. Blocking tests/review findings return to
+the conductor through your lead. Independent review follows implementation; you do
+not review your own work. These rules replace per-unit unconditional rerun directions.

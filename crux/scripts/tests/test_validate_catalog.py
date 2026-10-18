@@ -452,16 +452,16 @@ class AgentSkillDeclarationTests(unittest.TestCase):
 
     EXPECTED_ROLE_SKILLS = {
         "architect": [
-            "propose-adr", "transition-adr", "review-decisions", "council", "srde",
-            "author-promptbook", "dev-cycle", "link-adr-graph", "propose-brief",
+            "propose-adr", "transition-adr", "migrate-adrs", "council", "srde",
+            "cycle", "link-adr-graph", "propose-brief",
             "log-work", "forge-skill",
         ],
         "brainstormer": ["whiteboarding", "query-docs", "forge-skill"],
-        "commander": ["run-promptbook", "council", "forge-skill", "log-work"],
-        "dev-lead": ["forge-skill", "log-work"],
+        "commander": ["cycle", "run-promptbook", "council", "forge-skill", "log-work"],
+        "dev-lead": ["cycle", "forge-skill", "log-work"],
         "developer": ["forge-skill", "log-work"],
         "historian": [
-            "init-docs", "audit-docs", "cleanup-campsite", "link-adr-graph",
+            "cycle", "init-docs", "audit-docs", "cleanup-campsite", "link-adr-graph",
             "check-drift", "transition-adr", "ingest-research", "process-inbox", "propose-adr",
             "propose-brief", "log-work",
             "archive-promptbook", "extract-code-docs", "verify-code-docs",
@@ -479,16 +479,16 @@ class AgentSkillDeclarationTests(unittest.TestCase):
 
     DIRECT_ROLE_SKILLS = {
         "architect": {
-            "propose-adr", "transition-adr", "review-decisions", "council", "srde",
-            "author-promptbook", "dev-cycle", "link-adr-graph", "propose-brief",
+            "propose-adr", "transition-adr", "migrate-adrs", "council", "srde",
+            "cycle", "link-adr-graph", "propose-brief",
             "forge-skill",
         },
         "brainstormer": {"whiteboarding", "query-docs", "forge-skill"},
-        "commander": {"run-promptbook", "council", "forge-skill"},
-        "dev-lead": {"forge-skill"},
+        "commander": {"cycle", "run-promptbook", "council", "forge-skill"},
+        "dev-lead": {"cycle", "forge-skill"},
         "developer": {"forge-skill"},
         "historian": {
-            "init-docs", "audit-docs", "cleanup-campsite", "link-adr-graph",
+            "cycle", "init-docs", "audit-docs", "cleanup-campsite", "link-adr-graph",
             "ingest-research", "process-inbox", "log-work",
             "archive-promptbook", "extract-code-docs", "verify-code-docs",
             "run-promptbook", "forge-skill",
@@ -505,7 +505,7 @@ class AgentSkillDeclarationTests(unittest.TestCase):
         "process-inbox": {"ingest-research", "propose-adr", "propose-brief", "log-work"},
         "read-news": {"refresh-research-sources"},
         "retrospective": {"council", "srde", "forge-skill", "log-work"},
-        "review-decisions": {"log-work"},
+        "migrate-adrs": {"log-work"},
         "tend-garden": {
             "cleanup-campsite", "read-news", "retrospective", "whiteboarding", "prose-review",
         },

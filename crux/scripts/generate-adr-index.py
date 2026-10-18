@@ -109,8 +109,8 @@ def build(root: Path) -> tuple[Path, str]:
     # unreadable ADR cannot shorten the index and cannot create one that did
     # not exist. Raises FenceValidationError, which `main` maps to exit 1.
     adr_frontmatter.validated_adr_paths(adrs, adr_frontmatter.repo_relative(root))
-    active = _load(glob.glob(str(adrs / "ADR-*.md")))
-    archived = _load(glob.glob(str(adrs / "archive" / "ADR-*.md")))
+    active = _load(adr_frontmatter.adr_paths(adrs, include_archive=False))
+    archived = _load(adr_frontmatter.adr_paths(adrs / "archive", include_archive=False))
     return adrs / "index.md", render(active, archived)
 
 

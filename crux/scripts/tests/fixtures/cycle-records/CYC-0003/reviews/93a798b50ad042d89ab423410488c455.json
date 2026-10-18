@@ -1,0 +1,38 @@
+{
+  "advisory": [
+    "crux-opencode/tests/cycle.test.ts and crux-mods/tests/cycle-dashboard.test.ts hard-code the phase lists; a changed list fails loudly through the parser, but a sixth cycle type added to the parser would not be enumerated, so its token distinctness would go unchecked. Export CYCLE_PHASES read-only or assert the parser's type set.",
+    "In OpenCode, review now draws in text.base, the same token as the task description, separators and band; in a task row it is told apart by its word and position only. It is still distinct within every type, as the plan accepted. In Claude Code the review word moves from dimmed (subtle) to full text weight, which brings the harnesses closer; release shares the text key but never appears in the same type as review.",
+    "The new crux-mods distinct-keys test passes against the old map too (subtle and inactive are distinct keys), so it is a pin, not a regression check; the regression check is the OpenCode test with its positive control."
+  ],
+  "at": "2026-10-16T22:17:20.879833+00:00",
+  "basis_sha256": "6fdae71c020a074687ed102e08d3975cbe247be42a7a7f0085f827640c660a1c",
+  "blocking": [],
+  "cosmetic": [
+    "crux-mods/tests/cycle-dashboard.test.ts comment calls a pin a 'Positive control' and says keys collided where only OpenCode tokens did; rewrite as 'Pin the keys the OpenCode token test relies on: review in `text`, test in `permission`.'",
+    "crux-opencode/tests/cycle.test.ts comment 'The tokens the decision names.' cites a decision record that does not exist; rewrite as 'The tokens the plan names.'",
+    "crux-mods/hooks/lib/draw.ts:709-711 comment's second sentence carries two ideas (writing rule 5); split into 'The phase words of one cycle type use distinct keys. Each key resolves to its own token in the OpenCode theme. Review takes `text` because `subtle` and `inactive` both resolve to text.muted there.'"
+  ],
+  "evidence": [
+    "Integration points read: git diff 47fb2334 6e9e9724 (changed: crux-mods/hooks/lib/draw.ts, crux-mods/tests/cycle-dashboard.test.ts, crux-opencode/tests/cycle.test.ts); crux-opencode/lib/theme.ts TOKEN_TABLE; crux-opencode/lib/render.ts bold flag; crux-opencode/tui.tsx:256 bold drawing (unchanged); crux-mods/hooks/lib/draw.ts cycle pane phaseKey uses (strip, compact strip, task rows); crux-mods/hooks/lib/view.ts safeText and parseCycles phase lists; crux/scripts/cycle_workflow.py PHASES",
+    "Declared but unchanged: crux-mods/tests/draw.test.ts has an empty diff 47fb2334..6e9e9724; its assertions cover run-view module kinds and gate words, not cycle phase keys; it is an input to TE-a22f864d289f4a799912644e49e5180d and TE-947e684dd790495f8cfbadb819291a36 with recorded hashes matching 6e9e9724, so it passed unchanged against the new draw.ts",
+    "crux-opencode/tests as a whole: cycle.test.ts read directly; the 12 unchanged test files and 4 fixtures are inputs to TE-7e8d510cdf9b400e8435074de0136db8 with all 18 recorded hashes matching 6e9e9724; among them only theme.test.ts asserts on the affected mapping, pinning subtle and inactive to text.muted, the collision the change avoids",
+    "Reused, not rerun: mods-tests TE-a22f864d289f4a799912644e49e5180d, 605 pass 0 fail, new distinct-keys test listed as pass; 29 recorded input hashes recomputed from 6e9e9724 blobs, all match",
+    "Reused: mods-gate-dev TE-947e684dd790495f8cfbadb819291a36, passed, 25/25 manifest entries; 38 input hashes match 6e9e9724",
+    "Reused: opencode-gate-dev TE-7e8d510cdf9b400e8435074de0136db8, 286 pass 0 fail (prior records at fe77d35a show 280; the six new tests account for the rise); 805 input hashes match 6e9e9724",
+    "The reviewer recomputed input hashes from git blobs by reading the records and did not run test-evidence.py",
+    "Dev-lead live OpenCode 2.0.31 capture, read only: strip colours plan 9d7cd8, build 56b6c2, test e5c07b, review eeeeee, reflect 808080",
+    "Unobserved: Claude Code theme colour values for the phase keys; the live OpenCode 2 check from the beta install (owed before the official release)"
+  ],
+  "input_sha256": "ff36b3a3da622ed4a0259b8fc2b77fed46cba682145c48142b3e2c7aebd8be4d",
+  "pass": 1,
+  "rationale": "Changing only the review key makes every phase word of every cycle type draw in a distinct OpenCode token that is never a progress token. A positive control shows the check catches the old collision, and the live capture shows the colours. Band, answer text, capability manifest, refresh, crux-opencode/lib and tui.tsx are untouched. Free text still reaches the panel only through drawn(), whose sanitiser strips all Cc and Cf code points. All six acceptance criteria are verified against reused evidence whose recorded inputs match commit 6e9e9724. The remaining findings are optional test coverage and comment wording. Separately from this change: the readable remains of escape sequences in free text are a possible follow-up, and the official release owes a live OpenCode 2 check from the beta install because draw.ts is a core file crux-opencode imports.",
+  "reviewer": "crux:reviewer",
+  "scope": [
+    "crux-mods/hooks/lib/draw.ts",
+    "crux-mods/tests/cycle-dashboard.test.ts",
+    "crux-mods/tests/draw.test.ts",
+    "crux-opencode/tests"
+  ],
+  "scrutiny": "standard",
+  "verdict": "approve"
+}

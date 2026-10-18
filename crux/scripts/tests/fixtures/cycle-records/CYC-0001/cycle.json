@@ -1,0 +1,458 @@
+{
+  "blocker": null,
+  "coordinator": "claude-code-main-session",
+  "created_at": "2026-10-16T20:17:43.460390+00:00",
+  "decisions": [],
+  "evidence": [
+    {
+      "check_id": "template-parity",
+      "evidence_id": "TE-6e44680873124bed8b1fc3561b0a356e",
+      "pass": 1,
+      "use": "executed"
+    },
+    {
+      "check_id": "template-parity-tests",
+      "evidence_id": "TE-c04aecdbd5be4620a2a544939d29c383",
+      "pass": 1,
+      "use": "executed"
+    },
+    {
+      "check_id": "template-readers",
+      "evidence_id": "TE-9aa7ff1682fd4d94a1dde37eb964f221",
+      "pass": 1,
+      "use": "executed"
+    },
+    {
+      "check_id": "template-parity-tests",
+      "evidence_id": "TE-c04aecdbd5be4620a2a544939d29c383",
+      "pass": 1,
+      "use": "executed"
+    }
+  ],
+  "extensions": [],
+  "goal": "New projects initialized from the template route cycle phrases to the cycle skill, not to promptbook allocation",
+  "history": [
+    {
+      "action": "created",
+      "at": "2026-10-16T20:17:43.460517+00:00",
+      "pass": 1,
+      "phase": "plan"
+    },
+    {
+      "action": "plan-revised",
+      "at": "2026-10-16T20:18:10.527837+00:00",
+      "pass": 1,
+      "phase": "plan",
+      "previous": {
+        "acceptance": [
+          "The template \u00a710 table has a `cycle` row whose phrases include \"start a cycle\" and \"cycle status\"",
+          "The template \u00a710 rows for dev-cycle, iterate, patch-cycle, fix-directly, author-promptbook and run-promptbook no longer say they allocate PB-NNNN or start new runs; they route new work to cycle",
+          "A template-parity clause fails when the template \u00a710 lacks the `cycle` row and passes once it is present",
+          "The parity checker and its test module pass"
+        ],
+        "constraints": [],
+        "revision": 1,
+        "scope": [
+          "crux/templates/AGENTS.md.tmpl",
+          "crux/scripts/template_parity_manifest.json",
+          "crux/scripts/tests/test_check_template_parity.py"
+        ],
+        "tasks": [],
+        "verification": []
+      },
+      "reason": "Initial plan: constraints, verification and phase tasks"
+    },
+    {
+      "action": "plan",
+      "at": "2026-10-16T20:18:10.527962+00:00",
+      "pass": 1,
+      "phase": "plan",
+      "reason": "Initial plan: constraints, verification and phase tasks"
+    },
+    {
+      "action": "checks",
+      "at": "2026-10-16T20:18:10.579823+00:00",
+      "pass": 1,
+      "phase": "plan"
+    },
+    {
+      "action": "scrutiny",
+      "at": "2026-10-16T20:18:10.631666+00:00",
+      "pass": 1,
+      "phase": "plan"
+    },
+    {
+      "action": "advance",
+      "at": "2026-10-16T20:18:10.684268+00:00",
+      "pass": 1,
+      "phase": "build"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-16T20:18:18.359157+00:00",
+      "pass": 1,
+      "phase": "build",
+      "state": "active",
+      "task": "build-template-rows"
+    },
+    {
+      "action": "task",
+      "at": "2026-10-16T20:18:18.359346+00:00",
+      "pass": 1,
+      "phase": "build"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-16T20:18:18.412251+00:00",
+      "pass": 1,
+      "phase": "build",
+      "state": "active",
+      "task": "build-parity-clause"
+    },
+    {
+      "action": "task",
+      "at": "2026-10-16T20:18:18.412439+00:00",
+      "pass": 1,
+      "phase": "build"
+    },
+    {
+      "action": "task-add",
+      "at": "2026-10-16T20:20:36.030957+00:00",
+      "pass": 1,
+      "phase": "build"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-16T20:20:36.083814+00:00",
+      "pass": 1,
+      "phase": "build",
+      "state": "done",
+      "task": "build-template-rows"
+    },
+    {
+      "action": "task",
+      "at": "2026-10-16T20:20:36.083962+00:00",
+      "pass": 1,
+      "phase": "build"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-16T20:20:36.135757+00:00",
+      "pass": 1,
+      "phase": "build",
+      "state": "done",
+      "task": "build-parity-clause"
+    },
+    {
+      "action": "task",
+      "at": "2026-10-16T20:20:36.135894+00:00",
+      "pass": 1,
+      "phase": "build"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-16T20:20:36.188780+00:00",
+      "pass": 1,
+      "phase": "build",
+      "state": "done",
+      "task": "build-reanchor-guide-clauses"
+    },
+    {
+      "action": "task",
+      "at": "2026-10-16T20:20:36.188910+00:00",
+      "pass": 1,
+      "phase": "build"
+    },
+    {
+      "action": "advance",
+      "at": "2026-10-16T20:20:36.240648+00:00",
+      "pass": 1,
+      "phase": "test"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-16T20:20:42.377011+00:00",
+      "pass": 1,
+      "phase": "test",
+      "state": "active",
+      "task": "test-checks"
+    },
+    {
+      "action": "task",
+      "at": "2026-10-16T20:20:42.377140+00:00",
+      "pass": 1,
+      "phase": "test"
+    },
+    {
+      "action": "evidence",
+      "at": "2026-10-16T20:21:06.593033+00:00",
+      "pass": 1,
+      "phase": "test"
+    },
+    {
+      "action": "evidence",
+      "at": "2026-10-16T20:21:06.728109+00:00",
+      "pass": 1,
+      "phase": "test"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-16T20:21:07.219547+00:00",
+      "pass": 1,
+      "phase": "test",
+      "state": "done",
+      "task": "test-checks"
+    },
+    {
+      "action": "task",
+      "at": "2026-10-16T20:21:07.219682+00:00",
+      "pass": 1,
+      "phase": "test"
+    },
+    {
+      "action": "evidence",
+      "at": "2026-10-16T20:21:32.385189+00:00",
+      "pass": 1,
+      "phase": "test"
+    },
+    {
+      "action": "evidence",
+      "at": "2026-10-16T20:21:32.524448+00:00",
+      "pass": 1,
+      "phase": "test"
+    },
+    {
+      "action": "advance",
+      "at": "2026-10-16T20:21:33.108914+00:00",
+      "pass": 1,
+      "phase": "review"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-16T20:21:40.620582+00:00",
+      "pass": 1,
+      "phase": "review",
+      "state": "active",
+      "task": "review-independent"
+    },
+    {
+      "action": "task",
+      "at": "2026-10-16T20:21:40.620747+00:00",
+      "pass": 1,
+      "phase": "review"
+    },
+    {
+      "action": "review",
+      "at": "2026-10-16T20:24:40.672835+00:00",
+      "pass": 1,
+      "phase": "review"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-16T20:24:40.731180+00:00",
+      "pass": 1,
+      "phase": "review",
+      "state": "done",
+      "task": "review-independent"
+    },
+    {
+      "action": "task",
+      "at": "2026-10-16T20:24:40.731341+00:00",
+      "pass": 1,
+      "phase": "review"
+    },
+    {
+      "action": "advance",
+      "at": "2026-10-16T20:24:41.315586+00:00",
+      "pass": 1,
+      "phase": "reflect"
+    },
+    {
+      "action": "reflect",
+      "at": "2026-10-16T20:24:53.915474+00:00",
+      "pass": 1,
+      "phase": "reflect"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-16T20:24:53.970816+00:00",
+      "pass": 1,
+      "phase": "reflect",
+      "state": "done",
+      "task": "reflect"
+    },
+    {
+      "action": "task",
+      "at": "2026-10-16T20:24:53.970961+00:00",
+      "pass": 1,
+      "phase": "reflect"
+    },
+    {
+      "action": "advance",
+      "at": "2026-10-16T20:24:54.565676+00:00",
+      "pass": 1,
+      "phase": "reflect"
+    }
+  ],
+  "id": "CYC-0001",
+  "implementers": [
+    "crux:developer"
+  ],
+  "pass": 1,
+  "pass_limit": 2,
+  "phase": "reflect",
+  "plan": {
+    "acceptance": [
+      "The template \u00a710 table has a `cycle` row whose phrases include \"start a cycle\" and \"cycle status\"",
+      "The template \u00a710 rows for dev-cycle, iterate, patch-cycle, fix-directly, author-promptbook and run-promptbook no longer say they allocate PB-NNNN or start new runs; they route new work to cycle",
+      "A template-parity clause fails when the template \u00a710 lacks the `cycle` row and passes once it is present",
+      "The parity checker and its test module pass"
+    ],
+    "constraints": [
+      "Edit only the template \u00a710 cycle and promptbook routing rows; leave the rest of the template, including \u00a79 and the historical \u00a710.A cheat-sheet, unchanged",
+      "Row phrases and notes follow the current catalog (crux/catalog/skills.json triggers and routing_note) without ADR numbers, because the template ships downstream",
+      "Do not edit bionic/AGENTS.md: its \u00a710 is a generated region",
+      "The parity manifest stores markers only (anchor plus pattern), never clause text",
+      "No ADR, IDR or promptbook: this is a minor correction to a distributed instruction surface"
+    ],
+    "revision": 2,
+    "scope": [
+      "crux/templates/AGENTS.md.tmpl",
+      "crux/scripts/template_parity_manifest.json",
+      "crux/scripts/tests/test_check_template_parity.py"
+    ],
+    "tasks": [
+      {
+        "depends_on": [],
+        "description": "Confirm the stale rows and the parity mechanism; record the plan",
+        "expected_evidence": [
+          "This plan revision"
+        ],
+        "id": "plan-scope",
+        "phase": "plan",
+        "status": "done"
+      },
+      {
+        "depends_on": [
+          "plan-scope"
+        ],
+        "description": "Add the `cycle` row and update the six compatibility and historical rows in the template \u00a710",
+        "expected_evidence": [
+          "Diff of crux/templates/AGENTS.md.tmpl confined to \u00a710 rows"
+        ],
+        "id": "build-template-rows",
+        "phase": "build",
+        "status": "done"
+      },
+      {
+        "depends_on": [
+          "plan-scope"
+        ],
+        "description": "Add a markers-only parity clause pinning the `cycle` routing row, with a test that proves it detects a missing row",
+        "expected_evidence": [
+          "Manifest clause and test diff"
+        ],
+        "id": "build-parity-clause",
+        "phase": "build",
+        "status": "done"
+      },
+      {
+        "depends_on": [
+          "build-template-rows",
+          "build-parity-clause"
+        ],
+        "description": "Run or reuse the three declared checks through the shared evidence runner",
+        "expected_evidence": [
+          "Evidence IDs for template-parity, template-parity-tests, template-readers"
+        ],
+        "id": "test-checks",
+        "phase": "test",
+        "status": "done"
+      },
+      {
+        "depends_on": [
+          "test-checks"
+        ],
+        "description": "Independent standard-scrutiny review by crux:reviewer",
+        "expected_evidence": [
+          "Review report recorded on the cycle"
+        ],
+        "id": "review-independent",
+        "phase": "review",
+        "status": "done"
+      },
+      {
+        "depends_on": [
+          "review-independent"
+        ],
+        "description": "Record outcome, lessons about the Claude Code harness, and follow-ups",
+        "expected_evidence": [
+          "Reflection recorded on the cycle"
+        ],
+        "id": "reflect",
+        "phase": "reflect",
+        "status": "done"
+      },
+      {
+        "depends_on": [
+          "plan-scope"
+        ],
+        "description": "Re-anchor the two USER_GUIDE council parity clauses to the heading commit 084ff040 renamed ('Historical promptbook councils and independent reviews'). Baseline run on unchanged main confirmed test_shipped_manifest_has_no_stale_clauses fails; acceptance requires the parity test module to pass, and the manifest is in scope. Markers only.",
+        "expected_evidence": [
+          "Manifest anchor and section-label diff; parity check reports 0 stale"
+        ],
+        "id": "build-reanchor-guide-clauses",
+        "phase": "build",
+        "status": "done"
+      }
+    ],
+    "verification": [
+      "check template-parity: check_template_parity.py over the real repo exits 0 with the new clause OK",
+      "check template-parity-tests: the test_check_template_parity.py module passes, including a positive control in which a twin lacking the `cycle` row yields DRIFT",
+      "check template-readers: the test modules that read AGENTS.md.tmpl pass",
+      "Independent review by crux:reviewer at standard scrutiny"
+    ]
+  },
+  "reflection": {
+    "lessons": [
+      "A check declaration whose inputs include the docs tree also covers cycles/, so each cycle mutation invalidates its own evidence. Exclude the cycle directory with exclude_inputs; the runner supports it, but the cycle skill's testing reference does not document it.",
+      "plan revisions are refused outside the Plan phase; a scope addition found during Build is recorded with task-add and its reason.",
+      "In Claude Code the crux:developer subagent ran in an isolated git worktree, so the coordinator must apply its diff to the main checkout before Test.",
+      "A baseline run on unchanged main distinguished a pre-existing failure from a regression before scope was widened.",
+      "The reviewer role cannot verify evidence fingerprints itself; the coordinator re-validated the reused evidence after review."
+    ],
+    "outcome": "Delivered in one pass. The distributed template \u00a710 now routes cycle phrases to the cycle skill and describes dev-cycle, iterate, patch-cycle, fix-directly, author-promptbook and run-promptbook as compatibility or historical routes. A markers-only parity clause gates the cycle row. Two USER_GUIDE parity clauses left stale by the 4.0 heading rename were re-anchored, so the parity test module passes on main again. Independent review approved. This cycle also served as an end-to-end check of the cycle workflow under Claude Code with the installed 4.0.0 plugin: the writer, shared test evidence, crux:developer and crux:reviewer delegation, the visualizer, and the crux-mods /crux-dashboard all worked.",
+    "remaining": [
+      "Document exclude_inputs in the cycle skill's testing reference.",
+      "Align the template \u00a710 archive-promptbook row with the canonical historical-only note.",
+      "Consider widening skill-table-cycle-row to gate the cycle row's phrase cell.",
+      "Consider projecting the template \u00a710 from the catalog with the routing-table generator, so the twin cannot drift.",
+      "Authority-reset candidates for ADR-0077 recorded in crux-authority-reset.md.",
+      "The crux:commander role was not exercised as a subagent; the main session coordinated."
+    ]
+  },
+  "release": null,
+  "required_checks": [
+    "template-parity",
+    "template-parity-tests",
+    "template-readers"
+  ],
+  "review_policy": {
+    "rationale": "Repository default. Instruction-template text and a checker manifest; no trust boundary, credentials or destructive operation. The template ships downstream, so review covers routing accuracy against the catalog.",
+    "risks": [
+      "distributed-surface"
+    ],
+    "scrutiny": "standard"
+  },
+  "reviews": [
+    {
+      "path": "cycles/CYC-0001/reviews/1362789497154cfeaa5750ee6100a6f7.json",
+      "sha256": "59fc153cd836fb0a1662bc724362d51228ea597bc508a9d30620c08cb9707dbb"
+    }
+  ],
+  "schema_version": 1,
+  "status": "completed",
+  "title": "Route new work to cycle in the distributed schema template",
+  "type": "iterate",
+  "updated_at": "2026-10-16T20:24:54.565827+00:00"
+}

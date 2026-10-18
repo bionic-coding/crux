@@ -1260,7 +1260,17 @@ def _parse(argv):
                         help="write the timings file from a --records JSONL and exit")
     parser.add_argument("--timings-out", dest="timings_out", default=None,
                         help="the file --write-timings writes (default: the committed file)")
+    parser.add_argument("--shared-evidence", action="store_true", help="reuse repository-wide evidence for matching suite inputs")
+    parser.add_argument("--evidence-scope", choices=("checkout", "staged"), default="checkout")
+    parser.add_argument("--retry-reason", default=os.environ.get("CRUX_TEST_RETRY_REASON"), help="reason to retry an unchanged failing check")
+    evidence_mode = parser.add_mutually_exclusive_group()
+    evidence_mode.add_argument("--plan-test-evidence", action="store_true", help="report evidence lookup only; never execute tests")
+    evidence_mode.add_argument("--reuse-test-evidence-only", action="store_true", help="refuse missing or invalid evidence without executing tests")
     args = parser.parse_args(argv)
+    if (args.plan_test_evidence or args.reuse_test_evidence_only) and not args.shared_evidence:
+        parser.error("evidence planning/reuse-only requires --shared-evidence")
+    if (args.plan_test_evidence or args.reuse_test_evidence_only) and args.write_timings is not None:
+        parser.error("evidence planning/reuse-only cannot write timings")
     if args.write_timings is None and args.start is None:
         parser.error("the following arguments are required: start")
     return args
@@ -1281,6 +1291,15 @@ def main(argv=None):
     args = _parse(argv)
     if args.write_timings is not None:
         return _write_timings_main(args)
+    if args.shared_evidence:
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        from suite_evidence import run_shared
+        from test_evidence import EvidenceError
+        try:
+            return run_shared(args)
+        except (EvidenceError, OSError) as err:
+            sys.stderr.write("%s FAILED CLOSED: %s\n" % (_PREFIX, err))
+            return 2
     try:
         timings, timings_note = load_timings(args.timings)
     except LedgerError as err:

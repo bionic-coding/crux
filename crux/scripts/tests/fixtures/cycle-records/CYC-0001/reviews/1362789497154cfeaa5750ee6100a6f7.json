@@ -1,0 +1,33 @@
+{
+  "advisory": [
+    "skill-table-cycle-row checks only that the cycle cell exists; widening the pattern to the phrase cell would gate the 'start a cycle' and 'cycle status' phrases",
+    "Template \u00a710 archive-promptbook row still reads 'Only when all prompts terminal.'; align it with the canonical historical-only note in a follow-up",
+    "Record the USER_GUIDE re-anchor as a scope addition (recorded as task build-reanchor-guide-clauses)",
+    "Five other modules read the template or manifest (test_forge_log_enum, test_observations_schema_surfaces, test_op_enum_regex_twin, test_canonical_instruction_file, test_lint_default_scope); static inspection shows none observes this change"
+  ],
+  "at": "2026-10-16T20:24:40.672334+00:00",
+  "basis_sha256": "74432ef0b44c01f8fcc331430a0397026f8a999f99943c4df05018199ef52df5",
+  "blocking": [],
+  "cosmetic": [
+    "TestSkillTableCycleRow._require_dev_surface repeats the _dev_surface import found twice elsewhere in the file"
+  ],
+  "evidence": [
+    "Working-tree diff confined to the three scoped files; bionic/AGENTS.md unmodified",
+    "Template \u00a710 rows for author-promptbook, cycle, dev-cycle, iterate, patch-cycle, fix-directly and run-promptbook are byte-identical to the generated bionic/AGENTS.md \u00a710 rows and match crux/catalog/skills.json",
+    "Template carries no ADR-NNNN token (the check-public-release-content pattern)",
+    "check_template_parity.py count comparison returns P2 DRIFT when the twin lacks the cycle cell; TestSkillTableCycleRow is a real positive control",
+    "Renamed USER_GUIDE heading resolves in USER_GUIDE.md and crux/templates/USER_GUIDE.md",
+    "Reused TE-6e44680873124bed8b1fc3561b0a356e, TE-c04aecdbd5be4620a2a544939d29c383, TE-9aa7ff1682fd4d94a1dde37eb964f221 (coordinator re-validated all three after review)"
+  ],
+  "input_sha256": "830cc94ea31d727229c967e8db1b184df967d60921bd9364971082be56f73b54",
+  "pass": 1,
+  "rationale": "Standard scrutiny. All five acceptance criteria are verified by inspection and reused evidence; constraints hold; no defect or missing acceptance evidence found.",
+  "reviewer": "crux:reviewer",
+  "scope": [
+    "crux/templates/AGENTS.md.tmpl",
+    "crux/scripts/template_parity_manifest.json",
+    "crux/scripts/tests/test_check_template_parity.py"
+  ],
+  "scrutiny": "standard",
+  "verdict": "approve"
+}

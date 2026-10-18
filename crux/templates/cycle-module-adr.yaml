@@ -1,3 +1,4 @@
+# Historical compatibility template; new work uses cycle.py and cycle.schema.json.
 # Cycle module: ADR (4 prompts) — YAML partial
 #
 # This module is a YAML fragment: a list of prompt mappings ({title, purpose, prompt,

@@ -282,6 +282,87 @@ class RunEndToEndTestCase(unittest.TestCase):
 
     SKILLS = [{"id": "alpha", "description": 'Use when "do this".', "routing_note": "n"}]
 
+    def _make_template(self, root: Path, body: str = "STALE") -> Path:
+        path = root / "crux/templates/AGENTS.md.tmpl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"TEMPLATE HEAD\n{B}\n{body}\n{E}\nTEMPLATE TAIL\n", encoding="utf-8")
+        return path
+
+    def test_both_surfaces_regenerate_from_catalog_and_preserve_outside(self):
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            operational = self._make_tree(root, "OLD OPERATIONAL", self.SKILLS)
+            template = self._make_template(root)
+            code, payload = grt.run(root, dry_run=False)
+            self.assertEqual(code, 0)
+            self.assertEqual(payload["written"], ["bionic/AGENTS.md", "crux/templates/AGENTS.md.tmpl"])
+            region, _ = grt.build_region(self.SKILLS)
+            self.assertEqual(template.read_text(), f"TEMPLATE HEAD\n{B}{region}{E}\nTEMPLATE TAIL\n")
+            self.assertEqual(operational.read_text(), f"HEAD LINE\n{B}{region}{E}\nTAIL LINE\n")
+            self.assertEqual(grt.run(root, dry_run=True)[0], 0)
+
+    def test_template_phrase_and_note_mutations_drift_even_with_clean_operational(self):
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            self._make_tree(root, "STALE", self.SKILLS)
+            region, _ = grt.build_region(self.SKILLS)
+            template = self._make_template(root, region.strip())
+            grt.run(root, dry_run=False)
+            clean = template.read_text()
+            for old, replacement in [('"do this"', '"obsolete phrase"'), (' | n |', ' | old note |')]:
+                with self.subTest(mutation=old):
+                    mutated = clean.replace(old, replacement)
+                    self.assertNotEqual(clean, mutated)
+                    template.write_text(mutated)
+                    code, payload = grt.run(root, dry_run=True)
+                    self.assertEqual(code, 1)
+                    self.assertEqual(payload["paths"], ["crux/templates/AGENTS.md.tmpl"])
+                    self.assertEqual(template.read_text(), mutated)
+
+    def test_template_is_inspected_without_operational_tree(self):
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            operational = self._make_tree(root, "STALE", self.SKILLS)
+            operational.unlink()
+            template = self._make_template(root)
+            code, payload = grt.run(root, dry_run=True)
+            self.assertEqual(code, 1)
+            self.assertEqual(payload["paths"], ["crux/templates/AGENTS.md.tmpl"])
+            self.assertEqual(grt.run(root, dry_run=False)[0], 0)
+            self.assertIn('"do this"', template.read_text())
+
+    def test_no_surface_is_still_absent(self):
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            operational = self._make_tree(root, "STALE", self.SKILLS)
+            operational.unlink()
+            code, payload = grt.run(root, dry_run=True)
+            self.assertEqual(code, 0)
+            self.assertTrue(payload["surface_absent"])
+
+    def test_invalid_template_markers_refuse_before_any_write(self):
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            operational = self._make_tree(root, "STALE", self.SKILLS)
+            template = self._make_template(root)
+            template.write_text(template.read_text().replace(E, "missing end"))
+            before = operational.read_bytes(), template.read_bytes()
+            with self.assertRaises(grt.RegenError):
+                grt.run(root, dry_run=False)
+            self.assertEqual((operational.read_bytes(), template.read_bytes()), before)
+
+    def test_template_crlf_is_preserved(self):
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            self._make_tree(root, "STALE", self.SKILLS)
+            template = self._make_template(root)
+            template.write_bytes(template.read_bytes().replace(b"\n", b"\r\n"))
+            grt.run(root, dry_run=False)
+            body = template.read_bytes()
+            self.assertIn(b'"do this"', body)
+            self.assertNotIn(b"\n", body.replace(b"\r\n", b""))
+            self.assertEqual(grt.run(root, dry_run=True)[0], 0)
+
     def test_dry_run_reports_drift_and_writes_nothing(self):
         with tempfile.TemporaryDirectory() as t:
             tmp = Path(t)
@@ -340,6 +421,27 @@ class ExitAndEnrollmentTestCase(unittest.TestCase):
         self.assertIn("generate-routing-table.py", claude.read_text(encoding="utf-8"))
 
 
+
+
+class FreshProjectRoutingTests(unittest.TestCase):
+    def test_init_template_substitution_preserves_the_entire_catalog_table(self):
+        """Exercise init-docs step 5's literal substitutions in a fresh tree."""
+        template = (REPO_ROOT / "crux/templates/AGENTS.md.tmpl").read_text(encoding="utf-8")
+        rendered = template.replace("{{repo_name}}", "fresh-project").replace("{{today}}", "2026-10-16")
+        with tempfile.TemporaryDirectory() as t:
+            # This is a newly rendered template, not the checkout's dev-only
+            # operational schema. Keep the fixture runnable in staged artifacts.
+            output = Path(t) / "instructions.md"
+            output.write_text(rendered, encoding="utf-8")
+            text = output.read_text(encoding="utf-8")
+        i, j = grt.find_region(text, "fresh instructions")
+        skills = json.loads((REPO_ROOT / "crux/catalog/skills.json").read_text(encoding="utf-8"))
+        region, no_triggers = grt.build_region(skills)
+        self.assertEqual(no_triggers, [])
+        self.assertEqual(text[i:j], region)
+        self.assertIn('| `cycle` |', text[i:j])
+        self.assertNotIn("{{repo_name}}", text)
+        self.assertNotIn("{{today}}", text)
 
 
 class DeclaredTriggerFieldTests(unittest.TestCase):

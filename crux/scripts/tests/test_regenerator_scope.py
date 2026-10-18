@@ -557,6 +557,13 @@ class OutOfScopeTests(unittest.TestCase):
                         f"{name}: exit {result.returncode} on a tree that owns none of "
                         f"its surfaces\n{result.stdout}\n{result.stderr}")
                     payload = json.loads(result.stdout)
+                    if name == "generate-routing-table.py":
+                        # Plugin-only artifacts own the shipped template even
+                        # though they omit the operational documentation tree.
+                        self.assertFalse(payload.get("surface_absent"), payload)
+                        self.assertEqual(payload["targets"], ["crux/templates/AGENTS.md.tmpl"])
+                        self.assertFalse(payload["drift"], payload)
+                        continue
                     self.assertTrue(payload.get("surface_absent"), payload)
                     self.assertTrue((payload.get("reason") or "").strip(), payload)
 

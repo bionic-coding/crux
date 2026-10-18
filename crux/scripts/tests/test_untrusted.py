@@ -256,3 +256,133 @@ class MessageLimitTests(unittest.TestCase):
         out = U.redact("ok\nCHK-OBS-FAKE: fine", quoted=False,
                        limit=U.MESSAGE_LIMIT)
         self.assertEqual(out.count("\n"), 0)
+
+
+class HandlerLocalBindingTests(unittest.TestCase):
+    def test_handler_import_is_visible_to_its_own_call(self):
+        source = """
+def refuse():
+    try:
+        raise ValueError('fixture')
+    except ValueError:
+        from untrusted import redact
+        return redact('value')
+"""
+        namespace = {}
+        exec(source, namespace)
+        self.assertEqual(namespace['refuse'](), U.redact('value'))
+        self.assertEqual(U.binding_problems({'reader.py': source}), [])
+
+    def test_handler_import_does_not_bind_the_success_path(self):
+        source = """
+def refuse(value):
+    try:
+        value = str(value)
+    except ValueError:
+        from untrusted import redact
+        return redact(value)
+    return redact(value)
+"""
+        problems = U.binding_problems({'reader.py': source})
+        self.assertEqual(len(problems), 1)
+        self.assertIn('reader.py:8', problems[0])
+
+    def test_import_in_try_body_is_visible_locally_but_missing_fallback_stays_red(self):
+        source = """
+try:
+    from untrusted import redact
+    result = redact('value')
+except ImportError:
+    pass
+result = redact('value')
+"""
+        problems = U.binding_problems({'reader.py': source})
+        self.assertEqual(len(problems), 1)
+        self.assertIn('reader.py:7', problems[0])
+
+
+    def test_conditional_global_import_does_not_escape_to_successor(self):
+        source = """
+def refuse():
+    global redact
+    try:
+        raise ValueError('fixture')
+    except ImportError:
+        from untrusted import redact
+    except ValueError:
+        pass
+    return redact('value')
+"""
+        namespace = {}
+        exec(source, namespace)
+        with self.assertRaises(NameError):
+            namespace['refuse']()
+        self.assertEqual(len(U.binding_problems({'reader.py': source})), 1)
+
+    def test_nested_function_keeps_enclosing_binding_written_after_try(self):
+        source = """
+def refuse():
+    try:
+        def inner():
+            return redact('value')
+    except ValueError:
+        return None
+    from untrusted import redact
+    return inner()
+"""
+        namespace = {}
+        exec(source, namespace)
+        self.assertEqual(namespace['refuse'](), U.redact('value'))
+        self.assertEqual(U.binding_problems({'reader.py': source}), [])
+
+
+class TraceableGlobalBranchTests(unittest.TestCase):
+    def test_handler_only_global_assignment_does_not_bind_another_path(self):
+        source = """
+def refuse():
+    try:
+        raise ValueError('fixture')
+    except ImportError:
+        globals()['redact'] = str
+    except ValueError:
+        pass
+    return redact('value')
+"""
+        namespace = {}
+        exec(source, namespace)
+        with self.assertRaises(NameError):
+            namespace['refuse']()
+        problems = U.binding_problems({'reader.py': source})
+        self.assertEqual(len(problems), 1)
+        self.assertIn('reader.py:9', problems[0])
+
+    def test_assigning_handler_can_call_its_global_binding(self):
+        source = """
+def refuse():
+    try:
+        raise ImportError('fixture')
+    except ImportError:
+        globals()['redact'] = str
+        return redact('value')
+"""
+        namespace = {}
+        exec(source, namespace)
+        self.assertEqual(namespace['refuse'](), 'value')
+        self.assertEqual(U.binding_problems({'reader.py': source}), [])
+
+    def test_global_assignment_on_every_path_binds_the_successor(self):
+        source = """
+def refuse(fail):
+    try:
+        if fail:
+            raise ImportError('fixture')
+        globals()['redact'] = str
+    except ImportError:
+        globals()['redact'] = str
+    return redact('value')
+"""
+        for fail in (False, True):
+            namespace = {}
+            exec(source, namespace)
+            self.assertEqual(namespace['refuse'](fail), 'value')
+        self.assertEqual(U.binding_problems({'reader.py': source}), [])

@@ -1,6 +1,6 @@
 {
   "name": "crux",
-  "version": "3.32.2",
+  "version": "4.0.2",
   "schema_version": "4",
   "description": "Claude Code plugin that maintains a docs/ tree across seven concerns: code docs, research wiki, ADRs, briefs, work journal, promptbooks, invariants.",
   "homepage": "https://bionic-coding.com/crux/",
@@ -14,6 +14,7 @@
     "skills/cleanup-campsite/SKILL.md",
     "skills/compile-doctrine/SKILL.md",
     "skills/council/SKILL.md",
+    "skills/cycle/SKILL.md",
     "skills/derive-arch/SKILL.md",
     "skills/dev-cycle/SKILL.md",
     "skills/escalate-arch-runtime/SKILL.md",
@@ -43,7 +44,7 @@
     "skills/refresh-research-sources/SKILL.md",
     "skills/refresh-research-synthesis/SKILL.md",
     "skills/retrospective/SKILL.md",
-    "skills/review-decisions/SKILL.md",
+    "skills/migrate-adrs/SKILL.md",
     "skills/run-adr-council/SKILL.md",
     "skills/run-promptbook/SKILL.md",
     "skills/srde/SKILL.md",
@@ -84,6 +85,22 @@
     "scripts/instruction_migration.py",
     "scripts/check-claude-compat.py",
     "scripts/claude_adapter.py",
-    "scripts/build-claude-adapter.py"
+    "scripts/build-claude-adapter.py",
+    "scripts/cycle.py",
+    "scripts/cycle_workflow.py",
+    "scripts/cycle-council.py",
+    "scripts/cycle_council.py",
+    "scripts/decision-policy.py",
+    "scripts/decision_policy.py",
+    "scripts/visualize-cycle-progress.py",
+    "scripts/cycle_progress.py",
+    "scripts/test-evidence.py",
+    "scripts/test_evidence.py",
+    "scripts/suite_evidence.py",
+    "scripts/adr-migration.py",
+    "scripts/adr_migration.py",
+    "scripts/adr_migration_publication.py",
+    "scripts/council_policy.py",
+    "scripts/council_native.py"
   ]
 }

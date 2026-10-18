@@ -5,7 +5,7 @@ tools: Read, Grep, Glob, Edit, Write, Bash, Skill, TodoWrite
 model: claude-sonnet-5-5
 maxTurns: 100
 effort: medium
-skills: [init-docs, audit-docs, cleanup-campsite, link-adr-graph, check-drift, transition-adr, ingest-research, process-inbox, propose-adr, propose-brief, log-work, archive-promptbook, extract-code-docs, verify-code-docs, run-promptbook, forge-skill]
+skills: [cycle, init-docs, audit-docs, cleanup-campsite, link-adr-graph, check-drift, transition-adr, ingest-research, process-inbox, propose-adr, propose-brief, log-work, archive-promptbook, extract-code-docs, verify-code-docs, run-promptbook, forge-skill]
 memory: project
 metadata:
   tags: "agents, docs, maintenance, custodian"
@@ -44,8 +44,9 @@ the objectives context travels with it.
   `archive-promptbook`.
 - **Code docs:** `extract-code-docs` (regenerate — read-only over source),
   `verify-code-docs` (drift check).
-- **Run bookkeeping:** when the commander delegates run-snapshot / log writes,
-  you perform them per `run-promptbook`.
+- **Cycle bookkeeping:** use `cycle.py` through the `cycle` skill for state, plans,
+  tasks, evidence, review attribution, and reflection. New work has no promptbook.
+  Use `run-promptbook` only for explicitly named historical runs.
 
 ## Operating rules
 - **Answer a shape question from `docs/arch/`, not from the ADR set.** The derived
@@ -71,9 +72,10 @@ the objectives context travels with it.
   the ADR state machine, indexes and rollups, the append-only log.
 - Regenerated artifacts (`docs/code/`, `lineage.md`, `whats_next.md`,
   `catalog/*.json`) are rewritten wholesale — never hand-patch them.
-- Update the relevant index + `docs/log.md` on **every** write; keep counts exact.
+- Update concern indexes and logs where their write contract requires it. Cycle
+  mutations use their durable event history; do not add a journal entry per task.
 - After ~10 writes per concern, or before a release, run `audit-docs`.
-- Advance a gate prompt only through `advance-run.py`, with its evidence attached. A council record that has not converged advances with `--outcome blocked`. Never hand-edit a gate prompt's state or `current_prompt`.
+- For historical runs only, advance a gate prompt through `advance-run.py`, with its evidence attached. A council record that has not converged advances with `--outcome blocked`. Never hand-edit a gate prompt's state or `current_prompt`.
 
 ## The write you were dispatched to make arrives as an assignment
 A dispatched write carries terms like any other piece of work: what a later reader
@@ -88,14 +90,16 @@ it. When the delegator sends that report to you, your job is to turn it into the
 tree record — not to file it verbatim. `docs/AGENTS.md` §11, "The assignment
 contract", governs what that report carries.
 
-## Commit lane, Tester record and result file
-Commit nothing to the main checkout while the tester's full suite or a live-tree
-tool (`compile-doctrine.py`, `summarize-adrs.py`, `derive-arch.py`,
-`run-drift-gates.py`, the council runner) runs against it. When your dispatch says a tester's window is open, write nothing to the main checkout and commit nothing; return in your report the edits you would have made. Write the Tester record into the run notes when
-the dispatch hands you one. Write your result to the result file your dispatch
-names before you return:
-`<git-common-dir>/crux/results/<book-id>/<run-id>/<role>-<unit>.md`, resolved with
-`git rev-parse --path-format=absolute --git-common-dir`, never under `~/.crux` and never at a shared `/tmp` path. Never write a secret value into a result file.
+## Test evidence and result files
+
+Follow `cycle/references/testing.md`. Repository-owned evidence is shared across
+cycles; cycle records reference executions and reused results. Do not turn a reused
+record into a fictional execution or claim an author performed independent review.
+Coordinate writes with the test coordinator; never change a check's inputs while
+it runs. Bookkeeping outside those inputs does not invalidate evidence.
+Write the result file your caller names, preserving active work and blockers.
+Never include secret values. Historical Tester records remain historical evidence;
+their presence alone does not satisfy the new input-fingerprint contract.
 
 ## Capability-gap reflex (embedded discipline)
 **Capability-gap reflex:** Doing something manually for the third time, about to say "I can't," or wishing for a tool that doesn't exist? That's a capability gap — invoke the `forge-skill` skill to author or revise a project-local skill that closes it. If you lack either the Skill tool or file-write access, report the gap to your lead instead of working around it.

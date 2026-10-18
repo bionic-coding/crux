@@ -1,6 +1,6 @@
 ---
 name: council
-description: "Convene a three-provider council to judge a decision (\"run the council\", \"ask the council\"); inside a cycle run, the council runner writes the council record that is the gate's evidence."
+description: "Convene configured Lite, Standard or Strict council review; the owning writer records exact-subject approval evidence."
 context: fork
 model: opus
 metadata:
@@ -9,7 +9,6 @@ metadata:
   risk_level: "medium"
   requires_access: "write-run"
   triggers: "run the council | convene the council | ask the council | get a multi-model opinion"
-  requires_env: "OPENROUTER_API_KEY"
 ---
 
 # Crux Council Vote (Async-First)
@@ -28,6 +27,42 @@ This skill is portable across Claude Code, Codex, and OpenCode. This section ove
 - Argument placeholders such as `$adr` and `$book` bind only in Claude Code. On a host without argument binding they are unset — take the value from the user's phrase. The "Fields OpenCode ignores" section of `OPENCODE_GUIDE.md` names the invocation-control fields OpenCode ignores.
 <!-- END GENERATED: runtime-compat -->
 
+## Configured councils
+
+Read `.bionic.yml` through the canonical policy reader. Council mode and human
+acceptance are independent. Existing projects without a council setting retain
+Strict. New setup explicitly selects Standard or an owner-selected Lite mode.
+
+- Lite: native configured Apex challenge, architect response, fresh final review.
+  Final reviewer approval and exact-final architect agreement are both required.
+  No OpenRouter account is required. Follow [native-lite.md](references/native-lite.md).
+- Standard: three gateway provider seats, two approvals and architect agreement.
+  Address every dissent with a typed disposition. Resolved/refuted findings need
+  retained checkable evidence; a non-binding trade-off needs an explanation.
+- Strict: all three gateway seats approve with no recorded blocking findings.
+
+Standard and Strict require `OPENROUTER_API_KEY` through `crux-env`. Missing
+credentials or native capabilities refuse with their cause. Never change mode,
+provider, model or seat count as a fallback. Demonstrated binding failures,
+missing authorization and unresolved required safety facts prevent approval.
+A minority label alone is not a Standard veto.
+
+Use `cycle-council.py` for ADR, IDR, ADR-creation, consultation and disposition
+purposes. Consultation approves no decision. Its `--identity` stays stable across
+renamed files. IDRs retain their cycle name across revisions. The configured
+attempt limit defaults to seven for new mode-aware decisions. Stop on stalled
+progress. Extensions beyond seven and authorized mode changes retain owner
+conversation provenance, findings and total count. Historical reviews keep their
+original policy and limit.
+
+A Standard result waits for the architect even when its provider votes suffice.
+Use `--architect <JSON> --record <result>` to record exact-revision agreement and
+typed dissent; do not call another council just to add that agreement. The writer
+resolves evidence artifacts safely and hashes their bytes. A targeted check for a
+required fact is not another mandatory council round.
+
+The following promptbook procedures preserve historical gateway-only behavior.
+They do not override configured prospective modes.
 
 ## Gate council or ad-hoc council
 

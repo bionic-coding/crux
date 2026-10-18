@@ -1214,7 +1214,7 @@ class ApplyRefreshTests(_ActualCloseFixture):
         run_path=self.root/"docs/promptbooks/runs/PB-0998-fixture/run-RUN-001.yaml"
         book_path.write_text(yaml.safe_dump(book,sort_keys=False));sup.commit_all(self.root,"synthetic separately reviewed successor")
         with self.assertRaises(migration.Refused):migration.authority_view(self.root)
-        started=subprocess.run([sys.executable,str(SCRIPTS/"start-run.py"),str(book_path),"--run-id","RUN-001","--output",str(run_path)],
+        started=subprocess.run([sys.executable,str(SCRIPTS/"start-run.py"), "--historical-replay",str(book_path),"--run-id","RUN-001","--output",str(run_path)],
             capture_output=True,text=True,env=sup.scrubbed_env())
         self.assertEqual(started.returncode,0,started.stdout+started.stderr)
         book.update(current_run="RUN-001",current_prompt=1);book_path.write_text(yaml.safe_dump(book,sort_keys=False))

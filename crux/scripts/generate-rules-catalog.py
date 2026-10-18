@@ -231,16 +231,16 @@ def cited_slug_paths(
     return ({slug: sorted(set(locs)) for slug, locs in found.items()}, refusals)
 
 
-def _load_catalog_inputs(repo_root: Path, plugin_root: Path) -> tuple[dict, dict]:
+def _load_catalog_inputs(repo_root: Path, plugin_root: Path, *, _prepared=None) -> tuple[dict, dict]:
     import implementation_migration as migration
     target = plugin_root / "catalog/rules.json"
     if not target.parent.resolve().is_relative_to(repo_root.resolve()) or target.is_symlink():
         raise OSError("catalog destination is not contained under the repository or is symlinked")
     docs = sp.resolve_tree(repo_root)
-    view = migration.authority_view(repo_root)
+    view = migration.authority_view(repo_root) if _prepared is None else _prepared['view']
     declared = sp.declared_input_domain(docs / "adrs/summaries")
     sp._projection_require(not isinstance(declared, list) or "implementation-migration" not in declared
-        or view["state"] == "published", "catalog declared migration input unavailable")
+        or view["state"] in ("published","prepared"), "catalog declared migration input unavailable")
     manifest = sp.read_manifest(repo_root)
     observations = sp.observations_source(repo_root, manifest) or docs / "observations"
     records = sp.collect_records(docs / "adrs", governs_from=None, observations=observations)
@@ -252,12 +252,12 @@ def _load_catalog_inputs(repo_root: Path, plugin_root: Path) -> tuple[dict, dict
         reviews=reviews, aliases=aliases, cited=cited, refusals=refusals), view
 
 
-def _catalog_payload(loaded: dict, facts: dict) -> dict:
+def _catalog_payload(loaded: dict, facts: dict, *, _prepared=False) -> dict:
     """Pure publication policy, shared by ordinary reads and private candidate plans."""
     for value in (loaded["records"], loaded["reviews"], loaded["aliases"], loaded["cited"], loaded["refusals"], facts):
         sp._plain_summary_value(value)
     overlay = sp._summary_authority_records(loaded["records"], facts,
-        sp.removed_handles(loaded["reviews"]), loaded["aliases"])
+        sp.removed_handles(loaded["reviews"]), loaded["aliases"], _prepared=_prepared)
     records = sp.live_records(overlay["records"])
     slugs = overlay["slugs"]
     by_handle = {r["handle"]: r for r in records}
@@ -268,7 +268,13 @@ def _catalog_payload(loaded: dict, facts: dict) -> dict:
         for slug, paths in cited.items()), "catalog citing paths invalid")
     wanted = set(cited)
     historical = wanted.intersection(overlay["historical_slugs"])
-    ineligible = pe.findings({s: cited[s] for s in wanted.intersection(by_slug)}, by_slug)
+    # A known proposal remains an ineligible source, not an unknown slug.
+    # Keep the publication refusal and its citing-path diagnostics while giving
+    # a live accepted rule precedence over any proposed reuse of its slug.
+    proposals = {sp.slug_of(r["handle"]): r for r in sp.proposed_records(overlay["records"])
+                 if sp.slug_of(r["handle"]) not in by_slug}
+    known = {**proposals, **by_slug}
+    ineligible = pe.findings({s: cited[s] for s in wanted.intersection(known)}, known)
     for slug in sorted(historical):
         row = overlay["historical_slugs"][slug]
         for path in sorted(set(cited[slug]))[:pe.MAX_LOCATIONS_PER_FINDING]:
@@ -280,8 +286,8 @@ def _catalog_payload(loaded: dict, facts: dict) -> dict:
         row = by_slug[slug]
         sp._projection_require(isinstance(row.get("rule"), str) and isinstance(row.get("domain"), str),
                                "catalog rule or domain is not text")
-        rules[slug] = dict(rule=row["rule"], domain=row["domain"])
-    return dict(schema="1", rules=rules, unresolved=sorted(wanted - set(by_slug) - historical),
+        rules[slug] = dict(rule=row.get("effective_rule", row["rule"]), domain=row["domain"])
+    return dict(schema="1", rules=rules, unresolved=sorted(wanted - set(known) - historical),
                 ineligible=ineligible, refusals=loaded["refusals"])
 
 
@@ -300,7 +306,8 @@ def _plan_rules_catalog_outputs(loaded: dict, migration_facts: dict,
     sp._plain_summary_value(str(target))
     if pending_publication is not None:
         sp._summary_pending_publication(pending_publication)
-    payload = _catalog_payload(loaded, migration_facts)
+    payload = _catalog_payload(loaded, migration_facts, _prepared=pending_publication is not None and
+        pending_publication['close_identity'].get('format')=='crux.adr-migration-publication.v1')
     sp._projection_require(not payload["unresolved"] and not payload["ineligible"] and
         not any(not row.get("advisory") for row in payload["refusals"]), "catalog publication refused")
     return _CatalogOutputPlan(((target, render(payload).encode("utf-8")),))
@@ -373,11 +380,23 @@ REMEDY = ("Accept a Proposed decision; for a Deprecated or Superseded one, migra
 SHIPPED_KEYS = ("schema", "rules", "unresolved")
 
 
+
+def _portable_rule_text(text: str) -> str:
+    """Publish rule references by slug while preserving the source decision text."""
+    text = re.sub(r"\b(?:[A-Z][A-Z0-9]{1,9}-)?(?:ADR|OBS)-\d{4}/([a-z][a-z0-9-]*)",
+                  r"rule:\1", text)
+    sp._projection_require(not re.search(r"\b(?:ADR|OBS)-\d{4}\b", text),
+        "catalog rule text names a private decision record without a rule handle")
+    return text
+
+
 def render(catalog: dict) -> str:
     """The bytes the plugin ships. `build_catalog` returns two diagnostic keys beside
     the payload; they are projected out here so the distributed schema is unchanged and
     a diagnostic can never leak into the artifact by someone adding a key upstream."""
     shipped = {k: catalog[k] for k in SHIPPED_KEYS}
+    shipped["rules"] = {slug: {**row, "rule": _portable_rule_text(row["rule"])}
+                        for slug, row in catalog["rules"].items()}
     return json.dumps(shipped, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
 
 
@@ -443,6 +462,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         catalog = build_catalog(repo_root, plugin_root)
+        payload = render(catalog)
     except (migration.Refused, sp.GovernsValidationError) as exc:
         problems = exc.problems if isinstance(exc, sp.GovernsValidationError) else [{"problem": redact(exc, quoted=False)}]
         print(json.dumps({"validation_errors": problems, "written": None}, sort_keys=True))
@@ -513,7 +533,6 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    payload = render(catalog)
     current = target.read_text(encoding="utf-8") if target.is_file() else None
 
     if args.dry_run:

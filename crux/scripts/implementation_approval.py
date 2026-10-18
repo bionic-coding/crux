@@ -278,6 +278,32 @@ def _accepted_governs_entries(repo: Path, tree: Path) -> list[dict]:
     return entries
 
 
+def _current_governs_entries(repo: Path, tree: Path, *, view=None) -> list[dict]:
+    """Current council context uses accepted amendments; historical proof stays raw."""
+    import summaries_projection as summaries
+    entries = _accepted_governs_entries(repo, tree)
+    import implementation_migration as migration
+    if view is None:view=migration.authority_view(repo)
+    # Historical eligibility accepts raw governs mappings without the later
+    # summaries metadata. Only an actual amendment needs that projection.
+    amenders = {amender for _, amender in summaries.ACCEPTANCE_SCOPE_AMENDMENTS}
+    if not view.get('amendments') and not any(e.get('handle') in amenders for e in entries):
+        dead = {handle for entry in entries for handle in entry.get('retires', [])}
+        dead |= set(view['historical_handles']) | set(view['retired_handles'])
+        return [entry for entry in entries if entry.get('handle') not in dead]
+    rows=summaries.collect_records(tree/'adrs')
+    rows=summaries._summary_authority_records(rows,view,{}, {})['records']
+    records = {r["handle"]: r for r in summaries.live_records(rows)}
+    current = []
+    for entry in entries:
+        if entry.get('handle') not in records:continue
+        effective = records.get(entry.get("handle"), {})
+        current.append({**entry, "rule": effective.get("effective_rule", entry.get("rule", "")),
+                        "scope": effective.get("effective_scope", entry.get("scope", "")),
+                        **({"amended_by": list(effective["amended_by"])} if effective.get("amended_by") else {})})
+    return current
+
+
 def _scope_path(repo: Path, entry: str) -> str:
     """The repo-relative form of one scope entry, refused as `path-refused` when it is a symlink.
 
@@ -332,7 +358,7 @@ def undeclared_governing_constraints(repo: Path, scope: list[str], handles: list
     config = bionic_config.load_config(repo)
     tree = config.docs_root
     paths = [_scope_path(repo, entry) for entry in scope]
-    records = _accepted_governs_entries(repo, tree)
+    records = _current_governs_entries(repo, tree, view=view)
     dead = {h for e in records for h in e.get("retires", [])}
     dead |= set(view["historical_handles"]) | set(view["retired_handles"])
     overlapping, unscoped = set(), set()
@@ -427,10 +453,11 @@ def unchecked_rules(repo: Path, item: dict) -> list[dict]:
     wanted = set(found["unscoped"])
     tree = bionic_config.load_config(repo).docs_root
     rows = {}
-    for entry in _accepted_governs_entries(repo, tree):
+    for entry in _current_governs_entries(repo, tree):
         if entry.get("handle") in wanted:
             rows[entry["handle"]] = {"handle": entry["handle"], "rule": str(entry.get("rule", "")),
-                                     "scope": str(entry.get("scope", ""))}
+                                     "scope": str(entry.get("scope", "")),
+                                     **({"amended_by": list(entry["amended_by"])} if entry.get("amended_by") else {})}
     return [rows[h] for h in sorted(rows)]
 
 

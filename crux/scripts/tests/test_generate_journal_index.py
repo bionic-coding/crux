@@ -1533,7 +1533,7 @@ class SurfaceAbsentVerdictProseTests(JournalCliTestCase):
     def test_the_verdict_gives_a_remedy_per_surface_and_never_the_regenerator(self):
         self.assertIn("The fix is never the regenerator, and it differs by "
                       "surface", self.verdict)
-        self.assertIn("run `review-decisions` when a review is due", self.verdict)
+        self.assertIn("consider `migrate-adrs` when historical decisions need assessment", self.verdict)
         self.assertIn("`init-docs` when the journal surface was never created",
                       self.verdict)
 

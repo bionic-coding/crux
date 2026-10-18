@@ -9,6 +9,7 @@ file never contains a banned literal (the checker's own self-allowlist rule).
 from __future__ import annotations
 
 import importlib.util
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -20,6 +21,18 @@ except ImportError:  # unittest discover imports test modules top-level
 
 _SCRIPT = Path(__file__).resolve().parents[1] / "check-no-stale-skill-names.py"
 _RENAME_MAPPING = REPO_ROOT / "tools" / "rename-skills.py"
+
+
+class CurrentMigrationRouteTests(unittest.TestCase):
+    def test_removed_review_workflow_has_no_current_catalog_route(self):
+        old='review'+'-decisions'
+        plugin=REPO_ROOT/'crux'
+        self.assertFalse((plugin/'skills'/old).exists())
+        catalog=json.loads((plugin/'catalog/skills.json').read_text())
+        self.assertNotIn(old,json.dumps(catalog))
+        self.assertIn('migrate-adrs',json.dumps(catalog))
+        for relative in ('agents/architect.md','catalog/bundles.yml','plugin.json','templates/AGENTS.md.tmpl'):
+            self.assertNotIn(old,(plugin/relative).read_text())
 
 # The checker imports its rename mapping from tools/rename-skills.py at
 # module load, and tools/ never crosses the sync boundary (ADR-0036 §3). The

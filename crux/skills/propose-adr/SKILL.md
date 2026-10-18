@@ -24,6 +24,21 @@ This skill is portable across Claude Code, Codex, and OpenCode. This section ove
 - Argument placeholders such as `$adr` and `$book` bind only in Claude Code. On a host without argument binding they are unset — take the value from the user's phrase. The "Fields OpenCode ignores" section of `OPENCODE_GUIDE.md` names the invocation-control fields OpenCode ignores.
 <!-- END GENERATED: runtime-compat -->
 
+## New-policy proposal entry points
+
+A direct request, whiteboarding outcome, or processed brief/inbox item may initiate
+a proposal. An origin inside a new cycle first requires council justification
+for creating an ADR. Record that approval before writing the proposal; it does
+not approve the draft's contents. Follow `cycle/SKILL.md` for this boundary.
+For new proposals, use `decision-policy.py propose` with the actual origin and the
+proposal JSON described in `cycle/references/commands.md`. The allocation steps
+below describe historical authoring; do not allocate a second record manually.
+Regenerate standard indexes/projections and log the operation after the writer,
+respecting their commit preconditions.
+Any accept-immediately shortcut still requires council approval of the exact draft
+and the configured acceptance policy; it never bypasses approval.
+
+
 
 ## Overview
 

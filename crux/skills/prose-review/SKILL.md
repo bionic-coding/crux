@@ -7,7 +7,7 @@ metadata:
   risk_level: "low"
   requires_access: "read-local"
   triggers: "review this prose | prose review | tighten this writing | check the writing rules | edit this text"
-  routing_note: "Checks text against the seven §16 writing rules and returns a rewrite for every finding (`fix` | `confirm`); a finding without replacement text is not a finding. Mandatory at three points: `release-preflight` over `README.md` + `CHANGELOG.md` (advisory until the waiver path is vendored), the `dev-cycle`/`iterate` prep prompt, and `tend-garden` before the morning note."
+  routing_note: "Checks text against the project's seven writing rules and returns a rewrite for every finding (`fix` | `confirm`); a finding without replacement text is not a finding. Mandatory at three points: `release-preflight` over `README.md` + `CHANGELOG.md` (advisory until the waiver path is vendored), the `dev-cycle`/`iterate` prep prompt, and `tend-garden` before the morning note."
 ---
 
 # Prose review

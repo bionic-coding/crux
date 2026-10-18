@@ -1,7 +1,7 @@
 """journal_index.py — the shipped derivation behind `<docs_dir>/journal/index.md`.
 
 Implements `rule:journal-index-row-is-derived-on-every-write`[^derived-row] and
-is read by `rule:journal-index-agrees-with-the-month-file`.[^agrees] Every cell
+is read by `rule:historical-review-reports-stay-readable`.[^agrees] Every cell
 in a journal-index row is derived, on every write, from the entries the
 month's own journal file holds — no cell is ever computed from the row it
 replaces. The count comes from a fence-aware split built on the shared subset
@@ -42,7 +42,7 @@ fixture-only helpers each test file defined for itself, so nothing shipped
 what the tests measured.
 
 [^derived-row]: rule:journal-index-row-is-derived-on-every-write
-[^agrees]: rule:journal-index-agrees-with-the-month-file
+[^agrees]: rule:historical-review-reports-stay-readable
 """
 
 from __future__ import annotations

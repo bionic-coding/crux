@@ -1,0 +1,165 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Repository test execution evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "declaration",
+    "fingerprint",
+    "snapshot",
+    "end_fingerprint",
+    "revision",
+    "executed_command",
+    "started_at",
+    "finished_at",
+    "seconds",
+    "status",
+    "returncode",
+    "reason",
+    "output",
+    "output_sha256",
+    "record_sha256"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^TE-[0-9a-f]{32}$"
+    },
+    "declaration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "check_id",
+        "command",
+        "inputs",
+        "environment"
+      ],
+      "properties": {
+        "check_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "command": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "inputs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "environment": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z_0-9]*$"
+          }
+        },
+        "freshness_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "git_tracked": {
+          "type": "boolean"
+        },
+        "exclude_inputs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "fingerprint": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "snapshot": {
+      "type": "object",
+      "required": [
+        "fingerprint",
+        "inputs",
+        "identity"
+      ],
+      "properties": {
+        "fingerprint": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "inputs": {
+          "type": "object"
+        },
+        "identity": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    },
+    "end_fingerprint": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "revision": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "executed_command": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      }
+    },
+    "started_at": {
+      "type": "number"
+    },
+    "finished_at": {
+      "type": "number"
+    },
+    "seconds": {
+      "type": "number",
+      "minimum": 0
+    },
+    "status": {
+      "enum": [
+        "passed",
+        "failed",
+        "inputs-changed"
+      ]
+    },
+    "returncode": {
+      "type": "integer"
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1
+    },
+    "output": {
+      "type": "string",
+      "pattern": "^TE-[0-9a-f]{32}\\.log$"
+    },
+    "output_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "record_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

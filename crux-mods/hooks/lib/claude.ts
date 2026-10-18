@@ -132,8 +132,8 @@ const WRITING_TOOLS = ['Write', 'Edit', 'MultiEdit', 'NotebookEdit']
 export function touchesRunFile(e: unknown): boolean {
   if (e === null || typeof e !== 'object') return false
   const o = e as Obj
-  if (o.tool === 'Bash') return typeof o.command === 'string' && o.command.includes('/promptbooks/runs/')
+  if (o.tool === 'Bash') return typeof o.command === 'string' && (o.command.includes('/promptbooks/runs/') || o.command.includes('cycle.py') || o.command.includes('/cycles/'))
   if (typeof o.tool !== 'string' || !WRITING_TOOLS.includes(o.tool)) return false
   const path = typeof o.file_path === 'string' ? o.file_path : typeof o.notebook_path === 'string' ? o.notebook_path : ''
-  return path.includes('/promptbooks/runs/')
+  return path.includes('/promptbooks/runs/') || path.includes('/cycles/')
 }

@@ -1,6 +1,6 @@
 ---
 name: run-adr-council
-description: "Run a multi-model council review of a specified ADR; inside a cycle run, its council record is the ADR approval gate's evidence."
+description: "Review an exact ADR through its configured council mode; the owning writer records approval evidence."
 arguments: [adr]
 metadata:
   tags: "council, adr, verification, multi-model"
@@ -8,8 +8,7 @@ metadata:
   risk_level: "medium"
   requires_access: "write-tree"
   triggers: "run the council on ADR-NNNN | council review ADR-NNNN | run-adr-council ADR-NNNN | council-check this ADR"
-  requires_env: "OPENROUTER_API_KEY"
-  routing_note: "Inside a run it passes the ADR to run-council.py as a --subject, which run-council.py fences as data. Its council record is the gate evidence. Outside a run the async driver fences the ADR body itself and is informational. There is no per-ADR driver."
+  routing_note: "New-policy exact-subject approval uses cycle-council.py; historical runs retain their original council gate."
 ---
 
 # run-adr-council
@@ -28,10 +27,16 @@ This skill is portable across Claude Code, Codex, and OpenCode. This section ove
 - Argument placeholders such as `$adr` and `$book` bind only in Claude Code. On a host without argument binding they are unset — take the value from the user's phrase. The "Fields OpenCode ignores" section of `OPENCODE_GUIDE.md` names the invocation-control fields OpenCode ignores.
 <!-- END GENERATED: runtime-compat -->
 
+## New-cycle and new-policy approval
 
-Parameterized ADR council skill. Eliminates copy-paste-adapted council driver scripts: rather than writing a per-ADR driver, this skill assembles the structured council question and runs the council for any ADR.
+Use `cycle-council.py --purpose adr` for the exact revision. Read the `council`
+skill's configured-mode section before dispatch. Lite uses verified native Apex
+and separate contexts without OpenRouter. Standard and Strict use gateway seats
+and require its credential. Standard also needs the architect's reasoned
+exact-revision agreement. Human acceptance is independent of council mode.
+Never select a different mode because credentials or capabilities are unavailable.
 
-Council deliberation runs only through the council runner, and its council record is the only evidence a council gate accepts.[^council] Independent review is a reviewer's examination, and its reviewer report is the only evidence an independent-review gate accepts.[^review] Neither satisfies the other's gate.
+The promptbook path below preserves historical behavior only.
 
 ## Invocation
 

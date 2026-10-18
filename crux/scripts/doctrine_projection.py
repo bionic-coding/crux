@@ -331,10 +331,10 @@ def invariant_pairings(records: list[dict], invariants: list[dict]) -> list[dict
                     "handle": rec["handle"],
                     "domain": rec["domain"],
                     "source_adr": rec["source_adr"],
-                    "rule": rec["rule"],
+                    "rule": rec.get("effective_rule", rec["rule"]),
                     "invariant_text": inv["invariant_text"],
                     "live_digest": reconciliation_content_digest(
-                        inv["invariant_text"], rec["rule"]),
+                        inv["invariant_text"], rec.get("effective_rule", rec["rule"])),
                 })
     pairings.sort(key=lambda p: (p["invariant"], p["handle"]))
     return pairings
@@ -410,7 +410,7 @@ def observation_pairings(records: list[dict], tree_name: str = "bionic") -> list
     for rec in records:
         if rec.get("source_kind", "adr") != "adr":
             continue
-        tokens = scope_path_tokens(rec.get("scope", ""), tree_name)
+        tokens = scope_path_tokens(rec.get("effective_scope", rec.get("scope", "")), tree_name)
         if tokens:
             authored_by_domain.setdefault(rec["domain"], []).append((rec, tokens))
 
@@ -451,9 +451,9 @@ def observation_pairings(records: list[dict], tree_name: str = "bionic") -> list
                     "handle": rec["handle"],
                     "domain": rec["domain"],
                     "source_adr": rec["source_adr"],
-                    "rule": rec["rule"],
+                    "rule": rec.get("effective_rule", rec["rule"]),
                     "invariant_text": obs["rule"],
-                    "live_digest": reconciliation_content_digest(obs["rule"], rec["rule"]),
+                    "live_digest": reconciliation_content_digest(obs["rule"], rec.get("effective_rule", rec["rule"])),
                 }
     return [pairings[k] for k in sorted(pairings)]
 
@@ -758,19 +758,20 @@ def _build_domain_entries_loaded(records: list[dict], invariants: list[dict],
                          else BASIS_NOT_RUN_BOUND)
             rules.append({
                 "handle": rec["handle"],
-                "rule": rec["rule"],
+                "rule": rec.get("effective_rule", rec["rule"]),
                 "source_adr": rec["source_adr"],
                 # disposition alone conveys decided-vs-observed per rule; the
                 # per-DOMAIN `authority` below is the widening's rendering,
                 # emitted only when an observation rule is present.
                 "disposition": sp.disposition_for(rec["provenance"]),
                 # The source record's lifecycle status, verbatim. Rendered
-                # beside `disposition` rather than folded into it: a Proposed
-                # ADR's rule resolves and is still not adopted, and those are
-                # two different facts.
+                # beside `disposition` rather than folded into it. Proposed
+                # rules were excluded before this domain traversal.
                 "source_status": rec.get("source_status"),
                 "basis": basis,
                 "source_kind": rec.get("source_kind", "adr"),
+                **({"scope": rec["effective_scope"], "amended_by": list(rec["amended_by"])}
+                   if rec.get("amended_by") else {}),
             })
         evidence_rows.sort(key=lambda e: (e["handle"], e["evidence"]))
         state = domain_state([p["status"] for p in dpairings], drecs, governs_from)
@@ -824,7 +825,8 @@ def _md_escape(value: str) -> str:
 
 
 def build_index(entries: list[dict], exempt_entries: list[dict],
-                digests: dict, standing: dict[str, dict] | None = None) -> str:
+                digests: dict, standing: dict[str, dict] | None = None,
+                proposed_records: list[dict] | None = None) -> str:
     """The doctrine index — one section per governs domain, an exempt-ADR
     roster, and a provenance block carrying the input digests. Templated prose,
     no model, no timestamp: byte-stable across runs on unchanged inputs.
@@ -913,6 +915,13 @@ def build_index(entries: list[dict], exempt_entries: list[dict],
                 f"| {_md_escape(r['disposition'])} "
                 f"| {_md_escape(r['basis'])} |")
         out.append("")
+        amended = [r for r in e["rules"] if r.get("amended_by")]
+        if amended:
+            out += ["_Accepted scope amendments (source wording and digests remain unchanged):_", "",
+                    "| handle | effective scope | amended by |", "|--------|-----------------|------------|"]
+            for r in amended:
+                out.append(f"| {_md_escape(r['handle'])} | {_md_escape(r['scope'])} | {_md_escape(', '.join(r['amended_by']))} |")
+            out.append("")
         held = [r for r in e["rules"] if standing and r["handle"] in standing]
         if held:
             out.append("_Standing (from provenance records):_")
@@ -954,6 +963,14 @@ def build_index(entries: list[dict], exempt_entries: list[dict],
                        "a digest-bound reconciliation.")
             out.append("")
 
+    if proposed_records:
+        out += ["## Proposed rules — not governing", "",
+                "_These proposals are retrievable source text, not current beliefs or governing citations._", "",
+                "| handle | domain | rule | source_status | authority |",
+                "|--------|--------|------|---------------|-----------|"]
+        for r in sorted(proposed_records, key=sp.record_sort_key):
+            out.append(f"| {_md_escape(r['handle'])} | {_md_escape(r['domain'])} | {_md_escape(r['rule'])} | Proposed | none |")
+        out.append("")
     out.append(f"## Exempt ADRs ({len(exempt_entries)})")
     out.append("")
     if exempt_entries:
@@ -1009,12 +1026,12 @@ def input_digests(root: Path, records: list[dict], invariants: list[dict],
                                    if observations is not None else None),
         "governs_from": governs_from,
         # Bumped 3 -> 4 when the rule table gained its `source_status` column.
-        # The callers overwrite this literal with the published schema "5", which
-        # added the run-bindings digest and the implementation-migration input domain.
+        # Schema 6 separates Proposed source text from governing domain rows and
+        # represents accepted amendments without changing signed source digests.
         # Same rule as the summaries projection's literal: a declared schema that
         # identifies output shape bumps on an additive change, because nothing
         # else tells a reader which contract the file was written against.
-        "schema": "4",
+        "schema": "6",
         "tool": "compile-doctrine.py",
     }
 
@@ -1132,6 +1149,8 @@ def _doctrine_migration_frame(facts: dict, pending: dict | None, overlay: dict,
     batch = pending["close_identity"]["batch"]
     sp._projection_require(dependencies.get(batch["path"]) == batch["sha256"], "doctrine batch snapshot missing")
     publication = dict(path=pending["path"], sha256=pending["sha256"], publication_commit=sp._PublicationCommitSlot())
+    if pending['close_identity'].get('format')=='crux.adr-migration-publication.v1':
+        publication.pop('publication_commit')
     for group in overlay["historical_displacements"].values():
         for edge in group:
             source = selected.get(edge["source_identity"])
@@ -1139,8 +1158,12 @@ def _doctrine_migration_frame(facts: dict, pending: dict | None, overlay: dict,
                 k: source[k] for k in ("path", "source_adr", "clause_sha256")} and
                 edge["source_displacer"] in set(facts["historical_handles"]) | set(facts["retained_handles"]),
                 "doctrine displacement source mismatch")
-            if "publication_ref" in edge: sp._committed_publication_ref(pending, edge["publication_ref"])
-            edge["publication_ref"] = publication
+            if "publication_ref" in edge:
+                sp._projection_require(edge["publication_ref"] in history or
+                    edge['publication_ref']['path']==pending['path'] and edge['publication_ref']['sha256']==pending['sha256'],
+                    "unknown historical publication reference")
+            else:
+                edge["publication_ref"] = publication
     return dict(publication=publication, close_identity=pending["close_identity"], publication_history=history,
         source_refs=sorted(selected.values(), key=lambda s: s["source_identity"]),
         dependency_fingerprints=[dict(path=p, sha256=s) for p, s in sorted(dependencies.items())],
@@ -1179,7 +1202,8 @@ def _plan_doctrine_outputs(loaded_inputs: dict, migration_facts: dict,
         and all(isinstance(h, str) and sp._HANDLE_ANCHOR_RE.fullmatch(h)
             for h in migration_facts["retired_handles"] + migration_facts["retained_handles"])
         and all(isinstance(s, str) for s in migration_facts["reserved_slugs"]), "doctrine migration fields invalid")
-    overlay = sp._summary_authority_records(data["records"], migration_facts, data["removed"], data["aliases"])
+    overlay = sp._summary_authority_records(data["records"], migration_facts, data["removed"], data["aliases"],
+        _prepared=pending_publication is not None and pending_publication['close_identity'].get('format')=='crux.adr-migration-publication.v1')
     signed = {row["handle"] for row in data["reconciliations"] if row["signed"] is not None}
     sp._projection_require(not signed.intersection(edge["target_handle"] for edge in migration_facts["historical_displacements"]),
                           "doctrine displacement would orphan a signed pairing")
@@ -1198,12 +1222,13 @@ def _plan_doctrine_outputs(loaded_inputs: dict, migration_facts: dict,
     sp._projection_require(set(digests) == {"adr_frontmatter_sha256", "invariants_sha256", "reconciliations_sha256",
         "observations_sha256", "survey_receipts_sha256", "governs_from", "schema", "tool", "run_bindings_sha256",
         "input_domain"} | ({"provenance_sha256"} if has_provenance else set())
-        and digests["schema"] == "5" and digests["tool"] == "compile-doctrine.py"
+        and digests["schema"] in ("5", "6") and digests["tool"] == "compile-doctrine.py"
         and digests["governs_from"] == data["governs_from"] and isinstance(digests["input_domain"], list)
         and len(set(digests["input_domain"])) == len(digests["input_domain"])
         and set(digests["input_domain"]) <= {"adrs", "invariants", "reconciliations", "run-bindings", "observations", "survey-receipts", "provenance"}
         and ("provenance" in digests["input_domain"]) == has_provenance,
         "doctrine digest model invalid")
+    digests["schema"] = "6"
     if has_provenance:
         sp._projection_require(isinstance(data["provenance"], dict) and data["provenance"] and
             all(isinstance(k, str) and isinstance(v, dict) and v.get("adr") == k
@@ -1223,7 +1248,8 @@ def _plan_doctrine_outputs(loaded_inputs: dict, migration_facts: dict,
         all(ref["sha256"] == ledger_digest for ref in migration_facts["dependency_fingerprints"]
             if ref["path"] == data["ledger"]["path"]), "doctrine bound raw ledger frame mismatch")
     frame = _doctrine_migration_frame(migration_facts, pending_publication, overlay, data["publication_history"])
-    index_parts = (build_index(entries, data["exempt_entries"], digests, standing),)
+    index_parts = (build_index(entries, data["exempt_entries"], digests, standing,
+                              sp.proposed_records(overlay["records"])),)
     if frame is not None:
         fingerprint = sp._SummaryHashSlot(sp._compile_summary_json(frame, pretty=False))
         digests.update(migration=frame, migration_inputs_sha256=fingerprint,
@@ -1243,18 +1269,18 @@ def _materialize_doctrine_outputs(plan: _DoctrineOutputPlan,
     return {path: sp._render_summary_parts(parts, commit).encode("utf-8") for path, parts in plan}
 
 
-def _load_doctrine_inputs(root: Path, manifest: dict) -> tuple[dict, dict, dict | None, dict | None]:
+def _load_doctrine_inputs(root: Path, manifest: dict, *, _prepared=None) -> tuple[dict, dict, dict | None, dict | None]:
     """Obtain fresh public proof, then preload all evidence and source facts."""
     import implementation_migration as migration
     root = Path(root).absolute()
-    view = migration.authority_view(root)
+    view = migration.authority_view(root) if _prepared is None else _prepared['view']
     declared = sp.declared_input_domain(doctrine_dir(root))
     sp._projection_require(declared is None or isinstance(declared, list) and
         set(declared) <= {"adrs", "invariants", "reconciliations", "run-bindings", "observations", "survey-receipts", "implementation-migration", "provenance"},
         "doctrine declared input domain invalid")
     if declared and "provenance" in declared:
         sp.provenance_entries(sp.adrs_dir(root))    # an OSError here is the environment lane
-    sp._projection_require(not declared or "implementation-migration" not in declared or view["state"] == "published",
+    sp._projection_require(not declared or "implementation-migration" not in declared or view["state"] in ("published","prepared"),
                           "doctrine declared migration input unavailable")
     sp._projection_require(not declared or "observations" not in declared or
         sp.observations_source_problem(root, sp.read_manifest(root)) is None,
@@ -1267,7 +1293,7 @@ def _load_doctrine_inputs(root: Path, manifest: dict) -> tuple[dict, dict, dict 
     records = sp.collect_records(adrs, governs_from=gf, observations=observations)
     reviews = sp.read_reviews(adrs); removed = sp.removed_handles(reviews)
     aliases = sp.collect_observation_alias_rows(observations, records)
-    overlay = sp._summary_authority_records(records, view, removed, aliases)
+    overlay = sp._summary_authority_records(records, view, removed, aliases, _prepared=_prepared is not None)
     invariants = read_invariants(root)
     ledger_path = reconciliations_path(root)
     ledger_text = ledger_path.read_bytes().decode("utf-8") if ledger_path.is_file() else None
@@ -1279,7 +1305,7 @@ def _load_doctrine_inputs(root: Path, manifest: dict) -> tuple[dict, dict, dict 
         for ev in sorted(set(row.get("evidence", [])))]
     digests = input_digests(root, records, invariants, gf, observations)
     provenance, provenance_digest = sp.read_provenance(adrs)
-    digests.update(schema="5", input_domain=["adrs", "invariants", "reconciliations", "run-bindings"] +
+    digests.update(schema="6", input_domain=["adrs", "invariants", "reconciliations", "run-bindings"] +
         (["observations", "survey-receipts"] if observations is not None else []) +
         (["provenance"] if provenance else []),
         run_bindings_sha256=hashlib.sha256(json.dumps(bindings, sort_keys=True, separators=(",", ":")).encode()).hexdigest())
@@ -1295,16 +1321,17 @@ def _load_doctrine_inputs(root: Path, manifest: dict) -> tuple[dict, dict, dict 
         digests["provenance_sha256"] = provenance_digest
         loaded["provenance"] = provenance
     pending = actual = None
-    if view["state"] == "published":
+    if view["state"] in ("published","prepared"):
         # Reuse the accepted exact batch/selected-clause loader; no proof parser fork.
         spec = importlib.util.spec_from_file_location("_doctrine_summary_inputs", Path(__file__).with_name("summarize-adrs.py"))
         driver = importlib.util.module_from_spec(spec); spec.loader.exec_module(driver)
-        _, locator = driver._historical_summary_clauses(root, view)
+        _, locator = driver._historical_summary_clauses(root, view, _candidate=None if _prepared is None else _prepared['candidate'])
         actual = {k: view["publications"][-1][k] for k in ("path", "sha256", "publication_commit")}
         pending = dict(path=actual["path"], sha256=actual["sha256"], close_identity={k: locator[k] for k in
-            ("batch", "book_id", "run_id", "book_content_hash", "slot", "gate_prompt")})
+            (("format", "batch") if locator.get("format")=="crux.adr-migration-publication.v1" else
+             ("batch", "book_id", "run_id", "book_content_hash", "slot", "gate_prompt"))})
         migration._unchanged_inputs(root, view["dependency_fingerprints"] +
-            [dict(path=actual["path"], sha256=actual["sha256"])])
+            ([dict(path=actual["path"], sha256=actual["sha256"])] if _prepared is None else []))
     return loaded, view, pending, actual
 
 

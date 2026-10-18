@@ -1,3 +1,4 @@
+# Historical compatibility template; new work uses cycle.py and cycle.schema.json.
 # Canonical patch cycle (5 prompts) — full YAML book skeleton.
 #
 # A `patch` book is a cycle book with `cycle_kind: patch`: the third tier, for a

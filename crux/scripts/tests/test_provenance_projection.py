@@ -200,8 +200,8 @@ class NoRecordIsByteIdenticalTests(_Base):
         self.assertNotIn("Rule standing", base_summaries["rule-table.md"])
         self.assertNotIn("Standing (from provenance", base_doctrine["index.md"])
         # the schema numbers do not move
-        self.assertEqual(json.loads(base_summaries["_meta.json"])["schema"], "6")
-        self.assertEqual(json.loads(base_doctrine["_meta.json"])["schema"], "5")
+        self.assertEqual(json.loads(base_summaries["_meta.json"])["schema"], "7")
+        self.assertEqual(json.loads(base_doctrine["_meta.json"])["schema"], "6")
 
     def test_control_a_record_moves_bytes_and_declares_the_member(self):
         base_summaries, base_doctrine = self.t.built()
@@ -213,7 +213,7 @@ class NoRecordIsByteIdenticalTests(_Base):
             meta = json.loads(files["_meta.json"])
             self.assertIn("provenance", meta["input_domain"])
             self.assertRegex(meta["provenance_sha256"], r"^[0-9a-f]{64}$")
-            self.assertEqual(meta["schema"], "6" if files is with_summaries else "5")
+        self.assertEqual(meta["schema"], "7" if files is with_summaries else "6")
 
 
 @unittest.skipUnless(HAVE_YAML, "PyYAML required (run under uv)")

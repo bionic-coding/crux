@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "format": {
+      "const": "crux.adr-migration-policy.v1"
+    },
+    "id": {
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+      "type": "string"
+    },
+    "instruction": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "at": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "conversation": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "origin": {
+          "const": "owner-conversation"
+        },
+        "presented": {
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "sha256": {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "sha256"
+          ],
+          "type": "object"
+        },
+        "quote": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "origin",
+        "quote",
+        "action",
+        "at",
+        "conversation",
+        "presented"
+      ],
+      "type": "object"
+    },
+    "pending_action": {
+      "type": "null"
+    },
+    "policy": {
+      "enum": [
+        "council-and-human",
+        "council-only"
+      ]
+    },
+    "previous_policy": {
+      "enum": [
+        "council-and-human",
+        "council-only"
+      ]
+    }
+  },
+  "required": [
+    "format",
+    "id",
+    "policy",
+    "previous_policy",
+    "instruction",
+    "pending_action"
+  ],
+  "title": "Prospective ADR migration policy",
+  "type": "object"
+}

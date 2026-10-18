@@ -1193,5 +1193,87 @@ class ManifestAlternativeLivenessTests(unittest.TestCase):
         )
 
 
+class TestSkillTableCycleRow(ParityTestCase):
+    """Guard complete routing rows, including phrases and notes, in both twins."""
+
+    CLAUSE_ID = "skill-table-cycle-row"
+    CYCLE_ROW = re.compile(r"^\| [^\n]*\| `cycle` \|[^\n]*\n", re.M)
+
+    def _shipped_clause(self) -> dict:
+        manifest = json.loads(
+            (SCRIPTS_DIR / "template_parity_manifest.json").read_text(encoding="utf-8")
+        )
+        matches = [c for c in manifest["clauses"] if c["id"] == self.CLAUSE_ID]
+        self.assertEqual(len(matches), 1, "shipped manifest lacks the cycle-row clause")
+        return matches[0]
+
+    def _synthetic_root(self, twin_text: str) -> tuple[Path, Path]:
+        """A root whose canonical is the real bionic/AGENTS.md and whose twin is
+        `twin_text`, with only the shipped cycle-row clause in the manifest."""
+        canon = self.root / "bionic"
+        canon.mkdir(parents=True, exist_ok=True)
+        (canon / "AGENTS.md").write_text(
+            (REPO_ROOT / "bionic" / "AGENTS.md").read_text(encoding="utf-8"), encoding="utf-8"
+        )
+        _make_twin(self.root, twin_text)
+        return _make_manifest(self.root, [self._shipped_clause()]), self.root
+
+    def _real_twin(self) -> str:
+        return (REPO_ROOT / "crux" / "templates" / "AGENTS.md.tmpl").read_text(encoding="utf-8")
+
+    def _require_dev_surface(self):
+        try:
+            from ._dev_surface import require_dev_surface
+        except ImportError:  # unittest discover imports test modules top-level
+            from _dev_surface import require_dev_surface
+        require_dev_surface(self, REPO_ROOT / "bionic" / "AGENTS.md", "bionic/AGENTS.md")
+
+    def test_real_pair_carries_the_cycle_row(self):
+        self._require_dev_surface()
+        manifest, root = self._synthetic_root(self._real_twin())
+        results = ctp.check_parity(manifest, root)
+        self.assertEqual([r["status"] for r in results], ["OK"], results)
+
+    def test_twin_without_the_cycle_row_drifts(self):
+        self._require_dev_surface()
+        twin = self._real_twin()
+        # Positive control: the fixture really lost the row the clause guards.
+        self.assertTrue(self.CYCLE_ROW.search(twin), "real twin has no cycle row to remove")
+        stripped = self.CYCLE_ROW.sub("", twin)
+        self.assertFalse(self.CYCLE_ROW.search(stripped))
+        manifest, root = self._synthetic_root(stripped)
+
+        results = ctp.check_parity(manifest, root)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["status"], "DRIFT", results)
+        self.assertEqual(results[0]["severity"], "P2")
+
+        proc = subprocess.run(
+            [sys.executable, str(CLI), "--manifest", str(manifest), "--root", str(root)],
+            capture_output=True, text=True, cwd=str(root), timeout=60,
+        )
+        self.assertEqual(proc.returncode, 1, proc.stderr)
+        self.assertIn(self.CLAUSE_ID, proc.stdout)
+
+    def test_twin_with_cycle_phrase_changed_drifts(self):
+        self._require_dev_surface()
+        twin = self._real_twin()
+        mutated = twin.replace('"start a cycle"', '"start the obsolete workflow"', 1)
+        self.assertNotEqual(twin, mutated)
+        manifest, root = self._synthetic_root(mutated)
+        self.assertEqual(ctp.check_parity(manifest, root)[0]["status"], "DRIFT")
+
+    def test_twin_with_compatibility_note_changed_drifts(self):
+        self._require_dev_surface()
+        twin = self._real_twin()
+        row = re.search(r"^\| [^\n]*\| `dev-cycle` \|[^\n]*$", twin, re.M)
+        self.assertIsNotNone(row)
+        cells = row[0].split(" | ")
+        cells[-1] = "Obsolete promptbook minimum: 13 prompts. |"
+        mutated = twin.replace(row[0], " | ".join(cells))
+        manifest, root = self._synthetic_root(mutated)
+        self.assertEqual(ctp.check_parity(manifest, root)[0]["status"], "DRIFT")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -10,6 +10,14 @@
       "pattern": "YYYY-MM-DD"
     },
     {
+      "id": "skill-table-cycle-row",
+      "section": "\u00a710 every skill invocation row preserves the catalog's phrases, skill and routing note in the distributed template",
+      "canonical": "bionic/AGENTS.md",
+      "twin": "crux/templates/AGENTS.md.tmpl",
+      "anchor": "## 10. Skill invocation table",
+      "pattern": "(?m)^\\|[^\\n]*$"
+    },
+    {
       "id": "log-op-enum-invariant",
       "section": "\u00a76 op-enum carries the `invariant` op",
       "canonical": "bionic/AGENTS.md",
@@ -274,20 +282,12 @@
       "pattern": "(?m)^- [^\\n]*`Friction:`[^\\n]*$"
     },
     {
-      "id": "reviews-surface-report-shape",
-      "section": "\u00a74 adrs write rules: the Reviews-surface report shape \u2014 six H2 sections in order, the summary table's place, the one data-framing note, and the grandfather date",
-      "canonical": "bionic/AGENTS.md",
-      "twin": "crux/templates/AGENTS.md.tmpl",
-      "anchor": "### adrs (append-only history)",
-      "pattern": "exactly six H2 sections in the order Propose, Amend, Repair, Revoke, Keep, Coverage|one summary table between its title and|and exactly one data-framing note|a report dated on or before that date keeps the sections and the notes it was written with|The five-finding per-pass cap counts across Propose, Amend, Repair and Revoke combined|Keep, Coverage, the summary table and the Revoke dispositions count against no cap|Keep, Coverage and the Revoke dispositions define no finding|the summary table defines none, carrying in each row an id one of the four finding sections already defines|Keep and the Revoke dispositions carry no finding id at all|Coverage carries a finding id only where a lifecycle record references one|so the no-definition clause governs Coverage unchanged|that row id set equals the set of ids the four finding sections define|equal counts alone do not satisfy it|A disagreement between the two sets is refused rather than counted around"
-    },
-    {
-      "id": "log-op-adr-review-body-grammar",
-      "section": "\u00a76 the `adr-review` op body: the four finding sections in order, and that Keep and Coverage carry no count",
+      "id": "log-op-adr-review-is-historical",
+      "section": "\u00a76 historical adr-review operation remains readable without new report writes",
       "canonical": "bionic/AGENTS.md",
       "twin": "crux/templates/AGENTS.md.tmpl",
       "anchor": "#### Op-enum regex",
-      "pattern": "the finding definition counts across the four finding sections|\\(Propose, Amend, Repair, Revoke\\); Keep and Coverage define no finding, so neither carries a count"
+      "pattern": "historical decision-review operation|Existing entries preserve the review date|writes no new decision-review report"
     },
     {
       "id": "manifest-journal-friction-line-from-semantics",
@@ -304,38 +304,6 @@
       "twin": "crux/templates/AGENTS.md.tmpl",
       "anchor": "## 7. `manifest.yml` schema",
       "pattern": "records the initialization date here rather than `null`|carries the existing tree's recorded date forward rather than resetting it forward|init-docs writes the initialization date here, never null"
-    },
-    {
-      "id": "reviews-surface-write-set-five-paths",
-      "section": "\u00a74 adrs write rules: the Reviews-surface write set \u2014 five paths, six writes, the two op kinds, and both rule handles",
-      "canonical": "bionic/AGENTS.md",
-      "twin": "crux/templates/AGENTS.md.tmpl",
-      "anchor": "### adrs (append-only history)",
-      "pattern": "Its write set is closed and holds exactly five paths|the dated report under the reviews directory, the derived reviews index, the operational log, the current month's journal file, and the journal index|writes six times across those five, because the log takes two ops|one `adr-review` op written by the review itself|one `journal` op written by `log-work`|beside the journal entry and the journal index row|rule:review-write-set-five-paths|rule:review-proposes-and-enacts-nothing"
-    },
-    {
-      "id": "reviews-surface-lifecycle-table-and-grammar-discriminator",
-      "section": "\u00a74 adrs write rules: the Reviews-surface lifecycle-record table under `## Coverage`, the `report_grammar` frontmatter discriminator, and the filename-date binding the regenerator checks against frontmatter `date`",
-      "canonical": "bionic/AGENTS.md",
-      "twin": "crux/templates/AGENTS.md.tmpl",
-      "anchor": "### adrs (append-only history)",
-      "pattern": "Lifecycle records live in a five-column table under `## Coverage`|source report date, finding id, pass, event, locator|identified by its own header row rather than by its position|so it never merges with the per-goal coverage matrix|A report declares its grammar through the frontmatter key `report_grammar`|whose one recognised value is `lifecycle`|A report carrying no key reads under the frozen legacy counting rule|a report dated after 2026-09-08 carrying no key is refused|an unrecognised value is refused; neither is defaulted|That date is the report's filename date, which the regenerator checks against the frontmatter"
-    },
-    {
-      "id": "reviews-surface-legacy-row-standing-unknown",
-      "section": "\u00a74 adrs write rules: the reviews index splits raised from standing, and a legacy row carries the literal `unknown`",
-      "canonical": "bionic/AGENTS.md",
-      "twin": "crux/templates/AGENTS.md.tmpl",
-      "anchor": "### adrs (append-only history)",
-      "pattern": "The generated reviews index distinguishes findings raised from current standing|a legacy row carries the literal `unknown` as a positive value|never blank, never omitted, never `0`, and never recomputed from later records|A legacy row that raised nothing renders the bare literal `unknown` with no count|its `raised` cell reads `0 \\(legacy\\)`"
-    },
-    {
-      "id": "reviews-surface-assessment-table",
-      "section": "\u00a74 adrs write rules: the Reviews-surface assessment table under Coverage \u2014 seven columns, availability/alignment as two fields, the per-goal alignment rollup, and the measured_objectives measurement outcome",
-      "canonical": "bionic/AGENTS.md",
-      "twin": "crux/templates/AGENTS.md.tmpl",
-      "anchor": "### adrs (append-only history)",
-      "pattern": "The Coverage section additionally carries a seven-column assessment table|one row per measure part, identified by its own header row and never by its position|seven columns keeps it disjoint from the five-column summary table and the five-column lifecycle record table|so no two of the three tables are confusable and a mistyped header cannot silently reassign rows|are two fields, never one|six of the sixteen pairs are legal and the rest are refused|The per-goal matrix survives beside the assessment table and carries the derived alignment rollup|a goal no part attempted, including one that yields no parts, is `not-assessed`|carries one entry per COUNTED THING|`measured` and `attempted` both discharge the three-report rotation|`not-assessed` and `unknown` discharge nothing|A report carrying no `measured_objectives` key reads as the literal `unknown` for every goal|A report carrying a flat list of bare ids demotes to `attempted` and is never promoted|a finding whose confidence is `unresolved` is never routed to Revoke|Revocation requires positive evidence that continued observance produces a named cost against a named objective|dormancy, a missing run binding and unavailable evidence are absences and establish none|renders nothing from it, so it adds no row to the regenerative-outputs roster|the objective itself initiates a bounded investigation|every surface a pass read beyond its signal-flagged set is covered by a slip naming it|at most three investigations per pass and five surfaces counted once each per investigation|On the third consecutive `attempted` outcome recorded under this grammar|a demoted entry resets the count and starts no strike|carries one entry per COUNTED THING|every entry carries an identifier of the measure version it concerns|The strongest outcome wins within one counted thing and never across two|a part's count resets only when THAT part discriminates"
     },
     {
       "id": "journal-composed-body-never-leaves-a-fence-open",
@@ -443,18 +411,18 @@
     },
     {
       "id": "guide-councils-upgrade-and-commit-guidance",
-      "section": "USER_GUIDE \u00a7Councils and independent reviews \u2014 the agent refresh after an upgrade and the commit duties before a gate prompt",
+      "section": "USER_GUIDE \u00a7Historical promptbook councils and independent reviews \u2014 the agent refresh after an upgrade and the commit duties before a gate prompt",
       "canonical": "USER_GUIDE.md",
       "twin": "crux/templates/USER_GUIDE.md",
-      "anchor": "#### Councils and independent reviews",
+      "anchor": "#### Historical promptbook councils and independent reviews",
       "pattern": "install-codex-agents|install-opencode-agents|Commit every council subject|The council runner commits the attempt record and the council record itself|run-work-witness\\.py commit|run-council\\.py --recover"
     },
     {
       "id": "guide-councils-and-reviews-naming-block",
-      "section": "USER_GUIDE \u00a7Councils and independent reviews \u2014 the naming block, the council key, and the template caveat",
+      "section": "USER_GUIDE \u00a7Historical promptbook councils and independent reviews \u2014 the naming block, the council key, and the template caveat",
       "canonical": "USER_GUIDE.md",
       "twin": "crux/templates/USER_GUIDE.md",
-      "anchor": "#### Councils and independent reviews",
+      "anchor": "#### Historical promptbook councils and independent reviews",
       "pattern": "Neither satisfies the other's gate|OPENROUTER_API_KEY|It fixes no book that already exists|references/gates\\.md"
     },
     {
@@ -536,6 +504,14 @@
       "twin": "crux/templates/AGENTS.md.tmpl",
       "anchor": "- **Provenance records.**",
       "pattern": "A provenance record is distinct from a governs entry's `provenance` field, which says how the rule text was produced\\.|A rule the run deleted stays binding at its base_commit wording until the owner promotes the deletion\\.|A binding rule edited in any governs field \\(rule, scope, domain, anchor, retires\\) carries an in-run edit\\.|An in-run body passage's binding text is the ADR body at the record's `base_commit`, read from `base_path` at that commit\\."
+    },
+    {
+      "id": "historical-reviews-preserved",
+      "section": "\u00a74 adrs historical reports stay unchanged; current assessment uses migrate-adrs",
+      "canonical": "bionic/AGENTS.md",
+      "twin": "crux/templates/AGENTS.md.tmpl",
+      "anchor": "### adrs (append-only history)",
+      "pattern": "Historical reviews surface|preserves dated decision-review reports unchanged|Only `reviews/index.md` regenerates|`migrate-adrs`"
     }
   ]
 }

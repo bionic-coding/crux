@@ -444,7 +444,9 @@ class RetirementRequiresAcceptedTests(unittest.TestCase):
             records = t.records()
             self.assertEqual(SP.retired_records(records), [])
             self.assertEqual([r["handle"] for r in SP.live_records(records)],
-                             ["ADR-0001/alpha", "ADR-0002/beta"])
+                             ["ADR-0001/alpha"])
+            self.assertEqual([r["handle"] for r in SP.proposed_records(records)],
+                             ["ADR-0002/beta"])
 
     def test_the_positive_control_an_accepted_retirement_still_fires(self):
         # The sibling of the test above, same fixture with the retiring ADR
@@ -460,15 +462,16 @@ class RetirementRequiresAcceptedTests(unittest.TestCase):
             self.assertEqual([r["handle"] for r in SP.live_records(records)],
                              ["ADR-0002/beta"])
 
-    def test_a_proposed_adrs_own_rules_still_publish(self):
-        # The gate is on the RETIREMENT, not on the ADR: a Proposed ADR's own
-        # governs entries are unaffected and still appear as live records.
+    def test_proposed_rules_stay_inspectable_without_publishing(self):
+        # Proposals remain source records but establish no live authority.
         with tempfile.TemporaryDirectory() as td:
             t = _Tree(Path(td))
             t.adr(1, [_entry(1, "alpha")], status="Proposed")
             records = t.records()
-            self.assertEqual([r["handle"] for r in SP.live_records(records)],
+            self.assertEqual(SP.live_records(records), [])
+            self.assertEqual([r["handle"] for r in SP.proposed_records(records)],
                              ["ADR-0001/alpha"])
+            self.assertEqual([r["handle"] for r in records], ["ADR-0001/alpha"])
 
     def test_the_typo_refusal_still_fires_from_a_proposed_adr(self):
         # Validation is unchanged and still runs over every record, Proposed

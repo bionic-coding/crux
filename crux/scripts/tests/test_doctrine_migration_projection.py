@@ -57,7 +57,7 @@ class CompiledDoctrine(unittest.TestCase):
         self.assertNotIn("| ADR-0110/implementation |", index)
         self.assertNotIn("| ADR-0001/predecessor |", index)
         meta = json.loads(outputs[data["paths"]["_meta.json"]])
-        self.assertEqual(meta["schema"], "5")
+        self.assertEqual(meta["schema"], "6")
         self.assertEqual(meta["migration"]["historical_displacements"][summary_fixtures.OLD][0]["source_displacer"],
                          summary_fixtures.DEMOTED)
         self.assertNotIn("rule", json.dumps(meta["migration"]))

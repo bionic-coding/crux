@@ -428,6 +428,8 @@ def parse_config_text(text: str, *, source: str, path: str | Path | None = None
     arch_decision_index_mode = _validate_arch_decision_index_mode(
         raw.get("arch_decision_index_mode")
     )  # ADR-0062
+    validate_workflow_policy(raw)
+    validate_council_policy(raw)
     # Unknown keys: ignored by design (forward compat valve).
     return (
         config_version, docs_dir, prefix, arch_stack, arch_extractors,
@@ -815,3 +817,62 @@ def resolve_tree_name(root: Path | str = ".") -> str:
 # Back-compat aliases (ADR-0044): the pre-rename names still resolve.
 CruxConfig = BionicConfig
 CruxConfigError = BionicConfigError
+
+
+REVIEW_SCRUTINY = ("focused", "standard", "intensive")
+ADR_ACCEPTANCE = ("council-and-human", "council-only")
+
+
+def validate_workflow_policy(raw: dict) -> dict:
+    """Validate optional workflow settings without changing layout tuple compatibility."""
+    result = {}
+    for section, key, allowed, default in (
+        ("review", "scrutiny", REVIEW_SCRUTINY, "standard"),
+        ("adr", "acceptance", ADR_ACCEPTANCE, "council-and-human"),
+    ):
+        mapping = raw.get(section, {})
+        if not isinstance(mapping, dict):
+            raise BionicConfigError(f"{section} must be a mapping")
+        value = mapping.get(key, default)
+        if value not in allowed:
+            raise BionicConfigError(f"{section}.{key} must be one of {list(allowed)}")
+        result[f"{section}.{key}"] = value
+    return result
+
+
+def load_workflow_policy(repo_root: str | Path) -> dict:
+    """Resolve the same canonical configuration used by layout readers."""
+    path, source = _select_config_file(Path(repo_root))
+    if path is None:
+        return validate_workflow_policy({})
+    text = path.read_text(encoding="utf-8")
+    parse_config_text(text, source=source, path=path)
+    return validate_workflow_policy(load_yaml(text) or {})
+
+
+COUNCIL_MODES = ("lite", "standard", "strict")
+
+
+def validate_council_policy(raw: dict) -> dict:
+    """Existing projects omit this section and retain Strict."""
+    mapping=raw.get('council',{})
+    if not isinstance(mapping,dict) or set(mapping)-{'mode','overrides','max_attempts'}:
+        raise BionicConfigError('council requires mode, overrides and max_attempts only')
+    mode=mapping.get('mode','strict')
+    if mode not in COUNCIL_MODES:raise BionicConfigError('council.mode must be lite, standard or strict')
+    overrides=mapping.get('overrides',{})
+    if (not isinstance(overrides,dict) or set(overrides)-{'adr','idr','migration'} or
+        any(value not in COUNCIL_MODES for value in overrides.values())):
+        raise BionicConfigError('council.overrides permits adr, idr and migration modes only')
+    limit=mapping.get('max_attempts',7)
+    if type(limit) is not int or not 1<=limit<=7:
+        raise BionicConfigError('council.max_attempts must be an integer from 1 through 7')
+    return {'mode':mode,'overrides':dict(overrides),'max_attempts':limit}
+
+
+def load_council_policy(repo_root: str | Path) -> dict:
+    path,source=_select_config_file(Path(repo_root))
+    if path is None:return validate_council_policy({})
+    text=path.read_text(encoding='utf-8')
+    parse_config_text(text,source=source,path=path)
+    return validate_council_policy(load_yaml(text) or {})

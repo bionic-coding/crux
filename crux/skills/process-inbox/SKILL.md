@@ -24,6 +24,15 @@ This skill is portable across Claude Code, Codex, and OpenCode. This section ove
 - Argument placeholders such as `$adr` and `$book` bind only in Claude Code. On a host without argument binding they are unset — take the value from the user's phrase. The "Fields OpenCode ignores" section of `OPENCODE_GUIDE.md` names the invocation-control fields OpenCode ignores.
 <!-- END GENERATED: runtime-compat -->
 
+## Decision and work routing
+
+A brief or other inbox item may warrant an ADR proposal. Route it to the architect;
+submitted content never constitutes approval. Council approval of the draft and the
+configured acceptance policy still apply. New implementation plans use `cycle`,
+not promptbook authoring. A proposal originating in a cycle additionally requires
+council justification before creation.
+
+
 
 ## Overview
 

@@ -33,7 +33,8 @@ artifact bindings and builds three derived artifacts behind ONE drift gate:
                              {alias_of, alias_handles} instead (ADR-0095)
   - implementation-map.md  ADR <-> run implementation map
   - _meta.json              input-hash + schema metadata for the projection:
-                             schema "6" declares `input_domain` (the sources
+                             schema "7" separates Proposed, non-governing rules
+                             and represents accepted scope amendments. `input_domain` names the sources
                              the build read), `observations_sha256`, and
                              `provenance_sha256` when any provenance record
                              exists
@@ -155,13 +156,9 @@ def _atomic_write_text(path: Path, body: str, *, contained_under: Path) -> None:
         raise
 
 
-def _historical_summary_clauses(root: Path, view: dict) -> tuple[list[dict], dict | None]:
-    """Load only the exact batch named by a proved publication, without a second approval."""
+def _historical_batch_summary_clauses(root: Path, view: dict, latest: dict, *, mixed=False):
+    """Read the original proved batch, including clauses without governs handles."""
     import implementation_migration as migration
-    if view["state"] != "published":
-        sp._projection_require(not view["publications"], "summaries unproved publication refused")
-        return [], None
-    latest = view["publications"][-1]
     text, _ = migration._read(root, latest["path"])
     sp._projection_require(migration._digest(text.encode()) == latest["sha256"],
                            "summaries publication changed during input loading")
@@ -187,9 +184,42 @@ def _historical_summary_clauses(root: Path, view: dict) -> tuple[list[dict], dic
             clauses.append(dict(source_identity=entry["source_identity"],
                 source_ref={k: source[k] for k in ("path", "source_adr", "clause_sha256")},
                 destination=entry["historical_destination"], replacements=entry["replacement_handles"]))
-    sp._projection_require(set(selected) == {entry["source_identity"] for entry in batch["entries"]},
+    expected={entry["source_identity"] for entry in batch["entries"]}
+    sp._projection_require(expected<=set(selected) if mixed else expected==set(selected),
                            "summaries selected source roster mismatch")
     return sorted(clauses, key=lambda row: row["source_identity"]), locator
+
+
+def _historical_summary_clauses(root: Path, view: dict, *, _candidate=None) -> tuple[list[dict], dict | None]:
+    """Project every proved clause without using handles as a history roster."""
+    if _candidate is not None or view["state"] == "published" and view['publications'][-1]['path'].endswith('.publication.json'):
+        import adr_migration
+        latest=view['publications'][-1]
+        raw=adr_migration.encoded(_candidate) if _candidate is not None else adr_migration.read(root,latest['path'])
+        sp._projection_require(adr_migration.digest(raw)==latest['sha256'], 'summaries publication changed')
+        locator=adr_migration.validate_schema(json.loads(raw),'publication')
+        selected={row['source_identity']:row for row in view['source_refs']}
+        sp._projection_require(len(selected)==len(view['source_refs']), 'summaries duplicate selected identity')
+        clauses={}
+        historical=[row for row in view['publications'] if row['path'].endswith('.application.json')]
+        if historical:
+            previous,_=_historical_batch_summary_clauses(root,view,historical[-1],mixed=True)
+            clauses.update((row['source_identity'],row) for row in previous)
+        for fact in view['historical_handles'].values():
+            source=selected.get(fact['source_identity'])
+            sp._projection_require(source is not None, 'summaries selected source missing')
+            row=dict(source_identity=fact['source_identity'],
+                source_ref={k:source[k] for k in ('path','source_adr','clause_sha256')},
+                destination=fact['destination'],replacements=fact['replacements'])
+            identity=row['source_identity']
+            sp._projection_require(identity not in clauses or clauses[identity]==row,
+                                   'summaries conflicting historical clause identity')
+            clauses[identity]=row
+        return sorted(clauses.values(),key=lambda row:row['source_identity']), {'format':locator['format'],'batch':locator['package']}
+    if view["state"] != "published":
+        sp._projection_require(not view["publications"], "summaries unproved publication refused")
+        return [], None
+    return _historical_batch_summary_clauses(root,view,view['publications'][-1])
 
 
 def _summary_destinations(root: Path, *, _source_io=None) -> tuple[Path, dict]:
@@ -213,11 +243,11 @@ def _summary_destinations(root: Path, *, _source_io=None) -> tuple[Path, dict]:
     return tree, paths
 
 
-def _load_summary_inputs(root: Path, manifest: dict) -> tuple[dict, dict, dict | None, dict | None]:
+def _load_summary_inputs(root: Path, manifest: dict, *, _prepared=None) -> tuple[dict, dict, dict | None, dict | None]:
     """Public proof boundary followed by one complete, contained input snapshot."""
     import implementation_migration as migration
     tree, paths = _summary_destinations(root)
-    view = migration.authority_view(root)
+    view = migration.authority_view(root) if _prepared is None else _prepared['view']
     adrs = sp.adrs_dir(root)
     concerns = manifest.get("concerns_enabled") or []
     if not adrs.is_dir() and not ("adrs" not in concerns and "observations" in concerns):
@@ -225,20 +255,20 @@ def _load_summary_inputs(root: Path, manifest: dict) -> tuple[dict, dict, dict |
     summaries = adrs / "summaries"
     declared = sp.declared_input_domain(summaries)
     sp._projection_require(not isinstance(declared, list) or "implementation-migration" not in declared
-        or view["state"] == "published", "summaries declared migration input unavailable")
+        or view["state"] in ("published","prepared"), "summaries declared migration input unavailable")
     gf = sp.governs_from(manifest)
     reviews = sp.read_reviews(adrs)
     observations = sp.observations_source(root, manifest)
     records = sp.collect_records(adrs, governs_from=gf, observations=observations)
     aliases = sp.collect_observation_alias_rows(observations, records)
-    clauses, locator = _historical_summary_clauses(root, view)
+    clauses, locator = _historical_summary_clauses(root, view, _candidate=None if _prepared is None else _prepared['candidate'])
     provenance, provenance_digest = sp.read_provenance(adrs)
     metadata = dict(adr_frontmatter_sha256=sp.adr_frontmatter_sha256(adrs),
         backfill_reviews_sha256=sp.backfill_reviews_sha256(adrs),
         input_domain=["adrs", "backfill-reviews"] + (["observations", "survey-receipts"] if observations is not None else []),
         observations_sha256=sp.observations_sha256(observations) if observations is not None else None,
         survey_receipts_sha256=sp.survey_receipts_sha256(observations) if observations is not None else None,
-        schema="6", tool="summarize-adrs.py")
+        schema="7", tool="summarize-adrs.py")
     if provenance:      # optional member: no record, no key, no bytes changed
         metadata["input_domain"].append("provenance")
         metadata["provenance_sha256"] = provenance_digest
@@ -254,10 +284,11 @@ def _load_summary_inputs(root: Path, manifest: dict) -> tuple[dict, dict, dict |
     if locator is not None:
         actual = {k: view["publications"][-1][k] for k in ("path", "sha256", "publication_commit")}
         pending = dict(path=actual["path"], sha256=actual["sha256"], close_identity={k: locator[k] for k in
-            ("batch", "book_id", "run_id", "book_content_hash", "slot", "gate_prompt")})
+            (("format", "batch") if locator.get("format")=="crux.adr-migration-publication.v1" else
+             ("batch", "book_id", "run_id", "book_content_hash", "slot", "gate_prompt"))})
         # U8 validated these exact source/dependency bytes; recheck after every loaded reader.
         migration._unchanged_inputs(root, view["dependency_fingerprints"] +
-                                   [{"path": actual["path"], "sha256": actual["sha256"]}])
+                                   ([{"path": actual["path"], "sha256": actual["sha256"]}] if _prepared is None else []))
     return loaded, view, pending, actual
 
 

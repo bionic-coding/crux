@@ -14,6 +14,11 @@ metadata:
 
 # Tend Garden (the night-gardener's pass)
 
+Route this workflow to the night-gardener role. A generic fork or the main session
+must hand the assignment to that lead rather than impersonate it. The gardener
+coordinates research and filing through her permitted roles. Implementation work
+becomes a cycle routed through commander and dev-lead, not a direct developer call.
+
 > **Execution context:** this skill runs in a forked subagent and returns a summary to the caller. The fork does not see the main-thread conversation, so pass any needed context explicitly at invocation.
 
 <!-- BEGIN GENERATED: runtime-compat -->

@@ -24,6 +24,41 @@ This skill is portable across Claude Code, Codex, and OpenCode. This section ove
 - Argument placeholders such as `$adr` and `$book` bind only in Claude Code. On a host without argument binding they are unset — take the value from the user's phrase. The "Fields OpenCode ignores" section of `OPENCODE_GUIDE.md` names the invocation-control fields OpenCode ignores.
 <!-- END GENERATED: runtime-compat -->
 
+## Cycles and workflow configuration
+
+New work uses `cycle`, with records created lazily under the resolved
+`<docs_dir>/cycles/` by `cycle.py`. Preserve existing promptbooks and their counters
+as historical compatibility. Do not convert historical records during initialization.
+Repository policy belongs in `.bionic.yml`, not the documentation manifest:
+
+```yaml
+review:
+  scrutiny: standard
+adr:
+  acceptance: council-and-human
+```
+
+Missing settings use these defaults. Preserve existing configured values when
+initializing or refreshing the tree. `focused` and `intensive` are alternative
+scrutiny values; `council-only` is the alternative ADR acceptance mode.
+
+
+
+## Initial council choice
+
+For a genuinely new Crux enrollment, record the explicit setup choice through:
+
+```bash
+uv run "${CRUX_PLUGIN_ROOT}/scripts/cycle-council.py" --repo-root "${REPO_ROOT}" \
+  --initialize-council standard --selection "New Crux setup selects Standard"
+```
+
+Offer `lite` as an explicit account-free alternative. Setup writes `council.mode`
+and the initialization provenance together; a hand-edited mode is not setup
+provenance. Existing Crux projects retain their configured policy, or Strict when
+absent. Refreshing a tree must not reset policy. An existing Git code repository
+without prior Crux enrollment can initialize normally. Preserve all unrelated
+configuration. Human ADR acceptance still defaults to council-and-human.
 
 ## Overview
 

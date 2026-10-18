@@ -27,6 +27,29 @@ This skill is portable across Claude Code, Codex, and OpenCode. This section ove
 - Argument placeholders such as `$adr` and `$book` bind only in Claude Code. On a host without argument binding they are unset — take the value from the user's phrase. The "Fields OpenCode ignores" section of `OPENCODE_GUIDE.md` names the invocation-control fields OpenCode ignores.
 <!-- END GENERATED: runtime-compat -->
 
+## Council policy
+
+Use the shared configured Lite, Standard or Strict council evaluator. Read the
+`council` skill before dispatch. Lite requires verified native Apex and separate
+contexts; Standard/Strict require the gateway credential. Council mode never
+supplies required owner acceptance or disposition approval. Existing receipts
+retain their original policy. Never change mode as a credential fallback.
+
+## New-policy acceptance
+
+For new acceptances, use `decision-policy.py` (inspect `--help` for supported
+operations) to validate council approval of the exact ADR and record acceptance.
+`.bionic.yml` `adr.acceptance` defaults to `council-and-human`; `council-only` is
+an explicit repository option. Never supply human approval on the owner's behalf.
+Acceptance under this policy makes rules binding without a separate promotion.
+Do not use the historical in-run guidance path for a new-policy acceptance.
+Existing provenance and previously accepted records retain their interpretation.
+Regenerate standard indexes/projections and log the operation after the writer,
+respecting their commit preconditions.
+The remaining transition/index/log instructions still apply; historical promotion
+instructions below apply only to records that actually retain guidance standing.
+
+
 
 ## Overview
 

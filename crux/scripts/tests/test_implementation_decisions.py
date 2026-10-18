@@ -220,6 +220,17 @@ class ApprovalAndResults(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.f = Fixture(Path(self.tmp.name) / 'repo')
 
+    def test_current_constraints_preserve_raw_legacy_entries_and_exclude_proposals(self):
+        proposal = self.f.env.docs / 'adrs/ADR-0002-proposed.md'
+        proposal.write_text('---\nid: ADR-0002\nstatus: Proposed\ngoverns:\n'
+                            '  - handle: ADR-0002/not-governing\n    rule: Draft guidance.\n---\n')
+        sup.commit_all(self.f.root, 'Synthetic raw historical schema and proposal')
+        entries = approval._current_governs_entries(self.f.root, self.f.env.docs)
+        self.assertEqual(entries, [{'handle': 'ADR-0001/fixture-rule', 'rule': 'Preserve output.'}])
+        self.assertEqual(approval.live_constraints(self.f.root, ['ADR-0001/fixture-rule'])['state'], 'original')
+        with self.assertRaisesRegex(approval.Refused, 'constraint-not-live-accepted'):
+            approval.live_constraints(self.f.root, ['ADR-0002/not-governing'])
+
     def test_valid_committed_full_history_consumes_proof_and_writes_result(self):
         proof = self.f.proof()
         self.assertEqual(proof.slot, slot())

@@ -1,3 +1,4 @@
+# Historical compatibility template; new work uses cycle.py and cycle.schema.json.
 # Canonical 1×verify + 1×dev + 1×review iterate cycle (13 prompts) — full YAML book skeleton.
 #
 # An `iterate` book is a cycle book with `cycle_kind: verify`: it swaps the ADR

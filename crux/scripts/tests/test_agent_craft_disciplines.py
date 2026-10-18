@@ -30,6 +30,9 @@ import re
 import unittest
 from pathlib import Path
 
+# Frozen historical orchestration contract; live-cycle coverage is separate.
+from _legacy_workflow_prose import legacy_path
+
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -49,7 +52,7 @@ def occurrences(text: str, needle: str) -> int:
 
 
 def body(path: Path) -> str:
-    return path.read_text(encoding="utf-8")
+    return legacy_path(path).read_text(encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -428,7 +431,7 @@ class PatchTemplateImplementPromptTests(unittest.TestCase):
     )
 
     def setUp(self):
-        raw = PATCH_TEMPLATE.read_text(encoding="utf-8")
+        raw = legacy_path(PATCH_TEMPLATE).read_text(encoding="utf-8")
         book = yaml.safe_load(raw)
         implement = [p for p in book["prompts"] if p.get("phase") == "implement"]
         self.assertEqual(len(implement), 1, "expected one implement prompt")

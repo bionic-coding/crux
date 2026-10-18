@@ -1,14 +1,14 @@
 ---
 name: run-promptbook
-description: "Start, advance, abandon, or inspect a promptbook run. Report status and progress without advancing it."
+description: "Inspect, finish, or archive an existing historical promptbook run; route all new work to cycle."
 arguments: [book]
 metadata:
   tags: "promptbooks, execution, state"
   bundles: "crux-docs"
   risk_level: "low"
   requires_access: "write-tree"
-  triggers: "show the run | run promptbook | start promptbook | advance promptbook | next prompt | skip prompt | block on prompt | abandon this run | promptbook status | run status | visualize run progress | show run progress | how far along is PB-NNNN | progress of PB-NNNN | run progress bar/chart | where am I | where was I on PB-NNNN | resume my cycle | what's next on PB-NNNN | cycle status | how do I pick this run back up | how do I resume"
-  routing_note: "Start, advance, and abandon update run state and book pointers; status and terminal progress write nothing. Explicit Markdown writes a deterministic artifact and one promptbook log operation, without advancing."
+  triggers: "show the run | run promptbook | start promptbook | advance promptbook | next prompt | skip prompt | block on prompt | abandon this run | promptbook status | run status | visualize run progress | show run progress | how far along is PB-NNNN | progress of PB-NNNN | run progress bar/chart | where am I | where was I on PB-NNNN | resume my cycle | what's next on PB-NNNN | how do I pick this run back up | how do I resume"
+  routing_note: "Inspect, finish, or archive existing historical runs. New work uses cycle; never start repeat runs."
 ---
 
 # Run Promptbook
@@ -26,6 +26,16 @@ This skill is portable across Claude Code, Codex, and OpenCode. This section ove
 - Install the generated role agents before delegating: `install-codex-agents` in Codex, `install-opencode-agents` in OpenCode. Codex names them `crux_architect`, `crux_brainstormer`, `crux_commander`, `crux_dev_lead`, `crux_developer`, `crux_historian`, `crux_librarian`, `crux_night_gardener`, `crux_reviewer`, and `crux_wayfinder`; OpenCode uses the bare role names `architect`, `brainstormer`, `commander`, `dev-lead`, `developer`, `historian`, `librarian`, `night-gardener`, `reviewer`, and `wayfinder`. If a required role or capability is unavailable, report that truthfully instead of claiming it ran.
 - Argument placeholders such as `$adr` and `$book` bind only in Claude Code. On a host without argument binding they are unset — take the value from the user's phrase. The "Fields OpenCode ignores" section of `OPENCODE_GUIDE.md` names the invocation-control fields OpenCode ignores.
 <!-- END GENERATED: runtime-compat -->
+
+## Historical compatibility boundary
+
+New work uses `../cycle/SKILL.md`. Do not author new promptbooks or start another
+run of an existing book. The instructions below apply only to inspecting,
+finishing, or archiving an existing historical run under its original contract.
+Preserve its evidence and interpretation. Materially changed work starts a new
+cycle referencing the predecessor. This boundary overrides old authoring and
+repeat-run directions below.
+
 
 
 ## Overview

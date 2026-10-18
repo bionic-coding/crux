@@ -128,7 +128,7 @@ class DoctrineSourceIOTests(Fixture):
             mocks["adr_frontmatter_sha256"].assert_called_once_with(self.tree / "adrs", _source_io=io)
             for name in ("observations_sha256", "survey_receipts_sha256"):
                 mocks[name].assert_called_once_with(observed, _source_io=io)
-            self.assertEqual(actual["schema"], "4")
+            self.assertEqual(actual["schema"], "6")
             self.assertEqual(actual["reconciliations_sha256"], "raw")
 
     def test_evidence_delegates_to_canonical_owner_with_same_io(self):

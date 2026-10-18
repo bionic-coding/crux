@@ -77,7 +77,7 @@ class GitObjectIdTests(unittest.TestCase):
                 sup.commit_all(repo, 'synthetic committed book')
                 base = sup.git(repo, 'rev-parse', 'HEAD').strip()
                 run_path = repo / 'docs/promptbooks/runs/PB-0999-fixture/run-RUN-001.yaml'
-                started = subprocess.run([sys.executable, str(sup.SCRIPTS / 'start-run.py'),
+                started = subprocess.run([sys.executable, str(sup.SCRIPTS / 'start-run.py'), "--historical-replay",
                                           str(book_path), '--run-id', 'RUN-001', '--output', str(run_path)],
                                          cwd=ROOT, env=sup.scrubbed_env(), capture_output=True)
                 self.assertEqual(0, started.returncode, started.stdout + started.stderr)

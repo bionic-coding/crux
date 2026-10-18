@@ -1,0 +1,55 @@
+{
+  "advisory": [
+    {
+      "consequence": "Judgement point (2), not a violated criterion. For a completed cycle the band draws five success \u2713 cells, and the current phase word without bold. trackCell draws every phase of a completed cycle as done. Criterion a's 'bold' clause describes the current phase of an unfinished cycle. Its governing clause is 'drawn as in the pane's compact track', and criterion e requires the band to reuse the pane's helpers unchanged. A bold current phase in the band alone would make the band diverge from the pane. If the owner wants the final phase of a completed cycle emphasised, change trackCell in a separate change, so the pane and the band move together.",
+      "evidence": "final-render.txt, completed iterate at 100: '[success]\u2713 \u00d75 [success]reflect'; trackCell, draw.ts lines 730-737, returns the done style when c.status === 'completed'.",
+      "path": "crux-mods/hooks/lib/draw.ts"
+    },
+    {
+      "consequence": "Judgement point (1), not a violated criterion. At 20 columns the completed band reads 'CYC-0003  \u2713 reflect' and drops the separate status glyph before the id. Keeping the id, the current phase and the status glyph needs 22 cells, so at 20 columns one of the three must go. Criterion d says the three 'stay as long as possible' and sets no order among them. No information is lost: the current phase cell always draws the status glyph in the status key, because trackCell uses statusOf for an unfinished cycle and the done glyph and success key for a completed one. Only the bold on the completed glyph differs. The active band at 20 keeps all three ('CYC-0004  \u25b8 test  \u25b8', 19 cells), which satisfies 'as long as possible'.",
+      "evidence": "final-render.txt 20-column rows for all four fixtures; the drop-order test in cycle-dashboard.test.ts asserts ['type','tasks','loop','track short','status short','status','id'].",
+      "path": "crux-mods/hooks/lib/draw.ts"
+    }
+  ],
+  "at": "2026-10-16T22:39:51.797644+00:00",
+  "basis_sha256": "39a946568330ca6c691c1433a0a491d820ba36d3a4af3ab9450369b03b1bb422",
+  "blocking": [],
+  "cosmetic": [
+    {
+      "consequence": "Rule 1, one name per thing. draw.ts separates the pane (the whole surface) from the cycle panel (one cycle's section). The new cycleBandItems comment says 'the cycle panel's id ... the panel's own helpers', but the taskCount comment says 'as the pane's bar and the band draw it'. The bar is in the cycle panel. The commit message says 'the pane's own helpers', the mods test name says 'pane style' and the OpenCode test name says 'panel style'. Rewrite the taskCount comment to 'The task count, as the cycle panel's bar and the band draw it.'",
+      "evidence": "draw.ts lines 765 and 1006-1007; test names in cycle-dashboard.test.ts and crux-opencode/tests/cycle.test.ts.",
+      "path": "crux-mods/hooks/lib/draw.ts"
+    }
+  ],
+  "evidence": [
+    "Commit 2360caae17c464c281330b7a05ab4c3313b56817 (parent 8d49bfbd45e8ae3439a2795fc5165012e054c120): read git show in full. The diff touches only the three declared paths. git diff 8d49bfbd..2360caae over crux-mods/hooks/lib/view.ts, crux-mods/hooks/capabilities.ts, USER_GUIDE.md and crux-opencode/lib/ is empty.",
+    "TE-17d7570ee2ec463fb9fd43ad3afb1226 (mods-tests): status passed, 612 pass, 0 fail. Reused, not rerun. Snapshot sha256 of draw.ts (a8a88a65...) and cycle-dashboard.test.ts (ce3f65f6...) equals the committed blobs at 2360caae.",
+    "TE-a40bf33999134a87adb424a49387476a (opencode-gate-dev): status passed, ok true, 288 pass, 0 fail. Reused, not rerun. Snapshot sha256 of draw.ts and crux-opencode/tests/cycle.test.ts (a819de65...) equals the committed blobs.",
+    "TE-940b755a8bf84d8791fedea7de4c052c (mods-gate-dev): status passed, ok true, 25 entries declared and 25 listed. Reused, not rerun. Snapshot sha256 of draw.ts, capabilities.ts (e99621dc...) and view.ts (b9472d93...) equals the committed blobs.",
+    "Integration, OpenCode: crux-opencode/lib/render.ts bandNode -> drawBand -> band() from draw.ts -> nodeOf. render.ts is unchanged. The new OpenCode tests pin the token of every band span: text.base, syntax.type, syntax.function, text.feedback.success.base, text.feedback.warning.base, text.feedback.error.base and text.muted.",
+    "Integration, Claude Code: band() joins bandSegments with SEGMENT_GAP and has no case keyed on a segment name. No caller outside draw.ts and the tests reads bandSegments. The new segment named 'status' reaches no consumer that special-cases the reader-failure 'status' segment.",
+    "Run band: in bandSegments only the v.cycles branch changed. The run path (bandRun, the run BandItems, fitSegments) is byte-unchanged in the diff. The passing mods-tests run covers the run band's existing tests.",
+    "Pane and answer(), claim (e): inspected statically. cycleLines rebuilds the meta line from loopMark, statusMark and typeWord with the same spans, styles and order as before. cycleTrack uses currentPhase and compactTrack with the same expressions as before. taskCount yields the same string. answer() lives in view.ts, which is unchanged.",
+    "Scratchpad before-snapshot.txt and final-snapshot.txt: cmp reports them identical (68 lines each). They cover answer(), the docked pane at widths 20/39/40/60/100/109/110/140 and the mini pane at 100, for four fixtures. I read band-render.ts and did not execute it. It does not snapshot the run band, which the diff inspection above covers.",
+    "Scratchpad final-render.txt: read the band at 100/60/40/20 for active, completed, paused and abandoned fixtures, in plain, keyed and OpenCode-token form. before-render.txt shows the old single span cut mid-word at 40 and 20 ('test \u2026', 'quick-fi\u2026').",
+    "Criterion a, verified: id bold; type word in key 'permission' (OpenCode syntax.type); '\u21bb loop N' with no 'Pass'; compact track from the pane's compactTrack/trackCell, with \u2713 success for done phases, the current glyph and word in the status key and bold, and \u25cc dim for later phases. Pinned in both suites.",
+    "Criterion b, verified: status glyph and word in the status key, bold, for active \u25b8 claude, completed \u2713 success, paused \u2298 warning and abandoned \u2717 error, plus the unknown cell '?' in warning. Dim 'N/M tasks' shown only when tasks exist.",
+    "Criterion c, verified: every coloured span is a non-empty glyph or word. Each non-ASCII glyph (\u2713 U+2713, \u25b8 U+25B8, \u25cc U+25CC, \u2298 U+2298, \u2717 U+2717, \u21bb U+21BB) is East Asian Neutral and is not Emoji, Emoji_Presentation or Extended_Pictographic. The test checks this against the AMBIGUOUS fixture and three emoji regexes, with positive controls for U+26A0 and U+2026.",
+    "Criterion d, verified: fitSegments ranks give the step order type 8, tasks 7, loop 6, track short 5, status short 4, status 3, id 2, track 1. The test walks widths 100 down to 1 and asserts the event order. Both suites test widths 100/60/40/20 and assert no ellipsis at those widths. The width-6 positive control shows the cut is detectable. The loop's place in the drop order is not specified by the criterion; the implementer placed it before the track glyphs.",
+    "Criterion e, verified for this diff: no edits to the pane output, the run band, answer(), view.ts, capabilities.ts or the reach tables. The band calls the pane's helpers (trackCell, statusOf, LOOP_GLYPH, compactTrack, loopMark, statusMark, statusGlyph, typeWord, taskCount) and duplicates no drawing logic.",
+    "Criterion f, verified: BAND_BASELINE and the OpenCode band test are replaced, each with a comment that quotes the old string and says the replacement is deliberate. New tests cover a-d, including the OpenCode token test.",
+    "Criterion g, verified by the three reused evidence records above.",
+    "Not executed by me: no test suite and no project or scratchpad script. My review used git, cmp, file reads and a read of the evidence JSON records."
+  ],
+  "input_sha256": "81d76f294be5a67621c18b099b6f4221e737dc068680f54ecc633451c5f2b389",
+  "pass": 1,
+  "rationale": "Scrutiny standard, risk shared-core-two-harnesses. I reviewed the band change in draw.ts and its integration points in both harnesses: band() in Claude Code and render.ts bandNode in OpenCode. I also covered the pane, the run band and answer(), which the change must leave alone. Criteria a through g are each verified by the cited tests, the committed diff and three reused evidence records whose input fingerprints match the committed blobs at 2360caae. Neither judgement point violates a criterion. The completed-cycle rendering follows the pane's compact track, which criterion a names as governing and criterion e requires the band to reuse. Dropping the status glyph before the id at 20 columns follows an order that criterion d leaves open, and the current-phase cell still shows that glyph in the same key. No trust boundary is touched: the change is display-only and adds no capability, I/O or input path, so no specialist review applies. No blocking findings.",
+  "reviewer": "crux:reviewer",
+  "scope": [
+    "crux-mods/hooks/lib/draw.ts",
+    "crux-mods/tests/cycle-dashboard.test.ts",
+    "crux-opencode/tests/cycle.test.ts"
+  ],
+  "scrutiny": "standard",
+  "verdict": "approve"
+}

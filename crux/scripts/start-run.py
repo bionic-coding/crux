@@ -3,7 +3,7 @@
 # requires-python = ">=3.13"
 # dependencies = ["PyYAML>=6.0"]
 # ///
-"""Create one validated run snapshot; the owning skill updates book/index pointers."""
+"""Historical replay writer. New work uses cycle.py; existing runs can still advance."""
 from __future__ import annotations
 
 import argparse
@@ -103,7 +103,13 @@ def main(argv=None):
     parser.add_argument("book")
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--output", required=True)
+    parser.add_argument("--historical-replay", action="store_true",
+                        help="explicitly reconstruct historical behavior for compatibility testing; never new work")
     args = parser.parse_args(argv)
+    if not args.historical_replay:
+        print(json.dumps({"error": "new-work-uses-cycle", "written": False,
+                          "next_step": "Use cycle.py create. Existing active runs may still advance."}))
+        return 1
     try:
         result = create_run(Path(args.book), args.run_id, Path(args.output))
     except (ValueError, OSError, TypeError, KeyError, cr.RecordError, yaml.YAMLError) as exc:

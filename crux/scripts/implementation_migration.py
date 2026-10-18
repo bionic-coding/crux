@@ -2257,7 +2257,8 @@ def _selected_admission_authority_view(repo, docs_dir, source_io) -> dict:
             _original_tree(repo, tree)
         else:
             # Discovery includes prior configured trees and deleted publications.
-            ap.require(not _discover_publications(repo), "migration-alternate-tree-unsupported")
+            import adr_migration_publication as prospective
+            ap.require(not _discover_publications(repo) and not prospective.inventory(repo), "migration-alternate-tree-unsupported")
             _original_tree(repo, tree)
             _alternate_history(repo, tree)
         revalidate()
@@ -2337,7 +2338,8 @@ def _authority_view(repo: Path, revision) -> dict:
         if key is not None and key in memo:
             remembered = memo[key]
             _unchanged_inputs(repo, remembered["dependency_fingerprints"])
-            ap.require(_publication_rows(_discover_publications(repo)) ==
+            import adr_migration_publication as prospective
+            ap.require(_publication_rows(_discover_publications(repo) + prospective.inventory(repo)) ==
                        _publication_rows(remembered["publications"]), "migration-current-subject-changed")
             ap.require(_view_key(repo) == key, "migration-history-head-changed")
             return copy.deepcopy(remembered)
@@ -2366,6 +2368,15 @@ def _computed_authority_view(repo: Path) -> dict:
             for fact in candidate["historical_displacements"]]
         view.update(candidate)
         view["publications"] = [{k: v for k, v in publication.items() if k != "content"} for publication in chain]
+        view["state"] = "published"
+    # Prospective formats never enter the historical proof parser. Both families
+    # are validated independently before their facts reach any shared reader.
+    import adr_migration_publication as prospective
+    newer = prospective.inventory(repo)
+    if newer:
+        facts = [prospective.publication_facts(repo, row) for row in newer]
+        view = prospective.combine(view, facts)
+        view["publications"] += [{k:v for k,v in row.items() if k!='content'} for row in newer]
         view["state"] = "published"
     final_head = cr.git(repo, "rev-parse", "HEAD")
     ap.require(final_head.returncode == 0 and final_head.stdout == head.stdout,

@@ -83,7 +83,7 @@ test('each map is one-to-one, and the four special grid cells differ from each o
 // Every glyph a closed map draws, with the constants of the mod drawn as glyphs.
 const GLYPHS = [
   ...Object.values(STATE_GLYPHS), ...Object.values(DECISION_GLYPHS), ...Object.values(SEAT_CELLS), ...Object.values(AGENT_GLYPHS),
-  BAR_ON, BAR_OFF, GROUP_SEP, UNKNOWN,
+  BAR_ON, BAR_OFF, GROUP_SEP, UNKNOWN, draw.LOOP_GLYPH, draw.TRACK_SEP,
 ]
 
 test('every glyph takes one cell, is not East Asian Ambiguous, and is no emoji', () => {

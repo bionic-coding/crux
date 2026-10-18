@@ -245,7 +245,7 @@ class ActualRunnerCloseTests(runner._Base):
                 yaml.safe_dump(migration_authorizer()) + '---\n')
         (self.env.root / 'widget.txt').write_text('before\n')
         sup.commit_all(self.env.root, 'synthetic declared book and constraints')
-        started = subprocess.run([sys.executable, str(sup.SCRIPTS / 'start-run.py'),
+        started = subprocess.run([sys.executable, str(sup.SCRIPTS / 'start-run.py'), "--historical-replay",
             str(self.env.book_path), '--run-id', sup.RUN_ID, '--output', str(self.env.run_path)],
             capture_output=True, env=sup.scrubbed_env())
         self.assertEqual(started.returncode, 0, started.stdout + started.stderr)

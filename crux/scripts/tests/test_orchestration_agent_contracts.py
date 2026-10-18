@@ -20,6 +20,9 @@ import sys
 import unittest
 from pathlib import Path
 
+# Frozen historical orchestration contract; live-cycle coverage is separate.
+from _legacy_workflow_prose import legacy_path
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_agent_craft_disciplines import DEV_LEAD_ONLY  # noqa: E402
 
@@ -36,7 +39,7 @@ def occurrences(text: str, needle: str) -> int:
 
 
 def agent(name: str) -> str:
-    return (AGENTS_DIR / f"{name}.md").read_text(encoding="utf-8")
+    return (legacy_path(AGENTS_DIR / f"{name}.md")).read_text(encoding="utf-8")
 
 
 RESULT_PATH = (

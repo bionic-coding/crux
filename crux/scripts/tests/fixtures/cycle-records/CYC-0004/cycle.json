@@ -1,0 +1,384 @@
+{
+  "blocker": {
+    "evidence": [],
+    "next_step": "resolve blocker",
+    "reason": "Tooling deadlock: the approved review (reviews/f4e761ead5e64f31af33aa1e11d281a8.json) no longer binds, because review_basis in cycle_workflow.py hashes the plan's task list and the reflect task was added in Reflect after the review. review is refused outside Review and no command removes a task, so advance cannot close the cycle. Delivery 2360caae17c464c281330b7a05ab4c3313b56817 is committed, tested (TE-17d7570e, TE-a40bf339, TE-940b755a) and approved with no blocking findings; reflection and completion are recorded. Resume after a separate cycle fixes review_basis to exclude tasks added after Review (or tasks of later phases), then advance to close."
+  },
+  "completion": {
+    "commits": [
+      "2360caae17c464c281330b7a05ab4c3313b56817"
+    ],
+    "exception": null,
+    "input_sha256": "81d76f294be5a67621c18b099b6f4221e737dc068680f54ecc633451c5f2b389",
+    "remaining": "Only final cycle bookkeeping awaits commit. The untracked bionic/cycles/.lock is cycle.py lock state and stays uncommitted."
+  },
+  "coordinator": "crux:historian",
+  "coverage": {
+    "affected": [
+      "The cycle branch of bandSegments in crux-mods/hooks/lib/draw.ts, as drawn by the Claude Code mod band and by the crux-opencode band (bandNode)",
+      "fitSegments ranking shared with the run band"
+    ],
+    "checks": [
+      {
+        "check_id": "mods-tests",
+        "rationale": "Runs the crux-mods suite, including cycle-dashboard and draw tests that import draw.ts and pin the band, pane and run band"
+      },
+      {
+        "check_id": "opencode-gate-dev",
+        "rationale": "Runs the crux-opencode source check and tests, which import draw.ts by relative path, including the cycle band and token tests"
+      },
+      {
+        "check_id": "mods-gate-dev",
+        "rationale": "Confirms the capability manifest and reach tables are unchanged"
+      }
+    ],
+    "not_selected": "The Python suites (crux/scripts/tests, tools/tests) are not selected: no Python source, schema or cycle reader script changes, and the reader document contract is unchanged. Release preflight and staged gates are not selected: no release. No input exclusion is needed, because none of the three checks declares bionic/ as an input."
+  },
+  "created_at": "2026-10-16T22:25:37.086924+00:00",
+  "decisions": [],
+  "evidence": [
+    {
+      "check_id": "mods-tests",
+      "evidence_id": "TE-17d7570ee2ec463fb9fd43ad3afb1226",
+      "pass": 1,
+      "use": "executed"
+    },
+    {
+      "check_id": "opencode-gate-dev",
+      "evidence_id": "TE-a40bf33999134a87adb424a49387476a",
+      "pass": 1,
+      "use": "executed"
+    },
+    {
+      "check_id": "mods-gate-dev",
+      "evidence_id": "TE-940b755a8bf84d8791fedea7de4c052c",
+      "pass": 1,
+      "use": "executed"
+    }
+  ],
+  "extensions": [],
+  "goal": "The one-line cycle band draws the cycle pane style: type colour, loop glyph, compact phase track and status glyph, and degrades by rank at narrow widths",
+  "history": [
+    {
+      "action": "created",
+      "at": "2026-10-16T22:25:37.087088+00:00",
+      "pass": 1,
+      "phase": "build"
+    },
+    {
+      "action": "checks",
+      "at": "2026-10-16T22:25:49.180498+00:00",
+      "pass": 1,
+      "phase": "build"
+    },
+    {
+      "action": "scrutiny",
+      "at": "2026-10-16T22:25:49.234037+00:00",
+      "pass": 1,
+      "phase": "build"
+    },
+    {
+      "action": "coverage",
+      "at": "2026-10-16T22:25:49.288665+00:00",
+      "pass": 1,
+      "phase": "build"
+    },
+    {
+      "action": "task-add",
+      "at": "2026-10-16T22:25:56.130631+00:00",
+      "pass": 1,
+      "phase": "build"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-16T22:35:11.108060+00:00",
+      "pass": 1,
+      "phase": "build",
+      "state": "done",
+      "task": "build-band"
+    },
+    {
+      "action": "task",
+      "at": "2026-10-16T22:35:11.108204+00:00",
+      "pass": 1,
+      "phase": "build"
+    },
+    {
+      "action": "advance",
+      "at": "2026-10-16T22:35:11.160114+00:00",
+      "pass": 1,
+      "phase": "test"
+    },
+    {
+      "action": "task-add",
+      "at": "2026-10-16T22:35:11.214555+00:00",
+      "pass": 1,
+      "phase": "test"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-16T22:35:14.864746+00:00",
+      "pass": 1,
+      "phase": "test",
+      "state": "active",
+      "task": "test-checks"
+    },
+    {
+      "action": "task",
+      "at": "2026-10-16T22:35:14.864906+00:00",
+      "pass": 1,
+      "phase": "test"
+    },
+    {
+      "action": "evidence",
+      "at": "2026-10-16T22:36:03.467679+00:00",
+      "pass": 1,
+      "phase": "test"
+    },
+    {
+      "action": "evidence",
+      "at": "2026-10-16T22:36:03.832549+00:00",
+      "pass": 1,
+      "phase": "test"
+    },
+    {
+      "action": "evidence",
+      "at": "2026-10-16T22:36:04.118527+00:00",
+      "pass": 1,
+      "phase": "test"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-16T22:36:09.419048+00:00",
+      "pass": 1,
+      "phase": "test",
+      "state": "done",
+      "task": "test-checks"
+    },
+    {
+      "action": "task",
+      "at": "2026-10-16T22:36:09.419193+00:00",
+      "pass": 1,
+      "phase": "test"
+    },
+    {
+      "action": "advance",
+      "at": "2026-10-16T22:36:09.879203+00:00",
+      "pass": 1,
+      "phase": "review"
+    },
+    {
+      "action": "task-add",
+      "at": "2026-10-16T22:36:09.937048+00:00",
+      "pass": 1,
+      "phase": "review"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-16T22:36:09.990631+00:00",
+      "pass": 1,
+      "phase": "review",
+      "state": "active",
+      "task": "review-independent"
+    },
+    {
+      "action": "task",
+      "at": "2026-10-16T22:36:09.990780+00:00",
+      "pass": 1,
+      "phase": "review"
+    },
+    {
+      "action": "review",
+      "at": "2026-10-16T22:39:51.798502+00:00",
+      "pass": 1,
+      "phase": "review"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-16T22:40:09.498943+00:00",
+      "pass": 1,
+      "phase": "review",
+      "state": "done",
+      "task": "review-independent"
+    },
+    {
+      "action": "task",
+      "at": "2026-10-16T22:40:09.499076+00:00",
+      "pass": 1,
+      "phase": "review"
+    },
+    {
+      "action": "advance",
+      "at": "2026-10-16T22:40:09.946902+00:00",
+      "pass": 1,
+      "phase": "reflect"
+    },
+    {
+      "action": "task-add",
+      "at": "2026-10-16T22:40:10.003082+00:00",
+      "pass": 1,
+      "phase": "reflect"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-16T22:40:10.060557+00:00",
+      "pass": 1,
+      "phase": "reflect",
+      "state": "active",
+      "task": "reflect"
+    },
+    {
+      "action": "task",
+      "at": "2026-10-16T22:40:10.060731+00:00",
+      "pass": 1,
+      "phase": "reflect"
+    },
+    {
+      "action": "reflect",
+      "at": "2026-10-16T22:40:10.116743+00:00",
+      "pass": 1,
+      "phase": "reflect"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-16T22:40:10.173927+00:00",
+      "pass": 1,
+      "phase": "reflect",
+      "state": "done",
+      "task": "reflect"
+    },
+    {
+      "action": "task",
+      "at": "2026-10-16T22:40:10.174069+00:00",
+      "pass": 1,
+      "phase": "reflect"
+    },
+    {
+      "action": "completion",
+      "at": "2026-10-16T22:40:10.277489+00:00",
+      "pass": 1,
+      "phase": "reflect"
+    },
+    {
+      "action": "pause",
+      "at": "2026-10-16T22:41:15.396296+00:00",
+      "pass": 1,
+      "phase": "reflect",
+      "reason": "Tooling deadlock: the approved review (reviews/f4e761ead5e64f31af33aa1e11d281a8.json) no longer binds, because review_basis in cycle_workflow.py hashes the plan's task list and the reflect task was added in Reflect after the review. review is refused outside Review and no command removes a task, so advance cannot close the cycle. Delivery 2360caae17c464c281330b7a05ab4c3313b56817 is committed, tested (TE-17d7570e, TE-a40bf339, TE-940b755a) and approved with no blocking findings; reflection and completion are recorded. Resume after a separate cycle fixes review_basis to exclude tasks added after Review (or tasks of later phases), then advance to close."
+    }
+  ],
+  "id": "CYC-0004",
+  "implementers": [
+    "crux:dev-lead"
+  ],
+  "pass": 1,
+  "pass_limit": 1,
+  "phase": "reflect",
+  "plan": {
+    "acceptance": [
+      "The band shows the cycle ID, the type word in its pane colour, the loop glyph with 'loop N' in place of 'Pass N/M', and the current phase drawn as in the pane's compact track: done glyph for finished phases, the current phase glyph and word in its status key and bold, the pending glyph for later phases.",
+      "The band shows the status glyph and word in the status colour (active, completed, paused, abandoned, unknown as the pane maps them); a dim 'N/M tasks' count is optional.",
+      "Every colour is paired with a glyph or word, and every glyph is one cell (East Asian Narrow or Neutral, not emoji).",
+      "At narrow widths the band degrades through the existing fitSegments rank mechanism, dropping the type word first, then the task count, then the track glyphs; the ID, current phase word and status glyph stay longest; nothing is cut mid-glyph; tested at 100, 60, 40 and 20 columns.",
+      "The pane, the run band, answer() (the /crux-dashboard text), view.ts, capabilities.ts and the reach tables are unchanged, and draw.ts reuses the pane's helpers and constants rather than duplicating them.",
+      "The tests that pinned the old band string (BAND_BASELINE in crux-mods/tests/cycle-dashboard.test.ts and the band assertion in crux-opencode/tests/cycle.test.ts) are updated with a stated reason, and new tests cover criteria a-d, including an OpenCode token check for the band spans.",
+      "mods-tests, opencode-gate-dev and mods-gate-dev pass."
+    ],
+    "constraints": [],
+    "revision": 1,
+    "scope": [
+      "crux-mods/hooks/lib/draw.ts",
+      "crux-mods/tests/cycle-dashboard.test.ts",
+      "crux-opencode/tests/cycle.test.ts"
+    ],
+    "tasks": [
+      {
+        "depends_on": [],
+        "description": "Restyle the cycle band in bandSegments with pane helpers and fitSegments ranks; update the two pinned band tests with a stated reason; add tests for criteria a-d and an OpenCode token check",
+        "expected_evidence": [
+          "draw.ts and test diff in a delivery commit"
+        ],
+        "id": "build-band",
+        "phase": "build",
+        "status": "done"
+      },
+      {
+        "depends_on": [
+          "build-band"
+        ],
+        "description": "Run or reuse mods-tests, opencode-gate-dev and mods-gate-dev; render the band at 100/60/40/20 for active and completed cycles",
+        "expected_evidence": [
+          "Evidence IDs for the three checks; band renderings"
+        ],
+        "id": "test-checks",
+        "phase": "test",
+        "status": "done"
+      },
+      {
+        "depends_on": [
+          "test-checks"
+        ],
+        "description": "Independent standard-scrutiny review by crux:reviewer",
+        "expected_evidence": [
+          "Review report recorded on the cycle"
+        ],
+        "id": "review-independent",
+        "phase": "review",
+        "status": "done"
+      },
+      {
+        "depends_on": [
+          "review-independent"
+        ],
+        "description": "Record outcome, lessons and follow-ups",
+        "expected_evidence": [
+          "Reflection recorded on the cycle"
+        ],
+        "id": "reflect",
+        "phase": "reflect",
+        "status": "done"
+      }
+    ],
+    "verification": []
+  },
+  "reflection": {
+    "lessons": [
+      "A quick-fix record cannot carry plan constraints or verification statements: `plan` requires the Plan phase, and `task-add` accepts only current-phase tasks. The commander carried them in the dev-lead assignment instead.",
+      "The old band separator, the middle dot, is East Asian Ambiguous width. The new band separates segments with fitSegments' gap rather than a separator glyph.",
+      "Naming the declared paths as the review scope, and putting integration points in evidence, let the review writer accept the report on its first submission.",
+      "Extracting the pane's track, loop and status pieces into shared helpers kept the pane byte-identical, which a snapshot comparison at eight widths confirmed."
+    ],
+    "outcome": "Delivered in one loop. The cycle band now draws the cycle panel's style through the pane's own helpers, fitted by fitSegments: a bold ID, the type word in the permission key, the loop glyph with 'loop N' in place of 'Pass N/M', the compact phase track, the status glyph and word in the status key, and a dim task count. At narrow widths it drops the type word, the task count, the loop and the other track glyphs, in that order, and keeps the ID, the current phase and the status glyph longest without cutting a glyph. The pane, the run band and the /crux-dashboard answer text are byte-identical. mods-tests passed 612 tests, opencode-gate-dev passed 288 and mods-gate-dev passed. Independent review approved with no blocking findings.",
+    "remaining": [
+      "The official release owes a live OpenCode 2 check from the beta install, because draw.ts is a core file crux-opencode imports.",
+      "Advisory: a completed cycle draws its final phase unbolded with five done glyphs, as the pane does. Emphasis for the final phase would be a separate change to trackCell, so the pane and the band move together.",
+      "Advisory: at 20 columns a completed cycle's band drops the separate status glyph. The current phase cell still draws the same glyph in the status key.",
+      "Cosmetic: the taskCount comment says 'the pane's bar' where the bar belongs to the cycle panel, and the commit message and test names mix 'pane' and 'panel' (writing rule 1).",
+      "Process: consider letting a quick-fix record carry constraints and verification without a Plan phase."
+    ]
+  },
+  "release": null,
+  "required_checks": [
+    "mods-tests",
+    "opencode-gate-dev",
+    "mods-gate-dev"
+  ],
+  "review_policy": {
+    "rationale": "Repository default. A presentation change to the shared drawing module that both the Claude Code mod and the OpenCode TUI import; review confirms the band styling, its width degradation and that the pane, run band and answer text are unchanged in both harnesses.",
+    "risks": [
+      "shared-core-two-harnesses"
+    ],
+    "scrutiny": "standard"
+  },
+  "reviews": [
+    {
+      "path": "cycles/CYC-0004/reviews/f4e761ead5e64f31af33aa1e11d281a8.json",
+      "sha256": "b804a25602f2b041bfd8767f40313a9e0e7277b7ebe202da961946ed5f9b00c1"
+    }
+  ],
+  "schema_version": 2,
+  "status": "paused",
+  "title": "Style the cycle band like the cycle pane",
+  "type": "quick-fix",
+  "updated_at": "2026-10-16T22:41:15.396445+00:00"
+}

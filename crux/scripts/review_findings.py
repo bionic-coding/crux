@@ -206,7 +206,7 @@ ASSESSMENT_HEADER = ("objective", "measure", "evidence", "locator", "domains",
                      "conclusion", "findings")
 
 #: The per-goal matrix that survives beside the assessment table. Four
-#: columns: it keeps the two `rule:coverage-matrix` requires and gains the
+#: columns: it keeps the two `rule:historical-review-reports-stay-readable` requires and gains the
 #: derived alignment rollup. Read back only so the rollup can be checked
 #: against the parts it rolls up.
 MATRIX_HEADER = ("objective", "alignment rollup", "signals that measured it",
@@ -278,7 +278,7 @@ MEASURE_PART = re.compile(
 
 #: A measure PART id on its own (`OBJ-<n>.<k>`, no label) — the shape a
 #: `measured_objectives` entry's optional `part` field carries (
-#: rule:a-blocked-part-is-counted-in-its-own-right). This is the COUNTED-THING
+#: rule:historical-review-reports-stay-readable). This is the COUNTED-THING
 #: key for a part-level entry; a part-less entry's counted-thing key is its
 #: bare `OBJ-N` objective id. The two key shapes never collide — a part id
 #: always carries a `.` and an objective id never does — so one dict may hold
@@ -1030,7 +1030,7 @@ def validate_structure(report: ParsedReport) -> None:
                 f"{len(parts)} assessment row(s) derive {redact(derived)}; "
                 "the measurement outcome is derived from the parts")
 
-    # (d) rule:a-blocked-part-is-counted-in-its-own-right: a part
+    # (d) rule:historical-review-reports-stay-readable: a part
     #     BLOCKED in this report (`partial`/`unavailable` evidence reaching
     #     `inconclusive`) must carry its own part-level `measured_objectives`
     #     entry, keyed on its part id. A report whose key omits it drops the
@@ -1242,7 +1242,7 @@ def events_elsewhere(report: ParsedReport,
 
 
 def check_part_carryover(reports: Iterable[ParsedReport]) -> None:
-    """rule:a-blocked-part-is-counted-in-its-own-right, cross-date half.
+    """rule:historical-review-reports-stay-readable, cross-date half.
 
     A part that EVER carried a part-level `measured_objectives` entry keeps
     carrying one for as long as it is still assessed. `validate_structure`
@@ -1427,7 +1427,7 @@ def measured_objectives(frontmatter: str) -> tuple[dict[str, dict[str, str]], st
 
     Returns `(outcomes, shape)`. `outcomes` maps a COUNTED-THING key — a bare
     `OBJ-N` objective id for a part-less entry, or an `OBJ-N.k` part id for a
-    part-level one (rule:a-blocked-part-is-counted-in-its-own-right) —
+    part-level one (rule:historical-review-reports-stay-readable) —
     to a field mapping carrying at least `"outcome"`; `shape` is one of
     `MEASURED_OBJECTIVES_SHAPES`.
 
@@ -1615,7 +1615,7 @@ def measured_objectives(frontmatter: str) -> tuple[dict[str, dict[str, str]], st
 #: How many of the newest report dates the ESCALATION HISTORY span walks
 #: when it must reconstruct — a bounded window, never the whole corpus. A run
 #: of attempts longer than this truncates, which DEFERS an obligation and
-#: never invents one (rule:escalation-history-is-carried-and-bounded).
+#: never invents one (rule:historical-review-reports-stay-readable).
 #: The COVERAGE span: the three newest report dates. Named beside
 #: `ESCALATION_WINDOW` because the rule this module implements says the two
 #: "are two spans and are never one variable" — a bare `dated[-3:]` beside a
@@ -1649,11 +1649,11 @@ ESCALATION_WINDOW = 12
 def rotation_state(reports: Iterable[tuple[str, str]],
                     active_things: Iterable[str]) -> dict[str, dict[str, object]]:
     """The rotation, over TWO SPANS that are never one variable
-    (rule:escalation-history-is-carried-and-bounded): a three-date COVERAGE
+    (rule:historical-review-reports-stay-readable): a three-date COVERAGE
     window and a separately-computed ESCALATION history. `active_things` is
     every counted thing to report on — a bare `OBJ-N` objective id or an
     `OBJ-N.k` measure-part id
-    (rule:a-blocked-part-is-counted-in-its-own-right); the two callers who care
+    (rule:historical-review-reports-stay-readable); the two callers who care
     about a goal-level-only rotation and a per-part-inclusive one both pass
     exactly the set of keys they want back.
 
@@ -1828,7 +1828,7 @@ def _reconstruct_escalation(dated: list[tuple[str, str]],
     """The BOUNDED reconstruction fallback: the `ESCALATION_WINDOW` newest
     report dates, oldest to newest, frontmatter only, stepping over a silent
     date and stopping early at the newest reset
-    (rule:escalation-history-is-carried-and-bounded). Used when the fast verify
+    (rule:historical-review-reports-stay-readable). Used when the fast verify
     path in `escalation_state` finds no usable carried claim to trust.
 
     Reconstruction recovers `strikes` and `owed` from the outcomes
@@ -1882,7 +1882,7 @@ def escalation_state(reports: Iterable[tuple[str, str]],
                       active_things: Iterable[str]) -> dict[str, dict[str, object]]:
     """The ESCALATION HISTORY span alone — the counterpart to the three-date
     coverage window `rotation_state` also reads, and a SEPARATE variable from
-    it (rule:escalation-history-is-carried-and-bounded).
+    it (rule:historical-review-reports-stay-readable).
 
     For each counted thing in `active_things`, returns:
 
@@ -2047,7 +2047,7 @@ def _is_spend_of(expected: dict[str, object],
     an earlier date and is spent now: `expected` carries the original
     `owed_since` and `claimed` carries none, because a spent obligation is no
     longer owed. Reconstruction cannot recover spent-ness
-    (rule:escalation-history-is-carried-and-bounded), which is why the fact has
+    (rule:historical-review-reports-stay-readable), which is why the fact has
     to be CARRIED here rather than derived.
     """
     return (bool(expected.get("owed"))
@@ -2061,7 +2061,7 @@ def _is_spend_of(expected: dict[str, object],
 def _counted_thing_sort_key(thing: str) -> tuple[int, int, int]:
     """Numeric ordering over a counted-thing key: goal number, then
     part-or-not, then part number — a bare `OBJ-N` orders before any part of
-    the same objective (rule:escalation-history-is-carried-and-bounded:
+    the same objective (rule:historical-review-reports-stay-readable:
     "a part-less goal-level obligation ordering before any part of the same
     objective")."""
     part_match = PART_ID.match(thing)
@@ -2078,7 +2078,7 @@ def owed_escalations(state: dict[str, dict[str, object]]) -> list[str]:
     them. Dated obligations order oldest-owed-first. Ties break by objective
     id then part id, a part-less goal-level obligation ordering before any
     part of the same objective
-    (rule:escalation-history-is-carried-and-bounded).
+    (rule:historical-review-reports-stay-readable).
     """
     owed = [thing for thing, entry in state.items() if entry.get("owed")]
 
@@ -2095,7 +2095,7 @@ def spend_escalations(state: dict[str, dict[str, object]],
                        cap_remaining: int) -> tuple[list[str], list[str]]:
     """Split the owed escalations into `(spend, defer)` against a pass's
     remaining finding budget, oldest/unverified-first
-    (rule:escalation-history-is-carried-and-bounded: "An escalation the per-pass
+    (rule:historical-review-reports-stay-readable: "An escalation the per-pass
     finding cap delays remains owed rather than lost").
 
     `cap_remaining` may be zero or negative (nothing left this pass); every

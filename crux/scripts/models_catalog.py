@@ -209,6 +209,13 @@ class ModelsCatalog:
             )
         return row.level
 
+    def resolve_level(self, name: str) -> Resolution:
+        """Resolve a capability class directly, without any agent override."""
+        level=self.levels.get(name)
+        if level is None or level.opencode is None or level.opencode not in self.aliases:
+            raise SpecViolation(f'{name!r}: no complete capability level')
+        return Resolution(claude=level.claude,opencode=self.aliases[level.opencode],codex=level.codex)
+
     def resolve(self, agent: str) -> Resolution:
         """Resolve one agent to its three harness values. Fail-closed: an agent
         outside the roster raises rather than defaulting."""

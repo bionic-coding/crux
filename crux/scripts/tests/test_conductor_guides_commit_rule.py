@@ -124,10 +124,7 @@ RETIRED_REMEDY_WORDING = ("end-of-file fixer", "trailing-whitespace fixer", "sta
 #: least one trigger in each, so a reworded trigger cannot make the check vacuous.
 EXIT2_SURFACES = ("CODEX.md", "OPENCODE.md", "OPENCODE_GUIDE.md", "USER_GUIDE.md", "bionic/AGENTS.md",
                   "crux/templates/AGENTS.md.tmpl", "crux/templates/USER_GUIDE.md",
-                  "crux/skills/install-docs-skills/references/install-and-upgrade.md",
-                  "crux/skills/dev-cycle/SKILL.md", "crux/skills/iterate/SKILL.md",
-                  "crux/skills/patch-cycle/SKILL.md", "crux/agents/commander.md", "crux/agents/dev-lead.md",
-                  "crux/agents/reviewer.md", "opencode/agents/commander.md")
+                  "crux/skills/install-docs-skills/references/install-and-upgrade.md")
 
 
 def exit2_sites(text: str) -> list[tuple[str, bool]]:
