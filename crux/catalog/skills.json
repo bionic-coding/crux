@@ -216,7 +216,7 @@
   {
     "id": "cycle",
     "name": "cycle",
-    "description": "Plan, execute, resume, or inspect one development cycle. Use for major changes, minor changes, quick fixes, refactoring, and releases.",
+    "description": "Plan, execute, resume, inspect, or update one development cycle. Use for major changes, minor changes, quick fixes, refactoring, simplification, releases, and reconciling the cycle record.",
     "tags": [
       "cycles",
       "workflow",
@@ -238,7 +238,42 @@
       "iterate on this",
       "quick fix",
       "refactor this",
-      "release cycle"
+      "simplify cycle",
+      "run a simplify cycle",
+      "simplify <area>",
+      "release cycle",
+      "update the cycle",
+      "reconcile the cycle record",
+      "add to the queue",
+      "show the queue",
+      "run the next item",
+      "run the next N items",
+      "run the queue"
+    ]
+  },
+  {
+    "id": "cycle-status",
+    "name": "cycle-status",
+    "description": "Show cycle progress without changing it: one cycle, every cycle, the JSON document, or a view that redraws in a second terminal.",
+    "tags": [
+      "cycles",
+      "status",
+      "progress",
+      "read-only"
+    ],
+    "bundles": [
+      "crux-docs"
+    ],
+    "risk_level": "low",
+    "requires_access": "run-plugin-script",
+    "routing_note": "Read-only. Runs `cycle.py status` and shows its output; never advances or edits a cycle. The bare phrase \"cycle status\" routes to `cycle`.",
+    "triggers": [
+      "show cycle status",
+      "what's the status of CYC-NNNN",
+      "where are the cycles",
+      "list the cycles",
+      "watch the cycle",
+      "show the cycle dashboard"
     ]
   },
   {
@@ -483,6 +518,50 @@
       "set up crux",
       "upgrade docs suite"
     ]
+  },
+  {
+    "id": "install-micro-crux",
+    "name": "install-micro-crux",
+    "description": "Install or update the standalone micro-crux guide and its repository read instruction while preserving local edits.",
+    "tags": [
+      "documentation",
+      "installation",
+      "continuity"
+    ],
+    "bundles": [
+      "crux-docs"
+    ],
+    "risk_level": "medium",
+    "requires_access": "write-tree",
+    "triggers": [
+      "install micro-crux",
+      "add micro-crux to this project",
+      "update micro-crux",
+      "install the standalone crux guide"
+    ]
+  },
+  {
+    "id": "install-omp-agents",
+    "name": "install-omp-agents",
+    "description": "Install, refresh, or check crux's OMP (Oh My Pi) role agents in the personal or specified project directory. Preserve conflicting roles.",
+    "tags": [
+      "omp",
+      "agents",
+      "installation",
+      "roles"
+    ],
+    "bundles": [
+      "crux-infrastructure",
+      "crux-docs"
+    ],
+    "risk_level": "medium",
+    "requires_access": "write-host",
+    "triggers": [
+      "install omp agents",
+      "install crux agents for omp",
+      "refresh the omp agents"
+    ],
+    "disable-model-invocation": true
   },
   {
     "id": "install-opencode-agents",

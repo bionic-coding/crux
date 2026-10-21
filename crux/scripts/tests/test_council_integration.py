@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from test_council_gate_attempts import _Base
 import implementation_approval as approval
 from test_implementation_cycles import WriterFixture
-from test_implementation_cycles import book_two, migration_authorizer
+from test_implementation_cycles import book_two
 import test_run_council as runner
 import _council_gate_support as sup
 import yaml
@@ -221,7 +221,7 @@ class CandidateCloseCompositionTests(unittest.TestCase):
 class ActualRunnerCloseTests(runner._Base):
     """Production writers with synthetic HTTP seats; never a real council approval."""
 
-    def _install(self, kind, migration=False, combined=False):
+    def _install(self, kind, combined=False):
         old_root = self.env.root
         self.env.root = sup.init_repo(old_root.parent / 'actual-repo')
         for name in ('docs', 'run_dir', 'council', 'book_path', 'run_path', 'subject'):
@@ -232,17 +232,11 @@ class ActualRunnerCloseTests(runner._Base):
             path.mkdir(parents=True, exist_ok=True)
         self.env.book = book_two(kind, combined=combined)
         declaration = self.env.book['implementation_slots'][0]
-        if migration:
-            declaration.update(scope=['docs/adrs/migrations'], migration_batch={
-                'role': 'migration-batch', 'path': 'docs/adrs/migrations/implementation-pilot-001.yaml'})
         self.env.book.update(current_run=None, current_prompt=None)
         self.env.book_path.write_text(yaml.safe_dump(self.env.book, sort_keys=False))
         (self.env.root / '.bionic.yml').write_text('config_version: "1"\ndocs_dir: docs\n')
         self.subject.write_text('---\nid: ADR-0001\nstatus: Accepted\ngoverns:\n'
             '- handle: ADR-0001/fixture-rule\n  rule: Preserve synthetic output.\n---\n')
-        if migration:
-            (self.subject.parent / 'ADR-0146-authorizer.md').write_text('---\n' +
-                yaml.safe_dump(migration_authorizer()) + '---\n')
         (self.env.root / 'widget.txt').write_text('before\n')
         sup.commit_all(self.env.root, 'synthetic declared book and constraints')
         started = subprocess.run([sys.executable, str(sup.SCRIPTS / 'start-run.py'), "--historical-replay",
@@ -284,8 +278,8 @@ class ActualRunnerCloseTests(runner._Base):
         self.assertEqual(retained.read_bytes(), subject.read_bytes())
         return record
 
-    def _chain(self, kind='implementation', migration=False, combined=False, omit_attempt=False):
-        declaration = self._install('adr' if combined else kind, migration, combined)
+    def _chain(self, kind='implementation', combined=False, omit_attempt=False):
+        declaration = self._install('adr' if combined else kind, combined)
         artifacts = []
         if combined:
             self._advance()
@@ -295,16 +289,10 @@ class ActualRunnerCloseTests(runner._Base):
             artifacts = [architecture]
             for _ in range(3): self._advance(artifacts)
         author = 5 if combined else 1
-        if migration:
-            from test_implementation_migration import document
-            selected = document(); selected['approval_slot'] = declaration['slot']
-            decision = self.env.root / declaration['migration_batch']['path']
-            flag, container, subject_key = '--migration-batch', 'migration_bindings', 'batch'
-        else:
-            from test_implementation_decisions import decision as decision_doc
-            selected = decision_doc(); selected['slot'] = declaration['slot']
-            decision = self.env.run_dir / 'implementations/RUN-001/strategy/revision-001.yaml'
-            flag, container, subject_key = '--implementation-revision', 'implementation_bindings', 'revision'
+        from test_implementation_decisions import decision as decision_doc
+        selected = decision_doc(); selected['slot'] = declaration['slot']
+        decision = self.env.run_dir / 'implementations/RUN-001/strategy/revision-001.yaml'
+        flag, container, subject_key = '--implementation-revision', 'implementation_bindings', 'revision'
         decision.parent.mkdir(parents=True, exist_ok=True)
         decision.write_text(yaml.safe_dump(selected, sort_keys=False))
         witnessed = subprocess.run([sys.executable, str(sup.SCRIPTS / 'run-work-witness.py'),
@@ -332,9 +320,8 @@ class ActualRunnerCloseTests(runner._Base):
         context = json.loads((self.env.root / binding['context']['path']).read_bytes())
         self.assertEqual((context['format_version'], context['contract']['version']), ('3', '4'))
         self.assertTrue(any(item['path'].endswith('.attempt.json') for item in context['records']))
-        consumer = approval.validate_historical_migration_binding if migration else approval.validate_historical_implementation_binding
-        kwargs = {'batch_path': rel, 'batch_sha256': binding['batch']['sha256']} if migration else {
-            'revision_path': rel, 'revision_sha256': binding['revision']['sha256']}
+        consumer = approval.validate_historical_implementation_binding
+        kwargs = {'revision_path': rel, 'revision_sha256': binding['revision']['sha256']}
         seen = set(); previous = sys.getprofile()
         def trace(frame, event, arg):
             if event == 'call' and frame.f_globals.get('__name__') == policy_four.__name__: seen.add(frame.f_code.co_name)
@@ -381,7 +368,6 @@ class ActualRunnerCloseTests(runner._Base):
     def test_committed_recomputed_context_cannot_omit_attempt(self): self._chain(omit_attempt=True)
 
     def test_actual_implementation_runner_close_and_retained_consumer(self): self._chain()
-    def test_actual_migration_runner_close_and_retained_consumer(self): self._chain(migration=True)
     def test_existing_formal_verify_runner_close_and_retained_consumer(self): self._chain('verify')
     def test_existing_formal_patch_runner_close_and_retained_consumer(self): self._chain('patch')
     def test_combined_structural_implementation_runner_close_and_retained_consumer(self): self._chain(combined=True)

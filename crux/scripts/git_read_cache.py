@@ -23,7 +23,20 @@ What is cached:
   `merge-base --is-ancestor`. An absent object is asked again every time.
 
 A repository whose state cannot be read exactly is never cached: `<repo>/.git` must be
-a real directory, and a linked worktree (`commondir`) or a reftable store is refused.
+a real directory or a linked worktree this module can read exactly, and a reftable store is
+refused. A linked worktree keeps `index` and `HEAD` in its own git directory and the refs,
+`packed-refs`, `config` and `shallow` in the common one; the key holds the bytes of both
+sides. It must name its git directory and be named back, and a per-worktree configuration
+file, per-worktree refs, a nested common directory or a `commondir` file inside a plain
+`.git` directory make it unreadable. `_repository_state` reads a linked worktree only for a
+caller that passes `linked=True`; every other caller still gets None.
+
+Also admitted: `rev-parse --verify <full object id>^{commit}`, whose output is that id or a
+refusal. A refusal is asked again.
+
+Every git child started through the proxy for the exact call `council_records.git` makes
+goes through the executable the environment's `PATH` names, with `close_fds` off, so that
+`subprocess` can use `posix_spawn`; the argv stays as the caller passed it.
 
 How it attaches. `council_records.git` runs `subprocess.run` through its module global
 `subprocess`. The gate contract binds that function's source text, so the function is
@@ -40,6 +53,7 @@ import contextlib
 import contextvars
 import os
 import re
+import shutil
 import stat
 import subprocess
 import threading
@@ -53,6 +67,7 @@ _REV_RE = re.compile(r"\A(?:%s|HEAD)\Z" % _OID)
 _OBJECT_RE = re.compile(r"\A(?:(?:%s|HEAD)(?::.*|\^\{commit\})?|:0:.+)\Z" % _OID, re.S)
 _BLOB_RE = re.compile(r"\A(?:%s|HEAD):.+\Z" % _OID, re.S)
 _OID_RE = re.compile(r"\A%s\Z" % _OID)
+_COMMIT_RE = re.compile(r"\A%s\^\{commit\}\Z" % _OID)
 _HEAD_OID_RE = re.compile(rb"\A%s\n?\Z" % _OID.encode())
 _STATE_FILES = ("index", "HEAD", "packed-refs", "config", "shallow")
 _FLAGS = {
@@ -83,17 +98,39 @@ class _CachingSubprocess(types.ModuleType):
             hit = memo.get(key)
             if hit is not None:
                 return subprocess.CompletedProcess(list(hit[0]), hit[1], hit[2], hit[3])
-        result = subprocess.run(args, *pargs, **kwargs)
+        result = _run_git(args, pargs, kwargs)
         # Store only when the state did not move while git ran, so an answer is never
         # filed under a state it was not read under.
         if key is not None and (result.returncode == 0 or
                                 (key[1][0] == "merge-base" and result.returncode == 1)) \
-                and _repository_state(args[2]) == key[3]:
+                and _repository_state(args[2], linked=True) == key[3]:
             memo[key] = (tuple(result.args), result.returncode, result.stdout, result.stderr)
         return result
 
 
 _PROXY = _CachingSubprocess("subprocess")
+
+
+def _run_git(args, pargs, kwargs):
+    """`subprocess.run(args, ...)`, started through `posix_spawn` when the call allows it.
+
+    `subprocess` takes the cheaper `posix_spawn` path only for an executable named with a
+    directory part and with `close_fds` off. Python marks every descriptor it creates
+    close-on-exec, so leaving the rest open hands the child nothing. This applies to the
+    exact call `council_records.git` makes: a `git` argv with captured output and an
+    environment, run with no other option. The executable is the one the environment's own
+    `PATH` names first, passed as `executable`, so the argv the caller passed stays as it was.
+    Any other call, and a call where no executable is found, runs unchanged."""
+    if pargs or set(kwargs) != {"capture_output", "env"} or kwargs["capture_output"] is not True:
+        return subprocess.run(args, *pargs, **kwargs)
+    env = kwargs["env"]
+    if not isinstance(args, list) or not args or args[0] != "git" or not isinstance(env, dict) \
+            or not isinstance(env.get("PATH"), str):
+        return subprocess.run(args, *pargs, **kwargs)
+    found = shutil.which("git", path=env["PATH"])
+    if found is None or not os.path.isabs(found):
+        return subprocess.run(args, *pargs, **kwargs)
+    return subprocess.run(args, capture_output=True, env=env, executable=found, close_fds=False)
 
 
 @contextlib.contextmanager
@@ -122,6 +159,18 @@ def scope():
                 _displaced = None
 
 
+def scope_memo(name):
+    """The dict a caller keeps for `name` while a scope is open, or None outside one.
+
+    It lives and dies with the outermost scope, beside the git reads. What a caller
+    stores there carries its own validity checks; this module vouches only for the
+    git state its reads were keyed on."""
+    memo = _MEMO.get()
+    if memo is None:
+        return None
+    return memo.setdefault(("scope-memo", name), {})
+
+
 def _key(args, pargs, kwargs):
     """The memo key of one `subprocess.run` call, or None when it is not cached."""
     if pargs or set(kwargs) != {"capture_output", "env"} or kwargs["capture_output"] is not True:
@@ -137,7 +186,7 @@ def _key(args, pargs, kwargs):
     repo, rest = args[2], tuple(args[3:])
     if not _admitted(rest):
         return None
-    state = _repository_state(repo)
+    state = _repository_state(repo, linked=True)
     if state is None:
         return None
     environment = tuple(sorted((k, v) for k, v in env.items() if k.startswith("GIT_") or k == "PATH"))
@@ -154,7 +203,9 @@ def _admitted(args):
     if command == "show":
         return len(rest) == 1 and bool(_BLOB_RE.match(rest[0]))
     if command == "rev-parse":
-        return tuple(rest) in _REV_PARSE
+        # `--verify <oid>^{commit}` names one immutable object: a commit's id, or a refusal.
+        return tuple(rest) in _REV_PARSE or (len(rest) == 2 and rest[0] == "--verify"
+                                             and bool(_COMMIT_RE.match(rest[1])))
     if command == "merge-base":
         return len(rest) == 3 and rest[0] == "--is-ancestor" and all(_OID_RE.match(r) for r in rest[1:])
     if command in _FLAGS:
@@ -182,11 +233,17 @@ def _state_bytes(path):
         return handle.read()
 
 
-def _repository_state(repo):
-    """The bytes the admitted reads depend on, or None when they cannot be read exactly."""
+def _repository_state(repo, *, linked=False):
+    """The bytes the admitted reads depend on, or None when they cannot be read exactly.
+
+    A linked worktree (`.git` is a file) is read only when the caller says `linked`: the
+    callers that also read `.git/` for their own inputs keep refusing it."""
     try:
         git_dir = os.path.join(os.path.abspath(repo), ".git")
-        if not stat.S_ISDIR(os.lstat(git_dir).st_mode):
+        mode = os.lstat(git_dir).st_mode
+        if stat.S_ISREG(mode) and linked:
+            return _linked_state(os.path.abspath(repo), git_dir)
+        if not stat.S_ISDIR(mode):
             return None
         # Without these git does not take the directory as a repository and searches upward.
         if not all(os.path.isdir(os.path.join(git_dir, d)) for d in ("objects", "refs")):
@@ -210,3 +267,51 @@ def _repository_state(repo):
         return (os.path.realpath(git_dir), files, ref)
     except (OSError, UnicodeDecodeError, ValueError):
         return None
+
+
+def _linked_state(repo, dot_git):
+    """`_repository_state` of a linked worktree, or None when it cannot be read exactly.
+
+    The worktree's own git directory holds `index` and `HEAD`. The common directory holds
+    the objects, the loose and packed refs, `config` and `shallow`. The worktree must name
+    its git directory and that directory must name the worktree back. A per-worktree
+    configuration file, a reftable store, per-worktree refs and a nested common directory
+    are not read."""
+    raw = _state_bytes(dot_git)
+    if raw is None or not raw.startswith(b"gitdir: ") or raw.count(b"\n") > 1:
+        return None
+    named = raw[len(b"gitdir: "):].rstrip(b"\n").decode("utf-8", "strict")
+    git_dir = os.path.realpath(os.path.join(repo, named))
+    if not stat.S_ISDIR(os.lstat(git_dir).st_mode):
+        return None
+    common_raw = _state_bytes(os.path.join(git_dir, "commondir"))
+    back = _state_bytes(os.path.join(git_dir, "gitdir"))
+    if common_raw is None or back is None:
+        return None
+    common = os.path.realpath(os.path.join(git_dir, common_raw.rstrip(b"\n").decode("utf-8", "strict")))
+    if os.path.realpath(back.rstrip(b"\n").decode("utf-8", "strict")) != os.path.realpath(dot_git):
+        return None
+    if not stat.S_ISDIR(os.lstat(common).st_mode) or \
+            not all(os.path.isdir(os.path.join(common, d)) for d in ("objects", "refs")):
+        return None
+    for extra in (os.path.join(git_dir, "config.worktree"), os.path.join(common, "config.worktree"),
+                  os.path.join(common, "commondir"), os.path.join(common, "reftable"),
+                  os.path.join(git_dir, "reftable")):
+        if os.path.lexists(extra):
+            return None
+    index = _state_bytes(os.path.join(git_dir, "index"))
+    head = _state_bytes(os.path.join(git_dir, "HEAD"))
+    shared = tuple(_state_bytes(os.path.join(common, name)) for name in ("packed-refs", "config", "shallow"))
+    ref = None
+    if head is None:
+        return None
+    if head.startswith(b"ref: "):
+        name = head[5:].rstrip(b"\n").decode("utf-8", "strict")
+        parts = name.split("/")
+        if parts[0] != "refs" or parts[1:2] in (["bisect"], ["rewritten"], ["worktree"]) or \
+                any(p in ("", ".", "..") for p in parts) or "\\" in name:
+            return None
+        ref = _state_bytes(os.path.join(common, *parts))
+    elif not _HEAD_OID_RE.match(head):
+        return None
+    return (git_dir, (index, head) + shared, ref, common)

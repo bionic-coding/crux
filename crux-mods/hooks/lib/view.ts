@@ -89,6 +89,12 @@ export type CycleView = {
   phases: string[]; tasks: {id: string; phase: string; description: string; status: string}[]
   returns: {pass: number; phase: string; reason: string}[]; waits: string[]
   blocker: string | null; reflection: string | null; modified_s: number
+  // Elapsed time, from the cycle's history. started_s and ended_s are epoch seconds; ended_s is null
+  // while the cycle is open. paused_s is the paused total as of the reader's now_s (or ended_s).
+  // open_started_s is the open segment's start. basis says whether the paused time was recorded
+  // or derived from an older history.
+  started_s: number; ended_s: number | null; paused_s: number; open_started_s: number | null
+  basis: 'recorded' | 'derived'; phase_times: {phase: string; active_s: number; paused_s: number}[]
 }
 export type ReaderView = {
   cycles?: CycleView[]
@@ -348,16 +354,29 @@ export function parseReader(stdout: string): Parsed {
 const CYCLE_PHASES: Record<string, string[]> = {
   dev: ['plan','build','test','review','reflect'], iterate: ['plan','build','test','review','reflect'],
   refactor: ['plan','build','test','review','reflect'], 'quick-fix': ['build','test','review','reflect'],
+  simplify: ['plan','build','test','review','reflect'],
   release: ['plan','release','reflect'],
 }
+// A release cycle made from a list has the one phase `release`; one recorded earlier keeps three.
+const LISTED_RELEASE = ['release']
+const sequenceOk = (kind: string, phases: string[]): boolean =>
+  phases.join(',') === CYCLE_PHASES[kind]!.join(',') || (kind === 'release' && phases.join(',') === LISTED_RELEASE.join(','))
 function cycleObject(value: unknown, keys: string[]): Obj {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return bad()
   const o = value as Obj
   return Object.keys(o).length === keys.length && keys.every(k => Object.prototype.hasOwnProperty.call(o, k)) ? o : bad()
 }
+// The number in a cycle id, whatever artifact prefix precedes CYC. Ids are validated before this runs.
+const cycleNumber = (id: string): number => +id.slice(id.lastIndexOf('CYC-') + 4)
+// Active cycles first, then every other cycle; each group by cycle number, highest first. Never by
+// time or by the order the reader listed them. Shared by every surface that draws the list.
+export function orderCycles(cycles: CycleView[]): CycleView[] {
+  return [...cycles].sort((a, b) => (a.status === 'active' ? 0 : 1) - (b.status === 'active' ? 0 : 1) || cycleNumber(b.id) - cycleNumber(a.id))
+}
+
 function parseCycles(doc: unknown): Parsed {
   const d = doc as Obj
-  if (d.format_version !== 1) return {ok:false,code:'reader-format-mismatch'}
+  if (d.format_version !== 2) return {ok:false,code:'reader-format-mismatch'}
   if (d.ok === false) {
     const o=cycleObject(doc,['format','format_version','ok','error'])
     const e=cycleObject(o.error,['code'])
@@ -366,10 +385,10 @@ function parseCycles(doc: unknown): Parsed {
   const o=cycleObject(doc,['format','format_version','ok','docs_dir','now_s','cycles'])
   if (o.ok !== true) return bad()
   const cycles=arr(o.cycles,20).map(value => {
-    const c=cycleObject(value,['id','title','type','status','phase','pass','pass_limit','phases','tasks','returns','waits','blocker','reflection','modified_s'])
+    const c=cycleObject(value,['id','title','type','status','phase','pass','pass_limit','phases','tasks','returns','waits','blocker','reflection','modified_s','started_s','ended_s','paused_s','open_started_s','basis','phase_times'])
     const kind=oneOf(c.type,Object.keys(CYCLE_PHASES))
     const phases=arr(c.phases,6).map(p=>oneOf(p,CYCLE_PHASES[kind]!))
-    if (phases.join(',')!==CYCLE_PHASES[kind]!.join(',')) return bad()
+    if (!sequenceOk(kind,phases)) return bad()
     const pass=int(c.pass), limit=int(c.pass_limit)
     if (pass<1 || pass>limit) return bad()
     return {
@@ -379,9 +398,12 @@ function parseCycles(doc: unknown): Parsed {
       tasks:arr(c.tasks,500).map(v=>{const t=cycleObject(v,['id','phase','description','status']);return {id:free(t.id),phase:oneOf(t.phase,phases),description:free(t.description),status:oneOf(t.status,['pending','active','done','blocked'])}}),
       returns:arr(c.returns,20).map(v=>{const r=cycleObject(v,['pass','phase','reason']);return {pass:int(r.pass),phase:oneOf(r.phase,['plan','build','test','review','release','reflect']),reason:free(r.reason)}}),
       waits:arr(c.waits,20).map(free),blocker:orNull(c.blocker,free),reflection:orNull(c.reflection,free),modified_s:int(c.modified_s,4102444800),
+      started_s:int(c.started_s,4102444800),ended_s:orNull(c.ended_s,v=>int(v,4102444800)),paused_s:int(c.paused_s,4102444800),
+      open_started_s:orNull(c.open_started_s,v=>int(v,4102444800)),basis:oneOf(c.basis,['recorded','derived'] as const),
+      phase_times:arr(c.phase_times,6).map(v=>{const t=cycleObject(v,['phase','active_s','paused_s']);return {phase:oneOf(t.phase,phases),active_s:int(t.active_s,4102444800),paused_s:int(t.paused_s,4102444800)}}),
     }
   })
-  return {ok:true,view:{reader_version:'0.0.0',docs_dir:tpath(o.docs_dir),now_s:time(o.now_s),cycles,runs:[],runs_skipped:0,last_completed:null,last_completed_status:'none',last_completed_undated:0,last_completed_unresolved:0}}
+  return {ok:true,view:{reader_version:'0.0.0',docs_dir:tpath(o.docs_dir),now_s:time(o.now_s),cycles:orderCycles(cycles),runs:[],runs_skipped:0,last_completed:null,last_completed_status:'none',last_completed_undated:0,last_completed_unresolved:0}}
 }
 
 // --- the kept result ---------------------------------------------------------
@@ -462,8 +484,11 @@ export function answer(p: Parsed): string {
     if (v.cycles !== undefined) {
       lines.push(`dashboard status ok cycles ${v.cycles.length}`)
       for (const c of v.cycles) {
-        lines.push(`cycle ${c.id} type ${c.type} status ${c.status} phase ${c.phase} pass ${c.pass} limit ${c.pass_limit}`)
+        const listed = c.type === 'release' && c.phases.join(',') === LISTED_RELEASE.join(',')
+        lines.push(`cycle ${c.id} type ${c.type} status ${c.status} phase ${c.phase}${listed ? '' : ` pass ${c.pass} limit ${c.pass_limit}`}`)
         lines.push(`tasks done ${c.tasks.filter(t=>t.status==='done').length} total ${c.tasks.length} returns ${c.returns.length} approval-waits ${c.waits.length}`)
+        const time = cycleTimeText(c, v.now_s)
+        if (time !== null) lines.push(`time ${time}`)
       }
       return `${NOTE}\n\n\`\`\`text\n${lines.join('\n')}\n\`\`\``
     }
@@ -560,6 +585,19 @@ export function currentEscalation(r: RunView): Escalation | undefined {
   const cur = currentPrompt(r)
   if (cur === undefined) return undefined
   return r.escalations.find(e => (cur.module_tag === null ? e.module_tag === null && e.prompt === cur.n : e.module_tag === cur.module_tag))
+}
+
+// A cycle's elapsed time: from its start to its end, or to now_s while it is open. Every cycle type
+// has one. Null without a usable now_s on an open cycle.
+export const cycleElapsed = (c: CycleView, now: Time): string | null => interval(c.started_s, c.ended_s !== null ? c.ended_s : now)
+// The time the cycle waited, when it waited at all.
+export const cyclePaused = (c: CycleView): string | null => (c.paused_s <= 0 ? null : c.paused_s < 60 ? '<1m' : interval(0, c.paused_s))
+// The text of both: `elapsed 1h02m`, then ` paused 5m` when non-zero, and ` (derived)` for an older record.
+export const cycleTimeText = (c: CycleView, now: Time): string | null => {
+  const elapsed = cycleElapsed(c, now)
+  if (elapsed === null) return null
+  const paused = cyclePaused(c)
+  return `elapsed ${elapsed}${paused === null ? '' : ` paused ${paused}`}${c.basis === 'derived' ? ' (derived)' : ''}`
 }
 
 // A run's times run on to now_s only while it is in progress. A completed or abandoned run, listed

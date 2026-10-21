@@ -92,8 +92,11 @@
       "Agent(night-gardener)",
       "Agent(reviewer)",
       "Agent(wayfinder)",
+      "Bash",
+      "Monitor",
       "Skill",
-      "TodoWrite"
+      "TodoWrite",
+      "SendMessage"
     ],
     "model": "claude-opus-5-5",
     "tags": [
@@ -106,10 +109,10 @@
       "crux-agents"
     ],
     "risk_level": "medium",
+    "shell_scope": "write-run",
     "skill_lanes": {
       "council": "delegates:architect",
       "cycle": "delegates:historian",
-      "forge-skill": "returns-to-caller",
       "log-work": "delegates:historian",
       "run-promptbook": "delegates:historian"
     },
@@ -118,7 +121,6 @@
       "cycle",
       "run-promptbook",
       "council",
-      "forge-skill",
       "log-work"
     ]
   },
@@ -133,12 +135,14 @@
       "Edit",
       "Write",
       "Bash",
+      "Monitor",
       "Agent(developer)",
       "Agent(historian)",
       "Agent(reviewer)",
       "Agent(wayfinder)",
       "Skill",
-      "TodoWrite"
+      "TodoWrite",
+      "SendMessage"
     ],
     "model": "claude-opus-5-5",
     "tags": [

@@ -457,7 +457,7 @@ class AgentSkillDeclarationTests(unittest.TestCase):
             "log-work", "forge-skill",
         ],
         "brainstormer": ["whiteboarding", "query-docs", "forge-skill"],
-        "commander": ["cycle", "run-promptbook", "council", "forge-skill", "log-work"],
+        "commander": ["cycle", "run-promptbook", "council", "log-work"],
         "dev-lead": ["cycle", "forge-skill", "log-work"],
         "developer": ["forge-skill", "log-work"],
         "historian": [
@@ -484,7 +484,7 @@ class AgentSkillDeclarationTests(unittest.TestCase):
             "forge-skill",
         },
         "brainstormer": {"whiteboarding", "query-docs", "forge-skill"},
-        "commander": {"cycle", "run-promptbook", "council", "forge-skill"},
+        "commander": {"cycle", "run-promptbook", "council"},
         "dev-lead": {"cycle", "forge-skill"},
         "developer": {"forge-skill"},
         "historian": {
@@ -586,7 +586,7 @@ class AgentSkillDeclarationTests(unittest.TestCase):
                 "brainstormer": {"forge-skill"},
                 "librarian": {"forge-skill"},
                 "reviewer": {"forge-skill"},
-                "commander": {"council", "forge-skill", "log-work"},
+                "commander": {"log-work"},
             },
         )
         self.assertNotIn("run-promptbook", self.REQUIRED_SKILL_DEPENDENCIES)
@@ -620,7 +620,7 @@ class AgentSkillDeclarationTests(unittest.TestCase):
         "brainstormer": "read-local",
         "librarian": "run-plugin-script",
         "reviewer": "write-run",
-        "commander": None,
+        "commander": "write-run",
         "wayfinder": None,
         "architect": None,
         "dev-lead": None,

@@ -18,12 +18,12 @@ metadata:
 <!-- BEGIN GENERATED: runtime-compat -->
 ## Runtime compatibility
 
-This skill is portable across Claude Code, Codex, and OpenCode. This section overrides platform-specific labels below.
+This skill is portable across Claude Code, Codex, OpenCode, and OMP (Oh My Pi). This section overrides platform-specific labels below.
 
-- Before running a command that uses `CRUX_PLUGIN_ROOT`, set it to the installed plugin root. In Claude Code, use the value of `CLAUDE_PLUGIN_ROOT`. In Codex and OpenCode, derive it from the absolute path of this selected `SKILL.md`: the plugin root is the parent of its `skills/` directory. In a source checkout, use the checkout `crux/` directory.
-- For project-local skills, use `.claude/skills` in Claude Code, `.agents/skills` in Codex, and `.opencode/skills` in OpenCode, which also reads the singular `.opencode/skill`. Set `CRUX_LOCAL_SKILLS_DIR` to that path before following any command below that uses it.
-- Translate Claude Code tool labels such as `Agent`, `Read`, `Write`, `Bash`, `WebSearch`, and `WebFetch` to the matching capability in the current session. Codex names its own capabilities; OpenCode uses the lowercase forms `subagent`, `read`, `edit`, `shell`, `websearch`, and `webfetch`, where `edit` covers both `Edit` and `Write`. Do not attempt to invoke the Claude Code labels as literal commands on another host.
-- Install the generated role agents before delegating: `install-codex-agents` in Codex, `install-opencode-agents` in OpenCode. Codex names them `crux_architect`, `crux_brainstormer`, `crux_commander`, `crux_dev_lead`, `crux_developer`, `crux_historian`, `crux_librarian`, `crux_night_gardener`, `crux_reviewer`, and `crux_wayfinder`; OpenCode uses the bare role names `architect`, `brainstormer`, `commander`, `dev-lead`, `developer`, `historian`, `librarian`, `night-gardener`, `reviewer`, and `wayfinder`. If a required role or capability is unavailable, report that truthfully instead of claiming it ran.
+- Before running a command that uses `CRUX_PLUGIN_ROOT`, set it to the installed plugin root. In Claude Code, use the value of `CLAUDE_PLUGIN_ROOT`. In Codex, OpenCode, and OMP, derive it from the absolute path of this selected `SKILL.md`: the plugin root is the parent of its `skills/` directory (in OMP `bash`, `skill://<name>` resolves to the skill directory). In a source checkout, use the checkout `crux/` directory.
+- For project-local skills, use `.claude/skills` in Claude Code, `.agents/skills` in Codex, `.opencode/skills` in OpenCode (which also reads the singular `.opencode/skill`), and `.omp/skills` in OMP. Set `CRUX_LOCAL_SKILLS_DIR` to that path before following any command below that uses it.
+- Translate Claude Code tool labels such as `Agent`, `Read`, `Write`, `Bash`, `WebSearch`, and `WebFetch` to the matching capability in the current session. Codex names its own capabilities; OpenCode uses the lowercase forms `subagent`, `read`, `edit`, `shell`, `websearch`, and `webfetch`, where `edit` covers both `Edit` and `Write`; OMP uses `task`, `read`, `edit`, `write`, `bash`, `grep`, `glob`, `find`, `todo`, and `web_search` (where `read` also handles URLs and `skill://` URIs). Do not attempt to invoke the Claude Code labels as literal commands on another host.
+- Install the generated role agents before delegating: `install-codex-agents` in Codex, `install-opencode-agents` in OpenCode, `install-omp-agents` in OMP. Codex names them `crux_architect`, `crux_brainstormer`, `crux_commander`, `crux_dev_lead`, `crux_developer`, `crux_historian`, `crux_librarian`, `crux_night_gardener`, `crux_reviewer`, and `crux_wayfinder`; OpenCode and OMP use the bare role names `architect`, `brainstormer`, `commander`, `dev-lead`, `developer`, `historian`, `librarian`, `night-gardener`, `reviewer`, and `wayfinder` (in OMP, `scout` may also be used for reconnaissance alongside `wayfinder`). If a required role or capability is unavailable, report that truthfully instead of claiming it ran.
 - Argument placeholders such as `$adr` and `$book` bind only in Claude Code. On a host without argument binding they are unset — take the value from the user's phrase. The "Fields OpenCode ignores" section of `OPENCODE_GUIDE.md` names the invocation-control fields OpenCode ignores.
 <!-- END GENERATED: runtime-compat -->
 
@@ -80,11 +80,12 @@ Finish any open Git merge or other sequence before council. Both book formats
 use the current attempt-aware gate. An implementation module uses council kind
 `implementation`, including in a combined architectural book; `combined` is never
 a council kind. Verify and patch retain their existing kinds and dimensions.
-Select an exact formal revision with `--implementation-revision <decision-path>`
-or a migration batch with `--migration-batch <batch-path>`. These selectors are
-mutually exclusive. Also pass that exact path as `--subject` with `--retain-subjects`.
-Keep a batch's role, slot and digest distinct from a revision. Record each subject's
+Select an exact formal revision with `--implementation-revision <decision-path>`.
+Also pass that exact path as `--subject` with `--retain-subjects`. Record each subject's
 write-time witness before committing it; never attribute dirty bytes after a refusal.
+`--migration-batch` is retired: it exits 2 with `historical-migration-writes-retired`
+before any batch is loaded, any attempt is claimed or any council call is made. Propose
+clause migrations in the prospective format through `migrate-adrs`.
 New formal closes retain context three/profile four. Historical context two/profile three
 and context one/profile two remain immutable and replay-only, never selected from the book format.
 
@@ -330,6 +331,9 @@ API keys are read via `crux_env.require(...)` from `~/.crux/env` (managed by `cr
 - ALWAYS read `final_recommendation["conditioned"]` and `["nits"]`: a conditioned approval can read `UNANIMOUS_APPROVE` or `MAJORITY_APPROVE` but never routes to `AUTO_EXECUTE`
 - ALWAYS run an ad-hoc council driver in the background (inside a cycle run, the council gate uses `run-council.py`): the worst case per seat is about 20 minutes
 - ALWAYS provide rich context — models deliberate better with specifics
+- Every seat prompt states the operating assumptions: a trusted owner, cooperating agents, a trusted local checkout and one release coordinator. Plausible mistakes and crashes are in scope; deliberate local tampering and identity authentication are outside. A blocker states a plausible failure within those assumptions, its consequence and the smallest necessary fix. Everything else is an advisory or a documented limit, and "safety-related" alone does not justify a block. Every builder appends the shared text from `council_assumptions.py`. Cycle councils' vote instruction applies the same blocker test; historical promptbook gate councils keep their original instruction. Approval thresholds are unchanged
+- A recommendation that adds complexity (code, tests, instructions, execution, configuration or concepts) names the concrete failure it prevents, why a simpler fix is insufficient, and its maintenance and testing cost; otherwise it is an advisory
+- On a simplify cycle, every configured mode evaluates only the proposals within the agreed scope: no new features, speculative hardening or unrelated requirements. An addition the council believes necessary is reported as different work, not made a condition of approval. The council may still block or drop a proposal whose retained behavior or verification is inadequate; only remedies that add complexity are out of scope. Voting modes, thresholds, seats and attempt limits are unchanged
 - Treat srde output as evidence: it never settles a gate and never runs on the ADR path (see srde skill)[^srde]
 - Register results on Semantic Bridge for cross-teammate visibility
 

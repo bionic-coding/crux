@@ -17,6 +17,7 @@ from ..core.llm_caller import (
     get_default_model,
     get_default_models,
 )
+from council_assumptions import with_assumptions
 from ..core.tracer import Phase, Tracer, get_tracer
 
 
@@ -116,7 +117,7 @@ Focus on practical, implementable recommendations.
 Give thoughtful, nuanced opinions. Consider tradeoffs. Be specific about implementation.
 Always output valid JSON."""
 
-    response = call_model(model, prompt, system)
+    response = call_model(model, prompt, with_assumptions(system))
 
     # Parse response
     try:
@@ -190,7 +191,7 @@ Be specific and actionable. The team needs to execute on this decision immediate
 """
     if arbiter_model is None:
         arbiter_model = get_default_model("council_arbiter")
-    return call_model(arbiter_model, prompt)
+    return call_model(arbiter_model, prompt, with_assumptions(None))
 
 
 def council_vote(

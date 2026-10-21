@@ -1,4 +1,4 @@
-<!-- generated-from: CHANGELOG.md@sha256:b13464a15cf4b19e6c042d2133d30bd859523e1a600eb656660e18358a23bdbc; model: claude-sonnet-5.5; date: 2026-10-17 -->
+<!-- generated-from: CHANGELOG.md@sha256:f6c4f014a0d5a7dcb4a157772ab6b7c10c0c0cf89fa64ac9a2a92b45d635b197; model: claude-sonnet-5.5; date: 2026-10-21 -->
 # Changelog
 
 All notable changes to crux. The format roughly follows [Keep a Changelog](https://keepachangelog.com/) and the project adheres to [Semantic Versioning](https://semver.org/).
@@ -12,6 +12,247 @@ All notable changes to crux. The format roughly follows [Keep a Changelog](https
 ### Fixed
 
 ### Removed
+
+## [4.5.0] — 2026-10-21
+
+### Added
+
+- New `micro-crux.md` guide: a single self-contained file that lets an agent work in a crux-managed repository without the plugin. It explains how the documentation tree is organised, how to retrieve only the context a task needs, how to make a bounded change and leave an inbox handoff, and the current field contracts for the supported records, including ADRs and cycles. The plugin bundles the guide.
+- New `install-micro-crux` skill (say "install micro-crux" or "update micro-crux"). It installs or updates `micro-crux.md` at your project root and adds an explicit read instruction to the root `AGENTS.md`. It preserves local edits and unrelated content, reports conflicts instead of overwriting, and recovers from an interrupted write. Installation is opt-in.
+- In the development repository, a generator script now regenerates the guide from its template and the canonical schemas. Its `--dry-run` drift check is part of `check-drift`.
+
+### Changed
+
+- In the development repository, the locked dependencies were updated to anyio 4.15.1, certifi 2026.10.19, django 6.1.2, typing-extensions 4.16.0 and werkzeug 3.1.9. `pip-audit` reports no known vulnerabilities in the locked set.
+
+### Fixed
+
+### Removed
+
+## [4.4.0] — 2026-10-21
+
+### Added
+
+- In the development repository, `release.py tag` creates the beta tag and its GitHub Release after `smoke` passes. It refuses to run unless `verify` and then `smoke` have passed on the artifact the beta authorization covers.
+- In the development repository, `release.py beta` and `release.py official` now take `--authorization QUOTE`, the owner's own words, and refuse to run without it. The release ledger records the quote with the artifact and the target. `verify --retry-reason TEXT` reruns a failed check on unchanged inputs, and `record --reason TEXT` records why a bound target has not published.
+- `cycle.py create --type release --list beta|official` creates a release cycle from one of two fixed lists. The cycle record gains the optional field `release_list`.
+
+### Changed
+
+- A release is now one fixed cycle per target. The beta cycle runs prep, prepare, verify, beta and smoke, tag, and record. The official cycle runs the live check and the owner's go-ahead, official, and record. A release has a single phase, with no Plan, Review or Reflect phase and no pass limit. A failed step is fixed and rerun, with no return, extra pass or new cycle. `verify` is the only step that runs the registered suites.
+- The beta publish no longer carries a tag. An untagged beta may be republished at the same version, and `smoke` fetches the recorded beta commit. The official publish still tags in the same act.
+- The release ledger now binds one cycle per target, and `record` copies into the cycle that published.
+
+### Fixed
+
+- Corrections to the 4.3.3 notes: the `release-metadata` evidence preset applies only to the crux development repository, where the release preflight script exists. Elsewhere, `test-evidence.py declare --preset release-metadata` refuses because that script is absent.
+- Correction to the 4.3.3 notes: a version bump no longer invalidates suite evidence. A `CHANGELOG.md` edit still re-executes the two checkout suites.
+- The 4.3.3 notes omitted one refusal. `test-evidence.py run` and `lookup` exit 2 when a `--check` declaration carries `input_projections` or a lock `project_version` that differs from the registered declaration. `declare --requirement` exits 2 when the requirement names `project_version`.
+- `release.py verify` now drops a recorded live-check note when it freezes a changed artifact, so the note always covers the bytes that ship. A rerun on unchanged bytes keeps the note.
+
+### Removed
+
+- `cycle.py release-ready` and `release-verified` are removed, along with the steps a release previously required: the independent review, the coverage declaration, the authored release plan, the final test run, the journal entry and the written reflection. Release cycles created earlier keep their records and display as before.
+
+## [4.3.3] — 2026-10-21
+
+### Added
+
+- `test-evidence.py declare --preset release-metadata` declares the release metadata check over the broad inputs of the `whole-tree` preset. The testing instructions now say to record it at the Test stage whenever a cycle changes the changelog, the published files or a version surface.
+- `migration-receipt.py write` and `verify` keep committed replay receipts for prospective migration publications. A trusted receipt replaces only the re-run of the parent commit's approval reader. Every other check of an authority read still runs, and a receipt does not record an approval. `migrate-adrs` now writes the receipt right after the activation commit, in its publication step. This shipped in 4.3.2 without a changelog entry.
+
+### Changed
+
+- In the development repository, a release-only change no longer invalidates suite evidence. The registered suites now fingerprint only the version portion of the plugin manifests, the project metadata, the project's own lockfile entry, the catalog guide's reviewed plugin version and the README footer. For the staged output, they fingerprint the manifests, the generated version marker and the README fingerprint and footer. The published-files directory is excluded from the checkout suites, and the staged changelog is excluded from the staged suites. Editing the changelog still re-executes the checkout suites. The cycle testing instructions describe these projections, the exclusions and the three-leg audit that a new entry needs.
+- Suite evidence that installs without the project now binds to the exported lock instead of the raw lockfile. A version-only edit of the project's own entry therefore keeps such a receipt reusable. Receipts recorded under the raw digest execute once more on their next lookup. This shipped in 4.3.2 without a changelog entry.
+
+### Fixed
+
+### Removed
+
+- The unlinked `dev-cycle` pitfalls reference, which described retired cycle-book authoring. This shipped in 4.3.2 without a changelog entry.
+
+## [4.3.2] — 2026-10-20
+
+### Added
+
+- `cycle.py status [CYC-NNNN] [--json] [--watch SECONDS]` prints cycle progress without changing anything, using the same view as the existing cycle progress visualizer. With no cycle named it lists active cycles first, and `--watch` redraws until Ctrl-C, which suits a second terminal beside a Codex or OpenCode session. A new `cycle-status` skill runs it ("show cycle status", "watch the cycle").
+- `test-evidence.py declare --preset NAME --check-id ID` prints a cycle check declaration from a named preset: `whole-tree`, `drift-gates`, `mods-gate`, `opencode-gate`, `omp-gate` or `journal-index`. Each preset supplies the shared bookkeeping exclusions, so you no longer list them by hand.
+- `.bionic.yml` accepts `evidence.bookkeeping_paths`, a list of repository files outside the docs directory whose edits leave check receipts valid. Each entry must be a repository-relative regular file, and the testing instructions require a live-read audit before an entry is added.
+
+### Changed
+
+- Historical-format migration writes are retired. `implementation-migration.py apply` and `dry-run`, `run-council.py --migration-batch` and `advance-run.py --migration-batch` now refuse every call with `historical-migration-writes-retired` before they read, stage or write anything. Propose clause migrations in the prospective format through `migrate-adrs` instead. Historical publications that are already recorded are still verified, and `implementation-migration.py inventory` still reports; no consuming project is known to hold a historical-format batch, close or publication.
+- The `author-promptbook`, `check-drift` and `verify-code-docs` skill instructions are shorter, with behavior unchanged. `author-promptbook` now only routes to `cycle` and points to the historical guidance, `check-drift` drops restated sections and stale counts, and `verify-code-docs` leaves configuration handling to the extractor dispatcher.
+- A cycle's persistent drift check now skips the journal-index gate, because the single writer of that index regenerates it on every write. A separate `journal-index` check covers the gate instead.
+
+### Fixed
+
+- The commander's Reflect instructions now say that a Reflect journal write can make the `journal-index` check stale, and that refreshing a stale required check keeps the review bound.
+- Bookkeeping writes no longer invalidate check evidence. A journal entry, a log append, a queue edit, a cycle-record write or an edit to a configured bookkeeping file now leaves the registered suites and the preset checks that exclude bookkeeping valid, because they all read one shared exclusion list. A review stays bound when its evidence is refreshed under the same declaration.
+
+### Removed
+
+- The historical-format application writer is gone: the publication, staging, refresh and teardown code behind `implementation-migration.py apply`, and the planning report behind `dry-run`.
+
+## [4.3.1] — 2026-10-20
+
+- No user-facing changes.
+
+## [4.3.0] — 2026-10-20
+
+### Added
+
+- Added support for the OMP (Oh My Pi) host. `install-omp-agents` projects the ten Crux roles into native OMP agents with ordered model selectors, thinking levels, native tools and spawn restrictions. The generated runtime-compatibility instructions now cover OMP. The cycle chain (`main -> commander -> dev-lead -> developer`) requires `task.maxRecursionDepth` of at least `3` in your OMP configuration.
+- Added the optional `crux-omp` extension, which brings an above-editor run band, a status-bar entry and a run panel into the OMP TUI. `/crux-dashboard` toggles only the run panel, and the `--cruxOmpBand=false` launch flag hides only the band. Independently of both controls, the status-bar entry displays the first run-band line when one is available.
+- Added `OMP_INSTALL.md`, which documents marketplace installation, native agent installation and health checks, model overrides, the optional dashboard and credentials. The public version of the guide is generated deterministically from the development guide.
+- In the development repository, the `crux-omp` extension is now the fourth subtree published to the public repository, alongside the core plugin, mods and OpenCode integration. Release verification gates it with the OMP gate, and `OMP_INSTALL.md` is now included among the published guides.
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [4.2.0] — 2026-10-20
+
+### Added
+
+- New `simplify` cycle type that removes complexity while keeping behavior. It runs Plan, Build, Test, Review and Reflect with a default limit of three passes. Plan starts with the architect assessing recent decision-driven changes or a named area and recording one selection decision. Each proposal states what it removes, the behavior it keeps, its objectives, the decision clauses it touches, the expected savings and its verification. The owner's approval of that decision selects the proposals. Council approval also selects them for a queue-started cycle whose scope lies within its queue item. Test records a reduction for production code, tests, instructions and execution, judged on concepts, branches, states, dependencies, configuration, fixtures, mocks and operational steps. An increase in any area refuses Test and Reflect, and areas are never netted against each other. Leaving simplify through `change-type` needs human approval, and the dashboard shows the new type.
+- `cycle.py await --path PATH --timeout SECONDS` waits on an exact absolute result path that belongs to no cycle task, including after a cycle closes. Commander and dev-lead use it to stay resumable while a plan, decision or council dispatch runs.
+- Queue items can carry an optional `references` list of repository paths, checked to exist on `queue add` and `queue edit`. `queue start-next` appends them to the new cycle's goal so Plan reads them first. References are only read, never edited, and stay outside the plan scope and the review scope comparison.
+- `cycle.py task --replace-commit OLD NEW --note TEXT` replaces a recorded commit after a rebase. The old id stays in the task's `replaced_commits` and in its history event.
+
+### Changed
+
+- Every council seat now applies a complexity test. A recommendation that adds code, tests, instructions, execution, configuration or concepts must name the failure it prevents, why a simpler fix is insufficient, and its maintenance and testing cost; otherwise it is only advisory. On a simplify cycle, every council mode evaluates only the proposals within the agreed scope. Voting modes, thresholds and seats are unchanged.
+- `cycle.py show` and `cycle.py validate` now print a bounded summary by default, and `--full` prints the whole record. For the largest recorded cycle, the output fell from 137,029 bytes to 5,420 bytes.
+- Return, resume and replan now reopen only the work they affect. A pass-starting return resets tasks outside Build and keeps Build tasks only after revalidation. A replan reopens only tasks whose phase, description, expected evidence or dependencies changed. Quick-fix still resets every task.
+
+### Fixed
+
+### Removed
+
+## [4.1.7] — 2026-10-19
+
+### Added
+
+- The `cycle` skill and commander can now run a persistent cycle queue, stored in `<docs_dir>/queue/cycles.yaml`. With `cycle.py queue` you can add, list, show, edit, move, hold, unhold and remove items, record or revoke the owner's authorization, and start the next item as a cycle with `queue start-next`. Commander runs authorized items one cycle after another and stops with a named reason. Authorization only starts cycles: it never authorizes a push, publish or release, extends a pass limit, or approves a decision. The phrases "add to the queue", "show the queue", "run the next item", "run the next N items" and "run the queue" route to the queue.
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [4.1.6] — 2026-10-19
+
+### Added
+
+- New command `cycle.py await CYC-ID --task-id ID --timeout SECONDS` waits until a named task's recorded result path holds a non-empty file whose size stays unchanged for one second, or until the timeout ends. It writes nothing, takes no lock and prints one JSON line. Exit 0 means a result arrived; exit 1 means a timeout or a refusal. An arrived file proves neither that the agent is alive nor that its work is complete.
+
+### Changed
+
+- The `install-opencode-agents` skill now tells the user that the cycle chain (main session, commander, dev-lead, developer) needs `experimental.subagent_depth` of at least 3 in their OpenCode configuration, since OpenCode allows only one level by default. The skill only informs the user and writes nothing.
+
+### Fixed
+
+- Commander now keeps cycle ownership while a delegated agent runs longer than one turn. Commander and dev-lead wait using the host's native mechanism instead of `sleep`: in Claude Code, a background `cycle.py await` command keeps the agent resumable; in Codex, `wait_agent` runs once per bounded window; in OpenCode, a child runs in the foreground or behind a background `await`. Both roles declare Monitor. A live Claude Code trial kept ownership through a background `await` with no forced hand-back; Codex and OpenCode were not exercised live.
+
+### Removed
+
+## [4.1.5] — 2026-10-19
+
+### Added
+
+### Changed
+
+- In the development repository, release verification now records how long each check and gate takes. The preflight, the drift-gate runner and the sync script print per-gate timings, and the release verification command stores them in the release ledger.
+- In the development repository, suite evidence no longer counts bookkeeping documents (the journal, operation log, inbox, garden and what's-next notes) as test inputs. Editing them leaves existing suite receipts valid, so a bookkeeping-only commit needs only an evidence lookup instead of a full suite rerun. Tests that read those documents now use committed fixtures.
+- In the development repository, review basis version 3 keeps a review approval bound when only cycle task bookkeeping changes.
+- In the development repository, authority-view evaluation computes identical parent-boundary proofs once per evaluation, and the reviews index builds its view once. In the measured run, the serial authority gates dropped from 1,933.7 s to 1,222.5 s.
+
+### Fixed
+
+### Removed
+
+- In the development repository, five checkout tests that repeated the drift gates' live-tree checks are removed. The drift gates keep that coverage.
+
+## [4.1.4] — 2026-10-19
+
+### Added
+
+### Changed
+
+### Fixed
+
+- Commander and dev-lead can now wait and poll for dispatch results at exact result paths within bounded limits, validating reports and assessing progress at finite deadlines. Commander is allowed bounded sleep, and dev-lead declares SendMessage for progress updates and resumed reporting, so a final handback is reserved for completion or a genuine stop. Short Codex trials of the mechanism passed, but Claude's forced-handback behavior and the changed role instructions are not yet verified live because Claude authentication was unavailable.
+
+### Removed
+
+## [4.1.3] — 2026-10-19
+
+### Added
+
+### Changed
+
+### Fixed
+
+- Agent result files now default to a temporary directory in the operating system's temp location. The coordinator creates the directory securely, and each dispatched agent receives an explicit absolute result path. Explicit paths you set yourself still work, and substantive reports are kept under the cycle before the temporary files are cleaned up. In a live test, an isolated Codex worker wrote a result that its lead read without a permission retry. Claude and OpenCode were not exercised live.
+
+### Removed
+
+## [4.1.2] — 2026-10-19
+
+### Added
+
+### Changed
+
+### Fixed
+
+- Developer agent instructions now tell it to use the host's execution handles, supported waits, and observed outcomes rather than a fixed polling recipe. Partial work now goes back to dev-lead for recovery, while commander keeps ownership of the cycle. Commander instructions now clarify that file authoring is delegated to the historian, limit council execution to the architect, and say to report capability gaps to the caller without advertising forge-skill. Codex delegation rules are unchanged, and the supervised continuation trial is still pending.
+
+### Removed
+
+## [4.1.1] — 2026-10-19
+
+### Added
+
+### Changed
+
+### Fixed
+
+- Commander instructions now keep the cycle accountable when child agents send interim notices, report failures, or fail to deliver results. Dev-lead and cycle instructions now use the host's execution handles and supported waits instead of polling generic processes or result files. Recovery reports now distinguish observed activity from unknown liveness. Behavior when a cycle continues after interruption has not yet been verified in a supervised cycle trial.
+
+### Removed
+
+## [4.1.0] — 2026-10-18
+
+### Added
+
+- The development repository's release tool now runs a release as one resumable command with the subcommands `prepare`, `verify`, `beta`, `smoke`, `official`, `record` and `status`. A ledger freezes a single artifact so beta and official publish identical bytes, and each outward step checks the remote and does only what is missing. An interrupted step resumes with exit code 3 without a source change or version bump, while a failed check stops the release.
+- In the development repository, test evidence is now validated against the environment that recorded it (interpreter, flags, encodings, behaviour variables and the exact locked package set) rather than the coordinator's own environment. The four release suites are registered once and reused across preflight, beta, official and later cycles while their declared inputs are unchanged, and cycle-record commits do not invalidate them.
+- Cycles now record elapsed and paused time, overall and per phase, and the dashboard shows elapsed time for every cycle type.
+- `cycle.py owner-approval` records an owner's verbatim approval of an exact decision revision in one command and creates directories as needed. `--print-command` prints a single line for the owner to run, and the new `owner-complete` closes a cycle on the owner's instruction without rewriting its blocker, evidence or reflection.
+- `cycle.py --compact` prints a one-line acknowledgement. The `task` command gains `--assignee`, `--result-path`, `--commit`, `--evidence`, `--stage implemented|integrated` and `--note`, and a repeated identical update writes nothing and reports `changed: false`.
+- `cycle.py handoff` prints the summary a coordinator hands back. `cycle.py reconcile [--apply]` recovers a stale record from `Cycle-Task:` commit trailers for build tasks only, and never infers testing, review or completion.
+- The commander now runs the cycle writer and read-only git commands itself, keeping the cycle record current at each dispatch and delivery. The per-agent exception and what each host enforces are documented in the decision tree.
+
+### Changed
+
+- Every council seat prompt now states the operating assumptions and the blocker test. A blocker must name a plausible failure within those assumptions, its consequence and the smallest fix, and anything else is advisory. Cycle councils no longer block on a security or safety tag alone, and approval thresholds are unchanged.
+- The cycle roles now state who owns waiting on, collecting and resuming delegated work. They describe the resume behaviour observed in Claude Code and require an explicit hand-back when work is still in flight.
+- The dashboard now lists active cycles first and then the rest, each ordered by cycle number descending, in both Claude Code and OpenCode. A decision revised several times shows a single approval line.
+- A reused test result now prints one line naming the stored receipt, the original run's duration and the lookup's duration. Set `CRUX_SHOW_REUSED_TEST_OUTPUT=1` to replay the stored log.
+- The `deepseek-flash` alias now points at `openrouter/deepseek/deepseek-v4.1-flash-1017`.
+- In the development repository, `sync.sh` now publishes only through the release ledger. The second preflight before official and the duplicate drift gates are removed, and each removed check is covered by one that still runs.
+
+### Fixed
+
+- In the development repository, the `test_instruction_migration` test no longer fails intermittently. Concurrent imports had raced on a fixed-name case-folding probe file in the shared temporary directory.
+- Artifact identity now compares only the staged content hash and git tree, so a byte-identical re-verify after HEAD moves is accepted.
+- Passing a staged receipt to `cycle.py evidence` now gives a clean refusal instead of a `TypeError`. Release failure counting reads only registered checks, and `sync.sh` reports the real push exit code.
+- The evidence capture wrapper now removes only its own script directory from `sys.path`.
 
 ## [4.0.2] — 2026-10-17
 

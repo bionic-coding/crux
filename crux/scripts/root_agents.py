@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # /// script
 # requires-python = ">=3.11"
-# dependencies = []
+# dependencies = ["pyyaml>=6.0"]
 # ///
 """root_agents.py — init-docs step 9: create, append to, or leave the repo-root AGENTS.md.
 

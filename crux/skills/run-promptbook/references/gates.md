@@ -62,11 +62,11 @@ above-three owner exceptions. ADR refutations, adjudicator closure and ADR-round
 exceptions remain ADR-only. ARCHITECTURAL in implementation or verify takes stop 4
 and routes to the architectural process. A later convergence cannot erase a permanent stop.
 
-A migration batch uses `--migration-batch <batch-path>` with that same path as
-`--subject` and `--retain-subjects`. The two formal selectors are mutually exclusive.
-Keep the migration-batch role, declared approval slot, exact path and batch digest
-distinct from an implementation revision. The successful advance selects that same
-batch with `--migration-batch`. A retained batch in another role or slot grants no approval.
+`--migration-batch` is retired on both `run-council.py` and `advance-run.py`. Each refuses
+with `historical-migration-writes-retired` before it loads the batch or writes the run. A
+legacy run that declares a migration slot cannot convene that slot's councils or record its
+close. A close already recorded in a run stays verifiable and is validated at each later advance.
+A retained batch in another role or slot grants no approval.
 Combined books dispatch by their structural module kind, never `council_kind: combined`.
 
 Live execution of both book formats uses the current attempt-aware gate.

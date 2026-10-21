@@ -222,10 +222,14 @@ class EntryPointTests(CompatFixture):
         self.assertEqual(r.stdout.strip(), "")
         self.assertTrue(r.stderr.strip())
 
-    def test_the_script_declares_no_third_party_dependencies(self):
+    def test_the_script_declares_pyyaml_dependency(self):
+        import tomllib
         head = SCRIPT.read_text(encoding="utf-8")
         self.assertIn("# /// script", head)
-        self.assertIn("dependencies = []", head)
+        block = head.split("# /// script\n", 1)[1].split("# ///", 1)[0]
+        metadata = tomllib.loads("\n".join(
+            line.removeprefix("#").removeprefix(" ") for line in block.splitlines()))
+        self.assertEqual(["pyyaml>=6.0"], metadata["dependencies"])
 
 
 

@@ -293,6 +293,11 @@ def codex_agent_name(source_name: str) -> str:
     return f"crux_{source_name.replace('-', '_')}"
 
 
+# Roles that map to `workspace-write` although they hold no Edit. See the
+# sandbox mapping in `render_agent`; add a role here only with a stated reason.
+WORKSPACE_WRITE_WITHOUT_EDIT = frozenset({"commander"})
+
+
 def codex_agent_filename(source_name: str) -> str:
     return f"{OUTPUT_PREFIX}{source_name}.toml"
 
@@ -383,7 +388,15 @@ def render_agent(source: SourceAgent, runtime: Any, *, skill_root: Path | None =
     # to Codex `workspace-write`; a role without it maps to the least-privilege
     # `read-only`. Read/Bash/WebFetch etc. do not widen the sandbox — only the
     # Edit/Write pair does.
-    sandbox_mode = "workspace-write" if "Edit" in source.tools else "read-only"
+    # One named exception: the commander holds Bash without Edit and runs the
+    # plugin's cycle.py, which writes the cycle record under the docs tree. A
+    # read-only sandbox refuses that write. The exception is by role name, so no
+    # other role that holds Bash without Edit (reviewer, librarian) is widened.
+    sandbox_mode = (
+        "workspace-write"
+        if "Edit" in source.tools or source.name in WORKSPACE_WRITE_WITHOUT_EDIT
+        else "read-only"
+    )
     values = {
         "name": codex_agent_name(source.name),
         "description": source.description,

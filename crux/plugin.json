@@ -1,6 +1,6 @@
 {
   "name": "crux",
-  "version": "4.0.2",
+  "version": "4.5.0",
   "schema_version": "4",
   "description": "Claude Code plugin that maintains a docs/ tree across seven concerns: code docs, research wiki, ADRs, briefs, work journal, promptbooks, invariants.",
   "homepage": "https://bionic-coding.com/crux/",
@@ -15,6 +15,7 @@
     "skills/compile-doctrine/SKILL.md",
     "skills/council/SKILL.md",
     "skills/cycle/SKILL.md",
+    "skills/cycle-status/SKILL.md",
     "skills/derive-arch/SKILL.md",
     "skills/dev-cycle/SKILL.md",
     "skills/escalate-arch-runtime/SKILL.md",
@@ -25,6 +26,8 @@
     "skills/init-docs/SKILL.md",
     "skills/install-codex-agents/SKILL.md",
     "skills/install-docs-skills/SKILL.md",
+    "skills/install-micro-crux/SKILL.md",
+    "skills/install-omp-agents/SKILL.md",
     "skills/install-opencode-agents/SKILL.md",
     "skills/install-runtime/SKILL.md",
     "skills/iterate/SKILL.md",
@@ -97,10 +100,16 @@
     "scripts/test-evidence.py",
     "scripts/test_evidence.py",
     "scripts/suite_evidence.py",
+    "scripts/test_evidence_capture.py",
     "scripts/adr-migration.py",
     "scripts/adr_migration.py",
     "scripts/adr_migration_publication.py",
     "scripts/council_policy.py",
-    "scripts/council_native.py"
+    "scripts/council_native.py",
+    "scripts/migration_receipts.py",
+    "scripts/migration-receipt.py",
+    "scripts/generate-micro-crux.py",
+    "scripts/install-micro-crux.py",
+    "scripts/micro_crux.py"
   ]
 }

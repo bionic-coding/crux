@@ -2,10 +2,8 @@
 from pathlib import Path
 import json
 import copy
-import shutil
 import subprocess
 import sys
-import tempfile
 import unittest
 from unittest import mock
 
@@ -19,7 +17,7 @@ import implementation_decisions as decisions
 import test_implementation_cycles as cycles
 import test_implementation_decisions as decision_fixtures
 import test_run_council as runner
-import test_implementation_migration_apply as apply_fixtures
+import _historical_close_producer as producer
 
 
 class CurrentConstraints(unittest.TestCase):
@@ -52,65 +50,49 @@ class CurrentConstraints(unittest.TestCase):
         self.assertEqual(self.fixture.snapshot(), before)
 
 
-class RecoveryMechanisms(unittest.TestCase):
-    """Actual disposable callers; receipts are synthetic and transport is local."""
+def inventory(root):
+    return {p.relative_to(root).as_posix(): p.read_bytes() for p in root.rglob("*")
+            if p.is_file() and ".git" not in p.parts and not p.is_symlink()}
 
-    @classmethod
-    def setUpClass(cls):
-        apply_fixtures.ActualCloseTests.setUpClass()
-        cls.parent_fixture = apply_fixtures.ActualCloseTests.fixture
-        cls.addClassCleanup(apply_fixtures.ActualCloseTests.doClassCleanups)
+
+class RecoveryMechanisms(unittest.TestCase):
+    """A recovery close already recorded in a run stays valid at the next advance.
+
+    Actual disposable callers; receipts are synthetic and transport is local. The closes are
+    recorded by the production close code through the fixture producer, and each publication is
+    the witness the retired writer formatted, committed beside its batch. Recording a close of a
+    new recovery subject, and convening its council, are retired: those refusals are covered in
+    test_historical_migration_retirement."""
 
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name).resolve() / "repo"
-        shutil.copytree(self.parent_fixture.root, self.root)
-        self.writer = apply_fixtures.writer()
+        self.parent_fixture = fixtures.closed(self)  # A private clone of the recorded initial close.
+        self.root = self.parent_fixture.root
         self.initial_batch = self.parent_fixture.f.rel
-        self.witness = self.root / self.parent_fixture.witness.relative_to(self.parent_fixture.root)
+        self.witness = self.parent_fixture.witness
 
     def snapshot(self):
-        return apply_fixtures.inventory(self.root)
-
-    @classmethod
-    def initial_publication(cls):
-        """The initial batch published and refreshed once per class from the parent fixture.
-
-        A test that starts from that state copies this repository; none writes to it."""
-        if "_initial" not in cls.__dict__:
-            temp = tempfile.TemporaryDirectory(); cls.addClassCleanup(temp.cleanup)
-            root = Path(temp.name).resolve() / "repo"
-            shutil.copytree(cls.parent_fixture.root, root)
-            writer, batch_path = apply_fixtures.writer(), cls.parent_fixture.f.rel
-            first = writer.apply(root, batch_path)["state"]
-            support.commit_all(root, "synthetic actual recovery application witness")
-            second = writer.apply(root, batch_path)["state"]
-            support.commit_all(root, "synthetic actual refreshed recovery caches")
-            if (first, second) != ("pending_commit", "refreshed"):
-                raise AssertionError("initial publication fixture: %r" % ((first, second),))
-            cls._initial = root
-            cls.addClassCleanup(delattr, cls, "_initial")
-        return cls._initial
+        return inventory(self.root)
 
     def publish_initial(self):
-        """`publish(self.initial_batch)` on a repository still in its setUp state."""
-        shutil.rmtree(self.root); shutil.copytree(self.initial_publication(), self.root)
-        return self.selected_publication(self.initial_batch)
+        """The initial batch's committed publication; the authority view must admit it."""
+        parent = self.parent_fixture.publish()
+        producer.assert_publication_admitted(self.root)
+        return parent, self.parent_fixture.proof
 
-    def selected_publication(self, batch_path):
-        proof, _ = self.writer._select_close(self.root, batch_path)
+    def publish_member(self, subject):
+        """The committed publication of a closed recovery subject, as the retired writer formatted it."""
+        path, run_path, _book_path, _receipt = subject
+        rel = path.relative_to(self.root).as_posix()
+        proof = producer.assert_close_admitted(self.root, run_path, slot="implementation-1", batch_path=rel,
+            batch_sha256=migration._digest(path.read_bytes()))
+        witness = producer.publication_witness(self.root, proof, run_path.relative_to(self.root).as_posix(),
+            rel, migration.load_batch(self.root, rel)["batch_id"])
+        support.commit_all(self.root, "synthetic committed recovery publication witness")
         publications = migration._discover_publications(self.root)
-        selected = [row for row in publications if json.loads(row["content"])["batch"] == proof.binding["batch"]]
+        selected = [row for row in publications if row["path"] == witness.relative_to(self.root).as_posix()]
         self.assertEqual(len(selected), 1)
+        self.assertEqual(json.loads(selected[0]["content"])["batch"], proof.binding["batch"])
         return selected[0], proof
-
-    def publish(self, batch_path):
-        result = self.writer.apply(self.root, batch_path)
-        self.assertEqual(result["state"], "pending_commit")
-        support.commit_all(self.root, "synthetic actual recovery application witness")
-        self.assertEqual(self.writer.apply(self.root, batch_path)["state"], "refreshed")
-        support.commit_all(self.root, "synthetic actual refreshed recovery caches")
-        return self.selected_publication(batch_path)
 
     def subject(self, parent, parent_proof, *, book_id="PB-0998", at_review=False,
                 change_dependency=True, start_only=False, fault=None):
@@ -156,7 +138,7 @@ class RecoveryMechanisms(unittest.TestCase):
         book = cycles.book_two(); book.update(id=book_id, current_run=None, current_prompt=None)
         declaration = book["implementation_slots"][0]
         declaration.update(scope=["docs/adrs/migrations"],
-            constraint_refs=self.parent_fixture.f.book["implementation_slots"][0]["constraint_refs"],
+            constraint_refs=list(self.parent_fixture.f.book["implementation_slots"][0]["constraint_refs"]),
             migration_batch={"role": "migration-batch", "path": path.relative_to(self.root).as_posix()})
         if demoted_constraint: declaration["constraint_refs"] = ["ADR-0110/rotation"]
         book_path = self.root / f"docs/promptbooks/active/{book_id}-fixture.yaml"
@@ -202,32 +184,19 @@ class RecoveryMechanisms(unittest.TestCase):
                 ref["sha256"] = migration._digest(ledger.read_bytes())
         path.write_text(yaml.safe_dump(batch, sort_keys=False))
 
-    def advance(self, subject, *, close=False):
+    def advance(self, subject):
         path, run_path, book_path, receipt = subject
         return subprocess.run([sys.executable, str(support.SCRIPTS / "advance-run.py"),
             str(run_path), "--book", str(book_path), "--outcome", "done", "--artifacts",
-            receipt.relative_to(self.root).as_posix(),
-            *(["--migration-batch", path.relative_to(self.root).as_posix()] if close else [])],
-            capture_output=True, env=support.scrubbed_env())
+            receipt.relative_to(self.root).as_posix()], capture_output=True, env=support.scrubbed_env())
 
     def close(self, subject):
-        response = self.advance(subject, close=True)
-        self.assertEqual(response.returncode, 0, response.stdout + response.stderr)
+        path, run_path, book_path, receipt = subject
+        producer.close(run_path, book_path, receipt.relative_to(self.root).as_posix(),
+                       path.relative_to(self.root).as_posix())
         support.commit_all(self.root, "synthetic actual separately reviewed recovery close")
 
-    def test_actual_recovery_runner_allows_stale_parent_dependency_before_transport(self):
-        parent, proof = self.publish_initial()
-        subject = self.subject(parent, proof, at_review=True)
-        with self.assertRaises(migration.Refused): migration.authority_view(self.root)
-        path, run_path, book_path, _receipt = subject
-        actor = CurrentMechanisms.runner_actor(self, path, run_path, book_path)
-        code, out, err, gateway = actor.run_main(actor.argv("--retain-subjects", "--migration-batch",
-            path.relative_to(self.root).as_posix(), prompt=2, round_=2, subjects=[path]))
-        self.assertEqual(code, 0, (out, err))
-        self.assertEqual(json.loads(out)["outcome"], "ran")
-        self.assertEqual(len(gateway.requests), 3)
-
-    def test_actual_recovery_close_and_next_advance_allow_stale_parent_dependency(self):
+    def test_recorded_recovery_close_and_next_advance_allow_stale_parent_dependency(self):
         parent, proof = self.publish_initial()
         subject = self.subject(parent, proof)
         original = self.witness.read_bytes()
@@ -241,32 +210,16 @@ class RecoveryMechanisms(unittest.TestCase):
     def test_published_recovery_ancestor_run_can_advance_after_later_child_publication(self):
         parent, proof = self.publish_initial()
         older = self.subject(parent, proof); self.close(older)
-        parent_b, proof_b = self.publish(older[0].relative_to(self.root).as_posix())
+        parent_b, proof_b = self.publish_member(older)
         original_a = self.witness.read_bytes()
         original_b = (self.root / parent_b["path"]).read_bytes()
         later = self.subject(parent_b, proof_b, book_id="PB-0997"); self.close(later)
-        self.publish(later[0].relative_to(self.root).as_posix())
+        self.publish_member(later)
         response = self.advance(older)
         self.assertEqual(response.returncode, 0, response.stdout + response.stderr)
         self.assertEqual(json.loads(response.stdout)["current_prompt"], 6)
         self.assertEqual(self.witness.read_bytes(), original_a)
         self.assertEqual((self.root / parent_b["path"]).read_bytes(), original_b)
-
-    def test_recovery_run_started_before_parent_publication_can_close_after_its_publication(self):
-        proof, run_rel = self.writer._select_close(self.root, self.initial_batch)
-        batch = migration.load_batch(self.root, self.initial_batch)
-        raw, expected = self.writer._locator(proof, run_rel, batch, repo_root=self.root)
-        self.assertFalse(self.witness.exists())
-        subject = self.subject(expected, proof, change_dependency=False, start_only=True)
-        start_commit = support.git(self.root, "rev-parse", "HEAD").strip()
-        parent, _proof = self.publish(self.initial_batch)
-        self.assertEqual(parent["sha256"], migration._digest(raw))
-        self.assertEqual(approval.cr.git(self.root, "merge-base", "--is-ancestor",
-            start_commit, parent["publication_commit"]).returncode, 0)
-        self.assertNotEqual(start_commit, parent["publication_commit"])
-        self.refresh_dependency(subject[0]); self.review(subject)
-        self.close(subject)
-        self.assertEqual(self.witness.read_bytes(), raw)
 
     def test_ordinary_actual_close_still_refuses_stale_published_dependency_before_writes(self):
         self.publish_initial()
@@ -280,77 +233,6 @@ class RecoveryMechanisms(unittest.TestCase):
         self.assertEqual(response.returncode, 1, response.stdout + response.stderr)
         self.assertEqual(json.loads(response.stdout), {
             "error": "migration-signed-dependency-drift; nothing was written"})
-        self.assertEqual(self.snapshot(), before)
-        self.assertEqual(support.git(self.root, "rev-parse", "HEAD"), head)
-
-    def test_recovery_faults_refuse_actual_runner_before_transport_and_close_before_writes(self):
-        parent, proof = self.publish_initial()
-        with tempfile.TemporaryDirectory() as scratch:
-            template = Path(scratch) / "published-parent"
-            shutil.copytree(self.root, template)
-            for fault, code in (("parent", "migration-recovery-link-refused"),
-                ("source", "migration-recovery-source-refused"),
-                ("disposition", "migration-recovery-source-refused"),
-                ("authorizer", "constraint-not-live-accepted"),
-                ("replacement", "constraint-not-live-accepted"),
-                ("constraint", "constraint-not-live-accepted")):
-                with self.subTest(fault=fault):
-                    shutil.rmtree(self.root); shutil.copytree(template, self.root)
-                    subject = self.subject(parent, proof, at_review=True, fault=fault)
-                    path, run_path, book_path, _ = subject
-                    actor = CurrentMechanisms.runner_actor(self, path, run_path, book_path)
-                    before = self.snapshot(); head = support.git(self.root, "rev-parse", "HEAD")
-                    result, out, err, gateway = actor.run_main(actor.argv("--retain-subjects",
-                        "--migration-batch", path.relative_to(self.root).as_posix(),
-                        prompt=2, round_=2, subjects=[path]))
-                    self.assertEqual(result, 2, (out, err))
-                    self.assertEqual(out, "")
-                    self.assertEqual(err, "run-council: the selected migration batch was refused: " + code + "\n")
-                    self.assertEqual(gateway.requests, [])
-                    self.assertFalse(list(run_path.parent.glob("council/attempts/*")))
-                    self.assertEqual(self.snapshot(), before)
-                    self.assertEqual(support.git(self.root, "rev-parse", "HEAD"), head)
-                    for _ in range(2):
-                        response = self.advance(subject)
-                        self.assertEqual(response.returncode, 0, response.stdout + response.stderr)
-                        support.commit_all(self.root, "synthetic refused recovery close setup")
-                    before = self.snapshot(); head = support.git(self.root, "rev-parse", "HEAD")
-                    response = self.advance(subject, close=True)
-                    self.assertEqual(response.returncode, 1, response.stdout + response.stderr)
-                    self.assertEqual(json.loads(response.stdout), {"error": code + "; nothing was written"})
-                    self.assertEqual(self.snapshot(), before)
-                    self.assertEqual(support.git(self.root, "rev-parse", "HEAD"), head)
-                    historical = approval.validate_historical_migration_binding(self.root,
-                        self.root / self.parent_fixture.f.run_path.relative_to(self.parent_fixture.root),
-                        slot=proof.binding["slot"], batch_path=proof.binding["batch"]["path"],
-                        batch_sha256=proof.binding["batch"]["sha256"])
-                    self.assertEqual(historical.binding, proof.binding)
-
-    def test_new_run_cannot_borrow_exact_published_recovery_subject(self):
-        parent, proof = self.publish_initial()
-        owning = self.subject(parent, proof); self.close(owning)
-        self.publish(owning[0].relative_to(self.root).as_posix())
-        borrowed = self.start_subject(owning[0], book_id="PB-0997", at_review=True)
-        path, run_path, book_path, _ = borrowed
-        actor = CurrentMechanisms.runner_actor(self, path, run_path, book_path)
-        before = self.snapshot(); head = support.git(self.root, "rev-parse", "HEAD")
-        code, out, err, gateway = actor.run_main(actor.argv("--retain-subjects",
-            "--migration-batch", path.relative_to(self.root).as_posix(),
-            prompt=2, round_=2, subjects=[path]))
-        self.assertEqual(code, 2, (out, err)); self.assertEqual(out, "")
-        self.assertEqual(err, "run-council: the selected migration batch was refused: migration-recovery-link-refused\n")
-        self.assertEqual(gateway.requests, [])
-        self.assertEqual(self.snapshot(), before)
-        self.assertEqual(support.git(self.root, "rev-parse", "HEAD"), head)
-        for _ in range(2):
-            response = self.advance(borrowed)
-            self.assertEqual(response.returncode, 0, response.stdout + response.stderr)
-            support.commit_all(self.root, "synthetic borrowed subject close setup")
-        before = self.snapshot(); head = support.git(self.root, "rev-parse", "HEAD")
-        response = self.advance(borrowed, close=True)
-        self.assertEqual(response.returncode, 1, response.stdout + response.stderr)
-        self.assertEqual(json.loads(response.stdout), {
-            "error": "migration-recovery-link-refused; nothing was written"})
         self.assertEqual(self.snapshot(), before)
         self.assertEqual(support.git(self.root, "rev-parse", "HEAD"), head)
 

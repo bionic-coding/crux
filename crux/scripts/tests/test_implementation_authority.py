@@ -6,6 +6,7 @@ import atexit
 import functools
 import copy
 import os
+import shutil
 import sys
 import subprocess
 import tempfile
@@ -15,6 +16,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _council_gate_support as sup
+import _implementation_templates as templates
+import _historical_close_producer as producer
 import implementation_migration as migration
 import yaml
 from test_implementation_cycles import WriterFixture, book_two
@@ -33,9 +36,63 @@ def _writer_template(environment, cwd):
     return WriterFixture(Path(temp.name) / "repo", migration=True)
 
 
-class PublicationProof(unittest.TestCase):
-    def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
+@functools.lru_cache(maxsize=None)
+def _prototype(cls, environment, cwd):
+    """The built state of `cls` per worker and environment.
+
+    A test never receives it. `setUp` hands each test a copy of its repository and a deep
+    copy of its Python state."""
+    proto = cls("runTest")
+    proto.temp = tempfile.TemporaryDirectory()
+    atexit.register(proto.temp.cleanup)
+    proto.build()
+    _register(proto)
+    return proto
+
+
+def _ambient():
+    return (tuple(sorted(sup.scrubbed_env().items())), os.getcwd())
+
+
+# Fixtures whose repository other tests start from: (class, HEAD, ambient) -> fixture. A test
+# whose repository and state still equal one of them can take the result of a real step that
+# already ran on it. Steps: (class, HEAD, step, ambient) -> the fixture after the step.
+_STATES = {}
+_STEPS = {}
+
+
+def _directories(root):
+    return sorted(p.relative_to(root).as_posix() for p in Path(root).rglob("*")
+                  if p.is_dir() and ".git" not in p.relative_to(root).parts)
+
+
+def _register(fixture):
+    head = sup.git(fixture.root, "rev-parse", "HEAD").strip()
+    _STATES[(type(fixture), head, _ambient())] = fixture
+    return head
+
+
+def _closed_instance(cls):
+    fixture = cls("runTest"); fixture.setUp()
+    templates.cleanup_at_exit(fixture)
+    fixture.close(fresh=True)
+    _register(fixture)
+    return fixture
+
+
+def closed(test, cls=None):
+    """A private clone of `cls` (default PublicationProof) after the real producer closed it.
+
+    The producer ran once per worker on the template; a clone is a copy of that repository."""
+    cls = cls or PublicationProof
+    return templates.clone(test, ("closed", cls), lambda: _closed_instance(cls))
+
+
+class _PublicationFixture(unittest.TestCase):
+    """Fixtures for the publication proofs. It defines no test, so a subclass runs only its own."""
+
+    def build(self):
+        """Construct the fixture. `setUp` runs this once per worker and copies the result."""
         template = _writer_template(tuple(sorted(sup.scrubbed_env().items())), os.getcwd())
         self.f = template.copy_to(Path(self.temp.name) / "repo")
         self.root = self.f.root
@@ -58,15 +115,77 @@ class PublicationProof(unittest.TestCase):
         sup.commit_all(self.root, "synthetic exact batch dependencies before actual close")
         self.witness = adrs / "migrations/implementation-pilot-001.application.json"
 
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
+        proto = _prototype(type(self), tuple(sorted(sup.scrubbed_env().items())), os.getcwd())
+        templates.adopt(self, proto, Path(self.temp.name) / "repo")
+
+    def refresh_reviewed_batch(self):
+        """Fixture council inputs are synthetic; actual production close remains mandatory."""
+        self.f.retained.write_bytes(self.f.path.read_bytes())
+        receipt = json.loads(self.f.receipt.read_bytes())
+        receipt["subjects"][0]["sha256"] = migration._digest(self.f.path.read_bytes())
+        sup.select_question(self.root, receipt)
+        self.f.receipt.write_text(json.dumps(receipt))
+        sup.commit_all(self.root, "synthetic exact reviewed fixture input")
+
     def snapshot(self):
         return {p.relative_to(self.root).as_posix(): p.read_bytes()
                 for p in self.root.rglob("*") if p.is_file() and ".git" not in p.parts}
 
-    def close(self):
-        result = self.f.advance("--migration-batch", self.f.rel)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    def close(self, *, fresh=False):
+        """Close the batch through the real producer, or take the result of a real close.
+
+        A fixture whose repository and state equal a registered fixture's takes a copy of the
+        repository that the real producer closed once on that fixture. Any other state, and
+        `fresh=True`, runs the producer here."""
+        if fresh or not self._step("close", "close_for_real"):
+            self.close_for_real()
+
+    def _equal_template(self):
+        """The registered fixture this one still equals in repository and state, or None."""
+        head = sup.git(self.root, "rev-parse", "HEAD").strip()
+        template = _STATES.get((type(self), head, _ambient()))
+        if template is None or sup.git(self.root, "status", "--porcelain", "--untracked-files=all"):
+            return None
+        if (self.root / ".git/config").read_bytes() != (template.root / ".git/config").read_bytes():
+            return None
+        if _directories(self.root) != _directories(template.root):
+            return None  # Git does not see an empty directory, but a real close keeps it.
+        expected = templates.clone_state(templates.built_state(template), template.root, self.root)
+        if templates.fingerprint(expected) != templates.fingerprint(templates.built_state(self)):
+            return None
+        return template
+
+    def _step(self, name, real):
+        """Replace this fixture by the registered result of `real`; False when none applies."""
+        template = self._equal_template()
+        if template is None:
+            return False
+        head = sup.git(template.root, "rev-parse", "HEAD").strip()
+        key = (type(self), head, name, _ambient())
+        if key not in _STEPS:
+            done = type(template)("runTest")
+            done.temp = tempfile.TemporaryDirectory(); atexit.register(done.temp.cleanup)
+            templates.adopt(done, template, Path(done.temp.name) / "repo")
+            getattr(done, real)()
+            _register(done)
+            _STEPS[key] = done
+        done = _STEPS[key]
+        shutil.rmtree(self.root)
+        templates.clone_repository(done.root, self.root)
+        after = templates.clone_state(templates.built_state(done), done.root, self.root)
+        for attribute, value in after.items():
+            setattr(self, attribute,
+                    templates.merge_into(getattr(self, attribute), value) if hasattr(self, attribute) else value)
+        return True
+
+    def close_for_real(self):
+        """Record the close with the production close code, then require the verifier to admit it."""
+        producer.close(self.f.run_path, self.f.book_path, self.f.artifacts, self.f.rel)
         sup.commit_all(self.root, "synthetic actual producer close")
-        self.proof = migration.ap.validate_historical_migration_binding(self.root, self.f.run_path,
+        self.proof = producer.assert_close_admitted(self.root, self.f.run_path,
             slot=self.f.slot, batch_path=self.f.rel, batch_sha256=migration._digest(self.f.path.read_bytes()))
 
     def locator(self):
@@ -87,14 +206,17 @@ class PublicationProof(unittest.TestCase):
         sup.commit_all(self.root, "synthetic manual witness; no apply execution")
         return migration._discover_publications(self.root)[0]
 
+
+
+class PublicationProof(_PublicationFixture):
     def test_actual_close_then_synthetic_locator_proves_exact_binding(self):
-        self.close(); row = self.publish(); before = self.snapshot()
+        self.close(fresh=True); row = self.publish(); before = self.snapshot()
         proof = migration._publication_proof(self.root, row)
         self.assertEqual(proof.binding, self.proof.binding)
         self.assertEqual(self.snapshot(), before)
 
     def test_closed_locator_identity_refuses_without_writes(self):
-        self.close()
+        self.close(fresh=True)
         faults = [("applied", True), ("publisher", "other"), ("slot", "implementation-2"),
             ("book_id", "PB-9998"), ("run_id", "RUN-999"), ("gate_prompt", 5),
             ("binding_sha256", "0" * 64), ("declaration_sha256", "0" * 64),
@@ -108,8 +230,48 @@ class PublicationProof(unittest.TestCase):
                 with self.assertRaises(migration.Refused): migration._publication_proof(self.root, row)
                 self.assertEqual(self.snapshot(), before)
 
+    # The next four tests moved here from the retired application's pending-discovery tests. They
+    # assert only what the readers do, with a close recorded by the production close code.
 
-class AuthorityView(PublicationProof):
+    def test_closed_run_without_a_witness_is_original_authority(self):
+        self.close(fresh=True)
+        raw = migration._publication_locator_bytes(self.proof, self.f.run_path.relative_to(self.root).as_posix())
+        self.assertEqual(json.loads(raw), self.locator())  # The formatter the producer shares.
+        self.assertEqual(migration._discover_publications(self.root), [])
+        self.assertEqual(migration.authority_view(self.root)["state"], "original")
+
+    def test_untracked_and_staged_witness_refuse_every_reader_until_committed(self):
+        self.close(fresh=True)
+        raw = migration._publication_locator_bytes(self.proof, self.f.run_path.relative_to(self.root).as_posix())
+        rel = self.witness.relative_to(self.root).as_posix()
+        self.witness.write_bytes(raw)
+        for staged in (False, True):
+            if staged: sup.git(self.root, "add", rel)
+            with self.subTest(staged=staged):
+                with self.assertRaises(migration.Refused): migration._discover_publications(self.root)
+                with self.assertRaises(migration.Refused): migration.authority_view(self.root)
+        sup.commit_all(self.root, "synthetic committed locator, not an apply producer")
+        rows = migration._discover_publications(self.root)
+        self.assertEqual([row["path"] for row in rows], [rel])
+        self.assertEqual(rows[0]["content"], raw)
+        self.assertEqual(migration._publication_proof(self.root, rows[0]).binding, self.proof.binding)
+
+    def test_symlinked_witness_and_dirty_configuration_refuse_discovery(self):
+        self.close(fresh=True); self.publish()
+        self.witness.unlink(); self.witness.symlink_to(self.f.path)
+        with self.assertRaises(migration.Refused): migration._discover_publications(self.root)
+        self.witness.unlink()
+        sup.git(self.root, "checkout", "--", self.witness.relative_to(self.root).as_posix())
+        config = self.root / ".bionic.yml"; config.write_bytes(config.read_bytes() + b"# dirty\n")
+        with self.assertRaises(migration.Refused): migration._discover_publications(self.root)
+
+    def test_a_cyclic_run_snapshot_refuses_the_authority_view_without_recursion(self):
+        self.close(fresh=True); self.publish()
+        self.f.run_path.write_text(self.f.run_path.read_text() + "\nordinary_extra: &loop [*loop]\n")
+        with self.assertRaises(migration.Refused): migration.authority_view(self.root)
+
+
+class AuthorityView(_PublicationFixture):
     def view(self):
         before = self.snapshot()
         try: return migration.authority_view(self.root)
@@ -244,15 +406,6 @@ class AuthorityView(PublicationProof):
         with mock.patch.object(migration, "_validated_inputs", side_effect=moved):
             with self.assertRaisesRegex(migration.Refused, "history-head-changed"): self.view()
 
-    def refresh_reviewed_batch(self):
-        """Fixture council inputs are synthetic; actual production close remains mandatory."""
-        self.f.retained.write_bytes(self.f.path.read_bytes())
-        receipt = json.loads(self.f.receipt.read_bytes())
-        receipt["subjects"][0]["sha256"] = migration._digest(self.f.path.read_bytes())
-        sup.select_question(self.root, receipt)
-        self.f.receipt.write_text(json.dumps(receipt))
-        sup.commit_all(self.root, "synthetic exact reviewed fixture input")
-
     def test_signed_shaped_affected_pairing_cannot_supply_human_migration_disposition(self):
         ledger = self.root / "docs/adrs/doctrine/reconciliations.yml"
         ledger.write_text(yaml.safe_dump({"config_version": "1", "reconciliations": [{
@@ -335,9 +488,8 @@ class AuthorityView(PublicationProof):
         with self.assertRaisesRegex(migration.Refused, "signed-dependency-drift"): self.view()
 
 
-class HistoricalDisplacements(PublicationProof):
+class HistoricalDisplacements(_PublicationFixture):
     view = AuthorityView.view
-    refresh_reviewed_batch = AuthorityView.refresh_reviewed_batch
 
     def test_exact_duplicate_edge_is_benign_but_conflicting_provenance_refuses(self):
         batch = migration.load_batch(self.root, self.f.path)
@@ -411,13 +563,12 @@ class HistoricalDisplacements(PublicationProof):
                 with self.assertRaises(migration.Refused): self.view()
 
 
-class ReceiptAuthority(PublicationProof):
+class ReceiptAuthority(_PublicationFixture):
     """Actual disposition writers and close; human inputs and publication are synthetic."""
     view = AuthorityView.view
-    refresh_reviewed_batch = AuthorityView.refresh_reviewed_batch
 
-    def setUp(self):
-        PublicationProof.setUp(self)
+    def build(self):
+        _PublicationFixture.build(self)
         import doctrine_projection as dp
         import summaries_projection as sp
         self.batch = yaml.safe_load(self.f.path.read_bytes())
@@ -481,15 +632,19 @@ class ReceiptAuthority(PublicationProof):
             refs.append({k: published[k] for k in ("path", "sha256")})
         return refs
 
-    def produce(self):
+    def produce(self, *, fresh=False):
+        if fresh or not self._step("produce", "produce_for_real"):
+            self.produce_for_real()
+
+    def produce_for_real(self):
         self.batch["signed_dispositions"] = self.produce_refs(self.batch, self.f.path)
         self.save_batch()
 
     def test_actual_receipts_close_and_committed_synthetic_publication_validate(self):
         signed_bytes = {p: p.read_bytes() for p in (self.ledger, self.reviews, self.member)}
-        self.produce()
+        self.produce(fresh=True)
         self.assertEqual(self.view()["state"], "original")
-        self.close(); self.assertEqual(self.view()["state"], "original")
+        self.close(fresh=True); self.assertEqual(self.view()["state"], "original")
         self.publish()
         with mock.patch.object(migration.ap, "live_constraints", side_effect=AssertionError("recursion")):
             self.assertEqual(self.view()["state"], "published")
@@ -565,7 +720,7 @@ class ReceiptAuthority(PublicationProof):
         self.assertEqual(after["retired_handles"], before["retired_handles"])
 
 
-class RecoveryView(PublicationProof):
+class RecoveryView(_PublicationFixture):
     view = AuthorityView.view
     def prepare_successor(self, batch, path):
         pass
@@ -608,18 +763,25 @@ class RecoveryView(PublicationProof):
             "retained_copy": retained.relative_to(self.root).as_posix()}])
         doc["book"]["id"] = book["id"]; receipt.write_text(json.dumps(doc))
         sup.commit_all(self.root, "synthetic exact successor council fixture after actual start")
+        artifacts = receipt.relative_to(self.root).as_posix()
         for n in range(1, 5):
-            extra = ["--migration-batch", batch_path.relative_to(self.root).as_posix()] if n == 4 else []
             before = self.snapshot() if not linked and n == 4 else None
-            advanced = subprocess.run([sys.executable, str(sup.SCRIPTS / "advance-run.py"), str(run_path),
-                "--book", str(book_path), "--outcome", "done", "--artifacts", receipt.relative_to(self.root).as_posix(),
-                *extra], capture_output=True, env=sup.scrubbed_env())
-            if before is not None:
-                self.assertEqual(advanced.returncode, 1, advanced.stdout + advanced.stderr)
-                self.assertIn(b"migration-recovery-link-refused", advanced.stdout + advanced.stderr)
-                self.assertEqual(self.snapshot(), before)
-                return
-            self.assertEqual(advanced.returncode, 0, advanced.stdout + advanced.stderr)
+            if n == 4:
+                # The historical close is recorded by the production close code in process.
+                try:
+                    producer.close(run_path, book_path, artifacts, batch_path.relative_to(self.root).as_posix())
+                except producer.FixtureBuildFailure as refused:
+                    if before is None:
+                        raise
+                    self.assertIn("migration-recovery-link-refused", str(refused))
+                    self.assertEqual(self.snapshot(), before)
+                    return
+                self.assertIsNone(before, "an unlinked successor must be refused at its close")
+            else:
+                advanced = subprocess.run([sys.executable, str(sup.SCRIPTS / "advance-run.py"), str(run_path),
+                    "--book", str(book_path), "--outcome", "done", "--artifacts", artifacts],
+                    capture_output=True, env=sup.scrubbed_env())
+                self.assertEqual(advanced.returncode, 0, advanced.stdout + advanced.stderr)
             sup.commit_all(self.root, "synthetic actual successor advance")
         proof = migration.ap.validate_historical_migration_binding(self.root, run_path, slot="implementation-1",
             batch_path=batch_path.relative_to(self.root).as_posix(), batch_sha256=migration._digest(batch_path.read_bytes()))
@@ -646,11 +808,11 @@ class RecoveryView(PublicationProof):
         with self.assertRaises(migration.Refused): self.view()
 
 
-class ReceiptRecovery(PublicationProof):
-    setUp = ReceiptAuthority.setUp
-    refresh_reviewed_batch = AuthorityView.refresh_reviewed_batch
+class ReceiptRecovery(_PublicationFixture):
+    build = ReceiptAuthority.build
     save_batch = ReceiptAuthority.save_batch
     produce = ReceiptAuthority.produce
+    produce_for_real = ReceiptAuthority.produce_for_real
     produce_refs = ReceiptAuthority.produce_refs
     view = AuthorityView.view
     successor = RecoveryView.successor
@@ -675,8 +837,8 @@ class ReceiptRecovery(PublicationProof):
 
 class ObservationReceipt(ReceiptRecovery):
     """A separate seeded observation fixture uses the same real receipt/close chain."""
-    def setUp(self):
-        super().setUp()
+    def build(self):
+        super().build()
         import summaries_projection as sp
         self.member.unlink()
         obsdir = self.root / "docs/observations"; obsdir.mkdir()

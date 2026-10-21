@@ -1,0 +1,265 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Crux persistent cycle queue",
+  "description": "Ordered, owner-captured work awaiting cycles. Cross-checks the schema cannot express (unique ids, dependency order, state-specific fields, bounds) live in cycle_queue.check_queue.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "format_version",
+    "next_number",
+    "items",
+    "authorization",
+    "authorization_history"
+  ],
+  "properties": {
+    "format": {
+      "const": "crux.cycle-queue"
+    },
+    "format_version": {
+      "const": 1
+    },
+    "next_number": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "title",
+          "outcome",
+          "suggested_type",
+          "scope",
+          "acceptance",
+          "depends_on",
+          "state",
+          "hold_reason",
+          "start_token",
+          "cycle",
+          "added_at",
+          "started_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^Q-[0-9]{4,}$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "outcome": {
+            "type": "string",
+            "minLength": 1
+          },
+          "suggested_type": {
+            "type": "string",
+            "pattern": "^[a-z][a-z-]{1,30}$"
+          },
+          "scope": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "acceptance": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "depends_on": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^Q-[0-9]{4,}$"
+            }
+          },
+          "references": {
+            "type": "array",
+            "description": "Optional repository paths of supporting documents. At most 50, no repeats, existence checked at write time: the validator subset has no maxItems or uniqueItems, so cycle_queue.check_queue enforces the bounds.",
+            "items": {
+              "type": "string",
+              "pattern": "\\S"
+            }
+          },
+          "state": {
+            "enum": [
+              "pending",
+              "held",
+              "starting",
+              "started"
+            ]
+          },
+          "hold_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "start_token": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "cycle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "added_at": {
+            "type": "string",
+            "minLength": 1
+          },
+          "started_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "authorization": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "instruction",
+        "kind",
+        "count",
+        "scope",
+        "started",
+        "authorized_at",
+        "date"
+      ],
+      "properties": {
+        "instruction": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "next",
+            "next-n",
+            "queue"
+          ]
+        },
+        "count": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "scope": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^Q-[0-9]{4,}$"
+          }
+        },
+        "started": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^Q-[0-9]{4,}$"
+          }
+        },
+        "authorized_at": {
+          "type": "string",
+          "minLength": 1
+        },
+        "date": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        }
+      }
+    },
+    "authorization_history": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "instruction",
+          "kind",
+          "count",
+          "scope",
+          "started",
+          "authorized_at",
+          "date",
+          "ended_at",
+          "ended",
+          "reason"
+        ],
+        "properties": {
+          "instruction": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "enum": [
+              "next",
+              "next-n",
+              "queue"
+            ]
+          },
+          "count": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "scope": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^Q-[0-9]{4,}$"
+            }
+          },
+          "started": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^Q-[0-9]{4,}$"
+            }
+          },
+          "authorized_at": {
+            "type": "string",
+            "minLength": 1
+          },
+          "date": {
+            "type": "string",
+            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+          },
+          "ended_at": {
+            "type": "string",
+            "minLength": 1
+          },
+          "ended": {
+            "enum": [
+              "superseded",
+              "revoked"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}

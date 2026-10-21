@@ -52,6 +52,16 @@ How a run works:
    fixture record, and zero tests. A worker that exits before its payload, or
    exits non-zero, also fails the run closed.
 
+The shared pool. `CRUX_GATE_POOL` names a directory of slot files (see "The shared slot pool"
+below), which `tools/release.py verify` and the release scheduler create so that every driver on the
+host draws on one worker budget. A pooled run cuts the suite into bins of about POOL_BIN_SECONDS of
+timings weight (at least one per slot), starts the heaviest bin first and starts each further bin when
+it can take a slot, so a slot that a finished peer returns widens this run. Workers, reconciliation
+and every refusal above are unchanged; the bins are only started later. `--workers N` still caps the
+bins that run at once. A worker removes the variable from its environment, so a test that starts a
+driver of its own does not draw on its parent's budget. A variable that names no usable pool fails
+the run closed with exit 2. Without the variable the run is as described above.
+
 The timings file. `suite_timings.json` beside this driver maps a unit key to
 seconds. A key is the last dotted part of the module name, plus `.ClassName`
 for a class unit. A module unit weighs the sum of its class entries. A unit
@@ -78,15 +88,17 @@ the spawn context gives each worker (the interpreter and its flags). A bare
 `uv run` of this file builds an isolated interpreter from the PEP 723 block
 above, which declares no dependency, so discovery would fail on an import and
 the run would exit 1 as a test failure. When a module cannot be imported the
-driver exits 2 before discovery, names the interpreter, the missing modules and
+driver exits 3 before discovery, names the interpreter, the missing modules and
 the working command `uv run python3 crux/scripts/tests/parallel_suite.py
 crux/scripts/tests`, and prints nothing on stdout. A START that is any other
 directory is not checked, because its tests own their environment.
 
 Exit codes: 0 when every test passed; 1 when a test failed or errored, or an
-expected failure passed; 2 when the driver failed closed, or when the
-interpreter check refused the interpreter; 128 plus the signal
-number when SIGINT, SIGTERM or SIGHUP stopped the run. A signal that arrives
+expected failure passed; 2 when the driver failed closed (a worker death, a
+reconciliation mismatch with the discovery, or a driver exception); 3 when the
+interpreter check refused the interpreter before discovery, so no test started;
+128 plus the signal number when SIGINT, SIGTERM or SIGHUP stopped the run. The
+evidence engine records exit 2 as a failed run and exit 3 as an interrupted one. A signal that arrives
 during discovery takes effect once discovery returns, before any worker starts,
 because the unittest loader turns an exception raised inside an import into a
 failed-import test. A signal the driver inherited as ignored stays ignored, as
@@ -111,6 +123,7 @@ The driver is stdlib-only.
 
 import argparse
 import collections
+import fcntl
 import importlib.util
 import json
 import math
@@ -122,6 +135,7 @@ import signal
 import statistics
 import subprocess
 import sys
+import tempfile
 import time
 import traceback
 import unittest
@@ -976,6 +990,211 @@ def effective_workers(requested):
 
 
 # ---------------------------------------------------------------------------
+# The shared slot pool
+# ---------------------------------------------------------------------------
+#
+# `tools/release.py verify` runs the release preflight and `sync.sh --dry-run` at the same time, and
+# each starts suite drivers. Separate processes cannot share a counter, so the host's worker budget
+# lives in a directory: `size` holds the slot count, `slot-NNNN` is one slot, `waiters/` holds one
+# record per driver that still has bins to start. A process holds a slot by holding an exclusive
+# `flock` on its file. The kernel drops the lock when the holder exits, even on SIGKILL, so a dead
+# peer frees its slots and no token is ever lost.
+#
+# A driver that sees `CRUX_GATE_POOL` cuts the suite into many small bins instead of one bin per
+# worker and starts each bin when it can take a slot. A slot that a finished peer (or a finished
+# gate) returns goes to the next driver to ask, so a running suite widens as peers finish. That is
+# the rebalance a fixed `--workers` count cannot make. Waiting drivers publish the weight they still
+# have to start; a driver defers to a live waiter with more weight left, which hands a freed slot to
+# the longest remaining work. The priority is a speed hint and never a safety property: a record
+# that is not refreshed for WAITER_STALE_SECONDS stops counting.
+#
+# A driver started without the variable behaves exactly as before. A variable that names no usable
+# pool stops the driver closed (exit 2): running unbounded would defeat the budget it was given.
+
+POOL_ENV = "CRUX_GATE_POOL"
+POOL_POLL_SECONDS = 0.2
+# Target weight of one pooled bin, in timings seconds. A bin costs a process start and a repeat of
+# discovery (about 2 s for this suite), so bins stay large enough that this is a few percent of the work.
+POOL_BIN_SECONDS = 120.0
+WAITER_STALE_SECONDS = 30.0
+_WAITER_FORMAT = "%020.3f %017.3f\n"
+
+
+class PoolError(Exception):
+    """The directory CRUX_GATE_POOL names is not a usable pool."""
+
+
+class SlotPool:
+    """One handle on a pool directory. A handle holds slots; two handles contend, even in one process."""
+
+    def __init__(self, directory, clock=time.time):
+        self.directory = os.path.abspath(os.fspath(directory))
+        self._clock = clock
+        self._held = {}
+        try:
+            with open(os.path.join(self.directory, "size"), encoding="ascii") as handle:
+                size = int(handle.read().strip())
+        except (OSError, ValueError) as err:
+            raise PoolError("%s is not a slot pool: its size cannot be read (%s)" % (self.directory, err)) from err
+        if size < 1:
+            raise PoolError("%s is not a slot pool: its size is %d" % (self.directory, size))
+        for number in range(size):
+            if not os.path.isfile(self._slot_path(number)):
+                raise PoolError("%s is not a slot pool: slot %d is missing" % (self.directory, number))
+        if not os.path.isdir(os.path.join(self.directory, "waiters")):
+            raise PoolError("%s is not a slot pool: its waiters directory is missing" % self.directory)
+        self.size = size
+
+    @classmethod
+    def create(cls, size, directory=None):
+        """Make a pool of `size` slots in `directory` (a new private temporary directory when None)."""
+        if size < 1:
+            raise PoolError("a pool needs at least one slot")
+        if directory is None:
+            directory = tempfile.mkdtemp(prefix="crux-gate-pool-")
+        directory = os.fspath(directory)
+        os.makedirs(os.path.join(directory, "waiters"), mode=0o700, exist_ok=True)
+        for number in range(size):
+            with open(os.path.join(directory, "slot-%04d" % number), "a", encoding="ascii"):
+                pass
+        with open(os.path.join(directory, "size"), "w", encoding="ascii") as handle:
+            handle.write("%d\n" % size)
+        return cls(directory)
+
+    @classmethod
+    def from_environ(cls, environ=None):
+        """The pool CRUX_GATE_POOL names, None when it is unset. Raises PoolError when it names no usable pool."""
+        value = (os.environ if environ is None else environ).get(POOL_ENV, "")
+        return cls(value) if value else None
+
+    def _slot_path(self, number):
+        return os.path.join(self.directory, "slot-%04d" % number)
+
+    def waiter(self, weight=0.0):
+        return PoolWaiter(self, weight)
+
+    def try_acquire(self, waiter=None):
+        """Take a free slot and return its number, or None. Never waits.
+
+        With a `waiter`, a live waiter that has more weight left to start goes first (equal weights: the
+        lower record name). The waiter's own record is refreshed, so a driver that keeps polling keeps
+        its place.
+        """
+        if waiter is not None:
+            waiter.refresh()
+            if waiter.deferred():
+                return None
+        for number in range(self.size):
+            if number in self._held:
+                continue
+            descriptor = os.open(self._slot_path(number), os.O_RDWR)
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                os.close(descriptor)
+                continue
+            self._held[number] = descriptor
+            return number
+        return None
+
+    def release(self, number):
+        descriptor = self._held.pop(number, None)
+        if descriptor is not None:
+            os.close(descriptor)  # closing the descriptor drops the lock
+
+    def release_all(self):
+        for number in list(self._held):
+            self.release(number)
+
+    @property
+    def held(self):
+        return sorted(self._held)
+
+
+class PoolWaiter:
+    """A driver's record that it has bins left to start, with the weight of those bins.
+
+    The record is a file under `waiters/` that its owner locks for as long as it exists. Another process
+    that can take that lock knows the owner is gone and deletes the record.
+    """
+    _counter = 0
+
+    def __init__(self, pool, weight):
+        PoolWaiter._counter += 1
+        self.pool, self.weight = pool, float(weight)
+        self.name = "%08d.%04d" % (os.getpid(), PoolWaiter._counter)
+        self.path = os.path.join(pool.directory, "waiters", self.name)
+        self._descriptor = None
+
+    def refresh(self, weight=None):
+        """Create the record on first use, then stamp it with the current weight and time."""
+        if weight is not None:
+            self.weight = float(weight)
+        if self._descriptor is None:
+            descriptor = os.open(self.path, os.O_RDWR | os.O_CREAT, 0o600)
+            fcntl.flock(descriptor, fcntl.LOCK_EX)
+            self._descriptor = descriptor
+        os.pwrite(self._descriptor, (_WAITER_FORMAT % (self.weight, self.pool._clock())).encode("ascii"), 0)
+
+    def close(self):
+        """Drop the record: this driver has nothing left to start."""
+        if self._descriptor is not None:
+            try:
+                os.unlink(self.path)
+            except OSError:
+                pass
+            os.close(self._descriptor)
+            self._descriptor = None
+
+    def deferred(self):
+        """Whether a live, fresh waiter of another process or handle outranks this one."""
+        mine = (-self.weight, self.name)
+        directory = os.path.join(self.pool.directory, "waiters")
+        try:
+            names = os.listdir(directory)
+        except OSError:
+            return False
+        for name in names:
+            if name == self.name:
+                continue
+            path = os.path.join(directory, name)
+            try:
+                descriptor = os.open(path, os.O_RDONLY)
+            except OSError:
+                continue
+            try:
+                try:
+                    fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except OSError:
+                    pass  # the owner holds it: alive
+                else:
+                    try:
+                        os.unlink(path)  # nobody holds it: the owner is gone
+                    except OSError:
+                        pass
+                    continue
+                try:
+                    weight, stamp = (float(x) for x in os.pread(descriptor, 64, 0).decode("ascii").split())
+                except (OSError, ValueError):
+                    return True  # a record caught mid-write: defer once rather than guess
+                if self.pool._clock() - stamp > WAITER_STALE_SECONDS:
+                    continue
+                if (-weight, name) < mine:
+                    return True
+            finally:
+                os.close(descriptor)
+        return False
+
+
+def pooled_bin_count(units, timings, pool_size, affinity=AFFINITY):
+    """How many bins a pooled run cuts the suite into: about POOL_BIN_SECONDS of weight each, at least one
+    per slot, and no more than there are tasks to place."""
+    tasks = len(assign_bins(units, max(1, len(units)), affinity, timings))
+    total = math.fsum(unit_weights(units, timings or {}))
+    return max(1, min(tasks, max(pool_size, math.ceil(total / POOL_BIN_SECONDS))))
+
+
+# ---------------------------------------------------------------------------
 # The worker
 # ---------------------------------------------------------------------------
 
@@ -988,6 +1207,9 @@ def _worker_main(conn, bin_index, positions, start, pattern, top, snapshot, expe
         os.setpgid(0, 0)
     except OSError:
         pass
+    # The pool is the coordinator's budget. A test that starts a driver of its own must not draw on it:
+    # its parent bin already holds a slot, and a nested driver waiting for another could wait on itself.
+    os.environ.pop(POOL_ENV, None)
     # A background process group that writes to a terminal set to `tostop` is
     # stopped by SIGTTOU. Ignoring it lets the write through, as in a serial
     # run, which writes from the foreground group.
@@ -1089,6 +1311,61 @@ def _collect(running, current, payloads):
         if proc.exitcode != 0:
             raise _exit_error(b, proc, current, "after its payload")
     return payloads
+
+
+def _collect_pooled(bins, pool, cap, launch, started, conns, current, payloads):
+    """Start the bins as the pool grants slots and receive every payload, before any join.
+
+    `_collect` for a run whose bins outnumber its slots. The bins start heaviest first, each holding one
+    slot until its payload arrives and its worker exits. `launch(b)` starts a worker and returns
+    `(proc, reader)`. A worker that dies, or sends a malformed message, fails the run closed exactly as
+    in `_collect`. At most `cap` bins run at once. Returns the `(bin, proc, reader)` of every bin.
+    """
+    waiting = sorted(bins, key=lambda b: (-b.weight, b.index))
+    active = {}
+    finished = []
+    waiter = pool.waiter(math.fsum(b.weight for b in waiting))
+    try:
+        while waiting or active:
+            while waiting and len(active) < cap:
+                slot = pool.try_acquire(waiter)
+                if slot is None:
+                    break
+                b = waiting.pop(0)
+                waiter.weight = math.fsum(w.weight for w in waiting)
+                try:
+                    proc, reader = launch(b)
+                except BaseException:
+                    pool.release(slot)
+                    raise
+                active[reader] = (b, proc, slot)
+            if not waiting:
+                waiter.close()
+            if not active:
+                time.sleep(POOL_POLL_SECONDS)  # every slot is a peer's: ask again soon
+                continue
+            _wait_ready(list(active) + [proc.sentinel for _, proc, _ in active.values()],
+                        timeout=POOL_POLL_SECONDS if waiting else _POLL_SECONDS)
+            for conn, (b, proc, slot) in list(active.items()):
+                if _drain(conn, b, proc, current, payloads):
+                    pass
+                elif proc.exitcode is not None:
+                    # The worker has exited. Every write it made is in the pipe now, so read once more
+                    # before refusing, as `_collect` does.
+                    if not _drain(conn, b, proc, current, payloads):
+                        raise _exit_error(b, proc, current, "before its payload")
+                else:
+                    continue
+                conn.close()
+                proc.join()
+                if proc.exitcode != 0:
+                    raise _exit_error(b, proc, current, "after its payload")
+                pool.release(slot)
+                del active[conn]
+                finished.append((b, proc, conn))
+    finally:
+        waiter.close()
+    return finished
 
 
 def _signal_worker(proc, signum):
@@ -1193,8 +1470,14 @@ def _targets_own_tests(start):
     return os.path.realpath(start) == os.path.dirname(os.path.realpath(__file__))
 
 
+# The interpreter-check refusal has its own exit code. The evidence engine records every exit 2 as
+# a failed run, because it cannot tell afterwards whether a test had started. This refusal comes
+# before discovery, so it is not a failure of any test.
+EXIT_INTERPRETER_REFUSED = 3
+
+
 def _refuse_incapable_interpreter(args):
-    """The exit-2 message when START is the plugin suite and its interpreter lacks a dependency,
+    """The exit-3 message when START is the plugin suite and its interpreter lacks a dependency,
     else None."""
     if not _targets_own_tests(args.start):
         return None
@@ -1209,7 +1492,7 @@ def _refuse_incapable_interpreter(args):
     return None
 
 
-def _header(args, manifest, bins, workers, timings_note):
+def _header(args, manifest, bins, workers, timings_note, pool=None):
     requested = args.workers if args.workers is not None else "default %d" % DEFAULT_WORKERS
     origin = _crux_origin()
     lines = [
@@ -1223,6 +1506,8 @@ def _header(args, manifest, bins, workers, timings_note):
         "workers %d (%d bins; requested %s, process_cpu_count %s)"
         % (workers, len(bins), requested, os.process_cpu_count()),
     ]
+    if pool is not None:
+        lines.append("pool %s (%d slots; each bin starts when it can take one)" % (pool.directory, pool.size))
     for b in bins:
         lines.append("bin %d weight %.1f: %s" % (b.index, b.weight,
                                                " ".join(manifest[p][0] for p in b.positions)))
@@ -1262,6 +1547,8 @@ def _parse(argv):
                         help="the file --write-timings writes (default: the committed file)")
     parser.add_argument("--shared-evidence", action="store_true", help="reuse repository-wide evidence for matching suite inputs")
     parser.add_argument("--evidence-scope", choices=("checkout", "staged"), default="checkout")
+    parser.add_argument("--source-root", default=None, help="the dev checkout that holds uv.lock and the durable evidence store (staged scope)")
+    parser.add_argument("--python-minor", default=None, help="the Python minor of a staged suite run (default: the running interpreter's)")
     parser.add_argument("--retry-reason", default=os.environ.get("CRUX_TEST_RETRY_REASON"), help="reason to retry an unchanged failing check")
     evidence_mode = parser.add_mutually_exclusive_group()
     evidence_mode.add_argument("--plan-test-evidence", action="store_true", help="report evidence lookup only; never execute tests")
@@ -1308,6 +1595,11 @@ def main(argv=None):
     refusal = _refuse_incapable_interpreter(args)
     if refusal:
         sys.stderr.write("%s FAILED CLOSED: %s\n" % (_PREFIX, refusal))
+        return EXIT_INTERPRETER_REFUSED
+    try:
+        pool = SlotPool.from_environ()
+    except PoolError as err:
+        sys.stderr.write("%s FAILED CLOSED: %s names no usable pool: %s\n" % (_PREFIX, POOL_ENV, err))
         return 2
     records_path = os.path.abspath(args.records) if args.records else None
     if not sys.flags.safe_path:
@@ -1331,9 +1623,14 @@ def main(argv=None):
         if pending:
             raise _Interrupted(pending[0])
         discovered_path = list(sys.path)
-        workers = effective_workers(args.workers)
-        bins = assign_bins(units, workers, AFFINITY, timings)
-        _header(args, manifest, bins, workers, timings_note)
+        if pool is None:
+            workers = effective_workers(args.workers)
+            bins = assign_bins(units, workers, AFFINITY, timings)
+        else:
+            # The pool, not the CPU count, bounds the run. `--workers` still caps the bins that run at once.
+            workers = min(args.workers, pool.size) if args.workers else pool.size
+            bins = assign_bins(units, pooled_bin_count(units, timings, pool.size), AFFINITY, timings)
+        _header(args, manifest, bins, workers, timings_note, pool)
         if not any(ids for _, ids in manifest):
             reconcile(manifest, bins, {}, discovered_path)
         began = time.perf_counter()
@@ -1342,8 +1639,8 @@ def main(argv=None):
         # itself. fork would copy the coordinator's discovery imports, and fork
         # is the Linux default before 3.14.
         context = multiprocessing.get_context("spawn")
-        running = []
-        for b in sorted(bins, key=lambda b: (-b.weight, b.index)):
+
+        def launch(b):
             reader, writer = context.Pipe(duplex=False)
             proc = context.Process(
                 target=_worker_main, name="parallel_suite-bin-%d" % b.index, daemon=False,
@@ -1353,8 +1650,16 @@ def main(argv=None):
             conns[b.index] = reader
             proc.start()
             writer.close()
-            running.append((b, proc, reader))
-        _collect(running, current, payloads)
+            return proc, reader
+
+        if pool is None:
+            running = []
+            for b in sorted(bins, key=lambda b: (-b.weight, b.index)):
+                proc, reader = launch(b)
+                running.append((b, proc, reader))
+            _collect(running, current, payloads)
+        else:
+            _collect_pooled(bins, pool, workers, launch, started, conns, current, payloads)
         summary = reconcile(manifest, bins, payloads, discovered_path)
         elapsed = time.perf_counter() - began
     except LedgerError as err:
@@ -1374,6 +1679,8 @@ def main(argv=None):
         for signum in saved:
             signal.signal(signum, signal.SIG_IGN)
         _stop(started, payloads)
+        if pool is not None:
+            pool.release_all()
         for signum, handler in saved.items():
             signal.signal(signum, handler)
     if records_path:

@@ -468,19 +468,22 @@ class UnknownCategoryNearMissTests(unittest.TestCase):
         text = lines("## [2026-09-09 10:00] Bug | x")
         self.assertEqual(unknown_category_headings(text), [(1, "Bug")])
 
-    def test_the_live_journal_tree_produces_no_near_miss(self):
-        # FALSE-POSITIVE CONTROL against real content rather than fixtures: a
-        # guard calibrated only on its own exemplar cannot see a false
-        # positive. Skipped where the dogfood tree is absent (a staged
-        # artifact carries `crux/` without `bionic/`).
-        journal_dir = SCRIPTS.parent.parent / "bionic" / "journal"
-        if not journal_dir.is_dir():
-            self.skipTest("no dogfood journal tree in this checkout")
-        for month_file in sorted(journal_dir.glob("*.md")):
-            with self.subTest(month=month_file.name):
-                found = unknown_category_headings(
-                    month_file.read_text(encoding="utf-8"))
-                self.assertEqual(found, [], f"{month_file.name}: {found}")
+    def test_real_entry_headings_produce_no_near_miss(self):
+        # FALSE-POSITIVE CONTROL against real headings rather than synthetic ones: three
+        # entries copied verbatim from the live journal, in three categories. A guard
+        # calibrated only on its own exemplar cannot see a false positive. The live month
+        # files change with every logged operation, so the live tree is checked by the
+        # `generate-journal-index.py --dry-run` drift gate at each release preflight,
+        # which runs `unknown_category_headings` over every month file; this test reads
+        # the fixture so that a bookkeeping commit never changes what it depends on.
+        fixture = Path(__file__).resolve().parent / "fixtures" / "live_docs" / "journal-2026-09-reflections.md"
+        text = fixture.read_text(encoding="utf-8")
+        self.assertEqual(unknown_category_headings(text), [])
+        # POSITIVE DISCRIMINATOR: the same text with one category replaced by a token
+        # outside the enum is reported, so the empty result above is a measurement.
+        self.assertIn("] decision |", text)
+        broken = text.replace("] decision |", "] chore |", 1)
+        self.assertEqual([c for _, c in unknown_category_headings(broken)], ["chore"])
 
 
 class BalancedFenceTests(unittest.TestCase):

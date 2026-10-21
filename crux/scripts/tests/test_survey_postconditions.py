@@ -350,7 +350,20 @@ SIX = [
 
 @unittest.skipUnless(HAVE_YAML, "PyYAML required (run under uv)")
 class BatchEquivalenceTests(_TreeCase):
-    """One signed sheet against N single-row sign-offs of the same claims."""
+    """One signed sheet against N single-row sign-offs of the same claims.
+
+    The batch tree and the sequential tree are identical in every test, so they are published
+    once for the class. No test writes to either; the moved-domain control builds its own tree."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls._shared_tmp = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(cls._shared_tmp.cleanup)
+        builder = cls("test_one_signed_sheet_costs_one_human_act_against_n")
+        builder.base = Path(cls._shared_tmp.name)
+        cls.shared_batch = builder._batch_tree()
+        cls.shared_sequential = builder._sequential_tree()
 
     def _specs(self, root: Path) -> list[dict]:
         return [self._spec(root, name, rule, domain, rel)
@@ -378,8 +391,8 @@ class BatchEquivalenceTests(_TreeCase):
         return root
 
     def test_one_signed_sheet_produces_the_same_record_set_as_n_single_row_batches(self):
-        batch = self._batch_tree()
-        sequential = self._sequential_tree()
+        batch = self.shared_batch
+        sequential = self.shared_sequential
 
         self.assertEqual(len(self._records_of(batch)), len(SIX))
         self.assertEqual(_records_snapshot(self._obs(batch)),
@@ -410,8 +423,8 @@ class BatchEquivalenceTests(_TreeCase):
         exactly one receipt. Six claims cost six receipts one at a time and
         one receipt in a batch."""
         self.assertGreaterEqual(len(SIX), 5)
-        batch = self._batch_tree()
-        sequential = self._sequential_tree()
+        batch = self.shared_batch
+        sequential = self.shared_sequential
 
         batch_receipts = sorted(
             (self._obs(batch) / "_surveys").rglob("receipt.yml"))

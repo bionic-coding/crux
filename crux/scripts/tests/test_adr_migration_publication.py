@@ -4,6 +4,7 @@ import importlib.util
 import json
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 import unittest
 from unittest.mock import patch
@@ -14,6 +15,23 @@ import adr_migration as m
 import implementation_migration as historical
 import summaries_projection as sp
 from cycle_workflow import CycleError, digest, encoded
+
+
+_REAL_RUN=subprocess.run
+
+
+def _watch_parent_reader():
+    """Count the parent approval reader's subprocess runs while running it for real.
+
+    A test that must exercise the uncached replay asserts the count: a receipt, a
+    memo or a stub that silently skipped the reader would otherwise pass unnoticed.
+    """
+    calls=[]
+    def run(command,*args,**kwargs):
+        if len(command)>2 and str(command[1]).endswith('adr-migration.py') and command[2]=='approval':
+            calls.append(command)
+        return _REAL_RUN(command,*args,**kwargs)
+    return run,calls
 
 
 class PublicationTests(MigrationFixture):
@@ -213,9 +231,12 @@ class PublicationTests(MigrationFixture):
         self.approve()
         bad=json.loads((self.root/self.approval).read_bytes());bad['owner']=None
         self.write(self.approval,bad);self.commit('Invalid approval in parent')
-        with patch.object(m,'validate_approval',return_value=bad):
+        run,calls=_watch_parent_reader()
+        with patch.object(m,'validate_approval',return_value=bad),patch.object(subprocess,'run',side_effect=run):
             with self.assertRaisesRegex(CycleError,'parent'):
                 p.validate_boundary(self.root,self.approval,self.head())
+        # The refusal came from the real parent reader's subprocess, not from a receipt or a memo.
+        self.assertEqual(len(calls),1)
 
     def test_installed_consumer_uses_exact_bound_support_without_vendoring(self):
         import adr_migration_publication as p
@@ -232,7 +253,13 @@ class PublicationTests(MigrationFixture):
         approval='bionic/adrs/migrations/approvals/approval-later.json';self.commit('Later approval')
         shutil.rmtree(self.root/'crux');self.commit('Consumer has no vendored Crux source')
         self.assertFalse((self.root/'crux').exists())
-        self.assertEqual(p.validate_boundary(self.root,approval,self.head())['package'],self.bind(self.package_path))
+        run,calls=_watch_parent_reader()
+        with patch.object(subprocess,'run',side_effect=run):
+            self.assertEqual(p.validate_boundary(self.root,approval,self.head())['package'],self.bind(self.package_path))
+        # The installed reader ran as a subprocess against the exact bound support.
+        self.assertEqual(len(calls),1)
+        self.assertEqual(Path(calls[0][1]).name,'adr-migration.py')
+        self.assertFalse(Path(calls[0][1]).is_relative_to(self.root))
 
     def test_transaction_refreshes_views_after_staged_source_change(self):
         import adr_migration_publication as p

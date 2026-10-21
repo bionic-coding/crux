@@ -28,6 +28,7 @@ import council_records_v2 as records_two
 import council_history_v3 as policy_three
 import council_history_v4 as policy_four
 import bionic_config
+import contract_bytes_memo
 
 CONTRACT_VERSION = "4"
 
@@ -74,7 +75,25 @@ def gate_contract_bytes(version=CONTRACT_VERSION) -> bytes:
 
     A future policy change must preserve this version or supply another supported
     implementation. Source text retained by a close is evidence, not executable input.
+    The bytes of one unchanged policy are computed once per process; see contract_bytes_memo.
     """
+    try:
+        kernel = supported_profile(version).kernel
+        modules = (kernel, supported_profile(version).records, kernel.schema_engine,
+                   getattr(kernel, "start_snapshot_yaml", None) if version in ("3", "4") else None)
+        memo_key = contract_bytes_memo.key(version, modules)
+    except (Refused, AttributeError):
+        memo_key = None
+    known = contract_bytes_memo.recall(memo_key)
+    if known is not None:
+        return known
+    content = _gate_contract_bytes(version)
+    if memo_key is not None and contract_bytes_memo.key(version, modules) == memo_key:
+        contract_bytes_memo.remember(memo_key, content)
+    return content
+
+
+def _gate_contract_bytes(version=CONTRACT_VERSION) -> bytes:
     # Bind the transitive owned policy, including live constant values and schema
     # bytes. Retaining only top-level function text misses helpers and globals.
     # Unrelated live routing and registry loading are deliberately not roots.

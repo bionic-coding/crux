@@ -21,6 +21,6 @@ def main(argv=None):
         document=view(a.project_root,a.cycle)
         print(json.dumps(document) if a.json else render(document));return 0
     except (ValueError,OSError,KeyError) as exc:
-        print(json.dumps({'format':'crux.cycle-progress','format_version':1,'ok':False,'error':{'code':'run-invalid'}}) if a.json else str(exc));return 1
+        print(json.dumps({'format':'crux.cycle-progress','format_version':2,'ok':False,'error':{'code':'run-invalid'}}) if a.json else str(exc));return 1
 
 if __name__=='__main__':sys.exit(main())

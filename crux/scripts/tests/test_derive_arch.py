@@ -25,6 +25,11 @@ except ImportError:  # pragma: no cover
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from _dev_surface import IS_STAGED_ARTIFACT, require_dev_surface
 
+try:
+    from ._live_copy import CORROBORATION_FIXTURE as _CORROBORATION_FIXTURE, bookkeeping_filter as _bookkeeping_filter
+except ImportError:  # pragma: no cover
+    from _live_copy import CORROBORATION_FIXTURE as _CORROBORATION_FIXTURE, bookkeeping_filter as _bookkeeping_filter
+
 # ADR-0078 clause 1 — THE PINNED SPINE HASH IS GONE, AND SO IS ITS TEST.
 #
 # `COMMITTED_SPINE_HASH` held a copy of the spine-hash string stamped into this
@@ -56,8 +61,10 @@ except ImportError:  # pragma: no cover
 #   (b) "the committed spine did not move without a re-derive" — passes to the
 #       regeneration gate, which reads current sources instead of comparing two
 #       committed copies of one string. It runs in two venues: the pull-request
-#       job `.github/workflows/check-arch-drift.yml`, and the release path's
-#       purpose-built `derive-arch.py --dry-run` step in `sync.sh`. The
+#       job `.github/workflows/check-arch-drift.yml`, and `check-drift`, which a
+#       cycle runs at its Test phase when it touches the arch sources and which
+#       executes `derive-arch.py --dry-run` among the enrolled gates. Release
+#       verification skips this gate (`run-drift-gates.py --release-scope`). The
 #       replacement is stronger in content (it fails on staleness the constant
 #       could not see) and narrower in timing (it no longer runs on every local
 #       test run) — a deliberate trade, recorded in ADR-0078's Consequences.
@@ -170,6 +177,52 @@ class ScratchNameEnrollmentTests(unittest.TestCase):
         self.assertEqual(actual, keep)
         self.assertEqual(sum(map(len, actual.values())), sum(map(len, keep.values())))
 
+    def test_a_bookkeeping_free_copy_omits_the_live_bookkeeping_and_keeps_the_rest(self):
+        root = Path(self.enterContext(_tmpdir()))
+        fixture = root / "source"
+        files = {"bionic/journal/2026-10.md": b"entry\n", "bionic/log.md": b"log\n",
+                 "bionic/inbox/note.md": b"note\n", "bionic/garden/2026-10-01.md": b"idea\n",
+                 "bionic/whats_next.md": b"next\n", "bionic/queue/cycles.yaml": b"queue: []\n",
+                 "bionic/adrs/ADR-0001-x.md": b"decision\n",
+                 "crux-authority-reset.md": b"candidates\n", "crux-unlisted-note.md": b"document\n",
+                 ".bionic.yml": (b'config_version: "1"\ndocs_dir: bionic\nevidence:\n  bookkeeping_paths:\n'
+                                 b"    - crux-authority-reset.md\n"),
+                 "crux/source.py": b"VALUE = 1\n"}
+        for relative, content in files.items():
+            path = fixture / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(content)
+        full, lean = root / "full", root / "lean"
+        with patch(__name__ + ".REPO", fixture):
+            _copy_repo(full)
+            _copy_repo(lean, skip_bookkeeping=True)
+        listed = lambda base: {p.relative_to(base).as_posix() for p in base.rglob("*") if p.is_file()}
+        # POSITIVE DISCRIMINATOR: the plain copy carries every file, so the lean copy's gap is the filter's.
+        self.assertEqual(listed(full), set(files))
+        self.assertEqual(listed(lean), {"bionic/adrs/ADR-0001-x.md", "crux/source.py", "crux-unlisted-note.md", ".bionic.yml"})
+
+    def test_the_frozen_backfill_entries_corroborate_every_signed_batch(self):
+        """The stand-in for the live log and journal is sufficient and necessary: it satisfies the
+        authority view's corroboration of every signed batch, and removing a hook breaks it."""
+        require_dev_surface(self, REPO / "bionic" / "adrs" / "summaries" / "backfill-reviews.yml",
+                            "bionic/adrs/summaries/backfill-reviews.yml")
+        import yaml
+        import migration_disposition as md
+        import summaries_projection as sp
+        reviews = sp.parse_reviews(
+            (REPO / "bionic" / "adrs" / "summaries" / "backfill-reviews.yml").read_text(encoding="utf-8"))
+        manifest = yaml.safe_load((REPO / "bionic" / "manifest.yml").read_text(encoding="utf-8"))
+        log = (_CORROBORATION_FIXTURE / "log.md").read_text(encoding="utf-8")
+        journal = (_CORROBORATION_FIXTURE / "journal" / "2026-08.md").read_text(encoding="utf-8")
+        signed = {b["signed"][:7] for b in reviews["batches"].values() if b["signed"]}
+        self.assertEqual(signed, {"2026-08"}, "a signed batch outside 2026-08 needs its own frozen month")
+        md.validate_backfill_corroboration(reviews, manifest, log, {"2026-08": journal})
+        stripped = journal.replace("backfill sign-off B9", "unrelated entry B9")
+        self.assertNotEqual(stripped, journal)
+        with self.assertRaises(md.Refused) as refused:
+            md.validate_backfill_corroboration(reviews, manifest, log, {"2026-08": stripped})
+        self.assertIn("migration-disposition-backfill-corroboration-refused", str(refused.exception))
+
     def test_gitignore_carries_both_names(self):
         gitignore = REPO / ".gitignore"
         if IS_STAGED_ARTIFACT:
@@ -198,46 +251,33 @@ class ScratchNameEnrollmentTests(unittest.TestCase):
         self.assertNotIn("bionic/.seed-control", text)
 
 
-def _copy_repo(scratch: Path, *, into_existing: bool = False) -> None:
+# The live bookkeeping documents (`_live_copy.bookkeeping_filter`, which reads the one shared list in
+# `suite_evidence`: the docs-directory names and the configured root files) change with every logged
+# operation and no derive output depends on them, so a scratch copy for a derive test leaves them
+# out. The one thing the authority view reads from them is carried by `_CORROBORATION_FIXTURE` instead.
+# Both come from `_live_copy.py`, which holds the same recipe for the tests that run other gates.
+
+
+def _copy_repo(scratch: Path, *, into_existing: bool = False, skip_bookkeeping: bool = False) -> None:
     """Copy the repo to *scratch* for a write-path test.
 
     `symlinks=True` copies links as links. The default follows them, which for a
     venv means reading files outside the repo — a scratch copy of this repo
     should not reach past the repo.
+
+    `skip_bookkeeping` leaves out the live bookkeeping documents under the docs
+    directory, so the copy never reads them.
     """
-    shutil.copytree(REPO, scratch, ignore=_SCRATCH_IGNORE, symlinks=True,
+    ignore = _SCRATCH_IGNORE
+    if skip_bookkeeping:
+        omit = _bookkeeping_filter(REPO)
+
+        def ignore(directory: str, names: list[str]) -> set[str]:
+            ignored = _SCRATCH_IGNORE(directory, names)
+            ignored.update(omit(directory, names))
+            return ignored
+    shutil.copytree(REPO, scratch, ignore=ignore, symlinks=True,
                     dirs_exist_ok=into_existing)
-
-
-def _committed_copy_repo(scratch: Path) -> None:
-    """Retain all copied inputs in an isolated repository for authority readers.
-
-    A tree that has published an implementation migration proves it from Git
-    history: the publication commit and the approval chain behind it. A fresh
-    `git init` holds none of that history, so the derive refuses with
-    `approval-evidence-invalid`, and it is right to. Where this checkout has its
-    own history, the copy therefore starts as a `--shared --no-checkout` clone
-    of it, and the live working-tree bytes are copied on top and committed. The
-    commit records the live tree exactly, uncommitted edits and deletions
-    included, as a descendant of the real HEAD. The staged release artifact has
-    no `.git`, and it carries no documentation tree to publish from, so there it
-    keeps the fresh repository.
-    """
-    import _council_gate_support as support
-    if (REPO / ".git").exists():
-        scratch.parent.mkdir(parents=True, exist_ok=True)
-        support.git(scratch.parent, "clone", "-q", "--shared", "--no-checkout",
-                    str(REPO), str(scratch))
-        _copy_repo(scratch, into_existing=True)
-    else:
-        _copy_repo(scratch)
-        support.init_repo(scratch)
-    support.git(scratch, "config", "gc.auto", "0")
-    support.git(scratch, "config", "maintenance.auto", "false")
-    support.git(scratch, "add", "-A")
-    # A clean live tree can equal HEAD's tree; the baseline commit still lands.
-    support.git(scratch, "commit", "-q", "--allow-empty", "-m",
-                "synthetic copied source baseline")
 
 
 # ADR-0078 clause 3, postcondition — "the arch tests pass against the distributed
@@ -302,12 +342,34 @@ def _populated_fixture(root: Path, *, with_adrs: bool = True) -> Path:
     return root
 
 
+_LIVE_TREE = None
+
+
+def _live_tree() -> dict:
+    """The derive of the unmodified live repository, computed once per process.
+
+    ArchDeriveTests, ArchCoverageSignalTests and ArchParserPinTests all read the
+    same rendered tree; each used to pay its own live derive. The value is built
+    from the repository as it stands and is never mutated: every call returns a
+    fresh dict copy (the values are immutable strings), so a consumer that edits
+    its copy cannot reach another consumer. A test that needs a modified tree
+    builds its own scratch repository.
+    """
+    global _LIVE_TREE
+    if _LIVE_TREE is None:
+        _LIVE_TREE = D._build(REPO, "bionic")
+    return dict(_LIVE_TREE)
+
+
 class ArchDeriveTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         # These assertions only read the rendered strings. Mutation tests build
-        # their own temporary repositories; determinism still rebuilds explicitly.
-        cls.tree = D._build(REPO, "bionic")
+        # their own temporary repositories. Determinism is owned by
+        # `test_ac2_ac8_write_then_clean_and_fixed_point` (a second derive of its
+        # own tree is byte-identical), each pack's byte-identical rebuild test,
+        # and the derive-arch `--dry-run` drift gate.
+        cls.tree = _live_tree()
 
     # ADR-0066 point 7 — the crux pack wraps the existing extractors UNCHANGED:
     # resolving each spine concern through the seam is byte-identical to calling
@@ -325,14 +387,29 @@ class ArchDeriveTests(unittest.TestCase):
         except ImportError:
             from _dev_surface import require_dev_surface
         require_dev_surface(self, REPO / "bionic" / "adrs" / "index.md", "bionic/adrs/index.md")
+        # Three concerns are compared on the live tree: each extractor costs about
+        # 0.1 s there. The fourth, decision-index, reads the historical authority
+        # view, which costs about 100 s per call on this repository, and the
+        # shared live derive already ran it once. Seam-vs-direct identity is a
+        # property of the pack seam and not of this repository's decisions, so
+        # decision-index is compared on a fixture tree in the next test, where
+        # the same comparison runs in milliseconds.
         direct = {
             "data-model.md": D.extract_data_model(REPO, "bionic")[0],
             "api-surface.md": D.extract_api_surface(REPO, "bionic")[0],
             "module-graph.md": D.extract_module_graph(REPO, "bionic")[0],
-            "decision-index.md": D.extract_decision_index(REPO, "bionic", "complete")[0],
         }
-        for fname in D.SPINE_FILES:
-            self.assertEqual(self.tree[fname], direct[fname], f"seam diverged from direct call for {fname}")
+        for fname, text in direct.items():
+            self.assertEqual(self.tree[fname], text, f"seam diverged from direct call for {fname}")
+
+    def test_crux_pack_decision_index_byte_identical_to_direct_extractor(self):
+        fixture = _populated_fixture(Path(self.enterContext(_tmpdir())) / "repo")
+        direct, _sources = D.extract_decision_index(fixture, "bionic", "complete")
+        seam = D._build(fixture, "bionic")["decision-index.md"]
+        # Non-vacuous: the fixture's one Accepted ADR is a row in the table, so
+        # the comparison covers a populated decision-index and not a stub.
+        self.assertRegex(seam, r"(?m)^\| 1 \|")
+        self.assertEqual(seam, direct, "seam diverged from direct call for decision-index.md")
 
     # ADR-0066 — the seam auto-detects the crux pack for this repo (crux/skills +
     # crux/schemas markers), and the overview records the resolved pack name.
@@ -344,11 +421,6 @@ class ArchDeriveTests(unittest.TestCase):
         for f in D.SPINE_FILES + ["overview.md", "index.md", "_meta/manifest.json"]:
             self.assertIn(f, self.tree, f"missing {f}")
             self.assertTrue(self.tree[f].endswith("\n"), f"{f} lacks trailing newline")
-
-    # AC-2 — a second build with no source change is byte-identical (determinism).
-    def test_ac2_deterministic_rebuild(self):
-        again = D._build(REPO, "bionic")
-        self.assertEqual(self.tree, again, "second build differs — non-deterministic")
 
     # AC-2/AC-4 — the byte-stable manifest carries no timestamp key or value.
     def test_ac4_manifest_has_no_timestamp(self):
@@ -429,16 +501,21 @@ class ArchDeriveTests(unittest.TestCase):
         self.assertTrue(md.endswith("\n"))
         self.assertEqual(sources, {})
 
-    # AC-2/AC-8 — write the tree to a scratch copy, then dry_run is clean; a second
-    # derive is byte-identical (fixed point on the tree's own output).
+    # AC-2/AC-8 — derive a populated fixture tree, then dry_run is clean; a second
+    # derive is byte-identical (fixed point on the tree's own output). The fixture
+    # populates every crux-pack concern, so the fixed point is not over empty stubs.
+    # The live repository's fixed point is the `derive-arch.py --dry-run` drift gate.
     def test_ac2_ac8_write_then_clean_and_fixed_point(self):
         scratch = Path(self.enterContext(_tmpdir())) / "repo"
-        _committed_copy_repo(scratch)
+        _populated_fixture(scratch)
         D.derive(scratch, "bionic")
+        arch = scratch / "bionic" / "arch"
+        self.assertIn("Widget", (arch / "data-model.md").read_text(encoding="utf-8"),
+                      "the fixture's schema must reach the rendered spine")
         self.assertEqual(D.dry_run(scratch, "bionic"), [], "dry_run dirty after derive")
-        before = _tree_hash(scratch / "bionic" / "arch")
+        before = _tree_hash(arch)
         D.derive(scratch, "bionic")                     # fixed point
-        self.assertEqual(_tree_hash(scratch / "bionic" / "arch"), before)
+        self.assertEqual(_tree_hash(arch), before)
 
     # AC-3 — tampering a spine file makes dry_run report drift (the gate fires).
     def test_ac3_gate_fires_on_tamper(self):
@@ -630,7 +707,7 @@ class ArchCoverageSignalTests(unittest.TestCase):
         # concerns in a dev checkout) and a world with no inputs at all (stubbed).
         # Running over both keeps the test non-vacuous in the staged artifact,
         # where the ambient tree legitimately stubs some concerns.
-        for label, tree in (("ambient", D._build(REPO, "bionic")),
+        for label, tree in (("ambient", _live_tree()),
                             ("blinded", D._build(blinded, "bionic"))):
             doc = json.loads(tree["_meta/coverage.json"])
             for rec in doc["concerns"]:
@@ -1253,7 +1330,7 @@ class ArchParserPinTests(unittest.TestCase):
     @classmethod
     def _tree(cls):
         if not hasattr(cls, "_cached_tree"):
-            cls._cached_tree = D._build(REPO, "bionic")
+            cls._cached_tree = _live_tree()
         return cls._cached_tree
 
     def test_a_declared_parser_is_pinned_by_module_name(self):

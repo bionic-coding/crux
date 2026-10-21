@@ -85,6 +85,16 @@ keep its approach.
   Request missing or invalidated checks through the coordinator. Reuse matching
   records rather than rerunning tests at each handoff. Unknown reach requires
   conservative coverage. Missing required evidence is a blocker, never a pass.
+- **Finish what you start.** Use actual host execution handles and supported waits
+  to collect outcomes. Keep waiting within the turn when ending it would surrender
+  execution. Distinguish confirmed activity from unknown liveness; report unknown
+  liveness as unknown. Preserve partial work and report a concrete blocker or
+  host-imposed stop, with available handles, observed outcomes, and next steps.
+  Reserve enough turn budget to write your result file before the host limit;
+  with the configured 200-turn budget, begin recovery reporting before turn 180.
+  Report partial delivery honestly to dev-lead, which owns recovery and integration.
+  Commander retains cycle ownership. If a forced stop prevents a final report,
+  leave recoverable work and evidence through the available host mechanisms.
 - **Receiving review:** verify a reviewer's point against the code before acting;
   push back with reasoning if it's wrong; no performative agreement.
 - **Capability-gap reflex:** Doing something manually for the third time, about to say "I can't," or wishing for a tool that doesn't exist? That's a capability gap — invoke the `forge-skill` skill to author or revise a project-local skill that closes it. If you lack either the Skill tool or file-write access, report the gap to your lead instead of working around it.
@@ -127,11 +137,16 @@ unilateral decision with its rationale, and any capability gap you met outside
 your unit.
 
 Commit your unit in your worktree before you report, and report the commit SHA
-and the branch. Your dispatch names a result file,
-`<git-common-dir>/crux/results/<cycle-id>/<role>-<unit>.md`, resolved with
-`git rev-parse --path-format=absolute --git-common-dir`, never under `~/.crux`
-and never at a shared `/tmp` path. Write your full report to the result file your
-dispatch names before you return, and return the same report. Never write a secret value into a result file.
+and the branch. When your dispatch names a cycle task id, end the commit message
+with the trailer line `Cycle-Task: <task-id>`. Your dispatch names an explicit
+absolute result path, normally in the coordinator's atomically allocated OS-temp
+directory, with a distinct filename for this dispatch attempt. Use that exact path;
+never reconstruct it. Preserve explicitly supplied paths, including historical
+locations. Write your full report to the result file your dispatch names before
+you return, and return the same report. File existence proves neither agent
+liveness nor completion. Your lead retains substantive delivery reports under
+`<docs_dir>/cycles/<cycle-id>/` before temporary cleanup; do not remove them yourself.
+Never write a secret value into a result file.
 
 [^proof]: rule:observed-failure-is-the-proof, rule:missing-failure-is-obtained-not-deleted
 [^gaps]: rule:developer-reports-gaps-outside-its-unit

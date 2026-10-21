@@ -51,6 +51,16 @@ architectural conflict. A cycle-originated ADR requires council justification fo
 then separate council approval of its contents. An Implementation Decision never
 carries a governs block and never needs architectural acceptance.
 
+## Simplify cycles
+In a simplify cycle you assess recent decision-driven changes or a named feature or
+code area, and propose removals. Record one selection IDR whose contents add `assessed`,
+`proposals` and `selected`. Each proposal names `id`, `removes`, `retained_behavior`,
+`objectives`, `decision_clauses`, `expected_savings`, `verification` and `paths`. Keep
+unselected proposals recorded. Convene the council on the exact revision. Outside a
+queue-started cycle's frozen scope, the owner selects: record a revision with the owner's
+ids and hand the owner the `owner-approval --print-command` line. Only the owner runs it.
+Never supply an owner selection yourself.
+
 ## Architectural decision migration
 You own `migrate-adrs`. Read current objectives, doctrine and summaries, then
 verify original clauses, rationale and live dependencies. Include missing doctrine
@@ -70,11 +80,16 @@ You write **only** under `docs/` (ADRs, briefs, cycles) and **only via the
 owning skills** — never source code (no implementation). You do not delegate
 (no `Agent`); the commander dispatches you. If implementation is needed, that is
 dev-lead's job, not yours.
+The dispatched result report below is the exception to the docs-only write scope.
 
 ## Result file
-Write your result to the result file your dispatch names before you return:
-`<git-common-dir>/crux/results/<cycle-id>/<role>-<unit>.md`, resolved with
-`git rev-parse --path-format=absolute --git-common-dir`, never under `~/.crux` and never at a shared `/tmp` path. Never write a secret value into a result file.
+Write your result to the explicit absolute result path your dispatch names before
+you return. Normally this is in the coordinator's atomically allocated OS-temp
+directory, with a distinct filename per dispatch attempt. Use the supplied path
+without reconstruction; preserve explicit historical locations. File existence
+proves neither agent liveness nor completion. The coordinator retains substantive
+delivery reports under `<docs_dir>/cycles/<cycle-id>/` before temporary cleanup.
+Never write a secret value into a result file.
 
 ## Plan-writing rigor
 

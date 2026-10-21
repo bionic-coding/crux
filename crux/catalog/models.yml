@@ -40,7 +40,7 @@ aliases:
   kimi-latest: openrouter/moonshotai/kimi-k3
   sol-latest: openrouter/openai/gpt-6.1-sol
   qwen-max: openrouter/qwen/qwen3.8-2.4t-a95b
-  deepseek-flash: openrouter/deepseek/deepseek-v4.1-flash
+  deepseek-flash: openrouter/deepseek/deepseek-v4.1-flash-1017
 
   # The separator asymmetry in the GLM pair is UPSTREAM'S and not a typo here:
   # the base SKU is `glm-5.3` (dot) and the fast SKU is `glm-5.3-flash` (hyphen

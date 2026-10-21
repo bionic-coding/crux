@@ -5,6 +5,7 @@ relative. No configuration or retained content is read by this primitive.
 """
 from __future__ import annotations
 
+import functools
 import os
 import re
 import stat
@@ -86,6 +87,7 @@ def spells_holding(path: Path) -> bool:
                for end in range(1, len(path.parts)))
 
 
+@functools.lru_cache(maxsize=1 << 16)
 def holding_root_for_path(docs_root: Path, path: Path) -> Path | None:
     """Recognize a holding prefix in absolute spelling without filesystem access.
 
@@ -93,6 +95,10 @@ def holding_root_for_path(docs_root: Path, path: Path) -> Path | None:
     Pending parent components remain literal: traversal owns their resolution.
     A suffix cannot erase a holding that traversal must prune before descent.
     This classification grants no containment, layout validation or authority.
+
+    The result is a function of the two spellings alone, so repeated calls are
+    answered from a bounded memo. A refusal is an exception, which the memo never
+    stores: the same spelling refuses again on every call.
     """
     root=_lexical(Path(docs_root));path=Path(path)
     if not root.is_absolute() or not path.is_absolute() or "\x00" in str(path):

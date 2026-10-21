@@ -132,7 +132,8 @@ class AsyncCouncilSeatRequestTests(unittest.TestCase):
         self.assertEqual(payload["response_format"], {"type": "json_object"})
         self.assertNotIn("temperature", payload)                    # reasoning model
         self.assertEqual(payload["messages"][0]["role"], "system")
-        self.assertEqual(payload["messages"][0]["content"], "Be terse.")
+        # The caller's system text leads; the shared operating assumptions follow it.
+        self.assertTrue(payload["messages"][0]["content"].startswith("Be terse."))
 
         # Assert on the RETURNED vote (a swallowed failure would be errored).
         self.assertFalse(vote.errored)

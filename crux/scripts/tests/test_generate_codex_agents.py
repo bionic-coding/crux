@@ -122,8 +122,25 @@ class RenderTests(unittest.TestCase):
     @unittest.skipUnless(HAVE_TOMLLIB, "tomllib not available — Python 3.11+ (or uv) required")
     def test_read_only_roles_do_not_gain_write_default(self):
         generated = agents.generate()
-        for source_name in ("brainstormer", "commander", "librarian", "reviewer", "wayfinder"):
+        for source_name in ("brainstormer", "librarian", "reviewer", "wayfinder"):
             parsed = tomllib.loads(generated[agents.codex_agent_filename(source_name)])
+            self.assertEqual(parsed["sandbox_mode"], "read-only")
+
+    @unittest.skipUnless(HAVE_TOMLLIB, "tomllib not available — Python 3.11+ (or uv) required")
+    def test_commander_is_workspace_write_by_a_named_rule_not_by_holding_bash(self):
+        # The commander runs cycle.py, which writes the cycle record under the
+        # docs tree; a read-only sandbox would refuse every write. Holding Bash
+        # without Edit does not widen any other role: reviewer and librarian stay read-only.
+        self.assertIn("commander", agents.WORKSPACE_WRITE_WITHOUT_EDIT)
+        self.assertEqual(agents.WORKSPACE_WRITE_WITHOUT_EDIT, frozenset({"commander"}))
+        generated = agents.generate()
+        parsed = tomllib.loads(generated[agents.codex_agent_filename("commander")])
+        self.assertEqual(parsed["sandbox_mode"], "workspace-write")
+        source = agents.parse_source(agents.SOURCE_DIR / "commander.md")
+        self.assertIn("Bash", source.tools)
+        self.assertNotIn("Edit", source.tools)
+        for other in ("reviewer", "librarian"):
+            parsed = tomllib.loads(generated[agents.codex_agent_filename(other)])
             self.assertEqual(parsed["sandbox_mode"], "read-only")
 
     def test_librarian_can_read_through_shell_without_write_permissions(self):

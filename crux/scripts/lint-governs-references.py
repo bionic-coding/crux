@@ -334,8 +334,10 @@ PLUGIN_EXCLUDED_PREFIXES = (
     # Immutable copy of the replaced workflow, preserved for historical reading.
     # Naming it explicitly with --path retains ordinary citation lint.
     "box/history/review-decisions.md",
-    # Regenerated projections.
-    "catalog/skills.json", "catalog/agents.json",
+    # Regenerated projections. The micro-crux guide is projected from
+    # templates/micro-crux.md.tmpl, which is linted; its rendered example ADR is
+    # illustrative data, not a citation.
+    "catalog/skills.json", "catalog/agents.json", "box/micro-crux.md",
     # Honesty note (a) in the docstring: an AMENDMENT of clause 7(b).
     "scripts/tests",
     # Honesty note (b): two illustrative handles in a comment at

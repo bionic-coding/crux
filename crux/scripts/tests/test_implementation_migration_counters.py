@@ -127,9 +127,7 @@ class PublishedSurveyCounters(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import test_observation_migration_admission as fixtures
-        fixtures.PublishedAdmission.setUpClass()
-        cls.addClassCleanup(fixtures.PublishedAdmission.doClassCleanups)
-        cls.template = fixtures.PublishedAdmission.root
+        cls.template = fixtures.published_admission_template().root
 
     def setUp(self):
         temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup)

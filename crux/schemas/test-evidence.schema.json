@@ -24,7 +24,10 @@
   ],
   "properties": {
     "schema_version": {
-      "const": 1
+      "enum": [
+        1,
+        2
+      ]
     },
     "id": {
       "type": "string",
@@ -80,6 +83,100 @@
             "type": "string",
             "minLength": 1
           }
+        },
+        "requirement": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "interpreter": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "implementation": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "minors": {
+                  "type": [
+                    "array",
+                    "null"
+                  ],
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[0-9]+\\.[0-9]+$"
+                  }
+                }
+              }
+            },
+            "packages": {
+              "type": "object",
+              "properties": {
+                "lock": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "path": {
+                      "const": "uv.lock"
+                    },
+                    "source": {
+                      "enum": [
+                        "subject",
+                        "dev-root"
+                      ]
+                    },
+                    "project": {
+                      "type": "boolean"
+                    },
+                    "dev": {
+                      "type": "boolean"
+                    },
+                    "groups": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "extras": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                "pins": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*==[^\\s;]+$"
+                  }
+                }
+              },
+              "additionalProperties": false
+            },
+            "isolated": {
+              "type": "boolean"
+            },
+            "tools": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "variables": {
+              "type": "object",
+              "description": "Variable name to value template; null permits the variable without fixing its value."
+            },
+            "flags": {
+              "type": "object",
+              "description": "Flag name to the integer value this check registers."
+            },
+            "freshness_seconds": {
+              "type": "number",
+              "minimum": 0
+            }
+          }
         }
       }
     },
@@ -91,8 +188,7 @@
       "type": "object",
       "required": [
         "fingerprint",
-        "inputs",
-        "identity"
+        "inputs"
       ],
       "properties": {
         "fingerprint": {
@@ -139,11 +235,17 @@
       "enum": [
         "passed",
         "failed",
-        "inputs-changed"
-      ]
+        "inputs-changed",
+        "interrupted"
+      ],
+      "description": "interrupted is version 2 only. An interrupted receipt neither passes nor blocks."
     },
     "returncode": {
-      "type": "integer"
+      "type": [
+        "integer",
+        "null"
+      ],
+      "description": "null when the child never started (a launch error)."
     },
     "reason": {
       "type": "string",
@@ -160,6 +262,35 @@
     "record_sha256": {
       "type": "string",
       "pattern": "^[0-9a-f]{64}$"
+    },
+    "signal": {
+      "type": "integer",
+      "description": "The signal the engine received (SIGINT or SIGTERM) when it recorded an interrupted run."
+    },
+    "source_revision": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "lock_sha256": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "tools": {
+      "type": "object",
+      "description": "Each registered tool's resolved path and --version first line, keyed by executable name."
+    },
+    "environment": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "The identity file the capture wrapper wrote before the entry ran: implementation, version, marker_environment, sys_prefix, sys_flags, warnoptions, xoptions, filesystem_encoding, preferred_encoding, distributions and per-variable digests of normalized values. null for a non-Python check or a run that wrote none."
     }
-  }
+  },
+  "description": "Receipt of one execution of a registered or focused check. schema_version 2 records the executing process's environment (environment), the resolved tool versions (tools), the sha256 of the lock the requirement names (lock_sha256) and the dev checkout's HEAD (source_revision); the reader requires those four fields at version 2. A version 1 receipt is history: it is readable and complete-able, but lookup never counts it as a pass or a block."
 }

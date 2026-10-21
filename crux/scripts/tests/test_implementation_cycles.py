@@ -1,8 +1,11 @@
 """Synthetic cycle controls; not council or independent delivery evidence."""
 from __future__ import annotations
 
+import atexit
 import copy
+import functools
 import json
+import os
 import shutil
 import sys
 import subprocess
@@ -15,6 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _council_gate_support as sup
 import council_gate as cg
+import _historical_close_producer as producer
 import implementation_approval as ap
 
 
@@ -373,140 +377,36 @@ class WriterFixture:
 
 
 
-class MigrationClosePreparation(unittest.TestCase):
+@functools.lru_cache(maxsize=None)
+def _writer_prototype(kind, combined, migration, environment, cwd):
+    """One built WriterFixture per worker, environment and construction; tests copy it."""
+    temp = tempfile.TemporaryDirectory()
+    atexit.register(temp.cleanup)
+    return WriterFixture(Path(temp.name) / "repo", kind, combined, migration)
+
+
+def prepared_writer(root, kind="implementation", combined=False, migration=False):
+    """A WriterFixture at `root` with the history and files its constructor builds.
+
+    The constructor's start-run and advance-run subprocesses run once per worker for each
+    construction; this returns an independent copy. Constructor tests still call WriterFixture."""
+    prototype = _writer_prototype(kind, combined, migration,
+        tuple(sorted(sup.scrubbed_env().items())), os.getcwd())
+    return prototype.copy_to(root)
+
+
+class RecordedMigrationBinding(unittest.TestCase):
+    """A migration close already recorded in a run stays verifiable and enforced.
+
+    `advance-run.py --migration-batch` is retired, so the close is recorded by the production
+    close code through the fixture producer. Everything asserted here is the read side: the
+    historical verifier, advance-run's validation of a recorded binding, and the selectors that
+    keep their own refusals."""
+    RETIRED_LINE = json.dumps({"error": "historical-migration-writes-retired; nothing was written"}) + "\n"
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
-        self.f = WriterFixture(Path(self.temp.name) / "repo", migration=True)
-
-    def snapshot(self):
-        return {p.relative_to(self.f.root).as_posix(): p.read_bytes() for p in self.f.root.rglob("*")
-                if p.is_file() and ".git" not in p.parts}
-
-    def prepare(self, selected=None):
-        gate = cg.classify(self.f.book, self.f.close)
-        return ap.prepare_migration_close(self.f.root, self.f.run_path, gate,
-            self.f.rel if selected is None else selected, self.f.artifacts.split(","))
-
-    def test_exact_batch_prepare_reuses_full_gate_and_retains_read_only_context(self):
-        before = self.snapshot(); binding, files = self.prepare()
-        self.assertEqual(binding["batch"], {"path": self.f.rel, "sha256": ap.cr.sha256_file(self.f.path)})
-        self.assertNotIn("revision", binding)
-        self.assertEqual(binding["slot"], self.f.slot)
-        self.assertEqual(len(files), 3)
-        self.assertEqual(self.snapshot(), before)
-        self.assertEqual(binding["retained_subject"]["sha256"], binding["batch"]["sha256"])
-        with self.assertRaises(ap.Refused):
-            ap.prepare_implementation_close(self.f.root, self.f.run_path,
-                cg.classify(self.f.book, self.f.close), self.f.rel, self.f.artifacts.split(","))
-        self.assertEqual(self.snapshot(), before)
-
-    def test_batch_parse_and_digest_share_one_safe_descriptor_read(self):
-        import implementation_migration as migrations
-        from admission_source_io import SourceIO
-        original_read = migrations._read; original_load = migrations._load_batch
-        original_descriptor_read = SourceIO.read_bytes
-        changed = yaml.safe_load(self.f.path.read_bytes())
-        changed["batch_id"] = "implementation-pilot-002"
-        active = []; loads = []; descriptor_buffers = []
-        def load(repo, path):
-            calls = []; active.append(calls)
-            try:
-                result = original_load(repo, path)
-                loads.append((calls, result))
-                return result
-            finally:
-                active.pop()
-        def read(repo, path):
-            path = Path(path); path = path if path.is_absolute() else Path(repo) / path
-            if active and path == self.f.path:
-                if active[-1]: self.f.path.write_text(yaml.safe_dump(changed))
-                result = original_read(repo, path)
-                active[-1].append(result[0].encode("utf-8"))
-                return result
-            return original_read(repo, path)
-        def descriptor_read(source_io, path, **kwargs):
-            result = original_descriptor_read(source_io, path, **kwargs)
-            if Path(path) == self.f.path: descriptor_buffers.append(result)
-            return result
-        before = self.snapshot()
-        with mock.patch.object(migrations, "_read", side_effect=read), \
-             mock.patch.object(migrations, "_load_batch", side_effect=load), \
-             mock.patch.object(SourceIO, "read_bytes", new=descriptor_read):
-            binding, _ = self.prepare()
-        self.assertGreaterEqual(len(loads), 2)  # Preparation and current eligibility independently recheck.
-        self.assertTrue(descriptor_buffers)
-        for calls, (parsed, raw) in loads:
-            self.assertEqual(calls, [raw])  # One safe buffer supplies both parsing and the retained digest.
-            self.assertEqual(parsed, yaml.safe_load(raw))
-            self.assertIn(raw, descriptor_buffers)
-            self.assertEqual(binding["batch"]["sha256"], ap.cr.sha256_bytes(raw))
-        self.assertEqual(binding["batch"]["sha256"], ap.cr.sha256_file(self.f.path))
-        self.assertEqual(self.snapshot(), before)
-
-    def test_synthetic_published_context_uses_shared_historical_proof_not_id_alias(self):
-        # Component fixture only. Actual advance-run publication is exercised separately.
-        binding, files = self.prepare()
-        for rel, content in files.items():
-            path = self.f.root / rel; path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(content)
-        run = yaml.safe_load(self.f.run_path.read_bytes())
-        run["migration_bindings"].append(binding)
-        prompt = next(p for p in run["prompts"] if p["n"] == self.f.close)
-        prompt.update(state="done", completed=sup.ts(3), artifacts=self.f.artifacts.split(","))
-        self.f.run_path.write_text(yaml.safe_dump(run, sort_keys=False))
-        sup.commit_all(self.f.root, "explicitly synthetic atomic close fixture")
-        before = self.snapshot()
-        proof = ap.validate_historical_migration_binding(self.f.root, self.f.run_path,
-            slot=self.f.slot, batch_path=self.f.rel, batch_sha256=binding["batch"]["sha256"])
-        self.assertEqual(proof.binding, binding)
-        with self.assertRaises(ap.Refused):
-            ap.validate_historical_implementation_binding(self.f.root, self.f.run_path, slot=self.f.slot,
-                revision_path=self.f.rel, revision_sha256=binding["batch"]["sha256"])
-        with self.assertRaises(TypeError):
-            ap.validate_historical_migration_binding(self.f.root, self.f.run_path, slot=self.f.slot,
-                batch_path=self.f.rel, batch_sha256=binding["batch"]["sha256"], registry={})
-        self.assertEqual(self.snapshot(), before)
-
-    def test_wrong_batch_path_slot_retained_subject_and_latest_failure_refuse_without_writes(self):
-        original_batch = self.f.path.read_bytes(); original_receipt = self.f.receipt.read_bytes()
-        for fault in ("path", "slot", "retained", "subject-duplicate", "failed"):
-            with self.subTest(fault=fault):
-                self.f.path.write_bytes(original_batch); self.f.receipt.write_bytes(original_receipt)
-                self.f.retained.write_bytes(original_batch)
-                selected = self.f.rel
-                if fault == "path": selected = self.f.retained.relative_to(self.f.root).as_posix()
-                if fault == "slot":
-                    batch = yaml.safe_load(original_batch); batch["approval_slot"] = "implementation-2"
-                    self.f.path.write_text(yaml.safe_dump(batch))
-                if fault == "retained": self.f.retained.write_bytes(b"changed retained batch")
-                if fault in ("subject-duplicate", "failed"):
-                    receipt = json.loads(original_receipt)
-                    if fault == "subject-duplicate": receipt["subjects"] *= 2
-                    else:
-                        receipt = self.f.env.council_doc(module_tag=self.f.slot, prompt=2,
-                            round=2, decisions=("REJECT", "REJECT", "REJECT"),
-                            subjects=receipt["subjects"])
-                    self.f.receipt.write_text(json.dumps(receipt))
-                if sup.git(self.f.root, "status", "--porcelain").strip():
-                    sup.commit_all(self.f.root, "explicitly synthetic damaged batch input")
-                before = self.snapshot()
-                with self.assertRaises(ap.Refused): self.prepare(selected)
-                self.assertEqual(self.snapshot(), before)
-                self.f.retained.write_bytes(original_batch)
-
-    def test_batch_raw_direct_and_dotdot_symlinks_refuse_before_selected_read(self):
-        alias = self.f.path.parent / "alias.yaml"; alias.symlink_to(self.f.path)
-        deep = self.f.path.parent / "deep"; deep.mkdir()
-        link = self.f.path.parent / "link"; link.symlink_to(deep, target_is_directory=True)
-        for raw in (alias, link / ".." / self.f.path.name):
-            before = self.snapshot()
-            with self.assertRaises(ap.Refused): self.prepare(str(raw))
-            self.assertEqual(self.snapshot(), before)
-
-class MigrationWriter(unittest.TestCase):
-    """Production close controls; all council signatures and repositories are synthetic."""
-    def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
-        self.f = WriterFixture(Path(self.temp.name) / "repo", migration=True)
+        self.f = prepared_writer(Path(self.temp.name) / "repo", migration=True)
 
     def snapshot(self):
         return {p.relative_to(self.f.root).as_posix(): p.read_bytes() for p in self.f.root.rglob("*")
@@ -517,11 +417,9 @@ class MigrationWriter(unittest.TestCase):
             batch_path=self.f.rel, batch_sha256=ap.cr.sha256_file(self.f.path))
 
     def close(self):
-        result = self.f.advance("--migration-batch", self.f.rel)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        return result
+        return producer.close(self.f.run_path, self.f.book_path, self.f.artifacts, self.f.rel)
 
-    def test_actual_close_atomically_binds_batch_and_done_then_requires_commit(self):
+    def test_recorded_close_atomically_binds_batch_and_done_then_requires_commit(self):
         self.close()
         run = yaml.safe_load(self.f.run_path.read_bytes())
         self.assertEqual(run["implementation_bindings"], [])
@@ -534,21 +432,41 @@ class MigrationWriter(unittest.TestCase):
         result = self.f.advance()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-    def test_missing_competing_cross_role_wrong_path_and_raw_selectors_preserve_bytes(self):
+    def test_recorded_context_uses_shared_historical_proof_not_id_alias(self):
+        self.close(); sup.commit_all(self.f.root, "synthetic actual batch close")
+        binding = yaml.safe_load(self.f.run_path.read_bytes())["migration_bindings"][0]
+        before = self.snapshot()
+        proof = ap.validate_historical_migration_binding(self.f.root, self.f.run_path,
+            slot=self.f.slot, batch_path=self.f.rel, batch_sha256=binding["batch"]["sha256"])
+        self.assertEqual(proof.binding, binding)
+        with self.assertRaises(ap.Refused):
+            ap.validate_historical_implementation_binding(self.f.root, self.f.run_path, slot=self.f.slot,
+                revision_path=self.f.rel, revision_sha256=binding["batch"]["sha256"])
+        with self.assertRaises(TypeError):
+            ap.validate_historical_migration_binding(self.f.root, self.f.run_path, slot=self.f.slot,
+                batch_path=self.f.rel, batch_sha256=binding["batch"]["sha256"], registry={})
+        self.assertEqual(self.snapshot(), before)
+
+    def test_selectors_keep_their_refusals_and_the_retired_selector_names_itself(self):
         link = self.f.root / "batch-link"; link.symlink_to(self.f.path.parent, target_is_directory=True)
         for args in ((), ("--implementation-revision", self.f.rel),
-            ("--migration-batch", self.f.rel, "--implementation-revision", self.f.rel),
-            ("--migration-batch", self.f.retained.relative_to(self.f.root).as_posix()),
-            ("--migration-batch", "batch-link/" + self.f.path.name),
-            ("--migration-batch", "batch-link/../" + self.f.rel)):
-            before = self.snapshot(); result = self.f.advance(*args)
-            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertEqual(self.snapshot(), before)
+                     ("--migration-batch", self.f.rel, "--implementation-revision", self.f.rel)):
+            with self.subTest(args=args):
+                before = self.snapshot(); result = self.f.advance(*args)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertNotIn(b"historical-migration-writes-retired", result.stdout + result.stderr)
+                self.assertEqual(self.snapshot(), before)
+        for raw in (self.f.rel, self.f.retained.relative_to(self.f.root).as_posix(),
+                    "batch-link/" + self.f.path.name, "batch-link/../" + self.f.rel):
+            with self.subTest(retired=raw):
+                before = self.snapshot(); result = self.f.advance("--migration-batch", raw)
+                self.assertEqual((result.returncode, result.stdout.decode(), result.stderr), (1, self.RETIRED_LINE, b""))
+                self.assertEqual(self.snapshot(), before)
 
     def test_forged_done_or_deleted_binding_and_context_cannot_advance(self):
         for fault in ("forged-done", "binding", "context"):
             with self.subTest(fault=fault):
-                self.f = WriterFixture(Path(self.temp.name) / fault, migration=True)
+                self.f = prepared_writer(Path(self.temp.name) / fault, migration=True)
                 if fault != "forged-done":
                     self.close(); sup.commit_all(self.f.root, "synthetic actual committed close")
                 run = yaml.safe_load(self.f.run_path.read_bytes())
@@ -562,39 +480,6 @@ class MigrationWriter(unittest.TestCase):
                 sup.commit_all(self.f.root, "synthetic damaged prior batch close")
                 before = self.snapshot(); result = self.f.advance()
                 self.assertNotEqual(result.returncode, 0); self.assertEqual(self.snapshot(), before)
-
-    def test_actual_close_uses_latest_retained_batch_and_full_holds_exception_history(self):
-        for fault in ("later-other-subject", "later-failed", "duplicate", "retained", "changed-batch",
-                      "spent-bound", "wrong-exception", "valid-exception"):
-            with self.subTest(fault=fault):
-                self.f = WriterFixture(Path(self.temp.name) / fault, migration=True)
-                receipt = json.loads(self.f.receipt.read_bytes())
-                if fault.startswith("later-"):
-                    later = self.f.env.council_doc(module_tag=self.f.slot, prompt=2, round=2,
-                        decisions=("REJECT",) * 3 if fault == "later-failed" else ("APPROVE",) * 3,
-                        subjects=receipt["subjects"] if fault == "later-failed" else [{"path": "widget.txt",
-                            "sha256": ap.cr.sha256_file(self.f.root / "widget.txt"), "retained_copy": None}])
-                    path = self.f.council / "later.json"; path.write_text(json.dumps(later))
-                    self.f.artifacts += "," + path.relative_to(self.f.root).as_posix()
-                if fault == "duplicate":
-                    receipt["subjects"] *= 2; self.f.receipt.write_text(json.dumps(receipt))
-                if fault == "retained": self.f.retained.write_bytes(b"changed retained batch")
-                if fault == "changed-batch":
-                    batch = yaml.safe_load(self.f.path.read_bytes()); batch["entries"][0]["rationale"] += " changed"
-                    self.f.path.write_text(yaml.safe_dump(batch))
-                if fault in ("spent-bound", "wrong-exception", "valid-exception"):
-                    BoundHistoryWriters.history(self, self.f, 4,
-                        exception=4 if fault == "valid-exception" else 5 if fault == "wrong-exception" else None)
-                if sup.git(self.f.root, "status", "--porcelain").strip():
-                    sup.commit_all(self.f.root, "synthetic batch gate negative input")
-                before = self.snapshot(); result = self.f.advance("--migration-batch", self.f.rel)
-                if fault == "valid-exception":
-                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                    sup.commit_all(self.f.root, "synthetic actual exception-authorized batch close")
-                    self.assertEqual(self.proof().binding["gate_prompt"], self.f.close)
-                else:
-                    self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
-                    self.assertEqual(self.snapshot(), before)
 
     def test_lifecycle_change_preserves_historical_batch_proof_but_refuses_new_writer(self):
         self.close(); sup.commit_all(self.f.root, "synthetic actual batch close")
@@ -642,7 +527,7 @@ class PriorCloseEntryContracts(unittest.TestCase):
 class WriterControls(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
-        self.f = WriterFixture(Path(self.temp.name) / "repo")
+        self.f = prepared_writer(Path(self.temp.name) / "repo")
 
     def test_actual_close_then_superseded_constraint_preserves_history_and_source_but_refuses_new_result(self):
         import implementation_decisions as ids
@@ -742,7 +627,7 @@ class WriterControls(unittest.TestCase):
 class MoreWriterControls(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
-        self.f = WriterFixture(Path(self.temp.name) / "repo")
+        self.f = prepared_writer(Path(self.temp.name) / "repo")
 
     def local_advance(self):
         from test_advance_run_gate import _ar
@@ -819,7 +704,7 @@ class MoreWriterControls(unittest.TestCase):
         import implementation_decisions as ids
         for mode in ("direct", "dotdot"):
             with self.subTest(mode=mode):
-                self.f = WriterFixture(Path(self.temp.name) / mode)
+                self.f = prepared_writer(Path(self.temp.name) / mode)
                 canonical = self.f.rel
                 if mode == "direct":
                     link = self.f.run_dir / "revision-link.yaml"
@@ -903,7 +788,7 @@ class OtherCycleWriters(unittest.TestCase):
     def test_patch_verify_combined_adr_actual_writer_close(self):
         for kind, combined in (("patch", False), ("verify", False), ("adr", True)):
             with self.subTest(kind=kind), tempfile.TemporaryDirectory() as temp:
-                fixture = WriterFixture(Path(temp) / "repo", kind, combined)
+                fixture = prepared_writer(Path(temp) / "repo", kind, combined)
                 result = fixture.advance("--implementation-revision", fixture.rel)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 sup.commit_all(fixture.root, "synthetic actual other-kind close")
@@ -912,7 +797,7 @@ class OtherCycleWriters(unittest.TestCase):
 class BoundHistoryWriters(unittest.TestCase):
     def fixture(self):
         temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup)
-        return WriterFixture(Path(temp.name) / 'repo')
+        return prepared_writer(Path(temp.name) / 'repo')
 
     def history(self, f, count, *, converge=True, exception=None, committed=True):
         original = json.loads(f.receipt.read_bytes())

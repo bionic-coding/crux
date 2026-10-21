@@ -12,6 +12,7 @@ const SEQUENCES: Record<string, string[]> = {
   iterate: ['plan', 'build', 'test', 'review', 'reflect'],
   refactor: ['plan', 'build', 'test', 'review', 'reflect'],
   'quick-fix': ['build', 'test', 'review', 'reflect'],
+  simplify: ['plan', 'build', 'test', 'review', 'reflect'],
   release: ['plan', 'release', 'reflect'],
 }
 const PROGRESS_TOKENS = ['success', 'claude', 'warning', 'error'].map(tokenOfKey)
@@ -24,10 +25,12 @@ const tasksOf = (phases: string[]) => phases.map(p => ({ id: `t-${p}`, phase: p,
 const docOf = (type: string, over: Record<string, unknown> = {}) => {
   const phases = SEQUENCES[type]!
   return {
-    format: 'crux.cycle-progress', format_version: 1, ok: true, docs_dir: 'bionic', now_s: 1780000000,
+    format: 'crux.cycle-progress', format_version: 2, ok: true, docs_dir: 'bionic', now_s: 1780000000,
     cycles: [{
       id: 'CYC-0001', title: 'Update the dashboard', type, status: 'active', phase: phases[0], pass: 1, pass_limit: 2,
-      phases, tasks: tasksOf(phases), returns: [], waits: [], blocker: null, reflection: null, modified_s: 1780000000, ...over,
+      phases, tasks: tasksOf(phases), returns: [], waits: [], blocker: null, reflection: null, modified_s: 1780000000,
+      started_s: 1779999000, ended_s: null, paused_s: 0, open_started_s: 1779999000, basis: 'recorded',
+      phase_times: [{ phase: phases[0], active_s: 1000, paused_s: 0 }], ...over,
     }],
   }
 }
@@ -209,4 +212,93 @@ test('positive control: the old review key collides with reflect, and the check 
   }
   expect(collisions(old, phases)).toEqual(['review', 'reflect'])
   expect(collisions(fixed, phases)).toEqual([])
+})
+
+// --- elapsed time -------------------------------------------------------------------------------
+
+const START = 1779990000
+const timed = (type: string, now_s: number, over: Record<string, unknown> = {}) => {
+  const d = docOf(type, { started_s: START, open_started_s: START, ...over })
+  d.now_s = now_s
+  return d
+}
+const timeRow = (doc: unknown): string | undefined => {
+  const row = rowsOf(panelNode(parsedOf(doc), 'crux-dashboard', 100)).find(r => plain(r).startsWith('elapsed'))
+  return row === undefined ? undefined : plain(row)
+}
+
+test('elapsed time advances with now_s for an open cycle of every type', () => {
+  for (const type of Object.keys(SEQUENCES)) {
+    expect(timeRow(timed(type, START + 600))).toBe('elapsed 10m')
+    expect(timeRow(timed(type, START + 4000))).toBe('elapsed 1h06m')
+  }
+})
+
+test('paused time shows when non-zero, with the basis when derived', () => {
+  for (const type of Object.keys(SEQUENCES)) {
+    expect(timeRow(timed(type, START + 4000, { paused_s: 900, status: 'paused' }))).toBe('elapsed 1h06m paused 15m')
+    expect(timeRow(timed(type, START + 4000, { paused_s: 900, basis: 'derived' }))).toBe('elapsed 1h06m paused 15m (derived)')
+    expect(timeRow(timed(type, START + 4000, { paused_s: 20 }))).toBe('elapsed 1h06m paused <1m')
+  }
+})
+
+test('a closed cycle keeps its elapsed time at any now_s', () => {
+  for (const type of Object.keys(SEQUENCES)) {
+    const closed = { status: 'abandoned', ended_s: START + 1800, paused_s: 300, open_started_s: null }
+    expect(timeRow(timed(type, START + 2000, closed))).toBe('elapsed 30m paused 5m')
+    expect(timeRow(timed(type, START + 90000, closed))).toBe('elapsed 30m paused 5m')
+  }
+})
+
+// The panel's no-clock property is held where the view core lives: crux-mods/tests/cycle-dashboard.test.ts
+// runs the cycle drawing with every clock read throwing. This gate forbids a Date or globalThis in a test.
+
+// Ordering and the approval line come from the shared view core, so the panel and the band inherit them.
+// The modified times run opposite to the ids, so a time sort fails these tests.
+const manyOf = (ids: [string, string][]) => {
+  const doc = docOf('iterate')
+  const base = doc.cycles[0]!
+  doc.cycles = ids.map(([id, status], i) => ({ ...base, id, status, modified_s: 1780000000 + i * 100 }))
+  return doc
+}
+const idsDrawn = (doc: unknown) => rowsOf(panelNode(parsedOf(doc), 'crux-dashboard', 100)).map(plain).flatMap(t => t.match(/^(?:[A-Z][A-Z0-9]*-)?CYC-\d+/) ?? [])
+
+test('the panel lists active cycles first, then the rest, each by numeric id descending', () => {
+  expect(idsDrawn(manyOf([['CYC-0009', 'active'], ['CYC-0010', 'completed'], ['CYC-0013', 'active'], ['CYC-0002', 'abandoned'], ['CYC-0011', 'paused']])))
+    .toEqual(['CYC-0013', 'CYC-0009', 'CYC-0011', 'CYC-0010', 'CYC-0002'])
+  expect(idsDrawn(manyOf([['CYC-0099', 'completed'], ['CYC-10000', 'completed'], ['CYC-0100', 'completed']]))).toEqual(['CYC-10000', 'CYC-0100', 'CYC-0099'])
+  expect(idsDrawn(manyOf([['ACME-CYC-0009', 'completed'], ['CYC-0010', 'completed'], ['ACME-CYC-0013', 'active']]))).toEqual(['ACME-CYC-0013', 'CYC-0010', 'ACME-CYC-0009'])
+})
+
+test('the band shows the highest numbered active cycle', () => {
+  const band = rowsOf(bandNode(parsedOf(manyOf([['CYC-0009', 'active'], ['CYC-0013', 'active'], ['CYC-0020', 'completed']])), 100))[0]!
+  expect(plain(band)).toContain('CYC-0013')
+})
+
+test('the panel draws one Awaiting approval line for a wait the reader repeats', () => {
+  const rows = rowsOf(panelNode(parsedOf(docOf('dev', { waits: ['release-evidence', 'release-evidence', 'release-evidence', 'plan-b'] })), 'crux-dashboard', 100))
+  expect(rows.map(plain).filter(t => t.includes('Awaiting approval')).map(t => t.trim())).toEqual(['⊘ Awaiting approval: release-evidence, plan-b'])
+  expect(rowsOf(panelNode(parsedOf(docOf('dev')), 'crux-dashboard', 100)).some(r => plain(r).includes('Awaiting approval'))).toBe(false)
+})
+
+test('a simplify cycle draws the plan, build, test, review, reflect band', () => {
+  const doc = docOf('simplify', { phase: 'test', pass_limit: 3 })
+  expect(plain(rowsOf(bandNode(parsedOf(doc), 100))[0]!)).toBe('CYC-0001  simplify  ↻ loop 1  ✓ ✓ ▸ test ◌ ◌  ▸ active  0/5 tasks')
+  expect(new Set(Object.values(drawnTokens('simplify'))).size).toBe(5)
+})
+
+// A listed release cycle has the one phase release. A legacy release cycle keeps its three.
+test('a listed release cycle with the one phase release is accepted and drawn', () => {
+  const phases = ['release']
+  const doc = docOf('release', { phases, phase: 'release', pass_limit: 1, tasks: tasksOf(phases), phase_times: [{ phase: 'release', active_s: 1000, paused_s: 0 }] })
+  const parsed = parsedOf(doc)
+  const rows = rowsOf(panelNode(parsed, 'crux-dashboard', 100))
+  expect(find(rows, ': Work in release')).toBeDefined()
+  expect(plain(rowsOf(bandNode(parsed, 100))[0]!)).toContain('CYC-0001')
+  expect(rows.map(plain).some(t => /limit|pass/i.test(t))).toBe(false)
+})
+
+test('a legacy release cycle with plan, release and reflect is still drawn', () => {
+  const parsed = parsedOf(docOf('release'))
+  expect(find(rowsOf(panelNode(parsed, 'crux-dashboard', 100)), ': Work in release')).toBeDefined()
 })

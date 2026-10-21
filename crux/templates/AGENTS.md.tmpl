@@ -8,6 +8,13 @@ A project-scoped documentation tree maintained by the `crux` Claude Code plugin.
 
 ## 2. Ownership
 
+The optional standalone `micro-crux.md` guide explains this knowledge tree,
+supported record formats, bounded changes, and manual maintenance. Say
+"install micro-crux" to install it with an explicit root `AGENTS.md` read
+instruction. Initialization does not install it automatically. The guide
+preserves this project's policy: an unavailable required writer or approval
+remains a specific unmet prerequisite, captured in the existing inbox.
+
 Claude owns every write under `docs/` **except**:
 
 - `docs/briefs/*` — draft material that ADRs consume; **pre-decision exploration**, not a decision. Two authorship paths: (a) **human-authored** — Claude may scaffold a brief with `BRIEF-template.md` but the body is written by humans; (b) **whiteboarding-authored session briefs** — the `whiteboarding` skill (driven by the `brainstormer` agent) produces a brainstorming session that arrives via `docs/inbox/` and is filed by `process-inbox` → `propose-brief`. This machine-authored exploration is the sanctioned exception to the human-only rule; an architect still turns the brief into the ADR.
@@ -169,7 +176,7 @@ and approval profiles are separate axes; §11 states their execution rules.
 - **The resolver's live, retired and historical maps.** Beside its handle rows, `adrs/summaries/resolver.json` carries `slugs` and `retired_slugs`. `slugs` maps a live rule slug to its one live handle. `retired_slugs` maps a retired slug to the sorted list of live handles that displaced it. An empty list still reserves that retired slug; membership, rather than a nonempty value, distinguishes the retired lane. Both maps are emitted on an empty corpus (`{}` each). A handle key carries exactly one `/`; these reserved map keys carry none. `summaries_projection.live_and_retired_slugs` retains its two-map return contract. Schema 7 retains `historical_slugs`, `historical_displacements` and `historical_clauses`. A historical slug reserves its original handle and exact source identity, names its historical destination, and references live architectural replacement handles. Historical displacement records preserve the original source displacer separately from any current replacement. They carry source identity, clause digest and publication provenance, never governing rule text. Historical clauses can retain body-only evidence without inventing a governs handle. Live, retired, historical, removed and alias lanes must not conflict. A historical mapping grants neither governing authority nor current implementation status.
 
 - **Acceptance-time scope amendments.** An explicitly declared clause amendment takes effect only after validation of the amending ADR's new-policy acceptance evidence. The existing handle stays live, names its amending handle, and presents the effective rule and scope in summaries, resolver, doctrine, shipped rules and current council context. Raw source wording and content digests stay unchanged for historical proof and signed receipts. Current reconciliation digests bind the effective wording; an earlier signature becomes stale when that wording changes, without rewriting the signed ledger. A proposal, an ADR-level `amends` relation, or a citation alone changes no scope.
-- **Migration provenance in projections.** The public summaries and doctrine builders obtain fresh migration authority from the source history. A proved publication binds the exact batch, close identity, selected source clauses and dependency fingerprints. Their metadata adds `implementation-migration` to `input_domain` and records the migration frame and `migration_inputs_sha256`. Historical references preserve prior reasoning and retirement edges; filtering a historical host must not resurrect its predecessors. A proposal, receipt or mapping alone establishes neither publication nor current state. An applied flag, receipt or generated projection does not establish publication proof. Missing, malformed or unsupported proof refuses before output. Typed Implementation Decisions, results and annotations contribute no governing rows. Mutable governing citations resolve surviving architectural rules; dated or frozen evidence retains historical retrieval semantics. Shipped citations retain shipped-catalog precedence and Accepted-ADR-only publication eligibility. A tree without a published migration retains the same governing content and authority; its current metadata schema still applies.
+- **Migration provenance in projections.** The public summaries and doctrine builders obtain fresh migration authority from the source history. A proved publication binds the exact batch, close identity, selected source clauses and dependency fingerprints. Their metadata adds `implementation-migration` to `input_domain` and records the migration frame and `migration_inputs_sha256`. Historical references preserve prior reasoning and retirement edges; filtering a historical host must not resurrect its predecessors. A proposal, receipt or mapping alone establishes neither publication nor current state. An applied flag, receipt or generated projection does not establish publication proof. Missing, malformed or unsupported proof refuses before output. Typed Implementation Decisions, results and annotations contribute no governing rows. Mutable governing citations resolve surviving architectural rules; dated or frozen evidence retains historical retrieval semantics. Shipped citations retain shipped-catalog precedence and Accepted-ADR-only publication eligibility. A tree without a published migration retains the same governing content and authority; its current metadata schema still applies. Historical-format migration writes are retired (`historical-migration-writes-retired`): `implementation-migration.py apply` and `dry-run` and the `--migration-batch` selectors refuse, while every reader here still verifies a publication already recorded. Propose new clause migrations in the prospective format.
 
 - **Doctrine layer (derived from summaries + invariants).** Its `_meta.json` declares `schema: "6"`. `docs/adrs/doctrine/` is a third, deterministic, model-free projection: one entry per governs domain, carrying its live rule, disposition, and mechanical basis, sourced from the summaries projection above and reconciled against the ratified invariants ledger (§15). Reconciliation runs through a single human-signed ledger, `docs/adrs/doctrine/reconciliations.yml`, written only by `scripts/signoff-reconciliation.py` and bound to each pairing's space-folded `content_digest`. A domain renders its belief only when every seeded (invariant, rule) pairing is digest-current and adjudicated compatible or reconciled. An un-adjudicated, digest-stale, or colliding pairing marks that domain (never the whole tree) BROKEN. The ledger key is an ordered pair of member identities: slot A (the on-disk `invariant:` field) holds an `INV-NNNN` id or an observation handle `OBS-NNNN/<slug>`; slot B (the on-disk `handle:` field) holds the rule handle. The field names stay `invariant:` and `handle:` because renaming them would rewrite every signed record. When any provenance record exists, the input domain adds it (`provenance_sha256`) and each doctrine domain that holds a rule with a provenance record renders a standing sub-table. A domain holding at least one observation-sourced rule (§17) renders an `authority: descriptive | mixed` suffix on its heading and an `_Observed evidence:_` table, and derives that rule's `basis` value from whether its evidence paths resolve — never from run bindings. Each rule row also carries a `source_status` column holding the source record's lifecycle status verbatim: the ADR state-machine value for an ADR-sourced rule, `ratified` for an observation-sourced one, and `unknown` where the source carried none. It is copied, never derived, so the value set is the union of those vocabularies and comparison is case-sensitive. It identifies the source lifecycle. A Proposed ADR contributes no governing domain row or live resolver slug. Its source text appears in a separate Proposed, not-governing section and in the resolver's `proposed` map with `authority: none`. The `basis` column takes one of four values: `run-bound` or `not-run-bound` for an ADR-sourced rule, `evidence-resolves` or `evidence-missing` for an observation-sourced rule; no value is evidence the rule holds. Zero ratified observations add no governing rules; provenance and metadata record the inputs read. The index is regenerated wholesale by `scripts/compile-doctrine.py`, drift-gated by `compile-doctrine.py --dry-run` and CI `check-doctrine.yml` (whose paths list covers `observations/**`); hand-edits are blown away, the same model as `docs/code/`. It carries zero decision authority of its own and is a standalone doctrine output, not a fifth arch spine file. Historical implementation mappings contribute no governing rule text. Historical signed pairings remain bound to their original member identities and content digests; they are not signatures for replacement handles. A displacement that would orphan a signed pairing refuses. Migration does not rewrite the signed ledger.
 
@@ -482,6 +489,20 @@ adr:
   next_number: 1                   # monotonic, never reused; allocated by propose-adr
   spec_rule_from: null             # OPTIONAL. The CHK-ADR-SPEC cohort boundary (§11.D):
                                    # null/absent = rule inert; NNNN = governs every ADR numbered >= NNNN.
+  governs_from: null               # OPTIONAL. The governs-block cohort boundary: null/absent = no
+                                   # governs block expected; NNNN = every ADR numbered >= NNNN is
+                                   # expected to carry a governs block or a recorded exemption.
+  governs_exempt: []               # OPTIONAL. List of ADR IDs excused from the governs-coverage
+                                   # cohort even though their number is >= governs_from. Default [].
+  governs_backfilled: {}           # OPTIONAL. The backfill admission ledger: {ADR-NNNN: [handles]},
+                                   # append-only per handle — a removed handle is retained against
+                                   # re-admission. Written ONLY by the backfill sign-off skill.
+  governs_backfill_cohort: []      # OPTIONAL. The frozen backfill cohort: the enumerated ADR ids
+                                   # (Accepted, non-archived, numbered below governs_from)
+                                   # snapshotted when the backfill machinery lands; closed forever.
+  governs_backfill_complete: ~     # OPTIONAL. Terminal binary marker: absent or `true`. Set only
+                                   # when Σ backfilled + Σ no-rule = |cohort| over distinct ADRs;
+                                   # any pending cohort ADR defeats it.
   governs_rule_baseline: []        # OPTIONAL. The rule-length advisory baseline (§11.D rule 7): the
                                    # ENUMERATED ADR ids that predate the advisory IN THIS TREE,
                                    # snapshotted once and closed from then on. `[]` is correct for a
@@ -701,7 +722,8 @@ All other concerns are accumulative (append-only or mutable-with-history). The r
 | "cleanup" / "hygiene check" / "what's next" / "clean up the docs" / "refresh whats_next" | `cleanup-campsite` | Forward-looking process-state scan; regenerates `docs/whats_next.md`. Distinct from `audit-docs` — proposes actions, never edits prose. |
 | "compile the doctrine" / "build the doctrine" / "regenerate the doctrine" / "refresh the doctrine" / "is the doctrine current" / "doctrine drift" | `compile-doctrine` | Regenerative — rewrites `<docs_dir>/adrs/doctrine/` wholesale from the summaries projection, reconciled against the ratified invariants and the human-signed reconciliation ledger. `--dry-run` is the drift check. Stops and recommends `summarize-adrs.py` first when the summaries projection has drifted; never writes `reconciliations.yml`. |
 | "run the council" / "convene the council" / "ask the council" / "get a multi-model opinion" | `council` |  |
-| "start a cycle" / "run the cycle" / "resume the cycle" / "cycle status" / "new dev cycle" / "iterate on this" / "quick fix" / "refactor this" / "release cycle" | `cycle` | One undertaking with type-specific phases, bounded passes, independent review, and shared test evidence; no prompt minimum or repeated runs. |
+| "start a cycle" / "run the cycle" / "resume the cycle" / "cycle status" / "new dev cycle" / "iterate on this" / "quick fix" / "refactor this" / "simplify cycle" / "run a simplify cycle" / "simplify <area>" / "release cycle" / "update the cycle" / "reconcile the cycle record" / "add to the queue" / "show the queue" / "run the next item" / "run the next N items" / "run the queue" | `cycle` | One undertaking with type-specific phases, bounded passes, independent review, and shared test evidence; no prompt minimum or repeated runs. |
+| "show cycle status" / "what's the status of CYC-NNNN" / "where are the cycles" / "list the cycles" / "watch the cycle" / "show the cycle dashboard" | `cycle-status` | Read-only. Runs `cycle.py status` and shows its output; never advances or edits a cycle. The bare phrase "cycle status" routes to `cycle`. |
 | "build the arch" / "build the arch directory" / "derive arch" / "regenerate the architecture" / "refresh the architecture map" / "rebuild the arch spine" / "update the arch" | `derive-arch` | Regenerative — rewrites `<docs_dir>/arch/` wholesale from the project's sources. `--dry-run` is the drift check. The primary current-state surface. |
 | "begin development cycle" / "cycle this feature" / "build a cycle promptbook" / "rigorous plan" / "do this the right way" | `dev-cycle` | New work uses cycle with type dev; no promptbook is allocated. |
 | "escalate the arch runtime" / "run the runtime arch introspection" / "recover the routes by running my app" / "introspect my FastAPI/Flask/Django app for arch" | `escalate-arch-runtime` | Human-invoked only. An optional fidelity upgrade a human may choose, never the remedy any crux surface points a reader at. Runs a Python target's import-time code in a subprocess-isolated child behind the two-factor `CRUX_ARCH_ALLOW_RUNTIME=1` consent gate; writes an advisory into `<docs_dir>/inbox/`, never into `arch/`. |
@@ -712,6 +734,8 @@ All other concerns are accumulative (append-only or mutable-with-history). The r
 | "init docs" / "set up docs" / "bootstrap documentation" | `init-docs` | First-run; refuses to overwrite without `--force`. |
 | "install codex agents" / "install crux agents for codex" / "refresh the codex agents" | `install-codex-agents` |  |
 | "which crux version is active" / "what crux plugin is loaded" / "install docs skills" / "add this plugin" / "set up crux" / "upgrade docs suite" | `install-docs-skills` | Read-only active identity; install and upgrade instructions load on request. |
+| "install micro-crux" / "add micro-crux to this project" / "update micro-crux" / "install the standalone crux guide" | `install-micro-crux` |  |
+| "install omp agents" / "install crux agents for omp" / "refresh the omp agents" | `install-omp-agents` |  |
 | "install opencode agents" / "install crux agents for opencode" / "refresh the opencode agents" | `install-opencode-agents` |  |
 | "install the crux runtime" / "deploy the crux runtime" / "spawn crux into this repo" / "bootstrap the agent team" | `install-runtime` |  |
 | "iterate on X" / "start an iterate cycle" / "iterate-cycle for X" / "remediate X" / "fix X with rigor" | `iterate` | New work uses cycle with type iterate; no promptbook is allocated. |
@@ -921,7 +945,7 @@ Council deliberation and independent review are two processes with two gates, an
 
 **Execution formats and retained approval.** Book and run format versions remain independent of council records and approval profiles. Both book formats use the current attempt-aware gate. New council records use format two; attempt records use format one. Legacy council records require the gate's committed pre-cutover run-start proof. New formal closes retain context three with approval profile four. Historical context two/profile three and context one/profile two stay immutable and support historical replay only. Never select an approval profile from a book's format or substitute the live registry for retained context. Unknown or inconsistent context refuses approval. A format-two close publishes DONE, its binding and retained context through `advance-run.py`; commit them before a consumer reads them. Raw receipts or a DONE state alone establish no approval. Approved intent, independently reviewed delivery and source facts remain separate.
 
-**Write-time witness and ownership.** Immediately after each initial or revised council subject write, record its run-work witness. This includes Implementation Decision revisions and migration batches. Never create a witness after a refusal to claim ownership. A later advance changes snapshot bytes without renewing the earlier witness; commit the current snapshot before convening. The council runner and recovery own attempt/result commits; a parent commit cannot substitute. Finish an open Git sequence before any council request. Use the exact migration-batch selector, role, declared slot, path and digest; a retained artifact in another role grants no approval. Follow `run-promptbook/references/gates.md` for the supported commands and refusal/recovery procedures.
+**Write-time witness and ownership.** Immediately after each initial or revised council subject write, record its run-work witness. This includes Implementation Decision revisions. Never create a witness after a refusal to claim ownership. A later advance changes snapshot bytes without renewing the earlier witness; commit the current snapshot before convening. The council runner and recovery own attempt/result commits; a parent commit cannot substitute. Finish an open Git sequence before any council request. Use the exact implementation-revision selector, role, declared slot, path and digest; a retained artifact in another role grants no approval. The `--migration-batch` selector is retired: `run-council.py` and `advance-run.py` refuse it with `historical-migration-writes-retired`. Follow `run-promptbook/references/gates.md` for the supported commands and refusal/recovery procedures.
 
 Record each subject at write time with the existing writer:
 
@@ -1121,6 +1145,9 @@ Use the cycle writer for mutations; retain plan revisions, tasks, evidence, and
 transition history. Closed cycles cannot restart. Pause/resume retains identity.
 There is no prompt minimum. The record drives progress visualization.
 
+The owner's ordered queue of cycle requests is `<docs_dir>/queue/cycles.yaml`, managed
+through `cycle.py queue` and run by commander only under the owner's recorded authorization.
+
 The main session routes cycle execution through commander, implementation through
 dev-lead, and developer units through dev-lead. Do not bypass these leads. Other
 workflows use their designated lead, including night-gardener for garden work.
@@ -1132,8 +1159,9 @@ The dev-lead integrates committed worktrees and verifies ancestry, scope, and ev
 | dev | Major changes; approved IDR required | Plan → Build → Test → Review → Reflect | 7 |
 | iterate | Minor changes | Plan → Build → Test → Review → Reflect | 2 |
 | refactor | Preserve functional behavior and improve engineering efficiency | Plan → Build → Test → Review → Reflect | 7 |
+| simplify | Remove complexity without losing behavior; selection IDR required | Plan → Build → Test → Review → Reflect | 3 |
 | quick-fix | Bounded correction; slim testing, review, reflection | Build → Test → Review → Reflect | 1 |
-| release | Authorized release procedure | Plan → Release → Reflect | 2 |
+| release | One fixed step list, beta or official | Release | none |
 
 Limits include the initial pass. Failed acceptance tests and blocking review
 findings return to Plan, or Build for quick-fix. Record progress, unresolved
@@ -1144,6 +1172,17 @@ returns from testing or review. Type changes preserve pass count and history and
 cannot silently bypass an exhausted limit. Council rounds are separate counters.
 A known acceptance failure during Test returns immediately; do not wait for Review
 to rediscover it, even when the selected automated checks pass.
+
+A simplify cycle removes complexity and keeps behavior. Its architect assesses recent
+decision-driven changes or a named area and records one selection IDR with `assessed`,
+`proposals` and `selected`; the plan scope covers every path changed in production,
+tests, instructions and execution. The approval of that exact revision selects the
+proposals. The owner's approval always suffices, and only the owner runs it. Council
+approval suffices only for a queue-started cycle whose plan scope lies within its item's
+frozen scope.
+Queue authorization approves no IDR. In Test, `reduction` records `decrease`,
+`unchanged` or `increase` per area, never netted. An increase refuses Test and
+Reflect and is reported as different work. Leaving simplify needs `--human-approval`.
 
 Every dev requires an IDR; other types need one for material implementation choices
 with alternatives or tradeoffs worth preserving. Council approves the exact revision
@@ -1174,12 +1213,19 @@ Declare affected behavior and integration points, selected related checks with
 coverage rationale, and reasons for omitted checks. Tests that import, invoke,
 read, or enumerate changed inputs count as related. New tests alone are insufficient.
 If automated tests do not apply, explain why and record an appropriate inspection
-check. Document input exclusions; never exclude actual dependencies just to reuse.
+check. Declare cycle checks from the evidence presets, which carry the shared
+bookkeeping exclusions. A path is bookkeeping for a check only when the check does not
+read it, or when it is an append-only record whose new entries cannot change the
+check's verdict. Document any other input exclusion; never exclude an actual dependency
+just to reuse evidence. The cycle skill's testing reference is the canonical statement.
 New version-two records require this declaration and valid passing evidence.
 
-Release includes checks, independent review before publication, destination-specific
-authorization, publication, and verification. Recover from actual external state;
-never blindly retry publication. Reflect on completion or abandonment with outcomes,
+A release cycle has no Plan, Review or Reflect phase and no pass limit. It is created
+with `--list beta` or `--list official` and runs that fixed step list: the type
+carries the steps, so no agent authors a release plan. Publication needs the owner's
+own words, quoted for each new artifact. A failed step is fixed and rerun with no return,
+pass or new cycle. Recover from actual external state; never blindly retry publication.
+Every other cycle reflects on completion or abandonment with outcomes,
 lessons, and follow-up work. A paused cycle records its blocker instead of closing.
 Routine authorized work proceeds without per-step confirmation; external actions
 still require applicable authorization. Missing owner decisions, contradicted

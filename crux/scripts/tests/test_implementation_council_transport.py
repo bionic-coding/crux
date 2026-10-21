@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_run_council as runner
 import test_implementation_cycles as cycles
 import _council_gate_support as sup
+import _historical_close_producer as producer
 import yaml
 from crux.council.async_council import gate_vote_instruction
 
@@ -356,9 +357,13 @@ class Transport(runner._Base):
 
 
 class MigrationTransport(runner._Base):
-    """Exact batch selector through the production runner and a synthetic gateway."""
+    """`--migration-batch` through the production runner and a synthetic gateway.
+
+    Historical-format migration writes are retired, so the selector is refused by name before
+    any council call. The runner itself is unstubbed; only the gateway is synthetic."""
     question_text = Transport.question_text
     refused_without_call = Transport.refused_without_call
+    RETIRED = "run-council: the selected migration batch was refused: historical-migration-writes-retired\n"
 
     def setUp(self):
         super().setUp()
@@ -383,63 +388,50 @@ class MigrationTransport(runner._Base):
         return self.run_main(self.argv("--migration-batch", given or self.env.rel(self.decision),
             "--retain-subjects", *extra, prompt=2, subjects=subjects or [self.decision]))
 
-    def snapshot(self):
-        return {p.relative_to(self.env.root).as_posix(): p.read_bytes()
-                for p in self.env.root.rglob("*") if p.is_file() and ".git" not in p.parts}
-
-    def test_actual_batch_transport_retains_exact_subject_without_binding_or_application(self):
-        run_before = self.env.run_path.read_bytes(); book_before = self.env.book_path.read_bytes()
+    def assert_retired(self):
+        before = producer.tree_bytes(self.env.root)
         code, out, err, gateway = self.selected()
-        self.assertEqual(code, 0, (out, err)); self.assertEqual(len(gateway.requests), 3)
-        _, record = self.only_record()
-        selected = record["subjects"]
-        self.assertEqual(len(selected), 1)
-        self.assertEqual(selected[0]["path"], self.env.rel(self.decision))
-        self.assertEqual(selected[0]["sha256"], hashlib.sha256(self.decision.read_bytes()).hexdigest())
-        self.assertEqual((self.env.run_dir / selected[0]["retained_copy"]).read_bytes(), self.decision.read_bytes())
-        self.assertEqual(self.env.run_path.read_bytes(), run_before)
-        self.assertEqual(self.env.book_path.read_bytes(), book_before)
-
-    def test_missing_current_replacement_refuses_before_transport_or_writes(self):
-        path = self.subject.parent / "ADR-0146-authorizer.md"
-        authorizer = cycles.migration_authorizer()
-        authorizer["governs"] = authorizer["governs"][:1]
-        path.write_text("---\n" + yaml.safe_dump(authorizer) + "---\n")
-        runner.commit_pending(self.env.root, "synthetic missing current replacement")
-        before = self.snapshot()
-        result = self.selected()
-        self.refused_without_call(result)
-        self.assertIn("constraint-not-live-accepted", result[2])
-        self.assertEqual(self.snapshot(), before)
-
-    def test_competing_selectors_cross_role_wrong_path_and_duplicate_refuse_without_writes(self):
-        cases = [self.selected(extra=("--implementation-revision", self.env.rel(self.decision))),
-            self.run_main(self.argv("--implementation-revision", self.env.rel(self.decision),
-                "--retain-subjects", prompt=2, subjects=[self.decision])),
-            self.selected(given=self.env.rel(self.subject)), self.selected(subjects=[self.decision, self.decision])]
-        for result in cases: self.refused_without_call(result)
+        self.assertEqual(code, 2, (out, err))
+        self.assertEqual(out, "")
+        self.assertEqual(err, self.RETIRED)
+        self.assertEqual(gateway.requests, [])
         self.assertEqual(self.records(), [])
+        self.assertFalse(list(self.env.run_dir.glob("council/*.attempt.json")))
+        self.assertEqual(producer.tree_bytes(self.env.root), before)
 
-    def test_slot_digest_retention_dimensions_and_raw_traversal_refuse(self):
-        original = self.decision.read_bytes(); question = self.question.read_bytes()
-        link = self.env.root / "batch-link"; link.symlink_to(self.decision.parent, target_is_directory=True)
-        for raw in ("batch-link/" + self.decision.name, "batch-link/../" + self.env.rel(self.decision)):
-            before = self.snapshot(); self.refused_without_call(self.selected(given=raw))
-            self.assertEqual(self.snapshot(), before)
-        self.doc["approval_slot"] = "implementation-2"
-        self.decision.write_text(yaml.safe_dump(self.doc)); self.question_text("implementation")
-        runner.commit_pending(self.env.root, "synthetic wrong approval slot")
-        before = self.snapshot(); self.refused_without_call(self.selected()); self.assertEqual(self.snapshot(), before)
-        self.decision.write_bytes(original); self.question.write_bytes(question)
-        runner.commit_pending(self.env.root, "synthetic restored slot")
-        for omitted in (hashlib.sha256(original).hexdigest(), "Security", "architectural conflict"):
-            self.question.write_text(question.decode().replace(omitted, "omitted"))
-            before = self.snapshot(); self.refused_without_call(self.selected()); self.assertEqual(self.snapshot(), before)
-        self.question.write_bytes(question)
-        before = self.snapshot()
-        self.refused_without_call(self.run_main(self.argv("--migration-batch", self.env.rel(self.decision),
-            prompt=2, subjects=[self.decision])))
-        self.assertEqual(self.snapshot(), before)
+    def test_selector_is_refused_by_name_before_any_call_attempt_record_or_write(self):
+        import implementation_migration as migrations
+        # Positive control: the same batch loads, so the refusal is the retirement, not a fault in it.
+        migrations._load_batch(self.env.root, self.decision)
+        self.assert_retired()
+
+    def test_recovery_batch_is_refused_by_the_same_selector_check(self):
+        self.doc["recovery_from"] = {"witness": {"path": "docs/adrs/migrations/none.application.json",
+            "sha256": "0" * 64}, "batch": {"path": self.env.rel(self.decision), "sha256": "0" * 64},
+            "source_identities": []}
+        self.decision.write_text(yaml.safe_dump(self.doc, sort_keys=False))
+        self.question_text("implementation")
+        runner.commit_pending(self.env.root, "synthetic recovery batch")
+        self.assert_retired()
+
+    def test_without_the_selector_a_migration_slot_still_requires_one(self):
+        before = producer.tree_bytes(self.env.root)
+        result = self.run_main(self.argv("--retain-subjects", prompt=2, subjects=[self.decision]))
+        self.refused_without_call(result)
+        self.assertNotIn("historical-migration-writes-retired", result[2])
+        self.assertIn("requires its declared subject selector", result[2])
+        self.assertEqual(producer.tree_bytes(self.env.root), before)
+
+    def test_competing_and_cross_role_selectors_keep_their_own_refusals(self):
+        competing = self.selected(extra=("--implementation-revision", self.env.rel(self.decision)))
+        self.refused_without_call(competing)
+        self.assertNotIn("historical-migration-writes-retired", competing[2])
+        cross_role = self.run_main(self.argv("--implementation-revision", self.env.rel(self.decision),
+            "--retain-subjects", prompt=2, subjects=[self.decision]))
+        self.refused_without_call(cross_role)
+        self.assertIn("the selected Implementation Decision was refused", cross_role[2])
+        self.assertNotIn("historical-migration-writes-retired", cross_role[2])
+        self.assertEqual(self.records(), [])
 
 
 class Instructions(unittest.TestCase):

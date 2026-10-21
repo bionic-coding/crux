@@ -1,0 +1,178 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "reader": {
+            "properties": {
+              "source": {
+                "const": "parent-tree"
+              }
+            },
+            "required": [
+              "source"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "reader"
+        ],
+        "type": "object"
+      },
+      "then": {
+        "properties": {
+          "reader": {
+            "properties": {
+              "path": {
+                "const": "crux/scripts/adr-migration.py"
+              },
+              "support_sha256": {
+                "const": null
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "reader": {
+            "properties": {
+              "path": {
+                "const": "scripts/adr-migration.py"
+              },
+              "support_sha256": {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "description": "Attests that the parent commit's own approval reader accepted one prospective publication's disposition approval, bound by hash to every immutable input of that run. Carries a success only; no refusal is ever recorded. Deliberately not an adr-migration-<kind> format, so it joins neither FORMATS nor the pinned readiness inventories.",
+  "properties": {
+    "approval": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "type": "object"
+    },
+    "format": {
+      "const": "crux.migration-replay-receipt.v1"
+    },
+    "package": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "type": "object"
+    },
+    "parent": {
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+      "type": "string"
+    },
+    "publication": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+          "type": "string"
+        },
+        "path": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "publication_commit": {
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "path",
+        "sha256",
+        "publication_commit"
+      ],
+      "type": "object"
+    },
+    "reader": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "enum": [
+            "crux/scripts/adr-migration.py",
+            "scripts/adr-migration.py"
+          ]
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "source": {
+          "enum": [
+            "parent-tree",
+            "installed-support"
+          ]
+        },
+        "support_sha256": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "source",
+        "path",
+        "sha256",
+        "support_sha256"
+      ],
+      "type": "object"
+    },
+    "result": {
+      "const": "approved"
+    }
+  },
+  "required": [
+    "format",
+    "publication",
+    "parent",
+    "approval",
+    "package",
+    "reader",
+    "result"
+  ],
+  "title": "Migration replay receipt",
+  "type": "object"
+}

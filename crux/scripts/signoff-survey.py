@@ -228,7 +228,17 @@ def build_plan(ctx: dict) -> tuple[dict, list[dict]]:
     """Validate the whole batch and return `(sheet, plan)`. Every pre-write
     refusal runs here, before the first write of any run — including a resume,
     so a tree that drifted under a half-published batch refuses rather than
-    completing onto it."""
+    completing onto it.
+
+    The phase writes nothing, and `_revalidate` rebuilds the admission context
+    before the first write, so the recorded sources and the plan share one
+    context instead of rebuilding it for each recorded source."""
+    import observation_admission as admission
+    with admission.context_reuse():
+        return _build_plan(ctx)
+
+
+def _build_plan(ctx: dict) -> tuple[dict, list[dict]]:
     import observation_admission as admission
     sheet = _read_bound_sheet(ctx)
     # The tree, before anything else about the batch is believed. A receipt

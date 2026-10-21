@@ -140,30 +140,29 @@ class AbsentResolverTests(unittest.TestCase):
         self.assertEqual([u["token"] for u in got["unverifiable"]], ["personal-agent-scope"])
 
 
-class LiveTreeTests(unittest.TestCase):
+class RecordedReflectionTests(unittest.TestCase):
     """The three reflections CLN-JR-1 reported missing satisfy the repair.
 
-    Checked against the real journal and the real resolver, not fixtures, and
-    WITHOUT consulting `whats_next.md` — a dismissal records a judgement, and
-    this asserts the evidence the judgement was based on.
+    Checked against verbatim copies of the real entries and of the real resolver
+    rows (fixtures/live_docs/), WITHOUT consulting `whats_next.md` -- a dismissal
+    records a judgement, and this asserts the evidence the judgement was based on.
+    The live journal changes with every logged operation, so a bookkeeping commit
+    must not change what these tests depend on.
     """
 
     CASES = {"ADR-0111": "personal-agent-scope",
              "ADR-0112": "personal-codex-agents-are-dogfood",
              "ADR-0113": "per-agent-codex-runtime-override"}
+    FIXTURES = Path(__file__).resolve().parent / "fixtures" / "live_docs"
 
     def setUp(self):
-        self.repo = SCRIPTS.parent.parent
-        if not (self.repo / "bionic" / "journal" / "2026-09.md").is_file():
-            self.skipTest("no dogfood journal tree in this checkout")
+        self.journal = (self.FIXTURES / "journal-2026-09-reflections.md").read_text(encoding="utf-8")
+        self.resolver = json.loads((self.FIXTURES / "resolver-slice.json").read_text(encoding="utf-8"))
 
     def test_each_reflection_is_found_by_its_resolved_slug(self):
-        journal = (self.repo / "bionic" / "journal" / "2026-09.md").read_text(encoding="utf-8")
-        resolver = json.loads(
-            (self.repo / "bionic" / "adrs" / "summaries" / "resolver.json").read_text(encoding="utf-8"))
         for adr, slug in self.CASES.items():
             with self.subTest(adr=adr):
-                got = artifact_references(journal, adr, resolver)
+                got = artifact_references(self.journal, adr, self.resolver)
                 self.assertTrue(got["referenced"], got)
                 kinds = {e["kind"] for e in got["evidence"]}
                 self.assertEqual(kinds, {"resolved-slug"},
@@ -173,10 +172,16 @@ class LiveTreeTests(unittest.TestCase):
     def test_no_journal_entry_wiki_links_any_of_the_three(self):
         # PAIRED CONTROL: the old detector really did have nothing to find, so
         # the repair is what closes the finding rather than a fixture quirk.
-        journal = (self.repo / "bionic" / "journal" / "2026-09.md").read_text(encoding="utf-8")
         for adr in self.CASES:
             with self.subTest(adr=adr):
-                got = artifact_references(journal, adr, None)
+                got = artifact_references(self.journal, adr, None)
+                self.assertFalse(got["referenced"], got)
+
+    def test_a_journal_without_the_reflections_is_not_found(self):
+        # POSITIVE DISCRIMINATOR: the finds above come from the entries, not from the resolver.
+        for adr in self.CASES:
+            with self.subTest(adr=adr):
+                got = artifact_references("# Journal\n\nNothing here.\n", adr, self.resolver)
                 self.assertFalse(got["referenced"], got)
 
 

@@ -150,20 +150,30 @@ def load_denylist(root: Path) -> list[str]:
             raise CapabilityError(f"cannot read {cfg} as UTF-8: {exc}") from exc
         except OSError:
             return []
-        out: list[str] = []
-        in_block = False
-        for line in text.splitlines():
-            if line.strip().startswith("instruction_migration_denylist:"):
-                in_block = True
-                continue
-            if in_block:
-                stripped = line.strip()
-                if stripped.startswith("- "):
-                    out.append(stripped[2:].strip().strip('"').strip("'"))
-                    continue
-                if stripped and not line.startswith((" ", "\t")):
-                    break
-        return out
+        # Read only this field, without requiring config_version or a docs tree.
+        # Exclusions require a complete YAML parser; a partial fallback can
+        # silently turn a valid declaration into an empty policy.
+        try:
+            import yaml
+        except ImportError as exc:
+            raise CapabilityError(
+                f"PyYAML is required to read instruction_migration_denylist in {cfg}; "
+                "run the entry point with uv run or install pyyaml>=6.0") from exc
+        try:
+            raw = yaml.safe_load(text)
+        except yaml.YAMLError as exc:
+            raise CapabilityError(
+                f"cannot parse instruction_migration_denylist in {cfg}") from exc
+        if raw is None:
+            return []
+        if not isinstance(raw, dict):
+            raise CapabilityError(f"{cfg} must be a YAML mapping to read instruction_migration_denylist")
+        value = raw.get("instruction_migration_denylist")
+        if value is None:
+            return []
+        if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+            raise CapabilityError(f"instruction_migration_denylist in {cfg} must be a list of paths")
+        return value
     return []
 
 

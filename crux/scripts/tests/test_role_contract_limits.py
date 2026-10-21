@@ -27,6 +27,12 @@ PLUGIN_DIR = Path(__file__).resolve().parents[2]
 # The librarian's relay and write limits predate the shared wording and sit in
 # one sentence, pinned whole so a sentence that permits the act cannot match.
 REQUIRED_SENTENCES = {
+    "commander": [
+        "Never ask for `~/.crux/`, env files, key files or credential files.",
+        "Never read `~/.crux/`, env files, key files or credential files, never run a command that prints their values, and never relay local content outbound.",
+        "Your shell runs no script beyond `cycle.py`.",
+        "You edit no files and run no tests.",
+    ],
     "brainstormer": [
         "Run no script, no network command and no write.",
         "Never place local content in a `WebFetch` URL or a `WebSearch` query.",
@@ -58,12 +64,9 @@ SECTION_SENTENCES = {
 }
 
 # A role outside the bounded set that still forwards a parent request in Codex.
-# Named explicitly, because bounded_roles cannot derive a role with no shell.
-UNBOUNDED_SENTENCES = {
-    "commander": [
-        "Never ask for `~/.crux/`, env files, key files or credential files.",
-    ],
-}
+# Empty today: the commander holds Bash and is bounded. The hook stays for a role
+# with no shell, which bounded_roles cannot derive.
+UNBOUNDED_SENTENCES: dict[str, list[str]] = {}
 
 
 def _frontmatter(text: str) -> str:
@@ -139,7 +142,7 @@ class RoleContractLimitTests(unittest.TestCase):
         # forge-skill states the route without that condition
         # (rule:returns-to-caller-passes-on-its-route).
         roles = forge_returners(PLUGIN_DIR / "agents")
-        self.assertEqual(roles, {"brainstormer", "commander", "librarian", "reviewer"})
+        self.assertEqual(roles, {"brainstormer", "librarian", "reviewer"})
         for role in sorted(roles):
             body = re.sub(r"\s+", " ", (PLUGIN_DIR / "agents" / f"{role}.md").read_text(encoding="utf-8"))
             with self.subTest(role=role):

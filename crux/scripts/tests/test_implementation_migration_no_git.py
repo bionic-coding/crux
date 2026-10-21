@@ -136,7 +136,7 @@ Ordinary source.
         (self.root / ".git/objects" / head[:2] / head[2:]).unlink()
         self.refuse("migration-config-not-committed")
 
-    def test_revision_and_apply_still_refuse_without_git(self):
+    def test_revision_still_refuses_without_git_and_apply_refuses_by_name(self):
         with patch.object(migration, "_read_revision", side_effect=AssertionError("no borrowed revision")):
             self.refuse("migration-git-required", revision="HEAD")
         apply = driver("implementation-migration")
@@ -145,7 +145,9 @@ Ordinary source.
         with contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(output):
             rc = apply.main(["apply", "--batch", "absent.yaml", "--repo-root", str(self.root)])
         self.assertEqual(rc, 1)
-        self.assertEqual(json.loads(output.getvalue()), {"authority": "none", "limit": "history-unavailable"})
+        # Application is retired: it refuses by name before it reads any history.
+        self.assertEqual(json.loads(output.getvalue()),
+                         {"authority": "none", "limit": "historical-migration-writes-retired"})
         self.assertEqual(inventory(self.root), before)
 
     def test_publication_and_nonempty_evidence_footprints_refuse(self):

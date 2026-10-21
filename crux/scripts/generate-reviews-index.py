@@ -1077,7 +1077,13 @@ def main(argv=None) -> int:
         # nor the documented crash lane (exit 2). Both belong in the
         # environment lane below.
         rel_index = str(Path(_tree_name(root)) / "adrs" / "reviews" / "index.md")
-        path, want, orphans, tree_dir = build(root, today)
+        # `build` reads the historical authority view more than once (the locator
+        # probe and the closing proof). The read scope answers the repeat from
+        # memory only after re-checking every bound input and the repository
+        # state; `build` writes nothing, and the index write below is outside it.
+        import implementation_migration as migration
+        with migration.read_scope():
+            path, want, orphans, tree_dir = build(root, today)
     except ReviewsError as exc:
         # A hand-edited report is a DOCUMENT finding, not an environment
         # problem: exit 1 with `validation_errors` on stdout, which

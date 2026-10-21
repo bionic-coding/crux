@@ -4,12 +4,16 @@ import {HARNESS, agents, touchesRunFile} from '../hooks/lib/claude.ts'
 import {pane, band, bandSegments, lineCells, type Block, type Line} from '../hooks/lib/draw.ts'
 import {cells} from '../hooks/lib/width.ts'
 import {AMBIGUOUS} from './fixtures/eaw-ambiguous.ts'
+import {CLOCK_READ, withoutClock} from './fixtures/no-clock.ts'
+import * as viewCore from '../hooks/lib/view.ts'
+import * as drawCore from '../hooks/lib/draw.ts'
 
 const cycle = {
-  format:'crux.cycle-progress',format_version:1,ok:true,docs_dir:'bionic',now_s:1780000000,
+  format:'crux.cycle-progress',format_version:2,ok:true,docs_dir:'bionic',now_s:1780000000,
   cycles:[{id:'CYC-0001',title:'Fix the tool',type:'quick-fix',status:'active',phase:'test',pass:1,pass_limit:1,
     phases:['build','test','review','reflect'],tasks:[{id:'check',phase:'test',description:'Verify affected behavior',status:'active'}],
-    returns:[],waits:[],blocker:null,reflection:null,modified_s:1780000000}],
+    returns:[],waits:[],blocker:null,reflection:null,modified_s:1780000000,
+    started_s:1779999000,ended_s:null,paused_s:0,open_started_s:1779999500,basis:'recorded',phase_times:[{phase:'build',active_s:500,paused_s:0},{phase:'test',active_s:500,paused_s:0}]}],
 }
 
 test('cycle dashboard shows phases, pass limit and task progress without fabricated promptbooks', () => {
@@ -61,7 +65,7 @@ function lines(b: Block): Line[] {
 const plain = (l: Line) => l.map(s => s.text).join('')
 const paneLines = (c: object, width: number) => {
   const doc = structuredClone(cycle) as any
-  doc.cycles = [{...doc.cycles[0], ...c}]
+  doc.cycles = [{...doc.cycles[0], phase_times: [], ...c}]
   const parsed = parseReader(JSON.stringify(doc))
   expect(parsed.ok).toBe(true)
   return lines(pane(parsed, agents([]), width, 'docked', HARNESS))
@@ -132,7 +136,7 @@ test('cycle pane outcome, blocker and waits draw in their keys', () => {
   expect(find(ls, 'Outcome: All done')!.some(s => s.color === 'success')).toBe(true)
   expect(find(ls, 'Paused: Needs a key')!.some(s => s.color === 'warning')).toBe(true)
   expect(plain(find(ls, 'Paused: Needs a key')!).startsWith('\u2298 Paused')).toBe(true)
-  expect(find(ls, 'Approval wait: approve plan')!.some(s => s.color === 'warning')).toBe(true)
+  expect(find(ls, 'Awaiting approval: approve plan')!.some(s => s.color === 'warning')).toBe(true)
 })
 
 test('cycle pane fits every line at 100, 40 and 20 columns', () => {
@@ -190,6 +194,7 @@ test('cycle pane draws the phase words of one type in distinct keys', () => {
   const types: Record<string, string[]> = {
     dev: ['plan', 'build', 'test', 'review', 'reflect'], iterate: ['plan', 'build', 'test', 'review', 'reflect'],
     refactor: ['plan', 'build', 'test', 'review', 'reflect'], 'quick-fix': ['build', 'test', 'review', 'reflect'],
+    simplify: ['plan', 'build', 'test', 'review', 'reflect'],
     release: ['plan', 'release', 'reflect'],
   }
   for (const type of Object.keys(types)) {
@@ -218,7 +223,7 @@ test('cycle band draws the pane style in place of the old one-line text', () => 
 // The band's one line for the cycle in this file with `c` laid over it, and the parsed reader view.
 const parsedCycle = (c: object) => {
   const doc = structuredClone(cycle) as any
-  doc.cycles = [{...doc.cycles[0], ...c}]
+  doc.cycles = [{...doc.cycles[0], phase_times: [], ...c}]
   const parsed = parseReader(JSON.stringify(doc))
   expect(parsed.ok).toBe(true)
   return parsed
@@ -351,4 +356,161 @@ test('cycle band leaves the pane and the text answer as they were', () => {
   expect(ls).toContain('iterate \u21bb loop 1 \u25b8 active')
   expect(ls).toContain('\u2713 \u25b8 build \u25cc \u25cc \u25cc')
   expect(answer(parsedCycle(active))).toContain('cycle CYC-0001 type iterate status active phase build pass 1 limit 2')
+})
+
+
+// --- elapsed time -------------------------------------------------------------------------------
+
+const SEQUENCES: Record<string, string[]> = {
+  dev: ['plan','build','test','review','reflect'], iterate: ['plan','build','test','review','reflect'],
+  refactor: ['plan','build','test','review','reflect'], 'quick-fix': ['build','test','review','reflect'],
+  simplify: ['plan','build','test','review','reflect'],
+  release: ['plan','release','reflect'],
+}
+const START = 1779990000
+const cycleOf = (type: string, now_s: number, over: Record<string, unknown> = {}) => {
+  const phases = SEQUENCES[type]!
+  return {
+    format:'crux.cycle-progress',format_version:2,ok:true,docs_dir:'bionic',now_s,
+    cycles:[{id:'CYC-0001',title:'Timed',type,status:'active',phase:phases[0],pass:1,pass_limit:3,phases,tasks:[],returns:[],waits:[],
+      blocker:null,reflection:null,modified_s:now_s,started_s:START,ended_s:null,paused_s:0,open_started_s:START,basis:'recorded',
+      phase_times:[{phase:phases[0]!,active_s:now_s-START,paused_s:0}],...over}],
+  }
+}
+const paneText = (doc: unknown) => JSON.stringify(pane(parseReader(JSON.stringify(doc)),agents([]),100,'docked',HARNESS))
+
+test('elapsed time advances with the reader now_s for an open cycle of every type', () => {
+  for (const type of Object.keys(SEQUENCES)) {
+    const early = paneText(cycleOf(type,START+600))
+    const late = paneText(cycleOf(type,START+4000))
+    expect(early).toContain('elapsed 10m')
+    expect(late).toContain('elapsed 1h06m')
+    expect(early.includes('paused')).toBe(false)
+    expect(answer(parseReader(JSON.stringify(cycleOf(type,START+600))))).toContain('time elapsed 10m')
+    expect(answer(parseReader(JSON.stringify(cycleOf(type,START+4000))))).toContain('time elapsed 1h06m')
+  }
+})
+
+test('paused time shows when non-zero and the basis shows when derived', () => {
+  for (const type of Object.keys(SEQUENCES)) {
+    const text = paneText(cycleOf(type,START+4000,{paused_s:900,status:'paused'}))
+    expect(text).toContain('elapsed 1h06m paused 15m')
+    expect(paneText(cycleOf(type,START+4000,{paused_s:30}))).toContain('paused <1m')
+    expect(paneText(cycleOf(type,START+4000,{basis:'derived',paused_s:900}))).toContain('(derived)')
+    expect(paneText(cycleOf(type,START+4000)).includes('derived')).toBe(false)
+  }
+  expect(answer(parseReader(JSON.stringify(cycleOf('dev',START+4000,{paused_s:900}))))).toContain('time elapsed 1h06m paused 15m')
+})
+
+test('a closed cycle shows the same elapsed time at any now_s', () => {
+  for (const type of Object.keys(SEQUENCES)) {
+    const closed = {status:'completed',ended_s:START+1800,paused_s:300,open_started_s:null}
+    const a = paneText(cycleOf(type,START+2000,closed))
+    const b = paneText(cycleOf(type,START+99999,closed))
+    expect(a).toContain('elapsed 30m paused 5m')
+    expect(b).toContain('elapsed 30m paused 5m')
+  }
+})
+
+test('format 1 and a malformed elapsed field are refused', () => {
+  const old = cycleOf('dev',START+60) as any
+  old.format_version = 1
+  expect(parseReader(JSON.stringify(old))).toEqual({ok:false,code:'reader-format-mismatch'})
+  for (const over of [{basis:'guessed'},{paused_s:-1},{started_s:'x'},{ended_s:1.5},{phase_times:[{phase:'nope',active_s:1,paused_s:0}]}]) {
+    expect(parseReader(JSON.stringify(cycleOf('dev',START+60,over))).ok).toBe(false)
+  }
+  const missing = cycleOf('dev',START+60) as any
+  delete missing.cycles[0].phase_times
+  expect(parseReader(JSON.stringify(missing)).ok).toBe(false)
+})
+
+test('the cycle drawing reads no clock', () => {
+  withoutClock(() => {
+    const parsed = parseReader(JSON.stringify(cycleOf('release',START+700,{paused_s:120})))
+    expect(JSON.stringify(pane(parsed,agents([]),100,'docked',HARNESS))).toContain('elapsed 11m paused 2m')
+    expect(answer(parsed)).toContain('time elapsed 11m paused 2m')
+  })
+  const sources = [...Object.values(viewCore), ...Object.values(drawCore)].filter(v => typeof v === 'function').map(f => String(f))
+  expect(sources.length).toBeGreaterThan(40)
+  expect(sources.filter(s => CLOCK_READ.test(s))).toEqual([])
+  expect(String(viewCore.cycleTimeText)).toContain('cycleElapsed')
+  expect(CLOCK_READ.test(String(() => Date.now()))).toBe(true)
+})
+
+// Ordering: active cycles first, then every other cycle; each group by the number in the id,
+// highest first. The modified times run opposite to the ids, so a time sort fails the same tests.
+const orderDoc = (ids: [string, string][]) => {
+  const doc = structuredClone(cycle) as any
+  const base = doc.cycles[0]
+  doc.cycles = ids.map(([id, status], i) => ({...base, id, status, modified_s: 1780000000 + i * 100}))
+  return doc
+}
+const orderOf = (ids: [string, string][]) => {
+  const parsed = parseReader(JSON.stringify(orderDoc(ids)))
+  expect(parsed.ok).toBe(true)
+  return parsed.ok ? parsed.view.cycles!.map(c => c.id) : []
+}
+
+test('cycles list active first, then the rest, each by numeric id descending', () => {
+  expect(orderOf([['CYC-0009', 'active'], ['CYC-0010', 'completed'], ['CYC-0013', 'active'], ['CYC-0002', 'abandoned'], ['CYC-0011', 'paused']]))
+    .toEqual(['CYC-0013', 'CYC-0009', 'CYC-0011', 'CYC-0010', 'CYC-0002'])
+})
+
+test('cycle order is numeric, not lexical, and reads the number after an artifact prefix', () => {
+  expect(orderOf([['CYC-0099', 'completed'], ['CYC-10000', 'completed'], ['CYC-0100', 'completed']])).toEqual(['CYC-10000', 'CYC-0100', 'CYC-0099'])
+  expect(orderOf([['ACME-CYC-0009', 'completed'], ['CYC-0010', 'completed'], ['ACME-CYC-0013', 'active']])).toEqual(['ACME-CYC-0013', 'CYC-0010', 'ACME-CYC-0009'])
+})
+
+test('a reader that repeats a wait once per superseded revision draws one Awaiting approval line', () => {
+  const ls = paneLines({...active, waits: ['release-evidence', 'release-evidence', 'release-evidence', 'plan-b']}, 100)
+  expect(ls.filter(l => plain(l).includes('Awaiting approval')).map(l => plain(l).trim())).toEqual(['⊘ Awaiting approval: release-evidence, plan-b'])
+  // Positive control: no wait, no line.
+  expect(paneLines({...active, waits: []}, 100).some(l => plain(l).includes('Awaiting approval'))).toBe(false)
+})
+
+test('a simplify cycle draws the plan, build, test, review, reflect sequence', () => {
+  const phases = ['plan','build','test','review','reflect']
+  const simplify = {type:'simplify',phases,phase:'test',pass:1,pass_limit:3}
+  expect(plain(bandLine(simplify, 100))).toContain('simplify')
+  expect(plain(bandLine(simplify, 100))).toContain('\u2713 \u2713 \u25b8 test \u25cc \u25cc')
+  expect(answer(parsedCycle(simplify))).toContain('type simplify status active phase test pass 1 limit 3')
+  // The parser still rejects a simplify cycle whose phases differ from the sequence.
+  const doc = structuredClone(cycle) as any
+  doc.cycles = [{...doc.cycles[0], phase_times: [], ...simplify, phases: phases.slice(1), phase: 'build'}]
+  expect(parseReader(JSON.stringify(doc)).ok).toBe(false)
+})
+
+// A listed release cycle has the one phase `release` and a pass limit of 1 that is never shown.
+// A release cycle recorded before the list keeps plan, release and reflect with its own limit.
+const releaseDoc = (phases: string[], pass_limit: number) => {
+  const doc = structuredClone(cycle) as any
+  doc.cycles[0] = {...doc.cycles[0], id:'CYC-0002', type:'release', phase:phases[0], pass:1, pass_limit, phases,
+    tasks:phases.map(p => ({id:'t-'+p, phase:p, description:'Work in '+p, status:'active'})), phase_times:[]}
+  return doc
+}
+
+test('a listed release cycle with the one phase release is accepted and its answer names no limit', () => {
+  const parsed = parseReader(JSON.stringify(releaseDoc(['release'], 1)))
+  expect(parsed.ok).toBe(true)
+  const text = answer(parsed)
+  expect(text).toContain('cycle CYC-0002 type release status active phase release')
+  expect(text.includes('limit')).toBe(false)
+  expect(JSON.stringify(pane(parsed,agents([]),100,'docked',HARNESS))).toContain('Work in release')
+  expect(JSON.stringify(band(parsed,agents([]),100,HARNESS))).toContain('CYC-0002')
+})
+
+test('a legacy release cycle keeps its three phases and its limit in the answer', () => {
+  const parsed = parseReader(JSON.stringify(releaseDoc(['plan','release','reflect'], 2)))
+  expect(parsed.ok).toBe(true)
+  expect(answer(parsed)).toContain('cycle CYC-0002 type release status active phase plan pass 1 limit 2')
+})
+
+test('a release cycle takes only the listed or the legacy phase sequence, and other types stay strict', () => {
+  for (const phases of [['plan','release'], ['release','reflect'], ['plan','reflect']]) {
+    expect(parseReader(JSON.stringify(releaseDoc(phases, 1))).ok).toBe(false)
+  }
+  const dev = structuredClone(cycle) as any
+  dev.cycles[0].type = 'dev'
+  dev.cycles[0].phases = ['release']
+  expect(parseReader(JSON.stringify(dev)).ok).toBe(false)
 })

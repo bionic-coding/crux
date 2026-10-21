@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -70,9 +71,12 @@ class CliCycleCase(unittest.TestCase):
         doc = self.ok('create', '--type', 'quick-fix', '--title', 'Fix', '--goal', 'Outcome', '--implementer', 'builder', '--coordinator', 'tester', '--scope', 'src', '--acceptance', 'correct')
         return doc['id']
 
-    def approved_quick_fix(self, checks=('unit',)):
+    def approved_quick_fix(self, checks=('unit',), build_tasks=()):
         """Create, build, test and approve a quick-fix; return its id (phase review, approved)."""
         cid = self.create_quick_fix()
+        for identity in build_tasks:
+            self.ok('task-add', cid, '--file', self.write_json(identity + '.json', self.task('build', identity=identity)))
+            self.ok('task', cid, '--task-id', identity, '--state', 'done')
         self.ok('checks', cid, *[a for c in checks for a in ('--check', c)])
         self.ok('coverage', cid, '--file', self.write_json('coverage.json', self.coverage(checks)))
         self.ok('advance', cid)
@@ -101,11 +105,11 @@ class ReflectTaskAfterApprovalTests(CliCycleCase):
         doc = self.ok('advance', cid)
         self.assertEqual(doc['status'], 'completed')
 
-    def test_new_review_records_basis_version_two(self):
+    def test_new_review_records_basis_version_four(self):
         cid = self.approved_quick_fix()
         doc = workflow.load(self.root, cid)
         report = workflow.read_retained(workflow.tree(self.root), doc['reviews'][-1])
-        self.assertEqual(report['basis_version'], 2)
+        self.assertEqual(report['basis_version'], 4)
         self.assertEqual(report['basis_sha256'], workflow.review_basis(doc))
 
 
@@ -118,9 +122,6 @@ class ChangesAfterApprovalTests(CliCycleCase):
     def change_scrutiny(self, cid):
         self.ok('scrutiny', cid, '--scrutiny', 'intensive', '--rationale', 'raised after approval')
 
-    def change_evidence(self, cid):
-        self.ok('evidence', cid, '--check-id', 'unit', '--evidence-id', self.evidence_ids['unit'], '--use', 'reused')
-
     def change_coverage(self, cid):
         self.ok('coverage', cid, '--file', self.write_json('coverage2.json', self.coverage(('unit', 'other'), 'Changed after approval.')))
 
@@ -132,7 +133,6 @@ class ChangesAfterApprovalTests(CliCycleCase):
         cases = {
             'required checks': self.change_checks_order,
             'review policy': self.change_scrutiny,
-            'current-pass evidence': self.change_evidence,
             'coverage': self.change_coverage,
             'review-phase task': self.add_review_task,
         }
@@ -183,7 +183,6 @@ class DirectBasisTests(CliCycleCase):
             'constraints': lambda d: d['plan'].update(constraints=['new']),
             'acceptance': lambda d: d['plan'].update(acceptance=['new']),
             'verification': lambda d: d['plan'].update(verification=['new']),
-            'revision': lambda d: d['plan'].update(revision=9),
             'build task': lambda d: d['plan']['tasks'].append(self.task('build')),
             'test task': lambda d: d['plan']['tasks'].append(self.task('test')),
             'review task': lambda d: d['plan']['tasks'].append(self.task('review')),
@@ -214,6 +213,7 @@ class DirectBasisTests(CliCycleCase):
             'history': lambda d: d['history'].append({'at': 'x', 'action': 'note', 'pass': 1, 'phase': 'reflect'}),
             'blocker': lambda d: d.update(blocker={'reason': 'r', 'evidence': [], 'next_step': 'n'}),
             'status': lambda d: d.update(status='paused'),
+            'plan revision counter': lambda d: d['plan'].update(revision=9),
         }
         for name, edit in edits.items():
             with self.subTest(name):
@@ -223,8 +223,9 @@ class DirectBasisTests(CliCycleCase):
     def test_only_phases_after_the_review_bearing_phase_are_omitted(self):
         """Each type's later-phase tasks leave the basis; earlier and review-bearing ones stay in it."""
         for kind, sequence in PHASES.items():
-            bearing = workflow.review_bearing_phase(kind)
-            self.assertEqual(bearing, 'release' if 'release' in sequence else 'review')
+            if kind == 'release':
+                continue  # a release cycle has no Review phase and no review basis
+            bearing = 'review'
             doc = self.edited(lambda d: d.update(type=kind))
             base = workflow.review_basis(doc)
             for phase in sequence:
@@ -247,8 +248,11 @@ class LegacyAndVersionedReportTests(CliCycleCase):
         self.ok('task-add', self.cid, '--file', self.write_json('t.json', self.task('reflect', identity='reflect-note')))
         self.cfg = workflow.tree(self.root)
         self.doc = workflow.load(self.root, self.cid)
-        self.v1, self.v2 = workflow.review_basis_v1(self.doc), workflow.review_basis(self.doc)
+        self.v1, self.v2 = workflow.review_basis_v1(self.doc), workflow.review_basis_v2(self.doc)
+        self.v3, self.v4 = workflow.review_basis_digest(self.doc, 3), workflow.review_basis(self.doc)
         self.assertNotEqual(self.v1, self.v2)
+        self.assertNotEqual(self.v2, self.v3)
+        self.assertNotEqual(self.v3, self.v4)
 
     def rewrite(self, drop=(), **changes):
         """Rewrite the retained report and its reference, as a historical record would hold it."""
@@ -296,13 +300,117 @@ class LegacyAndVersionedReportTests(CliCycleCase):
         self.rewrite(basis_version=1, basis_sha256=self.v2)
         self.assertFalse(self.binds())
 
-    def test_unknown_version_never_binds(self):
-        for version in (3, 0, '2', True, 2.0, [2]):
-            with self.subTest(version=repr(version)):
-                self.rewrite(basis_version=version, basis_sha256=self.v2)
-                self.assertFalse(self.binds())
-        self.rewrite(basis_version=2, basis_sha256=self.v2)
+    def test_version_three_report_binds_only_to_version_three(self):
+        self.rewrite(basis_version=3, basis_sha256=self.v3)
         self.assertTrue(self.binds())
+        for other in (self.v1, self.v2, self.v4):
+            self.rewrite(basis_version=3, basis_sha256=other)
+            self.assertFalse(self.binds())
+
+    def test_version_four_report_binds_only_to_version_four(self):
+        self.rewrite(basis_version=4, basis_sha256=self.v4)
+        self.assertTrue(self.binds())
+        for other in (self.v1, self.v2, self.v3):
+            self.rewrite(basis_version=4, basis_sha256=other)
+            self.assertFalse(self.binds())
+
+    def test_legacy_report_never_binds_to_version_three_or_four(self):
+        for other in (self.v3, self.v4):
+            self.rewrite(drop=('basis_version',), basis_sha256=other)
+            self.assertFalse(self.binds())
+
+    def test_unknown_version_never_binds(self):
+        for version in (5, 0, '4', True, 4.0, [4]):
+            with self.subTest(version=repr(version)):
+                self.rewrite(basis_version=version, basis_sha256=self.v4)
+                self.assertFalse(self.binds())
+        self.rewrite(basis_version=4, basis_sha256=self.v4)
+        self.assertTrue(self.binds())
+
+
+class Version4EvidenceTests(CliCycleCase):
+    """Acceptance 4: re-running a check against unchanged inputs keeps a recorded review bound."""
+
+    def refresh(self, cid, declaration, use='executed'):
+        result = execute(self.root, declaration)
+        self.ok('evidence', cid, '--check-id', declaration['check_id'], '--evidence-id', result['evidence']['id'], '--use', use)
+        return result['evidence']['id']
+
+    def binds(self, cid):
+        try:
+            workflow.check_review(workflow.tree(self.root), workflow.load(self.root, cid))
+            return True
+        except CycleError as exc:
+            self.assertEqual(str(exc), REVIEW_REQUIRED)
+            return False
+
+    def test_evidence_command_stores_the_normalized_declaration_digest(self):
+        from test_evidence import digest, normalize
+        cid = self.approved_quick_fix()
+        ref = workflow.load(self.root, cid)['evidence'][-1]
+        self.assertEqual(ref['declaration_sha256'], digest(normalize(self.decl())))
+        self.assertRegex(ref['declaration_sha256'], '^[0-9a-f]{64}$')
+
+    def test_refresh_under_a_new_evidence_id_with_the_same_declaration_keeps_the_review_bound(self):
+        cid = self.approved_quick_fix()
+        doc = workflow.load(self.root, cid)
+        base = workflow.review_basis(doc)
+        refreshed = deepcopy(doc)
+        latest = refreshed['evidence'][-1]
+        refreshed['evidence'].append({**latest, 'evidence_id': 'TE-' + 'f' * 32, 'use': 'executed'})
+        self.assertEqual(workflow.review_basis(refreshed), base)
+        # Version 3 hashed the evidence list, so the same refresh unbound a review.
+        self.assertNotEqual(workflow.review_basis_digest(refreshed, 3), workflow.review_basis_digest(doc, 3))
+        workflow.check_review(workflow.tree(self.root), refreshed)
+
+    def test_changed_declaration_under_the_same_check_id_unbinds(self):
+        cid = self.approved_quick_fix()
+        for name, change in {
+            'command': lambda d: d.update(command=[sys.executable, '-c', "from pathlib import Path; assert Path('src/a.txt').exists()"]),
+            'inputs': lambda d: d.update(inputs=['src', 'bionic/manifest.yml']),
+            'exclusions': lambda d: d.update(exclude_inputs=['src/skip.txt']),
+        }.items():
+            with self.subTest(name):
+                other = self.approved_quick_fix()
+                declaration = self.decl()
+                change(declaration)
+                self.refresh(other, declaration)
+                self.assertFalse(self.binds(other))
+        self.assertTrue(self.binds(cid))
+
+    def test_scope_change_unbinds(self):
+        cid = self.approved_quick_fix()
+        doc = workflow.load(self.root, cid)
+        (self.root / 'lib').mkdir()
+        (self.root / 'lib/b.txt').write_text('x')
+        doc['plan']['scope'] = ['src', 'lib']
+        with self.assertRaisesRegex(CycleError, 'independent review'):
+            workflow.check_review(workflow.tree(self.root), doc)
+
+    def test_legacy_ref_without_the_digest_falls_back_to_its_evidence_id(self):
+        cid = self.approved_quick_fix()
+        doc = workflow.load(self.root, cid)
+        legacy = deepcopy(doc)
+        for ref in legacy['evidence']:
+            ref.pop('declaration_sha256')
+        other = deepcopy(legacy)
+        other['evidence'][-1]['evidence_id'] = 'TE-' + 'e' * 32
+        self.assertNotEqual(workflow.review_basis(legacy), workflow.review_basis(other))
+        self.assertNotEqual(workflow.review_basis(legacy), workflow.review_basis(doc))
+        self.assertEqual(workflow.review_basis(legacy), workflow.review_basis(deepcopy(legacy)))
+
+    def test_ref_with_a_malformed_digest_is_refused_by_the_schema(self):
+        cid = self.approved_quick_fix()
+        doc = workflow.load(self.root, cid)
+        workflow.validate(doc)
+        legacy = deepcopy(doc)
+        legacy['evidence'][-1].pop('declaration_sha256')
+        workflow.validate(legacy)
+        for bad in ('A' * 64, 'a' * 63):
+            broken = deepcopy(doc)
+            broken['evidence'][-1]['declaration_sha256'] = bad
+            with self.assertRaisesRegex(CycleError, 'invalid cycle'):
+                workflow.validate(broken)
 
 
 class HistoricalRecordTests(unittest.TestCase):
@@ -322,7 +430,7 @@ class HistoricalRecordTests(unittest.TestCase):
         return doc, [workflow.read_retained(self.cfg, ref) for ref in doc['reviews']]
 
     def digests(self, doc):
-        return workflow.review_basis_v1(doc), workflow.review_basis(doc)
+        return workflow.review_basis_v1(doc), workflow.review_basis_v2(doc)
 
     def test_fixtures_exist(self):
         self.assertEqual(sorted(p.name for p in FIXTURES.iterdir()), ['CYC-0001', 'CYC-0002', 'CYC-0003', 'CYC-0004'])
@@ -333,7 +441,7 @@ class HistoricalRecordTests(unittest.TestCase):
             with self.subTest(cid):
                 out = io.StringIO()
                 with contextlib.redirect_stdout(out):
-                    code = cycle.main(['--repo-root', str(self.root), 'validate', cid])
+                    code = cycle.main(['--repo-root', str(self.root), 'validate', cid, '--full'])
                 self.assertEqual(code, 0, out.getvalue())
                 self.assertEqual(json.loads(out.getvalue())['cycle']['id'], cid)
 
@@ -378,6 +486,135 @@ class HistoricalRecordTests(unittest.TestCase):
         self.assertTrue(workflow.basis_binds({**report, 'basis_version': 1}, v1, v2))
         self.assertFalse(workflow.basis_binds({**report, 'basis_version': 2}, v1, v2))
         self.assertFalse(workflow.basis_binds({**report, 'basis_version': 3}, v1, v2))
+        self.assertFalse(workflow.basis_binds({**report, 'basis_version': 3}, v1, v2, '0' * 64))
+        self.assertFalse(workflow.basis_binds({**report, 'basis_version': 4}, v1, v2, v2))
+
+
+class Version3PreservingTests(CliCycleCase):
+    """The CYC-0015 failure: delivery bookkeeping after approval stopped the review binding."""
+
+    TASK = 'build-work'
+
+    def setUp(self):
+        super().setUp()
+        env = {'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@t', 'GIT_COMMITTER_NAME': 't', 'GIT_COMMITTER_EMAIL': 't@t'}
+        for argv in (['init', '-q'], ['add', '-A'], ['commit', '-q', '-m', 'seed']):
+            subprocess.run(['git', '-C', str(self.root), *argv], check=True, env={**os.environ, **env})
+        self.commit = subprocess.run(['git', '-C', str(self.root), 'rev-parse', 'HEAD'], check=True, capture_output=True, text=True).stdout.strip()
+
+    def approved(self):
+        return self.approved_quick_fix(build_tasks=(self.TASK,))
+
+    def test_cyc_0015_sequence_keeps_the_binding(self):
+        cid = self.approved()
+        v2_before = workflow.review_basis_v2(workflow.load(self.root, cid))
+        self.ok('task', cid, '--task-id', self.TASK, '--assignee', 'main-session')
+        self.ok('task', cid, '--task-id', self.TASK, '--state', 'done', '--commit', self.commit, '--stage', 'integrated', '--note', 'integrated after review')
+        doc = workflow.load(self.root, cid)
+        self.assertNotEqual(workflow.review_basis_v2(doc), v2_before, 'version 2 loses the approval on these writes')
+        self.assertEqual(workflow.check_review(workflow.tree(self.root), doc)['verdict'], 'approve')
+
+    def test_each_bookkeeping_write_keeps_the_binding(self):
+        (self.root / 'bionic/result.md').write_text('result')
+        (self.root / 'result-file.md').write_text('result')
+        writes = {
+            'assignee': ('--assignee', 'main-session'),
+            'result_path': ('--result-path', str(self.root / 'result-file.md')),
+            'commits': ('--commit', self.commit),
+            'stage': ('--commit', self.commit, '--stage', 'implemented'),
+            'note': ('--note', 'late note'),
+            'evidence': ('--evidence', 'result.md'),
+            'status': ('--state', 'active'),
+        }
+        for name, flags in writes.items():
+            with self.subTest(name):
+                cid = self.approved()
+                v2_before = workflow.review_basis_v2(workflow.load(self.root, cid))
+                self.ok('task', cid, '--task-id', self.TASK, *flags)
+                doc = workflow.load(self.root, cid)
+                if name != 'status':
+                    self.assertNotEqual(workflow.review_basis_v2(doc), v2_before)
+                workflow.check_review(workflow.tree(self.root), doc)
+
+    def test_commits_and_dependencies_keep_the_binding(self):
+        cid = self.approved_quick_fix(build_tasks=(self.TASK, 'other-work'))
+        doc = workflow.load(self.root, cid)
+        base = workflow.review_basis(doc)
+        edited = deepcopy(doc)
+        task = next(t for t in edited['plan']['tasks'] if t['id'] == self.TASK)
+        task['commits'] = ['a' * 40]
+        task['depends_on'] = ['other-work']
+        self.assertEqual(workflow.review_basis(edited), base)
+        workflow.check_review(workflow.tree(self.root), edited)
+        self.assertNotEqual(workflow.review_basis_v2(edited), workflow.review_basis_v2(doc))
+
+
+class Version3InvalidatingTests(CliCycleCase):
+    """Material changes still refuse under version 3; the unedited record is the positive control."""
+
+    def setUp(self):
+        super().setUp()
+        self.cid = self.approved_quick_fix(build_tasks=('build-work',))
+        self.cfg = workflow.tree(self.root)
+        self.doc = workflow.load(self.root, self.cid)
+
+    def edited(self, edit):
+        doc = deepcopy(self.doc)
+        edit(doc)
+        return doc
+
+    def task_of(self, doc):
+        return next(t for t in doc['plan']['tasks'] if t['id'] == 'build-work')
+
+    def test_control_unedited_record_binds(self):
+        self.assertEqual(workflow.check_review(self.cfg, self.doc)['verdict'], 'approve')
+
+    def test_material_edits_refuse(self):
+        edits = {
+            'description': lambda d: self.task_of(d).update(description='changed'),
+            'expected_evidence': lambda d: self.task_of(d).update(expected_evidence=['changed']),
+            'phase': lambda d: self.task_of(d).update(phase='test'),
+            'id': lambda d: self.task_of(d).update(id='renamed'),
+            'new pre-review task': lambda d: d['plan']['tasks'].append(self.task('build', identity='added')),
+            'scope': lambda d: d['plan'].update(scope=['src', 'lib']),
+            'acceptance': lambda d: d['plan'].update(acceptance=['new']),
+            'constraints': lambda d: d['plan'].update(constraints=['new']),
+            'verification': lambda d: d['plan'].update(verification=['new']),
+            'preserved_behavior': lambda d: d['plan'].update(preserved_behavior='new'),
+            'improvement': lambda d: d['plan'].update(improvement='new'),
+            'required checks': lambda d: d.update(required_checks=['unit', 'extra']),
+            'review policy': lambda d: d['review_policy'].update(scrutiny='intensive'),
+            'coverage': lambda d: d['coverage'].update(not_selected='changed'),
+            'evidence declaration': lambda d: d['evidence'][0].update(declaration_sha256='0' * 64),
+        }
+        (self.root / 'lib').mkdir()
+        (self.root / 'lib/b.txt').write_text('x')
+        for name, edit in edits.items():
+            with self.subTest(name):
+                doc = self.edited(edit)
+                self.assertNotEqual(workflow.review_basis(doc), workflow.review_basis(self.doc))
+                with self.assertRaisesRegex(CycleError, 'independent review'):
+                    workflow.check_review(self.cfg, doc)
+
+    def test_source_change_refuses(self):
+        (self.root / 'src/a.txt').write_text('changed after approval')
+        with self.assertRaisesRegex(CycleError, 'independent review'):
+            workflow.check_review(self.cfg, workflow.load(self.root, self.cid))
+
+    def test_unclassified_task_field_fails_loudly(self):
+        doc = self.edited(lambda d: self.task_of(d).update(surprise='x'))
+        with self.assertRaisesRegex(CycleError, 'unclassified task field.*surprise'):
+            workflow.review_basis(doc)
+        # Versions 1 and 2 are unchanged and do not classify.
+        workflow.review_basis_v1(doc)
+        workflow.review_basis_v2(doc)
+
+    def test_every_schema_task_field_is_classified(self):
+        schema = json.loads((Path(__file__).resolve().parents[2] / 'schemas/cycle.schema.json').read_text())
+        fields = set(schema['properties']['plan']['properties']['tasks']['items']['properties'])
+        classified = set(workflow.TASK_BASIS_FIELDS) | set(workflow.TASK_BOOKKEEPING_FIELDS)
+        self.assertEqual(fields, classified)
+        self.assertFalse(set(workflow.TASK_BASIS_FIELDS) & set(workflow.TASK_BOOKKEEPING_FIELDS))
 
 
 class PlanDetailsTests(CliCycleCase):
@@ -424,7 +661,7 @@ class PlanDetailsTests(CliCycleCase):
         self.ok('plan-details', fresh, '--file', self.details(constraints=['c']), '--reason', 'r')
 
     def test_plan_details_refuses_other_types(self):
-        for kind in ('dev', 'iterate', 'refactor', 'release'):
+        for kind in ('dev', 'iterate', 'refactor'):
             with self.subTest(kind):
                 doc = self.ok('create', '--type', kind, '--title', 'T', '--goal', 'G', '--implementer', 'b', '--coordinator', 'c', '--scope', 'src', '--acceptance', 'a')
                 self.assertIn('quick-fix', self.refused('plan-details', doc['id'], '--file', self.details(constraints=['c']), '--reason', 'r'))

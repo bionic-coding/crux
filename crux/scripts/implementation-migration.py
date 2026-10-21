@@ -2,7 +2,12 @@
 # requires-python = ">=3.13"
 # dependencies = ["pyyaml==6.0.3", "httpx>=0.27,<1"]
 # ///
-"""Inventory or apply source-bound implementation clause migrations."""
+"""Inventory source-bound implementation clause migrations.
+
+`dry-run` and `apply` are retired: each refuses with `historical-migration-writes-retired`
+and changes nothing. Existing historical publications are still verified by every authority
+reader. Propose new clause migrations in the prospective format through migrate-adrs.
+"""
 from __future__ import annotations
 
 import argparse
@@ -15,44 +20,21 @@ import implementation_migration as migration
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("inventory", "dry-run", "apply"))
+    parser.add_argument("command", choices=("inventory", "dry-run", "apply"),
+                        help="inventory reports; dry-run and apply are retired and refuse")
     parser.add_argument("--batch", required=True)
     parser.add_argument("--repo-root", default=".")
     args = parser.parse_args(argv)
-    if args.command == "apply":
-        import implementation_migration_apply as application
-        import summaries_projection as sp
-        try:
-            report = application.apply(args.repo_root, args.batch)
-            print(json.dumps(report, sort_keys=True))
-            if report.get("failure_class") == "capability":
-                print(json.dumps({"authority": "none", "limit": report["limit"]}), file=sys.stderr)
-                return 2
-            return 1 if report.get("failure_class") == "validation" else 0
-        except migration.Refused as exc:
-            print(json.dumps({"authority": "none", "limit": exc.code}))
-            _remedy(exc)
-            return 1
-        except sp.GovernsValidationError:
-            print(json.dumps({"authority": "none", "limit": "migration-application-model-refused"}))
-            return 1
-        except application.StagingCleanupIncomplete:
-            print(json.dumps({"authority": "none", "limit": application.StagingCleanupIncomplete.code}), file=sys.stderr)
-            return 2
-        except (bionic_config.BionicConfigError, OSError):
-            print(json.dumps({"authority": "none", "limit": "migration-application-unavailable"}), file=sys.stderr)
-            return 2
-        except (ValueError, TypeError, KeyError):
-            print(json.dumps({"authority": "none", "limit": "migration-application-model-refused"}))
-            return 1
     try:
-        report = (migration.inventory if args.command == "inventory" else migration.dry_run)(args.repo_root, args.batch)
-        print(json.dumps(report, sort_keys=True))
-        if args.command == "inventory":return 0
-        if report.get("failure_class")=="capability":
-            print(json.dumps({"authority":"none","limit":report["limit"]}),file=sys.stderr)
-            return 2
-        return 0 if report["ready_to_apply"] else 1
+        if args.command == "apply":
+            import implementation_migration_apply as application
+            application.apply(args.repo_root, args.batch)
+        elif args.command == "dry-run":
+            migration.dry_run(args.repo_root, args.batch)
+        else:
+            print(json.dumps(migration.inventory(args.repo_root, args.batch), sort_keys=True))
+            return 0
+        raise AssertionError("a retired command returned")
     except migration.Refused as exc:
         print(json.dumps({"authority": "none", "limit": exc.code}))
         _remedy(exc)

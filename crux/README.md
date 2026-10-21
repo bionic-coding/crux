@@ -1,6 +1,6 @@
 # crux
 
-A Claude Code plugin that maintains a `./bionic/` tree inside a software project — **53 skills** and a **10-agent role layer** across seven concerns: **code docs**, **research wiki**, **ADRs**, **briefs**, **work journal**, **promptbooks**, **invariants**. You curate, decide, and discuss; Claude does the bookkeeping.
+A Claude Code plugin that maintains a `./bionic/` tree inside a software project — **56 skills** and a **10-agent role layer** across seven concerns: **code docs**, **research wiki**, **ADRs**, **briefs**, **work journal**, **promptbooks**, **invariants**. You curate, decide, and discuss; Claude does the bookkeeping.
 
 ## Install
 

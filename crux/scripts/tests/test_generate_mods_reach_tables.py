@@ -911,6 +911,7 @@ _PANE = "ui.render{component=Pane}"
 LIVE_PARTS = [
     (_BAND, "the current cycle type, phase and pass limit"),
     (_PANE, "cycle phases, task progress, returns, approval waits and outcome"),
+    (_PANE, "a cycle's elapsed time, and its paused time when there is any"),
     (_BAND, "the book and run of the run whose run file changed last"),
     (_BAND, "the prompt strip: one glyph per prompt, with `|` between modules"),
     (_BAND, "the current prompt's module kind word"),
@@ -1102,7 +1103,7 @@ class FromCrossCheckTests(unittest.TestCase):
                 with self.subTest(part=row["part"], source=source):
                     self.assertTrue(cross_check(source, row["event"], **self.ctx), source)
             checked += 1
-        self.assertEqual(42, checked, "every historical-run and cycle surface row is checked")
+        self.assertEqual(43, checked, "every historical-run and cycle surface row is checked")
 
     def test_seeded_sources_fail_the_cross_check(self):
         for source, event in (
@@ -1151,11 +1152,26 @@ class ParserParityTests(unittest.TestCase):
 class PublicFingerprintTests(unittest.TestCase):
     """The fingerprint lane is pinned to its real producer, the public guide's line 1."""
 
+    SHA = "0123456789abcdef" * 4
+
     def test_the_public_guide_line_one_is_a_fingerprint(self):
-        require_dev_surface(self, _LIVE_PUBLIC_GUIDE, "public/USER_GUIDE.md")
+        """Feeds fingerprint-shaped fixture lines to the live reader, so no value in public/USER_GUIDE.md
+        decides. The live line one is checked by check_fingerprints (preflight check 3) and by the
+        fingerprint well-formedness check of tools/release-preflight.py metadata_checks()."""
         regen = _load_live_module(_LIVE_SCRIPT, "_live_regen_f")
-        line1 = _LIVE_PUBLIC_GUIDE.read_text(encoding="utf-8").splitlines()[0]
-        self.assertTrue(regen.is_public_fingerprint(line1), line1)
+        good = f"<!-- generated-from: USER_GUIDE.md@sha256:{self.SHA}; model: some-model-1; date: 2026-01-02 -->"
+        self.assertTrue(regen.is_public_fingerprint(good), good)
+        bad = {
+            "short sha": good.replace(self.SHA, self.SHA[:-1]),
+            "uppercase sha": good.replace(self.SHA, self.SHA.upper()),
+            "bad date": good.replace("2026-01-02", "26-1-2"),
+            "no model": good.replace("model: some-model-1; ", ""),
+            "heading": "# Working with `bionic/` in your project",
+            "trailing text": good + " x",
+        }
+        for label, line in bad.items():
+            with self.subTest(label):
+                self.assertFalse(regen.is_public_fingerprint(line), line)
 
 
 if __name__ == "__main__":

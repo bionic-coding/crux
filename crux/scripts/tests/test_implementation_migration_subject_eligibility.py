@@ -9,6 +9,8 @@ import yaml
 import implementation_migration as migration
 import test_implementation_authority as fixtures
 import _council_gate_support as sup
+import _historical_close_producer as producer
+import _implementation_templates as templates
 
 
 class InitialSubject(unittest.TestCase):
@@ -58,42 +60,65 @@ class InitialSubject(unittest.TestCase):
         self.assertEqual(self.f.snapshot(), actor[-1])
 
 
+def build_recovery_subject(stable_dependencies):
+    """A closed and published parent, and a recovery run stopped at its first advance.
+
+    The real producer, publisher and run starter run once per worker; each test gets a copy."""
+    f = fixtures.RecoveryView(); f.setUp()
+    templates.cleanup_at_exit(f)
+    root = f.root
+    # Make the demoted handle raw-eligible so denial must retain historical facts.
+    batch = migration.load_batch(root, f.f.path)
+    entry = batch['entries'][0]; entry['affected_governs'][0]['retires'] = []
+    entry['source_identity'] = migration.source_identity(entry)
+    source = root / 'docs/adrs/ADR-0110-source.md'
+    source.write_text('---\n' + yaml.safe_dump(dict(id='ADR-0110', status='Accepted',
+        governs=entry['affected_governs'])) + '---\n' + entry['clause']['text'])
+    f.f.path.write_text(yaml.safe_dump(batch, sort_keys=False))
+    fixtures.AuthorityView.refresh_reviewed_batch(f)
+    f.close(); f.parent = f.publish()
+    f.parent_bytes = f.f.receipt.read_bytes()
+    if stable_dependencies:
+        ledger = root / 'docs/adrs/doctrine/reconciliations.yml'; raw = ledger.read_bytes()
+        def stable(batch, path):
+            ledger.write_bytes(raw); batch['signed_dependencies'][0]['sha256'] = migration._digest(raw)
+            path.write_text(yaml.safe_dump(batch, sort_keys=False))
+        f.prepare_successor = stable
+    original = subprocess.run
+    stopped = []
+    def stop(command, *args, **kwargs):
+        if len(command) > 2 and str(command[1]) == str(sup.SCRIPTS / 'advance-run.py'):
+            stopped.append(dict(run_path=root / command[2],
+                book_path=root / command[command.index('--book') + 1],
+                receipt=command[command.index('--artifacts') + 1]))
+            raise Started()
+        return original(command, *args, **kwargs)
+    with mock.patch.object(subprocess, 'run', side_effect=stop):
+        try: f.successor()
+        except Started: pass
+        else: raise AssertionError('the recovery run never reached its first advance')
+    # A closure over this template's paths must not reach a clone: clones keep data only.
+    f.__dict__.pop('prepare_successor', None)
+    f.stopped = stopped[0]
+    book = yaml.safe_load(f.stopped['book_path'].read_bytes())
+    f.successor_path = root / book['implementation_slots'][0]['migration_batch']['path']
+    f.successor_batch = migration.load_batch(root, f.successor_path)
+    return f
+
+
+class Started(Exception): pass
+
+
 class RecoverySubject(unittest.TestCase):
     stable_dependencies = False
     def setUp(self):
-        self.f = fixtures.RecoveryView(); self.f.setUp(); self.addCleanup(self.f.doCleanups)
+        self.f = templates.clone(self, ('recovery-subject', self.stable_dependencies),
+            lambda: build_recovery_subject(self.stable_dependencies))
         self.root = self.f.root
-        # Make the demoted handle raw-eligible so denial must retain historical facts.
-        batch = migration.load_batch(self.root, self.f.f.path)
-        entry = batch['entries'][0]; entry['affected_governs'][0]['retires'] = []
-        entry['source_identity'] = migration.source_identity(entry)
-        source = self.root / 'docs/adrs/ADR-0110-source.md'
-        source.write_text('---\n' + yaml.safe_dump(dict(id='ADR-0110', status='Accepted',
-            governs=entry['affected_governs'])) + '---\n' + entry['clause']['text'])
-        self.f.f.path.write_text(yaml.safe_dump(batch, sort_keys=False))
-        fixtures.AuthorityView.refresh_reviewed_batch(self.f)
-        self.f.close(); self.parent = self.f.publish()
-        self.parent_bytes = self.f.f.receipt.read_bytes()
-        if self.stable_dependencies:
-            ledger = self.root / 'docs/adrs/doctrine/reconciliations.yml'; raw = ledger.read_bytes()
-            def stable(batch, path):
-                ledger.write_bytes(raw); batch['signed_dependencies'][0]['sha256'] = migration._digest(raw)
-                path.write_text(yaml.safe_dump(batch, sort_keys=False))
-            self.f.prepare_successor = stable
-        original = subprocess.run
-        class Started(Exception): pass
-        def stop(command, *args, **kwargs):
-            if len(command) > 2 and str(command[1]) == str(sup.SCRIPTS / 'advance-run.py'):
-                self.run_path = self.root / command[2]
-                self.book_path = self.root / command[command.index('--book') + 1]
-                self.receipt = command[command.index('--artifacts') + 1]
-                raise Started()
-            return original(command, *args, **kwargs)
-        with mock.patch.object(subprocess, 'run', side_effect=stop):
-            with self.assertRaises(Started): self.f.successor()
-        book = yaml.safe_load(self.book_path.read_bytes())
-        self.path = self.root / book['implementation_slots'][0]['migration_batch']['path']
-        self.batch = migration.load_batch(self.root, self.path)
+        self.parent = self.f.parent; self.parent_bytes = self.f.parent_bytes
+        self.run_path = self.f.stopped['run_path']; self.book_path = self.f.stopped['book_path']
+        self.receipt = self.f.stopped['receipt']
+        self.path = self.f.successor_path; self.batch = self.f.successor_batch
 
     def check(self, **changed):
         before = self.f.snapshot(); index = migration.cr.git(self.root, 'ls-files', '--stage', '-z').stdout
@@ -198,11 +223,14 @@ class PublishedChain(unittest.TestCase):
 
     def complete(self, run, book, receipt, path, *, yaml_locator=False, run_spelling=None):
         for n in range(1, 5):
-            command = [sys.executable, str(sup.SCRIPTS/'advance-run.py'), str(run), '--book', str(book),
-                       '--outcome', 'done', '--artifacts', receipt]
-            if n == 4: command += ['--migration-batch', path.relative_to(self.root).as_posix()]
-            result = subprocess.run(command, capture_output=True, env=sup.scrubbed_env())
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            if n == 4:
+                # The historical close is recorded by the production close code in process.
+                producer.close(run, book, receipt, path.relative_to(self.root).as_posix())
+            else:
+                command = [sys.executable, str(sup.SCRIPTS/'advance-run.py'), str(run), '--book', str(book),
+                           '--outcome', 'done', '--artifacts', receipt]
+                result = subprocess.run(command, capture_output=True, env=sup.scrubbed_env())
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             sup.commit_all(self.root, 'synthetic actual closed chain member')
         proof = migration.ap.validate_historical_migration_binding(self.root, run,
             slot='implementation-1', batch_path=path.relative_to(self.root).as_posix(),

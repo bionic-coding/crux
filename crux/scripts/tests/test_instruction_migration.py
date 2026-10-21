@@ -76,6 +76,99 @@ class TempRepo(unittest.TestCase):
         )
 
 
+class DenylistConfigTests(TempRepo):
+    def test_absent_and_minimal_configuration_remain_supported(self):
+        self.assertEqual([], im.load_denylist(self.root))
+        for text in ("", "docs_dir: bionic\n", "instruction_migration_denylist:\n",
+                     "instruction_migration_denylist: []\n"):
+            with self.subTest(text=text):
+                _write(self.root / ".bionic.yml", text)
+                self.assertEqual([], im.load_denylist(self.root))
+
+    def test_flow_lists_in_both_configuration_names(self):
+        for name in (".bionic.yml", ".crux"):
+            with self.subTest(name=name):
+                cfg = _write(self.root / name,
+                             "instruction_migration_denylist: [AGENTS.md, fx/CLAUDE.md]\n")
+                self.assertEqual(["AGENTS.md", "fx/CLAUDE.md"], im.load_denylist(self.root))
+                cfg.unlink()
+
+    def test_flow_list_without_pyyaml_refuses_explicitly(self):
+        from unittest.mock import patch
+        _write(self.root / ".bionic.yml",
+               'instruction_migration_denylist: ["fixtures/a,b/AGENTS.md", AGENTS.md] # policy\n')
+        with patch.dict(sys.modules, {"yaml": None}):
+            with self.assertRaisesRegex(im.CapabilityError, "PyYAML"):
+                im.load_denylist(self.root)
+
+    def test_quoted_key_without_pyyaml_refuses_explicitly(self):
+        from unittest.mock import patch
+        _write(self.root / ".bionic.yml", '"instruction_migration_denylist": [AGENTS.md]\n')
+        with patch.dict(sys.modules, {"yaml": None}):
+            with self.assertRaisesRegex(im.CapabilityError, "PyYAML"):
+                im.load_denylist(self.root)
+
+    def test_no_configuration_without_pyyaml_still_needs_no_parser(self):
+        from unittest.mock import patch
+        with patch.dict(sys.modules, {"yaml": None}):
+            self.assertEqual([], im.load_denylist(self.root))
+
+    def test_pyyaml_honors_quoted_keys_and_indentless_sequences(self):
+        for text in ('"instruction_migration_denylist": [AGENTS.md]\n',
+                     'instruction_migration_denylist:\n- AGENTS.md\n'):
+            with self.subTest(text=text):
+                _write(self.root / ".bionic.yml", text)
+                self.assertEqual(["AGENTS.md"], im.load_denylist(self.root))
+
+    def test_migration_without_pyyaml_refuses_before_mutation(self):
+        _write(self.root / ".bionic.yml", '"instruction_migration_denylist": [AGENTS.md]\n')
+        _write(self.root / "AGENTS.md", "# Excluded owner instructions\n")
+        _write(self.root / "CLAUDE.md", "# Legacy instructions\n")
+        subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
+        subprocess.run(["git", "add", "AGENTS.md", "CLAUDE.md"], cwd=self.root, check=True)
+        def snapshot():
+            return {p.relative_to(self.root).as_posix(): p.read_bytes()
+                    for p in self.root.rglob("*") if p.is_file()
+                    and ".git" not in p.relative_to(self.root).parts}
+        before = snapshot()
+        # Run the actual mutating entry point with parser unavailability injected.
+        bootstrap = (
+            "import runpy, sys; from pathlib import Path; "
+            "sys.modules['yaml'] = None; "
+            "sys.path.insert(0, str(Path(sys.argv[1]).parent)); "
+            "sys.argv = sys.argv[1:]; runpy.run_path(sys.argv[0], run_name='__main__')"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", bootstrap, str(ENTRY), "--repo-root", str(self.root), "--migrate"],
+            cwd=self.root, capture_output=True, text=True,
+        )
+        self.assertEqual(2, result.returncode, result.stdout + result.stderr)
+        self.assertIn("PyYAML", result.stderr)
+        self.assertEqual(before, snapshot())
+
+    def test_yaml_quoted_paths_and_comments_are_preserved(self):
+        _write(self.root / ".bionic.yml",
+               'instruction_migration_denylist: ["fixtures/a,b/AGENTS.md", "AGENTS.md"] # owner policy\n')
+        self.assertEqual(["fixtures/a,b/AGENTS.md", "AGENTS.md"], im.load_denylist(self.root))
+
+    def test_block_lists_remain_supported_with_yaml_comments(self):
+        _write(self.root / ".bionic.yml",
+               'instruction_migration_denylist:\n  - "AGENTS.md" # root policy\n  - fx/CLAUDE.md\n')
+        self.assertEqual(["AGENTS.md", "fx/CLAUDE.md"], im.load_denylist(self.root))
+
+    def test_primary_configuration_still_takes_precedence(self):
+        _write(self.root / ".bionic.yml", "docs_dir: bionic\n")
+        _write(self.root / ".crux", "instruction_migration_denylist: [AGENTS.md]\n")
+        self.assertEqual([], im.load_denylist(self.root))
+
+    def test_invalid_declared_list_refuses_instead_of_becoming_empty(self):
+        for value in ("AGENTS.md", "{file: AGENTS.md}", "[AGENTS.md, 12]", "[AGENTS.md"):
+            with self.subTest(value=value):
+                _write(self.root / ".bionic.yml", "instruction_migration_denylist: " + value + "\n")
+                with self.assertRaises(im.CapabilityError):
+                    im.load_denylist(self.root)
+
+
 # ------------------------------------------------------------------- discovery
 
 
@@ -318,13 +411,14 @@ class ContainmentTests(TempRepo):
 
 
 def _folding_volume(directory: Path) -> bool:
-    """Does this volume fold letter case? Probed with a throwaway entry."""
-    probe = directory / "fold-probe"
-    probe.write_bytes(b"")
-    try:
-        return os.path.exists(directory / "FOLD-PROBE")
-    finally:
-        probe.unlink()
+    """Does this volume fold letter case? Probed with a throwaway entry.
+
+    The probe lives in a private scratch directory. A fixed name in the shared
+    temp directory raced concurrent importers (parallel_suite workers), and the
+    loser's unlink failed its module import."""
+    with tempfile.TemporaryDirectory(dir=directory) as scratch:
+        (Path(scratch) / "fold-probe").write_bytes(b"")
+        return os.path.exists(Path(scratch) / "FOLD-PROBE")
 
 
 class GitRepoCase(unittest.TestCase):
@@ -675,10 +769,14 @@ class LoneScopeTests(GitRepoCase):
         self.assertEqual((self.root / "fx" / "AGENTS.md").read_bytes(), b"canonical\n")
         self.assertEqual(payload["actions"], [])
 
-    def test_the_entry_point_declares_no_third_party_dependencies(self):
+    def test_the_entry_point_declares_pyyaml_dependency(self):
+        import tomllib
         head = ENTRY.read_text(encoding="utf-8")
         self.assertIn("# /// script", head)
-        self.assertIn("dependencies = []", head)
+        block = head.split("# /// script\n", 1)[1].split("# ///", 1)[0]
+        metadata = tomllib.loads("\n".join(
+            line.removeprefix("#").removeprefix(" ") for line in block.splitlines()))
+        self.assertEqual(["pyyaml>=6.0"], metadata["dependencies"])
 
 
 class RefusalTests(GitRepoCase):

@@ -64,6 +64,33 @@ class WriterTests(unittest.TestCase):
         self.assertEqual(sorted(payload["recorded"]),
                          sorted(["journal/2026-09.md", "journal/index.md", "log.md"]))
 
+    def index_drift_exit(self):
+        """Exit code of the journal-index drift gate over this tree (0 clean, 1 drift)."""
+        gate = SCRIPT_DIR / "generate-journal-index.py"
+        done = subprocess.run(["uv", "run", "--no-config", str(gate), "--dry-run", "--repo-root", str(self.root)],
+                              capture_output=True, text=True, env={**os.environ, "UV_NO_CONFIG": "1"})
+        return done.returncode, done.stdout + done.stderr
+
+    def test_the_journal_index_gate_is_clean_after_every_writer_entry(self):
+        """Acceptance 5 (CYC-0036): the writer regenerates the index on every write, so the drift gate
+        (`generate-journal-index.py --dry-run`, which the cycle's persistent drift-gates check skips)
+        cannot find drift after a journal write."""
+        self.index.write_text("# Journal index\n")
+        result, payload = self.invoke()
+        self.assertEqual((result.returncode, payload["status"]), (0, "complete"), result.stdout)
+        code, output = self.index_drift_exit()
+        self.assertEqual(code, 0, output)
+        result, payload = self.invoke(at="2026-10-02T09:00:00-06:00", body="A second entry in a new month.\n")
+        self.assertEqual((result.returncode, payload["status"]), (0, "complete"), result.stdout)
+        code, output = self.index_drift_exit()
+        self.assertEqual(code, 0, output)
+        # POSITIVE CONTROL: the gate does see drift. An entry written without the writer leaves the
+        # index stale, and the same command exits 1.
+        text = (self.tree / "journal" / "2026-10.md").read_text()
+        (self.tree / "journal" / "2026-10.md").write_text(text + "\n## [2026-10-03 08:00] learning | Hand-written entry\n\nBody.\n")
+        code, output = self.index_drift_exit()
+        self.assertEqual(code, 1, output)
+
     def snapshot(self):
         return {p.name: p.read_bytes() for p in (self.month, self.index, self.log) if p.exists()}
 

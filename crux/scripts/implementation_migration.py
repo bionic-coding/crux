@@ -18,11 +18,14 @@ from pathlib import Path, PurePosixPath
 import yaml
 
 import adr_frontmatter
+import binding_memo
 import bionic_config
 import council_records as cr
 import doctrine_projection as doctrine
 import implementation_approval as ap
 import observation_evidence
+import path_read_memo
+import signed_baseline_memo
 from _yaml_min import CatalogYamlError, CatalogYamlExpansionError, _refuse_duplicate_keys_bounded
 
 Refused = ap.Refused
@@ -79,12 +82,18 @@ def source_identity(entry: dict) -> str:
 def _checked(repo: Path, given) -> tuple[Path, str]:
     from admission_source_io import SourceIO, SourceIORefusal
     path, rel = _raw_source_path(repo, given)
+    root = str(Path(repo).resolve())
+    remembered = path_read_memo.recall("checked", root, rel)
+    if remembered is not None:
+        return remembered[1]
+    before = path_read_memo.stamp(root, rel) if path_read_memo.table() is not None else None
     try:
         with closing(SourceIO(repo)) as source_io:
             _source_path(path, source_io)
             source_io.revalidate()
     except SourceIORefusal:
         raise Refused("migration-symlink-refused") from None
+    path_read_memo.remember("checked", root, rel, None, before, (path, rel))
     return path, rel
 
 
@@ -125,6 +134,11 @@ def _read(repo: Path, given) -> tuple[str, str]:
 def _bounded_read(repo: Path, given, limit: int) -> tuple[str, str]:
     from admission_source_io import SourceIO, SourceIORefusal
     path, rel = _raw_source_path(repo, given)
+    root = str(Path(repo).resolve())
+    remembered = path_read_memo.recall("read", root, rel, limit)
+    if remembered is not None:
+        return remembered[1]
+    before = path_read_memo.stamp(root, rel) if path_read_memo.table() is not None else None
     try:
         with closing(SourceIO(repo)) as source_io:
             metadata = _source_path(path, source_io)
@@ -134,6 +148,7 @@ def _bounded_read(repo: Path, given, limit: int) -> tuple[str, str]:
             source_io.revalidate()
     except (SourceIORefusal, OSError, UnicodeError):
         raise Refused("migration-source-unreadable") from None
+    path_read_memo.remember("read", root, rel, limit, before, (text, rel))
     return text, rel
 
 
@@ -521,18 +536,32 @@ def _inspect_citation_sources(repo: Path, batch: dict, module, files, source_io,
     handles = {rule["handle"] for entry in batch["entries"] for rule in entry["affected_governs"]}
     slugs = {"rule:" + handle.split("/", 1)[1] for handle in handles}
     found = []; kinds = {"governing": [], "historical": []}
+    # A source this scope already read completely, under the same selected tree, whose path
+    # still has the identity it had then, is not walked and read again. Each such path is
+    # compared once more before the scan ends, where the operation's own revalidation would
+    # have caught a change.
+    root = str(repo)
+    selected = str(getattr(source_io, "_selection", {}).get("tree"))
+    reused = []
     for path in sorted(set(files)):
         try:
             path, rel = _checked(repo, path)
-            ap.require(source_io.resolve(path) == path, "migration-symlink-refused")
+            held = path_read_memo.recall("citation-source", root, rel, (MAX_SOURCE_BYTES, selected))
+            if held is None:
+                ap.require(source_io.resolve(path) == path, "migration-symlink-refused")
         except Refused as refusal:
             if refusal.code == "migration-symlink-refused":
                 _with_remedy(refusal, SYMLINK_SOURCE_REMEDY)
             raise
-        metadata = source_io.metadata(path)
-        ap.require(metadata is not None, "migration-source-unreadable")
-        ap.require(metadata["st_size"] <= MAX_SOURCE_BYTES, "migration-source-oversize")
-        text = source_io.read_bytes(path, max_bytes=MAX_SOURCE_BYTES).decode("utf-8")
+        if held is None:
+            before = path_read_memo.stamp(root, rel) if path_read_memo.table() is not None else None
+            metadata = source_io.metadata(path)
+            ap.require(metadata is not None, "migration-source-unreadable")
+            ap.require(metadata["st_size"] <= MAX_SOURCE_BYTES, "migration-source-oversize")
+            text = source_io.read_bytes(path, max_bytes=MAX_SOURCE_BYTES).decode("utf-8")
+            path_read_memo.remember("citation-source", root, rel, (MAX_SOURCE_BYTES, selected), before, text)
+        else:
+            reused.append((rel, held[0])); text = held[1]
         occurrences = [{"token": match[0], "start": match.start(), "end": match.end()}
             for pattern, wanted in ((module.HANDLE_RE, handles), (module.RULE_RE, slugs))
             for match in pattern.finditer(text) if match[0] in wanted]
@@ -546,6 +575,9 @@ def _inspect_citation_sources(repo: Path, batch: dict, module, files, source_io,
             partition = {"governing": [], "historical": occurrences}
         else: partition = {"governing": occurrences, "historical": []}
         for key in kinds: kinds[key] += [dict(row, path=rel) for row in partition[key]]
+    if any(path_read_memo.stamp(root, rel) != expected for rel, expected in reused):
+        from admission_source_io import SourceIORefusal
+        raise SourceIORefusal()
     return found, kinds
 
 
@@ -948,7 +980,7 @@ def _publication_subject(repo: Path, publication: dict):
                isinstance(batch_ref["path"], str), "migration-publication-shape-refused")
     _checked(repo, batch_ref["path"])
     run_path, _ = _checked(repo, witness["run_path"])
-    proof = ap.validate_historical_migration_binding(repo, run_path, slot=witness["slot"],
+    proof = binding_memo.validate_historical_migration_binding(repo, run_path, slot=witness["slot"],
         batch_path=batch_ref["path"], batch_sha256=batch_ref["sha256"])
     ap.require(all(witness[key] == proof.binding[key] for key in
                ("book_id", "run_id", "book_content_hash", "slot", "gate_prompt", "batch")) and
@@ -1009,7 +1041,7 @@ def _pending_close(repo: Path, pending: dict):
                     matches += [path for entry in entries if
                         {key: entry.get(key) for key in _PUBLICATION_CLOSE_KEYS} == close]
             ap.require(len(matches) == 1, "migration-pending-close-refused")
-            proof = ap.validate_historical_migration_binding(repo, matches[0], slot=close["slot"],
+            proof = binding_memo.validate_historical_migration_binding(repo, matches[0], slot=close["slot"],
                 batch_path=subject["path"], batch_sha256=subject["sha256"])
             run_rel = _checked(repo, matches[0])[1]
             raw = _publication_locator_bytes(proof, run_rel)
@@ -1215,12 +1247,12 @@ def _unchanged_inputs(repo: Path, fingerprints: list[dict]) -> None:
     """Accept-only fast path over `_unchanged_input`: two listings and one two-call `cat-file`
     batch replace three git children per path. An item the fast path cannot vouch for takes the
     per-path check, so the fast path never refuses an item. The fast path is off when
-    `_repository_state` is None (for example, a linked worktree). When the state bytes move
+    `_repository_state` is None (for example, a reftable store). When the state bytes move
     during the loop, the entries the fast path relied on are compared again: a stat-only index
     rewrite is accepted, and a changed index or HEAD entry for a path the fast path accepted is
     refused."""
     import git_read_cache
-    before = git_read_cache._repository_state(repo)
+    before = git_read_cache._repository_state(repo, linked=True)
     candidates: dict[str, str] = {}
     blobs: dict[str, bytes] = {}
     index = head = None
@@ -1252,7 +1284,7 @@ def _unchanged_inputs(repo: Path, fingerprints: list[dict]) -> None:
             fast.add(rel)
             continue
         _unchanged_input(repo, item)
-    if fast and git_read_cache._repository_state(repo) != before:
+    if fast and git_read_cache._repository_state(repo, linked=True) != before:
         # The state bytes include the index's stat data, which `git status` rewrites with no
         # content change. Decide on the entries the fast path relied on.
         now_index = _listing(repo, "ls-files", "-s", "-z")
@@ -1367,10 +1399,28 @@ def _disposition_inputs(repo: Path, batch: dict, historical: dict, signed: list[
     return fingerprints
 
 
+def _signed_baseline_at(repo: Path, revision: str) -> list[dict]:
+    """The signed baseline of `revision`, read from a clone once per commit and process.
+
+    The revision is checked on every call exactly as the clone path checks it, and a
+    baseline is stored only after the clone read succeeded, so a refusal is never
+    remembered. The stored baseline is a function of the commit's tree alone."""
+    ap.full_history(repo)
+    resolved = _revision_git(repo, "rev-parse", "--verify", "--end-of-options", revision + "^{commit}")
+    ap.require(resolved.returncode == 0, "migration-query-revision-refused")
+    commit = resolved.stdout.decode().strip()
+    remembered = signed_baseline_memo.recall(commit)
+    if remembered is not None:
+        return remembered
+    with _revision_repository(repo, revision) as isolated:
+        baseline, _ = _signed_inventory(isolated, _configuration(isolated).docs_root)
+    signed_baseline_memo.remember(commit, baseline)
+    return baseline
+
+
 def _published_signed_inputs(repo: Path, batch: dict, publication: dict) -> tuple[list[dict], tuple]:
     """Proven first publication binds completeness; current additions bind no authority."""
-    with _revision_repository(repo, publication["publication_commit"]) as isolated:
-        baseline, _ = _signed_inventory(isolated, _configuration(isolated).docs_root)
+    baseline = _signed_baseline_at(repo, publication["publication_commit"])
     ap.require(baseline == batch["signed_dependencies"], "migration-signed-dependency-drift")
     tree = _configuration(repo).docs_root
     current, _ = _signed_inventory(repo, tree)
@@ -2294,10 +2344,11 @@ def read_scope():
     nested scope shares the outer one.
     """
     import git_read_cache
+    import yaml_read_memo
     if _VIEW_MEMO.get() is not None:
         yield
         return
-    with git_read_cache.scope():
+    with git_read_cache.scope(), yaml_read_memo.scope():
         token = _VIEW_MEMO.set({})
         try:
             yield
@@ -2307,7 +2358,7 @@ def read_scope():
 
 def _view_key(repo: Path):
     import git_read_cache
-    state = git_read_cache._repository_state(str(repo))
+    state = git_read_cache._repository_state(str(repo), linked=True)
     return None if state is None else (str(repo), state, tuple(sorted(os.environ.items())))
 
 
@@ -2318,8 +2369,9 @@ def _publication_rows(publications) -> list:
 def authority_view(repo_root, *, revision=None) -> dict:
     """Read this checkout, or an explicitly named isolated historical revision."""
     import git_read_cache
+    import yaml_read_memo
     repo = Path(repo_root).resolve()
-    with git_read_cache.scope():
+    with git_read_cache.scope(), yaml_read_memo.scope():
         return _authority_view(repo, revision)
 
 
@@ -2354,7 +2406,34 @@ def _authority_view(repo: Path, revision) -> dict:
         raise Refused("migration-authority-input-invalid") from None
 
 
+_BOUNDARY_MEMO = contextvars.ContextVar("crux_authority_boundary_memo", default=None)
+
+
+@contextmanager
+def _evaluation_scope():
+    """One authority-view computation, nested clone views included, shares one memo.
+
+    The memo holds only the result of a parent-commit boundary proof that already
+    succeeded. Its key names the commit, so the same historical approval is run once
+    per evaluation. A refusal is never stored. The memo is dropped when the outermost
+    computation ends; nothing persists.
+    """
+    if _BOUNDARY_MEMO.get() is not None:
+        yield
+        return
+    token = _BOUNDARY_MEMO.set({})
+    try:
+        yield
+    finally:
+        _BOUNDARY_MEMO.reset(token)
+
+
 def _computed_authority_view(repo: Path) -> dict:
+    with _evaluation_scope():
+        return _compute_authority_view(repo)
+
+
+def _compute_authority_view(repo: Path) -> dict:
     head = cr.git(repo, "rev-parse", "HEAD")
     ap.require(head.returncode == 0, "history-unavailable")
     publications = _discover_publications(repo)

@@ -1993,7 +1993,9 @@ def _alive(pid: int) -> bool:
 # A bare `uv run <this driver>` builds an isolated interpreter from the driver's PEP 723 block,
 # which declares no dependency. Discovery then failed on an import, and the run exited 1 (the
 # test-failure lane) for a fault in the environment. The driver now probes the interpreter its
-# workers use, before discovery, and exits 2 naming the working command.
+# workers use, before discovery, and exits 3 naming the working command. Exit 3 is its own
+# code, not 2, because the evidence engine records an exit 2 as a failed run and an interpreter
+# refusal began no test.
 
 SUITE_COMMAND = "uv run python3 crux/scripts/tests/parallel_suite.py crux/scripts/tests"
 REPO = HERE.parents[2]
@@ -2133,7 +2135,7 @@ def third_party_imports(entries, scripts_dir: Path, count_guarded: bool = True,
 
 
 class PluginSuiteInterpreterTests(unittest.TestCase):
-    """The driver refuses, at exit 2 and before discovery, an interpreter that cannot import the
+    """The driver refuses, at exit 3 and before discovery, an interpreter that cannot import the
     plugin suite's third-party modules.
 
     Hermetic fixture: a stdlib `venv.create(with_pip=False)` interpreter reproduces the isolated
@@ -2162,7 +2164,7 @@ class PluginSuiteInterpreterTests(unittest.TestCase):
                               timeout=RUN_TIMEOUT)
 
     def _assert_refused(self, proc, missing: str):
-        self.assertEqual(proc.returncode, 2, proc.stderr)
+        self.assertEqual(proc.returncode, 3, proc.stderr)
         self.assertEqual(proc.stdout, "")
         self.assertIn("parallel_suite: FAILED CLOSED", proc.stderr)
         self.assertIn(SUITE_COMMAND, proc.stderr)
@@ -2253,7 +2255,7 @@ class PluginSuiteInterpreterTests(unittest.TestCase):
         proc = subprocess.run([sys.executable, "-S", str(DRIVER), str(HERE), "-p",
                                "test_arch_facts.py"], cwd=REPO, capture_output=True, text=True,
                               timeout=RUN_TIMEOUT)
-        self.assertEqual(proc.returncode, 2, proc.stderr)
+        self.assertEqual(proc.returncode, 3, proc.stderr)
         self.assertIn("parallel_suite: FAILED CLOSED", proc.stderr)
         self.assertIn("yaml", proc.stderr)
 

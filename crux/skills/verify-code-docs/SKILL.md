@@ -15,12 +15,12 @@ metadata:
 <!-- BEGIN GENERATED: runtime-compat -->
 ## Runtime compatibility
 
-This skill is portable across Claude Code, Codex, and OpenCode. This section overrides platform-specific labels below.
+This skill is portable across Claude Code, Codex, OpenCode, and OMP (Oh My Pi). This section overrides platform-specific labels below.
 
-- Before running a command that uses `CRUX_PLUGIN_ROOT`, set it to the installed plugin root. In Claude Code, use the value of `CLAUDE_PLUGIN_ROOT`. In Codex and OpenCode, derive it from the absolute path of this selected `SKILL.md`: the plugin root is the parent of its `skills/` directory. In a source checkout, use the checkout `crux/` directory.
-- For project-local skills, use `.claude/skills` in Claude Code, `.agents/skills` in Codex, and `.opencode/skills` in OpenCode, which also reads the singular `.opencode/skill`. Set `CRUX_LOCAL_SKILLS_DIR` to that path before following any command below that uses it.
-- Translate Claude Code tool labels such as `Agent`, `Read`, `Write`, `Bash`, `WebSearch`, and `WebFetch` to the matching capability in the current session. Codex names its own capabilities; OpenCode uses the lowercase forms `subagent`, `read`, `edit`, `shell`, `websearch`, and `webfetch`, where `edit` covers both `Edit` and `Write`. Do not attempt to invoke the Claude Code labels as literal commands on another host.
-- Install the generated role agents before delegating: `install-codex-agents` in Codex, `install-opencode-agents` in OpenCode. Codex names them `crux_architect`, `crux_brainstormer`, `crux_commander`, `crux_dev_lead`, `crux_developer`, `crux_historian`, `crux_librarian`, `crux_night_gardener`, `crux_reviewer`, and `crux_wayfinder`; OpenCode uses the bare role names `architect`, `brainstormer`, `commander`, `dev-lead`, `developer`, `historian`, `librarian`, `night-gardener`, `reviewer`, and `wayfinder`. If a required role or capability is unavailable, report that truthfully instead of claiming it ran.
+- Before running a command that uses `CRUX_PLUGIN_ROOT`, set it to the installed plugin root. In Claude Code, use the value of `CLAUDE_PLUGIN_ROOT`. In Codex, OpenCode, and OMP, derive it from the absolute path of this selected `SKILL.md`: the plugin root is the parent of its `skills/` directory (in OMP `bash`, `skill://<name>` resolves to the skill directory). In a source checkout, use the checkout `crux/` directory.
+- For project-local skills, use `.claude/skills` in Claude Code, `.agents/skills` in Codex, `.opencode/skills` in OpenCode (which also reads the singular `.opencode/skill`), and `.omp/skills` in OMP. Set `CRUX_LOCAL_SKILLS_DIR` to that path before following any command below that uses it.
+- Translate Claude Code tool labels such as `Agent`, `Read`, `Write`, `Bash`, `WebSearch`, and `WebFetch` to the matching capability in the current session. Codex names its own capabilities; OpenCode uses the lowercase forms `subagent`, `read`, `edit`, `shell`, `websearch`, and `webfetch`, where `edit` covers both `Edit` and `Write`; OMP uses `task`, `read`, `edit`, `write`, `bash`, `grep`, `glob`, `find`, `todo`, and `web_search` (where `read` also handles URLs and `skill://` URIs). Do not attempt to invoke the Claude Code labels as literal commands on another host.
+- Install the generated role agents before delegating: `install-codex-agents` in Codex, `install-opencode-agents` in OpenCode, `install-omp-agents` in OMP. Codex names them `crux_architect`, `crux_brainstormer`, `crux_commander`, `crux_dev_lead`, `crux_developer`, `crux_historian`, `crux_librarian`, `crux_night_gardener`, `crux_reviewer`, and `crux_wayfinder`; OpenCode and OMP use the bare role names `architect`, `brainstormer`, `commander`, `dev-lead`, `developer`, `historian`, `librarian`, `night-gardener`, `reviewer`, and `wayfinder` (in OMP, `scout` may also be used for reconnaissance alongside `wayfinder`). If a required role or capability is unavailable, report that truthfully instead of claiming it ran.
 - Argument placeholders such as `$adr` and `$book` bind only in Claude Code. On a host without argument binding they are unset — take the value from the user's phrase. The "Fields OpenCode ignores" section of `OPENCODE_GUIDE.md` names the invocation-control fields OpenCode ignores.
 <!-- END GENERATED: runtime-compat -->
 
@@ -50,7 +50,7 @@ Do **not** use this skill for:
 
 ## Preconditions
 
-1. `docs/manifest.yml` exists and lists at least one entry under `code.extractors[]`. If absent, refuse cleanly: "No code extractors configured in `docs/manifest.yml`. Run `init-docs` or edit the manifest first."
+1. When no extractor is configured, the dispatcher exits `0` with `"surface_absent": true` and a `reason`. Read that payload before any clean or first-run framing: it ends the run with no verification and no log entry. Report the reason and the fix: configuring `code.extractors` in `docs/manifest.yml`. The user makes that decision. Never edit `docs/manifest.yml` to make a run succeed.
 2. The dispatcher script exists at `${CRUX_PLUGIN_ROOT}/scripts/extract-code-docs.py`. If absent, refuse: "Plugin install incomplete: `extract-code-docs.py` not found. Reinstall Crux using `install-docs-skills`."
 3. `docs/code/_meta/manifest.json` may be absent. When `docs/code/` is also absent or holds no regular `*.md` file, this is a first run: every page shows in `pages.missing`, and `metadata_drift` and `index_drift` are `true`. Surface this clearly in the report. When `docs/code/` holds any regular `*.md` file and has no valid `_meta/manifest.json`, the dispatcher cannot prove it generated that directory, so it refuses. The refusal is exit `1`, a `validation_errors` payload and no `drift` key. That is an ownership refusal, not a first run.[^owned-root]
 
@@ -63,7 +63,7 @@ Execute in order. Never reorder, never skip.
 Run from the repo root:
 
 ```bash
-uv run --no-config "${CRUX_PLUGIN_ROOT}/scripts/extract-code-docs.py" --dry-run --config docs/manifest.yml
+uv run --no-config "${CRUX_PLUGIN_ROOT}/scripts/extract-code-docs.py" --dry-run
 ```
 
 `--no-config` makes `uv` ignore any `uv.toml` file or `[tool.uv]` table,
@@ -71,12 +71,9 @@ repository or user-level. A private package index must instead be named
 through an environment variable such as `UV_INDEX_URL` or `UV_DEFAULT_INDEX`.
 This is a trust boundary against configuration files, not supply-chain
 protection: it authenticates no index, artifact or environment
-variable.[^uv-no-config] This was measured on uv 0.12.13; other uv releases are
-unverified for `--no-config` itself. Separately, a Linux container running uv
-0.9.30 also resolved `griffelib` under `--no-config`; no broader claim follows
-from that one run.
+variable.[^uv-no-config]
 
-Capture stdout (the drift report — JSON per the dispatcher's contract) and stderr (extractor-level warnings, per-plugin messages).
+Capture stdout (the drift report — JSON per the dispatcher's contract) and stderr (extractor-level warnings, per-plugin messages). Surface every stderr warning in the report.
 
 **Exit-code semantics (do not get this wrong).** There are two outcomes, clean and
 drift, and three refusal lanes a `--dry-run` can reach. Never conflate them. The
@@ -106,7 +103,7 @@ refusal in write mode, never occurs under `--dry-run`.
   regenerator run fixes it; the named path and cause must be repaired
   first.[^content-refusal-is-validation]
 - `1` + **empty stdout, a message on stderr**: a configuration error, distinct
-  from both lanes above. The `--config` path does not exist, `--lang KEY`
+  from both lanes above. The manifest path does not exist, `--lang KEY`
   names a key the manifest does not configure, or `.bionic.yml`/`.crux` cannot
   be resolved. Nothing was rendered or compared. Fix the configuration and
   rerun.
@@ -121,7 +118,8 @@ In other words: try to parse stdout as JSON FIRST. A `drift` key present
 distinguishes "clean" (`false`) from "drift" (`true`). A `validation_errors`
 array with no `drift` key is a BROKEN-input finding, not drift. Empty stdout
 on any non-zero exit is either a configuration error (exit 1) or an
-environment failure (exit 2, or `uv`'s own code) — never drift.
+environment failure (exit 2, or `uv`'s own code) — never drift. The verdict
+comes only from the dispatcher's output, never from files on disk.
 
 If diagnosed as an environment failure:
 - Suggest fixes: an offline environment needs one prior online run so `uv` has
@@ -193,7 +191,7 @@ Rows: A added / C changed / R removed (from `detail`).
 Unowned (reported, not drift): <list, or none>
 ```
 
-Take every count from the `pages` lists and the two booleans. Never report drift from the `detail` counts alone.
+Take every count from the `pages` lists and the two booleans. Never report drift from the `detail` counts alone. Report every drift the dispatcher names, however small.
 
 If the on-disk manifest was absent and the dispatcher reported drift rather than a refusal, `docs/code/` held no regular `*.md` file, so frame the report as "first run":
 
@@ -219,20 +217,18 @@ Want the exact command to run? (y/n — defaults to n)
 ```
 
 **What the prompt does (it never regenerates):** this skill is read-only and never calls `extract-code-docs` itself. The prompt is *not* an offer to regenerate — it only asks whether to **print the exact invocation** for the user to run themselves:
-- **"yes"** = print the literal `uv run --no-config "${CRUX_PLUGIN_ROOT}/scripts/extract-code-docs.py" --config docs/manifest.yml` command (and a one-line reminder that the user must run it). Nothing under `docs/code/` is touched.
+- **"yes"** = print the literal `uv run --no-config "${CRUX_PLUGIN_ROOT}/scripts/extract-code-docs.py"` command (and a one-line reminder that the user must run it). Nothing under `docs/code/` is touched.
 - **"no"** (or a non-interactive / CI trigger) = skip printing the command and exit cleanly with the report.
 
 Either way, regeneration is a separate, explicit user action. This keeps the verify/extract responsibility split clean:
 - `verify-code-docs` is read-only.
 - `extract-code-docs` is the only writer to `docs/code/`.
 
-After the prompt resolves, log the lint entry per step 5 (subject to `--no-log`/`--ci`; see below).
+After the prompt resolves, continue to step 5.
 
 ### 5. Append to `docs/log.md`
 
-**First check `--no-log` / `--ci`.** If the invocation passed `--no-log` (alias `--ci`), **skip this entire step** — do not append anything to `docs/log.md`. This is the only effect of the flag: it suppresses the `lint` log entry for frequent, non-interactive runs (CI gates, pre-push hooks) that would otherwise spam `docs/log.md` with one entry per push. The drift report (steps 2–3) and the exit-code semantics (step 1) are unchanged; only the log append is suppressed. When the flag is absent, log exactly as below.
-
-> **Flag scope:** `--no-log`/`--ci` is a **skill-level** flag this skill checks here before writing the log entry. It does **not** belong to the underlying dispatcher. If a caller wants to pass it through the dispatcher CLI, the `extract-code-docs.py` dispatcher must learn to accept (and ignore for extraction purposes) `--no-log`/`--ci` so the dry-run invocation in step 1 doesn't error on an unknown flag — **that dispatcher-side change is out of this SKILL.md's scope and is flagged for the developer.** As specified here, the skill reads the flag from its own invocation and gates step 5 on it; step 1's dispatcher command stays exactly as written (no `--no-log` appended to it).
+**First check `--no-log` / `--ci`.** If the invocation passed either, skip this step.
 
 One entry (newest-first):
 
@@ -292,50 +288,13 @@ carries no directive.
 
 ## Verification checklist
 
-- [ ] `docs/manifest.yml` was read and at least one extractor is configured.
-- [ ] The dispatcher was invoked as `uv run --no-config ... --dry-run --config docs/manifest.yml`.
+- [ ] The dispatcher was invoked as `uv run --no-config ... --dry-run`.
 - [ ] No file under `docs/code/` was created, modified, or deleted by this skill.
 - [ ] No file under `docs/code/_meta/` was modified by this skill.
 - [ ] The verdict is the payload's `drift` value, and the edited / missing / unexpected lists, `index_drift` and `metadata_drift` in the report match the dispatcher's output.
 - [ ] The "Run `extract-code-docs` to regenerate" prompt was shown verbatim when drift exists.
 - [ ] The skill did NOT invoke `extract-code-docs` itself — the user must run it explicitly.
-- [ ] One `lint` op entry was appended to top of `docs/log.md` — even on zero drift — **unless** `--no-log`/`--ci` was passed, in which case NO log entry was written (and that was the only behavioral change).
-
-## Red flags — STOP and reconsider
-
-- About to write to `docs/code/` directly. **Never.** This skill is read-only.
-- About to call `extract-code-docs` from inside this skill because "the drift is obvious". **Never.** The split between verify and extract is intentional.
-- About to suppress the drift report because "it's a tiny diff". The user decides what's tiny. Show the report.
-- About to skip the log entry because "no drift means nothing happened". A verification IS something that happened — log it. (The **only** sanctioned skip is an explicit `--no-log`/`--ci` invocation; "it was quiet" is not a reason.)
-- About to fall back to a manual file-by-file diff because the dispatcher errored. The dispatcher is the source of truth; if it can't run, fix it, don't bypass.
-- About to claim "in sync" without actually running the dispatcher (e.g., reading `_meta/manifest.json` mtime and inferring). Run the dispatcher.
-- About to edit `docs/manifest.yml` to "make it work". Manifest edits are an explicit user decision; not part of this skill.
-- About to claim drift without the dispatcher's structured output to back it up. The skill reports what the dispatcher says, full stop.
-
-## Rationalization table
-
-| Excuse | Reality |
-|--------|---------|
-| "The diff is one whitespace change — call it in-sync." | The dispatcher computes the diff; the dispatcher decides. If it says `drift: true`, report it. |
-| "I'll just go ahead and regenerate since the user clearly wants up-to-date docs." | No. Verify and regenerate are two separate user decisions. Surface drift; let the user invoke `extract-code-docs`. |
-| "The extractor warned about an unsupported language; I'll ignore that." | Don't ignore stderr. Surface every warning the dispatcher emitted. |
-| "There's no `_meta/manifest.json` — that's an error." | Not when `docs/code/` is absent or holds no regular `*.md` file: that is a first run. Frame it as one and offer to populate. When `docs/code/` holds a regular `*.md` file, the dispatcher refuses the directory as unowned; report that `validation_errors` finding as BROKEN input. |
-| "Manual edits in `docs/code/foo.md` are useful; I should preserve them in the diff." | Manual edits are explicitly out of contract. The next regenerate erases them. This skill flags drift, not edits-to-preserve. |
-| "I'll write the log entry only if there's drift." | Always log — drift or not. The one exception is an explicit `--no-log`/`--ci` run, which suppresses the entry by design for high-frequency CI/pre-push gates. |
-| "The CI hook is non-interactive; I'll auto-regenerate so the merge can proceed." | Never auto-regenerate. CI hooks should fail loud on drift; regeneration is a human (or scheduled) decision. |
-| "I can read the dispatcher's exit code and infer the answer without parsing stdout." | Exit 1 covers drift, a content refusal and a configuration error. Always parse the drift report. |
-
-## Common mistakes
-
-- **Auto-invoking `extract-code-docs`** when drift is found. The split is intentional — this skill is read-only.
-- **Skipping the log entry on zero drift**. Verification with no drift is still a verification event — log it (unless `--no-log`/`--ci` was passed, the one sanctioned suppression).
-- **Reading the exit code without the payload**. Exit 0 with `drift: false` is clean. Exit 1 has three meanings: drift, a content refusal, or a configuration error. Only the parsed stdout tells them apart.
-- **Using the `audit` op in the log** instead of `lint`. The op enum is fixed; this skill is `lint`.
-- **Reading `_meta/manifest.json` directly to compare**, bypassing the dispatcher. The on-disk manifest is one side of the diff; the freshly-extracted manifest is the other. The dispatcher computes both — don't reinvent.
-- **Suggesting the user hand-edit `docs/code/<file>.md`** to fix drift. Hand-edits are lost. Edits must land in the source file's doc-comment.
-- **Calling the dispatcher without `--config docs/manifest.yml`** — it relies on the manifest to know which extractors to enable.
-- **Promising the user that "no drift now" means stable indefinitely.** Drift accumulates as source changes. The check is point-in-time.
-- **Judging drift from the `added`/`changed`/`removed` counts**. They describe metadata rows. A hand-edited page has zero row changes and is still `edited` drift.
+- [ ] Step 5 was followed.
 
 [^uv-no-config]: rule:code-doc-callers-invoke-through-uv
 [^dry-run-bytes]: rule:code-doc-dry-run-compares-output-bytes

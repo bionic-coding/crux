@@ -1,0 +1,35 @@
+{
+  "ADR-0111/personal-agent-scope": {
+    "authority": "prescriptive",
+    "disposition": "decided",
+    "provenance": "authored",
+    "review_state": "accepted-with-adr",
+    "rule": "Codex agent installation defaults to the personal agent directory, keeps project installation explicit, and preserves the reserved namespace, no-clobber, and containment guarantees at either scope.",
+    "source_adr": "ADR-0111",
+    "source_status": "Accepted"
+  },
+  "ADR-0112/personal-codex-agents-are-dogfood": {
+    "authority": "prescriptive",
+    "disposition": "decided",
+    "provenance": "authored",
+    "review_state": "accepted-with-adr",
+    "rule": "The Crux development checkout carries no project-local Codex agent projection; personal agents are its dogfood configuration, while project installation remains an explicit user choice.",
+    "source_adr": "ADR-0112",
+    "source_status": "Accepted"
+  },
+  "ADR-0113/per-agent-codex-runtime-override": {
+    "authority": "prescriptive",
+    "disposition": "decided",
+    "provenance": "authored",
+    "review_state": "accepted-with-adr",
+    "rule": "An agent may carry a complete Codex runtime override only when an Accepted ADR authorizes the exception; otherwise Codex resolves from its level, and both paths pass the same validation and provenance rules.",
+    "source_adr": "ADR-0113",
+    "source_status": "Accepted"
+  },
+  "retired_slugs": {},
+  "slugs": {
+    "per-agent-codex-runtime-override": "ADR-0113/per-agent-codex-runtime-override",
+    "personal-agent-scope": "ADR-0111/personal-agent-scope",
+    "personal-codex-agents-are-dogfood": "ADR-0112/personal-codex-agents-are-dogfood"
+  }
+}

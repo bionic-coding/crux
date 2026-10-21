@@ -55,6 +55,7 @@ not the counter — and reports the sheet it would have written.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import sys
 from datetime import date
@@ -139,12 +140,16 @@ def scaffold(root: Path, docs_dir: str | None, *, today: str,
     import observation_admission as admission
     layout = admission._load_layout(root, docs_dir=docs_dir)
     try:
-        return _scaffold(layout, today=today, dry_run=dry_run)
+        # The read phase shares one admission context; `_scaffold` closes `reads`
+        # before its first write, so nothing after a write is answered from memory.
+        with contextlib.ExitStack() as reads:
+            reads.enter_context(admission.context_reuse())
+            return _scaffold(layout, today=today, dry_run=dry_run, reads=reads)
     finally:
         layout["source_io"].close()
 
 
-def _scaffold(layout, *, today, dry_run):
+def _scaffold(layout, *, today, dry_run, reads):
     import observation_admission as admission
     root, tree, source_io = layout["root"], layout["tree"], layout["source_io"]
     # `--docs-dir` is an operator-supplied component joined onto a validated
@@ -292,6 +297,7 @@ def _scaffold(layout, *, today, dry_run):
 
     # The counter moves FIRST. Over-allocation is safe (a burnt number is a
     # number nobody signs); reuse is not (two batches under one id).
+    reads.close()
     try:
         admission._revalidate(context)
     except (ValueError, OSError, RuntimeError) as exc:

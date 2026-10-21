@@ -6,13 +6,16 @@ the installed reader. Original standing comes from that parent; source bytes,
 amenders and material dependencies must still match in the current checkout.
 """
 from contextlib import contextmanager
+from copy import deepcopy
 import json
 import importlib.util
+import os
 from pathlib import Path
 import subprocess
 import sys
 
 import adr_migration as m
+import migration_receipts as receipts
 from cycle_workflow import CycleError, atomic, contained, digest, encoded, tree
 
 
@@ -85,22 +88,48 @@ def inventory(repo):
     return rows
 
 
-def validate_boundary(repo, approval_path, parent, *, _with_standing=False):
+def validate_boundary(repo, approval_path, parent, *, _with_standing=False, receipt=None):
     """Execute exactly the previously committed reader, in its clean repository.
 
     The parent code must independently approve; a relaxed candidate cannot rescue
     its refusal. This is one narrow validation, not another suite execution.
+
+    `receipt` carries the publication identity and the approval and package bindings
+    of a committed publication read. Only it lets a trusted replay receipt stand in
+    for the reader run.
     """
     import implementation_migration as historical
     repo=Path(repo).resolve();m.full_commit(repo,parent)
+    # Inside one authority-view computation the same parent commit and approval
+    # path name the same immutable proof. An earlier success is reused; a refusal
+    # is never stored. The candidate approval below always runs against `repo`.
+    memo=historical._BOUNDARY_MEMO.get()
+    key=None
+    if memo is not None and m._STANDING_BASIS.get() is None:
+        key=(parent,approval_path,sys.executable,tuple(sorted(os.environ.items())))
+    if key is not None and key in memo:baseline=deepcopy(memo[key])
+    else:
+        baseline=_prior_baseline(repo,approval_path,parent,historical,receipt)
+        if key is not None:memo[key]=deepcopy(baseline)
+    token=m._STANDING_BASIS.set(baseline)
+    try:
+        approval=m.validate_approval(repo,approval_path)
+        return (approval,baseline) if _with_standing else approval
+    finally:m._STANDING_BASIS.reset(token)
+
+
+def _prior_baseline(repo, approval_path, parent, historical, receipt=None):
+    """Run the parent's own approval reader in its clean clone; return its standing."""
     with historical._revision_repository(repo,parent) as previous:
         script=previous/'crux/scripts/adr-migration.py'
+        source,support='parent-tree',None
         if not script.is_file():
             # Consuming projects keep the plugin installed, not vendored. The
             # earlier committed receipt must prove those exact installed bytes;
             # absence of source is never permission to substitute another reader.
             prior=m.load(previous,approval_path,'approval')
             support=prior['readiness']
+            source='installed-support'
             package=m.load(previous,prior['package']['path'],'package')
             if package['initial'] or support.get('format')!='crux.adr-migration-installed-support.v1':
                 raise CycleError('parent migration validator is unavailable')
@@ -109,22 +138,32 @@ def validate_boundary(repo, approval_path, parent, *, _with_standing=False):
             expected=next((r['sha256'] for r in support['sources'] if r['path']=='scripts/adr-migration.py'),None)
             if not script.is_file() or digest(script.read_bytes())!=expected:
                 raise CycleError('parent installed validator source changed')
-        try:
-            result=subprocess.run([sys.executable,str(script),'approval','--repo-root',str(previous),'--path',approval_path],
-                capture_output=True,env=historical._revision_environment(),timeout=PRIOR_READER_TIMEOUT_SECONDS)
-        except subprocess.TimeoutExpired:
-            raise CycleError(f'parent migration validator exceeded {PRIOR_READER_TIMEOUT_SECONDS} second budget; disposition approval was not accepted') from None
-        if result.returncode:raise CycleError('parent migration validator refused disposition approval')
+        # Only this subprocess is replaced by a trusted receipt. Every check above and
+        # the standing computation below run on every read that reaches this function.
+        facts=None
+        if receipt is not None:
+            facts=dict(receipt,parent=parent,reader=receipts.reader_binding(source,script.read_bytes(),support))
+        if facts is None or not receipts.consult(facts):
+            try:
+                result=subprocess.run([sys.executable,str(script),'approval','--repo-root',str(previous),'--path',approval_path],
+                    capture_output=True,env=historical._revision_environment(),timeout=PRIOR_READER_TIMEOUT_SECONDS)
+            except subprocess.TimeoutExpired:
+                raise CycleError(f'parent migration validator exceeded {PRIOR_READER_TIMEOUT_SECONDS} second budget; disposition approval was not accepted') from None
+            if result.returncode:raise CycleError('parent migration validator refused disposition approval')
+            if facts is not None:receipts.replayed(facts)
         # This is source standing, not an exemption for later byte drift.
         baseline=m.current_standing(previous)
-    token=m._STANDING_BASIS.set(baseline)
-    try:
-        approval=m.validate_approval(repo,approval_path)
-        return (approval,baseline) if _with_standing else approval
-    finally:m._STANDING_BASIS.reset(token)
+    return baseline
 
 
 def publication_facts(repo, publication):
+    # The outermost call opens the receipts scope over the tree being read; a nested
+    # call inside a clone view reuses it and closes nothing.
+    with receipts.scope(repo):
+        return _publication_facts(repo,publication)
+
+
+def _publication_facts(repo, publication):
     repo=Path(repo).resolve();path=publication['path']
     record=m.load(repo,path,'publication')
     commit=publication['publication_commit']
@@ -135,7 +174,9 @@ def publication_facts(repo, publication):
             raise CycleError('publication evidence must exist before activation')
         m.bound_bytes(repo,ref)
     with m.published_objectives(repo,record['package']['path'],parent):
-        approval,baseline=validate_boundary(repo,record['approval']['path'],parent,_with_standing=True)
+        identity=dict(id=record['id'],path=path,sha256=publication['sha256'],publication_commit=commit)
+        approval,baseline=validate_boundary(repo,record['approval']['path'],parent,_with_standing=True,
+            receipt=dict(publication=identity,approval=record['approval'],package=record['package']))
     if approval['package']!=record['package']:raise CycleError('publication package differs from approval')
     if record.get('owner_exception')!=approval.get('owner_exception'):
         raise CycleError('publication owner exception differs from approval')
@@ -275,7 +316,7 @@ def stage_transaction(repo, candidate_path, changes, *, initial_scope=None, faul
         path=contained(repo,name)
         if name in protected or name.split('/')[0]=='.git' or name.endswith('.application.json') or name.startswith((docs+'/adrs/acceptances/',
              docs+'/adrs/councils/',docs+'/adrs/migrations/approvals/',docs+'/adrs/migrations/policies/',
-             docs+'/promptbooks/',docs+'/cycles/')):
+             docs+'/adrs/migrations/receipts/',docs+'/promptbooks/',docs+'/cycles/')):
             raise CycleError('transaction cannot write approval, configuration, objectives or historical proof')
         if path.parent==cfg.docs_root/'adrs' or path.is_relative_to(cfg.docs_root/'adrs/reviews') and path.name!='index.md':
             raise CycleError('transaction preserves historical bodies and reports')
@@ -296,7 +337,7 @@ def stage_transaction(repo, candidate_path, changes, *, initial_scope=None, faul
         path=contained(repo,name)
         if name in protected or name.endswith('.application.json') or name.startswith((docs+'/adrs/acceptances/',
              docs+'/adrs/councils/',docs+'/adrs/migrations/approvals/',docs+'/adrs/migrations/policies/',
-             docs+'/promptbooks/',docs+'/cycles/')):
+             docs+'/adrs/migrations/receipts/',docs+'/promptbooks/',docs+'/cycles/')):
             raise CycleError('transaction cannot write approval, configuration or objectives')
         # No historical body/report/proof write belongs to activation either.
         if path.parent==cfg.docs_root/'adrs' or path.is_relative_to(cfg.docs_root/'adrs/reviews') and path.name!='index.md':

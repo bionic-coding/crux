@@ -40,3 +40,8 @@ Return a consolidated report with reviewer identity, scrutiny and rationale,
 scope, evidence and limitations, blocking/advisory/cosmetic findings, and verdict.
 Council approval does not replace independent implementation review. The reviewer
 must differ from the implementer and must not modify the work under review.
+
+In a simplify cycle, check the diff against the selected proposals. Check the
+reduction record against the dimensions the cycle skill defines for each area: every
+dimension the diff changes must appear in that area's `before` and `after`, and its
+`change` must follow the no-netting rule. Work for an unselected proposal is blocking.

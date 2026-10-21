@@ -377,6 +377,13 @@ class TransformRuleTests(unittest.TestCase):
         with self.assertRaises(MOD.SpecViolation):
             _transform("developer", _fm("Read, Frobnicate"))
 
+    def test_host_only_send_message_projects_no_action(self):
+        # SendMessage is a Claude Code messaging tool with no OpenCode action. It is
+        # listed deliberately, so it neither refuses nor grants anything.
+        plain = _rules_of("commander", _fm("Read, Grep"))
+        with_send = _rules_of("commander", _fm("Read, Grep, SendMessage"))
+        self.assertEqual(plain, with_send)
+
     def test_agent_outside_the_roster_is_spec_violation(self):
         # Fail-closed, never a default: an agent the catalog does not name has
         # no model, and guessing one would silently ship the wrong SKU.
@@ -957,6 +964,98 @@ class EffectiveVerdictTests(unittest.TestCase):
         self.assertEqual(_effective(rules, "shell", "x"), "deny")
 
 
+class ShellRestrictionTests(unittest.TestCase):
+    """The commander's `shell` is bounded to cycle.py and read-only git.
+
+    The grant is an ordered rule list resolved last-match-wins, so the broad
+    deny comes first and the allows after it. Every other role that holds Bash
+    keeps the single broad allow: the restriction is an explicit per-role
+    mapping, not a general rule.
+    """
+
+    ALLOWED = (
+        "uv run /p/crux/scripts/cycle.py --repo-root . --compact show CYC-0001",
+        "uv run ${CRUX_PLUGIN_ROOT}/scripts/cycle.py handoff CYC-0001",
+        "git log --oneline -5",
+        "git status --short",
+        "git show HEAD",
+        "git worktree list",
+        "uv run /p/crux/scripts/cycle.py --repo-root . --compact await CYC-0001 --task-id t1 --timeout 600",
+        "uv run /p/crux/scripts/cycle.py --repo-root . --compact await --path /tmp/crux-results-x/architect-idr-attempt-1.md --timeout 600",
+    )
+    DENIED = (
+        "rm -rf bionic",
+        "uv run python3 -m unittest",
+        "git commit -am x",
+        "git push",
+        "sleep 10",
+        "python3 crux/scripts/cycle.py show CYC-0001",
+    )
+
+    def test_commander_shell_allows_cycle_py_read_only_git_and_await(self):
+        rules = _generated_rules("commander")
+        for command in self.ALLOWED:
+            with self.subTest(command=command):
+                self.assertEqual(_effective(rules, "shell", command), "allow")
+        for command in self.DENIED:
+            with self.subTest(command=command):
+                self.assertEqual(_effective(rules, "shell", command), "deny")
+
+    def test_documented_literal_forms_are_allowed_and_variants_denied(self):
+        """The command forms the commander is told to type are the forms the globs allow."""
+        rules = _generated_rules("commander")
+        plugin = Path(__file__).resolve().parents[2]
+        documented, fenced = [], False
+        for line in (plugin / "skills/cycle/references/commands.md").read_text().splitlines():
+            if line.startswith("```"):
+                fenced = line.strip() == "```bash"
+                continue
+            command = line.strip()
+            # Every cycle-writer command line the reference shows, including any that
+            # starts with a shell variable, must be a form the allow-list admits.
+            if fenced and command and not command.startswith("#") and ("cycle.py" in command or command.startswith("$")):
+                documented.append(command)
+        self.assertGreaterEqual(len(documented), 3)
+        body = (plugin / "agents/commander.md").read_text()
+        self.assertIn("`uv run <absolute-plugin-root>/scripts/cycle.py --repo-root <repo> --compact", body)
+        for command in documented:
+            with self.subTest(command=command):
+                self.assertEqual(_effective(rules, "shell", command), "allow")
+                # The allow glob also admits a `${CRUX_PLUGIN_ROOT}` form, so the glob
+                # alone cannot hold the examples to the literal form the commander types.
+                self.assertTrue(command.startswith("uv run /"), command)
+                self.assertNotIn("${", command)
+        for command in ('$CYC task CYC-0001 --task-id t --state active',
+                        'C=/p/crux; uv run $C/scripts/cycle.py show CYC-0001',
+                        'git -C /repo log --oneline', 'cd /repo && git log'):
+            with self.subTest(command=command):
+                self.assertEqual(_effective(rules, "shell", command), "deny")
+
+    def test_commander_shell_deny_precedes_its_allows(self):
+        shell = [r for r in _generated_rules("commander") if r["action"] == "shell"]
+        self.assertEqual((shell[0]["resource"], shell[0]["effect"]), ("*", "deny"))
+        self.assertTrue(all(r["effect"] == "allow" for r in shell[1:]))
+        self.assertGreater(len(shell), 1)
+
+    def test_other_roles_holding_bash_keep_the_plain_grant(self):
+        for agent in ("architect", "dev-lead", "developer", "historian", "librarian",
+                      "night-gardener", "reviewer"):
+            shell = [r for r in _generated_rules(agent) if r["action"] == "shell"]
+            with self.subTest(agent=agent):
+                self.assertEqual([(r["resource"], r["effect"]) for r in shell], [("*", "allow")])
+
+    def test_restriction_follows_the_role_name_not_the_tool_line(self):
+        restricted = _rules_of("commander", _fm("Read, Bash"))
+        plain = _rules_of("developer", _fm("Read, Bash"))
+        self.assertEqual(_effective(restricted, "shell", "rm -rf x"), "deny")
+        self.assertEqual(_effective(plain, "shell", "rm -rf x"), "allow")
+
+    def test_a_commander_without_bash_still_denies_shell_outright(self):
+        rules = _rules_of("commander", _fm("Read"))
+        self.assertEqual([r for r in rules if r["action"] == "shell"],
+                         [{"action": "shell", "resource": "*", "effect": "deny"}])
+
+
 class OrderMutationControlTests(unittest.TestCase):
     """The positive control for ADR-0100's ordering authority.
 
@@ -1004,6 +1103,8 @@ class ActionTotalityTests(unittest.TestCase):
             roles = expected["subagent_roles"]
             want = Counter(PINNED_ACTIONS)
             want["subagent"] = 1 + len(roles)  # the "*" deny plus one allow per role
+            # A role with a per-role shell restriction carries the "*" deny plus its allows.
+            want["shell"] = 1 + len(OA.SHELL_ALLOW_PATTERNS.get(agent, ()))
             with self.subTest(agent=agent):
                 self.assertEqual(Counter(r["action"] for r in rules), want)
 
@@ -1015,6 +1116,11 @@ class ActionTotalityTests(unittest.TestCase):
                     continue
                 matching = [r for r in rules if r["action"] == action]
                 with self.subTest(agent=agent, action=action):
+                    if action == "shell" and agent in OA.SHELL_ALLOW_PATTERNS:
+                        # The restricted shell: one "*" deny first, then pattern allows.
+                        self.assertEqual([r["resource"] for r in matching].count("*"), 1)
+                        self.assertEqual(matching[0]["effect"], "deny")
+                        continue
                     self.assertEqual(len(matching), 1)
                     self.assertEqual(matching[0]["resource"], "*")
 

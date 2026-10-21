@@ -1,0 +1,9 @@
+{
+  "name": "crux-omp",
+  "private": true,
+  "type": "module",
+  "description": "Crux run-dashboard TUI extension for Oh My Pi (OMP)",
+  "omp": {
+    "extensions": ["./index.ts"]
+  }
+}

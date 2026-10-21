@@ -9,12 +9,32 @@ import implementation_migration as migration
 import observation_admission as admission
 import _council_gate_support as sup
 import test_implementation_authority as fixtures
+import _implementation_templates as templates
+
+
+def build_published_additions(baseline, affected_scope):
+    """A closed and published fixture for one variant, built once per worker.
+
+    The real producer and publisher run here; a test receives a copy with its own state."""
+    builder = PublishedAdditions('view')
+    builder.prepare(baseline=baseline, affected_scope=affected_scope)
+    fixture = builder.fixture
+    fixture.publication = builder.publication; fixture.original = builder.original
+    return fixture
 
 
 class PublishedAdditions(unittest.TestCase):
     def setUp(self, *, baseline=False, affected_scope=False):
-        fixture = fixtures.PublicationProof()
-        fixture.setUp(); self.addCleanup(fixture.doCleanups)
+        fixture = templates.clone(self, ('published-additions', baseline, affected_scope),
+            lambda: build_published_additions(baseline, affected_scope))
+        self.fixture = fixture; self.root = fixture.root; self.f = fixture.f
+        self.close = fixture.close; self.publish = fixture.publish; self.snapshot = fixture.snapshot
+        self.folder = self.root / 'docs/observations'
+        self.publication = fixture.publication; self.original = fixture.original
+
+    def prepare(self, *, baseline, affected_scope):
+        fixture = fixtures.PublicationProof(); fixture.setUp()
+        templates.cleanup_at_exit(fixture)
         self.fixture = fixture; self.root = fixture.root; self.f = fixture.f
         self.close = fixture.close; self.publish = fixture.publish; self.snapshot = fixture.snapshot
         self.folder = self.root / 'docs/observations'; self.folder.mkdir(exist_ok=True)

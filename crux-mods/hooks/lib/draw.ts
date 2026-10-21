@@ -12,7 +12,7 @@
 import type { Agents, Council, CycleView, Escalation, Gate, Parsed, Prompt, ReaderView, RunView, Time } from './view.ts'
 import {
   COUNCIL_KINDS, ESCALATION_NOTE, MAX_SHOWN_RUNS, QUIET, ROUTE_ACTIONS, RUN_STATUS, STATES, bandRun, counted, currentEscalation,
-  currentPrompt, escalationText, laneCells, lastRunAge, openElapsed, promptBounds, promptSpan, runAxis, runTimes, safeText, stallIdle,
+  currentPrompt, cycleTimeText, escalationText, laneCells, lastRunAge, openElapsed, promptBounds, promptSpan, runAxis, runTimes, safeText, stallIdle,
 } from './view.ts'
 import { ELLIPSIS, MAX_WIDTH, cells, drawingWidth, fit, head, wrap } from './width.ts'
 
@@ -791,7 +791,7 @@ function cycleStrip(c: CycleView, n: number): Line {
 }
 
 // The lines of one cycle's panel at inner width n. The panel fits each line.
-function cycleLines(c: CycleView, n: number): Line[] {
+function cycleLines(c: CycleView, n: number, now: Time): Line[] {
   const done = c.tasks.filter(t => t.status === 'done').length
   const count = taskCount(c)
   // The type word gives way first when the line does not fit n cells.
@@ -807,12 +807,17 @@ function cycleLines(c: CycleView, n: number): Line[] {
     lines.push(cycleStrip(c, n))
     lines.push(joined([bar(Math.round((100 * done) / c.tasks.length), Math.min(BAR_WIDTH, Math.max(0, n - cells(count) - 1))), [span(count, { dim: true })]], ' '))
   }
+  // The elapsed line follows the header rows (title, meta, track, strip, bar) and precedes the tasks.
+  const time = cycleTimeText(c, now)
+  if (time !== null) lines.push([span(time, { dim: true })])
   for (const t of orderedTasks(c)) {
     const style: Omit<Span, 'text'> = t.status === 'active' ? { bold: true } : t.status === 'blocked' ? { color: 'error' } : {}
     lines.push([taskCell(t.status), span(' '), span(t.phase, { color: phaseKey(t.phase) }), span(': '), span(drawn(t.description), style)])
   }
   for (const r of c.returns) lines.push([span(LOOP_GLYPH, { color: 'warning' }), span(` loop ${r.pass} returned from ${r.phase}: ${drawn(r.reason)}`, { color: 'warning' })])
-  for (const wait of c.waits) lines.push([span(STATE_GLYPHS.skipped!, { color: 'warning' }), span(` Approval wait: ${drawn(wait)}`, { color: 'warning' })])
+  // One line for the current wait. A reader that lists a name once per superseded revision still draws it once.
+  const waiting = [...new Set(c.waits)]
+  if (waiting.length > 0) lines.push([span(STATE_GLYPHS.skipped!, { color: 'warning' }), span(` Awaiting approval: ${waiting.map(w => drawn(w)).join(', ')}`, { color: 'warning' })])
   if (c.blocker) lines.push([span(STATE_GLYPHS.skipped!, { color: 'warning' }), span(` Paused: ${drawn(c.blocker)}`, { color: 'warning' })])
   if (c.reflection) lines.push([span(`Outcome: ${drawn(c.reflection)}`, c.status === 'completed' ? { color: 'success' } : {})])
   return lines
@@ -828,7 +833,7 @@ export function pane(p: Parsed, ag: Agents, cols: unknown, layout: PaneLayout, h
   if (p.view.cycles !== undefined) {
     const rows: Block[] = []
     const bordered = w >= BORDER_MIN
-    for (const c of p.view.cycles.slice(0, 5)) rows.push(panel(cycleLines(c, bordered ? w - PANEL_FRAME : w), w, bordered))
+    for (const c of p.view.cycles.slice(0, 5)) rows.push(panel(cycleLines(c, bordered ? w - PANEL_FRAME : w, p.view.now_s), w, bordered))
     return columnBox(w,rows)
   }
   return layout === 'mini' ? mini(p.view, ag, w) : budgeted(p.view, ag, w, harness)

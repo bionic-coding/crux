@@ -109,16 +109,26 @@ const FIXTURES: [string, Opts][] = [
   ['an agent list that cannot be read', { reader: ok(READER_OK), agents: 'throw' }],
 ]
 
+// One test per fixture and layout; for the one fixture whose dock drawing alone costs 0.6 s on an idle
+// host, one test per layout and width. A single test over all three layouts and every width took 0.8 s
+// there and passed the framework's 5 s per-test limit at a load average near 55 on 8 CPUs. The limit
+// stays at its default; the work one test owes is bounded instead.
+const LAYOUTS = ['band', 'inline', 'dock'] as const
+const ONE_WIDTH_PER_TEST = new Set(['a last run with the summary at its caps'])
 for (const [name, o] of FIXTURES) {
-  test(`${name}: the band and both pane layouts fit every width and draw only Box and Text in theme keys`, async ($, on) => {
-    await load($, on, o)
-    for (const w of [...WIDTHS, ...SMALL]) {
-      const n = drawingWidth(w)
-      check(await drawBand($, w), n, 'band', `${name} band ${w}`)
-      check(await drawPane($, w, 'inline'), n, 'inline', `${name} inline ${w}`)
-      check(await drawPane($, w, 'dock'), n, 'dock', `${name} dock ${w}`)
+  for (const kind of LAYOUTS) {
+    const groups: (number | undefined)[][] = ONE_WIDTH_PER_TEST.has(name) ? [...WIDTHS, ...SMALL].map(w => [w]) : [[...WIDTHS, ...SMALL]]
+    for (const widths of groups) {
+      const where = widths.length === 1 ? `width ${widths[0] ?? 'unreported'}` : 'every width'
+      test(`${name}: the ${kind} layout fits ${where} and draws only Box and Text in theme keys`, async ($, on) => {
+        await load($, on, o)
+        for (const w of widths) {
+          const tree = kind === 'band' ? await drawBand($, w) : await drawPane($, w, kind)
+          check(tree, drawingWidth(w), kind, `${name} ${kind} ${w}`)
+        }
+      })
     }
-  })
+  }
 }
 
 test('the pane draws on every surface and the band on the two that raise it, each within its width', async ($, on) => {

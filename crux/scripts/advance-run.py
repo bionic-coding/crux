@@ -199,6 +199,7 @@ except ImportError:
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from base_commit_pin import divergence  # noqa: E402  (sys.path insert before import)
 import council_gate  # noqa: E402  (sys.path insert before import)
+import binding_memo  # noqa: E402
 import council_records  # noqa: E402
 import implementation_approval  # noqa: E402
 from council_alternative import CORRECTION_NOTICE, find_withdrawn_alternative  # noqa: E402
@@ -879,7 +880,7 @@ def _prior_implementation_closes_or_fail(run, book, run_path):
                 declaration = declarations[binding["slot"]]
                 repo = council_records.repo_root(run_path)
                 if subject_key == "batch":
-                    proof = implementation_approval.validate_historical_migration_binding(repo, run_path,
+                    proof = binding_memo.validate_historical_migration_binding(repo, run_path,
                         slot=binding["slot"], batch_path=binding["batch"]["path"],
                         batch_sha256=binding["batch"]["sha256"])
                     implementation_approval._migration_subject_constraints(repo, run_path,
@@ -1240,9 +1241,21 @@ def main(argv: list[str]) -> int:
     selection.add_argument("--implementation-revision", default=None,
                     help="exact retained implementation revision at a declared successful close")
     selection.add_argument("--migration-batch", default=None,
-                          help="exact migration batch at its declared successful close")
+                          help="retired: refused with historical-migration-writes-retired")
     args = ap.parse_args(argv)
+    if args.migration_batch:
+        # Historical-format migration writes are retired. Nothing is loaded or written.
+        _fail("historical-migration-writes-retired; nothing was written")
+    return _advance(args)
 
+
+def _advance(args) -> int:
+    """Advance or abandon a run from already-parsed arguments; never reads sys.argv.
+
+    `main` calls this after refusing `--migration-batch`. A test-support fixture producer
+    calls it in process with the migration selector to record a historical close through
+    the production close code. Nothing else may.
+    """
     if args.abandon and args.outcome:
         _fail("--abandon and --outcome are mutually exclusive (abandonment is a run-level act)")
     if args.gate_info and (args.abandon or args.outcome):

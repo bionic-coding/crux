@@ -366,7 +366,7 @@ class CliContractTests(unittest.TestCase):
         payload = json.loads(result.stdout)
         self.assertEqual(payload["drifted"], [])
         # A gate that measured nothing would also print an empty drift list.
-        self.assertEqual(payload["targets"], 49)
+        self.assertEqual(payload["targets"], 52)
 
     def test_seeded_drift_makes_the_cli_exit_one_with_json_on_stdout(self):
         """Positive control for the row above, through the same CLI."""
@@ -430,11 +430,11 @@ class CliContractTests(unittest.TestCase):
 class RealTreeTests(unittest.TestCase):
     """Facts about THIS checkout, which the synthetic lanes cannot assert."""
 
-    def test_the_projection_covers_49_of_the_53_catalogued_skills(self):
+    def test_the_projection_covers_52_of_the_56_catalogued_skills(self):
         targets = gen.resolve_targets(REPO_ROOT)
         catalogued = gen._catalogued_skills(REPO_ROOT)
-        self.assertEqual(len(catalogued), 53)
-        self.assertEqual(len(targets), 49)
+        self.assertEqual(len(catalogued), 56)
+        self.assertEqual(len(targets), 52)
         self.assertEqual(len(gen.EXEMPT_SKILLS), 4)
         self.assertEqual(len(targets) + len(gen.EXEMPT_SKILLS), len(catalogued))
 
@@ -459,10 +459,15 @@ class RealTreeTests(unittest.TestCase):
         body = (REPO_ROOT / gen.CANONICAL_FILE).read_text(encoding="utf-8")
         # Plural first, singular named as the alternate.
         self.assertLess(body.index("`.opencode/skills`"), body.index("`.opencode/skill`"))
-        self.assertIn("`subagent`", body)
-        self.assertIn("`shell`", body)
-        self.assertNotIn("`task`", body)
-        self.assertNotIn("`bash`", body)
+        self.assertIn("`.omp/skills`", body)
+        self.assertIn(
+            "OpenCode uses the lowercase forms `subagent`, `read`, `edit`, `shell`, `websearch`, and `webfetch`",
+            body,
+        )
+        self.assertIn(
+            "OMP uses `task`, `read`, `edit`, `write`, `bash`, `grep`, `glob`, `find`, `todo`, and `web_search`",
+            body,
+        )
 
     def test_neither_the_canonical_nor_any_projection_cites_an_adr_by_number(self):
         """The distributed-surface constraint the release content scan enforces.

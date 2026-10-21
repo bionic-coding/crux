@@ -1,15 +1,19 @@
 """Production admission over ordinary and synthetic published source fixtures."""
 from __future__ import annotations
 
+import atexit
 import inspect
 import os
+import shutil
 import tempfile
+import types
 import unittest
 from pathlib import Path
 from unittest import mock
 
 import yaml
 import observation_admission as admission
+import _implementation_templates as templates
 
 try:  # package-relative when run as a module, flat when run by discovery
     from ._dev_surface import IS_STAGED_ARTIFACT, REPO_ROOT
@@ -692,56 +696,76 @@ class ProspectiveAdmission(unittest.TestCase):
                     path.write_bytes(before)
 
 
+def build_published_admission():
+    """The published consumer fixture with its distinct source facts committed.
+
+    Built once per worker. `PublishedAdmission` copies it for its mutating tests, and
+    `PublishedSurveyCounters` copies it for each of its own; no test writes to the template."""
+    if IS_STAGED_ARTIFACT and not (REPO_ROOT / "tools/tests/test_summarize_migration_consumers.py").is_file():
+        # tools/tests is dev-repo-only and never crosses the sync boundary.
+        raise unittest.SkipTest("tools/tests/test_summarize_migration_consumers.py is absent "
+                                "in the staged artifact")
+    from tools.tests.test_summarize_migration_consumers import PublishedConsumers
+    from test_implementation_authority import PublicationProof
+    import implementation_migration as migration
+    import _council_gate_support as support
+    import json
+    close = PublicationProof.close
+    def close_with_classifications(fixture):
+        (fixture.root / "docs/manifest.yml").write_text(
+            "schema_version: 5\nconcerns_enabled: [adrs, observations, arch]\n")
+        (fixture.root / "docs/observations").mkdir()
+        source = fixture.root / "docs/adrs/ADR-0093-body-only.md"
+        batch = yaml.safe_load(fixture.f.path.read_bytes())
+        for disposition, clause in (("historical-authorization", "The old cycle authorized this implementation.\n"),
+                                    ("historical-fact", "The old implementation existed in that cycle.\n"),
+                                    ("architecture-retained", "Keep the enduring architectural boundary.\n")):
+            source.write_text(source.read_text() + "\n" + clause)
+            digest = migration._digest(clause.encode())
+            entry = dict(source_adr="ADR-0093", clause=dict(text=clause, sha256=digest),
+                affected_governs=[], disposition=disposition, rationale="Synthetic classified clause.",
+                historical_destination=dict(source_adr="ADR-0093", clause_sha256=digest), replacement_handles=[])
+            entry["source_identity"] = migration.source_identity(entry)
+            batch["entries"].append(entry)
+        fixture.f.path.write_text(yaml.safe_dump(batch, sort_keys=False))
+        fixture.f.retained.write_bytes(fixture.f.path.read_bytes())
+        receipt = json.loads(fixture.f.receipt.read_bytes())
+        receipt["subjects"][0]["sha256"] = migration._digest(fixture.f.path.read_bytes())
+        support.select_question(fixture.root, receipt)
+        fixture.f.receipt.write_text(json.dumps(receipt))
+        support.commit_all(fixture.root, "synthetic exact reviewed classified batch before close")
+        close(fixture)
+    owner = PublishedConsumers
+    with mock.patch.object(PublicationProof, "close", close_with_classifications):
+        owner.setUpClass()
+    atexit.register(owner.doClassCleanups)
+    root = owner.root
+    fact_lines = {}
+    for name in ("ADR-0110-source.md", "ADR-0093-body-only.md"):
+        source = root / "docs/adrs" / name
+        source.write_text(source.read_text() + "\nDistinct source fact: the parser exists.\n")
+        fact_lines[source.relative_to(root).as_posix()] = len(source.read_text().splitlines())
+    line = fact_lines["docs/adrs/ADR-0110-source.md"]
+    fact_evidence = f"docs/adrs/ADR-0110-source.md:{line}-{line}"
+    support.commit_all(root, "synthetic distinct source fact outside selected reasoning")
+    return types.SimpleNamespace(owner=owner, root=root, fact_lines=fact_lines,
+        fact_evidence=fact_evidence, witness=owner.fixture.witness.relative_to(root).as_posix())
+
+
+def published_admission_template():
+    return templates.shared("published-admission", build_published_admission)
+
+
 class PublishedAdmission(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        if IS_STAGED_ARTIFACT and not (REPO_ROOT / "tools/tests/test_summarize_migration_consumers.py").is_file():
-            # tools/tests is dev-repo-only and never crosses the sync boundary.
-            raise unittest.SkipTest("tools/tests/test_summarize_migration_consumers.py is absent "
-                                    "in the staged artifact")
-        from tools.tests.test_summarize_migration_consumers import PublishedConsumers
-        from test_implementation_authority import PublicationProof
-        import implementation_migration as migration
-        import _council_gate_support as support
-        import json
-        close = PublicationProof.close
-        def close_with_classifications(fixture):
-            (fixture.root / "docs/manifest.yml").write_text(
-                "schema_version: 5\nconcerns_enabled: [adrs, observations, arch]\n")
-            (fixture.root / "docs/observations").mkdir()
-            source = fixture.root / "docs/adrs/ADR-0093-body-only.md"
-            batch = yaml.safe_load(fixture.f.path.read_bytes())
-            for disposition, clause in (("historical-authorization", "The old cycle authorized this implementation.\n"),
-                                        ("historical-fact", "The old implementation existed in that cycle.\n"),
-                                        ("architecture-retained", "Keep the enduring architectural boundary.\n")):
-                source.write_text(source.read_text() + "\n" + clause)
-                digest = migration._digest(clause.encode())
-                entry = dict(source_adr="ADR-0093", clause=dict(text=clause, sha256=digest),
-                    affected_governs=[], disposition=disposition, rationale="Synthetic classified clause.",
-                    historical_destination=dict(source_adr="ADR-0093", clause_sha256=digest), replacement_handles=[])
-                entry["source_identity"] = migration.source_identity(entry)
-                batch["entries"].append(entry)
-            fixture.f.path.write_text(yaml.safe_dump(batch, sort_keys=False))
-            fixture.f.retained.write_bytes(fixture.f.path.read_bytes())
-            receipt = json.loads(fixture.f.receipt.read_bytes())
-            receipt["subjects"][0]["sha256"] = migration._digest(fixture.f.path.read_bytes())
-            support.select_question(fixture.root, receipt)
-            fixture.f.receipt.write_text(json.dumps(receipt))
-            support.commit_all(fixture.root, "synthetic exact reviewed classified batch before close")
-            close(fixture)
-        cls.owner = PublishedConsumers
-        with mock.patch.object(PublicationProof, "close", close_with_classifications):
-            cls.owner.setUpClass()
-        cls.addClassCleanup(cls.owner.doClassCleanups)
-        cls.root = cls.owner.root
-        cls.fact_lines = {}
-        for name in ("ADR-0110-source.md", "ADR-0093-body-only.md"):
-            source = cls.root / "docs/adrs" / name
-            source.write_text(source.read_text() + "\nDistinct source fact: the parser exists.\n")
-            cls.fact_lines[source.relative_to(cls.root).as_posix()] = len(source.read_text().splitlines())
-        line = cls.fact_lines["docs/adrs/ADR-0110-source.md"]
-        cls.fact_evidence = f"docs/adrs/ADR-0110-source.md:{line}-{line}"
-        support.commit_all(cls.root, "synthetic distinct source fact outside selected reasoning")
+        template = published_admission_template()
+        temp = tempfile.TemporaryDirectory(); cls.addClassCleanup(temp.cleanup)
+        cls.root = Path(temp.name).resolve() / "repo"
+        shutil.copytree(template.root, cls.root)
+        cls.witness = cls.root / template.witness
+        cls.fact_lines = dict(template.fact_lines)
+        cls.fact_evidence = template.fact_evidence
 
     def test_actual_all_lane_reservations_preserve_empty_retired_and_live_architecture(self):
         context = admission._load_context(self.root)
@@ -823,7 +847,7 @@ class PublishedAdmission(unittest.TestCase):
     def test_invalid_proof_overrides_source_positive_and_preserves_all_bytes(self):
         import json
         from tools.tests.test_summarize_migration_consumers import snapshot
-        path = self.owner.fixture.witness
+        path = self.witness
         original = path.read_bytes()
         locator = json.loads(original)
         locator["applied"] = True

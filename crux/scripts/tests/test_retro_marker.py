@@ -45,16 +45,18 @@ import unittest
 from pathlib import Path
 
 try:
-    from ._dev_surface import TREE, TREE_AGENTS_MD, require_dev_surface
+    from ._dev_surface import TREE_AGENTS_MD, require_dev_surface
 except ImportError:  # unittest discover imports test modules top-level
-    from _dev_surface import TREE, TREE_AGENTS_MD, require_dev_surface
+    from _dev_surface import TREE_AGENTS_MD, require_dev_surface
 
 # ─── repo paths ──────────────────────────────────────────────────────────────
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 CLEANUP_SKILL = REPO_ROOT / "crux" / "skills" / "cleanup-campsite" / "SKILL.md"
 RETRO_SKILL = REPO_ROOT / "crux" / "skills" / "retrospective" / "SKILL.md"
 LOG_WORK_SKILL = REPO_ROOT / "crux" / "skills" / "log-work" / "references" / "journal.md"
-LOG_MD = REPO_ROOT / TREE / "log.md"
+# The live operations log changes on every logged operation. The archived-heading checks read this
+# fixture instead, so a bookkeeping commit never changes what these tests depend on.
+LOG_MD = Path(__file__).resolve().parent / "fixtures" / "live_docs" / "log.md"
 DOCS_CLAUDE_MD = TREE_AGENTS_MD
 TMPL_CLAUDE_MD = REPO_ROOT / "crux" / "templates" / "AGENTS.md.tmpl"
 
@@ -228,10 +230,9 @@ class TestArchivedOpPatternAgainstLogMd(unittest.TestCase):
     """(c) The archived-op pattern MUST match real headings from docs/log.md."""
 
     def _read_log(self) -> str:
-        require_dev_surface(self, LOG_MD, f"{TREE}/log.md")
         self.assertTrue(
             LOG_MD.exists(),
-            msg=f"docs/log.md not found at {LOG_MD}",
+            msg=f"log fixture not found at {LOG_MD}",
         )
         return LOG_MD.read_text(encoding="utf-8")
 
@@ -250,6 +251,17 @@ class TestArchivedOpPatternAgainstLogMd(unittest.TestCase):
                 f"'## [YYYY-MM-DD] promptbook | archived ...' heading."
             ),
         )
+
+    def test_archived_regex_matches_nothing_in_a_log_without_archived_headings(self) -> None:
+        """Positive discriminator: the count comes from the fixture's archived headings, so
+        removing them must drive it to zero."""
+        regex = re.compile(ARCHIVED_OP_REGEX, re.MULTILINE)
+        log = self._read_log()
+        stripped = "\n".join(
+            line for line in log.splitlines() if "promptbook | archived" not in line
+        )
+        self.assertEqual(regex.findall(stripped), [])
+        self.assertEqual(len(regex.findall(log)), 2)
 
     def test_archived_regex_matches_known_concrete_example(self) -> None:
         """A known concrete heading from the live log must match."""

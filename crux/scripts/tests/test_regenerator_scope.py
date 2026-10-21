@@ -56,6 +56,7 @@ PLUGIN_AUTHORING = (
     "generate-runtime-compat.py",
     "generate-rules-catalog.py",
     "generate-mods-reach-tables.py",
+    "generate-micro-crux.py",
 )
 # The plugin-authoring gates whose canonical input lives OUTSIDE `crux/` -- the
 # repo-root `AGENTS.md`, the tree's `AGENTS.md`, this tree's own ADRs, the repo-root
@@ -487,6 +488,35 @@ class OutOfScopeTests(unittest.TestCase):
 
     VERDICT_KEYS = ("drift", "drifted", "added", "clean")
 
+    # The gates whose live run reads the operations log and journal months, through the
+    # historical-authority view they build. Their live run is the `drift-gates` row at each
+    # release preflight (and the preflight's own `rules-catalog` check, which adds
+    # `--require-surface`), so this control runs them over a miniature authoring checkout
+    # instead of the live tree, whose bookkeeping changes with every logged operation.
+    MINIATURE_GATES = frozenset({"generate-rules-catalog.py"})
+
+    def _authoring_root(self, name: str, tmp: str) -> str:
+        """The root a plugin-authoring gate inspects in the positive control."""
+        if name not in self.MINIATURE_GATES:
+            return str(REPO_ROOT)
+        root = Path(tmp)
+        seed_authoring_probe(root, SCRIPTS / name)
+        (root / ".bionic.yml").write_text("docs_dir: tree\n", encoding="utf-8")
+        (root / "tree" / "adrs").mkdir(parents=True)
+        (root / "tree" / "observations").mkdir()
+        (root / "tree" / "adrs" / "ADR-0001-fixture.md").write_text(
+            "---\nid: ADR-0001\ntitle: \"Fixture decision\"\nstatus: Accepted\n"
+            "date: 2026-09-17\nproposed_date: 2026-09-17\naccepted_date: 2026-09-17\n"
+            "deprecated_date: null\nsuperseded_date: null\nsupersedes: []\nsuperseded_by: null\n"
+            "deciders: [fixture]\ntags: [fixture]\nrelated_briefs: []\nrelated_research: []\n"
+            "governs:\n  - domain: fixture\n    rule: \"The fixture rule says one thing.\"\n"
+            "    scope: \"the fixture\"\n    handle: ADR-0001/fixture-rule\n    provenance: authored\n"
+            "---\n\n# ADR-0001 -- Fixture decision\n", encoding="utf-8")
+        skill = root / "crux" / "skills" / "fixture"
+        skill.mkdir(parents=True)
+        skill.joinpath("SKILL.md").write_text("This surface cites rule:fixture-rule here.\n", encoding="utf-8")
+        return str(root)
+
     def test_a_plugin_authoring_gate_still_inspects_its_own_checkout(self):
         """POSITIVE CONTROL. Without it every assertion above is satisfied by a script
         that reports surface_absent unconditionally and checks nothing, anywhere.
@@ -506,7 +536,8 @@ class OutOfScopeTests(unittest.TestCase):
                     # `test_a_plugin_source_tree_without_a_documentation_tree_is_not_a_failure`,
                     # which builds its own clone and runs everywhere.
                     require_dev_surface(self, REPO_ROOT / "AGENTS.md", "repo-root AGENTS.md")
-                result = self._run(name, str(REPO_ROOT))
+                with tempfile.TemporaryDirectory() as tmp:
+                    result = self._run(name, self._authoring_root(name, tmp))
                 self.assertIn(
                     result.returncode, (0, 1),
                     f"{name}: exit {result.returncode} on the plugin's own checkout\n"
@@ -722,11 +753,35 @@ class ReadableVerdictTests(unittest.TestCase):
                 "generate-index-rollup.py",
                 self._run("generate-index-rollup.py", root), drift=False)
 
+    def _footer_tree(self, tmp: Path, *, footer: str, plugin: str) -> Path:
+        """A fixture authoring checkout whose footer and plugin version are fixed, so no live value decides.
+
+        The live README footer against crux/plugin.json is the drift-gates row for
+        generate-readme-footer.py --dry-run (checkout) and the public README footer check in
+        tools/release-preflight.py metadata_checks() (staged artifact)."""
+        root = Path(tmp)
+        (root / "crux" / "scripts").mkdir(parents=True)
+        (root / "crux" / "scripts" / "generate-readme-footer.py").write_text("", encoding="utf-8")
+        (root / "crux" / "plugin.json").write_text(json.dumps({"version": plugin}), encoding="utf-8")
+        (root / "README.md").write_text(
+            f"# T\n\nMIT licensed (see [LICENSE](./LICENSE)). v{footer} -- notes\n", encoding="utf-8")
+        return root
+
     def test_the_readme_footer_gate_prints_a_verdict_when_clean(self):
-        """It used to print nothing at all on the clean lane. This runs against the
-        plugin's own checkout, which the staged artifact also is."""
-        result = self._run("generate-readme-footer.py", REPO_ROOT)
-        self._assert_json_verdict("generate-readme-footer.py", result, drift=False)
+        """It used to print nothing at all on the clean lane. The fixture is an authoring
+        checkout, the same shape the staged artifact has."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._footer_tree(Path(tmp), footer="1.2.3", plugin="1.2.3")
+            result = self._run("generate-readme-footer.py", root)
+        payload = self._assert_json_verdict("generate-readme-footer.py", result, drift=False)
+        self.assertEqual(payload.get("version"), "1.2.3")
+
+    def test_the_readme_footer_gate_prints_a_verdict_when_stale(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._footer_tree(Path(tmp), footer="1.2.2", plugin="1.2.3")
+            result = self._run("generate-readme-footer.py", root)
+        payload = self._assert_json_verdict("generate-readme-footer.py", result, drift=True)
+        self.assertEqual((payload.get("found"), payload.get("expected")), ("1.2.2", "1.2.3"))
 
 
 class ReleaseContentScopeTests(unittest.TestCase):
@@ -756,11 +811,23 @@ class ReleaseContentScopeTests(unittest.TestCase):
     def test_it_still_scans_the_plugins_own_checkout(self):
         """POSITIVE CONTROL. Without it the assertion above is satisfied by a script
         that declines everywhere and scans nothing."""
-        proc = subprocess.run(
-            [sys.executable, str(self.SCRIPT), "--root", str(REPO_ROOT), "-v"],
-            capture_output=True, text=True, check=False)
-        self.assertIn(proc.returncode, (0, 1), proc.stdout + proc.stderr)
+        # A miniature authoring checkout, not this repository: the live tree's journal, log and
+        # other bookkeeping change with every logged operation, and the scan reads every text
+        # file under its root. The refusal lane is keyed on the probe alone, so the miniature
+        # exercises the same branch the live checkout does.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            seed_authoring_probe(root, self.SCRIPT)
+            skill = root / "crux" / "skills" / "probe"
+            skill.mkdir(parents=True)
+            skill.joinpath("SKILL.md").write_text("# Probe\n\nA clean surface.\n", encoding="utf-8")
+            proc = subprocess.run(
+                [sys.executable, str(self.SCRIPT), "--root", str(root), "-v"],
+                capture_output=True, text=True, check=False)
+        self.assertEqual(0, proc.returncode, proc.stdout + proc.stderr)
         self.assertNotIn("not the plugin's authoring checkout", proc.stderr)
+        # It reached its verdict: the verbose line only prints after a scan.
+        self.assertIn("check-public-release-content: clean.", proc.stderr)
 
     def test_a_seeded_violation_still_turns_it_red(self):
         """POSITIVE CONTROL for the scan itself: the decline lane must not have
@@ -797,7 +864,7 @@ class RosterScopeTests(unittest.TestCase):
             self.assertIn(scope, {"project", "plugin-authoring"}, lines[i][:80])
             rows += 1
             i += 1
-        self.assertEqual(18, rows, "roster row count moved; update the scope map here too")
+        self.assertEqual(19, rows, "roster row count moved; update the scope map here too")
 
     def test_the_check_drift_gate_table_declares_the_same_scopes(self):
         skill = SCRIPTS.parent / "skills" / "check-drift" / "SKILL.md"

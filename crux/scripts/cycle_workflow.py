@@ -8,6 +8,7 @@ import fcntl
 import hashlib
 import json
 import os
+import posixpath
 from pathlib import Path
 import re
 import subprocess
@@ -20,16 +21,54 @@ PHASES = {
     'dev': ['plan', 'build', 'test', 'review', 'reflect'],
     'iterate': ['plan', 'build', 'test', 'review', 'reflect'],
     'refactor': ['plan', 'build', 'test', 'review', 'reflect'],
+    'simplify': ['plan', 'build', 'test', 'review', 'reflect'],
     'quick-fix': ['build', 'test', 'review', 'reflect'],
-    'release': ['plan', 'release', 'reflect'],
+    'release': ['release'],
 }
-LIMITS = {'dev': 7, 'iterate': 2, 'refactor': 7, 'quick-fix': 1, 'release': 2}
+# pass_limit 1 for a release cycle only satisfies the schema's integer; no action opens a second pass.
+LIMITS = {'dev': 7, 'iterate': 2, 'refactor': 7, 'simplify': 3, 'quick-fix': 1, 'release': 1}
+# A release record without release_list predates the fixed lists; this table serves validation and display.
+LEGACY_RELEASE = {'phases': ['plan', 'release', 'reflect'], 'limit': 2}
+# Each task: (id, description, expected_evidence). Every task is in phase release and depends on its predecessor.
+RELEASE_LISTS = {
+    'beta': [
+        ('prep', 'Prepare the release: bump the versions, promote the changelog, regenerate the public docs, and commit them',
+         'the commit that carries the prepared release'),
+        ('prepare', 'Bind this cycle to the beta target and freeze the artifact', 'release.py prepare recorded in the ledger'),
+        ('verify', 'Verify the artifact with the release gates', 'release.py verify passed'),
+        ('beta-and-smoke', "Publish the untagged beta under the owner's quoted authorization, then install it in isolation",
+         'release.py beta published and release.py smoke passed'),
+        ('tag', 'Tag the beta and create its release once verify and smoke passed on the authorized artifact', 'release.py tag recorded the tag'),
+        ('record', 'Copy the ledger into this cycle and prepend its release op to the log', 'release.py record and the commit that holds the log op'),
+    ],
+    'official': [
+        ('live-check-and-go-ahead', "Collect the owner's quoted go-ahead and any owed live-check result for the tagged artifact",
+         "the owner's quote and release.py smoke --live-check when owed"),
+        ('official', 'Publish and tag the official release with the same go-ahead', 'release.py official published'),
+        ('record', 'Copy the ledger into this cycle, with the reason when the target did not publish, and prepend its release op to the log',
+         'release.py record and the commit that holds the log op'),
+    ],
+}
 ID = re.compile(r'^(?:[A-Z][A-Z0-9]{1,9}-)?CYC-[0-9]{4,}$')
 CLOSED = {'completed', 'abandoned'}
 
 
 class CycleError(ValueError):
     pass
+
+
+def listed(doc):
+    """A release cycle created under a fixed list."""
+    return doc['type'] == 'release' and bool(doc.get('release_list'))
+
+
+def legacy(doc):
+    """A release record from before the fixed lists: historical, closable only."""
+    return doc['type'] == 'release' and not doc.get('release_list')
+
+
+def phases_of(doc):
+    return LEGACY_RELEASE['phases'] if legacy(doc) else PHASES[doc['type']]
 
 
 def now():
@@ -58,11 +97,16 @@ def contained(root: Path, relative: str | Path) -> Path:
 
 
 def atomic(path: Path, value):
+    atomic_bytes(path, encoded(value))
+
+
+def atomic_bytes(path: Path, data: bytes):
+    """Write through a temp file, fsync, then os.replace, so a reader sees a whole file."""
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, name = tempfile.mkstemp(prefix='.cycle-', dir=path.parent)
     try:
         with os.fdopen(fd, 'wb') as stream:
-            stream.write(encoded(value))
+            stream.write(data)
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(name, path)
@@ -100,7 +144,7 @@ def validate(doc):
         raise CycleError('version-two cycle requires coverage and completion fields')
     if len(doc['implementers']) != len(set(doc['implementers'])) or len(doc['required_checks']) != len(set(doc['required_checks'])):
         raise CycleError('implementers and required checks must be unique')
-    if doc['phase'] not in PHASES[doc['type']]:
+    if doc['phase'] not in phases_of(doc):
         raise CycleError('phase is incompatible with cycle type')
     if doc['pass'] > doc['pass_limit']:
         raise CycleError('pass exceeds approved limit')
@@ -110,7 +154,7 @@ def validate(doc):
     if len(task_ids) != len(set(task_ids)):
         raise CycleError('task ids must be unique')
     for task in doc['plan']['tasks']:
-        if task['phase'] not in PHASES[doc['type']] or any(dep not in task_ids or dep == task['id'] for dep in task['depends_on']):
+        if task['phase'] not in phases_of(doc) or any(dep not in task_ids or dep == task['id'] for dep in task['depends_on']):
             raise CycleError('task phase or dependency is invalid')
     graph = {t['id']: t['depends_on'] for t in doc['plan']['tasks']}
     def visit(node, visiting):
@@ -120,6 +164,11 @@ def validate(doc):
             visit(dependency, visiting | {node})
     for node in graph:
         visit(node, set())
+    if listed(doc):
+        fixed = RELEASE_LISTS[doc['release_list']]
+        expected = [(tid, 'release', [fixed[i - 1][0]] if i else []) for i, (tid, _, _) in enumerate(fixed)]
+        if [(t['id'], t['phase'], t['depends_on']) for t in doc['plan']['tasks']] != expected:
+            raise CycleError(f"a {doc['release_list']} release cycle carries exactly its fixed task list, in order, each depending on its predecessor")
     return doc
 
 
@@ -144,13 +193,20 @@ def save(cfg, doc):
 
 
 def event(doc, action, **fields):
-    doc['history'].append({'at': now(), 'action': action, 'pass': doc['pass'], 'phase': doc['phase'], **fields})
+    doc['history'].append({'at': now(), 'action': action, 'pass': doc['pass'], 'phase': doc['phase'], 'status': doc['status'], **fields})
     doc['updated_at'] = now()
 
 
-def create(repo, kind, title, goal, scope, acceptance, implementer, coordinator):
+def create(repo, kind, title, goal, scope, acceptance, implementer, coordinator, origin=None, release_list=None):
+    """Create a cycle. `origin`, when given, is recorded as a `queue` key on the created event.
+
+    A release cycle requires `release_list` (beta or official) and carries that list's fixed tasks."""
     if kind not in PHASES or not all((title.strip(), goal.strip(), scope, acceptance, implementer.strip(), coordinator.strip())):
         raise CycleError('type, title, goal, scope, acceptance, implementer and coordinator are required')
+    if kind == 'release' and release_list not in RELEASE_LISTS:
+        raise CycleError('a release cycle requires --list beta or --list official')
+    if kind != 'release' and release_list is not None:
+        raise CycleError('--list belongs to release cycles')
     with locked(repo) as (cfg, directory):
         for name in scope:
             contained(cfg.repo_root, name)
@@ -168,7 +224,14 @@ def create(repo, kind, title, goal, scope, acceptance, implementer, coordinator)
             'reflection': None, 'blocker': None, 'extensions': [], 'release': None,
             'coverage': None, 'completion': None,
         }
-        event(doc, 'created')
+        if kind == 'release':
+            doc['release_list'] = release_list
+            previous = None
+            for tid, description, evidence in RELEASE_LISTS[release_list]:
+                doc['plan']['tasks'].append({'id': tid, 'phase': 'release', 'description': description, 'depends_on': [previous] if previous else [],
+                                             'status': 'pending', 'expected_evidence': [evidence]})
+                previous = tid
+        event(doc, 'created', **({'queue': dict(origin)} if origin else {}))
         # Allocate the directory before writing; an interrupted allocation is never reused.
         contained(directory, identity).mkdir()
         save(cfg, doc)
@@ -230,10 +293,144 @@ def approvals(cfg, doc, kind):
     return approved
 
 
+SELECTION_KEYS = ('assessed', 'proposals', 'selected')
+PROPOSAL_KEYS = {'id', 'removes', 'retained_behavior', 'objectives', 'decision_clauses', 'expected_savings', 'verification', 'paths'}
+OWNER_ONLY = 'owner selection is required outside a scope authorized in advance'
+
+
+def _text(value):
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _texts(value):
+    return isinstance(value, list) and bool(value) and all(_text(item) for item in value)
+
+
+def selected_proposals(contents):
+    """The proposals a simplify selection IDR selects, or a refusal naming the first shape fault."""
+    if not _text(contents.get('assessed')):
+        raise CycleError('the simplify selection needs a non-empty assessed statement')
+    proposals = contents.get('proposals')
+    if not isinstance(proposals, list) or not proposals:
+        raise CycleError('the simplify selection needs a non-empty list of proposals')
+    by_id = {}
+    for proposal in proposals:
+        if not isinstance(proposal, dict) or set(proposal) != PROPOSAL_KEYS:
+            raise CycleError('each simplify proposal carries exactly: ' + ', '.join(sorted(PROPOSAL_KEYS)))
+        if not _text(proposal['id']) or proposal['id'] in by_id:
+            raise CycleError('simplify proposal ids are non-empty and unique')
+        for key in ('removes', 'retained_behavior', 'expected_savings', 'verification'):
+            if not _text(proposal[key]):
+                raise CycleError(f"proposal {proposal['id']} needs a non-empty {key}")
+        for key in ('objectives', 'decision_clauses', 'paths'):
+            if not _texts(proposal[key]):
+                raise CycleError(f"proposal {proposal['id']} needs a non-empty list of {key}")
+        clauses = proposal['decision_clauses']
+        if any(c.strip().startswith('none') for c in clauses) and (len(clauses) != 1 or not re.fullmatch(r'none:\s*\S.*', clauses[0].strip())):
+            raise CycleError(f"proposal {proposal['id']}: 'none' must be the only decision clause and give a reason as 'none: <reason>'")
+        by_id[proposal['id']] = proposal
+    selected = contents.get('selected')
+    if not _texts(selected) or len(set(selected)) != len(selected) or not set(selected) <= set(by_id):
+        raise CycleError('selected must be a non-empty list of distinct proposal ids drawn from the proposals')
+    return [by_id[pid] for pid in selected]
+
+
+def scope_covers(entry, path):
+    """Whether a scope entry names the path: equal, or a directory the path lies under."""
+    entry, path = posixpath.normpath(entry), posixpath.normpath(path)
+    return path == entry or path.startswith(entry.rstrip('/') + '/')
+
+
+def within_scope(cfg, path, scope):
+    try:
+        target = contained(cfg.repo_root, path)
+    except CycleError as exc:
+        raise CycleError(f'proposal path {path}: {exc}') from exc
+    return covered_path(cfg.repo_root, target, scope) or any(scope_covers(entry, path) for entry in scope)
+
+
+def queue_item_scope(cfg, doc):
+    """The frozen scope of the queue item that started this cycle, or None without a queue origin."""
+    origin = next((h.get('queue') for h in doc['history'][:1] if h.get('action') == 'created'), None)
+    if not isinstance(origin, dict) or not origin.get('item'):
+        return None
+    import cycle_queue  # imported here: cycle_queue imports this module
+    try:
+        items = cycle_queue.read_queue(cfg)['items']
+    except (CycleError, OSError, ValueError):
+        return None
+    item = next((i for i in items if i.get('id') == origin['item'] and i.get('cycle') == doc['id']), None)
+    return list(item['scope']) if item else None
+
+
+def check_selection(cfg, doc):
+    """Simplify: one current IDR revision carries a valid selection that its approval authorizes."""
+    current = {}
+    for decision in doc['decisions']:
+        if decision['kind'] == 'idr':
+            current[decision['name']] = decision
+    carriers = []
+    for decision in current.values():
+        record = read_retained(cfg, decision)
+        if any(key in record['contents'] for key in SELECTION_KEYS):
+            carriers.append((decision, record))
+    if len(carriers) != 1:
+        raise CycleError('a simplify cycle needs exactly one current IDR revision carrying the selection (assessed, proposals, selected); found ' + str(len(carriers)))
+    decision, record = carriers[0]
+    chosen = selected_proposals(record['contents'])
+    for proposal in chosen:
+        for path in proposal['paths']:
+            if not within_scope(cfg, path, doc['plan']['scope']):
+                raise CycleError(f"selected proposal {proposal['id']} changes {path}, which lies outside the plan scope")
+    approval = json.loads(contained(cfg.docs_root, decision['approval']).read_text())
+    if isinstance(approval, dict) and approval.get('format') == 'crux.owner-approval':
+        return
+    scope = queue_item_scope(cfg, doc)
+    if scope is None or not all(any(scope_covers(item, entry) for item in scope) for entry in doc['plan']['scope']):
+        raise CycleError(f'the selection has a council approval only; {OWNER_ONLY}')
+
+
+REDUCTION_AREAS = ('production', 'tests', 'instructions', 'execution')
+AREA_KEYS = {'change', 'before', 'after', 'evidence'}
+
+
+def reduction_areas(value):
+    """Validate a reduction file: exactly the four areas, each with a closed change and its evidence."""
+    if not isinstance(value, dict) or set(value) != {'areas'}:
+        raise CycleError('a reduction file holds exactly one key: areas')
+    areas = value['areas']
+    if not isinstance(areas, dict) or set(areas) != set(REDUCTION_AREAS):
+        raise CycleError('reduction areas are exactly: ' + ', '.join(REDUCTION_AREAS))
+    for name in REDUCTION_AREAS:
+        area = areas[name]
+        if not isinstance(area, dict) or set(area) != AREA_KEYS:
+            raise CycleError(f'reduction area {name} carries exactly: ' + ', '.join(sorted(AREA_KEYS)))
+        if area['change'] not in ('decrease', 'unchanged', 'increase'):
+            raise CycleError(f'reduction area {name}: change is decrease, unchanged or increase')
+        if not _text(area['before']) or not _text(area['after']) or not _texts(area['evidence']):
+            raise CycleError(f'reduction area {name} needs non-empty before, after and a non-empty evidence list')
+    return deepcopy(areas)
+
+
+def check_reduction(cfg, doc):
+    """Simplify gate: a current reduction record with no increase in any area and a decrease in at least one."""
+    record = doc.get('reduction')
+    if not record:
+        raise CycleError('a simplify cycle needs a reduction record for this pass; record one with the reduction command in the Test phase')
+    if record['pass'] != doc['pass'] or record['input_sha256'] != source_fingerprint(cfg.repo_root, doc):
+        raise CycleError('the reduction record is stale (another pass, or the source changed since it was recorded); record it again in the Test phase')
+    areas = record['areas']
+    increased = [name for name in REDUCTION_AREAS if areas[name]['change'] == 'increase']
+    if increased:
+        raise CycleError('the reduction record shows an increase in ' + ', '.join(increased) + '; a simplify cycle allows none, so report the increase and propose it as different work (a queue item or an owner report), then remove it from this cycle')
+    if not any(areas[name]['change'] == 'decrease' for name in REDUCTION_AREAS):
+        raise CycleError('the reduction record shows no area with a decrease; a simplify cycle must reduce at least one area')
+
+
 def check_decisions(cfg, doc):
-    required = doc['type'] == 'dev' or any(d['kind'] == 'idr' for d in doc['decisions'])
+    required = doc['type'] in ('dev', 'simplify') or any(d['kind'] == 'idr' for d in doc['decisions'])
     if required and not approvals(cfg, doc, 'idr'):
-        raise CycleError('council approval of an exact IDR revision is required before dependent work')
+        raise CycleError('council or owner approval of an exact IDR revision is required before dependent work')
     for decision in doc['decisions']:
         if decision['kind'] == 'adr':
             if not decision.get('accepted'):
@@ -250,6 +447,8 @@ def check_decisions(cfg, doc):
             raise CycleError('the current IDR revision is not approved')
         from cycle_council import validate_approval
         validate_approval(cfg.repo_root, decision['approval'], purpose='idr', subject=decision['path'])
+    if doc['type'] == 'simplify':
+        check_selection(cfg, doc)
 
 
 def check_coverage(doc):
@@ -332,34 +531,69 @@ def check_tests(cfg, doc):
             raise CycleError(f'invalid evidence for {check}: {exc}') from exc
 
 
-BASIS_VERSION = 2
+BASIS_VERSION = 4
 
-
-def review_bearing_phase(kind):
-    """The phase whose gate binds a review: Release when the type has one, else Review."""
-    return 'release' if 'release' in PHASES[kind] else 'review'
+# Version 3 classifies every task field. A field in neither set fails loudly,
+# so a future task field forces a decision rather than silently entering or
+# leaving the basis.
+TASK_BASIS_FIELDS = ('id', 'phase', 'description', 'expected_evidence')
+TASK_BOOKKEEPING_FIELDS = ('depends_on', 'status', 'assignee', 'result_path', 'commits', 'evidence', 'stage', 'note', 'replaced_commits')
 
 
 def review_basis_digest(doc, version):
     """Digest what an independent reviewer approved.
 
     Version 1 hashes the whole plan. Version 2 omits plan tasks of phases after
-    the review-bearing phase (Reflect today), so reflection bookkeeping added
+    the Review phase (Reflect today), so reflection bookkeeping added
     after approval keeps the binding. Task status, reflection, completion,
     history, blocker and status are never part of the basis.
+
+    Version 3 keeps the version-2 phase cutoff and projects each task to
+    `TASK_BASIS_FIELDS`, so delivery bookkeeping (`TASK_BOOKKEEPING_FIELDS`)
+    keeps an approval bound. It also drops the plan's revision counter; the
+    fields the counter counts are hashed directly. Versions 1 and 2 compute as
+    they did when recorded.
+
+    Version 4 keeps version 3 and replaces the current-pass evidence list with
+    a map from each required check id to the `declaration_sha256` of its latest
+    current-pass ref (a legacy ref without the field contributes its
+    evidence_id). A refresh of the same declaration keeps an approval bound; a
+    changed command, inputs or exclusions does not. Live evidence validity is
+    checked at every gate by `check_tests`, not by the basis.
     """
     plan = deepcopy(doc['plan'])
-    if version == 2:
+    if version in (2, 3, 4):
         sequence = PHASES[doc['type']]
-        cutoff = sequence.index(review_bearing_phase(doc['type']))
+        cutoff = sequence.index('review')
         plan['tasks'] = [task for task in plan['tasks'] if sequence.index(task['phase']) <= cutoff]
     elif version != 1:
         raise CycleError('unknown review basis version')
-    for task in plan['tasks']:
-        task.pop('status', None)
-    basis = {'plan': plan, 'required_checks': doc['required_checks'], 'review_policy': doc['review_policy'], 'evidence': [ref for ref in doc['evidence'] if ref['pass'] == doc['pass']]}
+    if version in (3, 4):
+        plan.pop('revision', None)
+        projected = []
+        for task in plan['tasks']:
+            unclassified = sorted(set(task) - set(TASK_BASIS_FIELDS) - set(TASK_BOOKKEEPING_FIELDS))
+            if unclassified:
+                raise CycleError('unclassified task field in review basis: ' + ', '.join(unclassified))
+            projected.append({key: task[key] for key in TASK_BASIS_FIELDS})
+        plan['tasks'] = projected
+    else:
+        for task in plan['tasks']:
+            task.pop('status', None)
+    current = [ref for ref in doc['evidence'] if ref['pass'] == doc['pass']]
+    if version == 4:
+        latest = {}
+        for ref in current:
+            latest[ref['check_id']] = ref.get('declaration_sha256') or ref['evidence_id']
+        evidence = {check: latest[check] for check in sorted(set(doc['required_checks'])) if check in latest}
+    else:
+        evidence = current
+    basis = {'plan': plan, 'required_checks': doc['required_checks'], 'review_policy': doc['review_policy'], 'evidence': evidence}
     if doc['schema_version'] >= 2:
         basis['coverage'] = doc['coverage']
+    if version in (3, 4) and doc['type'] == 'simplify':
+        # A reduction changed after approval invalidates the review. Other types hash as they always did.
+        basis['reduction'] = doc.get('reduction')
     return digest(encoded(basis))
 
 
@@ -368,33 +602,39 @@ def review_basis_v1(doc):
     return review_basis_digest(doc, 1)
 
 
+def review_basis_v2(doc):
+    """The version-2 basis, kept to bind reports recorded under it."""
+    return review_basis_digest(doc, 2)
+
+
 def review_basis(doc):
-    """The current basis (version 2), recorded in new reports."""
+    """The current basis (version 4), recorded in new reports."""
     return review_basis_digest(doc, BASIS_VERSION)
 
 
-def basis_binds(report, v1, v2):
+def basis_binds(report, v1, v2, v3=None, v4=None):
     """Whether a stored report's basis matches the current record.
 
     A versioned report binds only to its own version. An unversioned (legacy)
-    report binds to the version-1 or the version-2 digest. An unknown version
-    never binds.
+    report binds to the version-1 or the version-2 digest, as it did before
+    version 3 existed. An unknown version never binds.
     """
     stored = report.get('basis_sha256')
     version = report.get('basis_version')
     if version is None:
         return stored in (v1, v2)
-    if type(version) is int and version in (1, 2):
-        return stored == (v1 if version == 1 else v2)
+    if type(version) is int and version in (1, 2, 3, 4):
+        expected = {1: v1, 2: v2, 3: v3, 4: v4}[version]
+        return expected is not None and stored == expected
     return False
 
 
 def check_review(cfg, doc):
     fingerprint = source_fingerprint(cfg.repo_root, doc)
-    v1, v2 = review_basis_v1(doc), review_basis(doc)
+    v1, v2, v3, v4 = review_basis_v1(doc), review_basis_v2(doc), review_basis_digest(doc, 3), review_basis(doc)
     for ref in reversed(doc['reviews']):
         report = read_retained(cfg, ref)
-        if report['pass'] != doc['pass'] or report['input_sha256'] != fingerprint or not basis_binds(report, v1, v2):
+        if report['pass'] != doc['pass'] or report['input_sha256'] != fingerprint or not basis_binds(report, v1, v2, v3, v4):
             continue
         if report['reviewer'] in doc['implementers']:
             continue
@@ -404,17 +644,221 @@ def check_review(cfg, doc):
     raise CycleError('a passing independent review of the current scope is required')
 
 
+DELIVERY_FIELDS = ('assignee', 'result_path', 'commits', 'evidence', 'stage', 'note', 'replaced_commits')
+STAGES = ('implemented', 'integrated')
+
+
+def run_git(cfg, *argv):
+    done = subprocess.run(['git', '-C', str(cfg.repo_root), *argv], capture_output=True, text=True)
+    return done.returncode, done.stdout
+
+
+def resolve_commit(cfg, name):
+    """Full 40-hex id of an existing commit, or a refusal."""
+    if not re.fullmatch(r'[0-9a-fA-F]{7,64}', str(name)):
+        raise CycleError(f'commit {name} is not a hexadecimal commit id')
+    code, out = run_git(cfg, 'rev-parse', '--verify', '--quiet', f'{name}^{{commit}}')
+    full = out.strip()
+    if code != 0 or not re.fullmatch(r'[0-9a-f]{40}', full):
+        raise CycleError(f'commit {name} does not resolve to a commit in this repository')
+    return full
+
+
+def on_head(cfg, sha):
+    return run_git(cfg, 'merge-base', '--is-ancestor', sha, 'HEAD')[0] == 0
+
+
+def result_file(cfg, value):
+    """A recorded result path: absolute, or relative to the repository root (not the docs root)."""
+    path = Path(value)
+    return path if path.is_absolute() else cfg.repo_root / path
+
+
+def delivery_holds(cfg, task):
+    """Whether a task's recorded delivery still stands: integrated commits on HEAD, evidence files present.
+
+    The two checks are independent. Any git or filesystem error counts as not holding,
+    so revalidation never refuses a command.
+    """
+    try:
+        if task.get('stage') == 'integrated' and not all(on_head(cfg, c) for c in task.get('commits', [])):
+            return False
+    except (OSError, ValueError):
+        return False
+    for item in task.get('evidence', []):
+        try:
+            if not contained(cfg.docs_root, item).is_file():
+                return False
+        except (CycleError, OSError, ValueError):
+            return False
+    return True
+
+
+def reopen(task):
+    """An affected task loses its status and stage and keeps every other recorded field."""
+    task['status'] = 'pending'
+    task.pop('stage', None)
+
+
+def start_pass(cfg, doc):
+    """Reset tasks for a new pass. A type with a Plan phase carries build tasks that still hold; others reset all."""
+    carries = 'plan' in PHASES[doc['type']]
+    for task in doc['plan']['tasks']:
+        if carries and task['phase'] == 'build':
+            if not delivery_holds(cfg, task):
+                reopen(task)
+        else:
+            task['status'] = 'pending'
+    doc['plan']['revision'] += 1
+
+
+REPLAN_FIELDS = ('phase', 'description', 'expected_evidence', 'depends_on')
+
+
+def check_plan_file(plan):
+    """A plan file sets plan content only; state and delivery belong to the `task` command."""
+    for task in plan.get('tasks', []):
+        if not isinstance(task, dict):
+            continue
+        found = ([f"status {task['status']}"] if task.get('status', 'pending') != 'pending' else []) + [k for k in DELIVERY_FIELDS if k in task]
+        if found:
+            raise CycleError(f"plan task {task.get('id')} carries {', '.join(found)}; a plan file sets plan content only, so record state and delivery with the `task` command")
+
+
+def replan(cfg, previous, plan):
+    """Merge a plan file over the recorded plan: an unaffected paired task keeps its status and delivery."""
+    recorded = {t['id']: t for t in previous['tasks']}
+    merged = []
+    for task in plan['tasks']:
+        old = recorded.get(task['id'])
+        if old is None:
+            merged.append(task)
+            continue
+        new = deepcopy(task)
+        new['status'] = old['status']
+        for key in DELIVERY_FIELDS:
+            if key in old:
+                new[key] = deepcopy(old[key])
+        if any(old.get(k) != task.get(k) for k in REPLAN_FIELDS) or not delivery_holds(cfg, new):
+            reopen(new)
+        merged.append(new)
+    plan['tasks'] = merged
+
+
+def replace_commit(cfg, task, new, pair, note):
+    """Replace OLD with NEW in place in `new` and append the replacement; a repeat is a no-op."""
+    old, name = pair
+    if not (note or '').strip():
+        raise CycleError('--replace-commit requires --note')
+    target = resolve_commit(cfg, name)
+    prefix = str(old).lower()
+    if not re.fullmatch(r'[0-9a-f]{7,40}', prefix):
+        raise CycleError(f'commit {old} is not a hexadecimal commit id')
+    commits, history = list(task.get('commits', [])), task.get('replaced_commits', [])
+    if target in commits and any(h['from'].startswith(prefix) and h['to'] == target for h in history):
+        return
+    matches = [c for c in commits if c.startswith(prefix)]
+    if not matches:
+        raise CycleError(f'commit {old} is not recorded on this task')
+    if len(matches) > 1:
+        raise CycleError(f'commit prefix {old} matches more than one recorded commit')
+    if target in commits:
+        raise CycleError(f'commit {name} is already recorded on this task')
+    new['commits'] = [target if c == matches[0] else c for c in commits]
+    new['replaced_commits'] = [*history, {'from': matches[0], 'to': target, 'at': now(), 'note': note.strip()}]
+
+
+def updated_task(cfg, doc, task, args):
+    """The task as it would be after this update; the caller compares it with the stored task."""
+    new = deepcopy(task)
+    fields = {k: args.get(k) for k in ('state', 'assignee', 'result_path', 'stage', 'note')}
+    commits, evidence = args.get('commits') or [], args.get('evidence') or []
+    pair = args.get('replace_commit')
+    if not any(fields.values()) and not commits and not evidence and not pair:
+        raise CycleError('task update names no state or delivery field')
+    state = fields['state']
+    if state == 'done' and any(t['status'] != 'done' for t in doc['plan']['tasks'] if t['id'] in task['depends_on']):
+        raise CycleError('task dependencies are incomplete')
+    if pair:
+        # With a replacement the note describes it and does not overwrite the task note.
+        replace_commit(cfg, task, new, pair, fields['note'])
+        fields['note'] = None
+    if state:
+        new['status'] = state
+    for key in ('assignee', 'result_path', 'note'):
+        if fields[key]:
+            if not str(fields[key]).strip():
+                raise CycleError(f'{key} must not be empty')
+            new[key] = fields[key]
+    full = [resolve_commit(cfg, c) for c in commits]
+    if full:
+        new['commits'] = list(dict.fromkeys([*new.get('commits', []), *full]))
+    if evidence:
+        merged = list(task.get('evidence', []))
+        seen = {posixpath.normpath(e) for e in merged}
+        for item in evidence:
+            if not contained(cfg.docs_root, item).is_file():
+                raise CycleError(f'evidence {item} does not exist under the docs root')
+            # './e.md' and 'e.md' name one file: store and compare the normalized form.
+            item = posixpath.normpath(str(item))
+            if item not in seen:
+                merged.append(item)
+                seen.add(item)
+        new['evidence'] = merged
+    result = new.get('result_path')
+    if new['status'] == 'done' and result and not Path(result).is_absolute():
+        # reconcile reads the same base; a docs-relative path would read as missing.
+        if not result_file(cfg, result).exists() and (cfg.docs_root / result).exists():
+            raise CycleError(f'result path {result} is relative to the docs root; '
+                             'give it absolute or relative to the repository root')
+    stage = fields['stage']
+    if stage:
+        if stage not in STAGES:
+            raise CycleError('stage must be implemented or integrated')
+        if task.get('stage') and STAGES.index(stage) < STAGES.index(task['stage']):
+            # A late duplicate report (implemented after integrated) is already satisfied
+            # when it names only recorded commits; a new commit at a lower stage is refused.
+            if any(c not in task.get('commits', []) for c in full):
+                raise CycleError('stage cannot move backward')
+        else:
+            new['stage'] = stage
+    if new.get('stage') and not new.get('commits'):
+        raise CycleError('a stage requires at least one recorded commit')
+    if new.get('stage') == 'integrated':
+        behind = [c[:12] for c in new['commits'] if not on_head(cfg, c)]
+        if behind:
+            raise CycleError('integrated requires every commit to be an ancestor of HEAD; not on HEAD: ' + ', '.join(behind))
+    return new
+
+
+# The actions a release cycle accepts; every other action refuses.
+LISTED_ACTIONS = {'task', 'completion', 'pause', 'resume', 'abandon', 'owner-complete', 'advance'}
+LEGACY_ACTIONS = {'pause', 'reflect', 'abandon'}
+
+
 def mutate(repo, identity, action, **args):
+    return mutate_tracked(repo, identity, action, **args)[0]
+
+
+def mutate_tracked(repo, identity, action, **args):
+    """Apply an action under the lock; return (record, changed). A no-op task update writes nothing."""
     with locked(repo) as (cfg, directory):
         doc = load(repo, identity)
+        extra = {}
         if doc['status'] in CLOSED:
             raise CycleError('closed cycles cannot restart or mutate')
-        if doc['status'] == 'paused' and action not in {'resume', 'extend', 'abandon', 'reflect', 'change-type'}:
+        if listed(doc) and action not in LISTED_ACTIONS:
+            raise CycleError(f'{action} is not available on a release cycle: it runs one fixed task list (ADR-0163)')
+        if legacy(doc) and action not in LEGACY_ACTIONS:
+            raise CycleError(f'{action} is not available on a historical release cycle; it can only be paused, reflected on and abandoned')
+        if doc['status'] == 'paused' and action not in {'resume', 'extend', 'abandon', 'reflect', 'change-type', 'owner-complete'}:
             raise CycleError('cycle is paused; resolve its blocker and resume first')
         if action == 'plan':
             if doc['phase'] != 'plan':
                 raise CycleError('plan revisions require the Plan phase')
             plan = deepcopy(args['plan'])
+            check_plan_file(plan)
+            replan(cfg, doc['plan'], plan)
             plan['revision'] = doc['plan']['revision'] + 1
             event(doc, 'plan-revised', previous=deepcopy(doc['plan']), reason=args['reason'])
             doc['plan'] = plan
@@ -440,10 +884,21 @@ def mutate(repo, identity, action, **args):
             task = next((t for t in doc['plan']['tasks'] if t['id'] == args['task_id']), None)
             if not task:
                 raise CycleError('unknown task')
-            if args['state'] == 'done' and any(t['status'] != 'done' for t in doc['plan']['tasks'] if t['id'] in task['depends_on']):
-                raise CycleError('task dependencies are incomplete')
-            task['status'] = args['state']
-            event(doc, 'task-updated', task=task['id'], state=args['state'])
+            updated = updated_task(cfg, doc, task, args)
+            if updated == task:
+                return doc, False
+            rerun = listed(doc) and task['status'] != 'pending' and updated['status'] == 'pending'
+            task.clear()
+            task.update(updated)
+            if rerun:
+                # A rerun resumes at this step: every later task of the fixed list waits again.
+                later = doc['plan']['tasks'][[t['id'] for t in doc['plan']['tasks']].index(task['id']) + 1:]
+                for other in later:
+                    reopen(other)
+            extra = {key: updated[key] for key in DELIVERY_FIELDS if key in updated}
+            event(doc, 'task-updated', task=task['id'], state=task['status'], **extra)
+            save(cfg, doc)
+            return doc, True
         elif action == 'task-add':
             task = deepcopy(args['task'])
             sequence = PHASES[doc['type']]
@@ -463,17 +918,25 @@ def mutate(repo, identity, action, **args):
             doc['completion'] = {key: args.get(key) for key in ('commits', 'exception', 'remaining')}
             doc['completion']['input_sha256'] = source_fingerprint(cfg.repo_root, doc)
             check_completion(cfg, doc)
+        elif action == 'reduction':
+            if doc['type'] != 'simplify':
+                raise CycleError('the reduction record belongs to simplify cycles')
+            if doc['phase'] != 'test':
+                raise CycleError('the reduction record is recorded in the Test phase')
+            areas = reduction_areas(args['reduction'])
+            doc['reduction'] = {'pass': doc['pass'], 'at': now(), 'input_sha256': source_fingerprint(cfg.repo_root, doc), 'areas': areas}
+            extra = {'input_sha256': doc['reduction']['input_sha256'], 'changes': {name: areas[name]['change'] for name in REDUCTION_AREAS}}
         elif action == 'evidence':
-            from test_evidence import validate_evidence
-            validate_evidence(cfg.repo_root, args['evidence_id'], check_id=args['check_id'])
-            doc['evidence'].append({'check_id': args['check_id'], 'evidence_id': args['evidence_id'], 'pass': doc['pass'], 'use': args['use']})
+            from test_evidence import digest as evidence_digest, normalize, validate_evidence
+            record = validate_evidence(cfg.repo_root, args['evidence_id'], check_id=args['check_id'])
+            doc['evidence'].append({'check_id': args['check_id'], 'evidence_id': args['evidence_id'], 'pass': doc['pass'], 'use': args['use'], 'declaration_sha256': evidence_digest(normalize(record['declaration']))})
         elif action == 'scrutiny':
             if args['scrutiny'] not in ('focused', 'standard', 'intensive'):
                 raise CycleError('invalid scrutiny level')
             doc['review_policy'] = {key: args[key] for key in ('scrutiny', 'rationale', 'risks')}
         elif action == 'review':
-            if doc['phase'] not in {'review', 'release'}:
-                raise CycleError('independent review belongs to Review or Release')
+            if doc['phase'] != 'review':
+                raise CycleError('independent review belongs to Review')
             for previous in doc['reviews']:
                 prior = read_retained(cfg, previous)
                 if prior['pass'] == doc['pass'] and (prior['verdict'] == 'changes-required' or prior['blocking']):
@@ -539,9 +1002,7 @@ def mutate(repo, identity, action, **args):
                     raise CycleError('stalled progress requires new evidence before resuming')
                 doc['pass'] += 1
                 doc['phase'] = 'build' if doc['type'] == 'quick-fix' else 'plan'
-                for task in doc['plan']['tasks']:
-                    task['status'] = 'pending'
-                doc['plan']['revision'] += 1
+                start_pass(cfg, doc)
             doc['status'] = 'active'
             doc['blocker'] = None
         elif action == 'extend':
@@ -550,33 +1011,33 @@ def mutate(repo, identity, action, **args):
             doc['extensions'].append({'at': now(), 'from': doc['pass_limit'], 'to': args['limit'], 'human_approval': args['human_approval']})
             doc['pass_limit'] = args['limit']
         elif action == 'return':
-            if doc['phase'] not in {'test', 'review', 'release'}:
-                raise CycleError('only testing, review, or release findings return a cycle')
+            if doc['phase'] not in {'test', 'review'}:
+                raise CycleError('only testing or review findings return a cycle')
             assessment = {k: args[k] for k in ('improved', 'unresolved', 'next_change', 'justification')}
             if not all(isinstance(v, str) and v.strip() for v in assessment.values()):
                 raise CycleError('return requires progress, remaining work, next change, and justification')
-            event(doc, 'return-requested', assessment=assessment, plan=deepcopy(doc['plan']), release=deepcopy(doc['release']))
+            event(doc, 'return-requested', assessment=assessment, plan=deepcopy(doc['plan']))
             if not args['progress'] or doc['pass'] >= doc['pass_limit']:
                 doc['status'] = 'paused'
                 doc['blocker'] = {'reason': 'progress-stalled' if not args['progress'] else 'pass-limit', 'evidence': [assessment], 'next_step': 'reassess stalled work or request explicit approval for additional passes'}
             else:
                 doc['pass'] += 1
                 doc['phase'] = 'build' if doc['type'] == 'quick-fix' else 'plan'
-                for task in doc['plan']['tasks']:
-                    task['status'] = 'pending'
-                doc['plan']['revision'] += 1
+                start_pass(cfg, doc)
         elif action == 'change-type':
             kind = args['kind']
-            if kind not in PHASES or not args['reason'].strip():
-                raise CycleError('valid type and reason required')
+            if kind not in PHASES or kind == 'release' or not args['reason'].strip():
+                raise CycleError('valid type and reason required; a release cycle is created with its list, never changed into')
             if kind == doc['type']:
                 raise CycleError('type is unchanged')
-            if doc['phase'] in {'test', 'review', 'release', 'reflect'} and (not doc['blocker'] or doc['blocker']['reason'] not in {'pass-limit', 'progress-stalled'}):
+            if doc['type'] == 'simplify' and not args.get('human_approval'):
+                raise CycleError('changing a simplify cycle to another type requires explicit human approval, so it never silently becomes another type')
+            if doc['phase'] in {'test', 'review', 'reflect'} and (not doc['blocker'] or doc['blocker']['reason'] not in {'pass-limit', 'progress-stalled'}):
                 raise CycleError('record a counted return before changing type after testing or review, including paused work')
             if doc['blocker'] and doc['blocker']['reason'] == 'pass-limit' and not args.get('human_approval'):
                 raise CycleError('changing type cannot bypass an exhausted limit without human approval')
             old = doc['type']
-            if doc['pass'] >= doc['pass_limit'] and doc['phase'] in {'test', 'review', 'release'} and not args.get('human_approval'):
+            if doc['pass'] >= doc['pass_limit'] and doc['phase'] in {'test', 'review'} and not args.get('human_approval'):
                 raise CycleError('changing type after the final attempt requires explicit human approval')
             limit = max(LIMITS[kind], doc['pass'])
             if doc['extensions']:
@@ -584,43 +1045,28 @@ def mutate(repo, identity, action, **args):
             doc['type'], doc['pass_limit'], doc['phase'] = kind, limit, PHASES[kind][0]
             event(doc, 'type-changed', previous_type=old, reason=args['reason'], previous_plan=deepcopy(doc['plan']), human_approval=args.get('human_approval'))
             doc['plan']['tasks'] = []
-        elif action == 'release-ready':
-            if doc['type'] != 'release' or doc['phase'] != 'release':
-                raise CycleError('release preparation requires the Release phase')
-            check_decisions(cfg, doc)
-            check_tests(cfg, doc)
-            check_review(cfg, doc)
-            if not args['authorization'].strip() or not args['destinations'] or not args['artifacts']:
-                raise CycleError('publication requires exact destinations, artifacts, and authorization')
-            artifacts = []
-            from test_evidence import validate_evidence
-            test_records = [validate_evidence(cfg.repo_root, ref['evidence_id'], check_id=ref['check_id']) for ref in doc['evidence'] if ref['pass'] == doc['pass']]
-            for name in args['artifacts']:
-                path = contained(cfg.repo_root, name)
-                if not covered_path(cfg.repo_root, path, doc['plan']['scope']):
-                    raise CycleError('release artifact lies outside the reviewed scope')
-                if not any(row['snapshot']['inputs'].get(path.relative_to(cfg.repo_root).as_posix(), {}).get('sha256') == digest(path.read_bytes()) for row in test_records):
-                    raise CycleError('release artifact lacks matching packaging or installation evidence')
-                artifacts.append({'path': name, 'sha256': digest(path.read_bytes())})
-            doc['release'] = {'authorization': args['authorization'], 'destinations': args['destinations'], 'artifacts': artifacts, 'input_sha256': source_fingerprint(cfg.repo_root, doc), 'verification': None}
-        elif action == 'release-verified':
-            if not doc['release'] or not args['verification'].strip():
-                raise CycleError('publication readiness and verification required')
-            if any(digest(contained(cfg.repo_root, a['path']).read_bytes()) != a['sha256'] for a in doc['release']['artifacts']):
-                raise CycleError('release artifacts changed after approval')
-            if doc['release']['input_sha256'] != source_fingerprint(cfg.repo_root, doc):
-                raise CycleError('release inputs changed after approval')
-            doc['release']['verification'] = args['verification']
         elif action == 'reflect':
             if doc['phase'] != 'reflect' and doc['status'] != 'paused':
                 raise CycleError('reflection belongs to Reflect or abandonment')
             if not all(args['reflection'].get(k) for k in ('outcome', 'lessons', 'remaining')):
                 raise CycleError('reflection requires outcome, lessons, and remaining work (use none when empty)')
             doc['reflection'] = args['reflection']
+        elif action == 'owner-complete':
+            # The owner closes a cycle whose gates cannot be satisfied. Nothing
+            # recorded is rewritten: blocker, evidence, reviews, release and
+            # reflection stay as they are. The history event carries the
+            # owner's verbatim words and fingerprints of the cited authority.
+            extra = {'owner': owner_authorization(cfg, args['owner'])}
+            doc['status'] = 'completed'
         elif action == 'abandon':
-            if not doc['reflection']:
+            if not doc['reflection'] and not listed(doc):
                 raise CycleError('abandonment requires reflection')
             doc['status'] = 'abandoned'
+        elif action == 'advance' and listed(doc):
+            if any(t['status'] != 'done' for t in doc['plan']['tasks']):
+                raise CycleError('current phase has unfinished tasks')
+            check_completion(cfg, doc)
+            doc['status'] = 'completed'
         elif action == 'advance':
             check_decisions(cfg, doc)
             phase = doc['phase']
@@ -636,18 +1082,17 @@ def mutate(repo, identity, action, **args):
                     raise CycleError('refactor requires intended improvement')
             if phase == 'test':
                 check_tests(cfg, doc)
+                if doc['type'] == 'simplify':
+                    check_reduction(cfg, doc)
             if phase == 'review':
-                check_tests(cfg, doc)
-                check_review(cfg, doc)
-            if phase == 'release':
-                if not doc['release'] or not doc['release']['verification']:
-                    raise CycleError('release requires reviewed publication and verification')
                 check_tests(cfg, doc)
                 check_review(cfg, doc)
             if phase == 'reflect':
                 if any(task['status'] != 'done' for task in doc['plan']['tasks']):
                     raise CycleError('completion requires every planned task to be done')
                 check_tests(cfg, doc)
+                if doc['type'] == 'simplify':
+                    check_reduction(cfg, doc)
                 check_review(cfg, doc)
                 if not doc['reflection']:
                     raise CycleError('reflection is required before completion')
@@ -657,9 +1102,36 @@ def mutate(repo, identity, action, **args):
                 doc['phase'] = PHASES[doc['type']][PHASES[doc['type']].index(phase) + 1]
         else:
             raise CycleError('unknown cycle action')
-        event(doc, action, **({'reason': args['reason']} if 'reason' in args else {}))
+        event(doc, action, **({'reason': args['reason']} if 'reason' in args else {}), **extra)
         save(cfg, doc)
-        return doc
+        return doc, True
+
+
+OWNER_COMPLETION_FIELDS = {'origin', 'quote', 'date', 'conversation', 'authority'}
+
+
+def owner_authorization(cfg, owner):
+    """Validate an owner's completion authorization; never synthesized without a quote."""
+    if not isinstance(owner, dict) or set(owner) != OWNER_COMPLETION_FIELDS:
+        raise CycleError('owner authorization must carry exactly: ' + ', '.join(sorted(OWNER_COMPLETION_FIELDS)))
+    if owner['origin'] != 'owner-conversation':
+        raise CycleError('owner authorization requires origin owner-conversation')
+    for key in ('quote', 'conversation'):
+        if not isinstance(owner[key], str) or not owner[key].strip():
+            raise CycleError(f'owner authorization requires a non-empty verbatim {key}')
+    if not isinstance(owner['date'], str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}', owner['date']):
+        raise CycleError('owner authorization date must be YYYY-MM-DD')
+    if not isinstance(owner['authority'], list) or not owner['authority']:
+        raise CycleError('owner authorization must reference at least one authority file')
+    refs = []
+    for name in owner['authority']:
+        if not isinstance(name, str):
+            raise CycleError('authority entries are repository-relative paths')
+        path = contained(cfg.repo_root, name)
+        if not path.is_file():
+            raise CycleError(f'authority file does not exist: {name}')
+        refs.append({'path': name, 'sha256': digest(path.read_bytes())})
+    return {**deepcopy(owner), 'authority': refs}
 
 
 def query_decisions(repo, identity):

@@ -54,6 +54,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import httpx
 
+from council_assumptions import with_assumptions
+
 from crux_env import get
 from untrusted import redact
 
@@ -343,16 +345,25 @@ _GATE_INSTRUCTIONS = {
 }
 
 
-def gate_vote_instruction(kind: str) -> str:
+_SAFETY_VETO = 'Any finding on Security, or that is safety-adjacent, is blocking. '
+_BLOCKER_TEST_RULE = ('Mark a finding blocking only when it passes the blocker test in the system text. '
+                      'A Security dimension or a safety_adjacent tag alone does not make a finding blocking. ')
+
+
+def gate_vote_instruction(kind: str, *, blocker_test: bool = False) -> str:
     """The vote instruction a gate council of `kind` appends to the question.
 
-    One text per kind, so a caller can hash exactly what the seats were told.
+    One text per kind and flag, so a caller can hash exactly what the seats were told.
+    The default is the historical gate text, which treats any Security or safety-adjacent
+    finding as blocking. `blocker_test=True` (cycle councils) replaces that sentence with
+    the blocker test the operating assumptions state.
     Raises `ValueError` for a kind outside `GATE_COUNCIL_KINDS`.
     """
     try:
-        return _GATE_INSTRUCTIONS[kind]
+        text = _GATE_INSTRUCTIONS[kind]
     except (KeyError, TypeError):
         raise ValueError(f"council kind must be one of {list(GATE_COUNCIL_KINDS)}") from None
+    return text.replace(_SAFETY_VETO, _BLOCKER_TEST_RULE) if blocker_test else text
 
 
 class CouncilAssignmentRefused(Exception):
@@ -425,6 +436,8 @@ class AsyncCouncilConfig:
     # every reply is checked. `council_kind` picks the vote instruction.
     gate: bool = False
     council_kind: Optional[str] = None
+    # Cycle councils classify blocking findings by the blocker test (see gate_vote_instruction).
+    blocker_test: bool = False
     # Test and runner seam: an alternative transport for the gateway client.
     transport: Optional[httpx.AsyncBaseTransport] = None
 
@@ -761,6 +774,12 @@ class AsyncCouncil:
         check_served(attempt.cfg, probe)
         check_served_provider(attempt.cfg, probe)
 
+    def _seat_instruction(self, gate: bool) -> str:
+        """The vote instruction appended to a seat's prompt."""
+        if not gate:
+            return self._VOTE_JSON_INSTRUCTION
+        return gate_vote_instruction(self._council_kind, blocker_test=self.config.blocker_test is True)
+
     async def _call_seat_async(self, seat: str, prompt: str, system: Optional[str] = None) -> CouncilVote:
         """One council seat, one gateway call, and at most one retry.
 
@@ -778,12 +797,11 @@ class AsyncCouncil:
         async def _once(attempt: _Attempt) -> CouncilVote:
             cfg = get_model_config(model)
             requested["model"] = cfg.api_string
-            instruction = (gate_vote_instruction(self._council_kind)
-                           if gate else self._VOTE_JSON_INSTRUCTION)
+            instruction = self._seat_instruction(gate)
             content = await self._post_seat(
                 cfg,
                 prompt + instruction,
-                system=system or "You are a critical reviewer. Respond with valid JSON.",
+                system=with_assumptions(system or "You are a critical reviewer. Respond with valid JSON."),
                 response_format={"type": "json_object"},
                 attempt=attempt,
             )

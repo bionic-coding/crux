@@ -5,8 +5,12 @@ operation-scoped snapshots; public callers select only the containing project ro
 """
 from __future__ import annotations
 
+import contextlib
+import contextvars
+import copy
 import hashlib
 import importlib.util
+import os
 from pathlib import Path
 
 import observation_evidence as oe
@@ -165,7 +169,8 @@ def _context_for_source_io(root, *, docs_dir=None, _source_io):
 
 
 def _loaded_context_inputs(root, docs_dir, source_io):
-    return _complete_context(_layout_inputs(root, docs_dir, source_io))
+    # `_layout_inputs` binds the tree, which revalidates the operation just before this call.
+    return _complete_context(_layout_inputs(root, docs_dir, source_io), revalidated=True)
 
 
 def _layout_inputs(root, docs_dir, source_io):
@@ -193,15 +198,73 @@ def _layout_inputs(root, docs_dir, source_io):
                 docs_dir=docs_dir, source_io=source_io)
 
 
-def _complete_context(layout):
-    """Load admission facts on the operation that already read caller inputs."""
+_CONTEXT_REUSE = contextvars.ContextVar("crux_admission_context_reuse", default=None)
+
+
+@contextlib.contextmanager
+def context_reuse():
+    """One read-only phase shares one admission context per operation and repository state.
+
+    Open it only around a phase that writes nothing to the tree and that ends in a
+    check which rebuilds the context before its first write (`_revalidate`). Inside it,
+    a context asked for again on the same `_AdmissionIO`, with the same selection, the
+    same manifest and a byte-identical repository state (`git_read_cache._repository_state`),
+    is answered from memory after the operation revalidates every input it read. A tree with
+    no git directory is keyed on that fact alone. A context whose build refused is never
+    stored. A repository whose state cannot be read exactly is never reused. A nested phase shares the outer one.
+    """
+    if _CONTEXT_REUSE.get() is not None:
+        yield
+        return
+    token = _CONTEXT_REUSE.set({})
+    try:
+        yield
+    finally:
+        _CONTEXT_REUSE.reset(token)
+
+
+def _reuse_key(layout):
+    """The key a reusable context is filed under, or None when this phase may not reuse it."""
+    import git_read_cache
+    if _CONTEXT_REUSE.get() is None:
+        return None
+    root = str(layout["root"])
+    state = git_read_cache._repository_state(root)
+    if state is None:
+        # A tree with no git directory has no history to move; one whose state cannot be
+        # read exactly (a linked worktree, a reftable store) is never reused.
+        if os.path.lexists(os.path.join(root, ".git")):
+            return None
+        state = ("no-git",)
+    return (id(layout["source_io"]), str(layout["root"]), str(layout["tree"]),
+            str(layout["observations"]), layout["docs_dir"], state)
+
+
+def _complete_context(layout, *, revalidated=False):
+    """Load admission facts on the operation that already read caller inputs.
+
+    `revalidated` says the caller revalidated the operation immediately before this call,
+    so a context served from memory needs no second pass over every input."""
     import summaries_projection as sp
     import implementation_migration as migration
     import yaml
+    key = _reuse_key(layout)
+    memo = _CONTEXT_REUSE.get()
+    if key is not None:
+        held = memo.get(key)
+        if held is not None and held["source_io"] is layout["source_io"] and held["manifest"] == layout["manifest"]:
+            if not revalidated:
+                layout["source_io"].revalidate()
+            return dict(held["context"])
     try:
-        return _complete_context_inputs(layout, sp, migration)
+        context = _complete_context_inputs(layout, sp, migration)
     except (yaml.YAMLError, AttributeError, TypeError, KeyError):
         raise AdmissionRefusal("admission-corpus-parse-refused") from None
+    if key is not None and _reuse_key(layout) == key:
+        memo[key] = {"source_io": layout["source_io"], "manifest": copy.deepcopy(layout["manifest"]),
+                     "context": context}
+        return dict(context)
+    return context
 
 
 def _complete_context_inputs(layout, sp, migration):

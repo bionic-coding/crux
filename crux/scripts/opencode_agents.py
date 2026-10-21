@@ -179,6 +179,30 @@ MODE_MAP = {
     "night-gardener": "all",
 }
 
+# Per-role shell restriction. A role named here that holds Bash gets `shell "*"
+# deny` FIRST and one allow per pattern after it (last-match-wins, the same
+# deny-first order as `subagent`). The commander runs the plugin's cycle.py to
+# keep the cycle record current and reads repository state; it edits no files and
+# runs no tests. Waiting uses cycle.py's read-only `await` form, which the first
+# pattern covers.
+# Every other role that
+# holds Bash keeps the single broad allow. The patterns are globs over the
+# command line. Whether OpenCode matches `shell` resources against the command
+# line is unverified on a live host; a mismatch fails closed (the commander's
+# shell is denied and the record commands go to the historian). A glob cannot
+# stop chaining inside one command line, so the role body binds the same limit and
+# names the literal command forms these patterns match: `uv run <abs>/scripts/cycle.py
+# ...` and plain `git log|status|show|worktree list` with no variable, `cd` or `git -C`.
+SHELL_ALLOW_PATTERNS = {
+    "commander": (
+        "uv run *cycle.py*",
+        "git log*",
+        "git status*",
+        "git show*",
+        "git worktree list*",
+    ),
+}
+
 # Pinned V2 action universe, in the pinned EMISSION order (ADR-0100 point 2,
 # replacing ADR-0043's 11-key permission universe). Two members are renamed
 # from V1: `bash` -> `shell` and `task` -> `subagent`. Extending this is a
@@ -208,6 +232,11 @@ TOOL_MAP = {
     "WebFetch": "webfetch",
     "WebSearch": "websearch",
 }
+
+# Claude Code tools with no OpenCode action, listed deliberately: a grant of one
+# projects no rule. SendMessage lets an agent send its caller progress notes;
+# Monitor streams the output of a background command in Claude Code.
+HOST_ONLY_TOOLS = frozenset({"SendMessage", "Monitor"})
 
 # ADR-0092 item 3 projection, in V2 vocabulary: Claude Code tool label ->
 # OpenCode action to deny for the agent `disallowedTools` field. Same universe
@@ -390,6 +419,8 @@ def transform(name: str, fm: str, model: str) -> str:
                 has_bare_agent = True
         elif tool in TOOL_MAP:
             allowed.add(TOOL_MAP[tool])
+        elif tool in HOST_ONLY_TOOLS:
+            continue
         else:
             raise SpecViolation(
                 f"{name}: tool {tool!r} has no TOOL_MAP entry; refusing to "
@@ -478,6 +509,9 @@ def transform(name: str, fm: str, model: str) -> str:
     for action in ACTION_UNIVERSE:
         if action == "subagent":
             rules += [_rule(action, res, eff) for res, eff in subagent_rules]
+        elif action == "shell" and action in allowed and name in SHELL_ALLOW_PATTERNS:
+            rules.append(_rule(action, WILDCARD, "deny"))
+            rules += [_rule(action, pattern, "allow") for pattern in SHELL_ALLOW_PATTERNS[name]]
         else:
             rules.append(
                 _rule(action, WILDCARD, "allow" if action in allowed else "deny")

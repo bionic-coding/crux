@@ -3191,7 +3191,11 @@ class SwiftPruneTests(unittest.TestCase):
         import inspect
         root = self._tree("94-pruned-dirs-inside-synced-root", self.tmp / "deep", with_pruned=False)
         deep = root / "App"
-        for _ in range(200):
+        # The recursion limit below leaves 120 frames above the test's own stack.
+        # A recursive walk spends at least one frame per directory level, so a
+        # depth of 130 overruns it by 10 levels; 200 proved nothing more and
+        # cost 26 s.
+        for _ in range(130):
             deep = deep / "d"
         deep.mkdir(parents=True)
         (deep / "Leaf.swift").write_text("struct Leaf {}\n")

@@ -139,8 +139,12 @@ class GuardedAdditions(unittest.TestCase):
 
 
 def writer_driver(name):
-    import importlib
-    return importlib.import_module('implementation_migration_apply')._driver(name)
+    """The regenerator script `name` loaded as a module, as the retired writer's refresh loaded it."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('_migration_apply_' + name.replace('-', '_'),
+        sup.SCRIPTS / (name + '.py'))
+    module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+    return module
 
 
 class CitationKinds(unittest.TestCase):

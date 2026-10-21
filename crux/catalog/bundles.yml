@@ -38,6 +38,7 @@ crux-docs:
     - "compile-doctrine"
     - "council"
     - "cycle"
+    - "cycle-status"
     - "derive-arch"
     - "dev-cycle"
     - "escalate-arch-runtime"
@@ -48,6 +49,8 @@ crux-docs:
     - "init-docs"
     - "install-codex-agents"
     - "install-docs-skills"
+    - "install-micro-crux"
+    - "install-omp-agents"
     - "install-opencode-agents"
     - "iterate"
     - "link-adr-graph"
@@ -87,6 +90,7 @@ crux-infrastructure:
   skills:
     - "install-runtime"
     - "install-codex-agents"
+    - "install-omp-agents"
     - "install-opencode-agents"
 crux-verification:
   name: "crux verification primitives"

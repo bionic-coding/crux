@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from test_evidence import EvidenceError, execute, lookup, snapshot, validate_evidence
+from _evidence_fixtures import write_lock_project
 
 
 class EvidenceTests(unittest.TestCase):
@@ -46,46 +47,19 @@ class EvidenceTests(unittest.TestCase):
         self.assertNotEqual(first["evidence"]["id"], second["evidence"]["id"])
         self.assertEqual(len(list((self.root / "evidence").glob("TE-*.json"))), 2)
 
-    def test_deleted_python_environment_revalidates_only_equivalent_runtime(self):
-        import shutil
-        import subprocess
-        import venv
-        runtimes = []
-        for name in ("first-env", "second-env"):
-            directory = self.root / name
-            venv.EnvBuilder(with_pip=False, symlinks=True).create(directory)
-            runtimes.append(directory / "bin/python")
-        declaration = dict(self.check, command=[str(runtimes[0]), "-c", "print('passed')"])
-        record = execute(self.root, declaration)["evidence"]
-        receipt = self.root / "evidence" / (record["id"] + ".json")
-        original = receipt.read_bytes()
-        shutil.rmtree(runtimes[0].parent.parent)
-        replacement = dict(declaration, command=[str(runtimes[1]), *declaration["command"][1:]])
-        self.assertEqual(execute(self.root, replacement)["action"], "reused")
-        with patch("test_evidence.sys.executable", str(runtimes[1])):
-            self.assertEqual(validate_evidence(self.root, record["id"])["id"], record["id"])
-            with patch.dict(os.environ, {"TEST_EVIDENCE_CONTEXT": "changed"}):
-                with self.assertRaises(EvidenceError):
-                    validate_evidence(self.root, record["id"])
-            site = Path(subprocess.check_output(
-                [str(runtimes[1]), "-c", "import sysconfig; print(sysconfig.get_path('purelib'))"],
-                text=True).strip())
-            package = site / "changed_package-1.0.dist-info"
-            package.mkdir()
-            (package / "METADATA").write_text("Name: changed-package\nVersion: 1.0\n")
-            with self.assertRaises(EvidenceError):
-                validate_evidence(self.root, record["id"])
-        with patch("test_evidence.sys.executable", "/bin/sh"):
-            with self.assertRaises(EvidenceError):
-                validate_evidence(self.root, record["id"])
-        self.assertEqual(receipt.read_bytes(), original)
-
-    def test_environment_and_freshness(self):
+    def test_registered_variable_values_are_never_recorded_and_do_not_invalidate(self):
         first = execute(self.root, self.check)
         with patch.dict(os.environ, {"TEST_EVIDENCE_CONTEXT": "secret-value"}):
-            self.assertEqual(lookup(self.root, self.check)["state"], "inputs-changed")
+            self.assertEqual(lookup(self.root, self.check)["state"], "passed")
             record = execute(self.root, self.check)["evidence"]
-            self.assertNotIn("secret-value", json.dumps(record))
+        self.assertEqual(record["id"], first["evidence"]["id"])
+        self.check["command"][-1] = "print('with a value')"
+        with patch.dict(os.environ, {"TEST_EVIDENCE_CONTEXT": "secret-value"}):
+            recorded = execute(self.root, self.check)["evidence"]
+        self.assertNotIn("secret-value", json.dumps(recorded))
+        self.assertEqual(len(recorded["environment"]["variables"]["TEST_EVIDENCE_CONTEXT"]), 64)
+
+    def test_freshness_expires_a_pass(self):
         self.check["freshness_seconds"] = 1
         record = execute(self.root, self.check)["evidence"]
         with patch("test_evidence.time.time", return_value=record["finished_at"] + 2):
@@ -153,23 +127,25 @@ class EvidenceTests(unittest.TestCase):
         validator.validate(execute(self.root, self.check)["evidence"], schema, "#", "#", errors, "test-evidence")
         self.assertEqual(errors, [])
 
-    def test_suite_adapter_preserves_discovery_and_declares_environment(self):
+    def test_suite_adapter_preserves_discovery_and_registers_the_staged_requirement(self):
         from types import SimpleNamespace
         from suite_evidence import run_shared
-        args = SimpleNamespace(start="crux/scripts/tests", pattern="test_*.py", top=None,
-                               workers=4, records=None, timings=None,
-                               evidence_scope="staged", retry_reason=None)
+        args = SimpleNamespace(start="crux/scripts/tests", pattern="test*.py", top=None,
+                               workers=4, records=None, timings=None, source_root=str(self.root),
+                               python_minor="3.13", evidence_scope="staged", retry_reason=None)
+        write_lock_project(self.root, empty=True)
         with patch("suite_evidence.evidence_plan", return_value=({"state": "missing"}, {"state": "missing"})), \
              patch("suite_evidence.execute", side_effect=EvidenceError("stop before execution")) as mocked:
             with self.assertRaises(EvidenceError):
                 run_shared(args)
         declaration = mocked.call_args.args[1]
-        self.assertTrue(declaration["check_id"].startswith("staged:"))
-        self.assertIn("PYTHONPATH", declaration["environment"])
-        self.assertIn("UV_PYTHON", declaration["environment"])
+        self.assertEqual(declaration["check_id"], "staged:py3.13:unittest:crux/scripts/tests:test*.py")
+        self.assertEqual(declaration["requirement"]["variables"]["PYTHONPATH"], "${REPOSITORY}/crux/scripts")
+        self.assertEqual(declaration["requirement"]["packages"]["lock"]["source"], "dev-root")
         self.assertIn("uv.lock", declaration["inputs"])
         self.assertIn(".generated", declaration["inputs"])
         self.assertNotIn("--workers", declaration["command"])
+        self.assertNotIn(sys.executable, declaration["command"])
         self.assertIn("--workers", mocked.call_args.kwargs["execution_command"])
 
     def test_shared_suite_cli_executes_once_then_reuses(self):
@@ -179,19 +155,77 @@ class EvidenceTests(unittest.TestCase):
         scripts = self.root / "crux/scripts"
         tests = scripts / "tests"
         tests.mkdir(parents=True)
-        for name in ("test_evidence.py", "suite_evidence.py"):
+        for name in ("test_evidence.py", "suite_evidence.py", "test_evidence_capture.py", "secret_scan.py"):
             shutil.copyfile(source / name, scripts / name)
         shutil.copyfile(source / "tests/parallel_suite.py", tests / "parallel_suite.py")
-        tiny = self.root / "tools/tests"
+        tiny = self.root / "other/tests"
         tiny.mkdir(parents=True)
         (tiny / "test_tiny.py").write_text("import unittest\nclass Tiny(unittest.TestCase):\n    def test_ok(self): self.assertTrue(True)\n")
-        command = [sys.executable, "crux/scripts/tests/parallel_suite.py", "tools/tests", "--shared-evidence", "--workers", "1"]
+        command = [sys.executable, "crux/scripts/tests/parallel_suite.py", "other/tests", "--shared-evidence", "--workers", "1"]
         first = subprocess.run(command, cwd=self.root, capture_output=True, text=True)
         self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
         self.assertIn("Test evidence executed:", first.stdout)
         second = subprocess.run(command, cwd=self.root, capture_output=True, text=True)
         self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
         self.assertIn("Test evidence reused:", second.stdout)
+
+    def _tiny_suite_stage(self, body):
+        import shutil
+        source = Path(__file__).resolve().parents[1]
+        scripts = self.root / "crux/scripts"
+        tests = scripts / "tests"
+        tests.mkdir(parents=True)
+        for name in ("test_evidence.py", "suite_evidence.py", "test_evidence_capture.py", "secret_scan.py"):
+            shutil.copyfile(source / name, scripts / name)
+        shutil.copyfile(source / "tests/parallel_suite.py", tests / "parallel_suite.py")
+        tiny = self.root / "other/tests"
+        tiny.mkdir(parents=True)
+        (tiny / "test_tiny.py").write_text(body)
+        return [sys.executable, "crux/scripts/tests/parallel_suite.py", "other/tests", "--shared-evidence", "--workers", "1"]
+
+    def test_reused_suite_evidence_says_not_run_now_and_does_not_replay_the_log(self):
+        import re
+        import subprocess
+        command = self._tiny_suite_stage("import unittest\nclass Tiny(unittest.TestCase):\n    def test_ok(self): print('STORED-LOG-MARKER')\n")
+        first = subprocess.run(command, cwd=self.root, capture_output=True, text=True)
+        self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+        self.assertIn("STORED-LOG-MARKER", first.stdout + first.stderr)  # the executed path still prints the output
+        second = subprocess.run(command, cwd=self.root, capture_output=True, text=True)
+        self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
+        lines = second.stdout.splitlines()
+        # The prefix tools/release.py parses stays exact.
+        self.assertTrue(any(re.match(r"^Test evidence (reused|executed): (TE-[0-9a-f]{32}) ", l) for l in lines), second.stdout)
+        reused = next(l for l in lines if l.startswith("Test evidence reused: "))
+        self.assertIn("no tests ran now", reused)
+        self.assertTrue(any(l.startswith("  original run: finished ") and " took " in l for l in lines), second.stdout)
+        self.assertTrue(any(l.startswith("  this lookup: ") for l in lines), second.stdout)
+        self.assertTrue(any(l.startswith("  stored log: ") and l.endswith(".log") for l in lines), second.stdout)
+        self.assertNotIn("STORED-LOG-MARKER", second.stdout + second.stderr)
+        self.assertNotIn("Ran 1 test", second.stdout)
+        self.assertTrue(any(l.startswith("Reused result: ") for l in lines), second.stdout)
+        shown = subprocess.run(command, cwd=self.root, capture_output=True, text=True,
+                               env={**os.environ, "CRUX_SHOW_REUSED_TEST_OUTPUT": "1"})
+        self.assertIn("STORED-LOG-MARKER", shown.stdout + shown.stderr)
+        self.assertIn("Test evidence reused:", shown.stdout)
+
+    def test_failed_suite_evidence_keeps_its_output_visible(self):
+        import subprocess
+        command = self._tiny_suite_stage("import unittest\nclass Tiny(unittest.TestCase):\n    def test_bad(self): self.fail('FAILURE-MARKER')\n")
+        failed = subprocess.run(command, cwd=self.root, capture_output=True, text=True)
+        self.assertNotEqual(failed.returncode, 0)
+        self.assertIn("Test evidence executed:", failed.stdout)
+        self.assertIn("FAILURE-MARKER", failed.stdout + failed.stderr)
+
+    def test_missing_source_root_for_a_dev_root_lock_is_a_clean_refusal(self):
+        from test_evidence import _lock_file
+        with self.assertRaises(EvidenceError) as caught:
+            _lock_file(self.root, None, {"source": "dev-root", "path": "uv.lock"})
+        self.assertIn("source_root", str(caught.exception))
+        self.assertIsInstance(caught.exception, ValueError)  # cycle_workflow catches ValueError
+        declaration = dict(self.check, requirement={"interpreter": None, "packages": {"lock": {
+            "path": "uv.lock", "source": "dev-root", "project": True, "dev": False, "groups": [], "extras": []}}})
+        with self.assertRaises(ValueError):
+            snapshot(self.root, declaration)
 
     def test_credential_output_is_redacted_before_storage(self):
         self.check["command"][-1] = "import os; print(os.environ['EXAMPLE_API_KEY'])"

@@ -540,6 +540,16 @@ def read_recorded_observations(observations_dir: Path, *, repo_root: Path | None
     block or without an `anchor_id` is skipped, as `find_ratified_adr` skips.
     Caller threads the result into `emit_candidate`; `StateFile` never reads
     the concern itself."""
+    if _source_io is None:
+        return _read_recorded_observations(observations_dir, repo_root, docs_dir, None)
+    # Read-only: the directory check and every record check ask the same operation
+    # for one admission context, so the phase builds it once.
+    from observation_admission import context_reuse
+    with context_reuse():
+        return _read_recorded_observations(observations_dir, repo_root, docs_dir, _source_io)
+
+
+def _read_recorded_observations(observations_dir, repo_root, docs_dir, _source_io) -> dict[str, dict]:
     out: dict[str, dict] = {}
     d = Path(observations_dir)
     options = {} if _source_io is None else {"_source_io": _source_io}

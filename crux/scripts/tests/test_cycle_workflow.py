@@ -20,7 +20,7 @@ class CycleTests(unittest.TestCase):
         (self.repo/'bionic/objectives.md').write_text('Mission: useful changes with proportional ceremony.')
         (self.repo/'src').mkdir();(self.repo/'src/a.py').write_text('answer = 1\n')
     def cycle(self,kind='iterate'):
-        return create(self.repo,kind,'Change','Improve behavior',['src'],['Works'],'builder','tester')
+        return create(self.repo,kind,'Change','Improve behavior',['src'],['Works'],'builder','tester',release_list='beta' if kind=='release' else None)
     def apply(self,doc,action,**args):
         return mutate(self.repo,doc['id'],action,**args)
     def plan(self,doc):
@@ -120,6 +120,61 @@ class CycleTests(unittest.TestCase):
         doc=self.apply(doc,'approve-decision',subject=subject,approval=approval)
         doc=self.apply(doc,'decision',kind='idr',name='choice',contents=contents)
         with self.assertRaises(CycleError):self.advance(doc)
+    def owner_approval(self,doc,subject,**override):
+        cfg=tree(self.repo)
+        record={'format':'crux.owner-approval','purpose':'idr','cycle_id':doc['id'],'subject':subject,'subject_sha256':digest((cfg.docs_root/subject).read_bytes()),
+                'origin':'owner-conversation','quote':'I approve revision 1. Proceed.','date':'2026-10-18','conversation':'owner conversation relayed by main session'}
+        record.update(override)
+        path=f"cycles/{doc['id']}/approvals/owner.json";(cfg.docs_root/path).parent.mkdir(parents=True,exist_ok=True)
+        (cfg.docs_root/path).write_text(json.dumps(record))
+        return path
+    def idr(self,doc):
+        contents={k:['reason'] for k in ('alternatives','approach','assumptions','constraints','intended_evidence')}
+        return self.apply(doc,'decision',kind='idr',name='choice',contents=contents)
+    def test_owner_direct_idr_approval_binds_exact_revision(self):
+        doc=self.idr(self.plan(self.cycle('dev')))
+        subject=doc['decisions'][-1]['path']
+        doc=self.apply(doc,'approve-decision',subject=subject,approval=self.owner_approval(doc,subject))
+        self.assertEqual(self.advance(doc)['phase'],'build')
+    def test_owner_direct_approval_refusals(self):
+        doc=self.idr(self.plan(self.cycle('dev')))
+        subject=doc['decisions'][-1]['path']
+        for override,message in (({'quote':'  '},'verbatim quote'),({'origin':'agent'},'owner-conversation'),({'subject_sha256':'0'*64},'exact'),
+                                 ({'cycle_id':'CYC-9999'},'another cycle'),({'purpose':'adr'},'IDR revisions only'),({'date':'today'},'YYYY-MM-DD')):
+            with self.subTest(override=override),self.assertRaisesRegex(CycleError,message):
+                self.apply(doc,'approve-decision',subject=subject,approval=self.owner_approval(doc,subject,**override))
+        record=json.loads((tree(self.repo).docs_root/self.owner_approval(doc,subject)).read_text());record.pop('quote')
+        path=f"cycles/{doc['id']}/approvals/noquote.json";(tree(self.repo).docs_root/path).write_text(json.dumps(record))
+        with self.assertRaisesRegex(CycleError,'exactly'):self.apply(doc,'approve-decision',subject=subject,approval=path)
+        approved=self.apply(doc,'approve-decision',subject=subject,approval=self.owner_approval(doc,subject))
+        approved=self.idr(approved)
+        with self.assertRaisesRegex(CycleError,'not approved'):self.apply(approved,'advance')
+    def owner_completion(self,**override):
+        (self.repo/'authority.md').write_text('owner override\n')
+        owner={'origin':'owner-conversation','quote':'i authorize marking it as completed','date':'2026-10-18','conversation':'owner conversation','authority':['authority.md']}
+        owner.update(override);return owner
+    def test_owner_complete_preserves_record_and_quotes_owner(self):
+        doc=self.plan(self.cycle('iterate'))
+        doc=self.apply(doc,'pause',reason='gates cannot be satisfied')
+        before=deepcopy(doc)
+        doc=self.apply(doc,'owner-complete',owner=self.owner_completion())
+        self.assertEqual(doc['status'],'completed')
+        for key in ('blocker','evidence','reviews','release','reflection','decisions','plan','phase','pass','completion'):
+            self.assertEqual(doc[key],before[key],key)
+        self.assertEqual(doc['history'][:-1],before['history'])
+        last=doc['history'][-1]
+        self.assertEqual(last['action'],'owner-complete');self.assertEqual(last['owner']['quote'],'i authorize marking it as completed')
+        self.assertEqual(last['owner']['authority'],[{'path':'authority.md','sha256':digest(b'owner override\n')}])
+        with self.assertRaisesRegex(CycleError,'closed'):self.apply(doc,'owner-complete',owner=self.owner_completion())
+    def test_owner_complete_refusals(self):
+        doc=self.apply(self.cycle('iterate'),'pause',reason='blocked')
+        for override,message in (({'quote':''},'verbatim quote'),({'origin':'agent'},'owner-conversation'),({'authority':[]},'authority file'),
+                                 ({'authority':['missing.md']},'does not exist'),({'authority':['../x']},'parent'),({'date':'x'},'YYYY-MM-DD')):
+            with self.subTest(override=override),self.assertRaisesRegex(CycleError,message):
+                self.apply(doc,'owner-complete',owner=self.owner_completion(**override))
+        owner=self.owner_completion();owner.pop('quote')
+        with self.assertRaisesRegex(CycleError,'exactly'):self.apply(doc,'owner-complete',owner=owner)
+        self.assertEqual(load(self.repo,doc['id'])['status'],'paused')
     def test_reflect_and_closed_cycles(self):
         doc=self.cycle('quick-fix');doc=self.advance(doc)
         with patch('cycle_workflow.check_tests'):doc=self.advance(doc)

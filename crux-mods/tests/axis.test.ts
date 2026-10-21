@@ -885,15 +885,17 @@ test('blockSize counts an empty span\'s string, and a merged lane by its spans: 
 })
 
 for (const [name, doc] of [['the live run', READER_OK], ['the last run', IDLE_LATEST], ['the council\'s shape', SEAT_SHAPE], ['a council grid', nodeHeavyDoc(30)], ['a completed listed run', targetCompleted(NOW_S)]] as const) {
-  test(`blockSize counts what the drawn tree holds: ${name} at 15, 30, 120 and 400 columns`, async ($, on) => {
-    await load($, on, { reader: ok(doc), agents: [AGENT] })
-    for (const w of [15, 30, 120, 400]) {
+  // One test per width: the council tests took 0.25 s each over the four widths on an idle host and
+  // passed the framework's 5 s per-test limit at a load average near 70 on 8 CPUs.
+  for (const w of [15, 30, 120, 400]) {
+    test(`blockSize counts what the drawn tree holds: ${name} at ${w} columns`, async ($, on) => {
+      await load($, on, { reader: ok(doc), agents: [AGENT] })
       const tree = await drawPane($, w, 'dock')
       expect([w, draw.blockSize(draw.pane(P(doc), agents([AGENT]), w, 'docked', HARNESS))]).toEqual([w, drawnSize(tree)])
       // The last run's summary has an empty line, drawn as a line whose only string is empty.
       if (doc === IDLE_LATEST) expect([w, lineStrings(tree).filter(s => s.length === 1 && s[0] === '').length]).toEqual([w, 1])
-    }
-  })
+    })
+  }
 }
 
 test('the title gives way to its last cell: a room of 2 cells, of 1, and none, with no dangling gap; the times rows stay dim', async ($, on) => {
@@ -935,17 +937,26 @@ test('the wider clock guard throws on every clock shape, lets a Date from a numb
   expect([g.Date, g.performance, g.Temporal, g.Intl, Object.prototype.hasOwnProperty.call(g, 'process')]).toEqual(before)
 })
 
-test('the band and both pane layouts draw every axis fixture under the wider clock guard', () => {
-  expect(() => withoutAnyClock(() => {
-    for (const doc of [SEAT_SHAPE, textEdge(56), textEdge(57), nodeHeavyDoc(1582), seatDoc([100, 100, 100, 3, 100], 150), READER_OK, IDLE_LATEST, targetCompleted(null), targetAbandoned(NOW_S), READER_ZERO_AT_END]) {
+// One test per fixture. A single test over all ten took 0.6 s on an idle host and passed the framework's
+// 5 s per-test limit at a load average near 67 on 8 CPUs; the guard wraps each fixture's drawing alone.
+const GUARDED_DOCS: [string, () => unknown][] = [
+  ['SEAT_SHAPE', () => SEAT_SHAPE], ['textEdge(56)', () => textEdge(56)], ['textEdge(57)', () => textEdge(57)],
+  ['nodeHeavyDoc(1582)', () => nodeHeavyDoc(1582)], ['seatDoc([100, 100, 100, 3, 100], 150)', () => seatDoc([100, 100, 100, 3, 100], 150)],
+  ['READER_OK', () => READER_OK], ['IDLE_LATEST', () => IDLE_LATEST], ['targetCompleted(null)', () => targetCompleted(null)],
+  ['targetAbandoned(NOW_S)', () => targetAbandoned(NOW_S)], ['READER_ZERO_AT_END', () => READER_ZERO_AT_END],
+]
+for (const [name, make] of GUARDED_DOCS) {
+  test(`the band and both pane layouts draw the axis fixture ${name} under the wider clock guard`, () => {
+    expect(() => withoutAnyClock(() => {
+      const doc = make()
       for (const w of [15, 30, 120, 400]) {
         draw.pane(P(doc), agents([AGENT]), w, 'docked', HARNESS)
         draw.pane(P(doc), agents([AGENT]), w, 'mini', HARNESS)
         draw.band(P(doc), agents([AGENT]), w, HARNESS)
       }
-    }
-  })).not.toThrow()
-})
+    })).not.toThrow()
+  })
+}
 
 // Every shape of a clock read the suite can see in source: any call of a now(), any Date that is not
 // new Date(<an argument>), new Date with no argument, and Temporal, process, performance and Intl

@@ -1,8 +1,10 @@
 """Tests for the capability-gap reflex micro-block embedding (ADR-0037 §4).
 
 Covers all ten surfaces:
-- 9 crux/agents/*.md files: each must contain the canonical reflex sentence
-  EXACTLY ONCE and the canonical escape clause EXACTLY ONCE.
+- crux/agents/*.md files: each reflex-bearing role must contain the canonical
+  reflex sentence EXACTLY ONCE and the canonical escape clause EXACTLY ONCE.
+  The commander carries neither: it has no file-write tool, must not invoke
+  forge-skill, and reports capability gaps to its caller.
 - docs/AGENTS.md: must have a '## 10.B' heading exactly once, the canonical
   reflex sentence EXACTLY ONCE, and the canonical escape clause EXACTLY ONCE.
 - crux/templates/AGENTS.md.tmpl: same requirements as docs/AGENTS.md.
@@ -74,6 +76,19 @@ AGENT_FILES = [
     "wayfinder.md",
 ]
 
+# The commander reports capability gaps to its caller instead of forging a
+# skill: it holds no Edit or Write tool and must not invoke forge-skill. It is
+# therefore excluded from the reflex block and asserted against its own
+# contract in CommanderGapRoutingTests.
+NO_REFLEX_AGENT_FILES = {"commander.md"}
+REFLEX_AGENT_FILES = [f for f in AGENT_FILES if f not in NO_REFLEX_AGENT_FILES]
+
+COMMANDER_GAP_ROUTING = [
+    "Report capability gaps to your caller.",
+    "You have no Edit or Write tool and must not invoke `forge-skill`; "
+    "your caller decides how to address the gap.",
+]
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -94,11 +109,12 @@ def _count(text: str, needle: str) -> int:
 
 
 class AgentReflexBlockTests(unittest.TestCase):
-    """Each of the 9 crux/agents/*.md files must embed the reflex sentence
-    EXACTLY ONCE and the canonical escape clause EXACTLY ONCE.
+    """Each reflex-bearing crux/agents/*.md file must embed the reflex
+    sentence EXACTLY ONCE and the canonical escape clause EXACTLY ONCE.
     Per-file assertions so a duplicate cannot mask an omission.
-    Uses AGENT_FILES with subTest so adding a 10th agent file to the list
-    automatically adds coverage.
+    Uses REFLEX_AGENT_FILES with subTest so adding an agent file to
+    AGENT_FILES automatically adds coverage unless it is listed in
+    NO_REFLEX_AGENT_FILES.
     """
 
     def test_agent_directory_completeness(self):
@@ -117,7 +133,7 @@ class AgentReflexBlockTests(unittest.TestCase):
         )
 
     def test_canonical_sentence_present_exactly_once(self):
-        for filename in AGENT_FILES:
+        for filename in REFLEX_AGENT_FILES:
             with self.subTest(filename=filename):
                 path = AGENTS_DIR / filename
                 self.assertTrue(
@@ -135,7 +151,7 @@ class AgentReflexBlockTests(unittest.TestCase):
                 )
 
     def test_canonical_escape_present_exactly_once(self):
-        for filename in AGENT_FILES:
+        for filename in REFLEX_AGENT_FILES:
             with self.subTest(filename=filename):
                 path = AGENTS_DIR / filename
                 self.assertTrue(
@@ -151,6 +167,39 @@ class AgentReflexBlockTests(unittest.TestCase):
                     f"once, found {count} time(s).\n"
                     f"Canonical escape: {CANONICAL_ESCAPE!r}",
                 )
+
+
+class CommanderGapRoutingTests(unittest.TestCase):
+    """commander.md routes capability gaps to its caller: it carries the
+    routing sentences exactly once, never the forge-skill reflex sentence,
+    and does not preload forge-skill. Matching collapses whitespace so a
+    re-wrapped sentence still counts."""
+
+    @staticmethod
+    def _norm(text: str) -> str:
+        return " ".join(text.split())
+
+    def setUp(self):
+        self.text = _read(AGENTS_DIR / "commander.md")
+
+    def test_no_reflex_set_is_a_subset_of_agent_files(self):
+        self.assertTrue(NO_REFLEX_AGENT_FILES <= set(AGENT_FILES))
+
+    def test_routing_sentences_present_exactly_once(self):
+        body = self._norm(self.text)
+        for sentence in COMMANDER_GAP_ROUTING:
+            with self.subTest(sentence=sentence):
+                self.assertEqual(body.count(self._norm(sentence)), 1)
+
+    def test_reflex_sentence_absent(self):
+        self.assertEqual(_count(self.text, CANONICAL_SENTENCE), 0)
+
+    def test_forge_skill_not_preloaded(self):
+        frontmatter = self.text.split("---", 2)[1]
+        skills_line = next(
+            line for line in frontmatter.splitlines() if line.startswith("skills:")
+        )
+        self.assertNotIn("forge-skill", skills_line)
 
 
 class DeveloperTailTests(unittest.TestCase):

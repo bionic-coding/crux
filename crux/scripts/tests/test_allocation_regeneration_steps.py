@@ -13,7 +13,6 @@ SKILLS = Path(__file__).resolve().parents[2] / "skills"
 
 # skill -> heading prefix of the counter-increment step
 ALLOCATORS = {
-    "author-promptbook": "### 6b. Increment",
     "dev-cycle": "### 8. Increment",
     "iterate": "### 8. Increment",
     "patch-cycle": "### 7. Increment",
@@ -113,7 +112,7 @@ class CommitBeforeRegenerationTests(unittest.TestCase):
         # The window guard covers commits, so it comes before the step's first commit.
         steps = dict(COMMIT_STEPS)
         steps.update({name: ALLOCATORS[name] for name in
-                      ("author-promptbook", "dev-cycle", "iterate", "patch-cycle")})
+                      ("dev-cycle", "iterate", "patch-cycle")})
         for name, heading in steps.items():
             with self.subTest(skill=name):
                 text = read(name)
@@ -128,7 +127,7 @@ class CommitBeforeRegenerationTests(unittest.TestCase):
         # stages the same paths first; a regenerator that still refuses is named.
         steps = dict(COMMIT_STEPS)
         steps.update({name: ALLOCATORS[name] for name in
-                      ("author-promptbook", "dev-cycle", "iterate", "patch-cycle")})
+                      ("dev-cycle", "iterate", "patch-cycle")})
         for name, heading in steps.items():
             with self.subTest(skill=name):
                 step = section(read(name), heading)
@@ -136,7 +135,7 @@ class CommitBeforeRegenerationTests(unittest.TestCase):
                 self.assertLess(p, step.index("summarize-adrs.py"))
 
     def test_pipeline_allocators_commit_before_regenerating(self):
-        for name in ("author-promptbook", "dev-cycle", "iterate", "patch-cycle"):
+        for name in ("dev-cycle", "iterate", "patch-cycle"):
             with self.subTest(skill=name):
                 tail = read(name)
                 tail = tail[tail.index(ALLOCATORS[name]):]

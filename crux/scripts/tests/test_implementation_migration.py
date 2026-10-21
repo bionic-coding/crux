@@ -166,7 +166,9 @@ class Foundation(unittest.TestCase):
         self.assertEqual(report["dependencies"]["citations"][0]["path"], self.citing.relative_to(self.root).as_posix())
         self.assertEqual(report["signed_pairings"][0]["handle"], "ADR-0110/rotation")
         self.assertEqual(report["dependency_drift"], ["signed_dependencies", "citation_dependencies"])
-        self.assertFalse(m.dry_run(self.root, self.path)["ready_to_apply"])
+        with self.assertRaises(m.Refused) as retired:
+            m.dry_run(self.root, self.path)  # Planning an application is retired; inventory reports.
+        self.assertEqual(retired.exception.code, "historical-migration-writes-retired")
         self.assertEqual(self.snapshot(), before)
 
     def test_signed_inventory_and_citations_are_not_caller_narrowed(self):
@@ -188,7 +190,7 @@ class Foundation(unittest.TestCase):
         host.write_text(host.read_text().replace("Accepted", "Superseded"))
         with self.assertRaisesRegex(m.Refused, "not-live-accepted"): m.inventory(self.root, self.path)
 
-    def test_inventory_and_dry_run_cli_are_read_only_and_unapproved_apply_refuses(self):
+    def test_inventory_cli_is_read_only_and_the_retired_commands_refuse_by_name(self):
         self.prepare_dependencies(); before = self.snapshot()
         script = sup.SCRIPTS / "implementation-migration.py"
         for command, expected in (("inventory", 0), ("dry-run", 1), ("apply", 1)):
@@ -197,11 +199,11 @@ class Foundation(unittest.TestCase):
                                          "--repo-root", str(self.root)], capture_output=True,
                                         env=sup.scrubbed_env())
                 self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
-                report = json.loads(result.stdout or result.stderr)
-                if command == "apply":
-                    self.assertEqual(report["authority"], "none")
-                    self.assertEqual(report["limit"], "migration-apply-history-unavailable")
-                else: self.assertEqual(report["approval"]["state"], "UNOBSERVED")
+                report = json.loads(result.stdout)
+                if command == "inventory":
+                    self.assertEqual(report["approval"]["state"], "UNOBSERVED")
+                else:
+                    self.assertEqual(report, {"authority": "none", "limit": "historical-migration-writes-retired"})
         self.assertEqual(self.snapshot(), before)
 
 

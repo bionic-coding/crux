@@ -1025,20 +1025,32 @@ class CitationRenderingTests(_Base):
         # Positive control: a clean slug renders unescaped.
         self.assertIn("| rule:a-b |", dp.build_index([entry("ADR-0001/a-b")], [], {}))
 
-    def test_the_live_tree_renders_a_citation_on_every_rule_row(self):
-        """Built in memory from the repository; nothing is written. The
-        expected handle set is DERIVED from the live records on disk, never
-        frozen as a count. The records pass through the same migration
-        authority overlay every production builder applies, so a handle the
-        migration demoted to historical-only is not expected as a rule row."""
-        require_dev_surface(self, REPO_ROOT / "bionic" / "manifest.yml", "bionic/manifest.yml")
-        manifest = sp.read_manifest(REPO_ROOT)
-        loaded, view, _pending, _actual = dp._load_doctrine_inputs(REPO_ROOT, manifest)
+    def test_a_fixture_tree_renders_a_citation_on_every_rule_row(self):
+        """Built in memory from a fixture tree holding both record kinds; nothing is written.
+        The expected handle set is DERIVED from the records on disk, never frozen as a count.
+        The records pass through the same migration authority overlay every production
+        builder applies, so a handle the migration demoted to historical-only is not
+        expected as a rule row.
+
+        The fixture stands in for this repository because a build over the live tree reads
+        the operations log and a journal month, which change with every logged operation. The
+        live tree's doctrine index is checked byte for byte by the `compile-doctrine.py
+        --dry-run` drift gate at each release preflight."""
+        self.t.write_adr(90, [{"handle": "ADR-0090/slug-gate"}, {"handle": "ADR-0090/other-gate",
+                                                                 "domain": "other", "scope": "tools"}])
+        self.t.write_adr(91, [{"handle": "ADR-0091/third-gate", "domain": "third"}])
+        self.t.write_source("crux/scripts/x.py")
+        self.t.write_obs(1, entries=[{"handle": "OBS-0001/what-it-does", "domain": "observed"}])
+        manifest = sp.read_manifest(self.t.root)
+        loaded, view, _pending, _actual = dp._load_doctrine_inputs(self.t.root, manifest)
         live = {r["handle"] for r in sp.live_records(sp._summary_authority_records(
             loaded["records"], view, loaded["removed"], loaded["aliases"])["records"])}
-        built = {p.name: body for p, body in CD.build(REPO_ROOT, manifest=manifest).items()}
+        built = {p.name: body for p, body in CD.build(self.t.root, manifest=manifest).items()}
         rows = self._citation_rows(built["index.md"])
-        self.assertTrue(live, "the live tree carries no governs rule; the test is vacuous")
+        # POSITIVE DISCRIMINATOR: the derived set holds both record kinds, so the equality
+        # below cannot pass on an empty render.
+        self.assertEqual(live, {"ADR-0090/slug-gate", "ADR-0090/other-gate", "ADR-0091/third-gate",
+                                "OBS-0001/what-it-does"})
         self.assertEqual({h for h, _ in rows}, live)
         for handle, slug in rows:
             self.assertEqual(slug, sp.slug_of(handle), handle)

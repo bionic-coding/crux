@@ -15,12 +15,12 @@ metadata:
 <!-- BEGIN GENERATED: runtime-compat -->
 ## Runtime compatibility
 
-This skill is portable across Claude Code, Codex, and OpenCode. This section overrides platform-specific labels below.
+This skill is portable across Claude Code, Codex, OpenCode, and OMP (Oh My Pi). This section overrides platform-specific labels below.
 
-- Before running a command that uses `CRUX_PLUGIN_ROOT`, set it to the installed plugin root. In Claude Code, use the value of `CLAUDE_PLUGIN_ROOT`. In Codex and OpenCode, derive it from the absolute path of this selected `SKILL.md`: the plugin root is the parent of its `skills/` directory. In a source checkout, use the checkout `crux/` directory.
-- For project-local skills, use `.claude/skills` in Claude Code, `.agents/skills` in Codex, and `.opencode/skills` in OpenCode, which also reads the singular `.opencode/skill`. Set `CRUX_LOCAL_SKILLS_DIR` to that path before following any command below that uses it.
-- Translate Claude Code tool labels such as `Agent`, `Read`, `Write`, `Bash`, `WebSearch`, and `WebFetch` to the matching capability in the current session. Codex names its own capabilities; OpenCode uses the lowercase forms `subagent`, `read`, `edit`, `shell`, `websearch`, and `webfetch`, where `edit` covers both `Edit` and `Write`. Do not attempt to invoke the Claude Code labels as literal commands on another host.
-- Install the generated role agents before delegating: `install-codex-agents` in Codex, `install-opencode-agents` in OpenCode. Codex names them `crux_architect`, `crux_brainstormer`, `crux_commander`, `crux_dev_lead`, `crux_developer`, `crux_historian`, `crux_librarian`, `crux_night_gardener`, `crux_reviewer`, and `crux_wayfinder`; OpenCode uses the bare role names `architect`, `brainstormer`, `commander`, `dev-lead`, `developer`, `historian`, `librarian`, `night-gardener`, `reviewer`, and `wayfinder`. If a required role or capability is unavailable, report that truthfully instead of claiming it ran.
+- Before running a command that uses `CRUX_PLUGIN_ROOT`, set it to the installed plugin root. In Claude Code, use the value of `CLAUDE_PLUGIN_ROOT`. In Codex, OpenCode, and OMP, derive it from the absolute path of this selected `SKILL.md`: the plugin root is the parent of its `skills/` directory (in OMP `bash`, `skill://<name>` resolves to the skill directory). In a source checkout, use the checkout `crux/` directory.
+- For project-local skills, use `.claude/skills` in Claude Code, `.agents/skills` in Codex, `.opencode/skills` in OpenCode (which also reads the singular `.opencode/skill`), and `.omp/skills` in OMP. Set `CRUX_LOCAL_SKILLS_DIR` to that path before following any command below that uses it.
+- Translate Claude Code tool labels such as `Agent`, `Read`, `Write`, `Bash`, `WebSearch`, and `WebFetch` to the matching capability in the current session. Codex names its own capabilities; OpenCode uses the lowercase forms `subagent`, `read`, `edit`, `shell`, `websearch`, and `webfetch`, where `edit` covers both `Edit` and `Write`; OMP uses `task`, `read`, `edit`, `write`, `bash`, `grep`, `glob`, `find`, `todo`, and `web_search` (where `read` also handles URLs and `skill://` URIs). Do not attempt to invoke the Claude Code labels as literal commands on another host.
+- Install the generated role agents before delegating: `install-codex-agents` in Codex, `install-opencode-agents` in OpenCode, `install-omp-agents` in OMP. Codex names them `crux_architect`, `crux_brainstormer`, `crux_commander`, `crux_dev_lead`, `crux_developer`, `crux_historian`, `crux_librarian`, `crux_night_gardener`, `crux_reviewer`, and `crux_wayfinder`; OpenCode and OMP use the bare role names `architect`, `brainstormer`, `commander`, `dev-lead`, `developer`, `historian`, `librarian`, `night-gardener`, `reviewer`, and `wayfinder` (in OMP, `scout` may also be used for reconnaissance alongside `wayfinder`). If a required role or capability is unavailable, report that truthfully instead of claiming it ran.
 - Argument placeholders such as `$adr` and `$book` bind only in Claude Code. On a host without argument binding they are unset — take the value from the user's phrase. The "Fields OpenCode ignores" section of `OPENCODE_GUIDE.md` names the invocation-control fields OpenCode ignores.
 <!-- END GENERATED: runtime-compat -->
 
@@ -65,6 +65,7 @@ Run each command below from the repo root — **both tables**: the roster gates 
 | Gate (output) | Scope | Dry-run command | Regenerator that fixes it |
 |---|---|---|---|
 | `crux/catalog/skills.json` + `agents.json` | plugin-authoring | `validate-catalog.py --dry-run` | `validate-catalog.py` |
+| `crux/box/micro-crux.md` and root preview when present | plugin-authoring | `generate-micro-crux.py --dry-run` | `generate-micro-crux.py` |
 | `docs/code/` | project | `uv run --no-config extract-code-docs.py --dry-run --config <docs_dir>/manifest.yml` | `uv run --no-config extract-code-docs.py --config <docs_dir>/manifest.yml` (skill `extract-code-docs`) |
 | `<docs_dir>/arch/` spine | project | `derive-arch.py --dry-run --docs-dir <docs_dir>` | `derive-arch.py --docs-dir <docs_dir>` (skill `derive-arch`) |
 | `<docs_dir>/adrs/summaries/` | project | `summarize-adrs.py --dry-run` | `summarize-adrs.py` |
@@ -75,7 +76,7 @@ Run each command below from the repo root — **both tables**: the roster gates 
 | `<docs_dir>/index.md` `## ADRs` rollup | project | `generate-index-rollup.py --dry-run` | `generate-index-rollup.py` |
 | `README.md` version footer | plugin-authoring | `generate-readme-footer.py --dry-run` | `generate-readme-footer.py` |
 | writing-rules block (3 surfaces) | plugin-authoring | `generate-writing-rules.py --dry-run` | `generate-writing-rules.py` |
-| runtime-compatibility block (48 skills) | plugin-authoring | `generate-runtime-compat.py --dry-run` | `generate-runtime-compat.py` |
+| runtime-compatibility block | plugin-authoring | `generate-runtime-compat.py --dry-run` | `generate-runtime-compat.py` |
 | `<tree>/AGENTS.md` §10 routing-table region | plugin-authoring | `generate-routing-table.py --dry-run` | `generate-routing-table.py` |
 | `<docs_dir>/adrs/reviews/index.md` | project | `generate-reviews-index.py --dry-run` | `generate-reviews-index.py` |
 | `<docs_dir>/journal/index.md` | project | `generate-journal-index.py --dry-run` | `generate-journal-index.py` |
@@ -86,25 +87,26 @@ Run each command below from the repo root — **both tables**: the roster gates 
 
 Invoke each via `uv run "${CRUX_PLUGIN_ROOT}/scripts/<name>" ...` from the repo root. This roster is the source of truth for what a derived artifact owes; if the repo-root `AGENTS.md` roster grows a row, add its gate here.
 
-**In the plugin's own development repository that sentence is mechanical rather than a request.** A runner there parses the table above as its operational declaration and executes every row. It binds three surfaces: the repo-root roster's drift-check column (the MEMBERSHIP record), this table (the OPERATIONAL declaration), and the runner's own execution set. A generator enrolled in the roster and missing from this table fails a test rather than going unrun. **That runner is development tooling and is not part of the plugin** — a release stages the plugin directory alone, so an installed copy does not carry it, and a downstream reader follows this skill's own steps instead. The split between the two tables is the one this skill already stated; what changed upstream is that disagreeing with it is detectable.
+The micro-crux gate verifies the shipped guide in staged plugin trees. It also
+verifies the root preview in an authoring checkout when present. A consuming
+project reports N/A. This gate remains selected at release; it is not a
+cycle-time documentation-tree skip.
 
 ### Guards that carry no roster row
 
-These answer real questions and are executed by the same runner, but they regenerate nothing, so they are deliberately absent from the regenerative-outputs roster — that roster's subject is derived artifacts. They are declared here instead, which is the one place a reader looks for what gets executed. Each emits the same envelope the roster gates do, including the self-declared not-applicable lane.
+These answer real questions and run like the roster gates, but they regenerate nothing, so they are deliberately absent from the regenerative-outputs roster — that roster's subject is derived artifacts. They are declared here instead, which is the one place a reader looks for what gets executed. Each emits the same envelope the roster gates do, including the self-declared not-applicable lane.
 
 | Guard | Scope | Command | What it answers |
 |---|---|---|---|
 | `<docs_dir>/observations/` records | project | `check_observations.py` | the CHK-OBS-* rules; reports `concern_enabled: false` when the concern is off |
 | `<docs_dir>/promptbooks/index.md` | project | `check-promptbook-index.py` | CHK-PB-11 completeness: a missing row, a duplicate row, a row naming an absent book, and the three count surfaces |
 
-**The governs/body parity checker is deliberately NOT in that table.** It is per-ADR, takes a dynamic argv, emits no JSON envelope, and its exit 1 means *a human should classify these rows* rather than *this is broken*. Those four properties cannot coexist with the runner's contract, so it runs as its own CI step with its applicability stated there: only ADRs carrying at least one `governs` entry, advisory on exit 1, red on exit 2.
-
 **The `Scope` column says whose tree the row's gate inspects.** That is the difference between a
 verdict about this project and a verdict about the plugin. A `project` row's output lives in the
 documentation tree, so its gate measures the project wherever the plugin is installed. A
 `plugin-authoring` row's output lives in the plugin's own source checkout — the catalogs, the
 `opencode/` projection, the plugin `README.md` footer, and the writing-rules, routing-table,
-runtime-compatibility and crux-mods reach-table regions. **Every one of those nine roster rows is
+runtime-compatibility and crux-mods reach-table regions. **Every one of those roster rows is
 inapplicable in a consuming project, and its gate reports so itself:** exit 0 with
 `"surface_absent": true` and a `reason`, having
 written nothing. Report those rows N/A with the reason, never as clean and never as broken.
@@ -116,7 +118,7 @@ that is a defect to report, not drift to fix.[^scope]
 
 ### 1.A. Run the validation checks
 
-A validation check is not a drift gate. It regenerates nothing, so it owns no row in the repo-root `AGENTS.md` "regenerative outputs" roster, and enrolling it there would break the derived-artifact rule rather than keep it — a roster row promises a regenerator, and a validation check has none to promise. The roster count is unchanged by this section, and `audit-docs`'s CHK-DRIFT-1 still covers twelve outputs.
+A validation check is not a drift gate. It regenerates nothing, so it owns no row in the repo-root `AGENTS.md` "regenerative outputs" roster, and enrolling it there would break the derived-artifact rule rather than keep it — a roster row promises a regenerator, and a validation check has none to promise. The roster count is unchanged by this section.
 
 Run each check below from the repo root, after the drift gates and before the report.
 
@@ -167,8 +169,7 @@ no evidence         <E>   rows whose gate exited 0 having inspected ZERO configu
 
 **Count ROWS, not commands.** The unit is the repo-root roster row, because that is what
 membership means; one command may cover several rows (`validate-catalog.py` covers both
-`skills.json` and `agents.json`, so the step-1 table runs seventeen commands over eighteen
-rows). Attribute a command's verdict to every row it covers, or the identity below fails
+`skills.json` and `agents.json`). Attribute a command's verdict to every row it covers, or the identity below fails
 for a reason that has nothing to do with drift.
 
 `enrolled == executed passing + failed + skipped/inapplicable`. The `no evidence` count is not a fourth disjoint bucket — it re-counts the rows that measured nothing, and every N/A row is one of them. It is reported separately because it is the number a reader needs and the other four hide: **a clean process exit that inspected no configured inputs never establishes that those inputs were checked.**
@@ -198,43 +199,6 @@ Body, 1–3 lines: the summary line, and for any non-clean gate its name plus th
 - If every gate is clean, report the all-clean table and stop.
 - If any gate drifted, list the exact regenerator command per drifted gate and let the user run them. This skill never runs them.
 - If a gate is BROKEN or CRASH or REFUSAL, surface the problem and the specific next action; a release must not proceed on a broken gate.
-
-## Red flags — STOP and reconsider
-
-- About to regenerate a drifted output "since I'm already here". NEVER — this skill is read-only. Recommend the regenerator; the user runs it.
-- About to skip a gate because "that one never drifts". Run every gate every time. The roster is the contract.
-- About to read a gate's exit code without parsing its stdout. The exit code says "ran", not "in sync". Parse the JSON.
-- About to report a `derive-arch` exit 2 `StaleProjectionInput` as a crash or as arch drift. It is a deliberate refusal — recommend the upstream input's regenerator, not a re-derive.
-- About to treat a `validation_errors` payload as drift and recommend the regenerator. A validation error is BROKEN — the named input must be repaired first; regenerating reproduces the same error.
-- About to let a `warnings` key flip a clean gate to a failure. Warnings are surfaced beside the verdict and never change it.
-- About to skip the log entry because "nothing drifted". A drift check is an event — log it.
-- About to report a citation finding as DRIFT and recommend a regenerator. Nothing regenerates a citation. It is BROKEN, and the fix is editing the text that carries it.
-- About to add the citation linter to the repo-root roster because it now runs here. It regenerates nothing, so a roster row would promise a regenerator that does not exist.
-- About to call an empty resolved scope a clean pass. A check that scanned nothing verified nothing.
-- About to plant a citation so the check has something to find. A scope with no citation yet is a pass; manufacturing work for a gate is how a gate stops meaning anything.
-
-## Rationalization table
-
-| Excuse | Reality |
-|---|---|
-| "One gate drifted; I'll just regenerate it to save a step." | This skill is read-only. Regenerating is a separate, explicit user action — mirror the verify/extract split `verify-code-docs` keeps. |
-| "The exit code was 0, so the gate is clean." | Exit 0 means the run succeeded. Parse stdout: a `warnings` key or a validation payload can ride an exit you did not expect. |
-| "`derive-arch` returned 2 — the environment is broken." | Read stderr. `StaleProjectionInput` is a deliberate refusal with an in-repo fix: regenerate the named upstream input, then re-derive. |
-| "The catalog gate warned about a stale `verified:` date — that's a failure." | It is a WARNING that deliberately does not change the exit code. Report it beside a clean verdict. |
-| "A validation error just means regenerate harder." | Regenerating reproduces the same bytes and clears nothing. Fix the malformed input the error names. |
-| "The citation check found nothing, so it is not wired up." | A scope with no citation yet is a clean pass. Read the scanned-file count: zero files is BROKEN, zero citations across many files is clean. |
-| "The citation linter runs in check-drift, so it belongs on the roster." | The roster enrolls derived artifacts, and a linter derives nothing. It is a validation check, reported in the same table and enrolled nowhere. |
-
-## Common mistakes
-
-- **Regenerating from inside this skill.** The split between checking and fixing is intentional — check-drift reports, the regenerator writes.
-- **Stopping at the first drift.** Run every gate and report the full table; a release wants the whole picture, not the first failure.
-- **Treating `derive-arch` exit 2 as one thing.** Two lanes share it — a crash and a `StaleProjectionInput` refusal. stderr says which; they take different fixes.
-- **Letting warnings change a verdict.** A `warnings` key is informational and never flips clean to failing.
-- **Recommending a re-derive for a `StaleProjectionInput` refusal.** The fix is the upstream input's regenerator, then a re-derive — never a re-derive alone.
-- **Skipping the log entry on an all-clean run.** Verification with no drift is still a verification event — log it.
-- **Reading a citation finding as drift.** A drift gate compares an output against its source. A validation check reads a claim. Only the first has a regenerator.
-- **Reporting a linter refusal at exit 0.** A containment breach, a non-regular file, a bound breach or a decoding failure all exit nonzero. A refusal reported at exit 0 is the fail-open the check exists to close.
 
 [^scope]: rule:regenerator-declares-its-scope, rule:out-of-scope-is-surface-absent, rule:drift-report-carries-scope-and-reconciles
 

@@ -17,10 +17,15 @@ The repo-root files are dev-only surfaces; their cases skip in the staged artifa
 from __future__ import annotations
 
 import re
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 from _dev_surface import REPO_ROOT, require_dev_surface
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import suite_evidence  # noqa: E402
 
 # Copied from test_adr_path_templates.py (class CouncilRunnerRoundRuleTests,
 # CONDUCTOR_COMMIT_COUNCIL), which owns the pattern; keep the two in step.
@@ -49,8 +54,40 @@ def crux_files() -> list[Path]:
     return sorted(found)
 
 
-def root_guides() -> list[Path]:
-    return sorted(p for p in REPO_ROOT.glob("*.md") if p.name != "CHANGELOG.md")
+def root_guides(root: Path = REPO_ROOT) -> list[Path]:
+    """The repo-root guides. A file `.bionic.yml` configures as bookkeeping is a note, not a guide."""
+    notes = {Path(entry) for entry in suite_evidence.bookkeeping_paths(root)}
+    return sorted(p for p in root.glob("*.md")
+                  if p.name != "CHANGELOG.md" and p.relative_to(root) not in notes)
+
+
+class RootGuideSelectionTests(unittest.TestCase):
+    """Configured bookkeeping files are notes, so the guide scan skips them (CYC-0036)."""
+
+    def make(self, tmp, config):
+        root = Path(tmp)
+        for name in ("CODEX.md", "crux-authority-reset.md", "crux-implementation-evidence.md", "CHANGELOG.md", "notes.txt"):
+            (root / name).write_text("text\n", encoding="utf-8")
+        (root / ".bionic.yml").write_text('config_version: "1"\ndocs_dir: bionic\n' + config, encoding="utf-8")
+        return root
+
+    def test_a_configured_bookkeeping_file_is_not_a_guide_and_an_unconfigured_one_is(self):
+        config = ("evidence:\n  bookkeeping_paths:\n    - crux-authority-reset.md\n"
+                  "    - crux-implementation-evidence.md\n")
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual([p.name for p in root_guides(self.make(tmp, config))], ["CODEX.md"])
+        # POSITIVE DISCRIMINATOR: with nothing configured the same files are guides, so the
+        # skip above is the setting's doing.
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual([p.name for p in root_guides(self.make(tmp, ""))],
+                             ["CODEX.md", "crux-authority-reset.md", "crux-implementation-evidence.md"])
+
+    def test_this_checkouts_guides_skip_the_configured_notes_and_keep_the_rest(self):
+        require_dev_surface(self, REPO_ROOT / "CODEX.md", "CODEX.md")
+        require_dev_surface(self, REPO_ROOT / "AGENTS.md", "AGENTS.md")
+        names = {p.name for p in root_guides()}
+        self.assertTrue({"CODEX.md", "AGENTS.md"} <= names)
+        self.assertFalse(names & set(suite_evidence.bookkeeping_paths(REPO_ROOT)))
 
 
 class ScanControlTests(unittest.TestCase):

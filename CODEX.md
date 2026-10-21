@@ -1,4 +1,4 @@
-<!-- generated-from: CODEX.md@sha256:d3735ebf566cf3c28794937c58eee22597494caabd9cd0bd988a90795ce39e32; model: deterministic-copy; date: 2026-10-08 -->
+<!-- generated-from: CODEX.md@sha256:51ab99726c0b731868550caeda6daafae1924a63f642d5bd49f05d0c8db39bca; model: deterministic-copy; date: 2026-10-20 -->
 # Install Crux for Codex
 
 This guide installs the Crux plugin, its skills, and its ten Codex role agents. It covers human installation and the procedure an agent should follow after the plugin is available.
@@ -36,6 +36,8 @@ The installer writes these namespaced agents to `~/.codex/agents/`:
 - `crux_wayfinder`
 
 Each agent pins its catalog model, reasoning effort, sandbox, and declared Crux skills. Skill bindings use absolute paths into the selected plugin installation.
+
+`crux_commander` runs in the `workspace-write` sandbox although it holds no edit tool. It needs that sandbox to run the cycle writer, which updates the cycle record. The generated role carries no per-command shell restriction, so that sandbox admits any command within the workspace. The role instructions alone limit it to the cycle writer and read-only `git log`, `git status`, `git show` and `git worktree list`. Claude Code grants the commander Bash under the same instructions. OpenCode adds a shell allow-list for those command forms. Every other read-only role keeps the `read-only` sandbox.
 
 ### 3. Check the installation
 
@@ -113,6 +115,10 @@ The installer refuses unsafe managed files, escaping paths, malformed source dec
 | Skill bindings point to an old plugin path | Refresh after verifying the selected plugin root. |
 | Static health is clean but the role is unavailable | Start a fresh thread and record runtime evidence; static health does not prove host discovery. |
 | A role has broader access than expected | Check the parent session's permission overrides. The role prompt remains binding. |
+
+## Watching a cycle
+
+Codex has no dashboard panel. To follow a cycle while a Codex session runs it, open a second terminal and run `uv run <plugin-root>/scripts/cycle.py --repo-root <project> status --watch 5`. It redraws the cycle view every 5 seconds until Ctrl-C and writes nothing. Name a cycle after `status` to show only that one.
 
 ## Councils
 
