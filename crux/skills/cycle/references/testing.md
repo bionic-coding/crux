@@ -28,8 +28,8 @@ bind the actual artifact. Deployment smoke checks run against the new deployment
 External checks use explicit freshness requirements. Release reuses matching
 correctness evidence and produces only missing or invalidated evidence.
 
-A release has no separate test step. verify is the only release step that runs
-the registered suites. It reuses the newest passing receipt whose inputs match exactly
+In the Crux development repository, a release has no separate test step. verify is
+the only release step that runs the registered suites. It reuses the newest passing receipt whose inputs match exactly
 and executes a suite only when no receipt matches. Finish the prep (version surfaces,
 changelog, generated release documents and the prep commit) before verify. A late
 change to anything a suite reads makes verify execute that suite again; nothing
@@ -106,7 +106,7 @@ ineligible, and an incomplete pass never counts.
 `test-evidence.py report --evidence-id ID [--directory DIR]` prints both verdicts and
 reads a retained directory without writing to it.
 
-Release evidence lives in the dev checkout's durable store,
+In the Crux development repository, release evidence lives in the durable store
 `<git-common-dir>/crux/test-evidence`, for checkout and staged suites alike. With
 `CRUX_TEST_EVIDENCE_DURABLE_ONLY=1` the engine refuses any other store. To retain a
 receipt and its log, call `test_evidence.retention_copy`. It scans the uncompressed
@@ -148,11 +148,19 @@ uv run "${CRUX_PLUGIN_ROOT}/scripts/test-evidence.py" declare --repo-root . --pr
 
 | Preset | Command | Inputs and exclusions |
 |---|---|---|
-| `whole-tree` | the caller's `--command JSON` | the registered suites' inputs, Git-tracked, minus the shared exclusions |
+| `whole-tree` | the caller's `--command JSON` | every Git-tracked file plus Crux's broad input list, minus the shared exclusions |
 | `drift-gates` | `tools/run-drift-gates.py --cycle-scope` | as `whole-tree` |
 | `mods-gate`, `opencode-gate`, `omp-gate` | that gate's script with `--phase dev` | as `whole-tree`; refuses when the script is absent |
 | `release-metadata` | `tools/release-preflight.py --metadata` | the broad inputs of `whole-tree`; no release exclusion, no projection |
 | `journal-index` | `generate-journal-index.py --dry-run` | the journal directory, `crux/scripts` and `.bionic.yml`; no exclusions |
+
+Every preset except `whole-tree` runs a script at a fixed path in the Crux development
+repository, under `tools/` or `crux/scripts/`. In any other project it refuses as not
+applicable; do not copy or recreate those scripts. A consuming project declares its own
+checks with `whole-tree` and its own test command, for example `--preset whole-tree
+--check-id CYC-ID-tests --command '["python", "-m", "unittest"]'`. Every Git-tracked
+file is an input, so a change to a tracked file invalidates the receipt. That
+project's checks also cover its version and changelog changes.
 
 `--requirement JSON` replaces the preset's requirement. The declaration carries the
 expanded exclusions and no preset field, so a receipt matches on its contents.
@@ -199,6 +207,8 @@ can select an external store. Evidence is not published as part of the release a
 
 ## Release-neutral evidence
 
+This section describes the Crux development repository.
+
 A release changes version numbers and release documents, not software behavior. The
 registered suites therefore read through a registry in `suite_evidence.py` that keeps
 a release-only change from invalidating their receipts.
@@ -218,8 +228,8 @@ a release-only change from invalidating their receipts.
   and verify executes the suites that read it again.
 
 The metadata check covers what the suites no longer see. Every full preflight executes
-it (`tools/release-preflight.py --metadata`). Record the `release-metadata` preset at
-Test when a cycle changes `CHANGELOG.md`, `public/` or a version surface, and when in
+it (`tools/release-preflight.py --metadata`). In that repository, record the `release-metadata`
+preset at Test when a cycle changes `CHANGELOG.md`, `public/` or a version surface, and when in
 doubt, because it takes seconds. Only `README.md` carries a footer projection.
 
 Audit every new projection or release exclusion before it joins the registry, in three
@@ -234,6 +244,10 @@ A path joins only when all three legs show no value reader and no relational rea
 suite that drops it. Otherwise it stays an input.
 
 ## Drift gates and when a cycle runs them
+
+This section describes the Crux development repository, whose drift roster runs through
+`tools/run-drift-gates.py`. Another project runs the `check-drift` skill when it needs a
+drift report, and declares its own checks with `whole-tree`.
 
 Release verification runs every drift gate over a shipped surface: the catalogs, the
 rules catalog, the routing table and the other regenerated blocks. It leaves out five

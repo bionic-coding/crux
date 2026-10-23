@@ -279,14 +279,17 @@ uv run /abs/plugin-root/scripts/cycle.py --repo-root . --compact approve-decisio
 ```
 
 Council purposes are `idr`, `adr-creation`, `adr`, and `consultation`.
-`--max-tokens` sets the output token budget per seat request, including its
-existing fault retry. It defaults to `32000`; for example, use
-`--max-tokens 64000` when a larger response budget is needed. The value must be a
-positive integer no larger than the smallest output limit of the three selected
-models in the registry. An oversized request is refused before an attempt is
-created or any request is sent. New attempt metadata records the effective
-`max_tokens`; historical attempts need no new field. This option changes no
-seat assignment, retry policy, round limit, or approval threshold.
+Omitted, `--max-tokens` leaves each seat's output budget to its registry output limit:
+half the limit, at least `32000`, at most the limit. A reply that stops on its budget is
+retried once at the seat's limit. Given, the value is the first-attempt budget for every
+seat, for example `--max-tokens 64000`; it must be a positive integer no larger than the
+smallest output limit of the three selected models. An oversized request is refused before
+an attempt is created or any request is sent. The council library records the
+`max_tokens` of each seat attempt in the vote's `attempts`, and the council
+record's `seats` carry them. Legacy attempt metadata records the explicit
+value, or null when omitted; historical attempts need no new field. Each seat call has a
+1200 s deadline per attempt, so run the council as a background command. This option
+changes no seat assignment, retry count, round limit, or approval threshold.
 Consultation is advisory. Retain exact subjects; do not edit approved reasoning.
 A revision is a new decision record with the same name and fresh council approval.
 

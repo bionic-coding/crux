@@ -329,10 +329,11 @@ class F8TruncatedThenInSetTests(unittest.TestCase):
             {"attempt": 1, "replied": True, "served_model": "openai/gpt-6-astra",
              "served_provider": "Azure", "generation_id": "gen-a", "finish_reason": "length",
              "fault_label": "truncated", "served_model_match": True,
-             "served_provider_match": False},
+             "served_provider_match": False, "max_tokens": 64000},
             {"attempt": 2, "replied": True, "served_model": "openai/gpt-6-astra",
              "served_provider": "OpenAI", "generation_id": "gen-b", "finish_reason": "stop",
-             "fault_label": None, "served_model_match": True, "served_provider_match": True},
+             "fault_label": None, "served_model_match": True, "served_provider_match": True,
+             "max_tokens": 128000},
         ])
         self.assertEqual(vote.generation_id, "gen-b")
 

@@ -583,9 +583,9 @@ class PerSeatDeadlineTests(unittest.TestCase):
         council._retry = lambda fn: fn
         return council
 
-    def test_default_timeout_is_600_seconds(self):
+    def test_default_timeout_is_1200_seconds(self):
         from crux.council.async_council import AsyncCouncilConfig
-        self.assertEqual(AsyncCouncilConfig().timeout_seconds, 600.0)
+        self.assertEqual(AsyncCouncilConfig().timeout_seconds, 1200.0)
 
     _VOTE = ('{"decision": "APPROVE", "confidence": 0.8, "dissents": [], '
              '"reasoning": ""}')

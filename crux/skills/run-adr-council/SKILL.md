@@ -170,9 +170,9 @@ d=$(mktemp -d)
 uv run "$d/driver.py"
 ```
 
-Each call to a seat has its own deadline, 600 s by default (`--timeout`). A seat that fails with a
+Each call to a seat has its own deadline, 1200 s per attempt. A seat that fails with a
 `timeout`, `provider`, `malformed-response` or `truncated` fault is called once more, so the
-worst case per seat is two deadlines, about 20 minutes. A Claude Code foreground shell call
+worst case per seat is two deadlines, about 40 minutes. A Claude Code foreground shell call
 stops at 10 minutes, so **run the driver as a background command** and read its output when it
 exits. A shell that kills the driver first loses every seat's answer.
 

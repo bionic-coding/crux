@@ -115,7 +115,52 @@ def _extract_json_blob(content: Optional[str]) -> str:
 #: Per-attempt deadline in seconds. Each attempt of each seat gets this long on
 #: its own, so a seat that is retried can run for twice this. One slow seat
 #: becomes a `timeout`-labelled errored vote and never costs the others.
-DEFAULT_SEAT_TIMEOUT_SECONDS = 600.0
+#: 1200 s because a truncated seat retries with its model's full output limit.
+#: A reasoning seat generated about 103 tokens/s in a single recorded council
+#: (CYC-0041; 32000 tokens in 311 s). At that rate 1200 s covers about 123000
+#: tokens, not a full 128000-token generation, and a 64000-token first attempt
+#: needs about 620 s. At 600 s the escalation would turn a truncation into a
+#: timeout.
+DEFAULT_SEAT_TIMEOUT_SECONDS = 1200.0
+
+#: Output budget in tokens for a seat whose model declares no usable output
+#: limit, and the floor of the default first-attempt budget. A declared value
+#: that is non-positive or not an int, or a cfg without the attribute, gets
+#: this budget. A registry entry with no `max_output_tokens` key is read as 8000
+#: by `get_model_config` (`core/llm_caller.py`), so its first budget is 8000.
+DEFAULT_SEAT_MAX_TOKENS = 32000
+
+
+def _seat_output_limit(cfg) -> Optional[int]:
+    """The model's output limit from its registry entry, or None unless a positive int."""
+    limit = getattr(cfg, "max_output_tokens", None)
+    if type(limit) is int and limit > 0:
+        return limit
+    return None
+
+
+def seat_max_tokens(cfg, configured: Optional[int], escalate: bool = False) -> int:
+    """The output budget for one seat attempt.
+
+    A configured int is the first budget for every seat. Otherwise the first
+    budget is half the model's output limit, floored at `DEFAULT_SEAT_MAX_TOKENS`
+    and capped at the limit. A registry entry with no `max_output_tokens` key reads
+    as 8000 through `get_model_config`, so its first budget is 8000. A declared
+    value that is non-positive or not an int, or a cfg without the attribute, has
+    no usable limit and gets the floor alone, 32000.
+    A retry after a truncated attempt (`escalate`) uses the model's output
+    limit when that is larger than the first budget.
+    """
+    limit = _seat_output_limit(cfg)
+    if type(configured) is int:
+        first = configured
+    elif limit is not None:
+        first = min(limit, max(limit // 2, DEFAULT_SEAT_MAX_TOKENS))
+    else:
+        first = DEFAULT_SEAT_MAX_TOKENS
+    if escalate and limit is not None:
+        return max(first, limit)
+    return first
 
 #: The fault labels a seat is called a second time after. A closed set, keyed on
 #: the label `_redact_error` computes and never on an HTTP status, so a change to
@@ -165,7 +210,7 @@ class _Attempt:
 
     __slots__ = ("replied", "finish_reason", "served_model", "served_provider",
                  "generation_id", "cfg", "served_model_match", "served_provider_match",
-                 "fault_label")
+                 "fault_label", "max_tokens", "escalate")
 
     def __init__(self):
         self.replied: bool = False
@@ -177,6 +222,8 @@ class _Attempt:
         self.served_model_match: Optional[bool] = None
         self.served_provider_match: Optional[bool] = None
         self.fault_label: Optional[str] = None
+        self.max_tokens: Optional[int] = None  # the output budget the request carried, once built
+        self.escalate: bool = False  # True on the retry of a truncated attempt
 
     def provenance(self) -> GatewayReply:
         """The reported provenance as a reply the two checks read. No content."""
@@ -195,6 +242,7 @@ class _Attempt:
             "fault_label": self.fault_label,
             "served_model_match": self.served_model_match,
             "served_provider_match": self.served_provider_match,
+            "max_tokens": self.max_tokens,
         }
 
 
@@ -430,7 +478,9 @@ class AsyncCouncilConfig:
     gemini_model: Optional[str] = None
     timeout_seconds: float = DEFAULT_SEAT_TIMEOUT_SECONDS  # per attempt: a retried seat can take twice this
     max_retries: int = 1  # Extra attempts after a retryable fault: 0 disables the retry, 1 is the only other value
-    max_tokens: int = 32000  # Max output tokens per council member
+    # Output tokens per seat attempt. None resolves per seat from the registry's
+    # `max_output_tokens`; an int is the first budget for every seat.
+    max_tokens: Optional[int] = None
     # Gate mode: the council whose verdict can satisfy a council gate. Seats come
     # only from the three roles, each must be eligible, and the served model of
     # every reply is checked. `council_kind` picks the vote instruction.
@@ -443,6 +493,9 @@ class AsyncCouncilConfig:
 
     def __post_init__(self):
         # `type(...) is int`, not isinstance: a bool is an int, and 1.0 == 1.
+        if self.max_tokens is not None and (
+                type(self.max_tokens) is not int or self.max_tokens <= 0):
+            raise ValueError("max_tokens must be a positive integer or None")
         if type(self.max_retries) is not int or self.max_retries not in (0, 1):
             raise ValueError("max_retries must be 0 or 1")
         # One test for gate mode everywhere: `is True`. A truthy non-bool (1, "yes")
@@ -641,18 +694,23 @@ class AsyncCouncil:
         would otherwise yield a vote, after every retryable fault has had its
         label and its one retry.
         """
+        max_tokens = seat_max_tokens(
+            cfg, self.config.max_tokens,
+            escalate=attempt is not None and attempt.escalate)
+        if attempt is not None:
+            attempt.max_tokens = max_tokens
         url, headers, payload = build_gateway_request(
             cfg,
             prompt,
             system=system,
-            max_tokens=self.config.max_tokens,
+            max_tokens=max_tokens,
             # The council pins no temperature on any seat — it never did, and
             # the reject-set models refuse the param outright.
             temperature=None,
             response_format=response_format,
         )
         # The client timeout equals the seat deadline, never below it, so the
-        # configured deadline (600 s by default) is the one that takes effect.
+        # configured deadline (1200 s by default) is the one that takes effect.
         client_kwargs: Dict[str, Any] = {"timeout": self.config.timeout_seconds}
         transport = getattr(self.config, "transport", None)
         if transport is not None:
@@ -732,6 +790,8 @@ class AsyncCouncil:
         attempts: List[Dict[str, Any]] = []
         for number in range(2 if may_retry else 1):
             attempt = _Attempt()
+            # A retry after a truncated reply asks for the model's full output limit.
+            attempt.escalate = number == 1 and first_label == "truncated"
             try:
                 value = await asyncio.wait_for(
                     attempt_fn(attempt), timeout=self.config.timeout_seconds)
@@ -863,7 +923,8 @@ class AsyncCouncil:
     # and a rate-limit want a retry, auth wants a credential fix, unreachable
     # wants a network check, client-config wants a request fix, provider wants
     # waiting, malformed-response wants a bug report, truncated wants a larger
-    # output budget or a shorter prompt, insufficient-credit wants credit,
+    # output budget or a shorter prompt (the one retry already escalates the
+    # budget to the model's output limit), insufficient-credit wants credit,
     # unexpected-status wants the status reported, and refused wants a
     # prompt/content change or a fallback model (nothing failed — the model
     # declined), served-model wants the registry entry or the gateway route

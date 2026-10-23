@@ -669,10 +669,13 @@ class SkillProseAndDriverTests(unittest.TestCase):
     """The skill prose states the worst case and the driver prints what the votes now carry."""
 
     def test_both_skills_state_the_worst_case_and_direct_a_background_run(self):
+        # Both skills describe an async driver whose per-attempt deadline is 1200 s
+        # (two attempts: about 40 minutes).
         for name in ("council", "run-adr-council"):
             with self.subTest(skill=name):
                 text = " ".join((SKILLS / name / "SKILL.md").read_text(encoding="utf-8").split())
-                self.assertIn("about 20 minutes", text)
+                self.assertIn("about 40 minutes", text)
+                self.assertNotIn("about 20 minutes", text)
                 self.assertIn("run the driver as a background command", text)
                 self.assertNotIn("about ten minutes", text)
 

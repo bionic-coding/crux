@@ -122,6 +122,7 @@ The driver is stdlib-only.
 """
 
 import argparse
+import atexit
 import collections
 import fcntl
 import importlib.util
@@ -131,6 +132,7 @@ import multiprocessing
 import multiprocessing.spawn
 import os
 import re
+import shutil
 import signal
 import statistics
 import subprocess
@@ -1199,6 +1201,30 @@ def pooled_bin_count(units, timings, pool_size, affinity=AFFINITY):
 # ---------------------------------------------------------------------------
 
 
+def _disable_fixture_git_maintenance():
+    """Point every `git init` a test runs at a template whose config turns auto maintenance off.
+
+    Git copies the template's `config` into each new repository, so the setting lands before the
+    first commit. Without it, a commit can start background maintenance that packs and deletes
+    loose objects while the test clones the repository, and the clone fails on a vanished file.
+    The copy keeps git's default template content. A caller's own template is left alone.
+    """
+    if "GIT_TEMPLATE_DIR" in os.environ:
+        return
+    template = tempfile.mkdtemp(prefix="crux-git-template-")
+    atexit.register(shutil.rmtree, template, True)
+    try:
+        exec_path = subprocess.run(["git", "--exec-path"], capture_output=True, text=True).stdout.strip()
+    except OSError:
+        exec_path = ""
+    default = os.path.join(exec_path, os.pardir, os.pardir, "share", "git-core", "templates")
+    if exec_path and os.path.isdir(default):
+        shutil.copytree(default, template, dirs_exist_ok=True)
+    with open(os.path.join(template, "config"), "w", encoding="utf-8") as handle:
+        handle.write("[maintenance]\n\tauto = false\n")
+    os.environ["GIT_TEMPLATE_DIR"] = template
+
+
 def _worker_main(conn, bin_index, positions, start, pattern, top, snapshot, expected):
     # Lead a process group, so the coordinator can stop this worker and every
     # process its tests start with one killpg. The terminal's signals reach
@@ -1210,6 +1236,7 @@ def _worker_main(conn, bin_index, positions, start, pattern, top, snapshot, expe
     # The pool is the coordinator's budget. A test that starts a driver of its own must not draw on it:
     # its parent bin already holds a slot, and a nested driver waiting for another could wait on itself.
     os.environ.pop(POOL_ENV, None)
+    _disable_fixture_git_maintenance()
     # A background process group that writes to a terminal set to `tostop` is
     # stopped by SIGTTOU. Ignoring it lets the write through, as in a serial
     # run, which writes from the foreground group.

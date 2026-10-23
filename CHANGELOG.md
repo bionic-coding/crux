@@ -1,4 +1,4 @@
-<!-- generated-from: CHANGELOG.md@sha256:f6c4f014a0d5a7dcb4a157772ab6b7c10c0c0cf89fa64ac9a2a92b45d635b197; model: claude-sonnet-5.5; date: 2026-10-21 -->
+<!-- generated-from: CHANGELOG.md@sha256:5933673844ba0b3cdfed7c65bfa9c557ff8e5d61fe7aaeaaa5196ec89d8ca055; model: claude-sonnet-5.5; date: 2026-10-23 -->
 # Changelog
 
 All notable changes to crux. The format roughly follows [Keep a Changelog](https://keepachangelog.com/) and the project adheres to [Semantic Versioning](https://semver.org/).
@@ -10,6 +10,20 @@ All notable changes to crux. The format roughly follows [Keep a Changelog](https
 ### Changed
 
 ### Fixed
+
+### Removed
+
+## [4.5.1] — 2026-10-23
+
+### Added
+
+### Changed
+
+- The cycle testing instructions and the dev-lead agent now limit the `drift-gates`, `mods-gate`, `opencode-gate`, `omp-gate`, `release-metadata` and `journal-index` evidence presets to the crux development repository, because the scripts they run exist only there. A project that uses crux declares its own checks with the `whole-tree` preset and its own test command.
+
+### Fixed
+
+- Council seats now take their output budget from each model's registry limit instead of a flat 32000, and they retry a truncated reply at that limit. The budget used for each attempt is recorded in council vote attempts and cycle-council records, though run-council records from the historical promptbook runner do not carry it. The async seat deadline is now 1200 s, so a seat can reason and vote within its model's output limit without truncating.
 
 ### Removed
 

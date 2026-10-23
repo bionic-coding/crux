@@ -76,6 +76,12 @@ uv run "${CRUX_PLUGIN_ROOT}/scripts/run-council.py" <run-RUN-NNN.yaml> [--prompt
   [--book <book file>] [--retain-subjects] [--max-tokens 64000] [--timeout 600]
 ```
 
+`--max-tokens` is the first-attempt output budget for every seat (default 64000). A seat
+whose reply stops on that budget is retried once at its own output limit from the model
+registry. A value above the smallest selected seat limit is refused before any call.
+`--timeout` is the per-seat-call deadline in seconds (default 600). When a reasoning seat
+truncates, pass `--timeout 1200`: the escalated retry under 600 s is likely to time out.
+
 Finish any open Git merge or other sequence before council. Both book formats
 use the current attempt-aware gate. An implementation module uses council kind
 `implementation`, including in a combined architectural book; `combined` is never
@@ -161,9 +167,15 @@ from crux.council import create_async_council
 d=$(mktemp -d) && uv run "$d/driver.py"
 ```
 
-Each call to a seat has its own deadline, 600 s by default. A seat that fails with a
-`timeout`, `provider`, `malformed-response` or `truncated` fault is called once more, so the
-worst case per seat is two deadlines, about 20 minutes. A Claude Code foreground shell call
+Each call to a seat has its own deadline: `AsyncCouncilConfig` and `cycle-council.py` use
+1200 s, while the `run-council.py` command line keeps 600 s through `--timeout`. A seat that
+fails with a `timeout`, `provider`, `malformed-response` or `truncated` fault is called once
+more, so the worst case per seat is two deadlines, about 40 minutes for the driver. A
+`truncated` retry uses the seat's registry output limit. With `max_tokens` left unset, each
+seat's first-attempt budget is half its registry limit (at least 32000, at most the limit).
+A given `max_tokens` is the first-attempt budget for every seat. Each entry in a vote's
+`attempts` records the `max_tokens` it requested. The cycle-council record's `seats` carry
+those entries; a `run-council.py` record does not carry the budget. A Claude Code foreground shell call
 stops at 10 minutes, so **run the driver as a background command** and read its output when it
 exits. A shell that kills the driver first loses every seat's answer. `AsyncCouncilConfig`
 takes `max_retries` 0 (no retry) or 1 (the default); any other value is refused when the
@@ -329,7 +341,7 @@ API keys are read via `crux_env.require(...)` from `~/.crux/env` (managed by `cr
 - ALWAYS prefer async for an ad-hoc council and for agent teams (parallel teammates = concurrent calls)
 - ALWAYS check `dissent_count` (and each vote's `dissenting_points`) — never just read `consensus`
 - ALWAYS read `final_recommendation["conditioned"]` and `["nits"]`: a conditioned approval can read `UNANIMOUS_APPROVE` or `MAJORITY_APPROVE` but never routes to `AUTO_EXECUTE`
-- ALWAYS run an ad-hoc council driver in the background (inside a cycle run, the council gate uses `run-council.py`): the worst case per seat is about 20 minutes
+- ALWAYS run an ad-hoc council driver in the background (inside a cycle run, the council gate uses `run-council.py`): the worst case per seat is about 40 minutes
 - ALWAYS provide rich context — models deliberate better with specifics
 - Every seat prompt states the operating assumptions: a trusted owner, cooperating agents, a trusted local checkout and one release coordinator. Plausible mistakes and crashes are in scope; deliberate local tampering and identity authentication are outside. A blocker states a plausible failure within those assumptions, its consequence and the smallest necessary fix. Everything else is an advisory or a documented limit, and "safety-related" alone does not justify a block. Every builder appends the shared text from `council_assumptions.py`. Cycle councils' vote instruction applies the same blocker test; historical promptbook gate councils keep their original instruction. Approval thresholds are unchanged
 - A recommendation that adds complexity (code, tests, instructions, execution, configuration or concepts) names the concrete failure it prevents, why a simpler fix is insufficient, and its maintenance and testing cost; otherwise it is an advisory

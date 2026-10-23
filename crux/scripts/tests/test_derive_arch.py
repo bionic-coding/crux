@@ -342,77 +342,64 @@ def _populated_fixture(root: Path, *, with_adrs: bool = True) -> Path:
     return root
 
 
-_LIVE_TREE = None
-
-
-def _live_tree() -> dict:
-    """The derive of the unmodified live repository, computed once per process.
-
-    ArchDeriveTests, ArchCoverageSignalTests and ArchParserPinTests all read the
-    same rendered tree; each used to pay its own live derive. The value is built
-    from the repository as it stands and is never mutated: every call returns a
-    fresh dict copy (the values are immutable strings), so a consumer that edits
-    its copy cannot reach another consumer. A test that needs a modified tree
-    builds its own scratch repository.
-    """
-    global _LIVE_TREE
-    if _LIVE_TREE is None:
-        _LIVE_TREE = D._build(REPO, "bionic")
-    return dict(_LIVE_TREE)
-
-
 class ArchDeriveTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        # These assertions only read the rendered strings. Mutation tests build
-        # their own temporary repositories. Determinism is owned by
-        # `test_ac2_ac8_write_then_clean_and_fixed_point` (a second derive of its
-        # own tree is byte-identical), each pack's byte-identical rebuild test,
-        # and the derive-arch `--dry-run` drift gate.
-        cls.tree = _live_tree()
+        # One derive of `_populated_fixture`, shared by the class. Every crux-pack
+        # concern populates there, so the deriver assertions below need no live
+        # repository; the live derive is the `derive-arch.py --dry-run` drift
+        # gate's job. The fixture is read-only: a test that needs a modified tree
+        # builds its own, and the temporary directory goes when the class ends.
+        # Determinism is owned by `test_ac2_ac8_write_then_clean_and_fixed_point`
+        # (a second derive of its own tree is byte-identical), each pack's
+        # byte-identical rebuild test, and the drift gate.
+        cls.fixture = _populated_fixture(Path(cls.enterClassContext(_tmpdir())) / "repo")
+        cls.tree = D._build(cls.fixture, "bionic")
 
     # ADR-0066 point 7 — the crux pack wraps the existing extractors UNCHANGED:
-    # resolving each spine concern through the seam is byte-identical to calling
-    # the four extractor functions directly. Environment-independent (both paths
-    # share this process's frontmatter parser), so it proves the refactor is a
-    # no-op on output regardless of PyYAML availability.
+    # each spine file `_build` renders through the seam is byte-identical to
+    # calling that concern's extractor directly. Run on the class fixture, where
+    # all four concerns populate, so the comparison covers real content and not
+    # stubs, and so `_build`'s rendering is checked for every concern.
     def test_crux_pack_byte_identical_to_direct_extractors(self):
-        # Seam-vs-direct identity is meaningful only where the inputs exist. In the
-        # staged crux-only artifact there is no ADR index, so the core renders a
-        # named-precondition stub while the direct extractor's own degrade path
-        # renders the legacy marker — a divergence on a surface the stage never
-        # ships. Guard rather than compare against a missing dev surface.
-        try:
-            from ._dev_surface import require_dev_surface
-        except ImportError:
-            from _dev_surface import require_dev_surface
-        require_dev_surface(self, REPO / "bionic" / "adrs" / "index.md", "bionic/adrs/index.md")
-        # Three concerns are compared on the live tree: each extractor costs about
-        # 0.1 s there. The fourth, decision-index, reads the historical authority
-        # view, which costs about 100 s per call on this repository, and the
-        # shared live derive already ran it once. Seam-vs-direct identity is a
-        # property of the pack seam and not of this repository's decisions, so
-        # decision-index is compared on a fixture tree in the next test, where
-        # the same comparison runs in milliseconds.
         direct = {
-            "data-model.md": D.extract_data_model(REPO, "bionic")[0],
-            "api-surface.md": D.extract_api_surface(REPO, "bionic")[0],
-            "module-graph.md": D.extract_module_graph(REPO, "bionic")[0],
+            "data-model.md": D.extract_data_model(self.fixture, "bionic")[0],
+            "api-surface.md": D.extract_api_surface(self.fixture, "bionic")[0],
+            "module-graph.md": D.extract_module_graph(self.fixture, "bionic")[0],
+            "decision-index.md": D.extract_decision_index(self.fixture, "bionic", "complete")[0],
         }
+        # Non-vacuous: the fixture's one Accepted ADR is a row in the table.
+        self.assertRegex(self.tree["decision-index.md"], r"(?m)^\| 1 \|")
         for fname, text in direct.items():
             self.assertEqual(self.tree[fname], text, f"seam diverged from direct call for {fname}")
 
-    def test_crux_pack_decision_index_byte_identical_to_direct_extractor(self):
-        fixture = _populated_fixture(Path(self.enterContext(_tmpdir())) / "repo")
-        direct, _sources = D.extract_decision_index(fixture, "bionic", "complete")
-        seam = D._build(fixture, "bionic")["decision-index.md"]
-        # Non-vacuous: the fixture's one Accepted ADR is a row in the table, so
-        # the comparison covers a populated decision-index and not a stub.
-        self.assertRegex(seam, r"(?m)^\| 1 \|")
-        self.assertEqual(seam, direct, "seam diverged from direct call for decision-index.md")
+    # The one explicit REAL-TREE integration check. A fixture cannot say that this
+    # repository's own layout still resolves to the crux pack, or that the
+    # extractors still find its real inputs. For data-model, api-surface and
+    # module-graph, the extractor the resolver returns must match the direct call,
+    # and each output must carry sources and at least one entity of its kind.
+    # Those three cost about 0.1 s each and read only `crux/`, so the check also
+    # runs in the staged artifact. decision-index is left out: on this repository
+    # it reads the whole historical authority view, and its real-tree derive is
+    # the `derive-arch.py --dry-run` drift gate's, run at each cycle's Test phase.
+    def test_real_tree_integration_check(self):
+        self.assertEqual(D.resolve_stack(REPO).pack_name, "crux")
+        direct = {
+            "data-model": D.extract_data_model,
+            "api-surface": D.extract_api_surface,
+            "module-graph": D.extract_module_graph,
+        }
+        for concern, extract in direct.items():
+            with self.subTest(concern=concern):
+                text, sources = extract(REPO, "bionic")
+                seam_text, _ = D.resolve_extractor(concern, REPO, "bionic")(REPO, "bionic")
+                self.assertEqual(seam_text, text, f"resolver diverged from direct call for {concern}")
+                self.assertTrue(sources, f"{concern}: no sources on the real tree")
+                self.assertGreaterEqual(D.count_concern_entities(concern, text), 1,
+                                        f"{concern}: no entities on the real tree")
 
-    # ADR-0066 — the seam auto-detects the crux pack for this repo (crux/skills +
-    # crux/schemas markers), and the overview records the resolved pack name.
+    # ADR-0066 — the seam auto-detects the crux pack (crux/skills + crux/schemas
+    # markers), and the overview records the resolved pack name.
     def test_overview_records_stack_pack(self):
         self.assertIn("Stack pack: `crux`", self.tree["overview.md"])
 
@@ -527,21 +514,14 @@ class ArchDeriveTests(unittest.TestCase):
         drift = D.dry_run(scratch, "bionic")
         self.assertIn("bionic/arch/data-model.md", drift)
 
-    # AC-6 — decision-index references ADRs footnote-only (never inline). Staged-safe:
-    # in a tree with no ADRs (e.g. the packaged plugin artifact) the derive yields the
-    # empty-but-valid file (AC-5); the no-inline-ADR invariant holds either way.
+    # AC-6 — decision-index references ADRs footnote-only (never inline). The class
+    # fixture carries one Accepted ADR, so the table has a row and a footnote.
     def test_ac6_decision_index_footnote_only(self):
-        import re
         di = self.tree["decision-index.md"]
         body = di.split("[^d1]:")[0]           # the table, before any footnote defs
         self.assertNotRegex(body, r"ADR-\d{4}", "inline ADR number in decision-index body")
-        if re.search(r"^\| \d+ \|", di, re.MULTILINE):   # decisions present
-            self.assertIn("[^d1]:", di, "decisions present but no footnote definitions")
-        else:                                            # no ADRs -> a named-precondition stub
-            # ADR-0096 clause 4: the stub names its precondition; "no extractor for
-            # this stack" is reserved for an unsupported stack, and an ADR-less tree
-            # under a registered pack is `precondition_missing`.
-            self.assertIn("_stub: precondition_missing", di)
+        self.assertRegex(di, r"(?m)^\| \d+ \|", "the fixture's decision has no row")
+        self.assertIn("[^d1]:", di, "decisions present but no footnote definitions")
 
     # Fix B (PB-0069) — no timestamps anywhere in coverage.json (parallels
     # test_ac4_manifest_has_no_timestamp).
@@ -576,17 +556,14 @@ class ArchDeriveTests(unittest.TestCase):
     # the retired `status` / `reason` / `inputs_missing` fields from coming back.
     #
     # ADR-0078 clause 3 split the two halves by which world can answer them. The
-    # SHAPE half runs on the ambient tree, where it holds in a dev checkout and in
-    # the staged artifact alike — a stubbed concern has the same nine fields as a
-    # populated one. The CLASSIFICATION half runs on `_populated_fixture`, a tree
-    # this check builds with every concern's inputs present; asked of the ambient
-    # tree it failed in the staged artifact, where `bionic/` is absent and
-    # `decision-index` correctly stubs.
+    # SHAPE half runs on both the populated fixture and an empty tree, so both
+    # record kinds are checked: every concern populates in the first and stubs in
+    # the second. The CLASSIFICATION half runs on the populated fixture only.
     def test_coverage_shape_and_classification(self):
         import json
-        for label, tree in (("ambient", self.tree),
-                            ("fixture", D._build(_populated_fixture(
-                                Path(self.enterContext(_tmpdir()))), "bionic"))):
+        empty = Path(self.enterContext(_tmpdir()))
+        (empty / "bionic").mkdir()
+        for label, tree in (("fixture", self.tree), ("empty", D._build(empty, "bionic"))):
             doc = json.loads(tree["_meta/coverage.json"])
             self.assertEqual(set(doc), {"_note", "concerns"})
             concerns = doc["concerns"]
@@ -621,6 +598,9 @@ class ArchDeriveTests(unittest.TestCase):
         by_concern = {r["concern"]: r for r in doc["concerns"]}
         self.assertEqual(by_concern["decision-index"]["verdict"], "stubbed",
                          "withholding the ADRs left decision-index populated")
+        # ADR-0096 clause 4: an ADR-less tree under a registered pack is
+        # `precondition_missing`, never "no extractor for this stack".
+        self.assertEqual(by_concern["decision-index"]["stub_reason"], "precondition_missing")
         for concern in ("data-model", "api-surface", "module-graph"):
             self.assertEqual(by_concern[concern]["verdict"], "populated",
                              f"{concern} stubbed on a tree carrying its inputs")
@@ -634,16 +614,13 @@ class ArchDeriveTests(unittest.TestCase):
         import json
         empty = Path(self.enterContext(_tmpdir()))
         (empty / "bionic").mkdir()
-        for tree in (self.tree, D._build(empty, "bionic")):
-            doc = json.loads(tree["_meta/coverage.json"])
-            for rec in doc["concerns"]:
-                if rec["verdict"] != "stubbed":
-                    continue
-                self.assertIn(rec["stub_reason"], {r.value for r in D.StubReason})
-                for field in ("expected", "found"):
-                    self.assertTrue(rec[field], f"{rec['concern']}: empty {field}")
-                    self.assertNotIn(str(Path.home()), rec[field])
-                    self.assertNotIn(str(empty), rec[field])
+        doc = json.loads(D._build(empty, "bionic")["_meta/coverage.json"])
+        for rec in doc["concerns"]:
+            self.assertIn(rec["stub_reason"], {r.value for r in D.StubReason})
+            for field in ("expected", "found"):
+                self.assertTrue(rec[field], f"{rec['concern']}: empty {field}")
+                self.assertNotIn(str(Path.home()), rec[field])
+                self.assertNotIn(str(empty), rec[field])
 
     # Fix B (PB-0069) — an unsupported stack (stub pack, reuses the AC-5 fixture
     # pattern) reports every concern "stubbed" with extractor "stub".
@@ -694,20 +671,19 @@ class ArchCoverageSignalTests(unittest.TestCase):
     fixture tree built with every concern's inputs present (ADR-0078 clause 3
     moved it off the ambient tree), and `test_coverage_reason_vocabulary_closed`
     derives `reason` FROM `status`, so a status token neither expects would sail
-    through both self-consistently. This class is the only one that asks the
-    AMBIENT tree — whatever world it is running in — whether `status` stays inside
-    the closed vocabulary and agrees with `inputs_found`.
+    through both self-consistently. This class is the only one that asks
+    whether `status` stays inside the closed vocabulary and agrees with
+    `inputs_found`.
     """
 
     def test_status_vocabulary_closed_and_agrees_with_inputs(self):
         import json
         blinded = Path(self.enterContext(_tmpdir()))
         (blinded / "bionic").mkdir()
-        # Both vocabulary branches are exercised: the ambient tree (populated
-        # concerns in a dev checkout) and a world with no inputs at all (stubbed).
-        # Running over both keeps the test non-vacuous in the staged artifact,
-        # where the ambient tree legitimately stubs some concerns.
-        for label, tree in (("ambient", _live_tree()),
+        # Both vocabulary branches are exercised: a tree where every concern
+        # populates and a world with no inputs at all, where every concern stubs.
+        fixture = _populated_fixture(Path(self.enterContext(_tmpdir())) / "repo")
+        for label, tree in (("fixture", D._build(fixture, "bionic")),
                             ("blinded", D._build(blinded, "bionic"))):
             doc = json.loads(tree["_meta/coverage.json"])
             for rec in doc["concerns"]:
@@ -1309,9 +1285,9 @@ class ArchParserPinTests(unittest.TestCase):
                           "parser:yaml"])
 
     def test_a_derive_carries_the_base_pins_plus_the_resolved_packs_own(self):
-        """The end-to-end reading: this repository derives under the crux pack,
-        so its manifest's `tool_pins` is `TOOL_PINS` PLUS that pack's own pins
-        and nothing else.
+        """The end-to-end reading: a tree that derives under the crux pack
+        records `tool_pins` as `TOOL_PINS` PLUS that pack's own pins and
+        nothing else.
 
         This asserted the bare constant while the crux pack declared no parser.
         It is written as `TOOL_PINS | parser_pins(pack)` now rather than as a
@@ -1322,16 +1298,11 @@ class ArchParserPinTests(unittest.TestCase):
         """
         import json
         core = self._core()
-        doc = json.loads(self.__class__._tree()["_meta/manifest.json"])
+        fixture = _populated_fixture(Path(self.enterContext(_tmpdir())) / "repo")
+        doc = json.loads(D._build(fixture, "bionic")["_meta/manifest.json"])
         self.assertEqual(doc["tool_pins"], D.TOOL_PINS | core.parser_pins("crux"))
         self.assertEqual([k for k in doc["tool_pins"] if k.startswith("parser:")],
                          ["parser:yaml"])
-
-    @classmethod
-    def _tree(cls):
-        if not hasattr(cls, "_cached_tree"):
-            cls._cached_tree = _live_tree()
-        return cls._cached_tree
 
     def test_a_declared_parser_is_pinned_by_module_name(self):
         """A pack that DOES declare one gets `parser:<module>: <version>`.

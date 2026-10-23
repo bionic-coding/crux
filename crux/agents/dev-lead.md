@@ -208,9 +208,11 @@ invoke, read, or enumerate changed inputs. New regression tests alone do not pro
 related behavior; uncertain reach calls for conservative coverage. A known Test
 acceptance failure returns immediately to the conductor, before Review.
 Declare cycle checks with `test-evidence.py declare --preset`; never hand-list the
-shared bookkeeping exclusions. At Test, run the `drift-gates` preset as a required
-check and the `journal-index` preset on a Test task. Document any other exclusion,
-with its reason, in coverage.
+shared bookkeeping exclusions. In the Crux development repository, run the
+`drift-gates` preset at Test as a required check and the `journal-index` preset on a
+Test task. Those presets run scripts that exist only there; in another project,
+declare the project's own checks with the `whole-tree` preset and its test command.
+Document any other exclusion, with its reason, in coverage.
 
 Choose checks that establish the required outcome and relevant failure modes. When
 input dependencies are uncertain, fingerprint conservatively. A full suite is required

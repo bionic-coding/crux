@@ -142,8 +142,8 @@ def recover(repo, attempt):
     return record
 
 
-def _convene_legacy(repo, purpose, subject, question, *, cycle_id=None, progress=None, human_approval=None, transport=None, max_tokens=32000, readiness=None):
-    if type(max_tokens) is not int or max_tokens<=0:
+def _convene_legacy(repo, purpose, subject, question, *, cycle_id=None, progress=None, human_approval=None, transport=None, max_tokens=None, readiness=None):
+    if max_tokens is not None and (type(max_tokens) is not int or max_tokens<=0):
         raise CycleError('max_tokens must be a positive integer')
     if purpose not in PURPOSES or not question.strip(): raise CycleError('council purpose and question required')
     question=scoped_question(repo,cycle_id,question)
@@ -176,7 +176,7 @@ def _convene_legacy(repo, purpose, subject, question, *, cycle_id=None, progress
         # valid assignment can establish the bound for this requested budget.
         config_error=exc
     else:
-        if max_tokens>min(limits):
+        if max_tokens is not None and max_tokens>min(limits):
             raise CycleError(f'max_tokens exceeds the smallest selected seat output limit ({min(limits)})')
     from cycle_workflow import locked, load
     with locked(repo):
@@ -400,7 +400,7 @@ def finish_mode(cfg,attempt_path,attempt,record):
 
 
 def convene(repo,purpose,subject,question,*,cycle_id=None,progress=None,human_approval=None,transport=None,
-            max_tokens=32000,readiness=None,identity=None,extension=None):
+            max_tokens=None,readiness=None,identity=None,extension=None):
     import council_policy as policy
     raw,_=policy.raw_config(repo)
     cfg=tree(repo)
@@ -410,7 +410,7 @@ def convene(repo,purpose,subject,question,*,cycle_id=None,progress=None,human_ap
     if 'council' not in raw and not enrolled and not mode_history:
         return _convene_legacy(repo,purpose,subject,question,cycle_id=cycle_id,progress=progress,
             human_approval=human_approval,transport=transport,max_tokens=max_tokens,readiness=readiness)
-    if type(max_tokens) is not int or max_tokens<=0:raise CycleError('max_tokens must be a positive integer')
+    if max_tokens is not None and (type(max_tokens) is not int or max_tokens<=0):raise CycleError('max_tokens must be a positive integer')
     question=scoped_question(repo,cycle_id,question)
     # Policy authorization and known capability failures precede attempt claims.
     cfg=tree(repo);logical=logical_identity(cfg,purpose,subject,cycle_id,identity)
@@ -428,7 +428,7 @@ def convene(repo,purpose,subject,question,*,cycle_id=None,progress=None,human_ap
         config=AsyncCouncilConfig(gate=True,council_kind='implementation' if purpose in {'idr','consultation'} else 'adr',transport=transport,max_tokens=max_tokens,blocker_test=True)
         models={p:m for p,m in zip(('openai','anthropic','google'),(config.openai_model,config.anthropic_model,config.gemini_model))}
         limits=[get_model_config(m).max_output_tokens for m in models.values()]
-        if any(type(n) is not int or n<=0 for n in limits) or max_tokens>min(limits):raise ValueError('selected seat output budget unavailable')
+        if any(type(n) is not int or n<=0 for n in limits) or (max_tokens is not None and max_tokens>min(limits)):raise ValueError('selected seat output budget unavailable')
     except Exception as exc:
         import secret_scan
         from untrusted import redact

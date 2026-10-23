@@ -45,8 +45,8 @@ def main(argv=None):
     p.add_argument('--ingest-result',type=Path,help='unmodified host tool request/result/final envelope JSON')
     p.add_argument('--request',help='docs-relative sealed native request')
     p.add_argument('--readiness',type=Path,help='committed U1 source/test/review bindings for disposition purpose')
-    p.add_argument('--max-tokens',type=positive_int,default=32000,
-                   help='output token budget per seat request (default: 32000; bounded by selected models)')
+    p.add_argument('--max-tokens',type=positive_int,default=None,
+                   help='first-attempt output token budget for every seat. Omitted: each seat derives its budget from its registry output limit (half the limit, at least 32000, at most the limit) and a truncated reply retries once at the seat limit. Given: refused above the smallest selected seat limit')
     a=p.parse_args(argv)
     try:
         if a.initialize_council:

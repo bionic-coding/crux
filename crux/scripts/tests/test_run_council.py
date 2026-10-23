@@ -1880,8 +1880,8 @@ class HelpTextSubprocessTests(unittest.TestCase):
 
     def test_max_tokens_help_explains_its_default(self):
         text = self.help_text()
-        for phrase in ("per-seat output-token cap for one reply", "The default 64000 is twice the council "
-                       "library's own default of 32000", "a truncated seat fault and is retried once",
+        for phrase in ("first-attempt output-token budget for every seat", "The default 64000 lets a long reply",
+                       "a truncated seat fault and is retried once at the seat's own output limit",
                        "above the smallest seat's output cap in the router registry is refused before any call"):
             self.assertIn(phrase, text)
 

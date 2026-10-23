@@ -1484,11 +1484,11 @@ def _parser() -> argparse.ArgumentParser:
     selection.add_argument("--migration-batch", help="retired: historical-format migration writes are "
                            "refused with historical-migration-writes-retired")
     ap.add_argument("--max-tokens", type=_positive_int, default=DEFAULT_MAX_TOKENS,
-                    help="The per-seat output-token cap for one reply. The default "
-                         f"{DEFAULT_MAX_TOKENS} is twice the council library's own default of 32000, "
-                         "so a long reply from a reasoning model is not cut off. A reply that stops "
-                         "on the cap is a truncated seat fault and is retried once; raise this value "
-                         "when you see one. A value above the smallest seat's output cap in the router "
+                    help="The first-attempt output-token budget for every seat. The default "
+                         f"{DEFAULT_MAX_TOKENS} lets a long reply from a reasoning model finish. "
+                         "A reply that stops on the budget is a truncated seat fault and is retried "
+                         "once at the seat's own output limit in the router registry. "
+                         "A value above the smallest seat's output cap in the router "
                          "registry is refused before any call, because that seat's provider returns HTTP 400.")
     ap.add_argument("--timeout", type=_positive_float, default=DEFAULT_TIMEOUT,
                     help=f"the per-seat-call deadline, in seconds (default {DEFAULT_TIMEOUT:g})")

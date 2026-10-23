@@ -23,6 +23,41 @@ except ImportError:
     HAVE_GATEWAY=False
 
 
+FIRST_BUDGET=64000
+def truncating_gateway():
+    """A fake gateway: the first request answers finish "length", every other request approves.
+
+    Returns (transport, models, seen) where seen maps each model's api string to the max_tokens it was sent.
+    """
+    import httpx
+    from crux.council.async_council import validate_gate_assignment
+    from crux.core.llm_caller import get_model_config
+    models={cfg.api_string:cfg for cfg in (get_model_config(m) for m in validate_gate_assignment().values())}
+    seen={};calls=[]
+    def reply(request):
+        payload=json.loads(request.content);cfg=models[payload['model']]
+        seen.setdefault(payload['model'],[]).append(payload['max_tokens']);calls.append(payload['model'])
+        served={'model':cfg.api_string,'provider':next(iter(cfg.accepted_served_providers))}
+        if len(calls)==1:
+            return httpx.Response(200,json=dict(served,choices=[{'finish_reason':'length','message':{'content':'{'}}]))
+        vote={'decision':'APPROVE','confidence':.9,'reasoning':'supported','findings':[]}
+        return httpx.Response(200,json=dict(served,choices=[{'finish_reason':'stop','message':{'content':json.dumps(vote)}}]))
+    return httpx.MockTransport(reply),models,seen,calls
+
+def assert_record_budgets(case,record,models,seen,calls):
+    """The written record's seat attempts hold the budget each request used, escalated after a truncation."""
+    seats=record['seats'];case.assertEqual(len(seats),3)
+    truncated_model=calls[0];limit=models[truncated_model].max_output_tokens
+    case.assertGreater(limit,FIRST_BUDGET)
+    case.assertEqual(seen[truncated_model],[FIRST_BUDGET,limit])
+    escalated=[s for s in seats if len(s['attempts'])==2];case.assertEqual(len(escalated),1)
+    a=escalated[0]['attempts']
+    case.assertEqual((a[0]['max_tokens'],a[0]['finish_reason'],a[0]['fault_label']),(FIRST_BUDGET,'length','truncated'))
+    case.assertEqual(a[1]['max_tokens'],limit)
+    for seat in seats:
+        if seat is not escalated[0]:case.assertEqual([x['max_tokens'] for x in seat['attempts']],[FIRST_BUDGET])
+
+
 @unittest.skipUnless(HAVE_GATEWAY,'gateway dependencies unavailable')
 class CouncilTests(unittest.TestCase):
     def setUp(self):
@@ -42,7 +77,7 @@ class CouncilTests(unittest.TestCase):
             config=council.call_args.args[0]
             self.assertIsInstance(config,AsyncCouncilConfig);self.assertTrue(config.gate)
             self.assertEqual(config.council_kind,'implementation');self.assertEqual(config.openai_model,'one')
-            self.assertEqual(config.max_tokens,kwargs.get('max_tokens',32000))
+            self.assertEqual(config.max_tokens,kwargs.get('max_tokens'))
             attempt=json.loads((self.cfg.docs_root/output['attempt']).read_text())
             self.assertEqual(attempt['max_tokens'],config.max_tokens)
             prompt=council.return_value.deliberate.call_args.args[0]
@@ -108,7 +143,7 @@ class CouncilTests(unittest.TestCase):
         self.assertFalse(list(self.cfg.docs_root.rglob('attempt-*')))
 
     def test_invalid_api_output_budgets_refuse_before_attempt_or_request(self):
-        for value in (0,-1,True,False,1.5,'64000',None):
+        for value in (0,-1,True,False,1.5,'64000'):
             with self.subTest(value=value),patch('crux.council.async_council.AsyncCouncil') as council:
                 with self.assertRaisesRegex(CycleError,'max_tokens.*positive integer'):
                     convene(self.root,'idr',self.subject,'review',cycle_id=self.doc['id'],max_tokens=value)
@@ -139,11 +174,40 @@ class CouncilTests(unittest.TestCase):
         self.assertEqual(output['outcome'],'could-not-run');self.assertEqual(record['reason'],'ValueError')
 
 
+@unittest.skipUnless(HAVE_GATEWAY,'gateway dependencies unavailable')
+class CouncilRecordBudgetTests(unittest.TestCase):
+    setUp=CouncilTests.setUp
+    def test_legacy_record_carries_per_attempt_budget_with_escalated_retry(self):
+        transport,models,seen,calls=truncating_gateway()
+        with patch('crux_env.get',return_value='test-gateway-credential'),patch('crux.council.async_council.get',return_value='test-gateway-credential'):
+            output=convene(self.root,'idr',self.subject,'review',cycle_id=self.doc['id'],max_tokens=FIRST_BUDGET,transport=transport)
+        record=json.loads((self.cfg.docs_root/output['record']).read_text())
+        assert_record_budgets(self,record,models,seen,calls)
+
+
+class CouncilPerSeatBudgetTests(CouncilTests):
+    def test_omitted_budget_is_per_seat_and_recorded_as_null(self):
+        output=self.run_council()
+        attempt=json.loads((self.cfg.docs_root/output['attempt']).read_text())
+        self.assertIsNone(attempt['max_tokens'])
+
+    def test_explicit_budget_is_recorded_as_the_integer(self):
+        output=self.run_council(max_tokens=40000)
+        attempt=json.loads((self.cfg.docs_root/output['attempt']).read_text())
+        self.assertEqual(attempt['max_tokens'],40000)
+
+    def test_explicit_budget_above_smallest_limit_is_still_refused(self):
+        with patch('crux.council.async_council.validate_gate_assignment',return_value={'openai_top':'one','anthropic_top':'two','google_top':'three'}),patch('crux.core.llm_caller.get_model_config',side_effect=lambda model:SimpleNamespace(max_output_tokens={'one':128000,'two':128000,'three':65536}[model])),patch('crux.council.async_council.AsyncCouncil') as council:
+            with self.assertRaisesRegex(CycleError,'max_tokens.*65536'):
+                convene(self.root,'idr',self.subject,'review',cycle_id=self.doc['id'],max_tokens=65537)
+            council.assert_not_called()
+
+
 class CouncilCliBudgetTests(unittest.TestCase):
     def test_default_and_explicit_output_budget_forwarded(self):
         with tempfile.TemporaryDirectory() as directory:
             question=Path(directory)/'question.txt';question.write_text('review')
-            for flags,expected in (([],32000),(['--max-tokens','64000'],64000)):
+            for flags,expected in (([],None),(['--max-tokens','64000'],64000)):
                 with self.subTest(flags=flags),patch.object(cli,'convene',return_value={'outcome':'approved'}) as call,contextlib.redirect_stdout(io.StringIO()):
                     self.assertEqual(cli.main(['--purpose','adr','--subject','adrs/proposal.md','--question',str(question),*flags]),0)
                     self.assertEqual(call.call_args.kwargs['max_tokens'],expected)
@@ -230,6 +294,12 @@ class ModeAwareCouncilTests(unittest.TestCase):
             council.return_value.deliberate=AsyncMock(return_value=result)
             output=convene(self.root,options.pop('purpose','consultation'),options.pop('subject','adrs/subject.txt'),'Review all five dimensions.',identity='stable-consultation',**options)
             return output,council.return_value.deliberate.call_args.args[0]
+    def test_policy_record_carries_per_attempt_budget_with_escalated_retry(self):
+        transport,models,seen,calls=truncating_gateway()
+        with patch('crux_env.get',return_value='test-gateway-credential'),patch('crux.council.async_council.get',return_value='test-gateway-credential'):
+            output=convene(self.root,'consultation','adrs/subject.txt','Review',identity='budget-record',max_tokens=FIRST_BUDGET,transport=transport)
+        record=json.loads((self.docs/output['record']).read_text())
+        assert_record_budgets(self,record,models,seen,calls)
     def test_standard_writer_and_common_accepting_validator(self):
         from council_policy import disposition
         from cycle_workflow import digest
