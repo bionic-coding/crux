@@ -1,4 +1,4 @@
-<!-- generated-from: CHANGELOG.md@sha256:5933673844ba0b3cdfed7c65bfa9c557ff8e5d61fe7aaeaaa5196ec89d8ca055; model: claude-sonnet-5.5; date: 2026-10-23 -->
+<!-- generated-from: CHANGELOG.md@sha256:3b64f697ef66e713d8ec310d135aef7755ff7467ca1002ea61813414ef5d4083; model: claude-sonnet-5.5; date: 2026-10-26 -->
 # Changelog
 
 All notable changes to crux. The format roughly follows [Keep a Changelog](https://keepachangelog.com/) and the project adheres to [Semantic Versioning](https://semver.org/).
@@ -8,6 +8,21 @@ All notable changes to crux. The format roughly follows [Keep a Changelog](https
 ### Added
 
 ### Changed
+
+### Fixed
+
+### Removed
+
+## [4.5.2] — 2026-10-26
+
+### Added
+
+- The router registry now lists GPT-6.1 Terra (`gpt-6.1-terra`), pinned to the OpenAI serving provider. No council seat uses it by default.
+
+### Changed
+
+- Codex agents at the standard level (developer, historian, librarian, wayfinder) now run GPT-6.1 Terra at high effort instead of GPT-6.1 Sol.
+- The `kimi-latest` alias now points to Kimi K3.1 Pro (`moonshotai/kimi-k3.1-pro`) instead of Kimi K3. As a result, the commander's OpenCode and OMP model also moves to Kimi K3.1 Pro.
 
 ### Fixed
 

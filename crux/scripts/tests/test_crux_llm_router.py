@@ -59,7 +59,7 @@ except ImportError:
 # rejects one and is covered by its own suite.
 TEMPERATURE_REJECT_SET = (
     'claude-fable-5.1', 'claude-fable-5.1-medium',
-    'claude-sonnet-5.5', 'gpt-6.1-sol', 'gpt-6.1-sol-low',
+    'claude-sonnet-5.5', 'gpt-6.1-sol', 'gpt-6.1-sol-low', 'gpt-6.1-terra',
     'gpt-6-luna', 'gpt-6-astra', 'claude-opus-5.5', 'claude-opus-5.5-xhigh',
 )
 
@@ -191,8 +191,8 @@ def _role_names(value):
 class Gpt6RoleAndRegistryTests(unittest.TestCase):
     """The GPT-6 switch re-points roles and never renames a key.
 
-    The default council's OpenAI member resolves to `gpt-6.1-sol`, because GPT-6
-    has no Terra and no Terra workload moves to Luna.
+    The default council's OpenAI member resolves to `gpt-6.1-sol`; no council
+    seat moves to Terra or Luna.
     """
 
     @classmethod
@@ -288,6 +288,19 @@ class Gpt6RoleAndRegistryTests(unittest.TestCase):
             'cost': {'input_per_1m': 2.0, 'output_per_1m': 10.0,
                      'cached_input_per_1m': 0.1},
         }, absent=('serving_providers',))
+
+    def test_gpt_6_1_terra_entry_metadata(self):
+        self._assert_entry('gpt-6.1-terra', {
+            'api_string': 'openai/gpt-6.1-terra',
+            'serving_providers': ['openai'],
+            'display_name': 'GPT-6.1 Terra',
+            'supports_temperature': False,
+            'type': 'text',
+            'context_window': 1050000,
+            'max_output_tokens': 128000,
+            'cost': {'input_per_1m': 1.0, 'output_per_1m': 5.0,
+                     'cached_input_per_1m': 0.05},
+        }, absent=('effort',))
 
     def test_gpt_6_luna_entry_metadata(self):
         self._assert_entry('gpt-6-luna', {

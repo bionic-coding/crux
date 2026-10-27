@@ -172,16 +172,16 @@ class ShippedCatalogTests(unittest.TestCase):
         touching this test — which is the whole reason the alias table exists.
         """
         expected = {
-            "architect":      ("claude-opus-5-5", "opus-latest",    "gpt-6.1-sol",     "high"),
-            "brainstormer":   ("claude-opus-5-5", "sol-latest",    "gpt-6.1-sol",     "high"),
-            "commander":      ("claude-opus-5-5", "kimi-latest", "gpt-6-astra", "high"),
-            "dev-lead":       ("claude-opus-5-5", "sol-latest",    "gpt-6.1-sol",     "high"),
-            "developer":      ("claude-sonnet-5-5", "deepseek-flash", "gpt-6.1-sol",     "high"),
-            "historian":      ("claude-sonnet-5-5", "glm-latest",    "gpt-6.1-sol",     "high"),
-            "librarian":      ("claude-sonnet-5-5", "glm-latest",    "gpt-6.1-sol",     "high"),
-            "night-gardener": ("claude-opus-5-5", "opus-latest", "gpt-6-astra", "high"),
-            "reviewer":       ("claude-opus-5-5", "sol-latest", "gpt-6.1-sol", "xhigh"),
-            "wayfinder":      ("claude-sonnet-5-5", "glm-latest",    "gpt-6.1-sol",     "high"),
+            "architect":      ("claude-opus-5-5", "opus-latest",    "gpt-6.1-sol",   "high"),
+            "brainstormer":   ("claude-opus-5-5", "sol-latest",    "gpt-6.1-sol",   "high"),
+            "commander":      ("claude-opus-5-5", "kimi-latest", "gpt-6-astra",   "high"),
+            "dev-lead":       ("claude-opus-5-5", "sol-latest",    "gpt-6.1-sol",   "high"),
+            "developer":      ("claude-sonnet-5-5", "deepseek-flash", "gpt-6.1-terra", "high"),
+            "historian":      ("claude-sonnet-5-5", "glm-latest",    "gpt-6.1-terra", "high"),
+            "librarian":      ("claude-sonnet-5-5", "glm-latest",    "gpt-6.1-terra", "high"),
+            "night-gardener": ("claude-opus-5-5", "opus-latest", "gpt-6-astra",   "high"),
+            "reviewer":       ("claude-opus-5-5", "sol-latest", "gpt-6.1-sol",   "xhigh"),
+            "wayfinder":      ("claude-sonnet-5-5", "glm-latest",    "gpt-6.1-terra", "high"),
         }
         catalog = MC.load()
         self.assertEqual(set(expected), EXPECTED_AGENTS)
@@ -205,7 +205,7 @@ class ShippedCatalogTests(unittest.TestCase):
         catalog = MC.load()
         self.assertEqual(catalog.aliases["opus-latest"], "openrouter/anthropic/claude-opus-5.5")
         self.assertEqual(catalog.aliases["sol-latest"], "openrouter/openai/gpt-6.1-sol")
-        self.assertEqual(catalog.aliases["kimi-latest"], "openrouter/moonshotai/kimi-k3")
+        self.assertEqual(catalog.aliases["kimi-latest"], "openrouter/moonshotai/kimi-k3.1-pro")
         self.assertEqual(catalog.levels["flagship"].opencode, "sol-latest")
         self.assertEqual(catalog.levels["apex"].opencode, "opus-latest")
         self.assertEqual(catalog.agents["architect"].level, "flagship")
@@ -219,7 +219,7 @@ class ShippedCatalogTests(unittest.TestCase):
         self.assertEqual(catalog.agents["reviewer"].opencode, "sol-latest")
         self.assertEqual(catalog.agents["commander"].opencode, "kimi-latest")
 
-    def test_apex_uses_astra_while_flagship_keeps_sol_at_high_effort(self):
+    def test_apex_uses_astra_flagship_sol_and_standard_terra_at_high_effort(self):
         catalog = MC.load()
         apex, flagship = catalog.levels["apex"], catalog.levels["flagship"]
         # Apex and flagship both pin Opus 5.5 on Claude by full ID.
@@ -227,10 +227,9 @@ class ShippedCatalogTests(unittest.TestCase):
         self.assertEqual(flagship.claude, "claude-opus-5-5")
         self.assertEqual(apex.codex.model, "gpt-6-astra")
         self.assertEqual(flagship.codex.model, "gpt-6.1-sol")
-        # GPT-6 has no Terra, so standard selects Sol too; the two rungs stay
-        # distinct on their Claude and OpenCode cells (rule V8).
+        # Standard selects Terra by owner instruction, 2026-10-26.
         standard = catalog.levels["standard"]
-        self.assertEqual(standard.codex.model, "gpt-6.1-sol")
+        self.assertEqual(standard.codex.model, "gpt-6.1-terra")
         self.assertEqual(standard.codex.reasoning_effort, "high")
         self.assertEqual(apex.codex.reasoning_effort, "high")
         self.assertEqual(flagship.codex.reasoning_effort, "high")

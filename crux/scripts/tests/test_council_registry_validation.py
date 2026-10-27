@@ -42,8 +42,8 @@ if HAVE_COUNCIL:
 
 DUMMY_KEY = "sk-or-test-dummy"
 REAL_REGISTRY = SCRIPTS / "crux" / "_config" / "llm_router_config.json"
-PINNED_TEXT = ("gpt-6-astra", "gpt-6.1-sol", "claude-fable-5.1", "claude-opus-5.5",
-               "claude-opus-5.5-xhigh", "gemini-4-argon")
+PINNED_TEXT = ("gpt-6-astra", "gpt-6.1-sol", "gpt-6.1-terra", "claude-fable-5.1",
+               "claude-opus-5.5", "claude-opus-5.5-xhigh", "gemini-4-argon")
 #: The served-provider seeds, each the label observed for the entry's serving_providers
 #: pin. gpt-6-astra and claude-opus-5.5-xhigh carry the labels the PB-0136 round-1
 #: council record observed; gemini-4-argon carries the label PB-0153's live single-seat
@@ -64,8 +64,9 @@ class ShippedRegistryTests(unittest.TestCase):
         self.config = real_registry()
 
     def test_the_version_names_this_schema_change(self):
-        # 5.0.0 removed gemini-3.1-pro-preview, a major bump; 5.0.1 moves gemini-4-argon's prices.
-        self.assertEqual(self.config["version"], "5.0.1")
+        # 5.0.0 removed gemini-3.1-pro-preview, a major bump; 5.0.1 moves gemini-4-argon's
+        # prices; 5.1.0 adds gpt-6.1-terra.
+        self.assertEqual(self.config["version"], "5.1.0")
 
     def test_the_provider_sets_are_exactly_the_observed_seeds(self):
         declared = {k: v["accepted_served_providers"] for k, v in self.config["models"].items()
@@ -89,9 +90,19 @@ class ShippedRegistryTests(unittest.TestCase):
         self.assertIn("bionic/promptbooks/runs/PB-0136-separate-council-deliberation-from-independent/"
                       "council/RUN-001-p2-r1.json", entry)
 
-    def test_the_latest_changelog_entry_records_the_argon_price_move(self):
+    def test_the_latest_changelog_entry_records_the_terra_registration(self):
         latest = self.config["_changelog"].split(" | ")[0]
-        self.assertTrue(latest.startswith("2026-10-15: 5.0.1."), latest[:40])
+        self.assertTrue(latest.startswith("2026-10-26: 5.1.0."), latest[:40])
+        for phrase in ("gpt-6.1-terra", "openai/gpt-6.1-terra", "Codex standard level",
+                       "No model_roles entry", "no council seat moves"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, latest)
+
+    def test_the_5_0_1_changelog_entry_records_the_argon_price_move(self):
+        # Found by its version: later entries are prepended.
+        latest = next((e for e in self.config["_changelog"].split(" | ")
+                       if e.startswith("2026-10-15: 5.0.1.")), None)
+        self.assertIsNotNone(latest, "the 5.0.1 changelog entry is missing")
         for phrase in ("gemini-4-argon", "2026-12-01", "$4", "$20", "$0.20"):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, latest)
