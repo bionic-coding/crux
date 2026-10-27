@@ -105,7 +105,7 @@ test('cycle pane says loop N with an icon and never Pass', () => {
 test('cycle pane track marks done, current and upcoming phases', () => {
   const track = (c: object) => plain(find(paneLines(c, 100), '\u203A')!)
   expect(track(active)).toBe('\u2713 plan \u203A \u25B8 build \u203A \u25CC test \u203A \u25CC review \u203A \u25CC reflect')
-  expect(track({...active,status:'completed',phase:'reflect'})).toBe('\u2713 plan \u203A \u2713 build \u203A \u2713 test \u203A \u2713 review \u203A \u2713 reflect')
+  // A paused cycle is open work, so its track draws the pause glyph at the current phase.
   expect(track({...active,status:'paused'})).toBe('\u2713 plan \u203A \u2298 build \u203A \u25CC test \u203A \u25CC review \u203A \u25CC reflect')
 })
 
@@ -132,8 +132,9 @@ test('cycle pane styles title, current phase, status and a blocked task', () => 
 })
 
 test('cycle pane outcome, blocker and waits draw in their keys', () => {
-  const ls = paneLines({...active,status:'completed',phase:'reflect',reflection:'All done',blocker:'Needs a key',waits:['approve plan']}, 100)
-  expect(find(ls, 'Outcome: All done')!.some(s => s.color === 'success')).toBe(true)
+  // Only an open cycle draws as a panel, so these rows draw for a paused one.
+  const ls = paneLines({...active,status:'paused',reflection:'All done',blocker:'Needs a key',waits:['approve plan']}, 100)
+  expect(find(ls, 'Outcome: All done')).toBeDefined()
   expect(find(ls, 'Paused: Needs a key')!.some(s => s.color === 'warning')).toBe(true)
   expect(plain(find(ls, 'Paused: Needs a key')!).startsWith('\u2298 Paused')).toBe(true)
   expect(find(ls, 'Awaiting approval: approve plan')!.some(s => s.color === 'warning')).toBe(true)
@@ -155,7 +156,8 @@ test('cycle pane keeps the current phase and the active task glyph at 40 and 20 
     {id:'cur',phase,description:'Current work',status:'active'},
     ...Array.from({length: 30}, (_, i) => ({id:`q${i}`,phase:'reflect',description:`q${i}`,status:'pending'})),
   ].map(t => status === 'completed' ? {...t,status:'done'} : t)
-  for (const status of ['active', 'paused', 'completed']) {
+  // The loop covers open cycles; the latest closed cycle also draws as a panel, which the closed-status case below reads.
+  for (const status of ['active', 'paused']) {
     for (const phase of five) {
       const phaseTasks = status === 'completed' ? many(phase, status) : many(phase, status)
       for (const width of [100, 40, 20]) {
@@ -271,9 +273,10 @@ test('cycle band draws each status as its glyph and word in the status key, as t
     const l = bandLine({...active,status,phase}, 100)
     const i = l.findIndex(s => s.text === status)
     expect([status, l[i - 2]!.text, styleOf(l[i - 2]!), styleOf(l[i]!)]).toEqual([status, glyph, [color, true, false], [color, true, false]])
-    // The pane's meta line draws the same glyph in the same key.
+    // The pane's meta line draws the same glyph and word in the same key for any status: a closed
+    // cycle draws as a panel too when it is the latest.
     const meta = find(paneLines({...active,status,phase}, 100), 'loop 1')!
-    expect([status, meta.some(s => s.text === glyph && s.color === color)]).toEqual([status, true])
+    expect([status, meta.some(s => s.text === glyph && s.color === color), meta.some(s => s.text === status && s.color === color)]).toEqual([status, true, true])
   }
   // A status the parser does not know cannot reach the band through the reader: the parser refuses it.
   const odd = structuredClone(cycle) as any
@@ -350,10 +353,12 @@ test('cycle band drops the type word, the task count, the loop and the track gly
   expect(bandSegments(parsed, agents([]), 1, HARNESS)!.map(s => s.name)).toEqual(['track'])
 })
 
-test('cycle band leaves the pane and the text answer as they were', () => {
+test('pane meta line names the loop limit and the answer names the cycle', () => {
   // The pane's meta line and compact track at 40 columns, drawn by the helpers the band shares.
   const ls = paneLines(active, 40).map(plain)
-  expect(ls).toContain('iterate \u21bb loop 1 \u25b8 active')
+  // The slot names the loop limit when the line has room for it.
+  expect(ls).toContain('iterate \u21bb loop 1 of 2 \u25b8 active')
+  expect(paneLines(active, 20).map(plain)).toContain('\u21bb loop 1 \u25b8 active')
   expect(ls).toContain('\u2713 \u25b8 build \u25cc \u25cc \u25cc')
   expect(answer(parsedCycle(active))).toContain('cycle CYC-0001 type iterate status active phase build pass 1 limit 2')
 })
@@ -405,10 +410,14 @@ test('paused time shows when non-zero and the basis shows when derived', () => {
 test('a closed cycle shows the same elapsed time at any now_s', () => {
   for (const type of Object.keys(SEQUENCES)) {
     const closed = {status:'completed',ended_s:START+1800,paused_s:300,open_started_s:null}
-    const a = paneText(cycleOf(type,START+2000,closed))
-    const b = paneText(cycleOf(type,START+99999,closed))
-    expect(a).toContain('elapsed 30m paused 5m')
-    expect(b).toContain('elapsed 30m paused 5m')
+    // A closed cycle draws as a compact row with no time, so the time text is read from the view.
+    const timeAt = (now: number) => {
+      const p = parseReader(JSON.stringify(cycleOf(type,now,closed)))
+      expect(p.ok).toBe(true)
+      return p.ok ? viewCore.cycleTimeText(p.view.cycles![0]!, p.view.now_s) : null
+    }
+    expect(timeAt(START+2000)).toContain('elapsed 30m paused 5m')
+    expect(timeAt(START+99999)).toContain('elapsed 30m paused 5m')
   }
 })
 

@@ -911,6 +911,8 @@ _PANE = "ui.render{component=Pane}"
 LIVE_PARTS = [
     (_BAND, "the current cycle type, phase and pass limit"),
     (_PANE, "cycle phases, task progress, returns, approval waits and outcome"),
+    (_PANE, "the queue card: the count of queued items, whether the queue is authorized, and each upcoming or recently finished item"),
+    (_PANE, "the `cycles:` list: the closed cycles after the latest as one-line rows, three to a page, with the page number and the `n` and `p` keys that turn the page"),
     (_PANE, "a cycle's elapsed time, and its paused time when there is any"),
     (_BAND, "the book and run of the run whose run file changed last"),
     (_BAND, "the prompt strip: one glyph per prompt, with `|` between modules"),
@@ -982,7 +984,8 @@ def _quoted_names(text: str) -> set[str]:
 def reader_keys(view_ts: str) -> set[str]:
     """Every key in the strict legacy `obj` and cycle `cycleObject` readers, with `STATES`."""
     keys: set[str] = set()
-    for m in re.finditer(r"\b(?:obj|cycleObject)\(\s*[^,()]+,\s*\[([^\]]*)\]\s*\)", view_ts):
+    # The array may hold one level of nested brackets, as `...(withQueue?['queue']:[])` does.
+    for m in re.finditer(r"\b(?:obj|cycleObject)\(\s*[^,()]+,\s*\[((?:[^\[\]]|\[[^\]]*\])*)\]\s*\)", view_ts):
         keys |= _quoted_names(m.group(1))
     states = re.search(r"export const STATES = \[([^\]]*)\]", view_ts)
     if states is not None:
@@ -1103,7 +1106,7 @@ class FromCrossCheckTests(unittest.TestCase):
                 with self.subTest(part=row["part"], source=source):
                     self.assertTrue(cross_check(source, row["event"], **self.ctx), source)
             checked += 1
-        self.assertEqual(43, checked, "every historical-run and cycle surface row is checked")
+        self.assertEqual(45, checked, "every historical-run and cycle surface row is checked")
 
     def test_seeded_sources_fail_the_cross_check(self):
         for source, event in (
@@ -1144,9 +1147,9 @@ class ParserParityTests(unittest.TestCase):
         self.assertEqual(14, len(parsed["calls"]))
         self.assertEqual(2, len(parsed["env_reads"]))
         self.assertEqual([], parsed["env_writes"])
-        self.assertEqual(["crux-mods.current"], parsed["state_declared"])
-        self.assertEqual(["crux-mods.current"], parsed["state_reads"])
-        self.assertEqual(["crux-mods.current"], parsed["state_writes"])
+        self.assertEqual(["crux-mods.current", "crux-mods.page"], parsed["state_declared"])
+        self.assertEqual(["crux-mods.current", "crux-mods.page"], parsed["state_reads"])
+        self.assertEqual(["crux-mods.current", "crux-mods.page"], parsed["state_writes"])
 
 
 class PublicFingerprintTests(unittest.TestCase):

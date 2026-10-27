@@ -9,7 +9,7 @@ import type { LaunchCode, Result } from './lib/claude.ts'
 import { KEPT_SHAPE, answer, kept, parseReader } from './lib/view.ts'
 import type { Parsed } from './lib/view.ts'
 import type { Kept } from '../types'
-import { band, pane, styleOf } from './lib/draw.ts'
+import { band, clampPage, olderPages, pane, styleOf } from './lib/draw.ts'
 import type { Block } from './lib/draw.ts'
 import { asksForTheRun } from './lib/phrases.ts'
 
@@ -35,6 +35,10 @@ const OPEN_REFRESH_MS = 0
 // code keeps the band and the pane. It holds only checked reader output or a closed status
 // code, never an event payload. Claude Code holds it in memory and writes no file.
 const current = atom({ plugin: 'crux-mods', key: 'current' } as const, null as Kept | null, { shape: KEPT_SHAPE })
+// The page of the `cycles:` list the pane draws, counted from 0. Only the pane's n and p buttons write it.
+// The pane clamps it when it draws, so a refresh that changes the number of cycles writes nothing.
+const PAGE_SHAPE = 'page-1'
+const pageAtom = atom({ plugin: 'crux-mods', key: 'page' } as const, 0, { shape: PAGE_SHAPE })
 let inFlight: Promise<Parsed> | undefined
 let timer: Timer | undefined
 // True while the 15 s timer skips its refresh because the reader ran out of time.
@@ -252,6 +256,26 @@ async function agentsOf($: Eng) {
   }
 }
 
+// The stored page, or the first when nothing is stored or the read is refused.
+async function pageNow($: Eng): Promise<number> {
+  try {
+    const n = await read($, pageAtom)
+    return typeof n === 'number' && Number.isFinite(n) ? n : 0
+  } catch {
+    return 0
+  }
+}
+
+// Steps the stored page by `delta` within the pages there are. A refused write leaves the page as it
+// was, and the next press writes again.
+async function stepPage($: Eng, delta: number, pages: number): Promise<void> {
+  try {
+    await update($, pageAtom, n => clampPage(clampPage(typeof n === 'number' ? n : 0, pages) + delta, pages))
+  } catch {
+    // The page stays.
+  }
+}
+
 // A block from lib/draw.ts as elements. A line is one Text holding a Text per span, so it stays one
 // line of text: sibling Texts in a row Box would be laid out side by side as columns. A box is a Box,
 // round-bordered with one cell of padding when it names a border key. The dashboard draws no
@@ -353,9 +377,22 @@ export const register: Register = (on, options) => {
     if (e.requestId !== PANE_ID) return next(e)
     const now = await keptNow($)
     if (now === null) return next(e)
-    const block = pane(now, await agentsOf($), e.props.bodyColumns, layoutOf(e.props.placement), HARNESS)
-    const { Box, Text } = $.ui.resolve(e) as any
-    return element(Box, Text, block)
+    const block = pane(now, await agentsOf($), e.props.bodyColumns, layoutOf(e.props.placement), HARNESS, await pageNow($))
+    const { Box, Text, Button } = $.ui.resolve(e) as any
+    const drawing = element(Box, Text, block)
+    // Past one page of the `cycles:` list the pane offers two buttons, n for the next page and p for the
+    // previous. A press only changes which page the pane draws.
+    const pages = olderPages(now)
+    if (pages <= 1) return drawing
+    return (
+      <Box flexDirection="column">
+        {drawing}
+        <Box flexDirection="row" columnGap={2}>
+          <Button key="older-previous" plain hotkey="p" onPress={() => void stepPage($, -1, pages)}>previous</Button>
+          <Button key="older-next" plain hotkey="n" onPress={() => void stepPage($, 1, pages)}>next</Button>
+        </Box>
+      </Box>
+    )
   })
 
   // The command is crux-dashboard, not dashboard: Claude Code reserves dashboard

@@ -2,6 +2,7 @@ import { test, expect } from 'claude-code/testing'
 import { bandNode, panelNode, readView } from '../lib/render.ts'
 import type { PlainNode, PlainSpan } from '../lib/render.ts'
 import { tokenOfKey } from '../lib/theme.ts'
+import { cycleTimeText } from '../../crux-mods/hooks/lib/view.ts'
 import { jsonText } from './fixtures/plain.ts'
 
 // The phase sequence of each cycle type. It is written here and not read from the parser, which
@@ -80,7 +81,8 @@ test('the panel draws the cycle title, status, loop, track and phase-labelled st
   expect(title.every(s => s.bold)).toBe(true)
 
   const meta = find(rows, 'loop 1')!
-  expect(plain(meta)).toContain('iterate ↻ loop 1 ▸ active')
+  // The open cycle's slot names the loop limit when the line has room for it.
+  expect(plain(meta)).toContain('iterate ↻ loop 1 of 2 ▸ active')
   // The drawing merges the loop icon and its words into one span of one style.
   const loop = meta.find(s => s.text.includes('↻ loop 1'))!
   expect(loop.token).toBe('text.base')
@@ -113,6 +115,7 @@ test('the panel draws the cycle title, status, loop, track and phase-labelled st
 })
 
 test('a status word and a glyph accompany every status colour', () => {
+  // An open cycle and the latest closed cycle both draw as a panel with a meta row.
   const draw = (status: string) => find(rowsOf(panelNode(parsedOf(docOf('dev', { status })), 'crux-dashboard', 100)), 'loop 1')!
   const want: [string, string, string][] = [
     ['active', '▸', 'syntax.function'], ['completed', '✓', 'text.feedback.success.base'],
@@ -245,8 +248,13 @@ test('paused time shows when non-zero, with the basis when derived', () => {
 test('a closed cycle keeps its elapsed time at any now_s', () => {
   for (const type of Object.keys(SEQUENCES)) {
     const closed = { status: 'abandoned', ended_s: START + 1800, paused_s: 300, open_started_s: null }
-    expect(timeRow(timed(type, START + 2000, closed))).toBe('elapsed 30m paused 5m')
-    expect(timeRow(timed(type, START + 90000, closed))).toBe('elapsed 30m paused 5m')
+    // The time text is read from the view, not from the drawn panel.
+    const timeAt = (now: number) => {
+      const p = parsedOf(timed(type, now, closed))
+      return p !== null && p.ok ? cycleTimeText(p.view.cycles![0]!, p.view.now_s) : undefined
+    }
+    expect(timeAt(START + 2000)).toBe('elapsed 30m paused 5m')
+    expect(timeAt(START + 90000)).toBe('elapsed 30m paused 5m')
   }
 })
 
@@ -261,11 +269,13 @@ const manyOf = (ids: [string, string][]) => {
   doc.cycles = ids.map(([id, status], i) => ({ ...base, id, status, modified_s: 1780000000 + i * 100 }))
   return doc
 }
-const idsDrawn = (doc: unknown) => rowsOf(panelNode(parsedOf(doc), 'crux-dashboard', 100)).map(plain).flatMap(t => t.match(/^(?:[A-Z][A-Z0-9]*-)?CYC-\d+/) ?? [])
+// A compact row starts with its status glyph, so the id follows an optional glyph and a space. A panel's first line starts with the id.
+const idsDrawn = (doc: unknown) => rowsOf(panelNode(parsedOf(doc), 'crux-dashboard', 100)).map(plain).flatMap(t => t.match(/^(?:\S )?((?:[A-Z][A-Z0-9]*-)?CYC-\d+)/)?.[1] ?? [])
 
 test('the panel lists active cycles first, then the rest, each by numeric id descending', () => {
   expect(idsDrawn(manyOf([['CYC-0009', 'active'], ['CYC-0010', 'completed'], ['CYC-0013', 'active'], ['CYC-0002', 'abandoned'], ['CYC-0011', 'paused']])))
-    .toEqual(['CYC-0013', 'CYC-0009', 'CYC-0011', 'CYC-0010', 'CYC-0002'])
+    // The third open cycle is past the two-panel slot: it is counted in `+1 open`, not listed again.
+    .toEqual(['CYC-0013', 'CYC-0009', 'CYC-0010', 'CYC-0002'])
   expect(idsDrawn(manyOf([['CYC-0099', 'completed'], ['CYC-10000', 'completed'], ['CYC-0100', 'completed']]))).toEqual(['CYC-10000', 'CYC-0100', 'CYC-0099'])
   expect(idsDrawn(manyOf([['ACME-CYC-0009', 'completed'], ['CYC-0010', 'completed'], ['ACME-CYC-0013', 'active']]))).toEqual(['ACME-CYC-0013', 'CYC-0010', 'ACME-CYC-0009'])
 })

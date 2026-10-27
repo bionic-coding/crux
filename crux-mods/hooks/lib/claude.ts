@@ -126,14 +126,14 @@ export function agents(list: unknown): Agents {
 
 const WRITING_TOOLS = ['Write', 'Edit', 'MultiEdit', 'NotebookEdit']
 
-// True when a tool call writes a file under a promptbook run directory, or is a
-// shell command naming one: run-promptbook advances a run through Bash. The
-// answer is the only thing taken from the event; none of it is kept.
+// True when a tool call writes a file under a promptbook run, cycle or queue directory, or is a
+// shell command naming one: run-promptbook and the cycle and queue scripts advance their state
+// through Bash. The answer is the only thing taken from the event; none of it is kept.
 export function touchesRunFile(e: unknown): boolean {
   if (e === null || typeof e !== 'object') return false
   const o = e as Obj
-  if (o.tool === 'Bash') return typeof o.command === 'string' && (o.command.includes('/promptbooks/runs/') || o.command.includes('cycle.py') || o.command.includes('/cycles/'))
+  if (o.tool === 'Bash') return typeof o.command === 'string' && (o.command.includes('/promptbooks/runs/') || o.command.includes('cycle.py') || o.command.includes('/cycles/') || o.command.includes('/queue/'))
   if (typeof o.tool !== 'string' || !WRITING_TOOLS.includes(o.tool)) return false
   const path = typeof o.file_path === 'string' ? o.file_path : typeof o.notebook_path === 'string' ? o.notebook_path : ''
-  return path.includes('/promptbooks/runs/') || path.includes('/cycles/')
+  return path.includes('/promptbooks/runs/') || path.includes('/cycles/') || path.includes('/queue/')
 }

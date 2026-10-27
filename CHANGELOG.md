@@ -1,4 +1,4 @@
-<!-- generated-from: CHANGELOG.md@sha256:3b64f697ef66e713d8ec310d135aef7755ff7467ca1002ea61813414ef5d4083; model: claude-sonnet-5.5; date: 2026-10-26 -->
+<!-- generated-from: CHANGELOG.md@sha256:d7457c5ea6763c07cd7c84f0659808af4352bf1bafb512e10b1196d08063e5bf; model: claude-sonnet-5.5; date: 2026-10-27 -->
 # Changelog
 
 All notable changes to crux. The format roughly follows [Keep a Changelog](https://keepachangelog.com/) and the project adheres to [Semantic Versioning](https://semver.org/).
@@ -8,6 +8,36 @@ All notable changes to crux. The format roughly follows [Keep a Changelog](https
 ### Added
 
 ### Changed
+
+### Fixed
+
+### Removed
+
+## [4.6.1] — 2026-10-27
+
+### Added
+
+### Changed
+
+- The `/crux-dashboard` pane, its plain-text answer and the crux-opencode panel now show the most recent closed cycle in full below the queue: type, status, phase, pass and limit, tasks, returns and time. The other closed cycles follow under a `cycles:` label, one line each. The Claude Code pane pages them three at a time with a `page X/Y` footer, the crux-opencode panel shows three and a `+N more` line, and the text answer lists up to ten and a `+N more` line. The `older cycles` wording is gone.
+
+### Fixed
+
+### Removed
+
+## [4.6.0] — 2026-10-27
+
+### Added
+
+- The crux-mods `/crux-dashboard` pane in Claude Code now shows the open cycle at the top: its type, phase, pass and limit, task progress, and current task. When no cycle is open, the slot takes no space.
+- A queue card under the open cycle shows the queued items in run order, the two most recently finished items, and the queue's authorization state. It is at most nine rows, with a `+N more` line for hidden upcoming items, and it draws nothing when the queue is empty.
+- Older cycles in the Claude Code pane now page three at a time with the `n` and `p` keys. The plain-text `/crux-dashboard` answer lists the open cycle, the queue summary, and at most three older cycles, with a count of the rest.
+- The cycle-progress JSON printed by `visualize-run-progress --json` now carries the queue under an optional `queue` key. Every unstarted item is sent first, so a long queue still shows what runs next.
+- The crux-opencode panel draws the same open-cycle slot and queue card. It shows at most three older cycles plus a `+N older` line, because the OpenCode TUI plugin cannot turn pages.
+
+### Changed
+
+- The crux-mods dashboard now also refreshes after a write under the queue directory, in addition to after a cycle or run write.
 
 ### Fixed
 

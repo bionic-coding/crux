@@ -10,6 +10,8 @@ declare module 'claude-code' {
   interface PluginState {
     'crux-mods': {
       current: Shaped<Kept | null>
+      // The page of the `cycles:` list the pane draws, counted from 0. Only the pane's n and p buttons write it.
+      page: Shaped<number>
     }
   }
 }

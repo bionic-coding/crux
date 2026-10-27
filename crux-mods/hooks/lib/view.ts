@@ -96,8 +96,20 @@ export type CycleView = {
   started_s: number; ended_s: number | null; paused_s: number; open_started_s: number | null
   basis: 'recorded' | 'derived'; phase_times: {phase: string; active_s: number; paused_s: number}[]
 }
+// The cycle queue as the reader carries it: null in the document when there is no queue file.
+// cycle and cycle_status are null for an item that has not started; cycle_status is `missing` when
+// the started cycle is not among the reader's cycles.
+export type QueueItemView = {
+  id: string; title: string; state: 'pending' | 'held' | 'starting' | 'started'; suggested_type: string
+  cycle: string | null; cycle_status: 'active' | 'paused' | 'completed' | 'abandoned' | 'missing' | null
+}
+export type QueueView =
+  | {ok: true; items: QueueItemView[]; authorization: {kind: 'next' | 'next-n' | 'queue'; remaining: string[]} | null}
+  | {ok: false; error: string}
 export type ReaderView = {
   cycles?: CycleView[]
+  // Absent in a result kept before the reader carried a queue; null when there is no queue.
+  queue?: QueueView | null
   reader_version: string; docs_dir: string; now_s: Time; runs: RunView[]; runs_skipped: number
   last_completed: RunView | null; last_completed_status: string; last_completed_undated: number; last_completed_unresolved: number
 }
@@ -155,6 +167,7 @@ export function fenced(content: string): string {
 // The reader's document is described in crux/scripts/visualize-run-progress.py's
 // docstring. Every object must carry exactly its key set, so a key the reader
 // adds without a format_version bump makes the output invalid here.
+// The one exception is the top-level `queue` key, which the parser accepts when present and does not require.
 
 class Invalid extends Error {}
 const bad = (): never => {
@@ -374,6 +387,35 @@ export function orderCycles(cycles: CycleView[]): CycleView[] {
   return [...cycles].sort((a, b) => (a.status === 'active' ? 0 : 1) - (b.status === 'active' ? 0 : 1) || cycleNumber(b.id) - cycleNumber(a.id))
 }
 
+const QUEUE_ID = /^Q-[0-9]{4,}$/
+const CYCLE_ID = /^(?:[A-Z][A-Z0-9]{1,9}-)?CYC-[0-9]{4,}$/
+function parseQueue(value: unknown): QueueView | null {
+  if (value === null) return null
+  if (value === undefined || typeof value !== 'object' || Array.isArray(value)) return bad()
+  if ((value as Obj).ok === false) {
+    const q=cycleObject(value,['ok','error'])
+    const error=free(q.error)
+    return error.length>300 ? bad() : {ok:false,error}
+  }
+  const q=cycleObject(value,['ok','items','authorization'])
+  if (q.ok !== true) return bad()
+  const items=arr(q.items,50).map(v=>{
+    const i=cycleObject(v,['id','title','state','suggested_type','cycle','cycle_status'])
+    const state=oneOf(i.state,['pending','held','starting','started'] as const)
+    const started=state==='started'
+    return {
+      id:str(i.id,QUEUE_ID),title:free(i.title),state,suggested_type:str(i.suggested_type,/^[a-z][a-z-]{1,30}$/),
+      cycle:started?str(i.cycle,CYCLE_ID):i.cycle===null?null:bad(),
+      cycle_status:started?oneOf(i.cycle_status,['active','paused','completed','abandoned','missing'] as const):i.cycle_status===null?null:bad(),
+    }
+  })
+  const authorization=orNull(q.authorization,v=>{
+    const a=cycleObject(v,['kind','remaining'])
+    return {kind:oneOf(a.kind,['next','next-n','queue'] as const),remaining:arr(a.remaining,500).map(r=>str(r,QUEUE_ID))}
+  })
+  return {ok:true,items,authorization}
+}
+
 function parseCycles(doc: unknown): Parsed {
   const d = doc as Obj
   if (d.format_version !== 2) return {ok:false,code:'reader-format-mismatch'}
@@ -382,7 +424,8 @@ function parseCycles(doc: unknown): Parsed {
     const e=cycleObject(o.error,['code'])
     return typeof e.code==='string' && READER_ERROR_CODES.includes(e.code) ? {ok:false,code:`reader-failed:${e.code}`} : bad()
   }
-  const o=cycleObject(doc,['format','format_version','ok','docs_dir','now_s','cycles'])
+  const withQueue=Object.prototype.hasOwnProperty.call(doc,'queue')
+  const o=cycleObject(doc,['format','format_version','ok','docs_dir','now_s','cycles',...(withQueue?['queue']:[])])
   if (o.ok !== true) return bad()
   const cycles=arr(o.cycles,20).map(value => {
     const c=cycleObject(value,['id','title','type','status','phase','pass','pass_limit','phases','tasks','returns','waits','blocker','reflection','modified_s','started_s','ended_s','paused_s','open_started_s','basis','phase_times'])
@@ -403,7 +446,9 @@ function parseCycles(doc: unknown): Parsed {
       phase_times:arr(c.phase_times,6).map(v=>{const t=cycleObject(v,['phase','active_s','paused_s']);return {phase:oneOf(t.phase,phases),active_s:int(t.active_s,4102444800),paused_s:int(t.paused_s,4102444800)}}),
     }
   })
-  return {ok:true,view:{reader_version:'0.0.0',docs_dir:tpath(o.docs_dir),now_s:time(o.now_s),cycles:orderCycles(cycles),runs:[],runs_skipped:0,last_completed:null,last_completed_status:'none',last_completed_undated:0,last_completed_unresolved:0}}
+  const view:ReaderView={reader_version:'0.0.0',docs_dir:tpath(o.docs_dir),now_s:time(o.now_s),cycles:orderCycles(cycles),runs:[],runs_skipped:0,last_completed:null,last_completed_status:'none',last_completed_undated:0,last_completed_unresolved:0}
+  if (withQueue) view.queue=parseQueue(o.queue)
+  return {ok:true,view}
 }
 
 // --- the kept result ---------------------------------------------------------
@@ -472,6 +517,30 @@ function runLines(r: RunView, lead: string): string[] {
   return lines
 }
 
+// The most compact lines the answer lists under `cycles:`.
+const MAX_ANSWER_CYCLES = 10
+const MAX_ANSWER_UPCOMING = 5
+const MAX_ANSWER_FINISHED = 2
+// A task id is free text; the answer names it only when it is a plain token.
+const SAFE_TASK_ID = /^[A-Za-z0-9._-]{1,60}$/
+
+// The queue summary: ids, states, cycle ids and counts. Never a title. Upcoming rows are the pending,
+// held and starting items in queue order; finished rows are the last started items whose cycle ended.
+// `queue more N` counts hidden upcoming items only.
+function queueLines(q: QueueView): string[] {
+  if (!q.ok) return ['queue unavailable']
+  const upcoming = q.items.filter(i => i.state !== 'started')
+  const finished = q.items.filter(i => i.state === 'started' && (i.cycle_status === 'completed' || i.cycle_status === 'abandoned'))
+  const shownFinished = finished.slice(-MAX_ANSWER_FINISHED)
+  const a = q.authorization
+  const lines = [`queue queued ${upcoming.length} authorization ${a === null ? 'none' : a.kind} remaining ${a === null || a.remaining.length === 0 ? 'none' : a.remaining.join(',')}`]
+  for (const i of upcoming.slice(0, MAX_ANSWER_UPCOMING)) lines.push(`queue ${i.id} ${i.state}`)
+  for (const i of shownFinished) lines.push(`queue ${i.id} ${i.cycle_status} ${i.cycle}`)
+  const left = upcoming.length - Math.min(upcoming.length, MAX_ANSWER_UPCOMING)
+  if (left > 0) lines.push(`queue more ${left}`)
+  return lines
+}
+
 // Prompt numbers and states, verdict tokens, gate results, counts, times, checked record
 // paths and closed status codes. Never a title, a tag, a summary line, or a fact that rests on
 // this session (the agent list, the stall) rather than on the reader.
@@ -483,14 +552,31 @@ export function answer(p: Parsed): string {
     const v = p.view
     if (v.cycles !== undefined) {
       lines.push(`dashboard status ok cycles ${v.cycles.length}`)
-      for (const c of v.cycles) {
-        const listed = c.type === 'release' && c.phases.join(',') === LISTED_RELEASE.join(',')
-        lines.push(`cycle ${c.id} type ${c.type} status ${c.status} phase ${c.phase}${listed ? '' : ` pass ${c.pass} limit ${c.pass_limit}`}`)
+      const isOpen = (c: CycleView) => c.status === 'active' || c.status === 'paused'
+      const open = v.cycles.filter(isOpen)
+      const closed = v.cycles.filter(c => !isOpen(c))
+      // A listed release has one phase and no loop limit, so it names no pass or limit.
+      const cyclePass = (c: CycleView) => c.type === 'release' && c.phases.join(',') === LISTED_RELEASE.join(',') ? '' : ` pass ${c.pass} limit ${c.pass_limit}`
+      const cycleBlock = (c: CycleView) => {
+        lines.push(`cycle ${c.id} type ${c.type} status ${c.status} phase ${c.phase}${cyclePass(c)}`)
         lines.push(`tasks done ${c.tasks.filter(t=>t.status==='done').length} total ${c.tasks.length} returns ${c.returns.length} approval-waits ${c.waits.length}`)
         const time = cycleTimeText(c, v.now_s)
         if (time !== null) lines.push(`time ${time}`)
+        const current = c.tasks.find(t => t.status === 'active')
+        if (isOpen(c) && current !== undefined) lines.push(`current task ${SAFE_TASK_ID.test(current.id) ? current.id : 'unnamed'}`)
       }
-      return `${NOTE}\n\n\`\`\`text\n${lines.join('\n')}\n\`\`\``
+      for (const c of open) cycleBlock(c)
+      if (v.queue !== undefined && v.queue !== null) lines.push(...queueLines(v.queue))
+      // The latest closed cycle in full, then at most MAX_ANSWER_CYCLES compact lines for the others.
+      const [latest, ...rest] = closed
+      if (latest !== undefined) cycleBlock(latest)
+      if (rest.length > 0) {
+        lines.push('cycles:')
+        for (const c of rest.slice(0, MAX_ANSWER_CYCLES)) lines.push(`${c.id} type ${c.type} status ${c.status}${cyclePass(c)}`)
+        if (rest.length > MAX_ANSWER_CYCLES) lines.push(`+${rest.length - MAX_ANSWER_CYCLES} more`)
+      }
+      const capped = lines.length > MAX_ANSWER_LINES ? [...lines.slice(0, MAX_ANSWER_LINES), `more lines ${lines.length - MAX_ANSWER_LINES}`] : lines
+      return `${NOTE}\n\n\`\`\`text\n${capped.join('\n')}\n\`\`\``
     }
     lines.push(`dashboard status ok reader ${v.reader_version} runs ${v.runs.length}`)
     lines.push(`now ${timeWord(v.now_s)}`)

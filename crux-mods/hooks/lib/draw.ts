@@ -9,7 +9,7 @@
 // recognise draws as the visible unknown cell `?`. A number is computed from the inputs. Every other
 // value is free text, and it reaches a line only through drawn(): the removal of view.ts's
 // safeText, then a cut to a display width.
-import type { Agents, Council, CycleView, Escalation, Gate, Parsed, Prompt, ReaderView, RunView, Time } from './view.ts'
+import type { Agents, Council, CycleView, Escalation, Gate, Parsed, Prompt, QueueItemView, QueueView, ReaderView, RunView, Time } from './view.ts'
 import {
   COUNCIL_KINDS, ESCALATION_NOTE, MAX_SHOWN_RUNS, QUIET, ROUTE_ACTIONS, RUN_STATUS, STATES, bandRun, counted, currentEscalation,
   currentPrompt, cycleTimeText, escalationText, laneCells, lastRunAge, openElapsed, promptBounds, promptSpan, runAxis, runTimes, safeText, stallIdle,
@@ -604,7 +604,9 @@ export const SEGMENT_GAP = '  '
 
 // The values the importing package passes in: the prefix of the band's status line, which says
 // which plugin drew it, and the note under a stalled run, which says what the agent list cannot see.
-export type Harness = { bandPrefix: string; stallNote: string }
+// `pages` says whether the host can turn the `cycles:` list's pages. Absent means it can. A host that
+// cannot draws the first page of the list and a `+N more` line, and no page footer.
+export type Harness = { bandPrefix: string; stallNote: string; pages?: boolean }
 // The pane's two layouts: a short one for a small region, and the full one.
 export type PaneLayout = 'mini' | 'docked'
 
@@ -794,10 +796,12 @@ function cycleStrip(c: CycleView, n: number): Line {
 function cycleLines(c: CycleView, n: number, now: Time): Line[] {
   const done = c.tasks.filter(t => t.status === 'done').length
   const count = taskCount(c)
-  // The type word gives way first when the line does not fit n cells.
+  // The slot also names the loop limit, except for a listed release cycle, which has one phase and
+  // draws no limit. When the line does not fit n cells the limit gives way first, then the type word.
   const loop = [...loopMark(c), span(' '), ...statusMark(c)]
-  const typed = [...typeWord(c), span(' '), ...loop]
-  const meta = lineCells(typed) <= n ? typed : loop
+  const limited = !(c.type === 'release' && c.phases.length === 1) ? [...loopMark(c), span(` of ${c.pass_limit}`), span(' '), ...statusMark(c)] : loop
+  const typed = [...typeWord(c), span(' '), ...limited]
+  const meta = lineCells(typed) <= n ? typed : lineCells([...typeWord(c), span(' '), ...loop]) <= n ? [...typeWord(c), span(' '), ...loop] : loop
   const lines: Line[] = [
     [span(`${c.id} ${drawn(c.title)}`, { bold: true })],
     meta,
@@ -819,22 +823,136 @@ function cycleLines(c: CycleView, n: number, now: Time): Line[] {
   const waiting = [...new Set(c.waits)]
   if (waiting.length > 0) lines.push([span(STATE_GLYPHS.skipped!, { color: 'warning' }), span(` Awaiting approval: ${waiting.map(w => drawn(w)).join(', ')}`, { color: 'warning' })])
   if (c.blocker) lines.push([span(STATE_GLYPHS.skipped!, { color: 'warning' }), span(` Paused: ${drawn(c.blocker)}`, { color: 'warning' })])
-  if (c.reflection) lines.push([span(`Outcome: ${drawn(c.reflection)}`, c.status === 'completed' ? { color: 'success' } : {})])
+  if (c.reflection) lines.push([span(`Outcome: ${drawn(c.reflection)}`)])
   return lines
 }
 
 // --- the pane ---------------------------------------------------------------------------------------
 
+// Rows of the `cycles:` list per page.
+export const OLDER_PAGE_SIZE = 3
+// The most open cycles the slot draws.
+export const OPEN_SLOT_MAX = 2
+// The queue card's rows: the upcoming items, the recently finished ones.
+export const QUEUE_UPCOMING_MAX = 5
+export const QUEUE_FINISHED_MAX = 2
+
+// An open cycle is active or paused. The slot draws the first OPEN_SLOT_MAX of them, in the reader's
+// order. An open cycle past the slot is counted in `+N open` only. The closed cycles are the rest: the
+// first draws as a panel and the others as rows under `cycles:`.
+const isOpen = (c: CycleView): boolean => c.status === 'active' || c.status === 'paused'
+const slotOf = (cycles: CycleView[]): CycleView[] => cycles.filter(isOpen).slice(0, OPEN_SLOT_MAX)
+const closedOf = (cycles: CycleView[]): CycleView[] => cycles.filter(c => !isOpen(c))
+
+// The number of pages of the `cycles:` list: the closed cycles after the first, which draws as a panel.
+// 0 when there are none. A result that is not a cycle view has none.
+export function olderPages(p: Parsed): number {
+  if (!p.ok || p.view.cycles === undefined) return 0
+  return Math.ceil(Math.max(0, closedOf(p.view.cycles).length - 1) / OLDER_PAGE_SIZE)
+}
+
+// A page index as a valid one: whole, and within [0, pages - 1].
+export const clampPage = (page: number, pages: number): number => Math.min(Math.max(0, Number.isFinite(page) ? Math.floor(page) : 0), Math.max(0, pages - 1))
+
+// One closed cycle in one line: status glyph and word, id, type, done/total tasks and the title last,
+// which the fit cuts first.
+function olderRow(c: CycleView): Line {
+  const done = c.tasks.filter(t => t.status === 'done').length
+  return [
+    statusGlyph(c), span(' '), span(c.id, { bold: true }), span(' '), ...typeWord(c), span(' '),
+    span(c.status, { color: statusOf(c.status).color }), span(` ${done}/${c.tasks.length} `, { dim: true }), span(drawn(c.title)),
+  ]
+}
+
+// The queue card's upcoming states, in the order the queue lists them.
+const UPCOMING_STATES: readonly string[] = ['pending', 'held', 'starting']
+const UPCOMING_GLYPHS: Readonly<Record<string, Span>> = {
+  pending: { text: STATE_GLYPHS.pending!, dim: true },
+  held: { text: STATE_GLYPHS.skipped!, color: 'warning' },
+  starting: { text: STATE_GLYPHS.running!, color: 'claude', bold: true },
+}
+
+function queueRow(i: QueueItemView, n: number): Line {
+  const glyph = own(UPCOMING_GLYPHS, i.state) ?? span(UNKNOWN, { color: 'warning' })
+  const lead: Line = [glyph, span(' '), span(i.id, { bold: true }), span(' ')]
+  const tail: Line = [span('  '), span(i.state, i.state === 'held' ? { color: 'warning' } : { dim: i.state === 'pending' })]
+  const room = Math.max(8, n - lineCells(lead) - lineCells(tail))
+  return [...lead, span(drawn(i.title, room)), ...tail]
+}
+
+function finishedRow(i: QueueItemView): Line {
+  const bad = i.cycle_status === 'abandoned'
+  return [
+    span(bad ? STATE_GLYPHS.blocked! : STATE_GLYPHS.done!, { color: bad ? 'error' : 'success' }), span(' '), span(i.id, { bold: true }),
+    span(` ${drawn(i.cycle ?? '')} `), span(i.cycle_status ?? '', { color: bad ? 'error' : 'success' }),
+  ]
+}
+
+// The queue card at inner width n: a header with the count and the authorization, at most
+// QUEUE_UPCOMING_MAX upcoming rows (pending, held and starting, in queue order), at most
+// QUEUE_FINISHED_MAX finished rows (the last started items whose cycle ended) and a `+N more` row for
+// the upcoming items left out: nine rows at most. Hidden finished items are not counted. A queue with nothing upcoming and nothing finished is null.
+function queueLines(q: QueueView & { ok: true }, n: number): Line[] | null {
+  const upcoming = q.items.filter(i => UPCOMING_STATES.includes(i.state))
+  const finished = q.items.filter(i => i.state === 'started' && (i.cycle_status === 'completed' || i.cycle_status === 'abandoned'))
+  if (upcoming.length === 0 && finished.length === 0) return null
+  const a = q.authorization
+  const auth = a === null ? 'not authorized' : `authorized: ${a.kind}, remaining ${a.remaining.length === 0 ? 'none' : a.remaining.join(' ')}`
+  const shown = upcoming.slice(0, QUEUE_UPCOMING_MAX)
+  const shownFinished = finished.slice(-QUEUE_FINISHED_MAX)
+  const left = upcoming.length - shown.length
+  const out: Line[] = [joined([[span('Queue', { bold: true })], [span(`${upcoming.length} queued`)], [span(auth, a === null ? { dim: true } : { color: 'success' })]])]
+  for (const i of shown) out.push(queueRow(i, n))
+  for (const i of shownFinished) out.push(finishedRow(i))
+  if (left > 0) out.push([span(`+${left} more`, { dim: true })])
+  return out
+}
+
+// The queue card as a block: bordered when the width allows, one warning line when the queue could not
+// be read, and nothing when there is no queue or nothing to show.
+function queueBlock(q: QueueView | null | undefined, w: number, bordered: boolean): Block | null {
+  if (q === null || q === undefined) return null
+  if (!q.ok) return lineBlock([span('Queue unavailable', { color: 'warning' })], w)
+  const lines = queueLines(q, bordered ? w - PANEL_FRAME : w)
+  return lines === null ? null : panel(lines, w, bordered)
+}
+
 // The pane at its reported width and layout. The mini layout draws a few rows; the docked layout
 // draws one column, and two from TWO_COLUMNS_MIN. A status is the first and only row.
-export function pane(p: Parsed, ag: Agents, cols: unknown, layout: PaneLayout, harness: Harness): Block {
+//
+// A cycle view draws, top to bottom: the open cycles as full panels (none when no cycle is open),
+// the queue card, the latest closed cycle as a panel, and under a `cycles:` heading one page of the other
+// closed cycles as compact rows with a `page X/Y` footer when there is more than one page. With one
+// closed cycle only its panel draws. `page` is the list's page index, 0 first; it is clamped to the
+// pages there are. A host that cannot turn pages draws the first page and `+N more`.
+export function pane(p: Parsed, ag: Agents, cols: unknown, layout: PaneLayout, harness: Harness, page = 0): Block {
   const w = drawingWidth(cols)
   if (!p.ok) return columnBox(w, [lineBlock(statusLine(PANE_STATUS, p.code, w), w)])
   if (p.view.cycles !== undefined) {
     const rows: Block[] = []
     const bordered = w >= BORDER_MIN
-    for (const c of p.view.cycles.slice(0, 5)) rows.push(panel(cycleLines(c, bordered ? w - PANEL_FRAME : w, p.view.now_s), w, bordered))
-    return columnBox(w,rows)
+    const all = p.view.cycles
+    const slot = slotOf(all)
+    for (const c of slot) rows.push(panel(cycleLines(c, bordered ? w - PANEL_FRAME : w, p.view.now_s), w, bordered))
+    const openLeft = all.filter(isOpen).length - slot.length
+    if (openLeft > 0) rows.push(lineBlock([span(`+${openLeft} open`, { dim: true })], w))
+    const queue = queueBlock(p.view.queue, w, bordered)
+    if (queue !== null) rows.push(queue)
+    const [latest, ...rest] = closedOf(all)
+    if (latest === undefined) return columnBox(w, rows)
+    rows.push(panel(cycleLines(latest, bordered ? w - PANEL_FRAME : w, p.view.now_s), w, bordered))
+    if (rest.length === 0) return columnBox(w, rows)
+    rows.push(lineBlock([span('cycles:', { bold: true })], w))
+    const pages = Math.ceil(rest.length / OLDER_PAGE_SIZE)
+    const at = clampPage(page, pages)
+    if (harness.pages === false) {
+      for (const c of rest.slice(0, OLDER_PAGE_SIZE)) rows.push(lineBlock(olderRow(c), w))
+      if (rest.length > OLDER_PAGE_SIZE) rows.push(lineBlock([span(`+${rest.length - OLDER_PAGE_SIZE} more`, { dim: true })], w))
+      return columnBox(w, rows)
+    }
+    for (const c of rest.slice(at * OLDER_PAGE_SIZE, (at + 1) * OLDER_PAGE_SIZE)) rows.push(lineBlock(olderRow(c), w))
+    if (pages > 1) rows.push(lineBlock([span(`page ${at + 1}/${pages}`, { dim: true })], w))
+    return columnBox(w, rows)
   }
   return layout === 'mini' ? mini(p.view, ag, w) : budgeted(p.view, ag, w, harness)
 }

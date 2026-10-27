@@ -672,10 +672,12 @@ class ReadTests(Base):
         plain_cycle = view(self.repo, plain['id'])
         self.assertEqual(set(queue_cycle), set(plain_cycle))
         self.assertEqual(set(queue_cycle['cycles'][0]), set(plain_cycle['cycles'][0]))
-        self.assertEqual(set(queue_cycle), {'format', 'format_version', 'ok', 'docs_dir', 'now_s', 'cycles'})
-        self.assertEqual(set(view(self.repo)), {'format', 'format_version', 'ok', 'docs_dir', 'now_s', 'cycles'})
-        self.assertNotIn('queue', json.dumps(view(self.repo)))
-        self.assertEqual(json.loads(json.dumps(view(self.repo)))['format_version'], 2)
+        self.assertEqual(set(queue_cycle), {'format', 'format_version', 'ok', 'docs_dir', 'now_s', 'cycles', 'queue'})
+        self.assertIsNone(queue_cycle['queue'])  # an explicit identity carries no queue
+        listing = view(self.repo)
+        self.assertEqual(set(listing), {'format', 'format_version', 'ok', 'docs_dir', 'now_s', 'cycles', 'queue'})
+        self.assertTrue(listing['queue']['ok'])
+        self.assertEqual(json.loads(json.dumps(listing))['format_version'], 2)
 
 
 class StorageTests(Base):

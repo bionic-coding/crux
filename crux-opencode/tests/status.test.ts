@@ -65,7 +65,7 @@ test('the wordings', () => {
   expect(BAND_PREFIX).toBe('crux-opencode dashboard: ')
   expect(UNSUPPORTED_WORDS).toBe('unsupported OpenCode version')
   expect(STALL_NOTE).toBe('Work this view cannot see can run for a long time without changing the run file.')
-  expect(HARNESS).toEqual({ bandPrefix: BAND_PREFIX, stallNote: STALL_NOTE })
+  expect(HARNESS).toEqual({ bandPrefix: BAND_PREFIX, stallNote: STALL_NOTE, pages: false })
   expect(UNAVAILABLE_AGENTS).toEqual({ available: false, running: 0, shown: [] })
 })
 

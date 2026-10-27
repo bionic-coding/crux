@@ -32,19 +32,50 @@ class Document(dict):
     queue_lines=None
 
 
+def read_queue_doc(sio, cfg):
+    """The parsed queue document, or None when there is no queue file. Raises on an invalid queue."""
+    path=contained(cfg.docs_root,'queue/cycles.yaml')
+    kind=sio.kind(path)
+    if kind is None:return None
+    if kind!='file':raise CycleError('the queue path is not a file')
+    import cycle_queue
+    return cycle_queue.parse_queue(sio.read_text(path),f'{cfg.docs_dir}/queue/cycles.yaml')
+
+
+def _queue_error(exc):
+    return clean(exc if not isinstance(exc,ImportError) else 'PyYAML is not installed',300)
+
+
+def queue_view(sio, cfg, statuses):
+    """The JSON queue value: None without a queue file, else {ok, items, authorization} or {ok:false, error}."""
+    try:
+        doc=read_queue_doc(sio,cfg)
+        if doc is None:return None
+        import cycle_queue
+        # Send the unstarted items first (up to 50, in run order), then the last 2 started items
+        # while room remains, all in queue order. Authorization 'remaining' covers the whole queue.
+        rows=doc['items']
+        unstarted=[n for n,i in enumerate(rows) if i['state']!='started'][:50]
+        started=[n for n,i in enumerate(rows) if i['state']=='started'][-2:]
+        keep=sorted(unstarted+started[max(0,len(started)-(50-len(unstarted))):] if len(unstarted)<50 else unstarted)
+        items=[{'id':i['id'],'title':clean(i['title']),'state':i['state'],'suggested_type':clean(i['suggested_type'],40),'cycle':i['cycle'],
+                'cycle_status':statuses.get(i['cycle'],'missing') if i['state']=='started' else None} for i in (rows[n] for n in keep)]
+        auth=doc['authorization']
+        return {'ok':True,'items':items,'authorization':{'kind':auth['kind'],'remaining':cycle_queue.remaining(doc)} if auth else None}
+    except (ValueError,OSError,KeyError,ImportError) as exc:
+        return {'ok':False,'error':_queue_error(exc)}
+
+
 def queue_lines(sio, cfg, statuses):
     """Text lines for the queued requests, or None when there is no queue file.
 
     One error line stands in for an invalid queue or missing PyYAML, so the cycle view survives."""
     try:
-        path=contained(cfg.docs_root,'queue/cycles.yaml')
-        kind=sio.kind(path)
-        if kind is None:return None
-        if kind!='file':raise CycleError('the queue path is not a file')
+        doc=read_queue_doc(sio,cfg)
+        if doc is None:return None
         import cycle_queue
-        doc=cycle_queue.parse_queue(sio.read_text(path),f'{cfg.docs_dir}/queue/cycles.yaml')
     except (ValueError,OSError,KeyError,ImportError) as exc:
-        return ['Queued requests unavailable: '+clean(exc if not isinstance(exc,ImportError) else 'PyYAML is not installed',300)]
+        return ['Queued requests unavailable: '+_queue_error(exc)]
     lines=['Queued requests']
     auth=doc['authorization']
     scope=set(auth['scope']) if auth else set()
@@ -102,8 +133,11 @@ def _view(sio, identity=None, now=None):
     # Active cycles first, then every other cycle; each group by cycle number, highest first.
     cycles.sort(key=lambda c:(c['status']!='active',-cycle_number(c['id'])))
     document=Document({'format':'crux.cycle-progress','format_version':2,'ok':True,'docs_dir':cfg.docs_dir,'now_s':now_s,'cycles':cycles[:20]})
-    # Text-only: the queue never enters the JSON document, whose key set a dashboard parses exactly.
-    document.queue_lines=None if identity else queue_lines(sio,cfg,{c['id']:c['status'] for c in cycles})
+    # The queue rides in the JSON as `queue` (null without a queue file or with an explicit identity)
+    # and as text lines for `render`.
+    statuses={c['id']:c['status'] for c in cycles}
+    document['queue']=None if identity else queue_view(sio,cfg,statuses)
+    document.queue_lines=None if identity else queue_lines(sio,cfg,statuses)
     return document
 
 
