@@ -82,7 +82,7 @@ test('every span of every drawn node carries a token the module produces', () =>
   let boxes = 0
   parsed.forEach(p => {
     ;[30, 40, 60, 86, 110, 120, undefined].forEach(w => {
-      ;[bandNode(p, w), panelNode(p, 'crux-dashboard', w)].forEach(node => {
+      ;[bandNode(p, w), panelNode(p, 'crux-dashboard', w, 0)].forEach(node => {
         nodesOf(node).forEach(n => {
           if (n.kind === 'text') {
             n.spans.forEach(s => {

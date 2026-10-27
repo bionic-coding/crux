@@ -27,7 +27,8 @@ export type Planned = { ok: true; uv: string; crux: string; home: string; root: 
 
 export type Host = {
   version: string | undefined
-  directory: string | undefined
+  // A function, because the host fills its location after setup: read at each plan, not once.
+  directory: () => string | undefined
   cloneDir: string | undefined
   env: (name: string) => string | undefined
   isFile: (path: string) => boolean
@@ -48,5 +49,12 @@ export type Host = {
   panelOpen: () => boolean
   // Closes crux's panel. False when the host refused the call.
   closePanel: () => boolean
+  // Whether crux's panel has focus now, read live from the panel's published reader. False when no
+  // reader is published or the reader throws.
+  panelFocused: () => boolean
+  // The stored page index of the `cycles:` list: the stored value when it is a finite number, else 0.
+  pageRead: () => number
+  // Stores the page index. False when the store refused the write.
+  pageWrite: (n: number) => boolean
   toast: (code: string) => void
 }

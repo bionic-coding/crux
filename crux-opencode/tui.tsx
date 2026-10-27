@@ -1,17 +1,19 @@
 // The entry OpenCode 2 loads: the run band above the composer, the run dashboard panel and the
-// /crux-dashboard command. This is the one file that imports a host package or a built-in module and
+// /crux-dashboard command and the two page-turn commands. This is the one file that imports a host package or a built-in module and
 // the one file that names the host's context. Everything else is a pure module that reaches the host
 // through the Host value built here. The file is written in a closed set of fixed forms, which the
 // release source check matches token for token.
 import { Plugin } from '@opencode/plugin/tui'
-import { createEffect } from 'solid-js'
+import { createEffect, onCleanup } from 'solid-js'
 import { readFileSync, realpathSync, statSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn } from 'node:child_process'
 import { runCommand } from './lib/command.ts'
+import { createFocusSlot } from './lib/focus.ts'
 import type { Host, KeptEnvelope, ReaderSink } from './lib/host.ts'
 import { registerAll } from './lib/lifecycle.ts'
+import { turnPage } from './lib/page.ts'
 import { isSupported } from './lib/plan.ts'
 import { createScheduler } from './lib/refresh.ts'
 import { bandNode, panelNode, readView } from './lib/render.ts'
@@ -24,11 +26,15 @@ export default Plugin.define({
     const asNumber = (v: unknown) => (typeof v === 'number' ? v : undefined)
     const asByte = (v: unknown) => (typeof v === 'number' ? v : -1)
 
-    const [state, setState] = context.storage.memory('crux-dashboard', { initial: { current: null, running: false } })
+    const [state, setState] = context.storage.memory('crux-dashboard', { initial: { current: null, running: false, page: 0 } })
+
+    // The panel publishes its focus reader here. One slot per setup, so a reload's new setup never
+    // shares the old one.
+    const slot = createFocusSlot()
 
     const host: Host = {
       version: asText(context.app?.version),
-      directory: asText(context.location.directory),
+      directory: () => { try { return asText(context.location?.directory) } catch { return undefined } },
       cloneDir: asText(dirname(dirname(fileURLToPath(import.meta.url)))),
       // One case per name the manifest lists in env_reads. The source check compares these cases to
       // that list and to the process.env reads, so a name added in one place and not the others fails.
@@ -197,6 +203,27 @@ export default Plugin.define({
           return false
         }
       },
+      // True only while the panel's published reader reports focus, read live at each call.
+      panelFocused: () => slot.read(),
+      // The stored page of the cycles: list: the stored value when it is a finite number, else 0.
+      pageRead: () => {
+        try {
+          const p = state.page
+          return typeof p === 'number' ? (Number.isFinite(p) ? p : 0) : 0
+        } catch {
+          return 0
+        }
+      },
+      pageWrite: (n: number) => {
+        try {
+          setState((draft) => {
+            draft.page = n
+          })
+          return true
+        } catch {
+          return false
+        }
+      },
       toast: (code: string) => {
         try {
           context.ui.toast.show({ message: code })
@@ -307,12 +334,27 @@ export default Plugin.define({
           return undefined
         }
       }
+      // Reads the host's live render input at each call: never a copy. A read that throws is unfocused.
+      const isFocused = () => {
+        try {
+          return input.name === 'crux-dashboard' ? input.focused === true : false
+        } catch {
+          return false
+        }
+      }
+      // The release is declared first and the cleanup registered before the publish, so a panel that
+      // throws after publishing still releases its reader.
+      let release: (() => void) | undefined = undefined
+      onCleanup(() => {
+        if (release !== undefined) release()
+      })
+      release = slot.publish(isFocused)
       createEffect(() => {
         if (inputName() === 'crux-dashboard') {
           scheduler.request('panel')
         }
       })
-      return <>{paint(panelNode(view(), inputName(), inputWidth()))}</>
+      return <>{paint(panelNode(view(), inputName(), inputWidth(), host.pageRead()))}</>
     }
 
     // A registrar that returns a disposer: attempt keeps it and calls it, guarded, on cleanup.
@@ -358,13 +400,27 @@ export default Plugin.define({
                   runCommand(host, scheduler)
                 },
               },
+              {
+                id: 'crux-dashboard-next',
+                title: 'Next page of the crux dashboard cycles',
+                group: 'Crux',
+                bind: 'n',
+                run: () => turnPage(host, view(), 1),
+              },
+              {
+                id: 'crux-dashboard-previous',
+                title: 'Previous page of the crux dashboard cycles',
+                group: 'Crux',
+                bind: 'p',
+                run: () => turnPage(host, view(), -1),
+              },
             ],
             bindings: [],
           })),
         ),
     ]
 
-    const cleanup = registerAll(registrations, supported ? () => { scheduler.start() } : undefined, () => { scheduler.stop() })
+    const cleanup = registerAll(registrations, supported ? () => { scheduler.start() } : undefined, () => { scheduler.stop(); slot.clear() })
 
     return cleanup
   },

@@ -45,7 +45,7 @@ export function planLaunch(host: Host): Plan {
 
   // 1. The project root: the directory the host names, which must resolve to a directory.
   // Every comparison below uses its real path. The reader receives the name itself.
-  const root = host.directory
+  const root = host.directory()
   if (root === undefined || !root.startsWith('/')) return no(PROJECT_ROOT_UNRESOLVED)
   const rootReal = host.real(root)
   if (rootReal === undefined || !host.isDir(rootReal)) return no(PROJECT_ROOT_UNRESOLVED)

@@ -1,4 +1,4 @@
-<!-- generated-from: CHANGELOG.md@sha256:d7457c5ea6763c07cd7c84f0659808af4352bf1bafb512e10b1196d08063e5bf; model: claude-sonnet-5.5; date: 2026-10-27 -->
+<!-- generated-from: CHANGELOG.md@sha256:cd64dfd038426f4f0319bd194a15bfc6d24b45de152387df7dce8042958cf182; model: claude-sonnet-5.5; date: 2026-10-27 -->
 # Changelog
 
 All notable changes to crux. The format roughly follows [Keep a Changelog](https://keepachangelog.com/) and the project adheres to [Semantic Versioning](https://semver.org/).
@@ -10,6 +10,20 @@ All notable changes to crux. The format roughly follows [Keep a Changelog](https
 ### Changed
 
 ### Fixed
+
+### Removed
+
+## [4.6.2] — 2026-10-27
+
+### Added
+
+- The crux-opencode panel now pages the `cycles:` list three rows at a time. While the panel is focused, press `n` and `p` to turn the page. When the list runs past one page, the panel ends with a `page X/Y` line and a `p previous · n next` hint. With the panel closed or unfocused, `n` and `p` go to the prompt as usual.
+
+### Changed
+
+### Fixed
+
+- crux-opencode now loads on OpenCode 2.1.x without a manual toggle. It reads the project directory when it refreshes rather than when it starts, because OpenCode 2.1.x fills in that directory only after the TUI connects.
 
 ### Removed
 

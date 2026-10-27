@@ -1,6 +1,6 @@
 import { test, expect } from 'claude-code/testing'
 import {
-  BAND_PREFIX, DRAW_ONLY, HARNESS, INVALID, KEPT_CODES, OWN_RUN_CODES, PLAN_CODES, READER_FAILED_CODES, RUN_CODE_LIST, STALL_NOTE,
+  BAND_PREFIX, DRAW_ONLY, HARNESS, INVALID, KEPT_CODES, OWN_RUN_CODES, PAGE_HINT, PLAN_CODES, READER_FAILED_CODES, RUN_CODE_LIST, STALL_NOTE,
   UNAVAILABLE_AGENTS, UNSUPPORTED, UNSUPPORTED_WORDS, VIEW_CODE_LIST,
 } from '../lib/status.ts'
 import { kept } from '../../crux-mods/hooks/lib/view.ts'
@@ -65,7 +65,9 @@ test('the wordings', () => {
   expect(BAND_PREFIX).toBe('crux-opencode dashboard: ')
   expect(UNSUPPORTED_WORDS).toBe('unsupported OpenCode version')
   expect(STALL_NOTE).toBe('Work this view cannot see can run for a long time without changing the run file.')
-  expect(HARNESS).toEqual({ bandPrefix: BAND_PREFIX, stallNote: STALL_NOTE, pages: false })
+  expect(HARNESS).toEqual({ bandPrefix: BAND_PREFIX, stallNote: STALL_NOTE })
+  expect(Object.keys(HARNESS)).toEqual(['bandPrefix', 'stallNote'])
+  expect(PAGE_HINT).toBe('p previous \u00b7 n next')
   expect(UNAVAILABLE_AGENTS).toEqual({ available: false, running: 0, shown: [] })
 })
 

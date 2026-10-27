@@ -64,7 +64,7 @@ test('a drawing with no width reported is as wide as the default, 40 cells', () 
 
 test('the frame model costs what the core charges a bordered panel', () => {
   const p = fromDoc(READER_OK)
-  const node = panelNode(p, PANEL, 60)
+  const node = panelNode(p, PANEL, 60, 0)
   expect(node).not.toBeNull()
   const framed: PlainNode[] = []
   const walk = (n: PlainNode) => {
@@ -98,7 +98,7 @@ test('the panel fits the reported width at every width, over every reader result
   let drawn = 0
   CASES.forEach(([, p]) => {
     WIDTHS.forEach(w => {
-      const node = panelNode(p, PANEL, w)
+      const node = panelNode(p, PANEL, w, 0)
       if (node === null) return
       drawn++
       check(node, budget(w), tally)
@@ -113,7 +113,7 @@ test('the panel is drawn at the reported width and holds wide rows, so the check
   const p = fromDoc(READER_OK)
   WIDTHS.forEach(w => {
     const tally: Tally = { rows: 0, frames: 0, widest: 0 }
-    const node = panelNode(p, PANEL, w)
+    const node = panelNode(p, PANEL, w, 0)
     expect(node).not.toBeNull()
     if (node !== null) check(node, budget(w), tally)
     expect(node === null ? -1 : widthOf(node)).toBe(budget(w))
@@ -124,19 +124,19 @@ test('the panel is drawn at the reported width and holds wide rows, so the check
 test('a panel of another name, and a panel with no name, draw nothing', () => {
   CASES.forEach(([, p]) => {
     WIDTHS.forEach(w => {
-      expect(panelNode(p, 'other-panel', w)).toBeNull()
-      expect(panelNode(p, '', w)).toBeNull()
-      expect(panelNode(p, undefined, w)).toBeNull()
-      expect(panelNode(p, 'Crux-Dashboard', w)).toBeNull()
+      expect(panelNode(p, 'other-panel', w, 0)).toBeNull()
+      expect(panelNode(p, '', w, 0)).toBeNull()
+      expect(panelNode(p, undefined, w, 0)).toBeNull()
+      expect(panelNode(p, 'Crux-Dashboard', w, 0)).toBeNull()
     })
   })
-  expect(panelNode(fromDoc(READER_OK), PANEL, 60)).not.toBeNull()
+  expect(panelNode(fromDoc(READER_OK), PANEL, 60, 0)).not.toBeNull()
 })
 
 test('the band with no result draws nothing, and the band and the panel are not the same drawing', () => {
   expect(bandNode(null, 60)).toBeNull()
-  expect(panelNode(null, PANEL, 60)).toBeNull()
-  expect(bandNode(fromDoc(READER_OK), 60)).not.toEqual(panelNode(fromDoc(READER_OK), PANEL, 60))
+  expect(panelNode(null, PANEL, 60, 0)).toBeNull()
+  expect(bandNode(fromDoc(READER_OK), 60)).not.toEqual(panelNode(fromDoc(READER_OK), PANEL, 60, 0))
 })
 
 // --- the unsupported version ---------------------------------------------------------------------
@@ -150,7 +150,7 @@ const textOf = (n: PlainNode | null): string => {
 
 test('the unsupported version draws one unframed line with the words at every width and with none', () => {
   WIDTHS.forEach(w => {
-    ;[bandNode(UNSUPPORTED, w), panelNode(UNSUPPORTED, PANEL, w)].forEach(node => {
+    ;[bandNode(UNSUPPORTED, w), panelNode(UNSUPPORTED, PANEL, w, 0)].forEach(node => {
       expect(node).not.toBeNull()
       expect(textOf(node)).toContain(UNSUPPORTED_WORDS)
       expect(textOf(node).includes('\n')).toBe(false)
@@ -175,7 +175,7 @@ test('the unsupported line keeps the prefix when it fits, and drops it when it d
 test('a status draws with the band prefix in the band and the neutral prefix in the panel', () => {
   const status: Parsed = { ok: false, code: 'uv-not-found' }
   expect(textOf(bandNode(status, 110))).toBe('crux-opencode dashboard: uv-not-found')
-  expect(textOf(panelNode(status, PANEL, 110))).toBe('Dashboard unavailable: uv-not-found')
+  expect(textOf(panelNode(status, PANEL, 110, 0))).toBe('Dashboard unavailable: uv-not-found')
   expect(textOf(bandNode({ ok: false, code: 'no-active-run' }, 110))).toBe('')
   expect(bandNode({ ok: false, code: 'no-active-run' }, 110)).toBeNull()
 })
@@ -204,7 +204,7 @@ test('the throwing view really throws in the core, so the cases below are not va
   expect(() => (view.ok ? view.view.runs : [])).toThrow()
   expect(GOOD).not.toBeNull()
   expect(bandNode(GOOD, 60)).not.toEqual(bandNode(INVALID, 60))
-  expect(panelNode(GOOD, PANEL, 60)).not.toEqual(panelNode(INVALID, PANEL, 60))
+  expect(panelNode(GOOD, PANEL, 60, 0)).not.toEqual(panelNode(INVALID, PANEL, 60, 0))
 })
 
 test('readView: a read that throws gives the reader-output-invalid status', () => {
@@ -251,7 +251,7 @@ test('readView: a supported version reads through the core with the kept set', (
 type Draw = (p: Parsed | null, w: number | undefined) => PlainNode | null
 const DRAWS: [string, Draw][] = [
   ['bandNode', (p, w) => bandNode(p, w)],
-  ['panelNode', (p, w) => panelNode(p, PANEL, w)],
+  ['panelNode', (p, w) => panelNode(p, PANEL, w, 0)],
 ]
 
 test('a throw during drawing gives the reader-output-invalid status node, as a first call', () => {
@@ -284,9 +284,9 @@ test('each call equals the same call made alone, whatever ran before it', () => 
 
 test('a panel of another name draws nothing for a throwing view, on every path', () => {
   WIDTHS.forEach(w => {
-    expect(panelNode(throwingView(), 'other-panel', w)).toBeNull()
-    expect(panelNode(throwingView(), undefined, w)).toBeNull()
-    expect(panelNode(GOOD, 'other-panel', w)).toBeNull()
+    expect(panelNode(throwingView(), 'other-panel', w, 0)).toBeNull()
+    expect(panelNode(throwingView(), undefined, w, 0)).toBeNull()
+    expect(panelNode(GOOD, 'other-panel', w, 0)).toBeNull()
   })
 })
 
@@ -299,7 +299,7 @@ test('a result whose status member throws draws nothing rather than throwing', (
   }
   WIDTHS.forEach(w => {
     expect(bandNode(hostile, w)).toEqual(bandNode(INVALID, w))
-    expect(panelNode(hostile, PANEL, w)).toEqual(panelNode(INVALID, PANEL, w))
+    expect(panelNode(hostile, PANEL, w, 0)).toEqual(panelNode(INVALID, PANEL, w, 0))
   })
 })
 
@@ -310,7 +310,7 @@ test('a width that is not a number draws at the default width of 40', () => {
     },
   }
   expect(bandNode(GOOD, hostileWidth)).toEqual(bandNode(GOOD, undefined))
-  expect(panelNode(GOOD, PANEL, hostileWidth)).toEqual(panelNode(GOOD, PANEL, undefined))
+  expect(panelNode(GOOD, PANEL, hostileWidth, 0)).toEqual(panelNode(GOOD, PANEL, undefined, 0))
   expect(bandNode(GOOD, hostileWidth)).toEqual(bandNode(GOOD, 40))
-  expect(panelNode(GOOD, PANEL, hostileWidth)).toEqual(panelNode(GOOD, PANEL, 40))
+  expect(panelNode(GOOD, PANEL, hostileWidth, 0)).toEqual(panelNode(GOOD, PANEL, 40, 0))
 })

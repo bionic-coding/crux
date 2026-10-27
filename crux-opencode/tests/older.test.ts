@@ -1,77 +1,119 @@
 // The cycle panel in crux-opencode: the slot, the queue card, the latest closed cycle as a panel and
-// the capped `cycles:` list. The host cannot turn pages, so the list stops at three rows with a
-// `+N more` line and no page footer.
+// the paged `cycles:` list. The host turns the pages with n and p, so the list draws one page, a
+// `page X/Y` footer and, with more than one page, a hint that names the keys.
 import { test, expect } from 'claude-code/testing'
-import { panelNode, readView } from '../lib/render.ts'
-import type { PlainNode, PlainSpan } from '../lib/render.ts'
-import { jsonText } from './fixtures/plain.ts'
+import { panelNode } from '../lib/render.ts'
+import { HARNESS } from '../lib/status.ts'
+import { OLDER_PAGE_SIZE, olderPages } from '../../crux-mods/hooks/lib/draw.ts'
+import { closed, cycleRow, doc, parsedOf, plain, qItem, rowsOf } from './fixtures/cycles.ts'
 
 const WIDTHS: Array<number | undefined> = [30, 40, 60, 86, 110, 120, undefined]
-const PHASES = ['plan', 'build', 'test', 'review', 'reflect']
+const HINT = 'p previous · n next'
 
-const cycleRow = (n: number, status = 'completed') => ({
-  id: `CYC-${String(n).padStart(4, '0')}`, title: `Cycle title ${n}`, type: 'iterate', status, phase: 'build', pass: 1, pass_limit: 2,
-  phases: PHASES,
-  tasks: [
-    { id: 'a', phase: 'plan', description: 'Plan it', status: 'done' },
-    { id: 'b', phase: 'build', description: `Current work ${n}`, status: status === 'active' ? 'active' : 'done' },
-  ],
-  returns: [], waits: [], blocker: null, reflection: null, modified_s: 1780000000,
-  started_s: 1779999000, ended_s: status === 'active' || status === 'paused' ? null : 1779999900, paused_s: 0,
-  open_started_s: status === 'active' || status === 'paused' ? 1779999500 : null, basis: 'recorded',
-  phase_times: [{ phase: 'plan', active_s: 500, paused_s: 0 }],
-})
-const qItem = (n: number, state: string) => ({
-  id: `Q-${String(n).padStart(4, '0')}`, title: `Queue title ${n}`, state, suggested_type: 'iterate', cycle: null, cycle_status: null,
-})
-const doc = (cycles: unknown[], queue?: unknown) => ({
-  format: 'crux.cycle-progress', format_version: 2, ok: true, docs_dir: 'bionic', now_s: 1780000000, cycles,
-  ...(queue === undefined ? {} : { queue }),
-})
-const parsedOf = (d: unknown) => {
-  const p = readView(true, () => ({ ok: true, stdout: jsonText(d) }))
-  expect(p !== null && p.ok).toBe(true)
-  return p
-}
-const rowsOf = (n: PlainNode | null): PlainSpan[][] => {
-  if (n === null || n.kind === 'spacer') return []
-  return n.kind === 'text' ? [n.spans] : n.children.flatMap(rowsOf)
-}
-const plain = (r: PlainSpan[]) => r.map(s => s.text).join('')
-const textOf = (d: unknown, width: number | undefined): string[] => rowsOf(panelNode(parsedOf(d), 'crux-dashboard', width)).map(plain)
-const closed = (n: number) => Array.from({ length: n }, (_, i) => cycleRow(n - i))
+const textOf = (d: unknown, width: number | undefined, page = 0): string[] =>
+  rowsOf(panelNode(parsedOf(d), 'crux-dashboard', width, page)).map(plain)
 
-const FULL = doc([cycleRow(9, 'active'), ...closed(6)], { ok: true, items: [qItem(1, 'pending'), qItem(2, 'held')], authorization: null })
+// Three pages, the last one holding a single row: the latest closed cycle, two full pages and one row.
+const CLOSED = 1 + 2 * OLDER_PAGE_SIZE + 1
+const PAGES = 3
+const LATEST = closed(CLOSED)[0]!.id
+const FULL = doc([cycleRow(99, 'active'), ...closed(CLOSED)], { ok: true, items: [qItem(1, 'pending'), qItem(2, 'held')], authorization: null })
+
+// The ids of the list rows on a page: the closed cycles after the first, newest first.
+const idsOnPage = (page: number): string[] => {
+  const rest = closed(CLOSED).slice(1).map(c => c.id)
+  return rest.slice(page * OLDER_PAGE_SIZE, (page + 1) * OLDER_PAGE_SIZE)
+}
+// The list rows a drawing holds, as the ids it names after the `cycles:` heading.
+const listIds = (lines: string[]): string[] => {
+  const heading = lines.findIndex(l => l.trim() === 'cycles:')
+  return lines.slice(heading + 1).flatMap(l => l.match(/CYC-\d{4}/)?.[0] ?? [])
+}
+
+test('the fixture holds the pages it claims, derived from the core page size', () => {
+  expect(olderPages(parsedOf(FULL))).toBe(PAGES)
+  expect(Object.keys(HARNESS)).toEqual(['bandPrefix', 'stallNote'])
+})
 
 for (const w of WIDTHS) {
-  test(`width ${w ?? 'none'}: the expanded cycle follows the queue, then cycles: heads three rows, +N more and no page footer`, () => {
-    const lines = textOf(FULL, w)
-    // Six closed cycles: CYC-0006 is the panel, 0005 to 0003 are rows, and two are left.
-    expect(lines.some(l => l.includes('+2 more'))).toBe(true)
-    expect(lines.some(l => l.includes('page'))).toBe(false)
-    expect(lines.some(l => l.includes('older'))).toBe(false)
+  test(`width ${w ?? 'none'}: the expanded cycle follows the queue, then cycles: heads one page of rows and the footer`, () => {
+    const lines = textOf(FULL, w, 0)
     const queue = lines.findIndex(l => l.startsWith('Queue'))
-    const panelAt = lines.findIndex(l => l.startsWith('CYC-0006'))
+    const panelAt = lines.findIndex(l => l.startsWith(LATEST))
     const heading = lines.findIndex(l => l.trim() === 'cycles:')
     expect(queue).toBeGreaterThan(-1)
     expect(panelAt).toBeGreaterThan(queue)
     expect(heading).toBeGreaterThan(panelAt)
-    // Rows cut at a narrow width may lose the status word, so count the ids after the heading.
-    expect(lines.slice(heading + 1).filter(l => /CYC-000[1-5]/.test(l)).length).toBe(3)
+    expect(listIds(lines)).toEqual(idsOnPage(0))
+    expect(lines.some(l => l.includes(`page 1/${PAGES}`))).toBe(true)
+    expect(lines.some(l => l.includes('more'))).toBe(false)
+    expect(lines.some(l => l.includes('older'))).toBe(false)
   })
 
-  test(`width ${w ?? 'none'}: no row is wider than the width`, () => {
+  test(`width ${w ?? 'none'}: no row, the hint included, is wider than the width`, () => {
     if (w === undefined) return
-    for (const l of textOf(FULL, w)) expect(l.length).toBeLessThanOrEqual(w)
+    for (const page of [0, 1, PAGES - 1]) for (const l of textOf(FULL, w, page)) expect(l.length).toBeLessThanOrEqual(w)
+  })
+
+  test(`width ${w ?? 'none'}: the hint is the last line after the page footer`, () => {
+    const lines = textOf(FULL, w, 0)
+    const footer = lines.findIndex(l => l.includes(`page 1/${PAGES}`))
+    expect(footer).toBeGreaterThan(-1)
+    expect(lines.length - 1).toBe(footer + 1)
+    expect(lines[lines.length - 1]!.trim()).toBe(HINT)
   })
 
   test(`width ${w ?? 'none'}: the slot draws first for an active cycle`, () => {
     const lines = textOf(FULL, w)
-    const first = lines.findIndex(l => l.includes('CYC-0009'))
+    const first = lines.findIndex(l => l.includes('CYC-0099'))
     expect(first >= 0).toBe(true)
-    expect(lines.findIndex(l => l.includes('CYC-0006')) > first).toBe(true)
+    expect(lines.findIndex(l => l.includes(LATEST)) > first).toBe(true)
   })
 }
+
+test('each page draws its own rows, the last one short, and the footer counts the page', () => {
+  for (let page = 0; page < PAGES; page++) {
+    const lines = textOf(FULL, 100, page)
+    expect(listIds(lines)).toEqual(idsOnPage(page))
+    expect(lines.some(l => l.includes(`page ${page + 1}/${PAGES}`))).toBe(true)
+  }
+  expect(idsOnPage(PAGES - 1).length).toBe(1)
+})
+
+test('the pages do not repeat a row', () => {
+  const all = [0, 1, 2].flatMap(page => listIds(textOf(FULL, 100, page)))
+  expect(all.length).toBe(CLOSED - 1)
+  expect(new Set(all).size).toBe(CLOSED - 1)
+})
+
+test('a page past the last, or below the first, or not a number draws the nearest page', () => {
+  expect(textOf(FULL, 100, 99)).toEqual(textOf(FULL, 100, PAGES - 1))
+  expect(textOf(FULL, 100, -3)).toEqual(textOf(FULL, 100, 0))
+  expect(textOf(FULL, 100, 0 / 0)).toEqual(textOf(FULL, 100, 0))
+})
+
+test('a list that shrinks below the stored page draws its last page', () => {
+  const shrunk = doc([...closed(1 + OLDER_PAGE_SIZE + 1)])
+  const lines = textOf(shrunk, 100, 2)
+  expect(lines.some(l => l.includes('page 2/2'))).toBe(true)
+})
+
+test('the hint appears with more than one page and not with one or none', () => {
+  const hinted = (n: number) => textOf(doc(closed(n)), 100).some(l => l.includes(HINT))
+  expect(hinted(1 + OLDER_PAGE_SIZE + 1)).toBe(true)
+  expect(hinted(1 + OLDER_PAGE_SIZE)).toBe(false)
+  expect(hinted(2)).toBe(false)
+  expect(hinted(1)).toBe(false)
+  expect(hinted(0)).toBe(false)
+})
+
+test('one page draws its rows and no footer; one more row draws a second page', () => {
+  const one = textOf(doc(closed(1 + OLDER_PAGE_SIZE)), 100)
+  expect(one.some(l => l.includes('page'))).toBe(false)
+  expect(listIds(one).length).toBe(OLDER_PAGE_SIZE)
+  const two = textOf(doc(closed(2 + OLDER_PAGE_SIZE)), 100)
+  expect(two.some(l => l.includes(`page 1/2`))).toBe(true)
+})
 
 test('with no open cycle the latest closed cycle is the panel and the other draws as one row', () => {
   const lines = textOf(doc(closed(2)), 100)
@@ -84,11 +126,6 @@ test('exactly one closed cycle draws the panel alone, with no cycles: heading', 
   const lines = textOf(doc(closed(1)), 100)
   expect(lines.some(l => l.startsWith('CYC-0001'))).toBe(true)
   expect(lines.some(l => l.includes('cycles:'))).toBe(false)
-})
-
-test('four or fewer closed cycles draw no +N more line, and five draw +1 more', () => {
-  for (const n of [1, 2, 3, 4]) expect(textOf(doc(closed(n)), 100).some(l => l.includes('more') || l.includes('older'))).toBe(false)
-  expect(textOf(doc(closed(5)), 100).some(l => l.includes('+1 more'))).toBe(true)
 })
 
 test('the queue card: absent, empty, short, overflowing and unreadable', () => {

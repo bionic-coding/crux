@@ -5,12 +5,12 @@
 // Three fixed forms below are matched token for token by the source check: readView, bandNode and
 // panelNode. Each contains every exception the render path can throw, so a throw on one run changes
 // no later run (the host runs the same computation again on every reactive change).
-import { band, pane, statusLine } from '../../crux-mods/hooks/lib/draw.ts'
+import { band, fitLine, olderPages, pane, statusLine } from '../../crux-mods/hooks/lib/draw.ts'
 import type { Block } from '../../crux-mods/hooks/lib/draw.ts'
 import { kept } from '../../crux-mods/hooks/lib/view.ts'
 import type { Parsed } from '../../crux-mods/hooks/lib/view.ts'
 import { drawingWidth } from '../../crux-mods/hooks/lib/width.ts'
-import { BAND_PREFIX, HARNESS, INVALID, KEPT_CODES, UNAVAILABLE_AGENTS, UNSUPPORTED, UNSUPPORTED_CODE, UNSUPPORTED_WORDS } from './status.ts'
+import { BAND_PREFIX, HARNESS, INVALID, KEPT_CODES, PAGE_HINT, UNAVAILABLE_AGENTS, UNSUPPORTED, UNSUPPORTED_CODE, UNSUPPORTED_WORDS } from './status.ts'
 import { FRAME_TOKEN, spanToken } from './theme.ts'
 
 // One run of text: its text, the theme-token name it draws in, and whether it is bold.
@@ -50,10 +50,19 @@ function drawBand(parsed: Parsed | null, width: unknown): PlainNode | null {
   return block === null ? null : nodeOf(block)
 }
 
-function drawPanel(parsed: Parsed | null, width: unknown): PlainNode | null {
+// The pane with one dim line last, after the core's `page X/Y` footer, naming the page keys. The
+// line is fitted to the pane's width, so it never widens the panel. A pane that is not a box (a
+// status) and a list of one page or none have no hint.
+function withHint(parsed: Parsed, block: Block): Block {
+  if (block.kind !== 'box' || olderPages(parsed) <= 1) return block
+  const hint: Block = { kind: 'line', line: fitLine([{ text: PAGE_HINT, dim: true }], block.width) }
+  return { kind: 'box', direction: block.direction, width: block.width, border: block.border, gap: block.gap, children: block.children.concat([hint]) }
+}
+
+function drawPanel(parsed: Parsed | null, width: unknown, page: number): PlainNode | null {
   if (parsed === null) return null
   if (isUnsupported(parsed)) return nodeOf(unsupportedBlock(width, { color: 'error' }))
-  return nodeOf(pane(parsed, UNAVAILABLE_AGENTS, width, 'docked', HARNESS))
+  return nodeOf(withHint(parsed, pane(parsed, UNAVAILABLE_AGENTS, width, 'docked', HARNESS, page)))
 }
 
 export function readView(supported: boolean, read: () => unknown): Parsed | null {
@@ -79,15 +88,15 @@ export function bandNode(parsed: Parsed | null, width: unknown): PlainNode | nul
   }
 }
 
-export function panelNode(parsed: Parsed | null, name: unknown, width: unknown): PlainNode | null {
+export function panelNode(parsed: Parsed | null, name: unknown, width: unknown, page: number): PlainNode | null {
   if (name !== 'crux-dashboard') {
     return null
   }
   try {
-    return drawPanel(parsed, width)
+    return drawPanel(parsed, width, page)
   } catch {
     try {
-      return drawPanel(INVALID, width)
+      return drawPanel(INVALID, width, page)
     } catch {
       return null
     }

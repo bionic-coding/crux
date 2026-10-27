@@ -1,4 +1,4 @@
-<!-- generated-from: OPENCODE.md@sha256:48a5037b9af4885806829be09536ac5203c0c9a2667166de52d948f3568437ae; model: deterministic-copy; date: 2026-10-16 -->
+<!-- generated-from: OPENCODE.md@sha256:6348d40e7d0191b49a31659a88bc55331ff6c0cb67411efd760baa49b42da27a; model: deterministic-copy; date: 2026-10-27 -->
 # Install Crux for OpenCode
 
 Crux has no native OpenCode marketplace package. OpenCode installation uses a stable clone of the public Crux repository. This guide covers machine-wide and project-only installation for humans and agents.
@@ -141,6 +141,7 @@ Project-only installations do not update through the global symlinks. Invoke `in
 
 - **A band above the composer.** One line for the run in progress, shown on a session screen. The home screen shows nothing.
 - **A panel.** The run dashboard panel, named `crux-dashboard`, opens beside the session.
+- **Page keys.** With more closed cycles than fit on one page, the panel lists them three to a page under `cycles:`. While the panel is focused (click it), `n` shows the next page and `p` the previous one. The panel ends with a `page X/Y` line and the hint `p previous · n next`. When the panel is closed or your prompt has focus, `n` and `p` type into the prompt as usual.
 - **A command.** `/crux-dashboard` opens the panel. It adds nothing to the transcript, to your prompt or to a model request. When no panel can open, such as outside a session, it shows a toast that carries only a status code.
 
 It draws the same run progress as the Claude Code dashboard, because it uses the same reader (`visualize-run-progress`) and the same drawing code from your clone. Installing the crux skills loads nothing in OpenCode's terminal interface. You opt in with the entry below.

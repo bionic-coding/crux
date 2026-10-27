@@ -73,8 +73,13 @@ export const BAND_PREFIX = 'crux-opencode dashboard: '
 export const UNSUPPORTED_WORDS = 'unsupported OpenCode version'
 export const STALL_NOTE = 'Work this view cannot see can run for a long time without changing the run file.'
 
-// The values the core's drawing takes from its importer. The host cannot turn pages, so the `cycles:` list caps at one page and a `+N more` line.
-export const HARNESS: Harness = { bandPrefix: BAND_PREFIX, stallNote: STALL_NOTE, pages: false }
+// The hint under the `cycles:` list's page footer, in the button order of Claude Code's panel: the keys
+// the page-turn commands bind. It draws only while the list has more than one page.
+export const PAGE_HINT = 'p previous \u00b7 n next'
+
+// The values the core's drawing takes from its importer. This host turns the pages of the `cycles:` list
+// with the page-turn commands, so the harness omits `pages` and the core draws the page footer.
+export const HARNESS: Harness = { bandPrefix: BAND_PREFIX, stallNote: STALL_NOTE }
 
 // This session's agents cannot be listed, so the core draws "agents unavailable" and no stall.
 export const UNAVAILABLE_AGENTS: Agents = { available: false, running: 0, shown: [] }

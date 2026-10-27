@@ -2,7 +2,7 @@ import { test, expect } from 'claude-code/testing'
 import { runCommand } from '../lib/command.ts'
 import { createScheduler } from '../lib/refresh.ts'
 import type { Scheduler } from '../lib/refresh.ts'
-import { makeFake } from './fixtures/fake.ts'
+import { PROJECT, makeFake, okWorld } from './fixtures/fake.ts'
 
 // A scheduler double that logs into the same list as the fake host's panel.
 function rig() {
@@ -149,4 +149,20 @@ test('the command asks a started scheduler for a run', () => {
   runCommand(fake.host, scheduler)
   fake.clock.advance(0)
   expect(fake.procs.length).toBe(2)
+})
+
+test('a project root that resolves late is read on the next refresh, not at setup', () => {
+  const world = okWorld()
+  world.directory = undefined
+  const fake = makeFake(world)
+  const scheduler = createScheduler(fake.host)
+  scheduler.start()
+  fake.clock.advance(4100)
+  // The host has not yet filled its location: no reader starts, and nothing throws.
+  expect(fake.started()).toBe(0)
+  world.directory = PROJECT
+  fake.clock.advance(60000)
+  expect(fake.started()).toBe(1)
+  const argv = fake.procs[0]!.argv
+  expect(argv[argv.length - 1]).toBe(PROJECT)
 })

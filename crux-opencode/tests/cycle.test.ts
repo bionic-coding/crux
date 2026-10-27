@@ -56,7 +56,7 @@ function collisions(tokens: Record<string, string>, phases: string[]): string[] 
 
 // The token each phase word draws in, read from the task rows of a drawn panel.
 function drawnTokens(type: string): Record<string, string> {
-  const rows = rowsOf(panelNode(parsedOf(docOf(type)), 'crux-dashboard', 100))
+  const rows = rowsOf(panelNode(parsedOf(docOf(type)), 'crux-dashboard', 100, 0))
   const out: Record<string, string> = {}
   for (const phase of SEQUENCES[type]!) {
     const row = find(rows, `: Work in ${phase}`)
@@ -75,7 +75,7 @@ test('the panel draws the cycle title, status, loop, track and phase-labelled st
       { id: 'd', phase: 'review', description: 'Review it', status: 'pending' },
     ],
   })
-  const rows = rowsOf(panelNode(parsedOf(doc), 'crux-dashboard', 100))
+  const rows = rowsOf(panelNode(parsedOf(doc), 'crux-dashboard', 100, 0))
   const title = find(rows, 'CYC-0001')!
   expect(plain(title)).toContain('CYC-0001 Update the dashboard')
   expect(title.every(s => s.bold)).toBe(true)
@@ -116,7 +116,7 @@ test('the panel draws the cycle title, status, loop, track and phase-labelled st
 
 test('a status word and a glyph accompany every status colour', () => {
   // An open cycle and the latest closed cycle both draw as a panel with a meta row.
-  const draw = (status: string) => find(rowsOf(panelNode(parsedOf(docOf('dev', { status })), 'crux-dashboard', 100)), 'loop 1')!
+  const draw = (status: string) => find(rowsOf(panelNode(parsedOf(docOf('dev', { status })), 'crux-dashboard', 100, 0)), 'loop 1')!
   const want: [string, string, string][] = [
     ['active', '▸', 'syntax.function'], ['completed', '✓', 'text.feedback.success.base'],
     ['paused', '⊘', 'text.feedback.warning.base'], ['abandoned', '✗', 'text.feedback.error.base'],
@@ -183,7 +183,7 @@ test('free text in a cycle title and a task description reaches the panel withou
     title: 'Fix\u001b[2J the\u0007 tool\u0085 \u202e now',
     tasks: [{ id: 'a', phase: 'plan', description: 'Plan\u001b]0;x\u0007 it\u009b', status: 'active' }],
   })
-  const text = rowsOf(panelNode(parsedOf(doc), 'crux-dashboard', 100)).map(plain).join('\n')
+  const text = rowsOf(panelNode(parsedOf(doc), 'crux-dashboard', 100, 0)).map(plain).join('\n')
   expect(text).toContain('Fix')
   expect(text).toContain('tool')
   expect(text).toContain('Plan')
@@ -226,7 +226,7 @@ const timed = (type: string, now_s: number, over: Record<string, unknown> = {}) 
   return d
 }
 const timeRow = (doc: unknown): string | undefined => {
-  const row = rowsOf(panelNode(parsedOf(doc), 'crux-dashboard', 100)).find(r => plain(r).startsWith('elapsed'))
+  const row = rowsOf(panelNode(parsedOf(doc), 'crux-dashboard', 100, 0)).find(r => plain(r).startsWith('elapsed'))
   return row === undefined ? undefined : plain(row)
 }
 
@@ -270,7 +270,7 @@ const manyOf = (ids: [string, string][]) => {
   return doc
 }
 // A compact row starts with its status glyph, so the id follows an optional glyph and a space. A panel's first line starts with the id.
-const idsDrawn = (doc: unknown) => rowsOf(panelNode(parsedOf(doc), 'crux-dashboard', 100)).map(plain).flatMap(t => t.match(/^(?:\S )?((?:[A-Z][A-Z0-9]*-)?CYC-\d+)/)?.[1] ?? [])
+const idsDrawn = (doc: unknown) => rowsOf(panelNode(parsedOf(doc), 'crux-dashboard', 100, 0)).map(plain).flatMap(t => t.match(/^(?:\S )?((?:[A-Z][A-Z0-9]*-)?CYC-\d+)/)?.[1] ?? [])
 
 test('the panel lists active cycles first, then the rest, each by numeric id descending', () => {
   expect(idsDrawn(manyOf([['CYC-0009', 'active'], ['CYC-0010', 'completed'], ['CYC-0013', 'active'], ['CYC-0002', 'abandoned'], ['CYC-0011', 'paused']])))
@@ -286,9 +286,9 @@ test('the band shows the highest numbered active cycle', () => {
 })
 
 test('the panel draws one Awaiting approval line for a wait the reader repeats', () => {
-  const rows = rowsOf(panelNode(parsedOf(docOf('dev', { waits: ['release-evidence', 'release-evidence', 'release-evidence', 'plan-b'] })), 'crux-dashboard', 100))
+  const rows = rowsOf(panelNode(parsedOf(docOf('dev', { waits: ['release-evidence', 'release-evidence', 'release-evidence', 'plan-b'] })), 'crux-dashboard', 100, 0))
   expect(rows.map(plain).filter(t => t.includes('Awaiting approval')).map(t => t.trim())).toEqual(['⊘ Awaiting approval: release-evidence, plan-b'])
-  expect(rowsOf(panelNode(parsedOf(docOf('dev')), 'crux-dashboard', 100)).some(r => plain(r).includes('Awaiting approval'))).toBe(false)
+  expect(rowsOf(panelNode(parsedOf(docOf('dev')), 'crux-dashboard', 100, 0)).some(r => plain(r).includes('Awaiting approval'))).toBe(false)
 })
 
 test('a simplify cycle draws the plan, build, test, review, reflect band', () => {
@@ -302,7 +302,7 @@ test('a listed release cycle with the one phase release is accepted and drawn', 
   const phases = ['release']
   const doc = docOf('release', { phases, phase: 'release', pass_limit: 1, tasks: tasksOf(phases), phase_times: [{ phase: 'release', active_s: 1000, paused_s: 0 }] })
   const parsed = parsedOf(doc)
-  const rows = rowsOf(panelNode(parsed, 'crux-dashboard', 100))
+  const rows = rowsOf(panelNode(parsed, 'crux-dashboard', 100, 0))
   expect(find(rows, ': Work in release')).toBeDefined()
   expect(plain(rowsOf(bandNode(parsed, 100))[0]!)).toContain('CYC-0001')
   expect(rows.map(plain).some(t => /limit|pass/i.test(t))).toBe(false)
@@ -310,5 +310,5 @@ test('a listed release cycle with the one phase release is accepted and drawn', 
 
 test('a legacy release cycle with plan, release and reflect is still drawn', () => {
   const parsed = parsedOf(docOf('release'))
-  expect(find(rowsOf(panelNode(parsed, 'crux-dashboard', 100)), ': Work in release')).toBeDefined()
+  expect(find(rowsOf(panelNode(parsed, 'crux-dashboard', 100, 0)), ': Work in release')).toBeDefined()
 })

@@ -16,7 +16,8 @@
 // jsx: per JSX element, the props it may carry, and which of them take a colour. A colour prop that
 //   holds an object names the one key it admits in colour_keys.
 // events, slots, commands, panels, env_reads: the host events subscribed to (none), the slots filled,
-//   the commands registered, the panels they open and the environment names read.
+//   the commands registered (by id, for the two page-turn commands, each naming its decision), the panels
+//   they open and the environment names read.
 // kit: the members of the test runner's kit that the test files use.
 // launch: the launcher and its arguments, the places to look for uv, uv's arguments, the
 //   allow-listed environment names and the constants among them, the reader script and its
@@ -28,7 +29,7 @@ export const capabilities = {
   "plugin": "crux-opencode",
   "modules": ["@opencode/plugin/tui", "node:child_process", "node:fs", "node:path", "node:url", "solid-js"],
   "jsx_runtime": "@opentui/solid",
-  "host_members": ["@opencode/plugin/tui:Plugin.define", "solid-js:createEffect"],
+  "host_members": ["@opencode/plugin/tui:Plugin.define", "solid-js:createEffect", "solid-js:onCleanup"],
   "type_members": [],
   "builtin_members": ["node:child_process:spawn", "node:child_process:spawn().kill", "node:child_process:spawn().on", "node:child_process:spawn().stderr.on", "node:child_process:spawn().stdout.on", "node:fs:readFileSync", "node:fs:realpathSync", "node:fs:statSync", "node:fs:statSync().isDirectory", "node:fs:statSync().isFile", "node:path:dirname", "node:url:fileURLToPath"],
   "runtime_globals": ["JSON.parse", "Object.keys", "Object.values", "Object.prototype.hasOwnProperty.call", "Array.isArray", "Array.from", "Number.isInteger", "Number.isFinite", "String.fromCharCode", "Math.max", "Math.min", "Math.floor", "Math.ceil", "Math.round", "String()", "new RegExp", "new Set", "new Map", "new Promise", "new Error", "extends Error", "new Date(1)", "import.meta.url", "setTimeout", "clearTimeout", "setInterval", "clearInterval"],
@@ -52,8 +53,8 @@ export const capabilities = {
     {"path": "context.ui.toast.show", "kind": "callable"},
     {"path": "context.keymap.layer", "kind": "void"}
   ],
-  "render_input": {"session.composer.top": [], "session.panel": ["name", "width"]},
-  "callbacks": {"setup": ["context"], "slot.band": [], "slot.panel": ["input"], "effect": [], "layer.run": [], "memory.update": ["draft"], "child.spawn": [], "child.exit": [], "child.stdout.data": ["chunk"], "child.stderr.data": ["chunk"], "child.error": [], "child.close": ["code"]},
+  "render_input": {"session.composer.top": [], "session.panel": ["name", "width", "focused"]},
+  "callbacks": {"setup": ["context"], "slot.band": [], "slot.panel": ["input"], "effect": [], "panel.cleanup": [], "layer.run": [], "memory.update": ["draft"], "child.spawn": [], "child.exit": [], "child.stdout.data": ["chunk"], "child.stderr.data": ["chunk"], "child.error": [], "child.close": ["code"]},
   "jsx": {
     "box": {"props": ["width", "flexDirection", "border", "borderStyle", "borderColor", "paddingLeft", "paddingRight"], "colour_props": ["borderColor"]},
     "text": {"props": [], "colour_props": []},
@@ -62,7 +63,7 @@ export const capabilities = {
   },
   "events": [],
   "slots": ["session.composer.top", "session.panel"],
-  "commands": ["crux-dashboard"],
+  "commands": ["crux-dashboard", {"name": "crux-dashboard-next", "decision": "ADR-0164"}, {"name": "crux-dashboard-previous", "decision": "ADR-0164"}],
   "panels": ["crux-dashboard"],
   "env_reads": ["HOME"],
   "kit": {"specifier": "claude-code/testing", "members": ["test", "expect", "expect().toBe", "expect().toBeDefined", "expect().toBeGreaterThan", "expect().toBeLessThanOrEqual", "expect().toBeNull", "expect().toContain", "expect().toEqual", "expect().toThrow", "expect().not.toBe", "expect().not.toBeNull", "expect().not.toContain", "expect().not.toEqual"]},

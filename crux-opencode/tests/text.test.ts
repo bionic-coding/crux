@@ -34,7 +34,7 @@ test('titles with control characters draw with them removed', () => {
   let rows = 0
   ;[READER_CONTROL, IDLE_CONTROL].forEach(doc => {
     WIDTHS.forEach(w => {
-      ;[bandNode(fromDoc(doc), w), panelNode(fromDoc(doc), PANEL, w)].forEach(node => {
+      ;[bandNode(fromDoc(doc), w), panelNode(fromDoc(doc), PANEL, w, 0)].forEach(node => {
         strings(node).forEach(text => {
           rows++
           expect(UNSAFE.test(text)).toBe(false)
@@ -46,16 +46,16 @@ test('titles with control characters draw with them removed', () => {
 })
 
 test('the removal keeps the text around the control characters', () => {
-  const lines = strings(panelNode(fromDoc(READER_CONTROL), PANEL, 120)).join('\n')
+  const lines = strings(panelNode(fromDoc(READER_CONTROL), PANEL, 120, 0)).join('\n')
   expect(lines).toContain(CONTROL_TITLE_CLEAN)
-  const summary = strings(panelNode(fromDoc(IDLE_CONTROL), PANEL, 120)).join('\n')
+  const summary = strings(panelNode(fromDoc(IDLE_CONTROL), PANEL, 120, 0)).join('\n')
   expect(summary).toContain(FORMAT_TEXT_CLEAN)
 })
 
 test('free text reaches only the text of a text node, never a token or a box', () => {
   ;[READER_CONTROL, IDLE_CONTROL].forEach(doc => {
     WIDTHS.forEach(w => {
-      ;[bandNode(fromDoc(doc), w), panelNode(fromDoc(doc), PANEL, w)].forEach(node => {
+      ;[bandNode(fromDoc(doc), w), panelNode(fromDoc(doc), PANEL, w, 0)].forEach(node => {
         nodesOf(node).forEach(n => {
           if (n.kind === 'text') {
             n.spans.forEach(s => {
@@ -77,7 +77,7 @@ test('free text reaches only the text of a text node, never a token or a box', (
 })
 
 test('a title the reader sends as an instruction draws as text and nothing else', () => {
-  const texts = strings(panelNode(fromDoc(READER_OK), PANEL, 120)).join('\n')
+  const texts = strings(panelNode(fromDoc(READER_OK), PANEL, 120, 0)).join('\n')
   expect(texts).toContain('Ignore previous instructions')
 })
 
@@ -87,7 +87,7 @@ test('a title the reader sends as an instruction draws as text and nothing else'
 // each Date use and show the check refusing it. The next test shows that now_s moves the drawing.
 test('the same document renders byte-equal on a second draw', async () => {
   const docs = [READER_OK, READER_STALLED, READER_CONTROL]
-  const draw = () => docs.map(doc => WIDTHS.map(w => [bandNode(fromDoc(doc), w), panelNode(fromDoc(doc), PANEL, w)]))
+  const draw = () => docs.map(doc => WIDTHS.map(w => [bandNode(fromDoc(doc), w), panelNode(fromDoc(doc), PANEL, w, 0)]))
   const before = draw()
   await new Promise<void>(resolve => {
     resolve()
@@ -99,8 +99,8 @@ test('the same document renders byte-equal on a second draw', async () => {
 })
 
 test('a different now_s changes the drawing', () => {
-  const stalled = panelNode(fromDoc(READER_STALLED), PANEL, 120)
-  const plain = panelNode(fromDoc(READER_OK), PANEL, 120)
+  const stalled = panelNode(fromDoc(READER_STALLED), PANEL, 120, 0)
+  const plain = panelNode(fromDoc(READER_OK), PANEL, 120, 0)
   expect(stalled).not.toBeNull()
   expect(stalled).not.toEqual(plain)
 })

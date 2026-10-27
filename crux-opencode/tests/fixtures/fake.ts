@@ -161,6 +161,9 @@ export type Fake = {
   procs: Proc[]
   toasts: string[]
   opens: { count: number; result: boolean; open: boolean; closes: number; currentThrows: boolean }
+  // The panel's focus and the stored page, as the Host reads and writes them. focused is what the
+  // published reader would report; throws makes it read as unfocused, as the focus slot does.
+  pager: { focused: boolean; focusThrows: boolean; page: number; writes: number[]; writeFails: boolean }
   startMode: { value: 'handle' | 'untracked' | 'undefined' }
   // When set, writeKept throws, which a real Host never does: it tests the scheduler's own catch.
   keptThrows: { value: boolean }
@@ -182,6 +185,7 @@ export function makeFake(world: World = okWorld(), shared: Shared = {}): Fake {
   const procs: Proc[] = []
   const toasts: string[] = []
   const opens = { count: 0, result: true, open: false, closes: 0, currentThrows: false }
+  const pager = { focused: false, focusThrows: false, page: 0, writes: [] as number[], writeFails: false }
   const startMode: { value: 'handle' | 'untracked' | 'undefined' } = { value: 'handle' }
   const keptThrows = { value: false }
   const lease: LeaseFaults = { reads: [], writes: [], readDefault: 'ok', writeDefault: 'ok' }
@@ -194,7 +198,8 @@ export function makeFake(world: World = okWorld(), shared: Shared = {}): Fake {
 
   const host: Host = {
     version: world.version,
-    directory: world.directory,
+    // A function, as the host's is: the world's directory can change between two refreshes.
+    directory: () => world.directory,
     cloneDir: world.cloneDir,
     env: name => {
       log.push('env:' + name)
@@ -301,6 +306,17 @@ export function makeFake(world: World = okWorld(), shared: Shared = {}): Fake {
       opens.open = false
       return true
     },
+    panelFocused: () => {
+      if (pager.focusThrows) return false
+      return pager.focused
+    },
+    pageRead: () => pager.page,
+    pageWrite: n => {
+      if (pager.writeFails) return false
+      pager.writes.push(n)
+      pager.page = n
+      return true
+    },
     toast: code => {
       toasts.push(code)
     },
@@ -315,6 +331,7 @@ export function makeFake(world: World = okWorld(), shared: Shared = {}): Fake {
     procs,
     toasts,
     opens,
+    pager,
     startMode,
     keptThrows,
     lease,
