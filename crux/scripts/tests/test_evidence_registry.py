@@ -158,7 +158,10 @@ class ReleaseNeutralRegistrationTests(unittest.TestCase):
         for check in (CORE, TOOLS):
             added = [e for e in self.declared[check]["exclude_inputs"] if not e.startswith("docs/")]
             self.assertEqual(added, list(AUDIT_EXCLUSIONS["checkout"]), check)
-            self.assertNotIn("CHANGELOG.md", self.declared[check]["exclude_inputs"])  # P9: stays an input
+            # P9: CHANGELOG.md is never excluded. On a tree with citation batches it is projected (see
+            # LiveChangelogProjectionTests); on this fixture root, which has none, it stays a whole-file input.
+            self.assertNotIn("CHANGELOG.md", self.declared[check]["exclude_inputs"])
+            self.assertNotIn("CHANGELOG.md", self.declared[check]["input_projections"])
         for minor in ("3.13", "3.14"):
             self.assertEqual(self.declared[STAGED.format(minor)]["exclude_inputs"], list(AUDIT_EXCLUSIONS["staged"]))
 
@@ -203,7 +206,7 @@ class ReleaseNeutralRegistrationTests(unittest.TestCase):
 
     def test_a_release_only_change_keeps_a_checkout_fingerprint_and_a_changelog_change_does_not(self):
         # Registry-side demonstration on a throwaway project: the projected version spans and `public/`
-        # leave the fingerprint alone; CHANGELOG.md, which stays an input of the checkout suites, moves it.
+        # leave the fingerprint alone; CHANGELOG.md, a whole-file input of a root without migration batches, moves it.
         def vcs(*args):
             subprocess.run(["git", "-c", "user.name=T", "-c", "user.email=t@example.invalid", *args],
                            cwd=self.root, capture_output=True, check=True)
@@ -230,6 +233,165 @@ class ReleaseNeutralRegistrationTests(unittest.TestCase):
         self.assertEqual(fingerprint(), before)
         (self.root / "CHANGELOG.md").write_text("# Changelog\n\n## 9.9.9\n")
         self.assertNotEqual(fingerprint(), before)
+
+
+class ChangelogProjectionDeclarationTests(unittest.TestCase):
+    """The CHANGELOG.md projection is declared for the checkout scope only, and only when the token set is certain."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name).resolve()
+        write_lock_project(self.root)
+        (self.root / ".python-version").write_text("3.13\n")
+        (self.root / "docs/adrs/migrations").mkdir(parents=True)
+        (self.root / "docs/adrs/migrations/b.yaml").write_text("batch_id: b\n")  # the token reader is patched; the file only exists
+
+    def declared(self, found):
+        with patch("implementation_migration.changelog_citation_tokens", **found):
+            return suite_evidence.registered_declarations(self.root, dev_root=self.root)
+
+    def good(self, **change):
+        return {"return_value": {"tokens": ["ADR-0001/demo-rule", "rule:demo-rule"], "batches": ["b"],
+                                 "binding": ["b"], "unpublished": [], **change}}
+
+    def test_a_certain_token_set_projects_the_checkout_suites_only(self):
+        declared = self.declared(self.good())
+        kind = ["changelog-citations:ADR-0001/demo-rule rule:demo-rule"]
+        for check in (CORE, TOOLS):
+            self.assertEqual(declared[check]["input_projections"]["CHANGELOG.md"], kind, check)
+            self.assertNotIn("CHANGELOG.md", declared[check]["exclude_inputs"], check)
+            self.assertEqual(te.normalize(declared[check])["input_projections"]["CHANGELOG.md"], kind, check)
+        for minor in ("3.13", "3.14"):
+            self.assertNotIn("CHANGELOG.md", declared[STAGED.format(minor)]["input_projections"])
+            self.assertEqual(declared[STAGED.format(minor)]["exclude_inputs"], ["CHANGELOG.md"])
+
+    def test_the_static_projections_are_unchanged_beside_the_changelog_entry(self):
+        declared = self.declared(self.good())
+        expected = {path: kinds for path, (kinds, _v) in AUDIT_PROJECTIONS["checkout"].items()}
+        for check in (CORE, TOOLS):
+            rest = {p: k for p, k in declared[check]["input_projections"].items() if p != "CHANGELOG.md"}
+            self.assertEqual(rest, expected, check)
+
+    def test_no_batch_keeps_the_changelog_a_whole_file_input(self):
+        declared = self.declared({"return_value": {"tokens": [], "batches": [], "binding": [], "unpublished": []}})
+        for check in (CORE, TOOLS):
+            self.assertNotIn("CHANGELOG.md", declared[check]["input_projections"], check)
+
+    def test_a_tree_with_no_batch_file_does_not_call_the_token_reader(self):
+        (self.root / "docs/adrs/migrations/b.yaml").unlink()
+        with patch("implementation_migration.changelog_citation_tokens", **self.good()) as reader:
+            declared = suite_evidence.registered_declarations(self.root, dev_root=self.root)
+        reader.assert_not_called()
+        for check in (CORE, TOOLS):
+            self.assertNotIn("CHANGELOG.md", declared[check]["input_projections"], check)
+
+    def test_an_empty_token_set_keeps_it_a_whole_file_input(self):
+        # F3: a binding batch whose tokens are empty would project to an empty kind, which never validates.
+        declared = self.declared(self.good(tokens=[]))
+        for check in (CORE, TOOLS):
+            self.assertNotIn("CHANGELOG.md", declared[check]["input_projections"], check)
+
+    def test_a_binding_batch_with_no_committed_application_keeps_it_a_whole_file_input(self):
+        declared = self.declared(self.good(unpublished=["b"]))
+        for check in (CORE, TOOLS):
+            self.assertNotIn("CHANGELOG.md", declared[check]["input_projections"], check)
+
+    def test_a_raising_token_reader_keeps_it_a_whole_file_input(self):
+        for failure in (RuntimeError("x"), OSError("x"), te.EvidenceError("x")):
+            with self.subTest(failure=type(failure).__name__):
+                declared = self.declared({"side_effect": failure})
+                for check in (CORE, TOOLS):
+                    self.assertNotIn("CHANGELOG.md", declared[check]["input_projections"], check)
+
+    def test_a_root_without_a_tree_runs_the_real_reader_and_declares_none(self):
+        # Unpatched: the fixture root has no docs layout, so the real reader raises or finds no batch.
+        declared = suite_evidence.registered_declarations(self.root, dev_root=self.root)
+        for check in (CORE, TOOLS):
+            self.assertNotIn("CHANGELOG.md", declared[check]["input_projections"], check)
+
+    def test_a_focused_run_never_carries_the_changelog_projection(self):
+        with patch("implementation_migration.changelog_citation_tokens", **self.good()):
+            declaration, registered = suite_evidence.declaration_for("checkout", "crux/scripts/tests", "test_one.py", None, self.root)
+        self.assertFalse(registered)
+        self.assertNotIn("input_projections", declaration)
+
+
+class LiveChangelogProjectionTests(unittest.TestCase):
+    """On this checkout, both checkout suites carry the projection with the live token set."""
+
+    def test_the_live_declarations_carry_the_live_token_set(self):
+        if _dev_surface.IS_STAGED_ARTIFACT:
+            self.skipTest("the staged tree carries no migration batches or live CHANGELOG.md")
+        import implementation_migration as im
+        require_dev_surface(self, REPO_ROOT / "bionic/adrs/migrations", "bionic/adrs/migrations")
+        found = im.changelog_citation_tokens(REPO_ROOT)
+        self.assertTrue(found["tokens"])
+        self.assertEqual(found["unpublished"], [])
+        declared = suite_evidence.registered_declarations(REPO_ROOT, dev_root=REPO_ROOT)
+        kind = "changelog-citations:" + " ".join(sorted(found["tokens"]))
+        for check in (CORE, TOOLS):
+            self.assertEqual(declared[check]["input_projections"]["CHANGELOG.md"], [kind], check)
+            te.normalize(declared[check])
+
+
+class ChangelogFingerprintTests(unittest.TestCase):
+    """A release-only CHANGELOG.md change keeps the checkout fingerprint; an edit to the span moves it."""
+
+    TOKENS = {"tokens": ["ADR-0001/demo-rule", "rule:demo-rule"], "batches": ["b"], "binding": ["b"], "unpublished": []}
+    BASE = ("# Changelog\n\n## [Unreleased]\n\nnothing\n\n## [1.0.0] — 2026-01-01\n\n"
+            "Cites rule:demo-rule[^a].\n\n[^a]: rule:other\n")
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name).resolve()
+        write_lock_project(self.root)
+        (self.root / ".python-version").write_text("3.13\n")
+        (self.root / "CHANGELOG.md").write_text(self.BASE)
+        (self.root / "docs/adrs/migrations").mkdir(parents=True)
+        (self.root / "docs/adrs/migrations/b.yaml").write_text("batch_id: b\n")
+        for args in (["init", "-q"], ["add", "-A"], ["-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit", "-qm", "base"]):
+            subprocess.run(["git", *args], cwd=self.root, capture_output=True, check=True)
+        patcher = patch("implementation_migration.changelog_citation_tokens", return_value=self.TOKENS)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def fingerprint(self, check=CORE):
+        declaration = suite_evidence.registered_declaration(self.root, check, dev_root=self.root)
+        return te.snapshot(self.root, declaration, source_root=self.root)["fingerprint"]
+
+    def write(self, text):
+        (self.root / "CHANGELOG.md").write_text(text)
+
+    def test_a_prepended_section_and_a_new_footnote_keep_both_fingerprints(self):
+        before = {check: self.fingerprint(check) for check in (CORE, TOOLS)}
+        new = "## [1.1.0] — 2026-02-02\n\nChanged things[^b].\n\n[^b]: rule:unrelated\n\n"
+        self.write(self.BASE.replace("## [Unreleased]", new + "## [Unreleased]", 1) + "\n[^c]: a new footnote\n")
+        for check in (CORE, TOOLS):
+            self.assertEqual(self.fingerprint(check), before[check], check)
+
+    def test_a_span_edit_moves_both_fingerprints(self):
+        before = {check: self.fingerprint(check) for check in (CORE, TOOLS)}
+        for edited in (self.BASE.replace("2026-01-01", "2026-01-02"),
+                       self.BASE + "\nAlso rule:demo-rule here.\n",
+                       self.BASE.replace("rule:demo-rule[^a]", "rule:demo-rul[^a]")):
+            with self.subTest(edit=edited[-30:]):
+                self.write(edited)
+                for check in (CORE, TOOLS):
+                    self.assertNotEqual(self.fingerprint(check), before[check], check)
+        self.write(self.BASE)
+        for check in (CORE, TOOLS):
+            self.assertEqual(self.fingerprint(check), before[check], check)
+
+    def test_a_corruption_moves_both_fingerprints(self):
+        before = {check: self.fingerprint(check) for check in (CORE, TOOLS)}
+        (self.root / "CHANGELOG.md").write_bytes(self.BASE.encode() + b"\xff\xfe")
+        for check in (CORE, TOOLS):
+            self.assertNotEqual(self.fingerprint(check), before[check], check)
+        self.write(self.BASE + "x" * (2 * 1024 * 1024 + 1))
+        for check in (CORE, TOOLS):
+            self.assertNotEqual(self.fingerprint(check), before[check], check)
 
 
 class ReleaseMetadataPresetTests(unittest.TestCase):

@@ -44,12 +44,12 @@ EXPECTED_MODEL_IDS = {
     "architect": "openrouter/anthropic/claude-opus-5.5",
     "brainstormer": "openrouter/openai/gpt-6.1-sol",
     "commander": "openrouter/moonshotai/kimi-k3.1-pro",
-    "dev-lead": "openrouter/openai/gpt-6.1-sol",
+    "dev-lead": "openrouter/z-ai/glm-5.3",
     "developer": "openrouter/deepseek/deepseek-v4.1-flash-1017",
     "historian": "openrouter/z-ai/glm-5.3",
     "librarian": "openrouter/z-ai/glm-5.3",
     "night-gardener": "openrouter/anthropic/claude-opus-5.5",
-    "reviewer": "openrouter/openai/gpt-6.1-sol",
+    "reviewer": "openrouter/google/gemini-4-argon",
     "wayfinder": "openrouter/z-ai/glm-5.3",
 }
 

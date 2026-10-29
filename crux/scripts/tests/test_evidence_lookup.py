@@ -289,19 +289,28 @@ class EngineInterruptionTests(LookupBase):
                 self.assertEqual(receipts[0]["signal"], number)
 
     def test_a_sigkilled_engine_leaves_no_receipt_and_the_next_lookup_executes(self):
-        engine, child, grandchild = self.start_engine(seconds=2)
+        engine, child, grandchild = self.start_engine(seconds=5)
         engine.kill()
         engine.communicate(timeout=30)
         self.assertEqual(list(self.store.glob("TE-*.json")), [])
-        declaration = self.sleeper(2)
+        declaration = self.sleeper(5)
         self.assertEqual(lookup(self.root, declaration)["state"], "missing")
-        # The orphaned child still holds the declaration's execution lock, so the next caller waits
-        # for it to end and then executes; it never starts a duplicate beside it.
+        # The orphaned child still holds the declaration's execution lock. The next caller never starts
+        # a duplicate beside it: it exits naming the dead engine and the child's process group.
         started = time.time()
+        with self.assertRaisesRegex(EvidenceError, rf"engine pid {engine.pid} exited.*kill -TERM -{child}"):
+            execute(self.root, declaration)
+        self.assertLess(time.time() - started, 5.0)
+        self.assertTrue(self.alive(child), "the waiter must not stop the orphaned child")
+        self.assertEqual(list(self.store.glob("TE-*.json")), [])
+        deadline = time.time() + 15
+        while self.alive(child) and time.time() < deadline:
+            time.sleep(0.05)
+        self.assertFalse(self.alive(child))
+        # Once the orphan has ended, the next caller acquires the lock and executes.
         result = execute(self.root, declaration)
         self.assertEqual((result["action"], result["evidence"]["status"]), ("executed", "passed"))
         self.assertEqual(len(list(self.store.glob("TE-*.json"))), 1)
-        self.assertGreater(time.time() - started, 2.0)
 
 
 if __name__ == "__main__":

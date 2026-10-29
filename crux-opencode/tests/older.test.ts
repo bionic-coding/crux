@@ -13,9 +13,10 @@ const HINT = 'p previous · n next'
 const textOf = (d: unknown, width: number | undefined, page = 0): string[] =>
   rowsOf(panelNode(parsedOf(d), 'crux-dashboard', width, page)).map(plain)
 
-// Three pages, the last one holding a single row: the latest closed cycle, two full pages and one row.
-const CLOSED = 1 + 2 * OLDER_PAGE_SIZE + 1
-const PAGES = 3
+// Two pages, the last one holding a single row: the latest closed cycle, one full page and one row.
+// Two pages keep the fixture small; the reader accepts up to 60 cycles, so a view can hold six.
+const CLOSED = 1 + OLDER_PAGE_SIZE + 1
+const PAGES = 2
 const LATEST = closed(CLOSED)[0]!.id
 const FULL = doc([cycleRow(99, 'active'), ...closed(CLOSED)], { ok: true, items: [qItem(1, 'pending'), qItem(2, 'held')], authorization: null })
 
@@ -81,7 +82,7 @@ test('each page draws its own rows, the last one short, and the footer counts th
 })
 
 test('the pages do not repeat a row', () => {
-  const all = [0, 1, 2].flatMap(page => listIds(textOf(FULL, 100, page)))
+  const all = [0, 1].flatMap(page => listIds(textOf(FULL, 100, page)))
   expect(all.length).toBe(CLOSED - 1)
   expect(new Set(all).size).toBe(CLOSED - 1)
 })

@@ -5,6 +5,7 @@ checkout.
 """
 
 import builtins
+import gc
 import os
 import sys
 import tempfile
@@ -2315,13 +2316,22 @@ class ListItemLineLinearTimeTests(unittest.TestCase):
             _rows, by_id, _ = sx.target_rows(doc, "p", "X.xcodeproj")
             d = sx.descend(doc, ())
             with tempfile.TemporaryDirectory() as tmp:
-                started = _timing.clock()
-                _m, res = sx.synced_memberships(doc, Path(tmp), d, "p", by_id, "X.xcodeproj")
-                elapsed = _timing.clock() - started
+                # A collection over whatever heap the worker process holds
+                # is charged to whichever run triggers it; in the parallel
+                # suite that made the large run grow about 26 times. Collect
+                # first and hold the collector off while timing.
+                gc.collect()
+                gc.disable()
+                try:
+                    started = _timing.clock()
+                    _m, res = sx.synced_memberships(doc, Path(tmp), d, "p", by_id, "X.xcodeproj")
+                    elapsed = _timing.clock() - started
+                finally:
+                    gc.enable()
             self.assertEqual([r[2] for r in res], doc.list_item_lines[("T", "fileSystemSynchronizedGroups")])
             return elapsed
 
-        _timing.assert_grows_linearly(self, seconds, self.P, "dangling synced-group lookups")
+        _timing.assert_grows_linearly(self, seconds, self.P, "dangling synced-group lookups", attempts=5)
 
     def test_a_long_dangling_children_list_renders_each_line_in_linear_time(self):
 

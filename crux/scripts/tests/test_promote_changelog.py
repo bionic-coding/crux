@@ -323,10 +323,48 @@ class NestedBulletsTest(unittest.TestCase):
         self.assertIn("  - Sub-bullet B", new_text)
 
 
-class UtcDateTest(unittest.TestCase):
-    def test_today_utc_format(self):
-        today = MODULE._today_utc()
+class LocalDateTest(unittest.TestCase):
+    def test_today_local_format(self):
+        today = MODULE._today_local()
         self.assertRegex(today, r"^\d{4}-\d{2}-\d{2}$")
+
+    def test_default_date_is_local_civil_date(self):
+        """At 2026-10-29T02:00Z it is still 2026-10-28 in Denver (UTC-6)."""
+        from datetime import datetime as real_datetime, timezone as real_tz
+        import time
+
+        instant = real_datetime(2026, 10, 29, 2, 0, tzinfo=real_tz.utc)
+
+        class FixedClock(real_datetime):
+            @classmethod
+            def now(cls, tz=None):
+                if tz is not None:
+                    return instant.astimezone(tz)
+                return real_datetime.fromtimestamp(instant.timestamp())
+
+        old_tz = os.environ.get("TZ")
+
+        def restore_tz():
+            if old_tz is None:
+                os.environ.pop("TZ", None)
+            else:
+                os.environ["TZ"] = old_tz
+            time.tzset()
+
+        self.addCleanup(restore_tz)
+        os.environ["TZ"] = "America/Denver"
+        time.tzset()
+
+        original = MODULE.datetime
+        MODULE.datetime = FixedClock
+        self.addCleanup(setattr, MODULE, "datetime", original)
+
+        with tempfile.TemporaryDirectory(prefix="promote-changelog-") as d:
+            cl = Path(d) / "CHANGELOG.md"
+            cl.write_text(SAMPLE_HAPPY, encoding="utf-8")
+            rc = MODULE.main(["--version", "0.4.0", "--changelog", str(cl)])
+            self.assertEqual(rc, 0)
+            self.assertIn("## [0.4.0] — 2026-10-28", cl.read_text(encoding="utf-8"))
 
     def test_date_flag_overrides_default(self):
         tmp = Path(tempfile.mkdtemp(prefix="promote-changelog-"))

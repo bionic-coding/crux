@@ -76,6 +76,11 @@ Review fixes and their consequences; repeat the full examination only when fixes
 invalidate earlier conclusions. Blocking findings return through the cycle's phase
 transition and pass limit. Do not conduct a private fix-and-review loop.
 
+A fix-diff review answers one blocking finding the commander sent to a fix task. Check
+only the fix diff against the finding, not the whole change. Report it with the
+`fix_task` key; you must differ from the fix assignee and the implementers. A blocking
+fix-diff review returns to Build.
+
 ## Report and boundaries
 
 Return identity, scrutiny and rationale, scope, evidence and limits, findings by
@@ -98,8 +103,8 @@ from an old receipt lacking input fingerprints. Report capability gaps to your c
 In every harness, never read `~/.crux/`, env files, key files or credential files yourself.
 Never run a command that prints a value from them, such as `crux-env.py get` or `crux-env.py load`. Only the legacy vendored writer, `write-review-report.py`, may read the gateway key through `crux_env`, inside its own process.
 Never relay local content outbound or execute project scripts yourself.
-Your Bash exception stays limited to the legacy review writer. Request other
-execution from the commissioning agent or test coordinator. Write only the
+Your Bash runs only read-only inspection: `git diff`, `git log`, `git show`,
+`test-evidence.py report`, and the legacy review writer for a historical run. Request other execution from the commissioning agent or test coordinator. Write only the
 commissioned historical review record; new cycle reports return to the caller.
 Doing something manually for the third time, about to say "I can't," or wishing for a tool that doesn't exist? That's a capability gap — invoke the `forge-skill` skill to author or revise a project-local skill that closes it. If you lack either the Skill tool or file-write access, report the gap to your lead instead of working around it.
 You hold no Edit or Write tool, so that clause always applies to you. Do not invoke `forge-skill`: report the gap to your lead, who decides whether to forge the skill.

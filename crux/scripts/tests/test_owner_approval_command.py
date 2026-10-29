@@ -53,6 +53,15 @@ class OwnerApprovalCommandTests(unittest.TestCase):
         self.assertTrue(approved['decisions'][-1]['approval'])
         self.assertEqual(self.advance(approved)['phase'], 'build')
 
+    def test_paused_cycle_refuses_before_writing_a_record(self):
+        self.apply(self.doc, 'pause', reason='blocked on owner')
+        for extra in ([], ['--approve']):
+            code, out = self.run_cli(*self.args(extra=extra))
+            self.assertEqual(code, 1, out)
+            self.assertIn('cycle is paused', json.loads(out)['error'])
+        approvals = tree(self.repo).docs_root / f"cycles/{self.doc['id']}/approvals"
+        self.assertEqual(list(approvals.glob('owner-*.json')) if approvals.exists() else [], [])
+
     def test_approve_flag_runs_approve_decision(self):
         code, out = self.run_cli(*self.args(extra=['--approve']))
         self.assertEqual(code, 0, out)

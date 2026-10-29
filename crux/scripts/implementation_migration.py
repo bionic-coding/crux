@@ -531,10 +531,81 @@ def _with_remedy(refusal, remedy: str):
     return refusal
 
 
+def _citation_occurrences(text: str, module, handles, slugs) -> list[dict]:
+    """Every exact token occurrence in ``text``: a HANDLE_RE match in ``handles`` or a RULE_RE match in ``slugs``.
+
+    The one extraction the citation reader and the CHANGELOG.md span share, so the span can never
+    select a different set of occurrences than the reader classifies.
+    """
+    return [{"token": match[0], "start": match.start(), "end": match.end()}
+            for pattern, wanted in ((module.HANDLE_RE, handles), (module.RULE_RE, slugs))
+            for match in pattern.finditer(text) if match[0] in wanted]
+
+
+def changelog_citation_tokens(repo) -> dict:
+    """The tokens, and the facts a registry needs, from every implementation migration batch in the tree.
+
+    A batch is each ``*.yaml`` directly under ``<docs_root>/adrs/migrations``, read by ``load_batch``.
+    Returns ``tokens`` (the sorted union of every batch's handles and ``rule:`` slugs, whether or not
+    the batch binds CHANGELOG.md, because a token of any batch changes that batch's verdict when it
+    appears there), ``batches`` (sorted batch ids), ``binding`` (the ids of batches whose
+    ``citation_dependencies`` bind CHANGELOG.md) and ``unpublished`` (the binding ids without a
+    committed ``<batch_id>.application.json`` beside the batch; a binding batch binds the whole-file
+    sha256 until it is published).
+
+    Contract: this never guesses. A layout, batch, schema or history read failure raises (``Refused``
+    or an ``OSError``), so a caller declares no projection rather than a partial token set.
+    """
+    repo = Path(repo).resolve()
+    folder = _configuration(repo).docs_root / "adrs/migrations"
+    published = {row["path"] for row in _discover_publications(repo)}
+    tokens, batches, binding, unpublished = set(), [], [], []
+    for path in sorted(p for p in folder.glob("*.yaml") if p.is_file()):
+        batch = load_batch(repo, path)
+        handles, slugs = _batch_citation_tokens(batch)
+        tokens |= handles | slugs
+        batches.append(batch["batch_id"])
+        if any(dep["path"] == "CHANGELOG.md" for dep in batch["citation_dependencies"]):
+            binding.append(batch["batch_id"])
+            locator = path.relative_to(repo).with_name(batch["batch_id"] + ".application.json").as_posix()
+            if locator not in published: unpublished.append(batch["batch_id"])
+    return {"tokens": sorted(tokens), "batches": sorted(batches), "binding": sorted(binding),
+            "unpublished": sorted(unpublished)}
+
+
+def changelog_citation_span(text: str, tokens) -> list[dict] | None:
+    """The rows of CHANGELOG.md ``text`` that the citation readers consume, or None when it is too large.
+
+    One row per occurrence of a token, in file order: ``token``, ``partition`` (``governing`` or
+    ``historical``, as ``classify_changelog_references`` decides) and, for a historical row, the
+    ``version`` and ``date`` of its dated release. A row holds no offset, line number or footnote
+    label, so a prepended release section or a footnote that cites no token changes no row. Any
+    failure raises; a caller that cannot compute the span falls back to the raw digest.
+    """
+    if len(text.encode("utf-8")) > MAX_SOURCE_BYTES: return None
+    module = _reference_reader()
+    tokens = set(tokens)
+    occurrences = _citation_occurrences(text, module, {t for t in tokens if module.HANDLE_RE.fullmatch(t)},
+                                        {t for t in tokens if module.RULE_RE.fullmatch(t)})
+    if not occurrences: return []
+    from changelog_reference import classify_changelog_references
+    partition = classify_changelog_references(text, occurrences)
+    ordered = sorted([(row, True) for row in partition["governing"]] + [(row, False) for row in partition["historical"]],
+                     key=lambda item: (item[0]["start"], item[0]["end"], item[0]["token"]))
+    return [{"token": row["token"], "partition": "governing"} if governing else
+            {"token": row["token"], "partition": "historical", "version": row["version"], "date": row["date"]}
+            for row, governing in ordered]
+
+
+def _batch_citation_tokens(batch: dict) -> tuple[set, set]:
+    """A batch's handles and their ``rule:`` slugs: the tokens whose occurrence the citation reader reports."""
+    handles = {rule["handle"] for entry in batch["entries"] for rule in entry["affected_governs"]}
+    return handles, {"rule:" + handle.split("/", 1)[1] for handle in handles}
+
+
 def _inspect_citation_sources(repo: Path, batch: dict, module, files, source_io,
                               briefs=None) -> tuple[list[dict], dict]:
-    handles = {rule["handle"] for entry in batch["entries"] for rule in entry["affected_governs"]}
-    slugs = {"rule:" + handle.split("/", 1)[1] for handle in handles}
+    handles, slugs = _batch_citation_tokens(batch)
     found = []; kinds = {"governing": [], "historical": []}
     # A source this scope already read completely, under the same selected tree, whose path
     # still has the identity it had then, is not walked and read again. Each such path is
@@ -562,9 +633,7 @@ def _inspect_citation_sources(repo: Path, batch: dict, module, files, source_io,
             path_read_memo.remember("citation-source", root, rel, (MAX_SOURCE_BYTES, selected), before, text)
         else:
             reused.append((rel, held[0])); text = held[1]
-        occurrences = [{"token": match[0], "start": match.start(), "end": match.end()}
-            for pattern, wanted in ((module.HANDLE_RE, handles), (module.RULE_RE, slugs))
-            for match in pattern.finditer(text) if match[0] in wanted]
+        occurrences = _citation_occurrences(text, module, handles, slugs)
         if not occurrences: continue
         found.append({"path": rel, "sha256": _digest(text.encode())})
         if rel == "CHANGELOG.md":

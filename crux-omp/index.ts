@@ -7,7 +7,7 @@ import { spawn } from 'node:child_process'
 import { readFileSync, realpathSync, statSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { runCommand } from './lib/command.ts'
+import { pageDelta, runCommand, turnedPage } from './lib/command.ts'
 import { asksForTheRun, summarizeToolDetail, touchesRunFile } from './lib/events.ts'
 import type { Host, KeptEnvelope, ReaderSink } from './lib/host.ts'
 import { registerAll } from './lib/lifecycle.ts'
@@ -71,6 +71,7 @@ type Session = {
   host: Host
   scheduler: Scheduler
   paint: () => void
+  turnPage: (delta: number) => void
   stop: () => void
   docsDir: () => string | undefined
 }
@@ -271,6 +272,7 @@ export default function cruxOmpExtension(pi: ExtensionAPI): (() => void) | undef
   const makeSession = (ctx: Ctx): Session => {
     const state: { current: KeptEnvelope | null; docsDir: string | undefined } = { current: null, docsDir: undefined }
     let panel = false
+    let page = 0
 
     const buildLiveSnapshot = (): LiveRuntimeSnapshot => {
       const store = liveStore()
@@ -356,7 +358,7 @@ export default function cruxOmpExtension(pi: ExtensionAPI): (() => void) | undef
             ? (_tui: unknown, theme: unknown) => {
                 const styler = theme !== null && typeof theme === 'object' ? (theme as OmpStyler) : undefined
                 return {
-                  render: (width: number) => panelLines(parsed, width, buildLiveSnapshot(), styler) ?? [],
+                  render: (width: number) => panelLines(parsed, width, buildLiveSnapshot(), styler, page) ?? [],
                   invalidate: () => {},
                 }
               }
@@ -534,6 +536,13 @@ export default function cruxOmpExtension(pi: ExtensionAPI): (() => void) | undef
       host,
       scheduler,
       paint,
+      turnPage: (delta: number) => {
+        if (!panel) return
+        const next = turnedPage(page, delta, readView(() => state.current))
+        if (next === page) return
+        page = next
+        paint()
+      },
       docsDir: () => state.docsDir,
       stop: () => {
         scheduler.stop()
@@ -786,10 +795,13 @@ export default function cruxOmpExtension(pi: ExtensionAPI): (() => void) | undef
     () =>
       attemptVoid(() =>
         pi.registerCommand('crux-dashboard', {
-          description: 'Toggle the crux run dashboard',
-          handler: async (_args: string, ctx: Ctx) => {
+          description: 'Toggle the crux run dashboard; "next" and "prev" turn the cycles: list page',
+          handler: async (args: string, ctx: Ctx) => {
             const session = sessionFor(ctx)
-            if (session !== undefined) runCommand(session.host, session.scheduler)
+            if (session === undefined) return
+            const delta = pageDelta(args)
+            if (delta === null) runCommand(session.host, session.scheduler)
+            else session.turnPage(delta)
           },
         }),
       ),

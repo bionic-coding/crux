@@ -140,11 +140,11 @@ function drawBand(parsed: Parsed | null, width: unknown, live?: LiveRuntimeSnaps
   return block === null ? null : blockLines(block, styler)
 }
 
-function drawPanel(parsed: Parsed | null, width: unknown, live?: LiveRuntimeSnapshot, styler?: OmpStyler): string[] | null {
+function drawPanel(parsed: Parsed | null, width: unknown, live?: LiveRuntimeSnapshot, styler?: OmpStyler, page = 0): string[] | null {
   if (parsed === null && live === undefined) return null
   const w = drawingWidth(width)
   if (parsed !== null && parsed.ok && parsed.view.cycles !== undefined) {
-    return blockLines(buildOmpCyclesPane(parsed.view.cycles, parsed.view.now_s, live, w), styler)
+    return blockLines(buildOmpCyclesPane(parsed.view.cycles, parsed.view.now_s, live, w, page), styler)
   }
   if (parsed === null && live !== undefined) {
     return blockLines(buildOmpCyclesPane([], null, live, w), styler)
@@ -165,9 +165,9 @@ export function bandLines(parsed: Parsed | null, width: unknown, live?: LiveRunt
   }
 }
 
-export function panelLines(parsed: Parsed | null, width: unknown, live?: LiveRuntimeSnapshot, styler?: OmpStyler): string[] | null {
+export function panelLines(parsed: Parsed | null, width: unknown, live?: LiveRuntimeSnapshot, styler?: OmpStyler, page = 0): string[] | null {
   try {
-    return drawPanel(parsed, width, live, styler)
+    return drawPanel(parsed, width, live, styler, page)
   } catch {
     try {
       return drawPanel(INVALID, width, undefined, styler)

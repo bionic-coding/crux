@@ -36,7 +36,7 @@ uv run "${CRUX_PLUGIN_ROOT}/scripts/cycle.py" status CYC-NNNN   # one cycle
 Run it from the project root, or pass `--repo-root PATH` before `status`.
 
 With no cycle named, it shows active cycles first, then the others by cycle number,
-highest first, at most 20, followed by the queue. Name a cycle to see older ones.
+highest first, at most 60, followed by the queue. Name a cycle to see older ones.
 
 Each cycle shows its type, pass and limit, current phase and status, elapsed time,
 tasks, return reasons, approval waits, any pause reason and the recorded outcome.

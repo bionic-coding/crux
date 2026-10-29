@@ -476,5 +476,145 @@ class CommandLineBoundaryTests(unittest.TestCase):
         self.assertEqual(self.run_cli("validate", "--evidence-id", ran["id"])[0], 2)
 
 
+# ---- CYC-0064: the selecting kind ``changelog-citations:<tokens>`` -------------------------------
+CITES = "changelog-citations:ADR-0110/rotation rule:rotation"
+RELEASE = "## [3.10.0] — 2026-08-01\n\nEarlier.[^old]\n\n[^old]: rule:rotation (ADR-0110/rotation).\n"
+NEWER_RELEASE = "## [3.11.0] — 2026-09-01\n\nA release.[^new]\n\n[^new]: rule:somewhere-else.\n\n"
+LOG = "# Changelog\n\n" + RELEASE
+
+
+def with_release(text=LOG, section=NEWER_RELEASE):
+    return text.replace("# Changelog\n\n", "# Changelog\n\n## [Unreleased]\n\nEdited prose.\n\n" + section, 1)
+
+
+class ChangelogCitationsKindTests(unittest.TestCase):
+    def declaration(self, kinds=(CITES,), path="CHANGELOG.md", **extra):
+        return dict({"check_id": "c", "command": ["python", "-c", "1"], "inputs": [path],
+                     "input_projections": {path: list(kinds)}}, **extra)
+
+    def test_the_kind_is_in_the_closed_set_and_canonical(self):
+        self.assertTrue(any(kind.startswith("changelog-citations:") for kind in te.PROJECTION_KINDS))
+        normalized = normalize(self.declaration())
+        self.assertEqual(normalized["input_projections"], {"CHANGELOG.md": [CITES]})
+        for bad in ("changelog-citations:", "changelog-citations: rule:a", "changelog-citations:rule:a ",
+                    "changelog-citations:rule:b rule:a", "changelog-citations:rule:a rule:a",
+                    "changelog-citations:not-a-token", "changelog-citations:rule:Bad",
+                    "changelog-citations:ADR-0110/Rotation", "changelog-citations:rule:a  rule:b"):
+            with self.subTest(bad), self.assertRaises(EvidenceError):
+                normalize(self.declaration(kinds=(bad,)))
+
+    def test_the_kind_must_be_the_only_kind_on_its_path(self):
+        with self.assertRaises(EvidenceError):
+            normalize(self.declaration(kinds=(CITES, "readme-footer-version")))
+        self.assertIsNone(te.projected_digest(LOG.encode(), (CITES, "readme-footer-version")))
+
+    def test_the_token_pattern_matches_the_citation_readers(self):
+        import implementation_migration as migration
+        reader = migration._reference_reader()
+        self.assertEqual(te._CITATION_HANDLE.pattern, reader.HANDLE_RE.pattern)
+        self.assertEqual(te._CITATION_RULE.pattern, reader.RULE_RE.pattern)
+
+    def test_a_prepended_section_and_an_unrelated_footnote_keep_the_digest(self):
+        base = projected(LOG, CITES)
+        self.assertIsNotNone(base)
+        self.assertEqual(base, projected(with_release(), CITES))
+        self.assertEqual(base, projected(with_release(section=""), CITES))
+
+    def test_each_span_edit_changes_the_digest(self):
+        base = projected(LOG, CITES)
+        for label, text in (
+                ("token removed", LOG.replace("rule:rotation (ADR-0110/rotation)", "nothing")),
+                ("version changed", LOG.replace("3.10.0", "3.10.1")),
+                ("date changed", LOG.replace("2026-08-01", "2026-08-02")),
+                ("token in Unreleased", "# Changelog\n\n## [Unreleased]\n\nrule:rotation\n\n" + RELEASE),
+                ("footnote label duplicated", LOG + "\n[^old]: another definition\n")):
+            with self.subTest(label):
+                self.assertNotEqual(base, projected(text, CITES))
+
+    def test_the_projected_digest_never_equals_the_raw_one(self):
+        base = projected(LOG, CITES)
+        self.assertNotEqual(base, _raw(LOG.encode()))
+        self.assertEqual(te.input_digest(LOG.encode(), (CITES,)), base)
+        self.assertEqual(te.input_digest(b"\xff\xfe not utf-8", (CITES,)), _raw(b"\xff\xfe not utf-8"))
+
+    def test_every_uncertain_case_falls_back_to_the_raw_digest(self):
+        data = LOG.encode()
+        raw = _raw(data)
+        self.assertIsNone(te.projected_digest(b"\xff\xfe", (CITES,)))
+        oversize = (LOG + "x" * (2 * 1024 * 1024 + 1)).encode()
+        self.assertIsNone(te.projected_digest(oversize, (CITES,)))
+        self.assertEqual(te.input_digest(oversize, (CITES,)), _raw(oversize))
+        for malformed in ("changelog-citations:rule:b rule:a", "changelog-citations:rule:a rule:a", "changelog-citations:x"):
+            with self.subTest(malformed):
+                self.assertEqual(te.input_digest(data, (malformed,)), raw)
+        with patch.dict(sys.modules, {"implementation_migration": None}):  # the import itself fails
+            self.assertEqual(te.input_digest(data, (CITES,)), raw)
+        import implementation_migration as migration
+        for failure in (RuntimeError("boom"), ValueError("bad"), KeyError("k"), OSError("io")):
+            with self.subTest(failure=repr(failure)), patch.object(migration, "changelog_citation_span", side_effect=failure):
+                self.assertEqual(te.input_digest(data, (CITES,)), raw)
+        with patch.object(migration, "changelog_citation_span", return_value=None):
+            self.assertEqual(te.input_digest(data, (CITES,)), raw)
+
+    def test_the_masking_kinds_still_cover_every_other_byte(self):
+        self.assertNotEqual(projected(bump(JSON_TEXT, "9.9.9", "8.8.8"), "json-string:version"), projected(JSON_TEXT, "json-string:version"))
+
+
+class ChangelogCitationsSnapshotTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name).resolve()
+        (self.root / "CHANGELOG.md").write_text(LOG)
+        (self.root / "other.txt").write_text("other\n")
+
+    def declaration(self, git=False):
+        return dict({"check_id": "c", "command": ["python", "-c", "1"], "inputs": ["CHANGELOG.md", "other.txt"],
+                     "input_projections": {"CHANGELOG.md": [CITES]}}, **({"git_tracked": True} if git else {}))
+
+    def fingerprint(self, git=False):
+        return snapshot(self.root, self.declaration(git))["fingerprint"]
+
+    def git(self, *args):
+        return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", *args], cwd=self.root,
+                              capture_output=True, text=True, check=True)
+
+    def test_a_release_only_change_keeps_the_fingerprint_and_a_span_edit_changes_it(self):
+        before = self.fingerprint()
+        (self.root / "CHANGELOG.md").write_text(with_release())
+        self.assertEqual(self.fingerprint(), before)
+        (self.root / "CHANGELOG.md").write_text(LOG.replace("2026-08-01", "2026-08-02"))
+        self.assertNotEqual(self.fingerprint(), before)
+        (self.root / "CHANGELOG.md").write_bytes(b"\xff\xfe")
+        self.assertNotEqual(self.fingerprint(), before)
+
+    def test_a_declaration_without_the_kind_has_another_fingerprint(self):
+        plain = self.declaration()
+        del plain["input_projections"]
+        self.assertNotEqual(snapshot(self.root, plain)["fingerprint"], self.fingerprint())
+
+    def test_worktree_index_and_head_each_project_and_each_span_edit_invalidates(self):
+        self.git("init", "-q")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "base")
+        before = self.fingerprint(git=True)
+        path = self.root / "CHANGELOG.md"
+        path.write_text(with_release())
+        self.assertEqual(self.fingerprint(git=True), before)  # worktree projects
+        self.git("add", "-A")
+        self.assertEqual(self.fingerprint(git=True), before)  # index projects
+        self.git("commit", "-q", "-m", "release")
+        self.assertEqual(self.fingerprint(git=True), before)  # HEAD tree projects
+        path.write_text(LOG.replace("3.10.0", "3.10.1"))
+        self.assertNotEqual(self.fingerprint(git=True), before)  # worktree
+        self.git("add", "-A")
+        self.assertNotEqual(self.fingerprint(git=True), before)  # index
+        self.git("commit", "-q", "-m", "edit")
+        self.assertNotEqual(self.fingerprint(git=True), before)  # HEAD
+        path.write_text(LOG)
+        self.git("add", "-A")
+        self.assertNotEqual(self.fingerprint(git=True), before)  # HEAD alone differs from the base
+
+
 if __name__ == "__main__":
     unittest.main()

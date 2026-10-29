@@ -367,7 +367,7 @@ class ReductionTests(Base):
         return doc
 
     def complete(self, doc):
-        doc = self.apply(doc, 'reflect', reflection={'outcome': 'removed', 'lessons': 'none', 'remaining': 'none'})
+        doc = self.apply(doc, 'reflect', reflection={'outcome': 'removed', 'lessons': ['none'], 'remaining': ['none']})
         doc = self.apply(doc, 'completion', commits=[], exception='Fixture owner requests uncommitted delivery.', remaining='none')
         with patch('cycle_workflow.check_tests'):
             for task in doc['plan']['tasks']:

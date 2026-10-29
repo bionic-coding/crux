@@ -75,7 +75,7 @@ FLAG_TOLERATED = ("utf8_mode", "gil", "thread_inherit_context", "context_aware_w
 SCHEDULING_FLAGS = ("--workers", "--records", "--timings")
 STATUSES = ("passed", "failed", "inputs-changed", "interrupted")
 LOG_COMPRESSION_THRESHOLD = 1024 * 1024
-INTERRUPT_GRACE_SECONDS = 10
+INTERRUPT_GRACE_SECONDS = 5
 
 
 def digest(value):
@@ -88,18 +88,35 @@ def file_digest(path):
 
 # ---------------------------------------------------------------- input projections
 #
-# A declaration may name, per path, the spans a release rewrites (``input_projections``). The path's
-# digest then covers every other byte and not the located values. The kind set is closed. A kind
-# applies only when it locates exactly one span, each located value has its strict format, and the
-# spans of one path are disjoint. Anything else (an unknown kind, a duplicate locator, a nested
-# same-named key, a malformed value, bytes that are not UTF-8) falls back to the raw digest, so an
-# unrecognised change always invalidates. The projected digest starts from the fixed prefix
-# ``projected:<sorted kinds>``; a raw digest is the bare sha256 of the file, so a raw file cannot
-# equal a projected digest unless its own bytes begin with that prefix and hold the placeholder.
+# A declaration may name, per path, the spans a release rewrites (``input_projections``). The kind
+# set is closed and has two semantics.
+#
+# A MASKING kind covers every other byte: the path's digest covers every byte except the located
+# value. A masking kind applies only when it locates exactly one span, each located value has its
+# strict format, and the spans of one path are disjoint.
+#
+# The SELECTING kind ``changelog-citations:<tokens>`` covers exactly its reader's view: the digest is
+# the hash of the rows ``implementation_migration.changelog_citation_span`` returns (the occurrences
+# of the listed tokens, their partition, and the dated release of a historical one) and no other
+# byte. It must be the only kind on its path, and it falls back to the raw digest whenever that view
+# cannot be computed: bytes that are not UTF-8, a file over the span's size bound, a malformed or
+# duplicate token, a span helper that cannot be imported, or any exception the helper raises.
+#
+# Anything else that fits no kind (an unknown kind, a duplicate locator, a nested same-named key, a
+# malformed value) also falls back to the raw digest, so an unrecognised change always invalidates.
+# The projected digest starts from the fixed prefix ``projected:<sorted kinds>``; a raw digest is the
+# bare sha256 of the file, so a raw file cannot equal a projected digest unless its own bytes begin
+# with that prefix and hold the placeholder (masking) or the canonical rows JSON (selecting).
 PROJECTION_PLACEHOLDER = "@@projected@@"
 PROJECTION_KINDS = ("json-string:<top-level key>", "toml-project-version", "uv-lock-package-version:<name>",
-                    "readme-footer-version", "generated-fingerprint-line")
+                    "readme-footer-version", "generated-fingerprint-line",
+                    "changelog-citations:<sorted space-separated tokens>")
 _PROJECTION_STATIC = ("toml-project-version", "readme-footer-version", "generated-fingerprint-line")
+_CITATIONS_PREFIX = "changelog-citations:"
+# The token grammar of lint-governs-references.py (HANDLE_RE, RULE_RE): a second copy, because
+# validating a declaration must not import the migration module. A test holds the two equal.
+_CITATION_HANDLE = re.compile(r"(?:(?:[A-Z][A-Z0-9]{1,9}-)?ADR|OBS)-\d{4}/[a-z][a-z0-9-]*")
+_CITATION_RULE = re.compile(r"rule:[a-z][a-z0-9-]*")
 _SEMVER = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
 # Line 1 of a staged public rendition. This is a second copy of the grammar in tools/sync_stage.py
 # (FINGERPRINT_RE) because tools/ does not ship and the engine does. A change to one needs the other.
@@ -119,7 +136,44 @@ def _valid_projection_kind(kind):
         return bool(key) and "\n" not in key
     if kind.startswith("uv-lock-package-version:"):
         return bool(_PACKAGE_NAME.fullmatch(kind[len("uv-lock-package-version:"):]))
+    if kind.startswith(_CITATIONS_PREFIX):
+        return _citation_tokens(kind) is not None
     return False
+
+
+def _citation_tokens(kind):
+    """The tokens of a ``changelog-citations:`` kind, or None unless they are canonical.
+
+    Canonical means non-empty, one space between tokens, each token a full HANDLE_RE or RULE_RE
+    match, sorted and without duplicates, so one set of tokens has one spelling."""
+    tokens = kind[len(_CITATIONS_PREFIX):].split(" ")
+    if not all(_CITATION_HANDLE.fullmatch(t) or _CITATION_RULE.fullmatch(t) for t in tokens):
+        return None
+    return tokens if tokens == sorted(set(tokens)) else None
+
+
+def _changelog_citation_rows(text, tokens):
+    """The span rows of ``text`` for ``tokens``, or None when the raw digest must be used.
+
+    Imports the span helper lazily, from beside this engine. A missing PyYAML raises EvidenceError,
+    so an incomplete environment never changes the fingerprint. Any other failure of the import or of
+    the helper (including a refusal it raises) is None: an unrecognised state never reuses evidence."""
+    added = str(ENGINE_DIR) not in sys.path
+    if added:
+        sys.path.insert(0, str(ENGINE_DIR))
+    try:
+        import implementation_migration
+        return implementation_migration.changelog_citation_span(text, tokens)
+    except ModuleNotFoundError as exc:
+        if exc.name == "yaml":
+            raise EvidenceError("PyYAML is required to fingerprint a changelog citation projection; "
+                                "add pyyaml>=6.0 to the project's environment and run the engine as `uv run python3 test-evidence.py`") from exc
+        return None
+    except Exception:
+        return None
+    finally:
+        if added and str(ENGINE_DIR) in sys.path:
+            sys.path.remove(str(ENGINE_DIR))
 
 
 def _normalize_projections(projections):
@@ -134,6 +188,8 @@ def _normalize_projections(projections):
                 or len(set(kinds)) != len(kinds)):
             raise EvidenceError(f"input_projections for {path} must list distinct kinds from the closed set: "
                                 + ", ".join(PROJECTION_KINDS))
+        if len(kinds) > 1 and any(k.startswith(_CITATIONS_PREFIX) for k in kinds):
+            raise EvidenceError(f"input_projections for {path}: {_CITATIONS_PREFIX}<tokens> must be the only kind on its path")
         result[path] = sorted(kinds)
     return result
 
@@ -324,6 +380,14 @@ def projected_digest(data, kinds):
         text = data.decode("utf-8")
     except UnicodeDecodeError:
         return None
+    if any(k.startswith(_CITATIONS_PREFIX) for k in kinds):
+        if len(kinds) != 1:
+            return None
+        rows = _changelog_citation_rows(text, _citation_tokens(kinds[0]))
+        if rows is None:
+            return None
+        rendered = json.dumps(rows, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+        return hashlib.sha256(("projected:" + kinds[0]).encode() + b"\0" + rendered.encode()).hexdigest()
     spans = []
     for kind in kinds:
         span = _locate(text, kind)
@@ -604,6 +668,26 @@ def _lock_binding(lock_path, lock):
     return digest({"lock_export": lines})
 
 
+_GLOB_META = re.compile(r"[*?\[]")
+
+
+def _ignored_names(repo, names):
+    """Names git ignores and does not track, or None when git cannot classify them.
+
+    `git check-ignore` without `--no-index` never reports a tracked file.
+    """
+    if not names:
+        return set()
+    stdin = ''.join(name + '\0' for name in names).encode('utf-8', 'surrogateescape')
+    try:
+        result = subprocess.run(['git', '-C', str(repo), 'check-ignore', '-z', '--stdin'], input=stdin, capture_output=True)
+    except OSError:
+        return None
+    if result.returncode not in (0, 1):
+        return None
+    return {name for name in result.stdout.decode('utf-8', 'surrogateescape').split('\0') if name}
+
+
 def snapshot(root, declaration, source_root=None):
     """The subject's declared projection and its fingerprint. Nothing here reads the environment."""
     root = Path(root).resolve()
@@ -641,6 +725,7 @@ def snapshot(root, declaration, source_root=None):
                            and not excluded(os.fsdecode(entry.split(b"\t", 1)[1]))]
                 git_head_tree = hashlib.sha256(b"\0".join(entries)).hexdigest()
 
+    walked = []
     for pattern, matches in selection:
         if excluded(pattern):
             continue
@@ -659,8 +744,15 @@ def snapshot(root, declaration, source_root=None):
                 if path.is_symlink():
                     raise EvidenceError(f"symlink input requires an explicit real input path: {relative}")
                 if path.is_file():
-                    sha256 = input_digest(path.read_bytes(), projections[relative]) if relative in projections else file_digest(path)
-                    files[relative] = {"sha256": sha256, "executable": bool(path.stat().st_mode & 0o111)}
+                    walked.append((relative, pattern, path))
+    # An untracked git-ignored file is not an input unless a declared pattern names it literally.
+    # When git cannot classify the files, every file counts.
+    ignored = _ignored_names(root, sorted({relative for relative, _, _ in walked})) or set()
+    for relative, pattern, path in walked:
+        if relative in ignored and not (relative == pattern and not _GLOB_META.search(pattern)):
+            continue
+        sha256 = input_digest(path.read_bytes(), projections[relative]) if relative in projections else file_digest(path)
+        files[relative] = {"sha256": sha256, "executable": bool(path.stat().st_mode & 0o111)}
     lock_digest = None
     packages = effective_requirement(declaration, root)["packages"]
     if packages and "lock" in packages:
@@ -1299,13 +1391,133 @@ def validate_evidence(repo_root, evidence_id, check_id=None, *, source_root=None
 
 # ---------------------------------------------------------------- execution
 
-@contextlib.contextmanager
-def _lock(path):
-    # flock is inherited by the child, preventing duplicates if its coordinator dies.
+LOCK_POLL_SECONDS = 1
+LOCK_RECORDLESS_SECONDS = 10
+LSOF_TIMEOUT_SECONDS = 5
+
+
+def _positive_int(value):
+    return type(value) is int and value > 0
+
+
+def _read_holder(fd):
+    """The holder record in the lock file, or None when it is missing or unusable."""
+    try:
+        record = json.loads(os.pread(fd, 4096, 0).decode("utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(record, dict) or not _positive_int(record.get("engine_pid")):
+        return None
+    if "child_pid" in record and not _positive_int(record["child_pid"]):
+        return None
+    return record
+
+
+def _write_holder(fd, record):
+    os.ftruncate(fd, 0)
+    os.pwrite(fd, json.dumps(record).encode("utf-8"), 0)
+
+
+def _alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _group_exists(pgid):
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _lock_holders(path):
+    """Pids with the lock file open besides this process, or None when lsof cannot say."""
+    try:
+        result = subprocess.run(["lsof", "-t", "--", str(path)], capture_output=True, text=True, timeout=LSOF_TIMEOUT_SECONDS)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode not in (0, 1):
+        return None
+    return sorted({int(token) for token in result.stdout.split() if token.isdigit()} - {os.getpid()})
+
+
+def _acquire(path):
+    """Take the lock file's flock and return its descriptor.
+
+    A live holder engine is awaited without a timeout. A busy lock whose engine is gone, or that
+    carries no usable record for LOCK_RECORDLESS_SECONDS, exits 2 naming the lock and its holders.
+    The waiter only reports: it never signals, kills or unlocks.
+    """
     import fcntl
     fd = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    announced, dead_seen, recordless_since = None, None, None
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return fd
+            except BlockingIOError:
+                pass
+            record = _read_holder(fd)
+            now = time.monotonic()
+            failure = None
+            if record is None:
+                dead_seen = None
+                recordless_since = now if recordless_since is None else recordless_since
+                if now - recordless_since >= LOCK_RECORDLESS_SECONDS:
+                    failure = f"the lock {path} is held and carries no usable holder record"
+            else:
+                recordless_since = None
+                if _alive(record["engine_pid"]):
+                    dead_seen = None
+                    if announced != record:
+                        announced = record
+                        print(f"waiting for {path}: held by engine pid {record['engine_pid']} "
+                              f"(check {record.get('check_id')}, started {record.get('started_at')})", file=sys.stderr)
+                elif dead_seen == record:
+                    failure = f"the lock {path} is held after its engine pid {record['engine_pid']} exited"
+                    child = record.get("child_pid")
+                    if child is not None and _group_exists(child):
+                        failure += f"; stop its session and process group with kill -TERM -{child}"
+                else:
+                    dead_seen = record
+            if failure is not None:
+                break
+            time.sleep(LOCK_POLL_SECONDS)
+    except BaseException:
+        os.close(fd)
+        raise
+    os.close(fd)  # holder discovery must not see this waiter's own descriptor
+    holders = _lock_holders(path)
+    if holders is None:
+        raise EvidenceError(f"{failure}; the holder cannot be identified without lsof")
+    if not holders:
+        # lsof found no other process: the lock may have been released meanwhile.
+        retry = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+        try:
+            fcntl.flock(retry, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return retry
+        except BlockingIOError:
+            os.close(retry)
+        raise EvidenceError(f"{failure}; no process was found with the lock file open")
+    raise EvidenceError(f"{failure}; processes with the lock file open (this may include other waiters): "
+                        + ", ".join(map(str, holders)))
+
+
+@contextlib.contextmanager
+def _lock(path, check_id=None):
+    # flock is inherited by the child, preventing duplicates if its coordinator dies.
+    fd = _acquire(path)
+    try:
+        _write_holder(fd, {"engine_pid": os.getpid(), "check_id": check_id, "started_at": time.time()})
         yield fd
     finally:
         os.close(fd)
@@ -1380,6 +1592,10 @@ def _launch(argv, root, env, lock_fd):
     received = []
     child = subprocess.Popen(argv, cwd=root, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                              pass_fds=(lock_fd,), start_new_session=True)
+    with contextlib.suppress(OSError, ValueError):
+        record = _read_holder(lock_fd)
+        if record is not None:
+            _write_holder(lock_fd, dict(record, child_pid=child.pid))
     timer = []
     def stop(group_signal):
         with contextlib.suppress(ProcessLookupError, PermissionError):
@@ -1434,7 +1650,7 @@ def execute(repo_root, declaration, retry_reason=None, *, execution_command=None
     if any(secret.decode() in argument for secret in secrets for argument in entry):
         raise EvidenceError("commands must not contain credential environment values")
     directory = storage(root, source_root)
-    with _lock(directory / (digest(declaration) + ".lock")) as lock_fd:
+    with _lock(directory / (digest(declaration) + ".lock"), declaration["check_id"]) as lock_fd:
         found = lookup(root, declaration, source_root=source_root)
         if found["state"] == "passed":
             return {"action": "reused", "evidence": found["record"], "earlier_failures": found["earlier_failures"]}

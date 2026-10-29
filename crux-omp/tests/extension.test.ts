@@ -220,3 +220,11 @@ test('the band shows by default and when the host has no flag channel', async ()
   assert.ok((older.statuses.get('crux') ?? '').length > 0)
   older.cleanup?.()
 })
+
+test('a page argument on a closed panel changes nothing and does not open it', async () => {
+  const r = rig()
+  await r.handlers.get('session_start')?.({}, r.ctx)
+  await r.commands.get('crux-dashboard')!.handler('next', r.ctx)
+  assert.equal(r.widgets.get('crux-panel'), undefined)
+  r.cleanup?.()
+})

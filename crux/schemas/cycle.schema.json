@@ -266,6 +266,55 @@
                     }
                   }
                 }
+              },
+              "fix": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "finding",
+                  "eligibility",
+                  "pass"
+                ],
+                "properties": {
+                  "finding": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "eligibility": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "pass": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "before": {
+                    "type": "string",
+                    "pattern": "^TE-[0-9a-f]{32}$"
+                  },
+                  "after": {
+                    "type": "string",
+                    "pattern": "^TE-[0-9a-f]{32}$"
+                  },
+                  "review": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "path",
+                      "sha256"
+                    ],
+                    "properties": {
+                      "path": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "sha256": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  }
+                }
               }
             }
           }
@@ -310,6 +359,13 @@
       }
     },
     "required_checks": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "build_checks": {
       "type": "array",
       "items": {
         "type": "string",
@@ -486,6 +542,85 @@
         "beta",
         "official"
       ]
+    },
+    "assignments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "role",
+          "task",
+          "agent",
+          "result_path",
+          "state",
+          "attempt",
+          "started_at",
+          "last_seen",
+          "ended_at",
+          "note"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "role": {
+            "type": "string",
+            "minLength": 1
+          },
+          "task": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "agent": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "result_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "enum": [
+              "running",
+              "finished",
+              "lost"
+            ]
+          },
+          "attempt": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "started_at": {
+            "type": "string",
+            "minLength": 1
+          },
+          "last_seen": {
+            "type": "string",
+            "minLength": 1
+          },
+          "ended_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
     },
     "coverage": {
       "type": [

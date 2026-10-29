@@ -830,7 +830,7 @@ function cycleLines(c: CycleView, n: number, now: Time): Line[] {
 // --- the pane ---------------------------------------------------------------------------------------
 
 // Rows of the `cycles:` list per page.
-export const OLDER_PAGE_SIZE = 3
+export const OLDER_PAGE_SIZE = 10
 // The most open cycles the slot draws.
 export const OPEN_SLOT_MAX = 2
 // The queue card's rows: the upcoming items, the recently finished ones.
@@ -856,12 +856,31 @@ export const clampPage = (page: number, pages: number): number => Math.min(Math.
 
 // One closed cycle in one line: status glyph and word, id, type, done/total tasks and the title last,
 // which the fit cuts first.
-function olderRow(c: CycleView): Line {
+export function olderRow(c: CycleView): Line {
   const done = c.tasks.filter(t => t.status === 'done').length
   return [
     statusGlyph(c), span(' '), span(c.id, { bold: true }), span(' '), ...typeWord(c), span(' '),
     span(c.status, { color: statusOf(c.status).color }), span(` ${done}/${c.tasks.length} `, { dim: true }), span(drawn(c.title)),
   ]
+}
+
+// The `cycles:` list for the closed cycles after the first: the heading, one page of rows, and under
+// them either a `page X/Y` footer (more than one page) or, for a host that cannot turn pages, the first
+// page and `+N more`. `page` is clamped to the pages there are. Empty when there are no such cycles.
+// The pane and other panes that draw this list (crux-omp) share it.
+export function olderLines(rest: readonly CycleView[], page: number, pages: boolean): Line[] {
+  if (rest.length === 0) return []
+  const out: Line[] = [[span('cycles:', { bold: true })]]
+  const count = Math.ceil(rest.length / OLDER_PAGE_SIZE)
+  if (!pages) {
+    for (const c of rest.slice(0, OLDER_PAGE_SIZE)) out.push(olderRow(c))
+    if (rest.length > OLDER_PAGE_SIZE) out.push([span(`+${rest.length - OLDER_PAGE_SIZE} more`, { dim: true })])
+    return out
+  }
+  const at = clampPage(page, count)
+  for (const c of rest.slice(at * OLDER_PAGE_SIZE, (at + 1) * OLDER_PAGE_SIZE)) out.push(olderRow(c))
+  if (count > 1) out.push([span(`page ${at + 1}/${count}`, { dim: true })])
+  return out
 }
 
 // The queue card's upcoming states, in the order the queue lists them.
@@ -942,16 +961,7 @@ export function pane(p: Parsed, ag: Agents, cols: unknown, layout: PaneLayout, h
     if (latest === undefined) return columnBox(w, rows)
     rows.push(panel(cycleLines(latest, bordered ? w - PANEL_FRAME : w, p.view.now_s), w, bordered))
     if (rest.length === 0) return columnBox(w, rows)
-    rows.push(lineBlock([span('cycles:', { bold: true })], w))
-    const pages = Math.ceil(rest.length / OLDER_PAGE_SIZE)
-    const at = clampPage(page, pages)
-    if (harness.pages === false) {
-      for (const c of rest.slice(0, OLDER_PAGE_SIZE)) rows.push(lineBlock(olderRow(c), w))
-      if (rest.length > OLDER_PAGE_SIZE) rows.push(lineBlock([span(`+${rest.length - OLDER_PAGE_SIZE} more`, { dim: true })], w))
-      return columnBox(w, rows)
-    }
-    for (const c of rest.slice(at * OLDER_PAGE_SIZE, (at + 1) * OLDER_PAGE_SIZE)) rows.push(lineBlock(olderRow(c), w))
-    if (pages > 1) rows.push(lineBlock([span(`page ${at + 1}/${pages}`, { dim: true })], w))
+    for (const line of olderLines(rest, page, harness.pages !== false)) rows.push(lineBlock(line, w))
     return columnBox(w, rows)
   }
   return layout === 'mini' ? mini(p.view, ag, w) : budgeted(p.view, ag, w, harness)

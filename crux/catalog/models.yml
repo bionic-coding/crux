@@ -35,6 +35,8 @@ providers:
 # `kimi-latest` was re-read 2026-10-26 from the same endpoint:
 # `moonshotai/kimi-k3.1-pro`, canonical slug `moonshotai/kimi-k3.1-pro-20261023`.
 # Its supported parameters omit temperature, top_p and seed, which K3 accepted.
+# `argon-latest` was read 2026-10-28 from https://openrouter.ai/api/v1/models:
+# `google/gemini-4-argon`, canonical slug `google/gemini-4-argon-20261013`.
 aliases:
   fable-latest: openrouter/anthropic/claude-fable-5.1
   opus-latest: openrouter/anthropic/claude-opus-5.5
@@ -44,6 +46,7 @@ aliases:
   sol-latest: openrouter/openai/gpt-6.1-sol
   qwen-max: openrouter/qwen/qwen3.8-2.4t-a95b
   deepseek-flash: openrouter/deepseek/deepseek-v4.1-flash-1017
+  argon-latest: openrouter/google/gemini-4-argon
 
   # The separator asymmetry in the GLM pair is UPSTREAM'S and not a typo here:
   # the base SKU is `glm-5.3` (dot) and the fast SKU is `glm-5.3-flash` (hyphen
@@ -79,8 +82,11 @@ agents:
     level: apex
     claude: claude-opus-5-5
     opencode: kimi-latest
+  # dev-lead: OpenCode overrides to GLM 5.3 by owner instruction, 2026-10-28,
+  # for a faster model.
   dev-lead:
     level: flagship
+    opencode: glm-latest
   developer:
     level: standard
     opencode: deepseek-flash
@@ -93,9 +99,10 @@ agents:
     level: apex
   # reviewer: Claude inherits the apex cell, pinned to Opus 5.5. Codex
   # overrides to GPT-6.1 Sol by owner instruction; effort stays xhigh.
+  # OpenCode overrides to Gemini 4 Argon by owner instruction, 2026-10-28.
   reviewer:
     level: apex
-    opencode: sol-latest
+    opencode: argon-latest
     codex:
       model: gpt-6.1-sol
       reasoning_effort: xhigh

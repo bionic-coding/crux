@@ -730,7 +730,9 @@ needs approved selection reasoning and a reduction record for production,
 tests, instructions, and execution; an increase in one area cannot be netted
 against a decrease elsewhere.
 
-Blocking test or review findings return to plan; quick-fix returns to build.
+Blocking test or review findings return to build in every type, unless one
+qualifies for a fix task (small, in scope, cause stated, no decision, schema,
+interface or dependency change; one per phase per pass, no pass consumed).
 Record what improved, what remains unresolved, what will change, and why a
 further pass is justified. Increment the pass only on an allowed return.
 Exhausted limits or stalled progress pause the cycle. An extension requires
@@ -1485,7 +1487,7 @@ Cross-field and lifecycle requirements in the guide apply in addition to schemas
 ### Crux single-undertaking cycle
 
 Source: `crux/schemas/cycle.schema.json`  
-Source SHA-256: `7e0caef35f48cc9998e9bcae9949d36f877f52cad50a887b7193835e07ae42e8`
+Source SHA-256: `69cbd19b0d298ac60220929860ec77d18d3fb1a7bff9aef4fd0419a7977b36cb`
 
 <!-- BEGIN EXAMPLE: cycle.schema.json -->
 ```json
@@ -1757,6 +1759,55 @@ Source SHA-256: `7e0caef35f48cc9998e9bcae9949d36f877f52cad50a887b7193835e07ae42e
                     }
                   }
                 }
+              },
+              "fix": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "finding",
+                  "eligibility",
+                  "pass"
+                ],
+                "properties": {
+                  "finding": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "eligibility": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "pass": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "before": {
+                    "type": "string",
+                    "pattern": "^TE-[0-9a-f]{32}$"
+                  },
+                  "after": {
+                    "type": "string",
+                    "pattern": "^TE-[0-9a-f]{32}$"
+                  },
+                  "review": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "path",
+                      "sha256"
+                    ],
+                    "properties": {
+                      "path": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "sha256": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  }
+                }
               }
             }
           }
@@ -1801,6 +1852,13 @@ Source SHA-256: `7e0caef35f48cc9998e9bcae9949d36f877f52cad50a887b7193835e07ae42e
       }
     },
     "required_checks": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "build_checks": {
       "type": "array",
       "items": {
         "type": "string",
@@ -1977,6 +2035,85 @@ Source SHA-256: `7e0caef35f48cc9998e9bcae9949d36f877f52cad50a887b7193835e07ae42e
         "beta",
         "official"
       ]
+    },
+    "assignments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "role",
+          "task",
+          "agent",
+          "result_path",
+          "state",
+          "attempt",
+          "started_at",
+          "last_seen",
+          "ended_at",
+          "note"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "role": {
+            "type": "string",
+            "minLength": 1
+          },
+          "task": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "agent": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "result_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "enum": [
+              "running",
+              "finished",
+              "lost"
+            ]
+          },
+          "attempt": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "started_at": {
+            "type": "string",
+            "minLength": 1
+          },
+          "last_seen": {
+            "type": "string",
+            "minLength": 1
+          },
+          "ended_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
     },
     "coverage": {
       "type": [
@@ -3567,7 +3704,7 @@ No timestamp, machine path, or uncommitted-history claim enters the guide.
     "crux/schemas/cycle-council-attempt.schema.json": "494ac15e0e6e97bdfb38d0c5e627233b27e9e2c2d2e96e589fe3613db8c85c3c",
     "crux/schemas/cycle-council.schema.json": "a875ab9dff18c06d0c82225e916d2efff5b9d9eb85c9b1786fdb6b5ad7626ca4",
     "crux/schemas/cycle-queue.schema.json": "b2806cd976091c00697860fa8561b3334442156c542190c2db7e67bb515fb044",
-    "crux/schemas/cycle.schema.json": "7e0caef35f48cc9998e9bcae9949d36f877f52cad50a887b7193835e07ae42e8",
+    "crux/schemas/cycle.schema.json": "69cbd19b0d298ac60220929860ec77d18d3fb1a7bff9aef4fd0419a7977b36cb",
     "crux/schemas/test-evidence.schema.json": "0820d002a5ed0676186d3fb534e2c47bdb281b36e798c1446f4d59b243d31e3b",
     "crux/scripts/adr_provenance.py": "6e9e9b1f7ca1188b57ee19110bdc51fb1d7f8758d2a001315b2a56fa5fcc829f",
     "crux/scripts/authoring_scope.py": "2970ad31854348b156c82c88804fd7055c93a172b4281dd2e5663a24f52261e2",
@@ -3575,20 +3712,20 @@ No timestamp, machine path, or uncommitted-history claim enters the guide.
     "crux/scripts/council_policy.py": "260baae9d6975c03a7407b2abe0d939f021abc9f62ef65822977c748526a2828",
     "crux/scripts/cycle_council.py": "5e0d2a5673ba1cae5910ff57e672f4a918afabe068788b7fb6ad6189383ee069",
     "crux/scripts/cycle_queue.py": "938d9ae23fa5e83dea44fa25989aa8e2aaf5aac7725b9776d7b342ac80019802",
-    "crux/scripts/cycle_workflow.py": "87cc3b24f136e5df8fa6ba4aec67bc871cc43d1726589aee383e5c87b91013be",
+    "crux/scripts/cycle_workflow.py": "a9e824a13999d3e35d6540eab50022cc289112845c8101cf334dc650356238ac",
     "crux/scripts/decision_policy.py": "ead9f78f78a7cadef428eea0538cc97d210f810e5502c9eaf2da32c85e74309b",
     "crux/scripts/generate-micro-crux.py": "e412bbb790192035c83b44f39059ce41a3e9632d7f18565c70bb1696d4fdb7e5",
-    "crux/scripts/test_evidence.py": "fa8ec7702bc1c30b3ef8a59eafd2878de50e272a70964681cccd15df854b2a45",
-    "crux/skills/cycle/references/review.md": "eb4c02e3a4256247c9cd3c2ce911f981dbc072158b6e0ab9662ec91d168eb576",
-    "crux/skills/cycle/references/testing.md": "0606f4dd98d2cc810804a031a09a5bef6b5017a09e6fba0c043edb47d3413229",
+    "crux/scripts/test_evidence.py": "6ea406b46d6e09419af357c523b41193916b19053d1a261dd4474058ab3a98e0",
+    "crux/skills/cycle/references/review.md": "c992fdf4e803766b830162ac9e93548c83ad5be8676b66217c28f9b3a149dde3",
+    "crux/skills/cycle/references/testing.md": "61b15310312e6312784787cdfa8647eb97f1d17d987d9c79b38ae758d17fd2f9",
     "crux/skills/ingest-research/SKILL.md": "a280b046f5db82c66b822beebda0db2485888a93871cf7370059a223620a0b75",
     "crux/skills/refresh-research-sources/SKILL.md": "eb729469a4a4b425c671424540aa598e5ee4f4a5e8ea4afb38c1939651a595dc",
     "crux/skills/transition-brief/SKILL.md": "779a142c98c957c7ccdfeb341561c8c400358d88773bcf18d644ed3883551002",
     "crux/templates/ADR-template.md": "0d0e9f907fa33aa9709eecacb2ba573cce9ad604e56f972e7a07a01137878ca3",
-    "crux/templates/AGENTS.md.tmpl": "8fde85b7ce9cad65f45428ad601340e5d09d3b7dc6479c91d0de230092a90af5",
+    "crux/templates/AGENTS.md.tmpl": "533159f002e3b1e2b4cbc45a68bdc7edc5c31dc7badc0ce517eb4485ff683409",
     "crux/templates/BRIEF-template.md": "25b0ddcfbeeaedac93f6fd7eaeee13a2cd6aa6485b4d76b7c9a689571bd5cbe3",
     "crux/templates/manifest.yml.tmpl": "6144ab96dbec0d319bc4d3608abe909f37ac8139c0211bf7e0cdef7acc98ae4e",
-    "crux/templates/micro-crux.md.tmpl": "34c35f8921299c821420f7cd47f4c0145879d63c416c391c49fb87b0aa1ffc03",
+    "crux/templates/micro-crux.md.tmpl": "41f452f26556550da36cfd7a8219d9941a5cb07e2e372e9088fe72e752c59279",
     "crux/templates/objectives.md.tmpl": "68465558af5fdc117ad5b18bed32006f04956d7f33aafabe40b9e9b06cc778b7"
   },
   "tree_schema_version": "5"

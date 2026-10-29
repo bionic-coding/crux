@@ -132,7 +132,7 @@ def _view(sio, identity=None, now=None):
         cycles.append({'id':doc['id'],'title':clean(doc['title']),'type':doc['type'],'status':doc['status'],'phase':doc['phase'],'pass':doc['pass'],'pass_limit':doc['pass_limit'],'phases':phases_of(doc),'tasks':tasks,'returns':history,'waits':waits[:20],'blocker':clean(doc['blocker']['reason']) if doc['blocker'] else None,'reflection':clean(doc['reflection']['outcome']) if doc['reflection'] else None,'modified_s':int(sio.metadata(path)['st_mtime_ns']//1_000_000_000),**times(doc,moment)})
     # Active cycles first, then every other cycle; each group by cycle number, highest first.
     cycles.sort(key=lambda c:(c['status']!='active',-cycle_number(c['id'])))
-    document=Document({'format':'crux.cycle-progress','format_version':2,'ok':True,'docs_dir':cfg.docs_dir,'now_s':now_s,'cycles':cycles[:20]})
+    document=Document({'format':'crux.cycle-progress','format_version':2,'ok':True,'docs_dir':cfg.docs_dir,'now_s':now_s,'cycles':cycles[:60]})
     # The queue rides in the JSON as `queue` (null without a queue file or with an explicit identity)
     # and as text lines for `render`.
     statuses={c['id']:c['status'] for c in cycles}

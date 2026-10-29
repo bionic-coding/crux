@@ -1,4 +1,4 @@
-<!-- generated-from: OPENCODE.md@sha256:6348d40e7d0191b49a31659a88bc55331ff6c0cb67411efd760baa49b42da27a; model: deterministic-copy; date: 2026-10-27 -->
+<!-- generated-from: OPENCODE.md@sha256:1c704beba26a102e548796ca77289ff924a4dc9ffdbaaddc1ae3f74c30dfd28b; model: deterministic-copy; date: 2026-10-28 -->
 # Install Crux for OpenCode
 
 Crux has no native OpenCode marketplace package. OpenCode installation uses a stable clone of the public Crux repository. This guide covers machine-wide and project-only installation for humans and agents.
@@ -141,7 +141,7 @@ Project-only installations do not update through the global symlinks. Invoke `in
 
 - **A band above the composer.** One line for the run in progress, shown on a session screen. The home screen shows nothing.
 - **A panel.** The run dashboard panel, named `crux-dashboard`, opens beside the session.
-- **Page keys.** With more closed cycles than fit on one page, the panel lists them three to a page under `cycles:`. While the panel is focused (click it), `n` shows the next page and `p` the previous one. The panel ends with a `page X/Y` line and the hint `p previous · n next`. When the panel is closed or your prompt has focus, `n` and `p` type into the prompt as usual.
+- **Page keys.** With more closed cycles than fit on one page, the panel lists them ten to a page under `cycles:`. While the panel is focused (click it), `n` shows the next page and `p` the previous one. The panel ends with a `page X/Y` line and the hint `p previous · n next`. When the panel is closed or your prompt has focus, `n` and `p` type into the prompt as usual.
 - **A command.** `/crux-dashboard` opens the panel. It adds nothing to the transcript, to your prompt or to a model request. When no panel can open, such as outside a session, it shows a toast that carries only a status code.
 
 It draws the same run progress as the Claude Code dashboard, because it uses the same reader (`visualize-run-progress`) and the same drawing code from your clone. Installing the crux skills loads nothing in OpenCode's terminal interface. You opt in with the entry below.

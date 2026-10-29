@@ -19,9 +19,8 @@ Commit identity alone neither proves nor invalidates a result. A pre-existing
 Tester note without these inputs does not automatically satisfy the reuse contract.
 
 A matching pass is reused by reference. A relevant input change invalidates the
-affected check; uncertain dependency scope invalidates conservatively. Bookkeeping
-changes do not invalidate checks unless the bookkeeping is an input. A phase change,
-review request, new commit, or new cycle alone is no reason to execute again.
+affected check; uncertain dependency scope invalidates conservatively; bookkeeping
+follows Bookkeeping exclusions below. A phase change, review request, new commit, or new cycle alone is no reason to execute again.
 
 Evidence proves only its declared coverage. Packaging and installation checks
 bind the actual artifact. Deployment smoke checks run against the new deployment.
@@ -47,6 +46,23 @@ checks. New regression tests alone do not establish related behavior. If automat
 tests do not apply, explain why and declare an appropriate verifiable inspection
 or smoke check. Unknown reach needs conservative coverage, not an automatic full
 suite. Review examines this declaration alongside valid run/reuse evidence.
+
+## Build checks
+
+Build declares the checks it must pass before it ends: `checks --phase build`,
+described in [commands.md](commands.md). Select, besides focused tests, every test
+that imports, invokes, reads, globs or enumerates a changed path. When a test
+enumerates a directory that holds a changed path, select the suite that contains that
+test. A test that builds a path from parts, such as `parent / "skills"`, reads every
+file below it. In the Crux development repository that means the two registered
+checkout suites. The cycle's one test coordinator runs them once after the streams
+integrate, and is the only writer of `checks --phase build`. It records the complete
+union, because each call replaces the set. Test reuses those receipts while their
+inputs are unchanged. A known failure found at Build stops the cycle in Build; do not
+carry it to Test.
+
+Outside a plugin-authoring checkout the writer does not require Build checks. The
+instruction to declare them still applies, and the reviewer checks the declaration.
 
 ## The lookup rule
 
@@ -136,6 +152,8 @@ from the declared inputs. Never exclude a file the check reads merely to obtain 
 tests of cycle records must include those records. Record each exclusion's rationale
 in coverage.
 
+An untracked git-ignored file is not an input unless a declaration names it literally.
+
 ### Declare cycle checks from presets
 
 Declare a cycle check with a preset; never hand-write a declaration that copies the
@@ -143,8 +161,16 @@ shared exclusions. `declare` prints a concrete declaration, which the other comm
 take unchanged:
 
 ```bash
-uv run "${CRUX_PLUGIN_ROOT}/scripts/test-evidence.py" declare --repo-root . --preset drift-gates --check-id CYC-ID-drift-gates --output check.json
+uv run python3 "${CRUX_PLUGIN_ROOT}/scripts/test-evidence.py" declare --repo-root . --preset drift-gates --check-id CYC-ID-drift-gates --output check.json
 ```
+
+The engine runs as `uv run python3` in the project's environment, not with `--no-project`
+or `-p`. A Python check runs on the engine's own interpreter, and its default requirement
+is the project's locked environment, so that interpreter must meet the engine's Python
+floor (`requires-python >=3.11`). Project mode creates or syncs the project's
+environment, and writes `uv.lock` in a project that has none, as any `uv run` does.
+The engine exits 2 when that environment lacks PyYAML and the docs directory holds a
+migration batch (`adrs/migrations/*.yaml`) or a declaration carries a `changelog-citations:` projection.
 
 | Preset | Command | Inputs and exclusions |
 |---|---|---|
@@ -187,15 +213,15 @@ every preset command and registered suite reads it not at all, or only under the
 append-only case. `.bionic.yml` is itself an input, so a setting change reruns each
 check once.
 
-A journal entry, a log append, a queue edit, a cycle-record write and an edit of a
-configured file therefore leave the registered suites and every excluding preset
+A journal entry, log append, queue edit, cycle-record write or configured-file edit,
+committed or not, therefore leaves the registered suites and every excluding preset
 valid. Reflect needs no evidence refresh for them.
 
 ```bash
-uv run "${CRUX_PLUGIN_ROOT}/scripts/test-evidence.py" lookup --repo-root . --check check.json
-uv run "${CRUX_PLUGIN_ROOT}/scripts/test-evidence.py" run --repo-root . --check check.json
-uv run "${CRUX_PLUGIN_ROOT}/scripts/test-evidence.py" validate --repo-root . --evidence-id TE-ID
-uv run "${CRUX_PLUGIN_ROOT}/scripts/test-evidence.py" report --repo-root . --evidence-id TE-ID
+uv run python3 "${CRUX_PLUGIN_ROOT}/scripts/test-evidence.py" lookup --repo-root . --check check.json
+uv run python3 "${CRUX_PLUGIN_ROOT}/scripts/test-evidence.py" run --repo-root . --check check.json
+uv run python3 "${CRUX_PLUGIN_ROOT}/scripts/test-evidence.py" validate --repo-root . --evidence-id TE-ID
+uv run python3 "${CRUX_PLUGIN_ROOT}/scripts/test-evidence.py" report --repo-root . --evidence-id TE-ID
 ```
 
 The runner reuses a valid pass and coordinates matching execution. After a failure,
@@ -204,6 +230,10 @@ ID through `cycle.py evidence`; use the returned disposition rather than inventi
 an execution. Repository records live under `<git-common-dir>/crux/test-evidence/` in Git
 repositories, or `.crux-test-evidence/` outside Git. `CRUX_TEST_EVIDENCE_STORE`
 can select an external store. Evidence is not published as part of the release artifact. Preserve diagnostic output according to the repository policy.
+
+A busy check lock whose holder left no usable record is identified with `lsof`. macOS ships it
+at `/usr/sbin/lsof`; on Linux it must be installed. Without it, the exit names the lock path
+and says the holder cannot be identified.
 
 ## Release-neutral evidence
 
@@ -221,8 +251,18 @@ a release-only change from invalidating their receipts.
   `README.md` fingerprint line and footer. The kind set is closed.
 - **Exclusions.** A release document that no suite reads is excluded: `public/` from the
   checkout suites, the staged `CHANGELOG.md` from the staged suites.
-- **CHANGELOG.md stays an input of the checkout suites.** A migration citation check
-  reads one of its footnotes, so a `CHANGELOG.md` edit re-executes them.
+- **CHANGELOG.md is projected in the checkout suites.** The checkout suites fingerprint
+  `CHANGELOG.md` through the migration citation rows: each occurrence of a batch's handle
+  or rule slug, with its partition and its release version and date. A release-only
+  change (a prepended section, a rewritten Unreleased section, a new footnote) leaves
+  those rows alone, so all four registered suites reuse their receipts. An edit to the
+  rows re-executes the two checkout suites. So does a corruption that hides them,
+  including non-UTF-8 bytes or an oversize file. The projection applies while every
+  migration batch that binds `CHANGELOG.md` is published. When no batch binds it, the
+  token set is empty, a binding batch is unpublished, or the token reader fails,
+  `CHANGELOG.md` stays a whole-file input of the checkout suites. The kind is the one
+  selecting kind of the closed set, `changelog-citations:<tokens>`, and it is the only
+  kind on its path.
 - **What reuses.** A release-only change keeps the other receipts. An authored edit to
   `README.md`, `USER_GUIDE.md` or any other source during release prep is a real change,
   and verify executes the suites that read it again.
@@ -289,4 +329,5 @@ nothing to run.
 ## Simplify reduction evidence
 
 A simplify cycle also records `reduction` in Test, per area, bound to the current source
-fingerprint (see the commands reference). A test run on other source does not satisfy it.
+fingerprint (see the commands reference). The fingerprint ignores untracked git-ignored files. A
+test run on other source does not satisfy it.

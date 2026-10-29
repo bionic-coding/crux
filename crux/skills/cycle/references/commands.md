@@ -24,16 +24,16 @@ status.
 
 `status [CYC-ID] [--json] [--watch SECONDS]` prints the progress view that
 `visualize-cycle-progress.py` prints, and writes nothing. With no ID it shows active
-cycles first, then the others by cycle number, highest first, at most 20, followed by
+cycles first, then the others by cycle number, highest first, at most 60, followed by
 the queue. `--json` prints the visualizer's JSON document. `--watch` clears the screen
 and redraws every SECONDS until Ctrl-C, for a second terminal beside a session. Exit 0
 printed, 1 invalid or unknown cycle, 2 environment.
 
 ## Plan and tasks
 
-`plan CYC-ID --file plan.json --reason TEXT` takes the complete plan, preserving
-its predecessor. Fields are `scope`, `constraints`, `acceptance`, `verification`,
-`tasks`, and `revision` (the writer updates revision). Refactor adds
+`plan CYC-ID --file plan.json --reason TEXT` takes the complete plan in Plan or Build,
+preserving its predecessor. Fields are `scope`, `constraints`, `acceptance`,
+`verification`, `tasks`, and `revision` (the writer updates revision). Refactor adds
 `preserved_behavior` and `improvement`. Plan tasks cover every phase of the type.
 Each task has this shape:
 
@@ -66,6 +66,18 @@ Use `task-add CYC-ID --file task.json` for a task and
 Quick-fix has no Plan transition. It accepts `task-add` for its current phase or any
 later phase, so it can record expected evidence for Test, Review, and Reflect up
 front. Other types add tasks for the current phase, or any phase while in Plan.
+
+**Fix task.** In Test or Review, `task-add` accepts a task carrying
+`fix: {finding, eligibility}`. The task phase equals the cycle phase, the task starts
+pending with no delivery fields, and the writer sets `fix.pass`. Allow one fix per phase
+per pass. A Review fix needs the pass's latest review to be blocking with exactly one
+blocking finding. `task --fix-before TE-ID` names a receipt that recorded the failure.
+`--fix-after TE-ID` names the current passing receipt for the same check id. Done
+needs a commit, both receipts and, for a Review fix, an approving fix-diff review.
+`fix` is bookkeeping for the review basis (the basis version is unchanged) and a
+delivery field, so plan files refuse it. A done fix stays done on a new pass; an
+unfinished one leaves the plan. `handoff` lists fixes. A fix changes no pass, phase or
+plan revision.
 
 ## Record at execution boundaries
 
@@ -129,7 +141,45 @@ Cycle-Task: build-parser
 
 `handoff CYC-ID` is read-only. It prints the phase, pass, status, active tasks with
 assignee and result path, delivered tasks with stage and commits, pending tasks, and
-a `next_action` line. Include its output in a hand-back.
+a `next_action` line. It also prints `assignments`, the running assignments with
+`last_seen` and `elapsed_seconds`, and fixed `resume_steps`. Include its output in a
+hand-back, and read it before any resume or dispatch.
+
+## Assignments
+
+An assignment records that an agent is running a piece of the cycle. Its id is a task
+id, a stream id such as `stream-a`, or a singleton role name: the commander always
+uses the id `commander`. Record it before every dispatch and before resuming an
+agent's work:
+
+```bash
+# Before the dispatch; add --agent when the host has already returned a handle:
+uv run /abs/plugin-root/scripts/cycle.py --repo-root . --compact assignment CYC-0001 --id build-parser --state running --role developer --task build-parser --result-path /abs/os-temp/crux-results-CYC-0001-RANDOM/developer-parser-attempt-1.md
+# Once, when the host returns a handle after the start:
+uv run /abs/plugin-root/scripts/cycle.py --repo-root . --compact assignment CYC-0001 --id build-parser --seen --agent HOST-HANDLE
+# After its final report has returned and its execution has ended:
+uv run /abs/plugin-root/scripts/cycle.py --repo-root . --compact assignment CYC-0001 --id build-parser --state finished
+# Only with host evidence that it ended without a final report:
+uv run /abs/plugin-root/scripts/cycle.py --repo-root . --compact assignment CYC-0001 --id build-parser --state lost --note 'host lists no live handle HOST-HANDLE'
+```
+
+`--state running` refuses while the same id is running, even as an identical replay,
+and while another running assignment holds the same `--task`. The refusal names the
+live entry's id, role, agent (or result path while the agent is unknown), `started_at`
+and `last_seen`. Message or await that agent instead, and dispatch nothing. A start on
+a finished or lost id resumes it as the next attempt; the history event keeps the
+previous entry. `--seen` refuses unless the entry is running, and always advances
+`last_seen`. An identical `finished` or `lost` repeat writes nothing and returns
+`changed: false`. A paused cycle accepts `--seen`, `finished` and `lost`, and refuses
+a start.
+
+**The lost rule.** An assignment becomes lost only through `--state lost` with a note
+naming host evidence that the execution ended without a final report: the host
+reports it terminated or failed, the host lists no live handle for it, or the owner
+says it stopped. Elapsed time since `last_seen` never makes an entry lost. When the
+agent is null, look for a live host execution matching its role and result path
+before recording it lost. A forced hand-back whose background work still runs stays
+`running`.
 
 `reconcile CYC-ID` recovers a stale record from evidence: commits whose message names
 the cycle and carries a `Cycle-Task: <task-id>` trailer, worktrees, and the recorded
@@ -173,6 +223,20 @@ For new version-two records, also use `coverage CYC-ID --file coverage.json`:
 
 The selected IDs must match `required_checks`. This declaration and valid evidence
 are required before Test advancement, Review, and completion.
+
+Declare Build checks through `checks CYC-ID --phase build --check CHECK-ID`, in the
+Build phase, repeating `--check` for the complete set; each call replaces the set.
+`advance` out of Build refuses unless every Build check has current-pass evidence
+that validates, with the same `missing passing evidence` and `invalid evidence`
+messages as Test. A failing receipt cannot be attached, so a failing related test
+stops the cycle in Build. Coverage is not required at Build. In a plugin-authoring
+checkout the Build checks must include both registered checkout suites,
+`checkout:unittest:crux/scripts/tests:test*.py` and
+`checkout:unittest:tools/tests:test*.py`; the refusal names each missing id. Elsewhere
+an empty set is allowed. A Build check that is also a required check is satisfied at
+Test by the same evidence id, with no new execution while its inputs are unchanged.
+Build checks stay outside the review basis. [testing.md](testing.md) gives the
+selection rule.
 Changing coverage does not itself execute checks.
 
 A passing review binds to a basis: the plan's scope, constraints, acceptance,
@@ -182,7 +246,7 @@ evidence declarations and the coverage. Each task contributes only `id`, `phase`
 and `expected_evidence`. Changing any basis field after approval invalidates the
 review, as does a source change or a task added before the review-bearing phase.
 Bookkeeping does not: a task's `status`, `depends_on`, `assignee`, `result_path`,
-`commits`, `evidence`, `stage` and `note`, the plan's revision counter, plan tasks of
+`commits`, `evidence`, `stage`, `fix` and `note`, the plan's revision counter, plan tasks of
 phases after the review-bearing phase (Reflect today), the reflection, completion
 and history. A task field outside both lists is refused, so a new field needs a
 classification. A historian can add a Reflect task after approval and still
@@ -196,6 +260,16 @@ review bound. A changed command, inputs or exclusions under the same check id un
 it, and a scope change unbinds it through the report's source fingerprint. Changes
 outside the reviewed scope, such as a merge, are covered by live evidence validation
 at every gate, not by the review.
+
+The source fingerprint matches scope entries with Python glob semantics, so `**` is
+recursive. It excludes untracked git-ignored files, the cycle's own record directory and
+`__pycache__`. Tracked files always count, even when an ignore rule matches them.
+Writers record it as fingerprint version 2, which is folded into the digest and adds no
+schema field. Version 1 hashes ignored files too. It applies when the project root is not
+inside a git work tree, git is not installed, or git cannot classify a path. A review,
+completion or reduction record made under version 1 still binds while every file,
+ignored ones included, is unchanged. A binding check accepts either version's digest
+of the current source.
 
 A version 3 report binds to the version 3 digest, which hashes the current-pass
 evidence list. A version 1 or 2 report binds only to its own version's digest. A report without a version, recorded before
@@ -223,6 +297,12 @@ Use the actual scope declared in the plan, evidence, and independent reviewer.
 A blocking finding includes `path`, `consequence`, and `evidence`. The alternative
 verdict is `changes-required`. The writer binds the report to current inputs and
 adds effective scrutiny; it cannot perform the review on the agent's behalf.
+
+A fix-diff review is this same `review` command with the optional key `fix_task`
+naming that pass's Review fix task. The fix task needs a recorded commit. The
+reviewer must differ from the fix assignee and the implementers, and the scope still
+equals the plan scope. One fix-diff review is allowed; a blocking one needs a counted
+return. The writer stores the ref in `fix.review`.
 
 ## Simplify cycles
 
@@ -337,16 +417,18 @@ preconditions. Never retrofit new acceptance onto historical provenance.
 No progress or an exhausted limit pauses instead. `pause` takes `--reason`.
 `resume` takes `--reason` and, after stalled progress, `--new-evidence`.
 
-A return or resume keeps delivered build work. Two events start a new pass: a
+A return or resume keeps delivered Plan and Build work. Two events start a new pass: a
 counted return that does not pause, and a resume after a pass-limit or
-progress-stalled blocker. In a type with a Plan phase, such an event sets every task
-to pending except build tasks. A build task keeps its status and delivery only when
+progress-stalled blocker. Such an event lands in Build and sets every Test, Review and
+Reflect task to pending. A Plan or Build task keeps its status and delivery only when
 it revalidates. Each check is independent: an integrated task's recorded commits are
 all ancestors of HEAD, and every evidence path still exists. A failed check or a git
 error makes the task pending and clears its stage; its commits and evidence stay. A
-return that pauses changes no task; its resume applies the rule. A resume that starts
-no pass changes no task. Quick-fix has no Plan phase, so a pass-starting event resets
-every task. The `return-requested` and `plan-revised` events keep the full prior plan.
+Plan task that fails is redone and marked done from Build. A return that pauses
+changes no task; its resume applies the rule. A resume that starts no pass changes no
+task. The `return-requested` and `plan-revised` events keep the full prior plan. Only
+the first Plan exit checks plan completeness; a plan revised in Build is not
+re-checked, though the later gates still hold.
 
 No flag reopens a task. To rework a delivered build task, change its `description`
 or `expected_evidence` in the replan, for example by adding the finding's regression
@@ -369,7 +451,8 @@ never invent or infer the owner's instruction. `change-type` takes `--type` and
 `--reason`, plus human approval when required to avoid bypassing an exhausted limit.
 Changing type out of simplify always needs `--human-approval`.
 
-`reflect CYC-ID --file reflection.json` records `outcome`, `lessons`, and `remaining`.
+`reflect CYC-ID --file reflection.json` records `outcome` (a string) and `lessons` and `remaining` (each a non-empty list of
+non-empty strings; use `["none"]` when there is nothing).
 Use `advance` to complete or `abandon` after recording an abandonment reflection.
 A listed release cycle has no reflection (see Release cycles above).
 
@@ -392,7 +475,9 @@ uv run /abs/plugin-root/scripts/cycle.py --repo-root . --compact completion CYC-
 
 Repeat `--commit` for multiple delivery commits, latest last. Commits must exist,
 be ancestors of HEAD, and cover current scoped inputs. Dirty or untracked scoped
-changes block completion. Unrelated work may remain; describe it in `--remaining`.
+changes block completion. Untracked git-ignored files, such as council `attempt-*.lock` files, are
+neither scope changes nor part of the source fingerprint. Completion fails closed when
+git cannot classify the scope files. Unrelated work may remain; describe it in `--remaining`.
 Only a real user request for uncommitted delivery allows `--exception TEXT` instead
 of commits. Quote the instruction and its context; no council or agent can grant it.
 Re-record completion after scoped changes. The record's own bookkeeping is excluded
@@ -415,7 +500,8 @@ view shows no limit. A beta cycle's scope names the release-prep paths and the l
 an official cycle's scope names the log file.
 
 A listed release cycle allows only `task`, `completion`, `pause`, `resume`, `abandon`,
-`owner-complete`, `advance` and the read-only commands. The writer refuses every other
+`owner-complete`, `advance`, `assignment` and the read-only commands. `assignment` is
+bookkeeping: it adds no step, phase or gate. The writer refuses every other
 action: plan, task-add, plan-details, checks, coverage, evidence, review, decision,
 reflect, return, extend and change-type. `validate` refuses a record whose task ids,
 order, phase or dependencies differ from its list.

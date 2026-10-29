@@ -202,3 +202,45 @@ test('a legacy release cycle still draws its pass and limit', () => {
   assert.ok(lines !== null)
   assert.match(lines.join('\n'), /pass 1\/2\]/)
 })
+
+const closedCycles = (n: number): Parsed => ({
+  ok: true,
+  view: {
+    reader_version: '4.1.6', docs_dir: 'bionic', now_s: 1792436200, runs: [], runs_skipped: 0,
+    last_completed: null, last_completed_status: 'none', last_completed_undated: 0, last_completed_unresolved: 0,
+    cycles: Array.from({ length: n }, (_, i) => ({
+      id: `CYC-${String(100 - i).padStart(4, '0')}`, title: `Closed cycle ${100 - i}`, type: 'iterate', status: 'completed', phase: 'reflect',
+      pass: 1, pass_limit: 2, phases: ['plan', 'reflect'], tasks: [{ id: 't', phase: 'plan', description: 'x', status: 'done' }],
+      returns: [], waits: [], blocker: null, reflection: i === 0 ? 'Shipped' : null, modified_s: 1792436000 - i, started_s: 1792430000 - i,
+      ended_s: 1792436000 - i, paused_s: 0, open_started_s: null, basis: 'recorded', phase_times: [],
+    })),
+  },
+})
+
+test('closed cycles draw the shared paged cycles: list, not the four-row digest', () => {
+  // 1 latest + 12 older: two pages, of OLDER_PAGE_SIZE (10) and 2.
+  const first = panelLines(closedCycles(13), 100)
+  assert.ok(first !== null)
+  const text = first.join('\n')
+  assert.doesNotMatch(text, /PREVIOUS CYCLES/)
+  assert.match(text, /cycles:/)
+  assert.match(text, /page 1\/2/)
+  // Ten older rows: CYC-0099 to CYC-0090. The latest, CYC-0100, also heads the empty-slot message and its own row.
+  for (let n = 90; n <= 99; n++) assert.match(text, new RegExp(`CYC-00${n}`))
+  assert.match(text, /CYC-0100/)
+  assert.doesNotMatch(text, /CYC-0089/)
+  const second = panelLines(closedCycles(13), 100, undefined, undefined, 1)
+  assert.ok(second !== null)
+  const t2 = second.join('\n')
+  assert.match(t2, /page 2\/2/)
+  assert.match(t2, /CYC-0089/)
+  assert.doesNotMatch(t2, /CYC-0099/)
+  // A page past the end clamps to the last page.
+  assert.match((panelLines(closedCycles(13), 100, undefined, undefined, 9) ?? []).join('\n'), /page 2\/2/)
+})
+
+test('a single page of closed cycles draws no page footer', () => {
+  const text = (panelLines(closedCycles(4), 100) ?? []).join('\n')
+  assert.match(text, /cycles:/)
+  assert.doesNotMatch(text, /page \d+\/\d+/)
+})

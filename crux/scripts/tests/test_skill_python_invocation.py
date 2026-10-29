@@ -11,6 +11,14 @@ The rule: such an invocation carries `--no-project` and an explicit
 `-p`/`--python` request. An invocation whose own line names a repo-relative
 `crux/scripts/` path runs this checkout's dev commands, not a downstream
 project's, and is out of scope.
+
+One exemption: the test-evidence engine, `${CRUX_PLUGIN_ROOT}/scripts/test-evidence.py`,
+runs in project mode. `--no-project` would drop the subject's locked environment, which the
+engine's default requirement names, and `-p` in project mode makes uv replace a project
+environment whose interpreter does not satisfy the request. The companion guard
+`test_shipped_instructions_teach_only_the_python3_evidence_form` in
+`test_cycle_instruction_contracts.py` rejects a `-p` or `--no-project` variant of the
+engine line.
 """
 
 from __future__ import annotations
@@ -29,12 +37,27 @@ SKILLS = Path(__file__).resolve().parent.parent.parent / "skills"
 _INVOCATION = re.compile(r"\buv run\b(?P<flags>[^|&;`\n]*?)\s(?P<py>python3?)(?=\s|$)")
 
 
+# The one plugin script a shipped skill may run in project mode.
+_ENGINE_PATH = "${CRUX_PLUGIN_ROOT}/scripts/test-evidence.py"
+
+
+def _runs_engine(line: str, end: int) -> bool:
+    """True when the first argument after python/python3 is exactly the engine path."""
+    rest = line[end:].lstrip()
+    for candidate in (f'"{_ENGINE_PATH}"', _ENGINE_PATH):
+        if rest.startswith(candidate) and rest[len(candidate):][:1] in ("", " ", "\t"):
+            return True
+    return False
+
+
 def unpinned_invocations(text: str) -> list[tuple[int, str]]:
     """Return (line number, line) for each direct-python `uv run` lacking a pin."""
     found = []
     for number, line in enumerate(text.splitlines(), start=1):
         match = _INVOCATION.search(line)
         if match is None or "crux/scripts/" in line:
+            continue
+        if _runs_engine(line, match.end()):
             continue
         flags = match.group("flags")
         has_no_project = "--no-project" in flags
@@ -59,6 +82,18 @@ class UnpinnedInvocationDetectorTests(unittest.TestCase):
     def test_ignores_pep723_script_invocations(self):
         line = 'uv run "${CRUX_PLUGIN_ROOT}/scripts/derive-arch.py" --dry-run'
         self.assertEqual(unpinned_invocations(line), [])
+
+    def test_accepts_the_engine_form(self):
+        line = 'uv run python3 "${CRUX_PLUGIN_ROOT}/scripts/test-evidence.py" lookup --repo-root .'
+        self.assertEqual(unpinned_invocations(line), [])
+
+    def test_flags_another_plugin_script_in_project_mode(self):
+        line = 'uv run python3 "${CRUX_PLUGIN_ROOT}/scripts/derive-arch.py"'
+        self.assertEqual(len(unpinned_invocations(line)), 1)
+
+    def test_flags_the_engine_named_other_than_as_the_python_operand(self):
+        line = "uv run python3 -c 'x' \"${CRUX_PLUGIN_ROOT}/scripts/test-evidence.py\""
+        self.assertEqual(len(unpinned_invocations(line)), 1)
 
     def test_ignores_repo_relative_dev_commands(self):
         line = "`uv run python3 crux/scripts/validate-catalog.py --dry-run`"

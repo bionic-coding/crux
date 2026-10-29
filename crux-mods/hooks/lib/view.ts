@@ -427,7 +427,7 @@ function parseCycles(doc: unknown): Parsed {
   const withQueue=Object.prototype.hasOwnProperty.call(doc,'queue')
   const o=cycleObject(doc,['format','format_version','ok','docs_dir','now_s','cycles',...(withQueue?['queue']:[])])
   if (o.ok !== true) return bad()
-  const cycles=arr(o.cycles,20).map(value => {
+  const cycles=arr(o.cycles,60).map(value => {
     const c=cycleObject(value,['id','title','type','status','phase','pass','pass_limit','phases','tasks','returns','waits','blocker','reflection','modified_s','started_s','ended_s','paused_s','open_started_s','basis','phase_times'])
     const kind=oneOf(c.type,Object.keys(CYCLE_PHASES))
     const phases=arr(c.phases,6).map(p=>oneOf(p,CYCLE_PHASES[kind]!))

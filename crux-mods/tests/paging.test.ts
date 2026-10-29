@@ -187,45 +187,75 @@ test('a queue title is drawn through the sanitiser and rows fit a narrow width',
 
 const many = (k: number, open = false) => [...(open ? [cycleRow(k + 1, 'active')] : []), ...Array.from({length: k}, (_, i) => cycleRow(k - i))]
 const listRows = (b: Block) => top(b).filter(c => c.kind === 'line').map(c => plain((c as any).line))
+// The ids CYC-hi down to CYC-lo, newest first, as the list draws them.
+const ids = (hi: number, lo: number) => Array.from({length: hi - lo + 1}, (_, i) => `CYC-${String(hi - i).padStart(4, '0')}`)
 
-test('the page size is three and olderPages counts the closed cycles after the latest one', () => {
-  expect(OLDER_PAGE_SIZE).toBe(3)
+test('the page size is ten and olderPages counts the closed cycles after the latest one', () => {
+  expect(OLDER_PAGE_SIZE).toBe(10)
   expect(olderPages(parsed(doc([])))).toBe(0)
   expect(olderPages(parsed(doc(many(1))))).toBe(0)
   expect(olderPages(parsed(doc(many(2))))).toBe(1)
-  expect(olderPages(parsed(doc(many(4, true))))).toBe(1)
-  expect(olderPages(parsed(doc(many(5, true))))).toBe(2)
-  expect(olderPages(parsed(doc(many(7))))).toBe(2)
+  expect(olderPages(parsed(doc(many(11, true))))).toBe(1)
+  expect(olderPages(parsed(doc(many(12, true))))).toBe(2)
+  expect(olderPages(parsed(doc(many(20))))).toBe(2)
+  // The reader accepts at most 60 cycles: 59 list rows after the latest closed one, six pages.
+  expect(olderPages(parsed(doc(many(60))))).toBe(6)
   expect(olderPages({ok: false, code: 'reader-failed'})).toBe(0)
 })
 
-test('page 0 shows the latest closed cycle as a panel, then `cycles:` and the next three as rows with a footer', () => {
-  const b = draw(doc(many(7, true)), 0)
+test('page 0 shows the latest closed cycle as a panel, then `cycles:` and the next ten as rows with a footer', () => {
+  const b = draw(doc(many(14, true)), 0)
   const panelText = blockText(top(b).filter(c => c.kind === 'box').pop()!).join('\n')
-  expect(panelText).toContain('CYC-0007')
-  expect(panelText).toContain('Cycle title 7')
+  expect(panelText).toContain('CYC-0014')
+  expect(panelText).toContain('Cycle title 14')
   expect(panelText).toContain('completed')
   const r = listRows(b)
-  expect(r.length).toBe(5)
+  expect(r.length).toBe(12)
   expect(r[0]).toBe('cycles:')
-  expect(r[1]).toContain('CYC-0006')
+  expect(r[1]).toContain('CYC-0013')
   expect(r[1]).toContain('iterate')
   expect(r[1]).toContain('completed')
   expect(r[1]).toContain('2/2')
-  expect(r[1]).toContain('Cycle title 6')
-  expect(r[3]).toContain('CYC-0004')
-  expect(r[4]).toBe('page 1/2')
+  expect(r[1]).toContain('Cycle title 13')
+  expect(r[10]).toContain('CYC-0004')
+  expect(r[11]).toBe('page 1/2')
 })
 
-test('the last page and a middle page show their own cycles', () => {
-  const first = listRows(draw(doc(many(10, true)), 0))
-  expect(first.map(x => x.match(/CYC-\d+/)?.[0])).toEqual([undefined, 'CYC-0009', 'CYC-0008', 'CYC-0007', undefined])
-  const mid = listRows(draw(doc(many(10, true)), 1))
-  expect(mid.map(x => x.match(/CYC-\d+/)?.[0])).toEqual([undefined, 'CYC-0006', 'CYC-0005', 'CYC-0004', undefined])
-  expect(mid[4]).toBe('page 2/3')
-  const last = listRows(draw(doc(many(7, true)), 1))
-  expect(last.map(x => x.match(/CYC-\d+/)?.[0])).toEqual([undefined, 'CYC-0003', 'CYC-0002', 'CYC-0001', undefined])
+test('the first, a middle and the last page show their own cycles', () => {
+  // 20 cycles: the latest closed is CYC-0019, then 18 rows over two pages.
+  const first = listRows(draw(doc(many(19, true)), 0))
+  expect(first.map(x => x.match(/CYC-\d+/)?.[0])).toEqual([undefined, ...ids(18, 9), undefined])
+  expect(first[11]).toBe('page 1/2')
+  const full = listRows(draw(doc(many(19, true)), 1))
+  expect(full.map(x => x.match(/CYC-\d+/)?.[0])).toEqual([undefined, ...ids(8, 1), undefined])
+  expect(full[9]).toBe('page 2/2')
+  // 26 cycles: the latest closed is CYC-0025, then 24 rows over three pages, so page 2 is a middle page.
+  const mid = listRows(draw(doc(many(25, true)), 1))
+  expect(mid.map(x => x.match(/CYC-\d+/)?.[0])).toEqual([undefined, ...ids(14, 5), undefined])
+  expect(mid[11]).toBe('page 2/3')
+  const last = listRows(draw(doc(many(14, true)), 1))
+  expect(last.map(x => x.match(/CYC-\d+/)?.[0])).toEqual([undefined, ...ids(3, 1), undefined])
   expect(last[4]).toBe('page 2/2')
+})
+
+test('the reader accepts 60 cycles whole and refuses 61, and the 60 page over six pages of ten', () => {
+  const sixty = parseReader(JSON.stringify(doc(many(60))))
+  if (!sixty.ok) throw new Error('60 cycles did not read as a view')
+  expect(sixty.view.cycles!.length).toBe(60)
+  expect(olderPages(sixty)).toBe(6)
+  const last = listRows(draw(doc(many(60)), 5))
+  expect(last.map(x => x.match(/CYC-\d+/)?.[0])).toEqual([undefined, ...ids(9, 1), undefined])
+  expect(last[10]).toBe('page 6/6')
+  // The producer sends at most 60, so a 61-cycle document is not reader output.
+  expect(parseReader(JSON.stringify(doc(many(61))))).toEqual({ok: false, code: 'reader-output-invalid'})
+})
+
+test('a cycle keeps at most 20 returns and 20 approval waits', () => {
+  const ret = (i: number) => ({pass: i + 1, phase: 'build', reason: `r${i}`})
+  const at = (extra: Record<string, unknown>) => parseReader(JSON.stringify(doc([cycleRow(1, 'completed', extra)])))
+  expect(at({returns: Array.from({length: 20}, (_, i) => ret(i)), waits: Array.from({length: 20}, (_, i) => `w${i}`)}).ok).toBe(true)
+  expect(at({returns: Array.from({length: 21}, (_, i) => ret(i))})).toEqual({ok: false, code: 'reader-output-invalid'})
+  expect(at({waits: Array.from({length: 21}, (_, i) => `w${i}`)})).toEqual({ok: false, code: 'reader-output-invalid'})
 })
 
 test('exactly one closed cycle draws the panel alone: no heading, no footer', () => {
@@ -235,11 +265,11 @@ test('exactly one closed cycle draws the panel alone: no heading, no footer', ()
 })
 
 test('no drawn line says older', () => {
-  for (const k of [1, 2, 7]) for (const page of [0, 1]) expect(rows(draw(doc(many(k, true)), page)).some(r => r.includes('older'))).toBe(false)
+  for (const k of [1, 2, 14]) for (const page of [0, 1]) expect(rows(draw(doc(many(k, true)), page)).some(r => r.includes('older'))).toBe(false)
 })
 
 test('a page out of range is clamped', () => {
-  const d = doc(many(7, true))
+  const d = doc(many(14, true))
   expect(listRows(draw(d, 99))).toEqual(listRows(draw(d, 2)))
   expect(listRows(draw(d, -4))).toEqual(listRows(draw(d, 0)))
   expect(listRows(draw(d, Number.NaN))).toEqual(listRows(draw(d, 0)))
@@ -247,8 +277,8 @@ test('a page out of range is clamped', () => {
 })
 
 test('a single page draws no footer, and the default page is the first', () => {
-  const b = draw(doc(many(4)))
-  expect(listRows(b).length).toBe(4)
+  const b = draw(doc(many(11)))
+  expect(listRows(b).length).toBe(11)
   expect(listRows(b).some(x => x.startsWith('page'))).toBe(false)
   const d = doc(many(5))
   expect(listRows(draw(d))).toEqual(listRows(draw(d, 0)))
@@ -263,7 +293,7 @@ test('every closed row fits its width and the title is last', () => {
 
 // --- the hooks module: the page atom and the buttons -------------------------------------------
 
-const CYCLES_OUT = {exitCode: 0, stdout: JSON.stringify(doc(many(7, true), {ok: true, items: [qItem(1, 'pending')], authorization: null}))}
+const CYCLES_OUT = {exitCode: 0, stdout: JSON.stringify(doc(many(14, true), {ok: true, items: [qItem(1, 'pending')], authorization: null}))}
 const SHORT_OUT = {exitCode: 0, stdout: JSON.stringify(doc(many(2, true)))}
 
 // The kit keeps session state in memory, so a press writes the page atom and the Pane draws it again.
@@ -276,7 +306,7 @@ test('the Pane draws the first page and offers next and previous buttons past on
   const ui = await mountPane($)
   const first = await shownOf(ui)
   expect(first).toContain('page 1/2')
-  expect(first).toContain('CYC-0007')
+  expect(first).toContain('CYC-0014')
   expect(await ui.find({type: 'Button', key: 'older-next'})).toBeDefined()
   expect(await ui.find({type: 'Button', key: 'older-previous'})).toBeDefined()
   expect(first).not.toContain('older')
@@ -359,7 +389,18 @@ test('a stored page under another shape tag reads as the first page', async ($, 
 // --- the default harness ----------------------------------------------------------------------
 
 test("the default harness pages: the footer draws and no +N more line does", () => {
-  const lines = rows(draw(doc([cycleRow(9, "active"), ...[6, 5, 4, 3, 2, 1].map(n => cycleRow(n))])))
+  const lines = rows(draw(doc([cycleRow(19, "active"), ...Array.from({length: 13}, (_, i) => cycleRow(13 - i))])))
   expect(lines.some(l => l.includes("page 1/2"))).toBe(true)
   expect(lines.some(l => l.includes("more"))).toBe(false)
+})
+
+test('a harness that cannot turn pages draws the first page and a +N more line, and no footer', () => {
+  const lines = listRows(pane(parsed(doc(many(14, true))), agents([]), 100, 'docked', {...HARNESS, pages: false}))
+  expect(lines.length).toBe(1 + OLDER_PAGE_SIZE + 1)
+  expect(lines.map(x => x.match(/CYC-\d+/)?.[0])).toEqual([undefined, ...ids(13, 4), undefined])
+  expect(lines[lines.length - 1]).toBe('+3 more')
+  expect(lines.some(l => l.startsWith('page'))).toBe(false)
+  const one = listRows(pane(parsed(doc(many(11))), agents([]), 100, 'docked', {...HARNESS, pages: false}))
+  expect(one.length).toBe(1 + OLDER_PAGE_SIZE)
+  expect(one.some(l => l.includes('more'))).toBe(false)
 })

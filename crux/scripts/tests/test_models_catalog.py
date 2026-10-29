@@ -175,12 +175,12 @@ class ShippedCatalogTests(unittest.TestCase):
             "architect":      ("claude-opus-5-5", "opus-latest",    "gpt-6.1-sol",   "high"),
             "brainstormer":   ("claude-opus-5-5", "sol-latest",    "gpt-6.1-sol",   "high"),
             "commander":      ("claude-opus-5-5", "kimi-latest", "gpt-6-astra",   "high"),
-            "dev-lead":       ("claude-opus-5-5", "sol-latest",    "gpt-6.1-sol",   "high"),
+            "dev-lead":       ("claude-opus-5-5", "glm-latest",    "gpt-6.1-sol",   "high"),
             "developer":      ("claude-sonnet-5-5", "deepseek-flash", "gpt-6.1-terra", "high"),
             "historian":      ("claude-sonnet-5-5", "glm-latest",    "gpt-6.1-terra", "high"),
             "librarian":      ("claude-sonnet-5-5", "glm-latest",    "gpt-6.1-terra", "high"),
             "night-gardener": ("claude-opus-5-5", "opus-latest", "gpt-6-astra",   "high"),
-            "reviewer":       ("claude-opus-5-5", "sol-latest", "gpt-6.1-sol",   "xhigh"),
+            "reviewer":       ("claude-opus-5-5", "argon-latest", "gpt-6.1-sol",   "xhigh"),
             "wayfinder":      ("claude-sonnet-5-5", "glm-latest",    "gpt-6.1-terra", "high"),
         }
         catalog = MC.load()
@@ -197,26 +197,28 @@ class ShippedCatalogTests(unittest.TestCase):
     def test_opencode_assignments_follow_the_owner_lineup(self):
         """The OpenCode column: flagship defaults to Sol, apex to Opus.
 
-        brainstormer and dev-lead carry no override, so they inherit the
-        flagship default; the architect names Opus over it. night-gardener
-        inherits the apex default. The reviewer names Sol and the commander
-        names Kimi over the apex default.
+        brainstormer carries no override, so it inherits the flagship
+        default; the architect names Opus and the dev-lead names GLM over it.
+        night-gardener inherits the apex default. The reviewer names Argon and
+        the commander names Kimi over the apex default.
         """
         catalog = MC.load()
         self.assertEqual(catalog.aliases["opus-latest"], "openrouter/anthropic/claude-opus-5.5")
         self.assertEqual(catalog.aliases["sol-latest"], "openrouter/openai/gpt-6.1-sol")
         self.assertEqual(catalog.aliases["kimi-latest"], "openrouter/moonshotai/kimi-k3.1-pro")
+        self.assertEqual(catalog.aliases["glm-latest"], "openrouter/z-ai/glm-5.3")
+        self.assertEqual(catalog.aliases["argon-latest"], "openrouter/google/gemini-4-argon")
         self.assertEqual(catalog.levels["flagship"].opencode, "sol-latest")
         self.assertEqual(catalog.levels["apex"].opencode, "opus-latest")
         self.assertEqual(catalog.agents["architect"].level, "flagship")
         self.assertEqual(catalog.agents["architect"].opencode, "opus-latest")
-        for name in ("brainstormer", "dev-lead"):
-            with self.subTest(agent=name):
-                self.assertEqual(catalog.agents[name].level, "flagship")
-                self.assertIsNone(catalog.agents[name].opencode)
+        self.assertEqual(catalog.agents["brainstormer"].level, "flagship")
+        self.assertIsNone(catalog.agents["brainstormer"].opencode)
+        self.assertEqual(catalog.agents["dev-lead"].level, "flagship")
+        self.assertEqual(catalog.agents["dev-lead"].opencode, "glm-latest")
         self.assertEqual(catalog.agents["night-gardener"].level, "apex")
         self.assertIsNone(catalog.agents["night-gardener"].opencode)
-        self.assertEqual(catalog.agents["reviewer"].opencode, "sol-latest")
+        self.assertEqual(catalog.agents["reviewer"].opencode, "argon-latest")
         self.assertEqual(catalog.agents["commander"].opencode, "kimi-latest")
 
     def test_apex_uses_astra_flagship_sol_and_standard_terra_at_high_effort(self):
@@ -362,7 +364,7 @@ class ClaudeOverrideResolutionTests(unittest.TestCase):
         self.assertIsNone(catalog.agents["reviewer"].claude)
         self.assertEqual(catalog.levels["apex"].claude, "claude-opus-5-5")
         self.assertEqual(catalog.resolve("reviewer").claude, "claude-opus-5-5")
-        self.assertEqual(catalog.resolve("reviewer").opencode, catalog.aliases["sol-latest"])
+        self.assertEqual(catalog.resolve("reviewer").opencode, catalog.aliases["argon-latest"])
         self.assertEqual(catalog.resolve("reviewer").codex.model, "gpt-6.1-sol")
 
     def test_removing_an_override_returns_the_agent_to_its_level_cell(self):

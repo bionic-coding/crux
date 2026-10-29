@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.11"
-# dependencies = []
+# dependencies = ["pyyaml>=6.0,<7"]
 # ///
 """Look up, execute, validate or report on repository-shared checks.
 
@@ -29,6 +29,11 @@ registered suite carries them. ``run`` and ``lookup`` exit 2 for a ``--check`` d
 carries one unless it equals the registered declaration of its check id, and ``declare`` exits 2 for
 a ``--requirement`` that names ``project_version``. ``validate`` and ``report`` read receipts that
 carry them unchanged.
+
+PyYAML reads the changelog citation projection. Every action exits 2 without it when a migration
+batch (``adrs/migrations/*.yaml`` under the docs root) exists, or when the ``--check`` declaration
+carries a ``changelog-citations:`` projection. Otherwise no fingerprint reads YAML and PyYAML is not
+needed.
 """
 import argparse
 import json
@@ -51,6 +56,24 @@ def refuse_unregistered_fields(declaration, repo_root, source_root):
                             "a declaration passed on the command line does not equal it")
 
 
+YAML_REFUSAL = ("test-evidence.py needs PyYAML to fingerprint the changelog citation projection; add pyyaml>=6.0 "
+                "to the project's environment and run the engine as `uv run python3 test-evidence.py`")
+
+
+def yaml_selected(repo_root, declaration):
+    """True when PyYAML can change a fingerprint here.
+
+    A migration batch under the docs root selects the projection for the registered checkout
+    declaration, the same condition ``suite_evidence._changelog_projection`` checks, and a
+    declaration may carry a ``changelog-citations:`` kind itself."""
+    if any((Path(repo_root) / suite_evidence._docs_relative(repo_root) / "adrs/migrations").glob("*.yaml")):
+        return True
+    projections = declaration.get("input_projections") if isinstance(declaration, dict) else None
+    return isinstance(projections, dict) and any(
+        isinstance(kind, str) and kind.startswith("changelog-citations:")
+        for kinds in projections.values() if isinstance(kinds, list) for kind in kinds)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("action", choices=("run", "lookup", "validate", "report", "declare"))
@@ -67,6 +90,13 @@ def main():
     parser.add_argument("--output", type=Path, help="declare: write the declaration here instead of stdout")
     args = parser.parse_args()
     try:
+        declaration = json.loads(args.check.read_text()) if args.check is not None and args.action in ("run", "lookup") else None
+        if yaml_selected(args.repo_root, declaration):
+            try:
+                import yaml  # noqa: F401  (the changelog citation projection reads YAML)
+            except ImportError:
+                print(YAML_REFUSAL, file=sys.stderr)
+                return 2
         if args.action == "declare":
             if not args.preset or args.check_id is None:
                 parser.error("--preset and --check-id are required")
@@ -97,7 +127,6 @@ def main():
         else:
             if args.check is None:
                 parser.error("--check is required")
-            declaration = json.loads(args.check.read_text())
             refuse_unregistered_fields(declaration, args.repo_root, args.source_root)
             if args.action == "run":
                 result = execute(args.repo_root, declaration, args.retry_reason, source_root=args.source_root)

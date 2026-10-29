@@ -49,12 +49,16 @@ DOCS_EXCLUSIONS = ("cycles", "journal", "log.md", "inbox", "garden", "whats_next
 BOOKKEEPING_SETTING = ("evidence", "bookkeeping_paths")
 _GLOB_CHARACTERS = frozenset("*?[]{}")
 # Release-only exclusions and projections of the registered suites (CYC-0038, IDR release-neutral-evidence
-# revision 2). Every entry matches one verdict of the release read audit
-# (bionic/cycles/CYC-0038/evidence/build/release-read-audit.md, section 1); a path joins only with a
-# cleared verdict. `CHANGELOG.md` stays an input of the checkout suites (P9: nine modules read it, and the
-# owner decision keeps it an input), so only the staged suites exclude it (P11). `public` is a bookkeeping
-# rendition of the checkout's release documents, not an input there (P10). The staged suites read the
-# stage's own README.md (the public rendition), so it is projected there, not excluded.
+# revision 2; CYC-0064, IDR changelog-citation-projection revision 1). Every entry matches one verdict of
+# the release read audit (bionic/cycles/CYC-0038/evidence/build/release-read-audit.md, section 1); a path
+# joins only with a cleared verdict. `CHANGELOG.md` is projected in the checkout suites (P9) by
+# `_changelog_projection`: the kind `changelog-citations:<tokens>` fingerprints the rows the migration
+# citation readers consume, so a prepended release section or a new footnote leaves the fingerprint alone.
+# The checkout declares no projection, which leaves CHANGELOG.md a whole-file input, when no batch binds
+# it, the token set is empty, a binding batch is unpublished, or the token reader raises anything. The
+# staged suites exclude it (P11). `public` is a bookkeeping rendition of the checkout's release
+# documents, not an input there (P10). The staged suites read the stage's own README.md (the public
+# rendition), so it is projected there, not excluded.
 RELEASE_EXCLUSIONS = {"checkout": ("public",), "staged": ("CHANGELOG.md",)}
 _MANIFEST_VERSION = {path: ["json-string:version"] for path in (
     "crux/plugin.json", "crux/.claude-plugin/plugin.json", "crux/.codex-plugin/plugin.json",
@@ -177,6 +181,28 @@ def supported_minors(dev_root):
     return FALLBACK_MINORS
 
 
+def _changelog_projection(root):
+    """``{"CHANGELOG.md": [kind]}`` when the migration batches certify the token set, else ``{}``.
+
+    The tokens come from ``implementation_migration.changelog_citation_tokens``, imported lazily so this
+    module loads where that one cannot. Every uncertain state returns ``{}``, which leaves CHANGELOG.md a
+    whole-file input: the call raises, no batch binds CHANGELOG.md, the token set is empty (an empty kind
+    never validates), or a binding batch has no committed application.
+    """
+    try:
+        # A tree with no batch file has no tokens. The reader walks the commit history, so skip it there.
+        if not any((Path(root) / _docs_relative(root) / "adrs/migrations").glob("*.yaml")):
+            return {}
+        from implementation_migration import changelog_citation_tokens
+        found = changelog_citation_tokens(root)
+        tokens, binding, unpublished = found["tokens"], found["binding"], found["unpublished"]
+        if not tokens or not binding or unpublished or tokens != sorted(set(tokens)):
+            return {}
+        return {"CHANGELOG.md": ["changelog-citations:" + " ".join(tokens)]}
+    except Exception:
+        return {}
+
+
 def _suites(root, dev_root):
     """``(scope, start, minor-or-None, requirement)`` for the four registered suites."""
     local = dev_minor(root if dev_root is None else dev_root)
@@ -212,6 +238,8 @@ def _declaration(scope, start, pattern, top, root, minor, requirement, *, regist
     if registered:
         declaration["exclude_inputs"] = [*declaration["exclude_inputs"], *RELEASE_EXCLUSIONS[scope]]
         declaration["input_projections"] = {path: list(kinds) for path, kinds in RELEASE_PROJECTIONS[scope].items()}
+        if scope == "checkout":
+            declaration["input_projections"].update(_changelog_projection(root))
     if requirement is not None:
         declaration["requirement"] = requirement
     return declaration

@@ -43,7 +43,7 @@ There is no prompt minimum or repeat run. Pausing and resuming keeps the same cy
 | release | Plan → Release → Reflect | 2 |
 
 Limits include the initial attempt. Tests and blocking review findings return to
-Plan, or Build for quick-fix. Crux pauses sooner if progress stalls; extra passes
+Build in every type. Crux pauses sooner if progress stalls; extra passes
 need your approval. Changing type preserves history and pass count.
 
 Dev requires a council-approved IDR. Other types need one only for material choices.

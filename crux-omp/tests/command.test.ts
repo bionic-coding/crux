@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { runCommand } from '../lib/command.ts'
+import { pageDelta, runCommand } from '../lib/command.ts'
 import type { Scheduler } from '../lib/refresh.ts'
 import { makeFake } from './fixtures/fake.ts'
 
@@ -76,4 +76,12 @@ test('a host whose panel calls throw is caught', () => {
   }
   const scheduler: Scheduler = { start: () => {}, stop: () => {}, request: () => {} }
   assert.doesNotThrow(() => runCommand(host, scheduler))
+})
+
+test('pageDelta reads the next and prev arguments and nothing else', () => {
+  assert.equal(pageDelta('next'), 1)
+  assert.equal(pageDelta('  Prev '), -1)
+  assert.equal(pageDelta(''), null)
+  assert.equal(pageDelta('toggle'), null)
+  assert.equal(pageDelta(undefined as never), null)
 })

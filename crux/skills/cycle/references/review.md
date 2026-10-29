@@ -29,12 +29,19 @@ plausible concerns with targeted checks; a security label alone is not a blocker
 Missing evidence of a required safety property can block. Confirmed defects retain
 their severity at every scrutiny level.
 
-Review the diff, criteria, and relevant integration points. Expand only for a
-concrete dependency or failure path. Record unrelated existing issues separately
-unless they prevent the change working safely. Reuse valid test evidence; request
-new checks for a specific gap. After fixes, revisit changed portions and their
-consequences; repeat full review only when earlier conclusions were invalidated.
-Blocking findings use the cycle's return path and pass limit, never a hidden loop.
+Review the diff, criteria, and relevant integration points. The reviewer reads the
+diff, history and receipts itself unless the host denies it that shell. Expand only
+for a concrete dependency or failure path. Record unrelated existing issues separately
+unless they prevent the change working safely. Reuse valid test evidence; request new
+checks for a specific gap. Check that the Build checks include every test that
+imports, invokes, reads, globs or enumerates a changed path; an omitted related test
+is missing evidence. After fixes, revisit changed portions and their consequences;
+repeat full review only when earlier conclusions were invalidated. Blocking findings
+use the cycle's return path and pass limit, never a hidden loop.
+
+A fix-diff review follows a Review finding the commander answered with a fix task.
+The reviewer checks only the fix diff against the finding, once. A blocking fix-diff
+review returns to Build. After a Test finding, the normal Review covers the fix.
 
 Return a consolidated report with reviewer identity, scrutiny and rationale,
 scope, evidence and limitations, blocking/advisory/cosmetic findings, and verdict.

@@ -130,7 +130,7 @@ class ActionTests(ListedBase):
         'scrutiny': {'scrutiny': 'standard', 'rationale': 'r', 'risks': []},
         'decision': {'kind': 'idr', 'name': 'n', 'contents': {}},
         'approve-decision': {'subject': 'x', 'approval': 'y'},
-        'reflect': {'reflection': {'outcome': 'o', 'lessons': 'l', 'remaining': 'none'}},
+        'reflect': {'reflection': {'outcome': 'o', 'lessons': ['l'], 'remaining': ['none']}},
         'return': {'improved': 'a', 'unresolved': 'b', 'next_change': 'c', 'justification': 'd', 'progress': True},
         'extend': {'human_approval': 'ok', 'limit': 5},
         'change-type': {'kind': 'dev', 'reason': 'r'},
@@ -150,7 +150,7 @@ class ActionTests(ListedBase):
         doc = self.make()
         mutate(self.root, doc['id'], 'pause', reason='tooling outage')
         with self.assertRaisesRegex(CycleError, 'ADR-0163'):
-            mutate(self.root, doc['id'], 'reflect', reflection={'outcome': 'o', 'lessons': 'l', 'remaining': 'none'})
+            mutate(self.root, doc['id'], 'reflect', reflection={'outcome': 'o', 'lessons': ['l'], 'remaining': ['none']})
 
     def test_the_deleted_release_actions_are_gone(self):
         doc = create(self.root, 'dev', 'T', 'G', SCOPE, ['a'], 'b', 'c')
@@ -279,7 +279,7 @@ class LegacyTests(ListedBase):
 
     def test_it_refuses_every_mutation_except_pause_reflect_and_abandon(self):
         cid = self.legacy()
-        refused = dict(ActionTests.RETIRED, task={'task_id': 'plan', 'state': 'done'}, advance={}, completion={'commits': None, 'exception': 'x', 'remaining': 'none'},
+        refused = dict(ActionTests.RETIRED, task={'task_id': 'plan', 'state': 'done'}, advance={}, completion={'commits': None, 'exception': 'x', 'remaining': ['none']},
                        resume={'reason': 'r'}, **{'owner-complete': {'owner': {}}})
         for action, args in refused.items():
             if action == 'reflect':
@@ -292,7 +292,7 @@ class LegacyTests(ListedBase):
         mutate(self.root, cid, 'pause', reason='upgrade')
         with self.assertRaisesRegex(CycleError, 'reflection'):
             mutate(self.root, cid, 'abandon')
-        mutate(self.root, cid, 'reflect', reflection={'outcome': 'o', 'lessons': 'l', 'remaining': 'none'})
+        mutate(self.root, cid, 'reflect', reflection={'outcome': 'o', 'lessons': ['l'], 'remaining': ['none']})
         self.assertEqual(mutate(self.root, cid, 'abandon')['status'], 'abandoned')
 
 

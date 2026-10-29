@@ -46,7 +46,8 @@ export const plain = (r: PlainSpan[]) => r.map(s => s.text).join('')
 // n closed cycles, newest first: CYC-n is the latest (it draws as a panel), the others are list rows.
 export const closed = (n: number) => Array.from({ length: n }, (_, i) => cycleRow(n - i))
 
-// The closed cycles of a view whose `cycles:` list holds exactly `pages` pages, the last one full:
-// the latest closed cycle plus pages * OLDER_PAGE_SIZE list rows.
-export const closedForPages = (pages: number) => 1 + pages * OLDER_PAGE_SIZE
+// The closed cycles of a view whose `cycles:` list holds exactly `pages` pages, the last one holding
+// a single row: the latest closed cycle plus (pages - 1) * OLDER_PAGE_SIZE + 1 list rows. The reader
+// accepts at most 60 cycles, so a read view holds at most six pages.
+export const closedForPages = (pages: number) => 1 + (pages - 1) * OLDER_PAGE_SIZE + 1
 export const withPages = (pages: number): Parsed => parsedOf(doc(closed(closedForPages(pages))))

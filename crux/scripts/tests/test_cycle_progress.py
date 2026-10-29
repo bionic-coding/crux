@@ -94,6 +94,37 @@ class ProgressTests(unittest.TestCase):
         with self.assertRaises((CycleError,SourceIORefusal)):view(self.root)
 
 
+class LoadedCycleCapTests(unittest.TestCase):
+    """The dashboard loads at most 60 cycles; each cycle keeps at most 20 returns and 20 waits."""
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup);self.root=Path(self.temp.name)
+        (self.root/'bionic').mkdir();(self.root/'src').mkdir()
+        (self.root/'bionic/manifest.yml').write_text('schema_version: "5"\nconcerns_enabled: [adrs]\n')
+        seed=create(self.root,'quick-fix','Seed','Goal',['src'],['passes'],'builder','tester')
+        folder=self.root/'bionic/cycles'/seed['id']
+        self.seed=json.loads((folder/'cycle.json').read_text())
+        for f in folder.iterdir():f.unlink()
+        folder.rmdir()
+    def put(self,n,**fields):
+        doc=json.loads(json.dumps(self.seed));doc['id']=f'CYC-{n:04d}';doc['status']='completed';doc.update(fields)
+        d=self.root/'bionic/cycles'/doc['id'];d.mkdir(parents=True);(d/'cycle.json').write_text(json.dumps(doc))
+    def test_sixty_cycles_load_whole(self):
+        for n in range(1,61):self.put(n)
+        ids=[c['id'] for c in view(self.root)['cycles']]
+        self.assertEqual(ids,[f'CYC-{n:04d}' for n in range(60,0,-1)])
+    def test_sixty_one_cycles_clip_to_the_sixty_newest(self):
+        for n in range(1,62):self.put(n)
+        ids=[c['id'] for c in view(self.root)['cycles']]
+        self.assertEqual(len(ids),60);self.assertEqual(ids[0],'CYC-0061');self.assertNotIn('CYC-0001',ids)
+    def test_returns_and_waits_stay_capped_at_twenty(self):
+        history=[{'action':'return-requested','pass':i+1,'phase':'build','assessment':{'unresolved':f'r{i}'}} for i in range(25)]
+        decisions=[{'name':f'd{i}','kind':'idr','approval':None,'accepted':False} for i in range(25)]
+        self.put(1,history=list(self.seed['history'])+history,decisions=decisions)
+        c=view(self.root)['cycles'][0]
+        self.assertEqual(len(c['returns']),20);self.assertEqual(c['returns'][-1]['reason'],'r24')
+        self.assertEqual(len(c['waits']),20);self.assertEqual(c['waits'][0],'d0')
+
+
 class QueueDocumentTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup);self.root=Path(self.temp.name)

@@ -559,5 +559,128 @@ class SourceRules(_Base):
         self.assertEqual(json.loads(err.getvalue()), {"remedy": migration.ABSENT_SOURCE_REMEDY})
 
 
+# ---- CYC-0064: the span of CHANGELOG.md the citation readers consume ----------------------------
+DATED = "## [3.10.0] — 2026-08-01\n\nrule:rotation\n"
+NEWER = "## [3.11.0] — 2026-09-01\n\nA new release.[^new]\n\n[^new]: rule:unbound-elsewhere.\n\n"
+
+
+class ChangelogCitationSpan(_Base):
+    """The rows a release leaves alone and the edits that change them."""
+
+    def tokens(self):
+        return migration.changelog_citation_tokens(self.root)["tokens"]
+
+    def rows(self, text):
+        return migration.changelog_citation_span(text, self.tokens())
+
+    def test_tokens_cover_the_batch_handles_and_slugs_and_the_registry_facts(self):
+        self.prepare(CHANGELOG)
+        facts = migration.changelog_citation_tokens(self.root)
+        self.assertIn("rule:rotation", facts["tokens"])
+        self.assertTrue(any(t.startswith("ADR-") and "/" in t for t in facts["tokens"]), facts["tokens"])
+        self.assertEqual(facts["tokens"], sorted(set(facts["tokens"])))
+        self.assertEqual(facts["batches"], ["implementation-pilot-001"])
+        self.assertEqual(facts["binding"], ["implementation-pilot-001"])
+        self.assertEqual(facts["unpublished"], ["implementation-pilot-001"])
+        self.f.witness.write_text('{"synthetic": "discovery only"}\n')
+        sup.commit_all(self.root, "synthetic committed locator")
+        self.assertEqual(migration.changelog_citation_tokens(self.root)["unpublished"], [])
+
+    def test_a_batch_that_does_not_bind_the_changelog_still_contributes_its_tokens(self):
+        import yaml
+        self.prepare(CHANGELOG)
+        batch = yaml.safe_load(self.f.f.path.read_text())
+        other = dict(batch, citation_dependencies=[])
+        entry = other["entries"][0]
+        entry["affected_governs"][0]["handle"] = entry["source_adr"] + "/other-rule"
+        entry["affected_governs"][0].pop("retires", None)
+        entry["source_identity"] = migration.source_identity(entry)
+        other["recovery_from"] = {"witness": {"path": "docs/adrs/migrations/none.application.json", "sha256": "1" * 64},
+                                  "batch": {"path": self.f.f.rel, "sha256": "2" * 64},
+                                  "source_identities": sorted({e["source_identity"] for e in other["entries"]})}
+        other["batch_id"] = "implementation-pilot-001-recovery-" + migration._canonical_digest(other["recovery_from"])
+        (self.f.f.path.parent / "other-batch.yaml").write_text(yaml.safe_dump(other, sort_keys=False))
+        sup.commit_all(self.root, "second batch that binds no changelog")
+        facts = migration.changelog_citation_tokens(self.root)
+        self.assertIn("rule:other-rule", facts["tokens"])
+        self.assertIn(entry["source_adr"] + "/other-rule", facts["tokens"])
+        self.assertEqual(facts["batches"], sorted(["implementation-pilot-001", other["batch_id"]]))
+        self.assertEqual(facts["binding"], ["implementation-pilot-001"])
+
+    def test_an_unreadable_batch_is_reported_not_skipped(self):
+        self.prepare(CHANGELOG)
+        (self.f.f.path.parent / "broken.yaml").write_text("record_type: not-a-batch\n")
+        sup.commit_all(self.root, "an unreadable batch")
+        with self.assertRaises(Exception):
+            migration.changelog_citation_tokens(self.root)
+
+    def test_rows_hold_token_partition_and_the_dated_release_only(self):
+        self.prepare(CHANGELOG)
+        rows = self.rows("# Changelog\n\n" + DATED)
+        self.assertEqual(rows, [{"token": "rule:rotation", "partition": "historical",
+                                 "version": "3.10.0", "date": "2026-08-01"}])
+
+    def test_a_prepended_section_a_rewritten_unreleased_and_an_unbound_footnote_change_no_row(self):
+        self.prepare(CHANGELOG)
+        base = self.rows("# Changelog\n\n" + DATED)
+        self.assertTrue(base)
+        self.assertEqual(base, self.rows("# Changelog\n\n" + NEWER + DATED))
+        self.assertEqual(base, self.rows("# Changelog\n\n## [Unreleased]\n\nAnything else.\n\n" + DATED))
+        self.assertEqual(base, self.rows("# Changelog\n\n## [Unreleased]\n\nRewritten.\n\n" + NEWER + DATED))
+
+    def test_each_span_edit_changes_the_rows(self):
+        self.prepare(CHANGELOG)
+        base = self.rows("# Changelog\n\n" + DATED)
+        for label, text in (
+                ("token removed", "# Changelog\n\n## [3.10.0] — 2026-08-01\n\nnothing\n"),
+                ("version changed", "# Changelog\n\n" + DATED.replace("3.10.0", "3.10.1")),
+                ("date changed", "# Changelog\n\n" + DATED.replace("2026-08-01", "2026-08-02")),
+                ("token in Unreleased", "# Changelog\n\n## [Unreleased]\n\nrule:rotation\n\n" + DATED),
+                ("footnote label duplicated",
+                 "# Changelog\n\n## [3.10.0] — 2026-08-01\n\nOld.[^a]\n\n[^a]: rule:rotation\n\n[^a]: other\n")):
+            with self.subTest(label):
+                self.assertNotEqual(base, self.rows(text))
+
+    def test_a_footnote_label_is_not_a_row_field(self):
+        self.prepare(CHANGELOG)
+        one = self.rows("# Changelog\n\n## [3.10.0] — 2026-08-01\n\nOld.[^a]\n\n[^a]: rule:rotation\n")
+        two = self.rows("# Changelog\n\n## [3.10.0] — 2026-08-01\n\nOld.[^zz]\n\n[^zz]: rule:rotation\n")
+        self.assertEqual(one, two)
+        self.assertEqual([set(row) for row in one], [{"token", "partition", "version", "date"}])
+
+    def test_an_oversize_text_has_no_span(self):
+        self.prepare(CHANGELOG)
+        text = "# Changelog\n\n" + DATED + "x" * (migration.MAX_SOURCE_BYTES + 1)
+        self.assertIsNone(migration.changelog_citation_span(text, self.tokens()))
+
+    def test_the_post_publication_verdict_recomputed_from_the_rows_equals_the_readers(self):
+        texts = (
+            CHANGELOG,
+            "# Changelog\n\n## [3.10.0] — 2026-08-01\n\nEarlier.[^old]\n\n[^old]: rule:rotation (ADR-0110/rotation).\n",
+            "# Changelog\n\n## [Unreleased]\n\nrule:rotation\n\n" + DATED,
+            "# Changelog\n\n## [3.10.0] — 2026-08-01\n\nOld.[^a]\n\n[^a]: rule:rotation\n\n[^a]: other\n",
+            "# Changelog\n\n## [3.10.0] — 2026-08-01\n\nnothing relevant\n",
+            "# Changelog\n\nrule:rotation before any release heading\n",
+            "# Changelog\n\n" + NEWER + DATED,
+        )
+        seen = set()
+        for text in texts:
+            batch = self.prepare(text)
+            found, kinds = migration._citation_inspection(self.root, batch)
+            reader = (any(row["path"] == "CHANGELOG.md" for row in found),
+                      any(row["path"] == "CHANGELOG.md" for row in kinds["governing"]))
+            rows = self.rows(text)
+            span = (bool(rows), any(row["partition"] == "governing" for row in rows))
+            with self.subTest(text=text[:60]):
+                self.assertEqual(reader, span)
+            seen.add(reader)
+        self.assertEqual(seen, {(False, False), (True, False), (True, True)})  # every verdict is exercised
+
+    def test_the_reader_and_the_span_share_one_occurrence_helper(self):
+        import inspect
+        self.assertIn("_citation_occurrences", inspect.getsource(migration._inspect_citation_sources))
+        self.assertIn("_citation_occurrences", inspect.getsource(migration.changelog_citation_span))
+
+
 if __name__ == "__main__":
     unittest.main()

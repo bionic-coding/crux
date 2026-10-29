@@ -40,7 +40,7 @@ class IntegrationTests(unittest.TestCase):
         first=self.apply(first,'checks',checks=['unit']);first=self.apply(first,'advance')
         first,ran=self.evidence(first,decl)
         first=self.apply(first,'advance');first=self.review(first);first=self.apply(first,'advance')
-        first=self.apply(first,'reflect',reflection={'outcome':'fixed','lessons':'reuse','remaining':'none'})
+        first=self.apply(first,'reflect',reflection={'outcome':'fixed','lessons':['reuse'],'remaining':['none']})
         first=self.apply(first,'advance');self.assertEqual(first['status'],'completed')
         second=self.apply(second,'checks',checks=['unit']);second=self.apply(second,'advance')
         second,reused=self.evidence(second,decl)

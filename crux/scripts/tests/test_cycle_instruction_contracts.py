@@ -141,7 +141,7 @@ class CycleInstructionContracts(unittest.TestCase):
 
     def test_returns_preserve_counts_and_require_progress(self):
         text = flat("skills/cycle/SKILL.md")
-        clauses = ["returns to Plan; quick-fix returns to Build", "what improved",
+        clauses = ["returns to Build in every type", "what improved",
                    "what remains unresolved", "what will change", "why another pass",
                    "Pause when progress stalls", "Additional passes require explicit human approval",
                    "approval never disables the progress rule", "preserves identity, history, and pass count",
@@ -447,6 +447,7 @@ class BookkeepingInstructionContracts(unittest.TestCase):
         self.assertEqual(missing(text, (
             "Declare a cycle check with a preset; never hand-write a declaration that copies the shared exclusions",
             "test-evidence.py\" declare", "--preset drift-gates",
+            "uv run python3 \"${CRUX_PLUGIN_ROOT}/scripts/test-evidence.py\" declare",
             "`whole-tree`", "`drift-gates`", "`mods-gate`, `opencode-gate`, `omp-gate`", "`journal-index`",
             "Use `whole-tree` only for a command that reads none of the shared bookkeeping paths",
             "Any exclusion beyond the shared list is documented in coverage",
@@ -456,6 +457,19 @@ class BookkeepingInstructionContracts(unittest.TestCase):
             "`evidence.bookkeeping_paths`", "live-read audit",
             "Reflect needs no evidence refresh")), [])
         self.assertNotIn('"exclude_inputs": ["bionic/cycles"]', text)
+
+    def test_shipped_instructions_teach_only_the_python3_evidence_form(self):
+        """The engine's script environment lacks yaml and httpx; only `uv run python3` runs in the project's."""
+        bare = re.compile(r"uv run\s+(?!python3\s)[^\n]*test-evidence\.py")
+        roots = (PLUGIN / "skills", PLUGIN / "agents", PLUGIN / "templates")
+        files = [f for root in roots for f in sorted(root.rglob("*")) if f.is_file()]
+        scanned = [f for f in files if "test-evidence.py" in f.read_text(encoding="utf-8", errors="ignore")]
+        self.assertTrue(scanned, "no shipped instruction names test-evidence.py; the scan is vacuous")
+        offenders = [f"{f.relative_to(PLUGIN)}:{n}"
+                     for f in scanned
+                     for n, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1)
+                     if bare.search(line)]
+        self.assertEqual(offenders, [])
 
     def test_one_test_phase_check_drift_step_covers_the_roster(self):
         text = flat("skills/cycle/references/testing.md")
@@ -499,6 +513,141 @@ class BookkeepingInstructionContracts(unittest.TestCase):
         text = " ".join(TREE_AGENTS_MD.read_text(encoding="utf-8").split())
         self.assertEqual(missing(text, self.BOOKKEEPING_RULE), [])
         self.assertNotIn(self.RETIRED_SENTENCE, text)
+
+class ParallelStreamContracts(unittest.TestCase):
+    """A commander may run several dev-leads at once, one per independent stream."""
+
+    def test_commander_and_dev_lead_describe_parallel_streams(self):
+        commander = flat("agents/commander.md")
+        self.assertEqual(missing(commander, (
+            "Run several dev-leads at once",
+            "one dev-lead per independent stream with disjoint owned paths recorded in the plan",
+            "Each dev-lead integrates its own units",
+            "You stay accountable for the cycle")), [])
+        lead = flat("agents/dev-lead.md")
+        self.assertEqual(missing(lead, (
+            "You may be one of several dev-leads",
+            "Edit only your stream's owned paths",
+            "integrate your own units into the shared branch one at a time",
+            "never stash, reset, check out or reformat another stream's paths")), [])
+
+    # Each role and the cycle skill carry the workflow rules of CYC-0076 against
+    # the `assignment` and `checks --phase build` interface the approved IDR fixes.
+    WORKFLOW = {
+        "skills/cycle/SKILL.md": (
+            "first Build task delivers one working end-to-end path",
+            "description starts `Hand-over:`",
+            "`assignment CYC --id ID --state running --role ROLE`",
+            "Run `handoff` first",
+            "Record `lost` only with a note citing host evidence",
+            "Elapsed time never makes an assignment lost",
+            "Never message an agent while an assignment it dispatched is still running",
+            "A dev-lead dispatch takes no `--task`", "`lead-<task-id>`",
+            "every test that imports, invokes, reads, globs or enumerates a changed path",
+            "`checks --phase build`",
+            "Commit the cycle record and queue only at a phase close",
+            "Reports cite rather than restate"),
+        "agents/commander.md": (
+            "`Hand-over:`", "relay it to the owning dev-lead",
+            "`assignment <CYC-ID> --id <id> --state running --role <role>`",
+            "run `handoff` first", "only with a note citing host evidence",
+            "Never message an agent while an assignment it dispatched is still running",
+            "A dev-lead dispatch takes no `--task`", "`lead-<task-id>`",
+            "vertical slice", "`checks --phase build`"),
+        "agents/dev-lead.md": (
+            "description starts `Hand-over:`", "--role developer",
+            "Your own assignment carries no `--task`",
+            "only with a note citing host evidence",
+            "Never message an agent while an assignment it dispatched is still running",
+            "every test that imports, invokes, reads, globs or enumerates a changed path",
+            "`checks --phase build`", "one coherent change"),
+        "skills/cycle/references/review.md": (
+            "Check that the Build checks include every test that imports, invokes, reads, globs or enumerates a changed path",),
+        "agents/developer.md": (
+            "imports, invokes, reads, globs or enumerates a path you changed",
+            "one coherent change"),
+    }
+    SUPERSEDED = {
+        "agents/dev-lead.md": ("Include existing tests that import, invoke, read, or enumerate changed inputs.",
+                               "import, invoke, read, or enumerate its inputs"),
+        "agents/commander.md": ("Dispatch independent implementation units with non-overlapping ownership.",),
+    }
+
+    def test_workflow_rules_reach_every_role_and_the_skill(self):
+        for rel, clauses in self.WORKFLOW.items():
+            with self.subTest(path=rel):
+                self.assertEqual(missing(flat(rel), clauses), [])
+        for rel, stale in self.SUPERSEDED.items():
+            with self.subTest(path=rel):
+                self.assertEqual([s for s in stale if s in flat(rel)], [])
+
+
+    SCHEMA_RULES = (
+        "Commander may run several dev-leads at once, one per independent stream with disjoint owned paths recorded in the plan",
+        "description starts `Hand-over:`",
+        "first Build task delivers one working end-to-end path",
+        "records an `assignment` running before each dispatch and resume",
+        "`lost` only with host evidence",
+        "every test that imports, invokes, reads, globs or enumerates a changed path",
+        "Build ends only when they pass")
+
+    def test_shipped_operational_schema_template_carries_the_stream_rules(self):
+        self.assertEqual(missing(flat("templates/AGENTS.md.tmpl"), self.SCHEMA_RULES), [])
+
+    def test_live_operational_schema_twin_carries_the_stream_rules(self):
+        require_dev_surface(self, TREE_AGENTS_MD, "docs-tree AGENTS.md")
+        text = " ".join(TREE_AGENTS_MD.read_text(encoding="utf-8").split())
+        self.assertEqual(missing(text, self.SCHEMA_RULES), [])
+
+class FixStepInstructionContracts(unittest.TestCase):
+    """Test and Review may answer one small in-scope finding with a fix task."""
+
+    BOUNDS = ("stays in plan scope", "changes no approved decision, schema, interface or dependency",
+              "states its cause", "a few files, about 50 changed lines")
+    RETURN = "An ineligible finding, a failed fix, or a blocking fix-diff review returns to Build"
+    SURFACES = {
+        "skills/cycle/SKILL.md": BOUNDS + (
+            "One fix per phase per pass", "`fix: {finding, eligibility}`",
+            "the commander records why it qualifies",
+            "A developer writes the fix; the commander's shell stays the cycle writer and read-only git",
+            "A blocking Test or Review finding returns to Build in every type",
+            RETURN, "checks only the fix diff against the finding",
+            "the normal Review covers it"),
+        "agents/commander.md": BOUNDS + (
+            "one fix per phase per pass", "records why it qualifies", "through dev-lead", RETURN),
+        "agents/dev-lead.md": (
+            "fix task", "a developer writes it", "finding id",
+            "an ineligible finding returns to the conductor"),
+        "agents/reviewer.md": (
+            "fix-diff review", "only the fix diff against the finding",
+            "differ from the fix assignee", "`fix_task`"),
+        "skills/cycle/references/review.md": (
+            "fix-diff review", "only the fix diff against the finding",
+            "blocking fix-diff review returns to Build"),
+        "skills/cycle/references/commands.md": (
+            "`fix: {finding, eligibility}`", "--fix-before", "--fix-after", "`fix_task`",
+            "bookkeeping for the review basis", "one fix per phase per pass",
+            "`handoff` lists fixes"),
+    }
+    SCHEMA = BOUNDS + (
+        "one fix per phase per pass", "commander records why it qualifies", RETURN,
+        "no pass is consumed")
+
+    def test_each_surface_states_the_fix_step(self):
+        for rel, clauses in self.SURFACES.items():
+            with self.subTest(path=rel):
+                self.assertEqual(missing(flat(rel), clauses), [])
+
+    def test_operational_schema_and_template_state_the_fix_step(self):
+        self.assertEqual(missing(flat("templates/AGENTS.md.tmpl"), self.SCHEMA), [])
+        require_dev_surface(self, TREE_AGENTS_MD, "docs-tree AGENTS.md")
+        text = " ".join(TREE_AGENTS_MD.read_text(encoding="utf-8").split())
+        self.assertEqual(missing(text, self.SCHEMA), [])
+
+    def test_root_instructions_name_the_fix_exception(self):
+        text = repo_flat(self, "AGENTS.md")
+        self.assertIn("a small in-scope finding may be answered by a fix task", text)
+
 
 if __name__ == "__main__":
     unittest.main()

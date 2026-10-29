@@ -912,7 +912,7 @@ LIVE_PARTS = [
     (_BAND, "the current cycle type, phase and pass limit"),
     (_PANE, "cycle phases, task progress, returns, approval waits and outcome"),
     (_PANE, "the queue card: the count of queued items, whether the queue is authorized, and each upcoming or recently finished item"),
-    (_PANE, "the `cycles:` list: the closed cycles after the latest as one-line rows, three to a page, with the page number and the `n` and `p` keys that turn the page"),
+    (_PANE, "the `cycles:` list: the closed cycles after the latest as one-line rows, ten to a page, with the page number and the `n` and `p` keys that turn the page"),
     (_PANE, "a cycle's elapsed time, and its paused time when there is any"),
     (_BAND, "the book and run of the run whose run file changed last"),
     (_BAND, "the prompt strip: one glyph per prompt, with `|` between modules"),

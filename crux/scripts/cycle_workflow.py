@@ -9,7 +9,7 @@ import hashlib
 import json
 import os
 import posixpath
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import subprocess
 import tempfile
@@ -144,6 +144,8 @@ def validate(doc):
         raise CycleError('version-two cycle requires coverage and completion fields')
     if len(doc['implementers']) != len(set(doc['implementers'])) or len(doc['required_checks']) != len(set(doc['required_checks'])):
         raise CycleError('implementers and required checks must be unique')
+    if len(doc.get('build_checks', [])) != len(set(doc.get('build_checks', []))):
+        raise CycleError('build checks must be unique')
     if doc['phase'] not in phases_of(doc):
         raise CycleError('phase is incompatible with cycle type')
     if doc['pass'] > doc['pass_limit']:
@@ -153,6 +155,9 @@ def validate(doc):
     task_ids = [task['id'] for task in doc['plan']['tasks']]
     if len(task_ids) != len(set(task_ids)):
         raise CycleError('task ids must be unique')
+    assignment_ids = [entry['id'] for entry in doc.get('assignments', [])]
+    if len(assignment_ids) != len(set(assignment_ids)):
+        raise CycleError('assignment ids must be unique')
     for task in doc['plan']['tasks']:
         if task['phase'] not in phases_of(doc) or any(dep not in task_ids or dep == task['id'] for dep in task['depends_on']):
             raise CycleError('task phase or dependency is invalid')
@@ -238,11 +243,62 @@ def create(repo, kind, title, goal, scope, acceptance, implementer, coordinator,
         return doc
 
 
-def source_fingerprint(repo, doc):
-    """Fingerprint declared review scope, actual dirty bytes, names and deletions."""
-    repo = Path(repo).resolve()
+def _scope_walk(repo, cfg, doc, patterns=None):
+    """Walk the scope with Python glob semantics (`**` is recursive).
+
+    Return `[(pattern, matched, relative file names)]`, one entry per pattern. Excludes the cycle's own
+    directory, the cycles lock, `.git` and `__pycache__`.
+    """
+    out = []
+    own_cycle = cfg.docs_root / 'cycles' / doc['id']
+    for pattern in (doc['plan']['scope'] if patterns is None else patterns):
+        contained(repo, pattern)
+        matches = sorted(repo.glob(pattern))
+        names = []
+        for match in matches:
+            for path in sorted(match.rglob('*')) if match.is_dir() else [match]:
+                relative = path.relative_to(repo).as_posix()
+                if path.is_relative_to(own_cycle) or path == cfg.docs_root / 'cycles/.lock':
+                    continue
+                if '.git' in path.relative_to(repo).parts or '__pycache__' in path.parts:
+                    continue
+                if path.is_file():
+                    contained(repo, relative)
+                    names.append(relative)
+        out.append((pattern, bool(matches), names))
+    return out
+
+
+def scope_name_in_scope(name, patterns):
+    """True when a repo-relative name lies in the scope under the walk's glob semantics.
+
+    A name is in scope when it, or a directory above it, matches a pattern with `PurePosixPath.full_match`
+    (recursive `**`). The walk's `.git` and `__pycache__` exclusions apply. The cycle directory and lock
+    are excluded by the callers' pathspecs, as in the walk.
+    """
+    path = PurePosixPath(name)
+    if '.git' in path.parts or '__pycache__' in path.parts:
+        return False
+    candidates = [path, *path.parents][:-1]
+    return any(c.full_match(pattern) for pattern in patterns for c in candidates)
+
+
+def scope_files(repo, cfg, doc, patterns=None):
+    """The one predicate that lists scope files: the glob walk minus untracked git-ignored files.
+
+    Returns `[(pattern, surviving names)]`, or None when git cannot classify the files (no git,
+    not inside a work tree, or an unclassifiable path). The fingerprint and the completion check both read it.
+    """
+    from test_evidence import _ignored_names
+    walked = _scope_walk(repo, cfg, doc, patterns)
+    ignored = _ignored_names(repo, sorted({name for _, _, names in walked for name in names}))
+    if ignored is None:
+        return None
+    return [(pattern, [n for n in names if n not in ignored]) for pattern, _, names in walked]
+
+
+def _scope_rows_v1(repo, cfg, doc):
     rows = {}
-    cfg = tree(repo)
     own_cycle = cfg.docs_root / 'cycles' / doc['id']
     for pattern in doc['plan']['scope']:
         contained(repo, pattern)
@@ -259,7 +315,47 @@ def source_fingerprint(repo, doc):
                     rows[relative] = digest(path.read_bytes())
         if not matches:
             rows[pattern] = None
-    return digest(encoded(rows))
+    return rows
+
+
+def _scope_rows_v2(repo, cfg, doc):
+    listed = scope_files(repo, cfg, doc)
+    if listed is None:
+        return None
+    rows = {}
+    for pattern, names in listed:
+        for name in names:
+            rows[name] = digest((repo / name).read_bytes())
+        if not names:
+            rows[pattern] = None
+    return rows
+
+
+def source_fingerprint(repo, doc, version=2):
+    """Fingerprint declared review scope: file names, bytes and deletions.
+
+    Version 2 lists files through `scope_files`, so untracked git-ignored files are
+    outside it, and hashes `{'fingerprint_version': 2, 'rows': rows}`. Version 1
+    walks the working tree, ignored files included, and is kept so records made
+    under it still bind.
+    """
+    repo = Path(repo).resolve()
+    cfg = tree(repo)
+    if version == 1:
+        return digest(encoded(_scope_rows_v1(repo, cfg, doc)))
+    rows = _scope_rows_v2(repo, cfg, doc)
+    if rows is None:
+        return digest(encoded(_scope_rows_v1(repo, cfg, doc)))
+    return digest(encoded({'fingerprint_version': 2, 'rows': rows}))
+
+
+def fingerprint_binds(repo, doc, stored):
+    """A stored fingerprint binds when it equals the version 2 or the version 1 value of the current source.
+
+    A version 1 match needs every file, ignored ones included, to be as hashed,
+    so it is never looser than the original rule.
+    """
+    return stored == source_fingerprint(repo, doc) or stored == source_fingerprint(repo, doc, version=1)
 
 
 def retained(cfg, identity, category, value):
@@ -417,7 +513,7 @@ def check_reduction(cfg, doc):
     record = doc.get('reduction')
     if not record:
         raise CycleError('a simplify cycle needs a reduction record for this pass; record one with the reduction command in the Test phase')
-    if record['pass'] != doc['pass'] or record['input_sha256'] != source_fingerprint(cfg.repo_root, doc):
+    if record['pass'] != doc['pass'] or not fingerprint_binds(cfg.repo_root, doc, record['input_sha256']):
         raise CycleError('the reduction record is stale (another pass, or the source changed since it was recorded); record it again in the Test phase')
     areas = record['areas']
     increased = [name for name in REDUCTION_AREAS if areas[name]['change'] == 'increase']
@@ -470,12 +566,12 @@ def check_coverage(doc):
         raise CycleError('coverage must explain checks not selected (or state none)')
 
 
-def completion_paths(cfg, doc):
+def completion_paths(cfg, doc, scope=None):
     # The record cannot contain the SHA of its own final commit. All other scope
     # must be committed; the conductor commits final cycle bookkeeping afterward.
     own = (cfg.docs_root / 'cycles' / doc['id']).relative_to(cfg.repo_root).as_posix()
     lock = (cfg.docs_root / 'cycles/.lock').relative_to(cfg.repo_root).as_posix()
-    return [*doc['plan']['scope'], f':(exclude){own}/**', f':(exclude){lock}']
+    return [*(doc['plan']['scope'] if scope is None else scope), f':(exclude){own}/**', f':(exclude){lock}']
 
 
 def check_completion(cfg, doc):
@@ -484,7 +580,7 @@ def check_completion(cfg, doc):
     record = doc.get('completion')
     if not record:
         raise CycleError('record completion commits or an explicit user-request exception')
-    if record['input_sha256'] != source_fingerprint(cfg.repo_root, doc):
+    if not fingerprint_binds(cfg.repo_root, doc, record['input_sha256']):
         raise CycleError('completion inputs changed; commit changes and record completion again')
     if not isinstance(record.get('remaining'), str) or not record['remaining'].strip():
         raise CycleError('completion must explain remaining uncommitted work (or state none)')
@@ -496,7 +592,10 @@ def check_completion(cfg, doc):
             raise CycleError('exception must quote the actual user instruction and its context')
         return
     def git(*args):
-        result = subprocess.run(['git', '-C', str(cfg.repo_root), *args], capture_output=True, text=True)
+        try:
+            result = subprocess.run(['git', '-C', str(cfg.repo_root), *args], capture_output=True, text=True)
+        except OSError as exc:
+            raise CycleError('git is required to check completion') from exc
         if result.returncode:
             raise CycleError('completion commit must exist in this repository and be an ancestor of HEAD')
         return result.stdout.strip()
@@ -505,23 +604,32 @@ def check_completion(cfg, doc):
             raise CycleError('completion requires full commit SHAs')
         git('rev-parse', '--verify', sha + '^{commit}')
         git('merge-base', '--is-ancestor', sha, 'HEAD')
-    # Check committed and staged/unstaged changes, as well as new scoped files.
-    # git pathspecs handle declared globs; user scope cannot add exclusion magic.
-    paths = completion_paths(cfg, doc)
-    changed = git('diff', '--name-only', commits[-1], '--', *paths)
-    staged = git('diff', '--cached', '--name-only', 'HEAD', '--', *paths)
-    unstaged = git('diff', '--name-only', '--', *paths)
-    untracked = '\n'.join(path for path in git('ls-files', '--others', '--', *paths).splitlines() if '__pycache__' not in Path(path).parts)
+    # Check committed and staged/unstaged changes, as well as new scoped files. Git pathspecs give `**`
+    # two `*` semantics, so each diff keeps only the cycle exclusions and the scope is matched here with
+    # the same glob semantics the shared predicate walks. Tracked paths always count, including deleted
+    # ones; git ignores only untracked files, so ignore rules never hide a diff entry. `--no-renames` lists
+    # both ends of a move, so an in-scope source moved out of scope still counts.
+    paths = ['.', *completion_paths(cfg, doc, [])]
+    def in_scope(output):
+        return [n for n in output.split('\0') if n and scope_name_in_scope(n, doc['plan']['scope'])]
+    changed = in_scope(git('diff', '--relative', '--no-renames', '--name-only', '-z', commits[-1], '--', *paths))
+    staged = in_scope(git('diff', '--relative', '--no-renames', '--cached', '--name-only', '-z', 'HEAD', '--', *paths))
+    unstaged = in_scope(git('diff', '--relative', '--no-renames', '--name-only', '-z', '--', *paths))
+    # Untracked in-scope files: the shared predicate's files minus tracked ones. A project root
+    # below the top level works because git classifies from any directory inside a work tree.
+    listed = scope_files(cfg.repo_root, cfg, doc)
+    if listed is None:
+        raise CycleError('could not classify the scope files with git')
+    tracked = set(git('ls-files', '-z', '--cached').split('\0'))
+    untracked = [name for _, names in listed for name in names if name not in tracked]
     if changed or staged or unstaged or untracked:
         raise CycleError('uncommitted or later scope changes are missing from the completion commit')
 
 
-def check_tests(cfg, doc):
-    check_coverage(doc)
-    if not doc['required_checks']:
-        raise CycleError('declare at least one required check (focused verification is sufficient)')
+def check_current_evidence(cfg, doc, checks):
+    """Every check in ``checks`` has a current-pass evidence ref that still validates."""
     from test_evidence import validate_evidence
-    for check in doc['required_checks']:
+    for check in checks:
         matching = [ref for ref in doc['evidence'] if ref['check_id'] == check and ref['pass'] == doc['pass']]
         if not matching:
             raise CycleError(f'missing passing evidence for {check}')
@@ -531,13 +639,32 @@ def check_tests(cfg, doc):
             raise CycleError(f'invalid evidence for {check}: {exc}') from exc
 
 
+def check_tests(cfg, doc):
+    check_coverage(doc)
+    if not doc['required_checks']:
+        raise CycleError('declare at least one required check (focused verification is sufficient)')
+    check_current_evidence(cfg, doc, doc['required_checks'])
+
+
+def check_build(cfg, doc):
+    """Build exit: each declared Build check passes; a plugin-authoring checkout also declares both checkout suites."""
+    declared = doc.get('build_checks', [])
+    from authoring_scope import is_authoring_checkout
+    if is_authoring_checkout(cfg.repo_root, __file__):
+        from suite_evidence import registered_declarations
+        missing = [check for check in registered_declarations(cfg.repo_root) if check.startswith('checkout:') and check not in declared]
+        if missing:
+            raise CycleError('Build checks must include the registered checkout suites; missing: ' + ', '.join(missing))
+    check_current_evidence(cfg, doc, declared)
+
+
 BASIS_VERSION = 4
 
 # Version 3 classifies every task field. A field in neither set fails loudly,
 # so a future task field forces a decision rather than silently entering or
 # leaving the basis.
 TASK_BASIS_FIELDS = ('id', 'phase', 'description', 'expected_evidence')
-TASK_BOOKKEEPING_FIELDS = ('depends_on', 'status', 'assignee', 'result_path', 'commits', 'evidence', 'stage', 'note', 'replaced_commits')
+TASK_BOOKKEEPING_FIELDS = ('depends_on', 'status', 'assignee', 'result_path', 'commits', 'evidence', 'stage', 'note', 'replaced_commits', 'fix')
 
 
 def review_basis_digest(doc, version):
@@ -630,11 +757,10 @@ def basis_binds(report, v1, v2, v3=None, v4=None):
 
 
 def check_review(cfg, doc):
-    fingerprint = source_fingerprint(cfg.repo_root, doc)
     v1, v2, v3, v4 = review_basis_v1(doc), review_basis_v2(doc), review_basis_digest(doc, 3), review_basis(doc)
     for ref in reversed(doc['reviews']):
         report = read_retained(cfg, ref)
-        if report['pass'] != doc['pass'] or report['input_sha256'] != fingerprint or not basis_binds(report, v1, v2, v3, v4):
+        if report['pass'] != doc['pass'] or not fingerprint_binds(cfg.repo_root, doc, report['input_sha256']) or not basis_binds(report, v1, v2, v3, v4):
             continue
         if report['reviewer'] in doc['implementers']:
             continue
@@ -644,7 +770,7 @@ def check_review(cfg, doc):
     raise CycleError('a passing independent review of the current scope is required')
 
 
-DELIVERY_FIELDS = ('assignee', 'result_path', 'commits', 'evidence', 'stage', 'note', 'replaced_commits')
+DELIVERY_FIELDS = ('assignee', 'result_path', 'commits', 'evidence', 'stage', 'note', 'replaced_commits', 'fix')
 STAGES = ('implemented', 'integrated')
 
 
@@ -701,14 +827,24 @@ def reopen(task):
 
 
 def start_pass(cfg, doc):
-    """Reset tasks for a new pass. A type with a Plan phase carries build tasks that still hold; others reset all."""
-    carries = 'plan' in PHASES[doc['type']]
+    """Reset tasks for a new pass: Plan and Build tasks whose delivery still holds stay; others reset.
+
+    A done fix task stays done and is never reopened. An unfinished fix task leaves the plan, and
+    nothing depends on it afterwards; the `return-requested` event already holds the prior plan."""
+    kept, dropped = [], set()
     for task in doc['plan']['tasks']:
-        if carries and task['phase'] == 'build':
-            if not delivery_holds(cfg, task):
-                reopen(task)
-        else:
-            task['status'] = 'pending'
+        if 'fix' in task:
+            if task['status'] == 'done':
+                kept.append(task)
+            else:
+                dropped.add(task['id'])
+            continue
+        if task['phase'] not in {'plan', 'build'} or not delivery_holds(cfg, task):
+            reopen(task)
+        kept.append(task)
+    for task in kept:
+        task['depends_on'] = [d for d in task['depends_on'] if d not in dropped]
+    doc['plan']['tasks'] = kept
     doc['plan']['revision'] += 1
 
 
@@ -768,13 +904,107 @@ def replace_commit(cfg, task, new, pair, note):
     new['replaced_commits'] = [*history, {'from': matches[0], 'to': target, 'at': now(), 'note': note.strip()}]
 
 
+FIX_KEYS = {'finding', 'eligibility'}
+FIX_PHASES = ('test', 'review')
+
+
+def fix_receipt(cfg, evidence_id):
+    """The stored test-evidence record for an id, or a refusal."""
+    from test_evidence import EvidenceError, _read, storage
+    if not isinstance(evidence_id, str) or not re.fullmatch(r'TE-[0-9a-f]{32}', evidence_id):
+        raise CycleError('invalid evidence ID: a fix names test-evidence receipts such as TE-<32 hex>')
+    try:
+        return _read(storage(cfg.repo_root) / (evidence_id + '.json'))
+    except EvidenceError as exc:
+        raise CycleError(f'evidence {evidence_id} cannot be read: {exc}') from exc
+
+
+def fix_before_receipt(cfg, evidence_id):
+    record = fix_receipt(cfg, evidence_id)
+    if record.get('status') != 'failed':
+        raise CycleError(f"--fix-before must name a receipt that recorded a failure; {evidence_id} has status {record.get('status')}")
+    return record
+
+
+def fix_after_receipt(cfg, evidence_id, check_id):
+    """The receipt is the current valid passing result for ``check_id`` (the check that failed before)."""
+    from test_evidence import EvidenceError, validate_evidence
+    try:
+        return validate_evidence(cfg.repo_root, evidence_id, check_id=check_id)
+    except EvidenceError as exc:
+        raise CycleError(f'--fix-after {evidence_id} does not answer the failed check {check_id}: {exc}') from exc
+
+
+def set_fix_receipts(cfg, new, args):
+    """Record --fix-before and --fix-after on a fix task; finding and eligibility are never touched."""
+    before, after = args.get('fix_before'), args.get('fix_after')
+    if not (before or after):
+        return
+    if 'fix' not in new:
+        raise CycleError(f"task {new['id']} is not a fix task; --fix-before and --fix-after belong to a task added with a fix")
+    fix = dict(new['fix'])
+    if before:
+        fix['before'] = fix_before_receipt(cfg, before)['id']
+    check = fix_receipt(cfg, fix['before'])['declaration']['check_id'] if fix.get('before') else None
+    if after:
+        if check is None:
+            raise CycleError('record --fix-before, the receipt of the failure, before --fix-after')
+        fix['after'] = fix_after_receipt(cfg, after, check)['id']
+    elif fix.get('after') and before:
+        fix_after_receipt(cfg, fix['after'], check)
+    new['fix'] = fix
+
+
+def check_fix_done(cfg, new):
+    """A fix task is done only with a commit, a failed check that now passes, and for Review an approving fix-diff review."""
+    fix = new['fix']
+    if not new.get('commits'):
+        raise CycleError('a fix task needs at least one commit before it is done')
+    if not fix.get('before'):
+        raise CycleError('a fix task needs --fix-before: the receipt of the check that failed')
+    if not fix.get('after'):
+        raise CycleError('a fix task needs --fix-after: the receipt of the same check passing now')
+    check = fix_before_receipt(cfg, fix['before'])['declaration']['check_id']
+    fix_after_receipt(cfg, fix['after'], check)
+    if new['phase'] == 'review':
+        if not fix.get('review'):
+            raise CycleError('a Review-phase fix needs a recorded fix-diff review before it is done: record a review whose report names this task as fix_task')
+        report = read_retained(cfg, fix['review'])
+        if report['verdict'] != 'approve' or report['blocking']:
+            raise CycleError('the fix-diff review is not approving and non-blocking; a blocking finding returns through the cycle')
+
+
+def check_fix_add(doc, cfg, task):
+    """Accept a task carrying `fix` only for a small fix in Test or Review; the writer sets `pass`."""
+    fix = task['fix']
+    if doc['phase'] not in FIX_PHASES:
+        raise CycleError('a fix task is added in Test or Review only')
+    if task['phase'] != doc['phase']:
+        raise CycleError('a fix task belongs to the current phase')
+    if not isinstance(fix, dict) or set(fix) != FIX_KEYS:
+        raise CycleError('a fix carries exactly finding and eligibility; the writer sets pass, and before, after and review come from the task and review commands')
+    if not all(_text(fix[key]) for key in FIX_KEYS):
+        raise CycleError('a fix needs a non-empty finding and eligibility reason')
+    if task.get('status', 'pending') != 'pending' or any(key in task for key in DELIVERY_FIELDS if key != 'fix'):
+        raise CycleError('a fix task is added pending with no delivery fields; record delivery with the `task` command')
+    if any('fix' in other and other['phase'] == doc['phase'] and other['fix']['pass'] == doc['pass'] for other in doc['plan']['tasks']):
+        raise CycleError('one fix task per phase per pass: a second fix returns through the cycle')
+    if doc['phase'] == 'review':
+        current = [read_retained(cfg, ref) for ref in doc['reviews']]
+        current = [report for report in current if report['pass'] == doc['pass']]
+        latest = current[-1] if current else None
+        if not latest or not (latest['verdict'] == 'changes-required' or latest['blocking']) or len(latest['blocking']) != 1:
+            raise CycleError('a Review-phase fix needs the latest review of this pass to be blocking with exactly one blocking finding; otherwise return through the cycle')
+    task['fix'] = {'finding': fix['finding'], 'eligibility': fix['eligibility'], 'pass': doc['pass']}
+
+
 def updated_task(cfg, doc, task, args):
     """The task as it would be after this update; the caller compares it with the stored task."""
     new = deepcopy(task)
     fields = {k: args.get(k) for k in ('state', 'assignee', 'result_path', 'stage', 'note')}
     commits, evidence = args.get('commits') or [], args.get('evidence') or []
     pair = args.get('replace_commit')
-    if not any(fields.values()) and not commits and not evidence and not pair:
+    if not any(fields.values()) and not commits and not evidence and not pair and not args.get('fix_before') and not args.get('fix_after'):
         raise CycleError('task update names no state or delivery field')
     state = fields['state']
     if state == 'done' and any(t['status'] != 'done' for t in doc['plan']['tasks'] if t['id'] in task['depends_on']):
@@ -828,11 +1058,89 @@ def updated_task(cfg, doc, task, args):
         behind = [c[:12] for c in new['commits'] if not on_head(cfg, c)]
         if behind:
             raise CycleError('integrated requires every commit to be an ancestor of HEAD; not on HEAD: ' + ', '.join(behind))
+    set_fix_receipts(cfg, new, args)
+    if 'fix' in new and new['status'] == 'done' and task['status'] != 'done':
+        check_fix_done(cfg, new)
     return new
 
 
-# The actions a release cycle accepts; every other action refuses.
-LISTED_ACTIONS = {'task', 'completion', 'pause', 'resume', 'abandon', 'owner-complete', 'advance'}
+# A singleton role runs once per cycle, so its assignment id is its role name.
+SINGLETON_ROLES = ('commander',)
+
+
+def describe_live(entry):
+    holder = f"agent {entry['agent']}" if entry['agent'] else f"result path {entry['result_path']}"
+    return f"role {entry['role']}, {holder}, started_at {entry['started_at']}, last_seen {entry['last_seen']}"
+
+
+def record_assignment(doc, args):
+    """Apply one assignment change; return (event fields, changed).
+
+    `--state running` starts an id or resumes a finished or lost one as attempt N+1.
+    A start is never idempotent: it refuses while the id is running, even as an
+    identical replay, so a retried start can never read as permission to dispatch.
+    `--seen` always advances last_seen. An identical `finished` or `lost` repeat
+    writes nothing. Liveness is never inferred from time: only `--state lost`
+    with a note naming host evidence ends an entry nobody finished."""
+    ident, state, seen = args.get('id'), args.get('state'), args.get('seen')
+    if not ident or not ident.strip():
+        raise CycleError('assignment requires --id')
+    if bool(state) == bool(seen):
+        raise CycleError('assignment takes exactly one of --state or --seen')
+    entries = doc.setdefault('assignments', [])
+    entry = next((e for e in entries if e['id'] == ident), None)
+    note = args.get('note')
+    if state == 'running':
+        role = args.get('role')
+        if not role or not role.strip():
+            raise CycleError('assignment --state running requires --role')
+        if role in SINGLETON_ROLES and ident != role:
+            raise CycleError(f'{role} is a singleton role; record its assignment under the id {role}')
+        task = args.get('task')
+        if task is not None and task not in {t['id'] for t in doc['plan']['tasks']}:
+            raise CycleError(f'unknown task {task}')
+        if entry and entry['state'] == 'running':
+            raise CycleError(f"assignment {ident} is already running: {describe_live(entry)}. Message or await that agent, or record it lost with host evidence; dispatch nothing")
+        holder = next((e for e in entries if task is not None and e['task'] == task and e['state'] == 'running' and e['id'] != ident), None)
+        if holder:
+            raise CycleError(f"task {task} is held by running assignment {holder['id']}: {describe_live(holder)}. Message or await that agent, or record it lost with host evidence; dispatch nothing")
+        at = now()
+        fresh = {'id': ident, 'role': role, 'task': task, 'agent': args.get('agent'), 'result_path': args.get('result_path'),
+                 'state': 'running', 'attempt': entry['attempt'] + 1 if entry else 1, 'started_at': at, 'last_seen': at, 'ended_at': None, 'note': note}
+        extra = {'assignment': ident, 'state': 'running', 'attempt': fresh['attempt']}
+        if entry:
+            extra['previous'] = deepcopy(entry)
+            entry.clear(); entry.update(fresh)
+        else:
+            entries.append(fresh)
+        return extra, True
+    if not entry:
+        raise CycleError(f'unknown assignment {ident}; start it with --state running')
+    if seen:
+        if entry['state'] != 'running':
+            raise CycleError(f"assignment {ident} is {entry['state']}; --seen records contact with a running assignment only")
+        entry['last_seen'] = now()
+        if args.get('agent') is not None:
+            entry['agent'] = args['agent']
+        if note is not None:
+            entry['note'] = note
+        return {'assignment': ident, 'seen': entry['last_seen']}, True
+    if state == 'lost' and not (note and note.strip()):
+        raise CycleError('assignment --state lost requires --note naming the host evidence that the execution ended without a final report')
+    if entry['state'] == state and (note is None or note == entry['note']):
+        return {}, False
+    if entry['state'] != 'running':
+        raise CycleError(f"assignment {ident} is {entry['state']}; only a running assignment can be recorded {state}")
+    at = now()
+    entry.update({'state': state, 'ended_at': at, 'last_seen': at})
+    if note is not None:
+        entry['note'] = note
+    return {'assignment': ident, 'state': state, 'attempt': entry['attempt']}, True
+
+
+# The actions a release cycle accepts; every other action refuses. `assignment` is record bookkeeping:
+# it adds no step, phase or gate, and lets a release dispatch keep duplicate-dispatch protection.
+LISTED_ACTIONS = {'task', 'completion', 'pause', 'resume', 'abandon', 'owner-complete', 'advance', 'assignment'}
 LEGACY_ACTIONS = {'pause', 'reflect', 'abandon'}
 
 
@@ -851,11 +1159,13 @@ def mutate_tracked(repo, identity, action, **args):
             raise CycleError(f'{action} is not available on a release cycle: it runs one fixed task list (ADR-0163)')
         if legacy(doc) and action not in LEGACY_ACTIONS:
             raise CycleError(f'{action} is not available on a historical release cycle; it can only be paused, reflected on and abandoned')
-        if doc['status'] == 'paused' and action not in {'resume', 'extend', 'abandon', 'reflect', 'change-type', 'owner-complete'}:
+        # A paused cycle still records that an agent reported in or ended; it starts nothing.
+        ending = action == 'assignment' and args.get('state') != 'running'
+        if doc['status'] == 'paused' and not ending and action not in {'resume', 'extend', 'abandon', 'reflect', 'change-type', 'owner-complete'}:
             raise CycleError('cycle is paused; resolve its blocker and resume first')
         if action == 'plan':
-            if doc['phase'] != 'plan':
-                raise CycleError('plan revisions require the Plan phase')
+            if 'plan' not in PHASES[doc['type']] or doc['phase'] not in {'plan', 'build'}:
+                raise CycleError('plan revisions require the Plan or Build phase')
             plan = deepcopy(args['plan'])
             check_plan_file(plan)
             replan(cfg, doc['plan'], plan)
@@ -864,7 +1174,7 @@ def mutate_tracked(repo, identity, action, **args):
             doc['plan'] = plan
         elif action == 'plan-details':
             if doc['type'] != 'quick-fix':
-                raise CycleError('plan-details is for quick-fix; other types revise the plan in the Plan phase')
+                raise CycleError('plan-details is for quick-fix; other types revise the plan in the Plan or Build phase')
             if doc['phase'] not in {'build', 'test'}:
                 raise CycleError('plan-details requires the Build or Test phase')
             details = args['details']
@@ -899,8 +1209,14 @@ def mutate_tracked(repo, identity, action, **args):
             event(doc, 'task-updated', task=task['id'], state=task['status'], **extra)
             save(cfg, doc)
             return doc, True
+        elif action == 'assignment':
+            extra, changed = record_assignment(doc, args)
+            if not changed:
+                return doc, False
         elif action == 'task-add':
             task = deepcopy(args['task'])
+            if 'fix' in task:
+                check_fix_add(doc, cfg, task)
             sequence = PHASES[doc['type']]
             if doc['type'] == 'quick-fix':
                 # Quick-fix has no Plan phase: record expected evidence for the current or any later phase.
@@ -909,6 +1225,14 @@ def mutate_tracked(repo, identity, action, **args):
             elif task['phase'] != doc['phase'] and doc['phase'] != 'plan':
                 raise CycleError('add tasks for the current phase or revise the plan')
             doc['plan']['tasks'].append(task)
+            if 'fix' in task:
+                extra = {'task': task['id'], 'fix': deepcopy(task['fix'])}
+        elif action == 'checks' and args.get('phase') == 'build':
+            if doc['phase'] != 'build':
+                raise CycleError('Build checks are recorded in the Build phase')
+            if len(args['checks']) != len(set(args['checks'])):
+                raise CycleError('Build checks must be unique')
+            doc['build_checks'] = args['checks']
         elif action == 'checks':
             doc['required_checks'] = args['checks']
         elif action == 'coverage':
@@ -937,16 +1261,30 @@ def mutate_tracked(repo, identity, action, **args):
         elif action == 'review':
             if doc['phase'] != 'review':
                 raise CycleError('independent review belongs to Review')
+            report = deepcopy(args['report'])
+            fix_task = None
+            if 'fix_task' in report:
+                fix_task = next((t for t in doc['plan']['tasks'] if t['id'] == report['fix_task'] and 'fix' in t and t['phase'] == 'review' and t['fix']['pass'] == doc['pass']), None) if _text(report['fix_task']) else None
+                if not fix_task:
+                    raise CycleError("fix_task must name this pass's review-phase fix task")
+                if not fix_task.get('commits'):
+                    raise CycleError('the fix task needs a recorded commit before its diff is reviewed')
             for previous in doc['reviews']:
                 prior = read_retained(cfg, previous)
                 if prior['pass'] == doc['pass'] and (prior['verdict'] == 'changes-required' or prior['blocking']):
+                    # The one blocking report the fix answers does not bar its fix-diff review; a blocking fix-diff review does.
+                    if fix_task and not prior.get('fix_task'):
+                        continue
                     raise CycleError('blocking review findings require a counted return before another review')
-            report = deepcopy(args['report'])
+            if fix_task and fix_task['fix'].get('review'):
+                raise CycleError('the fix task already has its fix-diff review')
             needed = {'reviewer', 'scope', 'evidence', 'blocking', 'advisory', 'cosmetic', 'verdict', 'rationale'}
-            if set(report) != needed or not report['reviewer'].strip() or report['reviewer'] in doc['implementers']:
+            if set(report) - {'fix_task'} != needed or not report['reviewer'].strip() or report['reviewer'] in doc['implementers']:
                 raise CycleError('review must identify an independent reviewer and all report fields')
+            if fix_task and report['reviewer'] == fix_task.get('assignee'):
+                raise CycleError('the fix-diff reviewer cannot be the fix assignee')
             if not report['scope'] or set(report['scope']) != set(doc['plan']['scope']) or not report['evidence'] or not report['rationale'].strip():
-                raise CycleError('review scope must cover the declared scope and identify evidence and rationale')
+                raise CycleError('review scope must equal the declared scope exactly, and the review must identify evidence and rationale')
             check_tests(cfg, doc)
             if report['verdict'] not in {'approve', 'changes-required'} or not all(isinstance(report[k], list) for k in ('scope', 'evidence', 'blocking', 'advisory', 'cosmetic')):
                 raise CycleError('invalid review report')
@@ -955,6 +1293,8 @@ def mutate_tracked(repo, identity, action, **args):
                     raise CycleError('blocking findings require path, consequence, and evidence')
             report.update({'pass': doc['pass'], 'scrutiny': doc['review_policy']['scrutiny'], 'input_sha256': source_fingerprint(cfg.repo_root, doc), 'basis_version': BASIS_VERSION, 'basis_sha256': review_basis(doc), 'at': now()})
             doc['reviews'].append(retained(cfg, identity, 'reviews', report))
+            if fix_task:
+                fix_task['fix']['review'] = dict(doc['reviews'][-1])
         elif action == 'decision':
             if doc['phase'] not in {'plan', 'build'}:
                 raise CycleError('new implementation reasoning requires planning before dependent work')
@@ -1001,7 +1341,7 @@ def mutate_tracked(repo, identity, action, **args):
                 if blocker['reason'] == 'progress-stalled' and not args.get('new_evidence'):
                     raise CycleError('stalled progress requires new evidence before resuming')
                 doc['pass'] += 1
-                doc['phase'] = 'build' if doc['type'] == 'quick-fix' else 'plan'
+                doc['phase'] = 'build'
                 start_pass(cfg, doc)
             doc['status'] = 'active'
             doc['blocker'] = None
@@ -1022,7 +1362,7 @@ def mutate_tracked(repo, identity, action, **args):
                 doc['blocker'] = {'reason': 'progress-stalled' if not args['progress'] else 'pass-limit', 'evidence': [assessment], 'next_step': 'reassess stalled work or request explicit approval for additional passes'}
             else:
                 doc['pass'] += 1
-                doc['phase'] = 'build' if doc['type'] == 'quick-fix' else 'plan'
+                doc['phase'] = 'build'
                 start_pass(cfg, doc)
         elif action == 'change-type':
             kind = args['kind']
@@ -1048,8 +1388,12 @@ def mutate_tracked(repo, identity, action, **args):
         elif action == 'reflect':
             if doc['phase'] != 'reflect' and doc['status'] != 'paused':
                 raise CycleError('reflection belongs to Reflect or abandonment')
-            if not all(args['reflection'].get(k) for k in ('outcome', 'lessons', 'remaining')):
+            if not args['reflection'].get('outcome'):
                 raise CycleError('reflection requires outcome, lessons, and remaining work (use none when empty)')
+            for field in ('lessons', 'remaining'):
+                items = args['reflection'].get(field)
+                if not (isinstance(items, list) and items and all(isinstance(i, str) and i.strip() for i in items)):
+                    raise CycleError(f'reflection {field} must be a non-empty list of non-empty strings (use ["none"] when there is nothing)')
             doc['reflection'] = args['reflection']
         elif action == 'owner-complete':
             # The owner closes a cycle whose gates cannot be satisfied. Nothing
@@ -1080,6 +1424,8 @@ def mutate_tracked(repo, identity, action, **args):
                     raise CycleError('refactor must identify preserved behavior and intended improvement')
                 if doc['type'] == 'refactor' and not plan.get('improvement'):
                     raise CycleError('refactor requires intended improvement')
+            if phase == 'build':
+                check_build(cfg, doc)
             if phase == 'test':
                 check_tests(cfg, doc)
                 if doc['type'] == 'simplify':
@@ -1159,7 +1505,7 @@ def query_decisions(repo, identity):
         for report in doc['reviews']:
             value=read_retained(cfg,report)
             if value['verdict']=='approve' and not value['blocking'] and value['reviewer'] not in doc['implementers']:
-                reviews.append({'report':report['path'],'input_sha256':value['input_sha256'],'pass':value['pass'],'matches_current_source':value['input_sha256']==current,'matches_current':value==current_review})
+                reviews.append({'report':report['path'],'input_sha256':value['input_sha256'],'pass':value['pass'],'matches_current_source':fingerprint_binds(cfg.repo_root,doc,value['input_sha256']),'matches_current':value==current_review})
         rows.append({'decision':ref['path'],'name':ref['name'],'revision':record['revision'],'intent':record['contents'],
                      'council_approved':approved,'approval':ref.get('approval'),
                      'delivery':{'cycle_status':doc['status'],'reviewed_evidence':reviews,'test_evidence':doc['evidence']},

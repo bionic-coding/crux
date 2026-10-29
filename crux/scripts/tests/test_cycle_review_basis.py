@@ -100,7 +100,7 @@ class ReflectTaskAfterApprovalTests(CliCycleCase):
         task = {'id': 'historian-reflect', 'phase': 'reflect', 'description': 'record lessons', 'depends_on': [], 'status': 'pending', 'expected_evidence': ['reflection']}
         self.ok('task-add', cid, '--file', self.write_json('task.json', task))
         self.ok('task', cid, '--task-id', 'historian-reflect', '--state', 'done')
-        self.ok('reflect', cid, '--file', self.write_json('reflection.json', {'outcome': 'fixed', 'lessons': 'none', 'remaining': 'none'}))
+        self.ok('reflect', cid, '--file', self.write_json('reflection.json', {'outcome': 'fixed', 'lessons': ['none'], 'remaining': ['none']}))
         self.ok('completion', cid, '--exception', 'Fixture owner requests uncommitted delivery.', '--remaining', 'none')
         doc = self.ok('advance', cid)
         self.assertEqual(doc['status'], 'completed')

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # /// script
-# requires-python = ">=3.11"
+# requires-python = ">=3.13"
 # dependencies = ["pyyaml>=6.0"]
 # ///
 """Create, execute and inspect a cycle; no reusable book or prompt minimum."""
@@ -10,7 +10,7 @@ from pathlib import Path
 import sys
 import threading
 import time
-from cycle_workflow import CycleError, PHASES, DELIVERY_FIELDS, create, load, mutate_tracked, tree, read_retained, query_decisions, result_file
+from cycle_workflow import CLOSED, CycleError, PHASES, DELIVERY_FIELDS, create, load, mutate_tracked, tree, read_retained, query_decisions, result_file
 from bionic_config import BionicConfigError
 
 
@@ -60,7 +60,7 @@ def parser():
     c.add_argument('--list', dest='release_list', choices=['beta','official'], help='the fixed task list of a release cycle; required with --type release')
     for name in ('scope','acceptance'):
         c.add_argument('--'+name, action='append', required=True)
-    for name in ('owner-approval','show','validate','advance','pause','resume','plan','task','checks','coverage','completion','evidence','scrutiny','review','decision','approve-decision','return','change-type','extend','reflect','abandon','query-decisions','task-add','plan-details','owner-complete','handoff','reconcile','reduction'):
+    for name in ('owner-approval','show','validate','advance','pause','resume','plan','task','checks','coverage','completion','evidence','scrutiny','review','decision','approve-decision','return','change-type','extend','reflect','abandon','query-decisions','task-add','plan-details','owner-complete','handoff','reconcile','reduction','assignment'):
         c=sub.add_parser(name); c.add_argument('cycle')
         if name in ('show','validate'): c.add_argument('--full', action='store_true', help='print the whole record instead of the bounded summary')
         c.add_argument('--compact', action='store_true', default=argparse.SUPPRESS, help=argparse.SUPPRESS)
@@ -76,8 +76,19 @@ def parser():
             c.add_argument('--commit', dest='commits', action='append', help='commit that resolves in this repository; repeatable, merged as a set')
             c.add_argument('--evidence', action='append', help='docs-relative path that exists; repeatable, merged as a set')
             c.add_argument('--stage', choices=['implemented','integrated'])
+            c.add_argument('--fix-before', dest='fix_before', metavar='TE-ID', help='fix task: the test-evidence receipt of the check that failed')
+            c.add_argument('--fix-after', dest='fix_after', metavar='TE-ID', help='fix task: the receipt of the same check passing now')
             c.add_argument('--replace-commit', nargs=2, metavar=('OLD','NEW'), help='replace a recorded commit (for example after a rebase) and keep the old id in replaced_commits; requires --note')
-        if name=='checks': c.add_argument('--check', action='append', required=True)
+        if name=='checks':
+            c.add_argument('--check', action='append', required=True)
+            c.add_argument('--phase', choices=['build'], help='build records the complete set of Build checks; omit to record the required checks')
+        if name=='assignment':
+            c.add_argument('--id', required=True, help='a task id, a stream id such as stream-a, or a singleton role name such as commander')
+            mode=c.add_mutually_exclusive_group(required=True)
+            mode.add_argument('--state', choices=['running','finished','lost'], help='running starts the id, or resumes a finished or lost one as the next attempt, and refuses while it is running; finished after the final report returned and the execution ended; lost needs --note naming host evidence')
+            mode.add_argument('--seen', action='store_true', help='record contact with a running assignment: advances last_seen and sets --agent when given')
+            c.add_argument('--role', help='required with --state running'); c.add_argument('--task'); c.add_argument('--agent', help='host execution handle')
+            c.add_argument('--result-path'); c.add_argument('--note')
         if name=='completion':
             group=c.add_mutually_exclusive_group(required=True)
             group.add_argument('--commit', dest='commits', action='append')
@@ -109,7 +120,7 @@ def parser():
     c.add_argument('--task-id', action='append', dest='task_ids', help='task whose result_path to watch; repeatable')
     c.add_argument('--path', action='append', dest='paths', help='exact absolute result path to watch, with no cycle and no task; repeatable')
     c.add_argument('--timeout', type=float, required=True, help='seconds to wait, above 0 and at most 3600')
-    c=sub.add_parser('status', help='show cycle progress; read-only', description='Render cycle progress exactly as visualize-cycle-progress.py does. With no CYCLE it shows active cycles first, then the others by cycle number, highest first, at most 20, followed by the queue. It writes nothing. Exit 0 ok, 1 invalid or unknown cycle, 2 environment.')
+    c=sub.add_parser('status', help='show cycle progress; read-only', description='Render cycle progress exactly as visualize-cycle-progress.py does. With no CYCLE it shows active cycles first, then the others by cycle number, highest first, at most 60, followed by the queue. It writes nothing. Exit 0 ok, 1 invalid or unknown cycle, 2 environment.')
     c.add_argument('cycle', nargs='?', help='cycle id; omit it to show every cycle')
     c.add_argument('--json', action='store_true', help="print the visualizer's JSON document")
     c.add_argument('--watch', type=positive_seconds, metavar='SECONDS', help='clear the screen and redraw every SECONDS until Ctrl-C')
@@ -194,6 +205,31 @@ def compact_line(doc, changed, task_id=None):
     return line
 
 
+RESUME_STEPS=[
+    'Check the host handle of each running assignment before dispatching anything.',
+    'When agent is null, look for a live host execution matching its role and result path.',
+    'If the execution is alive, message or await it and dispatch nothing.',
+    'Record an assignment lost only with host evidence that it ended without a final report: --state lost --note naming that evidence.',
+    'Then resume the work under the same id with --state running.',
+]
+
+def with_assignments(repo,identity,out):
+    """Add the running assignments, with elapsed seconds since last_seen, and the resume steps to a handoff."""
+    from datetime import datetime, timezone
+    doc=load(repo,identity); at=datetime.now(timezone.utc); running=[]
+    for e in doc.get('assignments',[]):
+        if e['state']!='running': continue
+        seen=datetime.fromisoformat(e['last_seen'])
+        running.append({**{k:e[k] for k in ('id','role','task','agent','result_path','attempt','started_at','last_seen')},'elapsed_seconds':max(0,int((at-seen).total_seconds()))})
+    out['assignments']=running; out['resume_steps']=RESUME_STEPS
+    return out
+
+def with_fixes(repo,identity,out):
+    """Add one row per fix task (task, pass, phase, finding, status) to a handoff."""
+    doc=load(repo,identity)
+    out['fixes']=[{'task':t['id'],'pass':t['fix']['pass'],'phase':t['phase'],'finding':t['fix']['finding'],'status':t['status']} for t in doc['plan']['tasks'] if 'fix' in t]
+    return out
+
 def main(argv=None):
     a=parser().parse_args(argv)
     try:
@@ -217,7 +253,7 @@ def main(argv=None):
             print(json.dumps(payload,**({'separators':(',',':')} if a.compact else {'indent':2}))); return code
         elif a.command=='handoff':
             from cycle_reconcile import handoff
-            print(json.dumps(handoff(a.repo_root,a.cycle),**({'separators':(',',':')} if a.compact else {'indent':2}))); return 0
+            print(json.dumps(with_fixes(a.repo_root,a.cycle,with_assignments(a.repo_root,a.cycle,handoff(a.repo_root,a.cycle))),**({'separators':(',',':')} if a.compact else {'indent':2}))); return 0
         elif a.command=='reconcile':
             from cycle_reconcile import reconcile
             report=reconcile(a.repo_root,a.cycle,a.apply)
@@ -226,6 +262,9 @@ def main(argv=None):
             from owner_approval import write_owner_approval, printable_command
             if a.print_command:
                 print(json.dumps({'ok':True,'command':printable_command(a.repo_root,a.cycle,a.subject,a.quote,a.conversation,a.date)},indent=2)); return 0
+            cycle_status=load(a.repo_root,a.cycle)['status']
+            if cycle_status in CLOSED: raise CycleError('closed cycles cannot restart or mutate')
+            if cycle_status=='paused': raise CycleError('cycle is paused; resolve its blocker and resume first')
             path=write_owner_approval(a.repo_root,a.cycle,a.subject,a.quote,a.conversation,a.date)
             if not a.approve:
                 print(json.dumps({'ok':True,'approval':path},indent=2)); return 0

@@ -103,9 +103,13 @@ def _normalize_version(raw: str) -> str:
     return raw[1:] if raw[:1] in ("v", "V") else raw
 
 
-def _today_utc() -> str:
-    """Return today's date in YYYY-MM-DD form, in UTC. Extracted for tests."""
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+def _today_local() -> str:
+    """Return today's date in YYYY-MM-DD form, as the local civil date of this run.
+
+    The release runs on a person's machine, so the heading carries the date
+    on that person's calendar, not the UTC date. Extracted for tests.
+    """
+    return datetime.now().astimezone().strftime("%Y-%m-%d")
 
 
 def _find_unreleased_and_next(
@@ -320,7 +324,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--date",
         default=None,
-        help="Override the date stamp (YYYY-MM-DD). Default is today in UTC.",
+        help="Override the date stamp (YYYY-MM-DD). Default is today's local date.",
     )
     return parser.parse_args(argv)
 
@@ -340,7 +344,7 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         date_str = args.date
     else:
-        date_str = _today_utc()
+        date_str = _today_local()
 
     # [SECURITY:S5/NC6] Resolve only the PARENT directory; keep the final
     # component un-followed so a symlinked changelog is caught by

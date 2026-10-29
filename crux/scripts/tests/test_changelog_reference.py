@@ -19,6 +19,14 @@ except ImportError:  # pragma: no cover
 READER = importlib.import_module('lint-governs-references')
 ROOT = Path(__file__).resolve().parents[3]
 TOKEN = 'rule:journal-index-row-is-derived-on-every-write'
+# The one token of a migration batch that the live CHANGELOG.md cites historically.
+BOUND_TOKEN = 'rule:rotation-discharges-on-attempt-or-measurement'
+HISTORICAL_FIXTURE = (
+    '# Changelog\n\n## [Unreleased]\n\nNothing yet.\n\n'
+    '## [3.10.0] — 2026-09-08\n\n'
+    'Journal rows are derived on write.[^journal-row] The measure level is fixed.[^measure-level]\n\n'
+    f'[^journal-row]: {TOKEN}\n'
+    f'[^measure-level]: {BOUND_TOKEN}, rule:measure-decomposes-into-falsifiable-parts.\n')
 
 
 def occurrences(text):
@@ -77,21 +85,46 @@ class ChangelogReferenceTests(unittest.TestCase):
     def test_actual_historical_footnote_reference_and_raw_bytes_preserved(self):
         if IS_STAGED_ARTIFACT:
             self.skipTest('the staged CHANGELOG.md is the public rendition, which carries no footnotes')
+        # The live file is read through the migration span (the rows the citation readers consume) and
+        # compared byte for byte with itself after the read. Every other assertion on historical
+        # classification runs on a fixture, so a release-only edit to CHANGELOG.md breaks no test here.
+        implementation_migration = importlib.import_module('implementation_migration')
         path = ROOT / 'CHANGELOG.md'
         before = path.read_bytes()
-        rows = classify(before.decode('utf-8'))
+        found = implementation_migration.changelog_citation_tokens(ROOT)
+        self.assertIn(BOUND_TOKEN, found['tokens'])
+        rows = implementation_migration.changelog_citation_span(before.decode('utf-8'), found['tokens'])
+        matched = [row for row in rows if row['token'] == BOUND_TOKEN]
+        self.assertEqual([{'token': BOUND_TOKEN, 'partition': 'historical', 'version': '3.10.0', 'date': '2026-09-08'}],
+                         matched)
+        self.assertFalse(any(row['token'] == BOUND_TOKEN and row['partition'] == 'governing' for row in rows))
+        self.assertEqual(hashlib.sha256(before).digest(), hashlib.sha256(path.read_bytes()).digest())  # bytes are only compared
+
+    def test_fixture_historical_footnote_reference_is_historical_only(self):
+        rows = classify(HISTORICAL_FIXTURE)
         matched = [row for row in rows['historical'] if row['token'] == TOKEN]
         self.assertEqual(1, len(matched))
         self.assertEqual('3.10.0', matched[0]['version'])
         self.assertEqual('2026-09-08', matched[0]['date'])
         self.assertEqual('none', matched[0]['authority'])
         self.assertFalse(any(row['token'] == TOKEN for row in rows['governing']))
-        measure_line = next(index for index, line in enumerate(before.decode('utf-8').split('\n'), 1)
+        measure_line = next(index for index, line in enumerate(HISTORICAL_FIXTURE.split('\n'), 1)
                             if line.startswith('[^measure-level]:'))
         measure_rows = [row for row in rows['historical'] if row['line'] == measure_line]
         self.assertTrue(measure_rows)
         self.assertTrue(all(row['authority'] == 'none' for row in measure_rows))
-        self.assertEqual(hashlib.sha256(before).digest(), hashlib.sha256(path.read_bytes()).digest())
+
+    def test_seeded_fixture_violations_classify_the_token_as_governing(self):
+        # Positive control for the test above: the assertion it makes fails on each seeded variant.
+        seeded = {'dated heading removed': HISTORICAL_FIXTURE.replace('## [3.10.0] — 2026-09-08\n', ''),
+                  'token moved to Unreleased': HISTORICAL_FIXTURE.replace('## [3.10.0] — 2026-09-08', '## [Unreleased]')}
+        for name, text in seeded.items():
+            with self.subTest(name):
+                rows = classify(text)
+                self.assertTrue(any(row['token'] == TOKEN for row in rows['governing']))
+                self.assertEqual([], [row for row in rows['historical'] if row['token'] == TOKEN])
+                with self.assertRaises(AssertionError):
+                    self.assertFalse(any(row['token'] == TOKEN for row in rows['governing']))
 
     def test_identical_tokens_in_prologue_unreleased_and_unknown_sections_remain_governing(self):
         for header in ('', '## [Unreleased]\n', '## Other\n',

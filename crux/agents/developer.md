@@ -134,10 +134,12 @@ Then return: files changed, tests added (with the failing-then-passing evidence)
 the exact gate commands you ran + their result tokens, the ADR/spec section you
 relied on (so any unilateral decision is traceable to its authority), any
 unilateral decision with its rationale, and any capability gap you met outside
-your unit.
+your unit. Name every test you know imports, invokes, reads, globs or enumerates a
+path you changed, so your lead can select Build checks. Write gate output to log
+files and point to evidence files instead of restating them.
 
 Commit your unit in your worktree before you report, and report the commit SHA
-and the branch. When your dispatch names a cycle task id, end the commit message
+and the branch. A commit holds one coherent change on your assigned paths. When your dispatch names a cycle task id, end the commit message
 with the trailer line `Cycle-Task: <task-id>`. Your dispatch names an explicit
 absolute result path, normally in the coordinator's atomically allocated OS-temp
 directory, with a distinct filename for this dispatch attempt. Use that exact path;

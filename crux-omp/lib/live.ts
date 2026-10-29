@@ -2,7 +2,7 @@
 // Builds a real-time parent -> child subagent tree across sessions, detects active tool calls and
 // task batches, and flags potentially blocked or long-running agents without mutating host state.
 import type { Block, Line, Span } from '../../crux-mods/hooks/lib/draw.ts'
-import { BAR_OFF, BAR_ON, LOOP_GLYPH, STATE_GLYPHS, TRACK_SEP, drawn, fitLine, joined, lineCells } from '../../crux-mods/hooks/lib/draw.ts'
+import { BAR_OFF, BAR_ON, LOOP_GLYPH, STATE_GLYPHS, TRACK_SEP, drawn, fitLine, joined, lineCells, olderLines, olderRow } from '../../crux-mods/hooks/lib/draw.ts'
 import type { CycleView } from '../../crux-mods/hooks/lib/view.ts'
 import { cycleTimeText } from '../../crux-mods/hooks/lib/view.ts'
 import { cells } from '../../crux-mods/hooks/lib/width.ts'
@@ -400,37 +400,11 @@ function buildActiveOrPausedCycleCard(c: CycleView, label: string, innerWidth: n
   return lines
 }
 
-function buildPreviousCyclesSummary(previous: readonly CycleView[], innerWidth: number, nowS: number | null): Line[] {
-  const lines: Line[] = [
-    fitLine([span(`PREVIOUS CYCLES (${previous.length} recent)`, { bold: true, dim: true })], innerWidth),
-  ]
-  for (const c of previous.slice(0, 4)) {
-    const done = c.tasks.filter(t => t.status === 'done').length
-    const badge = CYCLE_BADGE[c.status] ?? { glyph: '?', label: c.status, color: 'subtle' as const }
-    const timeText = cycleTimeText(c, nowS) ?? ''
-    const titleBudget = Math.max(18, innerWidth - 48)
-    lines.push(
-      fitLine(
-        [
-          span(badge.glyph, { color: badge.color }),
-          span(` ${c.id} `, { bold: true }),
-          span(drawn(c.title, titleBudget)),
-          span(`  ${c.type}`, { color: 'permission' }),
-          span(`  ${done}/${c.tasks.length} tasks`, { dim: true }),
-          ...(timeText ? [span(`  ${timeText.replace(/^elapsed /, '')}`, { dim: true })] : []),
-        ],
-        innerWidth,
-      ),
-    )
-    if (c === previous[0] && c.reflection) {
-      lines.push(
-        fitLine(
-          [span('    Outcome: ', { dim: true }), span(drawn(c.reflection, Math.max(24, innerWidth - 14)), { color: 'success', dim: true })],
-          innerWidth,
-        ),
-      )
-    }
-  }
+// The latest closed cycle as one shared row, with its outcome under it. The older closed cycles draw as
+// the shared paged `cycles:` list.
+function buildLatestClosedCycle(latest: CycleView): Line[] {
+  const lines: Line[] = [olderRow(latest)]
+  if (latest.reflection) lines.push([span('    Outcome: ', { dim: true }), span(drawn(latest.reflection), { color: 'success', dim: true })])
   return lines
 }
 
@@ -549,7 +523,7 @@ function buildCycleQueueCard(queue: CycleQueueView, cycles: readonly CycleView[]
   return lines
 }
 
-export function buildOmpCyclesPane(cycles: readonly CycleView[], nowS: number | null, live: LiveRuntimeSnapshot | undefined, width: number): Block {
+export function buildOmpCyclesPane(cycles: readonly CycleView[], nowS: number | null, live: LiveRuntimeSnapshot | undefined, width: number, page = 0): Block {
   const bordered = width >= 36
   const innerWidth = bordered ? width - 4 : width
   const boxOf = (lines: Line[], borderColor: Span['color'] = 'subtle'): Block => ({
@@ -615,10 +589,10 @@ export function buildOmpCyclesPane(cycles: readonly CycleView[], nowS: number | 
     blocks.push(boxOf(buildCycleQueueCard(live.queue, cycles, innerWidth), 'permission'))
   }
 
-  // 5. Compact Previous Cycles Digest
-  if (previousCycles.length > 0) {
-    blocks.push(boxOf(buildPreviousCyclesSummary(previousCycles, innerWidth, nowS), 'subtle'))
-  }
+  // 5. The latest closed cycle, then the shared paged `cycles:` list of the older ones
+  const [latestClosed, ...olderClosed] = previousCycles
+  if (latestClosed !== undefined) blocks.push(boxOf(buildLatestClosedCycle(latestClosed), 'subtle'))
+  if (olderClosed.length > 0) blocks.push(boxOf(olderLines(olderClosed, page, true), 'subtle'))
   return {
     kind: 'box',
     direction: 'column',

@@ -108,7 +108,7 @@ class AwaitTests(unittest.TestCase):
     def test_path_form_after_closure(self):
         # Bookkeeping after closure: the path form reads no cycle, so state cannot refuse it.
         mutate(self.repo, self.cid, 'pause', reason='stop')
-        mutate(self.repo, self.cid, 'reflect', reflection={'outcome': 'o', 'lessons': 'l', 'remaining': 'none'})
+        mutate(self.repo, self.cid, 'reflect', reflection={'outcome': 'o', 'lessons': ['l'], 'remaining': ['none']})
         mutate(self.repo, self.cid, 'abandon')
         self.r2.write_text('report')
         before = self.record()

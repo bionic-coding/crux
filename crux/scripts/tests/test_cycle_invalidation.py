@@ -111,8 +111,8 @@ class ReturnTests(InvalidationBase):
         a, b = self.delivered_phase('review')
         prior = deepcopy(self.doc()['plan'])
         doc = self.do('return', **RETURN)
-        self.assertEqual((doc['pass'], doc['phase'], doc['status']), (2, 'plan', 'active'))
-        self.assertEqual(self.statuses(), {'plan': 'pending', 'test': 'pending', 'review': 'pending', 'reflect': 'pending', 'A': 'done', 'B': 'done'})
+        self.assertEqual((doc['pass'], doc['phase'], doc['status']), (2, 'build', 'active'))
+        self.assertEqual(self.statuses(), {'plan': 'done', 'test': 'pending', 'review': 'pending', 'reflect': 'pending', 'A': 'done', 'B': 'done'})
         for tid, sha in (('A', a), ('B', b)):
             t = self.task(tid)
             self.assertEqual((t['commits'], t['stage'], t['evidence']), ([sha], 'integrated', ['ev.md']))
@@ -131,8 +131,8 @@ class ReturnTests(InvalidationBase):
         self.assertEqual(self.statuses(), {'plan': 'done', 'test': 'done', 'review': 'done', 'reflect': 'pending', 'A': 'done', 'B': 'done'})
         self.do('extend', limit=3, human_approval='Owner: one more pass')
         doc = self.do('resume', reason='approved')
-        self.assertEqual(doc['pass'], 3)
-        self.assertEqual(self.statuses(), {'plan': 'pending', 'test': 'pending', 'review': 'pending', 'reflect': 'pending', 'A': 'done', 'B': 'done'})
+        self.assertEqual((doc['pass'], doc['phase']), (3, 'build'))
+        self.assertEqual(self.statuses(), {'plan': 'done', 'test': 'pending', 'review': 'pending', 'reflect': 'pending', 'A': 'done', 'B': 'done'})
         self.assertEqual(self.task('A')['commits'], [a])
 
     def test_resume_after_progress_stalled_applies_the_rule(self):
@@ -141,8 +141,8 @@ class ReturnTests(InvalidationBase):
         self.assertEqual(doc['blocker']['reason'], 'progress-stalled')
         self.assertEqual(self.statuses()['test'], 'done'); self.assertEqual(self.statuses()['A'], 'done')
         doc = self.do('resume', reason='new cause', new_evidence='reproduction')
-        self.assertEqual(doc['pass'], 2)
-        self.assertEqual(self.statuses(), {'plan': 'pending', 'test': 'pending', 'review': 'pending', 'reflect': 'pending', 'A': 'done', 'B': 'done'})
+        self.assertEqual((doc['pass'], doc['phase']), (2, 'build'))
+        self.assertEqual(self.statuses(), {'plan': 'done', 'test': 'pending', 'review': 'pending', 'reflect': 'pending', 'A': 'done', 'B': 'done'})
 
     def test_resume_after_another_blocker_changes_no_task(self):
         self.delivered_phase('test')
@@ -152,7 +152,7 @@ class ReturnTests(InvalidationBase):
         self.assertEqual((doc['pass'], doc['phase'], doc['status']), (1, 'test', 'active'))
         self.assertEqual(doc['plan']['tasks'], before)
 
-    def test_quick_fix_resume_after_a_return_resets_every_task(self):
+    def test_quick_fix_resume_after_a_return_keeps_delivered_build(self):
         self.kind = 'quick-fix'
         self.cid = create(self.repo, 'quick-fix', 'Fix', 'Goal', ['src'], ['Works'], 'dev', 'lead')['id']
         self.do('task-add', task={**task_def('fix', 'build')})
@@ -163,9 +163,9 @@ class ReturnTests(InvalidationBase):
         self.do('extend', limit=2, human_approval='Owner: one more pass')
         doc = self.do('resume', reason='approved')
         self.assertEqual((doc['pass'], doc['phase']), (2, 'build'))
-        self.assertEqual(self.task('fix')['status'], 'pending')
+        self.assertEqual(self.task('fix')['status'], 'done')
 
-    def test_quick_fix_counted_return_after_an_extension_resets_every_task(self):
+    def test_quick_fix_counted_return_after_an_extension_keeps_delivered_build(self):
         self.cid = create(self.repo, 'quick-fix', 'Fix', 'Goal', ['src'], ['Works'], 'dev', 'lead')['id']
         self.do('task-add', task={**task_def('fix', 'build')})
         self.do('task', task_id='fix', commits=[self.commit('q2')], stage='integrated', evidence=['ev.md'], state='done')
@@ -173,7 +173,7 @@ class ReturnTests(InvalidationBase):
         self.do('extend', limit=3, human_approval='Owner: more passes')
         doc = self.do('return', **RETURN)
         self.assertEqual((doc['pass'], doc['status'], doc['phase']), (2, 'active', 'build'))
-        self.assertEqual(self.task('fix')['status'], 'pending')
+        self.assertEqual(self.task('fix')['status'], 'done')
 
     def test_integrated_commit_off_head_makes_the_task_affected(self):
         a, b = self.delivered_phase('test')
@@ -327,7 +327,8 @@ class PlanFileTests(InvalidationBase):
 
     def test_every_delivery_field_is_refused_naming_task(self):
         values = {'assignee': 'dev', 'result_path': 'r.md', 'commits': ['a' * 40], 'evidence': ['ev.md'], 'stage': 'implemented', 'note': 'n',
-                  'replaced_commits': [{'from': 'a' * 40, 'to': 'b' * 40, 'at': 't', 'note': 'n'}]}
+                  'replaced_commits': [{'from': 'a' * 40, 'to': 'b' * 40, 'at': 't', 'note': 'n'}],
+                  'fix': {'finding': 'f', 'eligibility': 'e', 'pass': 1}}
         self.assertEqual(set(values), set(DELIVERY_FIELDS))
         for field, value in values.items():
             with self.subTest(field=field):

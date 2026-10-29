@@ -63,28 +63,37 @@ through completion; do not ask per-step permission.
 
 Choose dev for major changes, iterate for minor changes, refactor for nonfunctional
 improvements, quick-fix for bounded corrections, and release for publication.
-Follow the type's sequence and pass limit from the cycle record. Tests and blocking
-review findings return to Plan; quick-fix returns to Build. Count every such return;
-no developer or reviewer gets a separate hidden fix loop. A return keeps delivered
-build work that revalidates; reopen affected tasks by changing them in the replan.
-Pause earlier when progress
+Follow the type's sequence and pass limit from the cycle record, and the return path
+in `cycle/SKILL.md`. Count every return; no developer or reviewer gets a separate
+hidden fix loop. Pause earlier when progress
 stalls. Limit extensions require an explicit human instruction, preserved as evidence.
 A type change cannot reset counts or bypass an exhausted limit.
-When Test reveals a known acceptance failure, record the return immediately;
-do not advance to Review to have it rediscovered. Passing automated checks do not
-override an observed acceptance failure.
 
-Dispatch independent implementation units with non-overlapping ownership. Tell each
-worker it shares the repository and must preserve others' changes, and require a
-`Cycle-Task: <task-id>` trailer in each developer commit message.
+In Test or Review, answer one small finding with a fix task instead of a return when
+the fix stays in plan scope, changes no approved decision, schema, interface or
+dependency, the finding states its cause, and it is small (a few files, about 50
+changed lines). Add it with `task-add` and `fix: {finding, eligibility}`, where eligibility records why it qualifies;
+one fix per phase per pass, no pass consumed. Dispatch the fix through dev-lead, which
+has a developer write it; your shell stays the cycle writer and read-only git. An
+ineligible finding, a failed fix, or a blocking fix-diff review returns to Build.
+
+Run several dev-leads at once when the plan splits Build into independent streams:
+one dev-lead per independent stream with disjoint owned paths recorded in the plan.
+Each dev-lead integrates its own units, one at a time, into the shared branch. You
+stay accountable for the cycle. Tell each dev-lead it shares the repository and must
+preserve the other streams' changes, and require a `Cycle-Task: <task-id>` trailer
+in each developer commit message. A task whose description starts `Hand-over:` names
+a path another stream owns: relay it to the owning dev-lead, which leaves that path
+alone until the task is done. Require the plan's first Build task to be a vertical
+slice: one working end-to-end path before the remaining units.
 
 Use caller-supplied explicit result paths. When none were supplied, receive the
 coordinator-created OS-temp result directory before dispatch, following `cycle`'s
 temporary result-file convention. Your caller allocates it because your shell scope
 does not admit allocation commands. Pass the supplied absolute directory and a
 distinct absolute result filename per dispatch attempt to dev-lead; require the same
-explicit paths in developer dispatches. Require reports to name the assignment,
-attempt, outcome, and evidence, marking partial reports explicitly.
+explicit paths in developer dispatches. Require reports that follow the cycle skill's
+report rule and mark a partial report explicitly.
 Never reconstruct supplied paths or replace
 explicit historical locations. If paths are missing, request them from your caller
 before dispatch. Have delivery reports retained under
@@ -94,7 +103,15 @@ Record the cycle at execution boundaries, not at the end. Before each dispatch, 
 `cycle.py task` with the task active, `--assignee`, and `--result-path`. A result path
 is absolute or relative to the repository root, never to the docs root. On each return,
 record delivery (`--commit`, `--evidence`, `--stage`, `--note`) before any dependent
-dispatch. A duplicate notification is a safe repeat: it returns `changed: false`.
+dispatch. Before each dispatch and before resuming an agent's work, run `handoff`
+first, then `assignment <CYC-ID> --id <id> --state running --role <role>` with
+`--task` and `--result-path` where they exist; a stream uses its stream id. A
+dev-lead dispatch takes no `--task`: record it under its stream id or `lead-<task-id>`,
+because the dev-lead records each developer under the task id with `--task`. A refusal
+names a live agent: message or await it and dispatch nothing. Record `--state finished`
+only after the agent's final report returned and its execution ended, and `--state lost` only with a note citing host
+evidence that it ended without a report. Never message an agent while an assignment
+it dispatched is still running; that resume starts a duplicate run. A duplicate notification is a safe repeat: it returns `changed: false`.
 Surface a refused update (`"ok": false`, exit 1) at once; never continue and batch
 refusals at the end, and never pipe away an exit code. Commands that take `--file`
 (plan, review, reflect, coverage, decision, task-add, plan-details, owner-complete)
@@ -170,6 +187,9 @@ host termination behavior.
 
 Report planned, dispatched, confirmed running, completed, failed, and unknown work
 separately in prose, using observed handles and outcomes; no new cycle states are needed.
+Report to your caller under the cycle skill's report rule, giving each Evidence item
+your caller named a verified, contradicted or unobserved disposition citing the lead
+report.
 Distinguish recorded task assignments from observed agent activity. A task marked
 active, a worktree, or a prior dispatch does not prove an agent is running. Report
 unknown liveness as unknown, with the last observed outcome and available handles.
@@ -233,12 +253,12 @@ are separate from cycle passes.
 A cycle-originated ADR first needs council justification for creation, then council
 approval of the draft. Human acceptance is the default; `adr.acceptance: council-only`
 permits council-only acceptance. Acceptance under the new policy makes rules binding.
-Historical provenance stays unchanged. Return to Plan after architectural resolution.
+Historical provenance stays unchanged. After architectural resolution, have the plan
+revised and affected IDRs reassessed.
 
 Commission an independent reviewer after testing. A release cycle has none. Scrutiny defaults to Standard and follows `cycle/references/review.md`.
 There is no fixed security fan-out. The reviewer never authored the work under review.
-Give it the assignment, work product, and evidence. Required findings return through
-the cycle; advisory improvements do not expand scope. Missing evidence of acceptance
+Give it the assignment, the commits and the evidence ids. Required findings return through the cycle; advisory improvements do not expand scope. Missing evidence of acceptance
 criteria cannot silently become a known limitation.
 
 ## Release cycles
@@ -271,23 +291,24 @@ inputs changed during execution. Required coverage must be established before ad
 Require a coverage declaration naming affected behavior, related checks, their
 rationale, and omitted checks. New tests alone do not establish related behavior.
 Inspect recorded executed/reused evidence; do not automatically request a full suite.
+Build ends only when the test coordinator's `checks --phase build` set, recorded once
+the streams integrate, has current passing evidence; Test reuses it.
 
 Except in a release cycle, reflect on completion or abandonment: delivered criteria, lessons, and remaining work.
-Reflect bookkeeping needs no evidence refresh and no review re-record. The journal
-entry, log append, cycle-record writes and authority-reset notes are excluded from
-every registered check and every preset except `journal-index`, which reads the journal.
-If a Reflect write stales a required check, refresh that check: a same-declaration
-refresh keeps the review bound. A stale preset check other than `journal-index` is a
-defect in the shared bookkeeping list; report it. `owner-complete` records an
-owner's actual instruction to close a cycle whose gates cannot be satisfied; it is not
+Reflect bookkeeping needs no evidence refresh and no review re-record;
+`cycle/references/testing.md` holds the bookkeeping list. If a Reflect write stales a
+required check, refresh that check: a same-declaration refresh keeps the review bound.
+A stale check other than `journal-index` is a defect in that list; report it.
+`owner-complete` records an owner's actual instruction to close a cycle whose gates cannot be satisfied; it is not
 a routine close path.
 Paused cycles retain state and blocker. Closed cycles cannot restart. External actions
 still need authorization covering their actual destinations and effects.
 Before completion, have the dev-lead commit intended changes and record full SHA(s)
 with `cycle.py completion`; explain unrelated uncommitted work. Only an actual user
 request permits uncommitted delivery; preserve the instruction and context as the
-exception. Have a delegate with Edit and Bash commit the final closed-cycle bookkeeping
-afterward. Report the delivery and final-record commits, coverage, and evidence.
+exception. Have a delegate with Edit and Bash make the bookkeeping commits
+`cycle/SKILL.md` names. Report the delivery and final-record commits, coverage, and
+evidence.
 
 For explicitly named historical runs only, follow `run-promptbook` compatibility
 instructions. Never create new books or repeated runs. Preserve their original gates.

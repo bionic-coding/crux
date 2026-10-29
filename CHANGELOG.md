@@ -1,4 +1,4 @@
-<!-- generated-from: CHANGELOG.md@sha256:cd64dfd038426f4f0319bd194a15bfc6d24b45de152387df7dce8042958cf182; model: claude-sonnet-5.5; date: 2026-10-27 -->
+<!-- generated-from: CHANGELOG.md@sha256:043601c41c6cdedecec0131618a139cdd681f3f51c45d3c941f29c8b273938c6; model: claude-sonnet-5.5; date: 2026-10-29 -->
 # Changelog
 
 All notable changes to crux. The format roughly follows [Keep a Changelog](https://keepachangelog.com/) and the project adheres to [Semantic Versioning](https://semver.org/).
@@ -10,6 +10,93 @@ All notable changes to crux. The format roughly follows [Keep a Changelog](https
 ### Changed
 
 ### Fixed
+
+### Removed
+
+## [4.8.0] — 2026-10-29
+
+### Added
+
+- New fix step: in Test or Review, the commander can answer one small, in-scope finding with a single `fix` task per phase per pass instead of returning to Build. No pass is consumed and Plan stays closed. `cycle.py task-add` refuses a second fix, a fix with no finding or eligibility reason, and a Review fix unless the latest review has exactly one blocking finding. `cycle.py task --fix-before` and `--fix-after` record a check that failed before and passes after. A Review fix counts as done only after a fix-diff review, recorded with the `review` report key `fix_task`. `handoff` now lists fixes, and an ineligible finding still returns to Build.
+
+### Changed
+
+- The OMP dashboard panel now lists older closed cycles in the same paged `cycles:` list the Claude Code and OpenCode dashboards use, ten to a page. Run `/crux-dashboard next` or `/crux-dashboard prev` to turn the page; `/crux-dashboard` alone still toggles the panel.
+
+### Fixed
+
+- In the development repository, the changelog promotion script now dates the promoted heading with the local date of the run instead of the UTC date, so an evening release is no longer dated the next day. `--date` still overrides it, and headings already released are unchanged.
+- `cycle.py owner-approval` now refuses on a paused or closed cycle before writing anything, so a refused approval no longer leaves an owner approval record behind.
+- The cycle review refusal now says the review scope must equal the plan's declared scope exactly; it previously said the review scope must cover it.
+- `test-evidence.py` now reads YAML only when YAML can change a fingerprint: when a migration batch exists under the docs root, or when a `--check` declaration carries a changelog-citations projection. In those cases it loads PyYAML, or refuses with exit 2 and names the `uv run python3` form; otherwise it runs without PyYAML. Its script block now declares PyYAML, so a valid receipt is reused under both `uv run` and `uv run python3` instead of reading as changed inputs.
+
+### Removed
+
+## [4.7.0] — 2026-10-28
+
+### Added
+
+- A commander can now run several dev-leads at once on one cycle. Each stream owns disjoint paths, integrates its own units, and records a hand-over before it edits a path another stream owns.
+- The cycle record now tracks each dispatched agent as an assignment, and `cycle.py assignment` records it as running, finished or lost. A second dispatch of a running assignment is refused and names the agent, while a finished or lost one resumes as the next attempt. `handoff` lists assignments with their elapsed time and the steps to resume them; release cycles record assignments too, which adds no release step.
+- New build checks: `cycle.py checks --phase build` declares the checks Build must pass, and `advance` out of Build refuses until each has passing evidence. In the plugin checkout, both registered checkout suites are required. Test reuses the same evidence while its inputs are unchanged, so a failing related test stops the cycle in Build.
+
+### Changed
+
+- Blocking Test and Review findings now return every cycle type to Build. A new pass in every cycle type keeps delivered Plan and Build tasks that still revalidate, where Plan tasks and every quick-fix task used to reset. A resume after a pass-limit or progress-stalled pause lands in Build, and `plan` accepts a revision in Plan or Build, while quick-fix and release still refuse it.
+- The cycle record and queue are now committed only at a phase close, a recovery checkpoint or closure, rather than after each dispatch or task update.
+- Lead reports now cite evidence files instead of restating them. The reviewer may run read-only `git diff`, `git log`, `git show` and `test-evidence.py report`, so the commissioner captures evidence only when the host denies that shell.
+
+### Fixed
+
+### Removed
+
+- Removed the per-message `--seen` step for agent handles. It is now made once, only when a handle arrives after the start.
+
+## [4.6.6] — 2026-10-28
+
+### Added
+
+### Changed
+
+- OpenCode and OMP now run the dev-lead on GLM 5.3 and the reviewer on Gemini 4 Argon for faster turns, and OMP takes these models from the OpenCode resolution. The model catalog adds the `argon-latest` alias. Claude Code and Codex models are unchanged.
+
+### Fixed
+
+### Removed
+
+## [4.6.5] — 2026-10-28
+
+### Added
+
+### Changed
+
+### Fixed
+
+- Test evidence no longer counts an untracked, git-ignored file as a declared input unless a declaration names it, so a receipt recorded in a clean worktree is now reused in the main checkout. Receipts recorded beside ignored files go stale once. A run waiting on a check lock whose engine has died now exits with code 2 within about 10 seconds, naming the lock and its holders, instead of blocking. The engine also stops its child process sooner when interrupted. `cycle.py reflect` now refuses `lessons` or `remaining` values that are not lists of non-empty strings. The cycle testing reference now teaches the `uv run python3` form of `test-evidence.py`.
+
+### Removed
+
+## [4.6.4] — 2026-10-28
+
+### Added
+
+### Changed
+
+- The `cycles:` list in the Claude Code pane and the crux-opencode panel now shows ten closed cycles per page instead of three. Page turns with `n` and `p`, the `page X/Y` footer and the `+N more` line work as before. The dashboard reader and `cycle.py status` now load up to 60 cycles instead of 20, so the list has at most six pages. The crux-omp panel keeps its own cycle summary.
+
+### Fixed
+
+### Removed
+
+## [4.6.3] — 2026-10-27
+
+### Added
+
+### Changed
+
+### Fixed
+
+- Git-ignored files in a cycle's scope, such as a council `attempt-*.lock` file, no longer block completion or unbind an approved review. Scope entries are now matched using Python glob semantics (`**` is recursive), and untracked ignored files are dropped consistently. Tracked files always count. Review, completion and reduction records made under the old rule still bind, and the old rule still applies when the project is not in a git work tree, git is missing, or git cannot classify a path.
 
 ### Removed
 

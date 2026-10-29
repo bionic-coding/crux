@@ -6,10 +6,13 @@ import { INVALID, UNSUPPORTED } from '../lib/status.ts'
 import { makeFake } from './fixtures/fake.ts'
 import type { Fake } from './fixtures/fake.ts'
 import { closed, doc, parsedOf, withPages } from './fixtures/cycles.ts'
+import type { Parsed } from '../../crux-mods/hooks/lib/view.ts'
 
 const ONE = withPages(1)
 const TWO = withPages(2)
-const THREE = withPages(3)
+// Three pages give a middle page and the bounds on both sides of it. The reader accepts up to 60
+// cycles, so one read view holds them.
+const THREE: Parsed = withPages(3)
 
 // A fake whose panel is open and focused: the one state in which a page key is taken.
 const rig = (): Fake => {

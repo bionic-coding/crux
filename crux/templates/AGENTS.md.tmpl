@@ -1153,6 +1153,16 @@ dev-lead, and developer units through dev-lead. Do not bypass these leads. Other
 workflows use their designated lead, including night-gardener for garden work.
 Every developer dispatch names the full base commit SHA and integration owner.
 The dev-lead integrates committed worktrees and verifies ancestry, scope, and evidence.
+Commander may run several dev-leads at once, one per independent stream with disjoint
+owned paths recorded in the plan; each integrates its own units, one at a time, and
+commander stays accountable for the cycle. Before editing another stream's path, a
+dev-lead records a hand-over: a Build task whose description starts `Hand-over:`,
+naming the path, owning stream and reason, relayed through commander. Plan orders
+tasks so the first Build task delivers one working end-to-end path. Each dispatcher
+runs `handoff` and records an `assignment` running before each dispatch and resume; a
+refusal names a live agent to message or await. It records `finished` after the final
+report and the execution end, and `lost` only with host evidence, never for elapsed
+time. Nobody messages an agent while an assignment it dispatched is still running.
 
 | Type | Purpose | Sequence | Maximum passes |
 |---|---|---|---:|
@@ -1163,15 +1173,26 @@ The dev-lead integrates committed worktrees and verifies ancestry, scope, and ev
 | quick-fix | Bounded correction; slim testing, review, reflection | Build → Test → Review → Reflect | 1 |
 | release | One fixed step list, beta or official | Release | none |
 
-Limits include the initial pass. Failed acceptance tests and blocking review
-findings return to Plan, or Build for quick-fix. Record progress, unresolved
-findings, the proposed correction, and why another pass is justified. Pause when
-progress stalls or the limit is exhausted. Human approval is required to extend
-the limit and never disables the progress rule. Internal task retries cannot hide
-returns from testing or review. Type changes preserve pass count and history and
-cannot silently bypass an exhausted limit. Council rounds are separate counters.
-A known acceptance failure during Test returns immediately; do not wait for Review
-to rediscover it, even when the selected automated checks pass.
+Limits include the initial pass. Failed acceptance tests and blocking review findings
+return to Build in every type, where a different plan is revised. Record progress,
+unresolved findings, the proposed correction, and why another pass is justified.
+Pause when progress stalls or the limit is exhausted. Human approval is required to
+extend the limit and never disables the progress rule. Internal task retries cannot
+hide returns from testing or review. Type changes preserve pass count and history and
+cannot silently bypass an exhausted limit. Council rounds are separate counters. A
+known acceptance failure during Test returns immediately, even when the selected
+automated checks pass.
+
+**Fix step.** In Test or Review the commander may answer one small finding with a fix
+task instead of a return: no pass is consumed and Plan stays closed. A finding
+qualifies when the fix stays in plan scope, changes no approved decision, schema,
+interface or dependency, the finding states its cause, and the fix is small (a few
+files, about 50 changed lines). The commander records why it qualifies. Allow one fix
+per phase per pass. A developer writes the fix through dev-lead; the commander's shell
+stays the cycle writer and read-only git. An ineligible finding, a failed fix, or a
+blocking fix-diff review returns to Build. After a Review finding a reviewer checks
+only the fix diff; after a Test finding the normal Review covers it. Metrics count fix
+tasks.
 
 A simplify cycle removes complexity and keeps behavior. Its architect assesses recent
 decision-driven changes or a named area and records one selection IDR with `assessed`,
@@ -1210,8 +1231,10 @@ outside a check's inputs does not invalidate it. Required coverage is establishe
 by valid evidence, not by repeated execution at each phase boundary. Packaging and
 installation checks bind the actual artifact; deployment checks inspect deployment.
 Declare affected behavior and integration points, selected related checks with
-coverage rationale, and reasons for omitted checks. Tests that import, invoke,
-read, or enumerate changed inputs count as related. New tests alone are insufficient.
+coverage rationale, and reasons for omitted checks. Build checks, recorded with
+`checks --phase build`, include every test that imports, invokes, reads, globs or
+enumerates a changed path, and Build ends only when they pass; Test reuses them.
+New tests alone are insufficient.
 If automated tests do not apply, explain why and record an appropriate inspection
 check. Declare cycle checks from the evidence presets, which carry the shared
 bookkeeping exclusions. A path is bookkeeping for a check only when the check does not
@@ -1235,7 +1258,7 @@ Before completion, commit intended changes and record full SHA(s) through the
 `completion` command. Explain remaining uncommitted work. Only an actual user
 request permits an uncommitted-delivery exception; quote it with context. The writer
 checks committed scoped inputs, excluding its own bookkeeping to avoid self-reference.
-Commander has final cycle bookkeeping committed after closure and reports both SHAs.
+The record is committed at phase closes, recovery checkpoints and closure.
 Version-one records remain readable under their original schema and gates; active
 legacy cycles follow the new delivery guidance without retroactive schema enforcement.
 

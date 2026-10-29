@@ -40,6 +40,14 @@ planning uses architect, and documentation filing uses historian. If the require
 role cannot be invoked, report the gap rather than silently assuming its identity.
 Small tasks keep small plans and reviews while retaining lead accountability.
 
+Commander may run several dev-leads at once, one per independent stream with
+disjoint owned paths recorded in the plan. Each dev-lead integrates its own units
+one at a time; commander stays accountable for the cycle. A dev-lead that needs a
+change in another stream's path records a hand-over before editing: a `task-add`
+Build task, assigned to itself, whose description starts `Hand-over:` and names the
+path, the owning stream and the reason. It tells commander, who relays it; the owning
+stream leaves that path alone until the hand-over task is done.
+
 ## Select the type
 
 | Type | Scope | Phases | Maximum passes |
@@ -108,7 +116,7 @@ configuration, fixtures, mocks and operational steps, as they apply, not only li
 Each area's `before` and `after` name every dimension that changed. An area is
 `increase` when any dimension rises. It is `decrease` only when one falls and none
 rises. Areas are never netted. Any `increase` refuses Test and Reflect: report it
-and propose it as different work (a queue item or an owner report), then return to Plan
+and propose it as different work (a queue item or an owner report), then `return`
 or abandon. A cycle with no `decrease` is also refused. The reduction joins the review
 basis, and the reviewer checks the diff against the selected proposals.
 `change-type` out of simplify needs `--human-approval`.
@@ -139,10 +147,10 @@ host whose projection gives the commander no shell, the historian runs the recor
 commands. A developer never reviews its own change.
 
 Every developer dispatch includes the full base commit SHA, assigned paths,
-result-file location, and integration owner. Commit prerequisites before dispatch.
-The dev-lead owns worktree integration, verifies ancestry and changed paths,
-integrates committed units, and obtains valid related-check evidence. Copying a
-diff without accounting for its base, evidence, and integration is not completion.
+result-file location, and integration owner. Commit the source a unit needs before
+dispatch. The dev-lead owns worktree integration, verifies ancestry and changed paths,
+integrates committed units, and obtains valid related-check evidence. Copying a diff
+without accounting for its base, evidence, and integration is not completion.
 
 ## Temporary result files
 
@@ -172,10 +180,18 @@ directory it allocated for this execution. Never remove another execution's file
 ## Execute the phases
 
 - Plan: establish the outcome and tasks, select scrutiny, resolve material choices.
+  Order the tasks so the first Build task delivers one working end-to-end path
+  before the remaining units.
 - Build: implement the plan. Do not hide test/review retries inside this phase.
+  Build checks include, besides focused tests, every test that imports, invokes,
+  reads, globs or enumerates a changed path; when a test enumerates a directory
+  that holds a changed path, select the suite that contains it. The test coordinator
+  records the complete set once the streams integrate, with `checks --phase build`;
+  each call replaces the set. Build ends only when every Build check has current
+  passing evidence, and Test reuses it while inputs are unchanged.
 - Test: use the shared evidence policy in [testing.md](references/testing.md).
   Compare observed behavior with acceptance criteria. A known acceptance failure
-  returns immediately to Plan (Build for quick-fix), even if automated checks pass.
+  returns immediately to Build (or takes the fix step), even if automated checks pass.
   Do not send a known blocking defect to Review merely to obtain the same finding.
 - Review: commission independent review under [review.md](references/review.md).
 - Release: run the fixed step list the cycle carries, one task per step. Publish
@@ -191,8 +207,7 @@ directory it allocated for this execution. Never remove another execution's file
   using `completion`. Explain remaining uncommitted work. Only an actual user
   request to leave changes uncommitted permits `--exception`; quote that request
   with its context. The writer does not grant permission to invent an exception.
-  After closing, commander has the final cycle bookkeeping committed, then reports
-  both delivery and final-record commits. Do not leave a completed cycle uncommitted.
+  Do not leave a completed cycle uncommitted.
 
 Record evidence, decisions, review, and reflection using their respective
 commands, then `advance`. A command's success records a transition; it is not
@@ -216,20 +231,37 @@ Inside a cycle, council must first justify creating an ADR. Only then draft it
 and obtain separate council approval of its contents. Acceptance requires human
 approval by default; `.bionic.yml` may set `adr.acceptance: council-only`.
 An absent value means `council-and-human`. New-policy acceptance makes the rules
-binding without promotion. Do not reinterpret historical provenance. Return to
-Plan after the accepted architectural decision and reassess affected IDRs.
+binding without promotion. Do not reinterpret historical provenance. After the
+accepted architectural decision, revise the plan and reassess affected IDRs.
 Use `cycle-council.py` and `decision-policy.py` help for approval and acceptance
 operations, and attach their evidence through the cycle decision command.
 
 ## Return paths and stops
 
-A blocking Test or Review finding returns to Plan; quick-fix returns to Build.
-Use `return` to record what improved, what remains unresolved, what will change, and why another pass
+A blocking Test or Review finding returns to Build in every type, unless it
+qualifies for the fix step below. Use `return` to
+record what improved, what remains unresolved, what will change, and why another pass
 is justified. A pass can end early; it does not need to reach Review first.
-A new pass resets every task except delivered build tasks that still revalidate;
-quick-fix resets every task. The replan reopens a build task when its description,
-expected evidence or dependencies change. No flag reopens a task. See the commands
-reference for the rule and for recovering a task that failed revalidation.
+A new pass keeps delivered Plan and Build tasks that still revalidate and resets the
+rest. Revise the plan in Build when a finding needs it; the commands reference covers
+reopening and recovery.
+
+### Fix step
+
+In Test or Review the commander may answer one small finding with a fix task instead
+of a return. No pass is consumed and Plan stays closed. A finding qualifies when the
+fix stays in plan scope, changes no approved decision, schema, interface or
+dependency, the finding states its cause, and the fix is small: a few files, about 50
+changed lines. One fix per phase per pass; the commander records why it qualifies.
+
+Add the task with `task-add`, carrying `fix: {finding, eligibility}`. A developer
+writes the fix; the commander's shell stays the cycle writer and read-only git. The
+task finishes with a commit, a failed check that now passes, and a rerun of only the
+checks whose inputs changed. After a Review finding, a reviewer checks only the fix
+diff against the finding. After a Test finding, the normal Review covers it.
+
+An ineligible finding, a failed fix, or a blocking fix-diff review returns to Build.
+Metrics count fix tasks. [commands.md](references/commands.md) gives the fields.
 
 A failed release step stops the release. After a fix lands by its own route, the
 coordinator sets that step's task back to pending with `task`, and the writer reopens
@@ -254,11 +286,35 @@ applicable authorization.
 
 Keep the record current as work happens, so the dashboard shows it. Record a task
 active with its assignee and result path before each dispatch. On each return, record
-delivery (commits, evidence, stage, note) before any dependent dispatch. Developer
-commit messages end with a `Cycle-Task: <task-id>` trailer. A repeated write is safe
-(`changed: false`); a refused update stops the work until resolved. See
-[commands.md](references/commands.md) for flags and examples. `reconcile` is recovery
-from evidence after a lapse, not the normal way to keep the record current. A request
+delivery (commits, evidence, stage, note) before any dependent dispatch.
+
+Before each dispatch, and before resuming an agent's work, the dispatcher records
+`assignment CYC --id ID --state running --role ROLE`, with `--task` and
+`--result-path` where they exist. A dev-lead dispatch takes no `--task`: record it
+under its stream id or `lead-<task-id>`, because the dev-lead records each developer
+under the task id with `--task`. Run `handoff` first. A refusal names a live
+agent: message or await it and dispatch nothing. A host handle that arrives after the
+start is recorded once with `--seen --agent`. Record `finished` only after the agent's
+final report returned and its execution ended. Record `lost` only with a note citing
+host evidence that it ended without a report. Elapsed time never makes an assignment lost. Never message an
+agent while an assignment it dispatched is still running; that resume starts a
+duplicate run. The caller that dispatches commander records its assignment under
+the id `commander`.
+
+A commit holds one coherent change on the committer's owned paths; use `git commit
+--only` when streams share the index. Developer commit messages end with a
+`Cycle-Task: <task-id>` trailer. Commit the cycle record and queue only at a phase
+close, at a recovery checkpoint (a pause, a planned stop or hand-back, or a tool that
+refuses a dirty tree) and at closure. A phase-close commit folds into the closing
+lead's commit, or the next shell-capable lead makes it. Reports cite rather than
+restate. Each agent reports its own assignment, attempt, outcome, commits and
+evidence paths. A lead lists each unit's task id, outcome, commit and result path and
+cites the child report. Commander reports with `handoff` output, its blockers and
+the decisions it needs.
+
+A repeated write is safe (`changed: false`); a refused update stops the work until
+resolved. See [commands.md](references/commands.md) for flags and examples.
+`reconcile` is recovery from evidence after a lapse, not the normal way to keep the record current. A request
 to "update the cycle" or "reconcile the cycle record" runs `handoff`, then `reconcile`,
 and applies only what the evidence establishes.
 
