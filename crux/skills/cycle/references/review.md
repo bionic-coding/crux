@@ -29,6 +29,13 @@ plausible concerns with targeted checks; a security label alone is not a blocker
 Missing evidence of a required safety property can block. Confirmed defects retain
 their severity at every scrutiny level.
 
+Check the implementation against the approved plan and its Implementation Decisions.
+A design objection is a finding only when the implementation diverges from the
+approved record or shows a plausible failure the record did not consider. Nits that
+the architect agreement of the approved revision marks `apply-in-build` are not
+findings; the reviewer reads that record. Design is settled in Plan, and a council
+dispute is never raised to the owner from Review.
+
 Review the diff, criteria, and relevant integration points. The reviewer reads the
 diff, history and receipts itself unless the host denies it that shell. Expand only
 for a concrete dependency or failure path. Record unrelated existing issues separately
@@ -39,9 +46,15 @@ is missing evidence. After fixes, revisit changed portions and their consequence
 repeat full review only when earlier conclusions were invalidated. Blocking findings
 use the cycle's return path and pass limit, never a hidden loop.
 
-A fix-diff review follows a Review finding the commander answered with a fix task.
-The reviewer checks only the fix diff against the finding, once. A blocking fix-diff
-review returns to Build. After a Test finding, the normal Review covers the fix.
+A fix-diff review follows the Review findings the commander answered with a fix task.
+The reviewer checks only the fix diff against the finding or findings, once. A blocking fix-diff
+review returns to Build. After a Verify finding, the normal Review covers the fix.
+
+The delegator commissions the reviewer with an assignment that carries the outcome,
+evidence and constraint. The reviewer writes its own report to the result file the dispatch names; the commander
+records it with `review --json`, and a report without `scope` records the plan scope;
+typed `advance` then attaches the receipts the review rests on. A reviewer differs from every
+implementer of the range under review.
 
 Return a consolidated report with reviewer identity, scrutiny and rationale,
 scope, evidence and limitations, blocking/advisory/cosmetic findings, and verdict.

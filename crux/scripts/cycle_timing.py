@@ -131,3 +131,11 @@ def cycle_timing(doc, now):
         'basis': 'derived' if derived else 'recorded',
         'segments': out,
     }
+
+
+def active_window(doc, now):
+    """The cycle's window as (start, end) epoch seconds: creation to its close, or to `now` while it is open."""
+    timing = cycle_timing(doc, now)
+    begin = _parse(timing['started_at'])
+    end = _parse(timing['ended_at']) if timing['ended_at'] else max(_now(now), begin)
+    return begin.timestamp(), end.timestamp()

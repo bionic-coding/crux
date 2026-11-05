@@ -604,12 +604,16 @@ version-1/version-2 JSON Schema alone.
 
 | Type | Phases in these sources | Default total passes |
 |---|---|---:|
-| dev | plan → build → test → review → reflect | 7 |
-| iterate | plan → build → test → review → reflect | 2 |
-| refactor | plan → build → test → review → reflect | 7 |
-| simplify | plan → build → test → review → reflect | 3 |
-| quick-fix | build → test → review → reflect | 1 |
+| dev | plan → build → verify → review → reflect | 7 |
+| iterate | plan → build → verify → review → reflect | 2 |
+| refactor | plan → build → verify → review → reflect | 7 |
+| simplify | plan → build → verify → review → reflect | 3 |
+| quick-fix | build → verify → review → reflect | 1 |
 | release | plan → release → reflect | 2 |
+
+A new cycle record carries `"phase_names": "verify"` and names the phase after
+build `verify`. A record without that key uses `test` for the same phase; keep
+its stored names and never add the key to an existing record.
 
 Use a later locally adopted release contract if present. Do not treat a
 proposed release change as implemented merely because its draft exists.
@@ -651,7 +655,7 @@ If forbidden, leave the proposed plan and exact restriction in the inbox.
 The actor must be authorized to maintain this active cycle. A full plan revision
 requires `phase: "plan"`. Do not manually rewind the phase to permit an edit.
 Quick-fix can update only `constraints` and `verification` through plan details
-in Build or Test; each supplied list is nonempty strings and needs a reason.
+in Build or Verify; each supplied list is nonempty strings and needs a reason.
 Quick-fix adds tasks for current/later phases. Other cycles add a task in the
 current phase or revise the full plan in Plan.
 
@@ -730,7 +734,7 @@ needs approved selection reasoning and a reduction record for production,
 tests, instructions, and execution; an increase in one area cannot be netted
 against a decrease elsewhere.
 
-Blocking test or review findings return to build in every type, unless one
+Blocking verify or review findings return to build in every type, unless one
 qualifies for a fix task (small, in scope, cause stated, no decision, schema,
 interface or dependency change; one per phase per pass, no pass consumed).
 Record what improved, what remains unresolved, what will change, and why a
@@ -802,7 +806,7 @@ review evidence from real work. Empty evidence lists establish no passing gate.
       },
       {
         "id": "check",
-        "phase": "test",
+        "phase": "verify",
         "description": "Verify blank and nonblank behavior.",
         "depends_on": [
           "fix"
@@ -861,7 +865,8 @@ review evidence from real work. Empty evidence lists establish no passing gate.
   "extensions": [],
   "release": null,
   "coverage": null,
-  "completion": null
+  "completion": null,
+  "phase_names": "verify"
 }
 ```
 <!-- END EXAMPLE: initial-cycle -->

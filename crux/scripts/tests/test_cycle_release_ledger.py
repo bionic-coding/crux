@@ -77,7 +77,7 @@ class CreateTests(ListedBase):
     def test_the_beta_list(self):
         doc = self.make('beta')
         self.assertEqual([t['id'] for t in doc['plan']['tasks']], BETA)
-        self.assertEqual((doc['release_list'], doc['phase'], doc['pass'], doc['pass_limit'], doc['schema_version']), ('beta', 'release', 1, 1, 2))
+        self.assertEqual((doc['release_list'], doc['phase'], doc['pass'], doc['pass_limit'], doc['schema_version']), ('beta', 'release', 1, 1, 3))
         self.assertEqual(PHASES['release'], ['release'])
         self.assertEqual(LIMITS['release'], 1)
 

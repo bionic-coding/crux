@@ -17,7 +17,7 @@
       "const": "crux.cycle-queue"
     },
     "format_version": {
-      "const": 1
+      "enum": [1, 2]
     },
     "next_number": {
       "type": "integer",
@@ -90,6 +90,13 @@
               "type": "string",
               "pattern": "\\S"
             }
+          },
+          "release_list": {
+            "description": "Optional, on a release item only: the task list of the cycle it starts. Absent means beta.",
+            "enum": [
+              "beta",
+              "official"
+            ]
           },
           "state": {
             "enum": [

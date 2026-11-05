@@ -70,10 +70,46 @@ class CliTests(unittest.TestCase):
         self.assertEqual(report["completeness"]["log"], "missing")
         self.assertEqual(sorted(p.name for p in retained.iterdir()), before)
 
+    def rerun_after_an_input_change(self):
+        """A passing receipt whose stored execution reason is inputs-changed, and which lookup reuses."""
+        self.run_cli("run", "--check", str(self.check))
+        (self.root / "input.txt").write_text("two")
+        code, ran, _ = self.run_cli("run", "--check", str(self.check))
+        self.assertEqual((code, ran["evidence"]["status"], ran["evidence"]["reason"]), (0, "passed", "inputs-changed"))
+        return ran["evidence"]
+
+    def test_validate_names_the_execution_reason_and_prints_eligibility_beside_it(self):
+        # F37: validate printed `reason: inputs-changed` at top level, which read as a verdict on reuse.
+        receipt = self.rerun_after_an_input_change()
+        code, valid, _ = self.run_cli("validate", "--evidence-id", receipt["id"])
+        self.assertEqual(code, 0)
+        self.assertNotIn("reason", valid)
+        self.assertEqual((valid["execution_reason"], valid["reuse_eligible"]), ("inputs-changed", True))
+        keys = list(valid)
+        self.assertEqual(keys.index("reuse_eligible"), keys.index("execution_reason") + 1)
+        self.assertEqual({k: v for k, v in valid.items() if k not in ("execution_reason", "reuse_eligible")},
+                         {k: v for k, v in receipt.items() if k != "reason"})
+
+    def test_report_starts_with_a_summary_block(self):
+        # F-R2: report printed completeness and eligibility but no status, command or source revision.
+        receipt = self.rerun_after_an_input_change()
+        code, report, _ = self.run_cli("report", "--evidence-id", receipt["id"])
+        self.assertEqual(code, 0)
+        self.assertEqual(list(report)[0], "summary")
+        self.assertEqual(report["summary"], {
+            "check_id": "unit", "status": "passed", "command": receipt["executed_command"],
+            "source_revision": receipt["source_revision"], "complete": True, "reuse_eligible": True,
+            "execution_reason": "inputs-changed"})
+        self.assertTrue(report["completeness"]["complete"])
+        (self.root / "input.txt").write_text("three")
+        code, report, _ = self.run_cli("report", "--evidence-id", receipt["id"])
+        self.assertEqual((code, report["summary"]["status"], report["summary"]["reuse_eligible"]), (1, "passed", False))
+
     def test_a_missing_receipt_is_a_usage_failure_not_a_crash(self):
         code, report, _ = self.run_cli("report", "--evidence-id", "TE-" + "0" * 32)
         self.assertEqual(code, 1)
         self.assertFalse(report["completeness"]["complete"])
+        self.assertEqual((report["summary"]["status"], report["summary"]["complete"]), (None, False))
 
 
 if __name__ == "__main__":

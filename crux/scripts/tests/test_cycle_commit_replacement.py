@@ -94,7 +94,7 @@ class ReplaceCommitTests(inv.InvalidationBase):
         digest = review_basis_digest(self.doc(), 3)
         self.replace()
         self.assertEqual(review_basis_digest(self.doc(), 3), digest)
-        self.assertEqual(self.doc()['schema_version'], 2)
+        self.assertEqual(self.doc()['schema_version'], 3)
 
     def test_cli_replaces_and_reports_the_new_field_in_the_compact_line(self):
         out = io.StringIO()

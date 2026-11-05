@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://crux.invalid/schemas/test-tiers.schema.json",
+  "title": "Test tier manifest",
+  "description": "test-tiers.json labels every test file of one test root with one tier. The reader crux/scripts/test_tiers.py is authoritative; this schema documents the shape and a test asserts that its keys, enums and required fields equal the reader's. Rules a schema cannot state (a files key matches the root pattern, a release area is declared in areas, an override is not redundant, no duplicate JSON key) are enforced by crux/scripts/test-tiers.py check.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "version", "kind", "pattern", "areas", "files"],
+  "properties": {
+    "format": {"const": "crux.test-tiers"},
+    "version": {"const": 1},
+    "kind": {"enum": ["python-unittest", "file-glob"]},
+    "pattern": {"type": "string", "minLength": 1, "description": "The root's non-recursive file glob, such as test*.py or *.test.ts."},
+    "areas": {
+      "type": "object",
+      "description": "Maps an area id to a one-line description of a system area the release tier covers.",
+      "additionalProperties": {"type": "string", "minLength": 1}
+    },
+    "files": {
+      "type": "object",
+      "description": "Maps a bare test file name to its entry.",
+      "additionalProperties": {"$ref": "#/$defs/fileEntry"}
+    }
+  },
+  "$defs": {
+    "tier": {"enum": ["dev", "release", "ephemeral"]},
+    "date": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"},
+    "override": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tier"],
+      "properties": {
+        "tier": {"$ref": "#/$defs/tier"},
+        "area": {"type": "string", "minLength": 1, "description": "Release only: an id declared in areas."},
+        "reason": {"type": "string", "minLength": 1, "description": "Ephemeral only, required."},
+        "expires": {"$ref": "#/$defs/date", "description": "Ephemeral only: expires or retire_when is required."},
+        "retire_when": {"type": "string", "minLength": 1, "description": "Ephemeral only: expires or retire_when is required."}
+      }
+    },
+    "fileEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tier"],
+      "properties": {
+        "tier": {"$ref": "#/$defs/tier"},
+        "area": {"type": "string", "minLength": 1},
+        "reason": {"type": "string", "minLength": 1},
+        "expires": {"$ref": "#/$defs/date"},
+        "retire_when": {"type": "string", "minLength": 1},
+        "overrides": {
+          "type": "object",
+          "description": "python-unittest only. Keys are ClassName or ClassName.test_method; a method override wins over a class override, which wins over the file entry.",
+          "additionalProperties": {"$ref": "#/$defs/override"}
+        }
+      }
+    }
+  }
+}

@@ -6,6 +6,7 @@ Acceptance criteria 1-9 of the queue plan are named in the test names (ac1 ... a
 import io
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import threading
@@ -91,11 +92,374 @@ class Base(unittest.TestCase):
         path.write_text(json.dumps(doc))
 
     def item(self, qid):
-        return next(i for i in self.ok('list')['items'] if i['id'] == qid)
+        return next(i for i in self.ok('list', '--full')['items'] if i['id'] == qid)
 
     def queue_doc(self):
         import yaml
         return yaml.safe_load((self.repo / 'notes/queue/cycles.yaml').read_text())
+
+
+class ArchiveTests(Base):
+    def test_full_history_keeps_earlier_unresolved_active_cycle_in_execution_order(self):
+        for fault in ('missing', 'malformed'):
+            with self.subTest(fault=fault):
+                case = Base()
+                case.setUp()
+                self.addCleanup(case.doCleanups)
+                earlier, later = case.add('earlier'), case.add('later')
+                pending, held = case.add('pending'), case.add('held')
+                case.ok('hold', held, '--reason', 'Owner hold')
+                case.authorize('queue', instruction='I authorize the original queue order')
+                first = case.start()[1]
+                case.end_cycle(first['cycle'], 'completed')
+                second = case.start()[1]
+                case.end_cycle(second['cycle'], 'completed')
+                record = case.repo / 'notes/cycles' / first['cycle'] / 'cycle.json'
+                if fault == 'missing':
+                    record.unlink()
+                else:
+                    record.write_text('{invalid JSON')
+                authorization = case.queue_doc()['authorization']
+                case.ok('archive', '--migrate')
+                full = case.ok('list', '--full')['items']
+                self.assertEqual([item['id'] for item in full], [earlier, later, pending, held])
+                self.assertEqual([item['position'] for item in full], [1, 2, 3, 4])
+                self.assertEqual(case.queue_doc()['authorization'], authorization)
+                self.assertEqual(case.stop_reason(), 'cycle-missing')
+
+    def test_full_history_keeps_moved_execution_order_across_three_sweeps(self):
+        a, b, c = self.add('A'), self.add('B'), self.add('C')
+        self.ok('move', c, '--position', '1')
+        self.ok('edit', a, '--depends-on', c)
+        self.ok('edit', b, '--depends-on', a)
+        for index, qid in enumerate((c, a, b)):
+            self.authorize('next', instruction='I authorize only ' + qid)
+            started = self.start()[1]
+            self.assertEqual(started['item'], qid)
+            self.end_cycle(started['cycle'], 'completed')
+            authorization = self.queue_doc()['authorization']
+            self.ok('archive', *(['--migrate'] if index == 0 else []))
+            self.assertEqual(self.queue_doc()['authorization'], authorization)
+        self.assertEqual([item['id'] for item in self.ok('list', '--full')['items']], [c, a, b])
+
+    def test_actual_queue_budget_accepts_multibyte_limit_and_refuses_one_more(self):
+        self.add('budget')
+        self.authorize('queue', instruction='漢')
+        cfg = cycle_queue.tree(self.repo)
+        doc = cycle_queue.read_queue(cfg)
+        remaining = cycle_queue.MAX_QUEUE_BYTES - len(cycle_queue.queue_bytes(doc))
+        doc['authorization']['instruction'] += '漢' * (remaining // 3) + 'x' * (remaining % 3)
+        payload = cycle_queue.queue_bytes(doc)
+        self.assertEqual(len(payload), cycle_queue.MAX_QUEUE_BYTES)
+        cycle_queue.write_queue(cfg, doc)
+        self.assertTrue(view(self.repo)['queue']['ok'])
+        doc['authorization']['instruction'] += 'x'
+        with self.assertRaisesRegex(cycle_queue.QueueError, 'byte limit'):
+            cycle_queue.write_queue(cfg, doc)
+        self.assertEqual(cycle_queue.queue_file(cfg).read_bytes(), payload)
+
+    def test_active_queue_byte_budget_is_utf8_and_atomic(self):
+        self.add('漢字')
+        cfg = cycle_queue.tree(self.repo)
+        path = cycle_queue.queue_file(cfg)
+        original = path.read_bytes()
+        doc = cycle_queue.read_queue(cfg)
+        doc['items'][0]['title'] += '漢'
+        encoded = cycle_queue._yaml().safe_dump(cycle_queue._ordered(doc), sort_keys=False,
+            default_flow_style=False, allow_unicode=True, width=100).encode('utf-8')
+        with patch.object(cycle_queue, 'MAX_QUEUE_BYTES', len(encoded), create=True):
+            cycle_queue.write_queue(cfg, doc)
+            self.assertEqual(cycle_queue.read_queue(cfg), doc)
+            self.assertTrue(view(self.repo)['queue']['ok'])
+        path.write_bytes(original)
+        with patch.object(cycle_queue, 'MAX_QUEUE_BYTES', len(encoded) - 1, create=True):
+            with self.assertRaisesRegex(cycle_queue.QueueError, 'byte limit'):
+                cycle_queue.write_queue(cfg, doc)
+            self.assertEqual(path.read_bytes(), original)
+        path.write_bytes(encoded)
+        with patch.object(cycle_queue, 'MAX_QUEUE_BYTES', len(encoded) - 1, create=True):
+            with self.assertRaisesRegex(cycle_queue.QueueError, 'byte limit'):
+                cycle_queue.read_queue(cfg)
+            unavailable = view(self.repo)['queue']
+            self.assertFalse(unavailable['ok'])
+            self.assertIn('byte limit', unavailable['error'])
+
+    def test_oversized_mutation_refuses_before_archiving(self):
+        first = self.add('first')
+        self.authorize('queue')
+        started = self.start()[1]
+        self.end_cycle(started['cycle'], 'completed')
+        self.ok('archive', '--migrate')
+        self.add('second')
+        self.authorize('queue')
+        self.end_cycle(self.start()[1]['cycle'], 'completed')
+        cfg = cycle_queue.tree(self.repo)
+        path = cycle_queue.queue_file(cfg)
+        original = path.read_bytes()
+        with patch.object(cycle_queue, 'MAX_QUEUE_BYTES', len(original) + 1):
+            self.refused('add', '--title', 'extra', '--outcome', 'X' * 2000, '--type', 'quick-fix',
+                '--scope', 'src', '--acceptance', 'works')
+        self.assertEqual(path.read_bytes(), original)
+        self.assertEqual([p.stem for p in (self.repo / 'notes/queue/history/items').glob('*.json')], [first])
+
+    def test_archive_is_explicit_and_resolves_completed_dependency(self):
+        first = self.add('first')
+        second = self.add('second', (first,))
+        self.authorize('queue')
+        code, started = self.start()
+        self.assertEqual(code, 0)
+        self.end_cycle(started['cycle'], 'completed')
+        preview = self.ok('archive', '--dry-run')
+        self.assertEqual(preview['items'], [first])
+        self.assertEqual(self.queue_doc()['format_version'], 1)
+        self.ok('archive', '--migrate')
+        self.assertEqual(self.queue_doc()['format_version'], 2)
+        self.assertEqual([i['id'] for i in self.queue_doc()['items']], [second])
+        self.assertEqual(self.ok('show', first)['item']['id'], first)
+        self.assertEqual([i['id'] for i in self.ok('list', '--full')['items']], [first, second])
+        self.assertTrue(view(self.repo)['queue']['ok'])
+        self.assertIn(first, render(view(self.repo)))
+        self.assertEqual(self.start()[1]['outcome'], 'started')
+
+    def test_archive_replay_coalesces_duplicate_and_rejects_conflict(self):
+        first = self.add('first')
+        self.authorize('next')
+        _, started = self.start()
+        self.end_cycle(started['cycle'], 'completed')
+        with patch('cycle_queue.write_queue', side_effect=Crash):
+            with self.assertRaises(Crash):
+                cycle_queue.archive(self.repo, migrate=True)
+        self.assertEqual(self.queue_doc()['format_version'], 1)
+        self.ok('archive', '--migrate')
+        self.assertEqual(self.ok('show', first)['item']['id'], first)
+        record = self.repo / 'notes/queue/history/items' / (first + '.json')
+        original = json.loads(record.read_text())
+        original['item']['title'] = 'conflicting'
+        record.write_text(json.dumps(original))
+        self.refused('show', first)
+
+    def test_archived_release_authorization_and_revocation(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'tools'))
+        import release
+        first = self.add('Release v8.9.1', (), 'release')
+        self.authorize('next', instruction='I approve the 8.9.1 beta')
+        _, started = self.start()
+        self.end_cycle(started['cycle'], 'completed')
+        self.ok('archive', '--migrate')
+        quote, source = release.queue_authorization(self.repo, started['cycle'], '8.9.1', 'beta')
+        self.assertEqual(quote, 'I approve the 8.9.1 beta')
+        self.assertEqual(source['item'], first)
+        self.ok('revoke', '--reason', 'withdrawn')
+        quote, reason = release.queue_authorization(self.repo, started['cycle'], '8.9.1', 'beta')
+        self.assertIsNone(quote)
+        self.assertIn('revoked', reason)
+
+    def test_reader_exposes_more_than_fifty_unstarted_items(self):
+        for n in range(55):
+            self.add(f'Item {n}')
+        queue = view(self.repo)['queue']
+        self.assertTrue(queue['ok'], queue)
+        self.assertEqual(len(queue['items']), 55)
+        self.assertEqual(queue['items'][-1]['id'], 'Q-0055')
+
+    def test_missing_history_dependency_refuses(self):
+        first = self.add('first')
+        self.add('second', (first,))
+        self.authorize('queue')
+        _, started = self.start()
+        self.end_cycle(started['cycle'], 'completed')
+        self.ok('archive', '--migrate')
+        (self.repo / 'notes/queue/history/items' / (first + '.json')).unlink()
+        self.refused('list')
+
+    def test_archived_abandoned_item_still_stops_authorized_queue(self):
+        first = self.add('first')
+        self.add('second', (first,))
+        self.authorize('queue')
+        _, started = self.start()
+        self.end_cycle(started['cycle'], 'abandoned')
+        self.ok('archive', '--migrate')
+        self.assertEqual(self.stop_reason(), 'previous-abandoned')
+
+    def test_archive_frees_capacity_without_reusing_ids_and_refuses_collision(self):
+        with patch.object(cycle_queue, 'MAX_ITEMS', 1):
+            first = self.add('first')
+            self.authorize('next')
+            _, started = self.start()
+            self.end_cycle(started['cycle'], 'completed')
+            self.ok('archive', '--migrate')
+            self.assertEqual(self.add('second'), 'Q-0002')
+            self.ok('remove', 'Q-0002')
+            doc = self.queue_doc()
+            doc['next_number'] = 1
+            cycle_queue.write_queue(cycle_queue.tree(self.repo), doc)
+            result = self.refused('add', '--title', 'collision', '--outcome', 'o', '--type', 'quick-fix',
+                                  '--scope', 'src', '--acceptance', 'works')
+            self.assertIn('collides with history', result['error'])
+            self.assertEqual(first, 'Q-0001')
+
+    def test_add_sweeps_terminal_item_before_applying_capacity(self):
+        with patch.object(cycle_queue, 'MAX_ITEMS', 1):
+            first = self.add('first')
+            self.authorize('next')
+            _, started = self.start()
+            self.ok('archive', '--migrate')
+            self.end_cycle(started['cycle'], 'completed')
+            second = self.add('second', (first,))
+            self.assertEqual(second, 'Q-0002')
+            self.assertEqual([item['id'] for item in self.queue_doc()['items']], [second])
+            self.assertEqual(self.ok('show', first)['item']['id'], first)
+
+    def test_invalid_add_does_not_write_preflight_archive(self):
+        with patch.object(cycle_queue, 'MAX_ITEMS', 1):
+            first = self.add('first')
+            self.authorize('next')
+            _, started = self.start()
+            self.ok('archive', '--migrate')
+            self.end_cycle(started['cycle'], 'completed')
+            path = self.repo / 'notes/queue/cycles.yaml'
+            before = path.read_bytes()
+            self.refused('add', '--title', 'bad', '--outcome', 'o', '--type', 'quick-fix',
+                         '--scope', '../outside', '--acceptance', 'works')
+            self.refused('add', '--title', 'bad dependency', '--outcome', 'o', '--type', 'quick-fix',
+                         '--scope', 'src', '--acceptance', 'works', '--depends-on', 'Q-9999')
+            self.assertEqual(path.read_bytes(), before)
+            self.assertFalse((self.repo / 'notes/queue/history/items' / (first + '.json')).exists())
+
+    def test_start_next_stop_does_not_archive_pending_terminal_item(self):
+        first = self.add('first')
+        self.add('held', (), 'quick-fix', '--held', '--reason', 'waiting')
+        self.authorize('queue')
+        _, started = self.start()
+        self.ok('archive', '--migrate')
+        self.end_cycle(started['cycle'], 'completed')
+        path = self.repo / 'notes/queue/cycles.yaml'
+        before = path.read_bytes()
+        self.assertEqual(self.stop_reason(), 'held')
+        self.assertEqual(path.read_bytes(), before)
+        self.assertFalse((self.repo / 'notes/queue/history/items' / (first + '.json')).exists())
+
+    def test_archive_reads_valid_large_unicode_item(self):
+        arguments = ['add', '--title', 'large', '--outcome', 'o', '--type', 'quick-fix', '--scope', 'src']
+        for _ in range(40):
+            arguments.extend(['--acceptance', 'é' * 2000])
+        first = self.ok(*arguments)['item']['id']
+        self.authorize('next')
+        _, started = self.start()
+        self.end_cycle(started['cycle'], 'completed')
+        self.ok('archive', '--migrate')
+        self.assertEqual(len(self.ok('show', first)['item']['acceptance']), 40)
+
+    def test_archive_refuses_oversized_record_before_removal(self):
+        first = self.add('first')
+        self.authorize('next')
+        _, started = self.start()
+        self.end_cycle(started['cycle'], 'completed')
+        with patch.object(cycle_queue, 'MAX_HISTORY_BYTES', 100):
+            result = self.refused('archive', '--migrate')
+        self.assertIn('exceeds', result['error'])
+        self.assertEqual(self.queue_doc()['format_version'], 1)
+        self.assertEqual(self.queue_doc()['items'][0]['id'], first)
+        self.assertFalse((self.repo / 'notes/queue/history/items' / (first + '.json')).exists())
+
+    def test_format2_is_rejected_by_the_format1_schema(self):
+        self.add('waiting')
+        self.ok('archive', '--migrate')
+        from council_records import _validator
+        schema = _validator().load_schema(Path(__file__).resolve().parents[2] / 'schemas/cycle-queue.schema.json')
+        schema['properties']['format_version'] = {'const': 1}
+        errors = []
+        _validator().validate(self.queue_doc(), schema, '#', '#', errors, 'queue')
+        self.assertTrue(any('format_version' in error['instance_path'] for error in errors), errors)
+
+    def test_conflicting_valid_duplicate_refuses_replay(self):
+        first = self.add('first')
+        self.authorize('next')
+        _, started = self.start()
+        self.end_cycle(started['cycle'], 'completed')
+        with patch('cycle_queue.write_queue', side_effect=Crash):
+            with self.assertRaises(Crash):
+                cycle_queue.archive(self.repo, migrate=True)
+        record = self.repo / 'notes/queue/history/items' / (first + '.json')
+        data = json.loads(record.read_text())
+        data['item']['title'] = 'another valid title'
+        data['source_sha256'] = cycle_queue._item_digest(data['item'])
+        record.write_text(json.dumps(data))
+        self.assertIn('conflicting', self.refused('archive', '--migrate')['error'])
+
+    def test_cycle_commit_cannot_split_archive_from_queue_removal(self):
+        first = self.add('first')
+        self.authorize('next')
+        _, started = self.start()
+        def git(*args):
+            return subprocess.run(['git', '-C', str(self.repo), *args], check=True,
+                                  text=True, capture_output=True).stdout.strip()
+        git('init')
+        git('config', 'user.name', 'Queue Test')
+        git('config', 'user.email', 'queue@example.invalid')
+        git('add', '.')
+        git('commit', '-m', 'baseline')
+        self.end_cycle(started['cycle'], 'completed')
+        import cycle_commit
+        cycle_commit.commit_record(self.repo, started['cycle'])
+        with patch('cycle_queue.write_queue', side_effect=Crash):
+            with self.assertRaises(Crash):
+                cycle_queue.archive(self.repo, migrate=True)
+        note = self.repo / 'notes/cycles' / started['cycle'] / 'note.md'
+        note.write_text('unrelated cycle checkpoint\n')
+        cycle_commit.commit_record(self.repo, started['cycle'])
+        self.assertNotIn('notes/queue/', git('show', '--pretty=', '--name-only', 'HEAD'))
+        self.ok('archive', '--migrate')
+        changed = git('show', '--pretty=', '--name-only', 'HEAD').splitlines()
+        self.assertIn('notes/queue/cycles.yaml', changed)
+        self.assertIn(f'notes/queue/history/items/{first}.json', changed)
+        self.assertEqual(self.ok('show', first)['item']['id'], first)
+
+    def test_terminal_cycle_without_queue_item_does_not_commit_pending_queue(self):
+        self.add('waiting')
+        self.ok('archive', '--migrate')
+        unrelated = create(self.repo, 'quick-fix', 'Other', 'Goal', ['src'], ['ok'], 'builder', 'tester')
+        def git(*args):
+            return subprocess.run(['git', '-C', str(self.repo), *args], check=True,
+                                  text=True, capture_output=True).stdout.strip()
+        git('init')
+        git('config', 'user.name', 'Queue Test')
+        git('config', 'user.email', 'queue@example.invalid')
+        git('add', '.')
+        git('commit', '-m', 'baseline')
+        self.end_cycle(unrelated['id'], 'completed')
+        queue = self.repo / 'notes/queue/cycles.yaml'
+        queue.write_text(queue.read_text().replace('title: waiting', 'title: still waiting'))
+        import cycle_commit
+        result = cycle_commit.after_write(self.repo, unrelated['id'])
+        self.assertEqual(result['queue_sweep']['items'], [])
+        self.assertNotIn('notes/queue/', git('show', '--pretty=', '--name-only', 'HEAD'))
+        self.assertIn('notes/queue/cycles.yaml', git('status', '--porcelain'))
+
+    def test_deferred_archive_is_committed_with_history_by_next_queue_writer(self):
+        first = self.add('first')
+        second = self.add('second', (first,))
+        self.authorize('queue')
+        _, started = self.start()
+        def git(*args):
+            return subprocess.run(['git', '-C', str(self.repo), *args], check=True,
+                                  text=True, capture_output=True).stdout.strip()
+        git('init')
+        git('config', 'user.name', 'Queue Test')
+        git('config', 'user.email', 'queue@example.invalid')
+        git('add', '.')
+        git('commit', '-m', 'baseline')
+        self.end_cycle(started['cycle'], 'completed')
+        import cycle_commit
+        cycle_commit.commit_record(self.repo, started['cycle'])
+        with patch('cycle_commit.deferral', return_value=('full-suite-running', 'held')):
+            result = self.ok('archive', '--migrate')
+        self.assertEqual(result['queue_commit']['deferred'], 'full-suite-running')
+        self.ok('hold', second, '--reason', 'test recovery')
+        changed = git('show', '--pretty=', '--name-only', 'HEAD').splitlines()
+        self.assertIn('notes/queue/cycles.yaml', changed)
+        self.assertIn(f'notes/queue/history/items/{first}.json', changed)
+        self.assertEqual(self.ok('show', first)['item']['id'], first)
 
 
 class OrderingTests(Base):
@@ -103,22 +467,22 @@ class OrderingTests(Base):
         a, b, c = self.add('A'), self.add('B'), self.add('C')
         self.assertEqual([a, b, c], ['Q-0001', 'Q-0002', 'Q-0003'])
         self.ok('move', c, '--position', '1')
-        self.assertEqual([i['id'] for i in self.ok('list')['items']], [c, a, b])
-        self.assertEqual([i['position'] for i in self.ok('list')['items']], [1, 2, 3])
+        self.assertEqual([i['id'] for i in self.ok('list', '--full')['items']], [c, a, b])
+        self.assertEqual([i['position'] for i in self.ok('list', '--full')['items']], [1, 2, 3])
         held = self.ok('hold', a, '--reason', 'waiting on the owner')['item']
         self.assertEqual((held['state'], held['hold_reason']), ('held', 'waiting on the owner'))
         self.assertEqual(self.ok('unhold', a)['item']['state'], 'pending')
         edited = self.ok('edit', a, '--title', 'A2', '--scope', 'src/a.py', '--acceptance', 'one', '--acceptance', 'two')['item']
         self.assertEqual((edited['title'], edited['scope'], edited['acceptance']), ('A2', ['src/a.py'], ['one', 'two']))
         self.ok('remove', b)
-        self.assertEqual([i['id'] for i in self.ok('list')['items']], [c, a])
+        self.assertEqual([i['id'] for i in self.ok('list', '--full')['items']], [c, a])
         # Ids are never reused, even after removal.
         self.assertEqual(self.add('D'), 'Q-0004')
 
     def test_ac1_add_position_and_held_flags(self):
         a = self.add('A')
         b = self.add('B', (), 'quick-fix', '--position', '1', '--held', '--reason', 'later')
-        items = self.ok('list')['items']
+        items = self.ok('list', '--full')['items']
         self.assertEqual([i['id'] for i in items], [b, a])
         self.assertEqual(items[0]['state'], 'held')
         self.refused('add', '--title', 'X', '--outcome', 'o', '--type', 'quick-fix', '--scope', 'src', '--acceptance', 'a', '--held')
@@ -149,7 +513,7 @@ class OrderingTests(Base):
         self.refused('move', b, '--position', '1')
         self.refused('add', '--title', 'X', '--outcome', 'o', '--type', 'quick-fix', '--scope', 'src', '--acceptance', 'a', '--position', '1')
         self.assertEqual(self.add('C', (), 'quick-fix', '--position', '2'), 'Q-0003')
-        self.assertEqual([i['id'] for i in self.ok('list')['items']], [a, 'Q-0003', b])
+        self.assertEqual([i['id'] for i in self.ok('list', '--full')['items']], [a, 'Q-0003', b])
 
     def test_ac1_dependency_must_precede_its_dependent(self):
         a, b = self.add('A'), self.add('B')
@@ -159,7 +523,7 @@ class OrderingTests(Base):
         self.refused('edit', a, '--depends-on', c)  # dependency after dependent / cycle
         self.refused('add', '--title', 'X', '--outcome', 'o', '--type', 'quick-fix', '--scope', 'src', '--acceptance', 'a', '--depends-on', 'Q-0099')
         self.ok('move', c, '--position', '2')
-        self.assertEqual([i['id'] for i in self.ok('list')['items']], [a, c, b])
+        self.assertEqual([i['id'] for i in self.ok('list', '--full')['items']], [a, c, b])
         self.refused('remove', a)  # c depends on it
         self.ok('edit', c, '--no-depends')
         self.ok('remove', a)
@@ -199,10 +563,22 @@ class AuthorizationTests(Base):
         self.refused('authorize', '--kind', 'next-n', '--instruction', 'go', '--date', DATE)
         self.refused('authorize', '--kind', 'next-n', '--count', '0', '--instruction', 'go', '--date', DATE)
         self.refused('authorize', '--kind', 'next', '--count', '2', '--instruction', 'go', '--date', DATE)
-        self.assertIsNone(self.ok('list')['authorization'])
+        self.assertIsNone(self.ok('list', '--full')['authorization'])
 
 
 class StartNextTests(Base):
+    def test_a_started_cycle_is_a_version_three_record(self):
+        self.add('A')
+        self.authorize('queue')
+        code, got = self.start()
+        self.assertEqual(code, 0, got)
+        doc = load(self.repo, got['cycle'])
+        self.assertEqual((doc['schema_version'], doc['revision'], doc['history'][0]['revision']), (3, 1, 1))
+        self.assertEqual(self.item(got['item'])['state'], 'started')
+        # The queue readers accept the version-3 record: a second start reports the open cycle.
+        code, again = self.start()
+        self.assertEqual((code, again['outcome']), (0, 'in-progress'))
+
     def test_ac2_a_dependency_prevents_premature_start(self):
         a = self.add('A')
         b = self.add('B', (a,))
@@ -501,7 +877,7 @@ class RecoveryTests(Base):
                 cycle_queue.start_next(self.repo)
         # The authorization still holds the starting item in scope, so a stranded intent cannot start outside it.
         self.authorize('next')
-        self.assertEqual(self.ok('list')['authorization']['scope'], [self.a])
+        self.assertEqual(self.ok('list', '--full')['authorization']['scope'], [self.a])
         code, got = self.start()
         self.assertEqual((code, got['outcome'], got['item']), (0, 'started', self.a))
         self.assertEqual(len(self.cycle_dirs()), 1)
@@ -585,9 +961,9 @@ class RecoveryTests(Base):
 
     def test_ac7_resume_preserves_authorization_and_creates_no_duplicate(self):
         _, first = self.start()
-        before = self.ok('list')
+        before = self.ok('list', '--full')
         # A fresh process (a new CLI call) sees the same authorization and the same cycle.
-        after = self.ok('list')
+        after = self.ok('list', '--full')
         self.assertEqual(before['authorization'], after['authorization'])
         self.assertEqual(after['authorization']['remaining'], [self.b])
         self.assertEqual(after['authorization']['started'], [self.a])
@@ -602,11 +978,11 @@ class ReadTests(Base):
     def test_list_reports_state_status_dependencies_authorization_and_next(self):
         a = self.add('A')
         b = self.add('B', (a,))
-        listing = self.ok('list')
+        listing = self.ok('list', '--full')
         self.assertIsNone(listing['authorization'])
         self.assertEqual(listing['next'], {'item': a, 'startable': False, 'stop': 'not-authorized', 'detail': listing['next']['detail']})
         self.authorize('queue')
-        listing = self.ok('list')
+        listing = self.ok('list', '--full')
         self.assertEqual(listing['next']['item'], a)
         self.assertTrue(listing['next']['startable'])
         self.assertEqual(listing['authorization']['remaining'], [a, b])
@@ -644,7 +1020,7 @@ class ReadTests(Base):
         self.assertIn('CYC-0001', text)  # the cycle view survives
         self.assertNotIn('format: wrong', text)
         document = view(self.repo)
-        self.assertEqual(document['format_version'], 2)
+        self.assertEqual(document['format_version'], 5)
 
     def test_visualizer_reports_missing_pyyaml_without_crashing_the_cycle_view(self):
         self.add('A')
@@ -677,7 +1053,7 @@ class ReadTests(Base):
         listing = view(self.repo)
         self.assertEqual(set(listing), {'format', 'format_version', 'ok', 'docs_dir', 'now_s', 'cycles', 'queue'})
         self.assertTrue(listing['queue']['ok'])
-        self.assertEqual(json.loads(json.dumps(listing))['format_version'], 2)
+        self.assertEqual(json.loads(json.dumps(listing))['format_version'], 5)
 
 
 class StorageTests(Base):
@@ -693,7 +1069,7 @@ class StorageTests(Base):
         self.assertFalse(list((self.repo / 'notes/queue').glob('.cycle-*')))
 
     def test_an_absent_file_is_an_empty_queue_and_reads_create_nothing(self):
-        listing = self.ok('list')
+        listing = self.ok('list', '--full')
         self.assertEqual((listing['items'], listing['authorization'], listing['next']['stop']), ([], None, 'queue-empty'))
         self.assertFalse((self.repo / 'notes/queue').exists())
 
@@ -741,7 +1117,7 @@ class StorageTests(Base):
         self.assertIn('scope', broken(lambda d: d.update(authorization={'instruction': 'go', 'kind': 'next', 'count': 1, 'scope': [a], 'started': [b], 'authorized_at': 'x', 'date': DATE})))
         self.assertIn('itself', broken(lambda d: d['items'][1].update(depends_on=[b])))
         path.write_text(yaml.safe_dump(good, sort_keys=False))
-        self.ok('list')
+        self.ok('list', '--full')
 
     def test_missing_tree_unconfigured_repo_and_missing_pyyaml_exit_2(self):
         (self.repo / 'notes/manifest.yml').unlink()
@@ -838,7 +1214,7 @@ class ReferenceTests(Base):
                 self.refused(*self.BASE, '--reference', ref)
                 self.refused('edit', qid, '--reference', ref)
         self.assertEqual(self.item(qid)['references'], [])
-        self.assertEqual(len(self.ok('list')['items']), 1)
+        self.assertEqual(len(self.ok('list', '--full')['items']), 1)
 
     def test_duplicate_and_excess_references_are_refused(self):
         self.refused(*self.BASE, '--reference', 'notes/brief.md', '--reference', 'notes/brief.md')
@@ -857,7 +1233,7 @@ class ReferenceTests(Base):
         path = self.repo / 'notes/queue/cycles.yaml'
         before = path.read_bytes()
         self.assertNotIn(b'references', before)
-        self.ok('list')
+        self.ok('list', '--full')
         self.ok('edit', 'Q-0001', '--title', 'Plain')
         self.assertEqual(path.read_bytes(), before)
 
@@ -908,6 +1284,57 @@ class ReferenceTests(Base):
         self.assertEqual((doc['type'], doc['release_list'], doc['phase']), ('release', 'beta', 'release'))
         self.assertEqual([t['id'] for t in doc['plan']['tasks']], ['prep', 'prepare', 'verify', 'beta-and-smoke', 'tag', 'record'])
         self.assertEqual((doc['plan']['scope'], doc['plan']['acceptance']), (['src'], ['it works']))
+        self.assertNotIn('release_list', self.queue_items()[0], 'an item without the key stores none')
+        self.assertEqual(self.item_view(started['item'])['release_list'], 'beta')
+
+    def queue_items(self):
+        return cycle_queue.read_queue(cycle_queue.tree(self.repo))['items']
+
+    def item_view(self, qid):
+        return self.ok('show', qid)['item']
+
+    def test_queue_add_release_list_official_stores_the_list_and_start_next_creates_an_official_list_cycle(self):
+        qid = self.ok('add', '--title', 'Promote', '--outcome', 'Deliver Promote', '--type', 'release', '--scope', 'src',
+                    '--acceptance', 'it works', '--release-list', 'official')['item']['id']
+        self.assertEqual(self.queue_items()[0]['release_list'], 'official')
+        self.assertEqual(self.item_view(qid)['release_list'], 'official')
+        self.authorize('queue')
+        code, started = self.start()
+        self.assertEqual(code, 0, started)
+        doc = load(self.repo, started['cycle'])
+        self.assertEqual((doc['type'], doc['release_list'], doc['phase']), ('release', 'official', 'release'))
+        self.assertEqual([t['id'] for t in doc['plan']['tasks']], ['live-check-and-go-ahead', 'official', 'record'])
+
+    def test_queue_add_release_list_beta_is_stored_and_starts_a_beta_list_cycle(self):
+        self.ok('add', '--title', 'Ship', '--outcome', 'Deliver Ship', '--type', 'release', '--scope', 'src',
+                '--acceptance', 'it works', '--release-list', 'beta')
+        self.assertEqual(self.queue_items()[0]['release_list'], 'beta')
+        self.authorize('queue')
+        code, started = self.start()
+        self.assertEqual(code, 0, started)
+        self.assertEqual(load(self.repo, started['cycle'])['release_list'], 'beta')
+
+    def test_a_release_list_belongs_to_release_items_and_names_a_known_list(self):
+        refused = self.refused('add', '--title', 'Fix', '--outcome', 'Deliver Fix', '--type', 'quick-fix', '--scope', 'src',
+                               '--acceptance', 'it works', '--release-list', 'official')
+        self.assertIn('--release-list', refused['error'])
+        self.assertEqual(self.queue_items(), [])
+        with self.assertRaises(SystemExit):
+            with redirect_stdout(io.StringIO()), patch('sys.stderr', io.StringIO()):
+                cycle.main(['--repo-root', str(self.repo), 'queue', 'add', '--title', 'S', '--outcome', 'o', '--type', 'release',
+                            '--scope', 'src', '--acceptance', 'a', '--release-list', 'nightly'])
+        qid = self.ok('add', '--title', 'Promote', '--outcome', 'Deliver Promote', '--type', 'release', '--scope', 'src',
+                      '--acceptance', 'it works', '--release-list', 'official')['item']['id']
+        changed = self.refused('edit', qid, '--type', 'quick-fix')
+        self.assertIn('release_list', changed['error'])
+
+    def test_the_schema_refuses_an_unknown_release_list_in_the_file(self):
+        self.ok('add', '--title', 'Ship', '--outcome', 'Deliver Ship', '--type', 'release', '--scope', 'src',
+                '--acceptance', 'it works', '--release-list', 'official')
+        path = self.repo / 'notes/queue/cycles.yaml'
+        path.write_text(path.read_text().replace('release_list: official', 'release_list: nightly'))
+        with self.assertRaises(cycle_queue.QueueError):
+            cycle_queue.read_queue(cycle_queue.tree(self.repo))
 
 
 class OriginTests(Base):

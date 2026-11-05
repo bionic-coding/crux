@@ -73,6 +73,7 @@ class Base(unittest.TestCase):
 @unittest.skipUnless(HAVE_GATEWAY, 'gateway dependencies unavailable')
 class GatewayBase(Base):
     def run_gateway(self, purpose, subject, cycle_id=None, **options):
+        from test_cycle_council import checkpointed_result
         votes = [CouncilVote(model=p + '/model', provider=p, decision='APPROVE', reasoning='ok', confidence=.9)
                  for p in ('openai', 'anthropic', 'google')]
         result = CouncilDeliberation(votes=votes, consensus='UNANIMOUS_APPROVE', consensus_confidence=.9,
@@ -82,7 +83,7 @@ class GatewayBase(Base):
              patch('crux.council.async_council.validate_gate_assignment', return_value={'openai_top': 'one', 'anthropic_top': 'two', 'google_top': 'three'}), \
              patch('crux.core.llm_caller.get_model_config', return_value=SimpleNamespace(max_output_tokens=65536)), \
              patch('crux.council.async_council.AsyncCouncil') as council:
-            council.return_value.deliberate = AsyncMock(return_value=result)
+            council.return_value.deliberate = AsyncMock(side_effect=lambda *args: checkpointed_result(council.call_args.args[0], result))
             output = convene(self.root, purpose, subject, QUESTION, cycle_id=cycle_id, **options)
             return output, council.return_value.deliberate.call_args.args[0]
 

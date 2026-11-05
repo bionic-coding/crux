@@ -1,4 +1,4 @@
-"""A fix task: one small in-scope fix per phase per pass in Test or Review, with no pass consumed."""
+"""A fix task: one small in-scope fix per phase per pass in the phase after Build or in Review, with no pass consumed."""
 from copy import deepcopy
 import json
 from pathlib import Path
@@ -114,7 +114,7 @@ class AcceptanceTests(FixBase):
         before = workflow.load(self.root, cid)
         doc = self.add_fix(cid, 'test')
         self.assertEqual(self.task_of(doc)['fix'], {'finding': 'F-1: b.txt holds bad', 'eligibility': 'one file, in scope, cause stated, no decision changes', 'pass': 1})
-        self.assertEqual((doc['pass'], doc['phase'], doc['plan']['revision']), (before['pass'], 'test', before['plan']['revision']))
+        self.assertEqual((doc['pass'], doc['phase'], doc['plan']['revision']), (before['pass'], 'verify', before['plan']['revision']))
 
     def test_second_fix_for_the_same_phase_and_pass_is_refused_even_after_the_first_is_done(self):
         cid = self.to_test()
@@ -141,13 +141,13 @@ class AcceptanceTests(FixBase):
             with self.subTest(key):
                 task = self.fix_task('test')
                 task['fix'][key] = value
-                self.assertIn('exactly finding and eligibility', self.refused('task-add', cid, '--file', self.write_json('t.json', task)))
+                self.assertIn('finding and eligibility', self.refused('task-add', cid, '--file', self.write_json('t.json', task)))
 
     def test_a_fix_outside_test_or_review_is_refused(self):
         cid = self.create_quick_fix()
         self.assertEqual(workflow.load(self.root, cid)['phase'], 'build')
-        self.assertIn('Test or Review', self.refused('task-add', cid, '--file', self.write_json('t.json', self.fix_task('build'))))
-        self.assertIn('Test or Review', self.refused('task-add', cid, '--file', self.write_json('t.json', self.fix_task('test'))))
+        self.assertIn('Verify or Review', self.refused('task-add', cid, '--file', self.write_json('t.json', self.fix_task('build'))))
+        self.assertIn('Verify or Review', self.refused('task-add', cid, '--file', self.write_json('t.json', self.fix_task('test'))))
 
     def test_a_fix_task_for_another_phase_than_the_cycle_phase_is_refused(self):
         cid = self.to_test()
@@ -160,16 +160,30 @@ class AcceptanceTests(FixBase):
 
 
 class ReviewEligibilityTests(FixBase):
-    def test_review_fix_needs_a_single_blocking_finding_in_the_latest_review(self):
+    def test_review_fix_may_answer_several_blocking_findings_of_the_latest_review(self):
         cid = self.to_review(blocking=2)
-        error = self.refused('task-add', cid, '--file', self.write_json('t.json', self.fix_task('review')))
-        self.assertIn('exactly one blocking finding', error)
+        doc = self.add_fix(cid, 'review', findings=['r1:blocking:0', 'r1:blocking:1'])
+        self.assertEqual(self.task_of(doc)['fix']['findings'], ['r1:blocking:0', 'r1:blocking:1'])
+        self.assertEqual(self.task_of(doc)['fix']['pass'], 1)
 
-    def test_review_fix_with_no_review_or_an_approving_review_is_refused(self):
-        cid = self.to_review(blocking=None)
-        self.assertIn('exactly one blocking finding', self.refused('task-add', cid, '--file', self.write_json('t.json', self.fix_task('review'))))
-        self.ok('review', cid, '--file', self.review_report())
-        self.assertIn('exactly one blocking finding', self.refused('task-add', cid, '--file', self.write_json('t.json', self.fix_task('review'))))
+    def test_review_fix_without_a_findings_list_still_answers_the_latest_blocking_review(self):
+        cid = self.to_review(blocking=3)
+        doc = self.add_fix(cid, 'review')
+        self.assertNotIn('findings', self.task_of(doc)['fix'])
+
+    def test_findings_must_be_distinct_blocking_ids_of_the_latest_review(self):
+        cid = self.to_review(blocking=2)
+        for name, findings in {'out of range': ['r1:blocking:2'], 'advisory': ['r1:advisory:0'], 'duplicate': ['r1:blocking:0', 'r1:blocking:0'],
+                               'wrong report': ['r2:blocking:0'], 'not ids': ['the first one'], 'empty': [], 'not a list': 'r1:blocking:0'}.items():
+            with self.subTest(name):
+                task = self.fix_task('review', findings=findings)
+                self.assertIn('findings', self.refused('task-add', cid, '--file', self.write_json('t.json', task)))
+        self.assertEqual([t for t in workflow.load(self.root, cid)['plan']['tasks'] if 'fix' in t], [])
+
+    def test_a_test_fix_takes_no_findings_list(self):
+        cid = self.to_test()
+        task = self.fix_task('test', findings=['r1:blocking:0'])
+        self.assertIn('findings', self.refused('task-add', cid, '--file', self.write_json('t.json', task)))
 
     def test_review_fix_with_one_blocking_finding_is_accepted_and_consumes_no_pass(self):
         cid = self.to_review(blocking=1)
@@ -362,7 +376,7 @@ class PassBoundaryTests(FixBase):
         doc = workflow.load(self.root, cid)
         doc['pass'] = 2
         doc['pass_limit'] = 2
-        doc['phase'] = 'test'
+        doc['phase'] = 'verify'
         workflow.save(workflow.tree(self.root), doc)
         doc = self.add_fix(cid, 'test', identity='fix-2')
         self.assertEqual(self.task_of(doc, 'fix-2')['fix']['pass'], 2)
@@ -371,7 +385,7 @@ class PassBoundaryTests(FixBase):
         cid = self.to_test()
         self.add_fix(cid, 'test')
         doc = workflow.load(self.root, cid)
-        other = self.task('test', identity='after-fix')
+        other = self.task('verify', identity='after-fix')
         other['depends_on'] = ['fix-1']
         doc['plan']['tasks'].append(other)
         workflow.start_pass(workflow.tree(self.root), doc)
@@ -396,7 +410,7 @@ class BasisTests(FixBase):
     def test_schema_fix_object_is_closed(self):
         schema = json.loads((Path(__file__).resolve().parents[2] / 'schemas/cycle.schema.json').read_text())
         fix = schema['properties']['plan']['properties']['tasks']['items']['properties']['fix']
-        self.assertEqual(set(fix['properties']), {'finding', 'eligibility', 'pass', 'before', 'after', 'review'})
+        self.assertEqual(set(fix['properties']), {'finding', 'eligibility', 'findings', 'pass', 'before', 'after', 'review', 'criterion'})
         self.assertEqual(set(fix['required']), {'finding', 'eligibility', 'pass'})
         self.assertIs(fix['additionalProperties'], False)
 

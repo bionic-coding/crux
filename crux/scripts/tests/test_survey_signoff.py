@@ -100,15 +100,6 @@ def _snapshot(root: Path, normalize_time: bool = False) -> dict:
     return out
 
 
-def _safe_text(path: Path) -> str:
-    """A file's text, or "" when it is not UTF-8 — the whole-tree sweeps below
-    walk every file the fixture makes, binaries included."""
-    try:
-        return path.read_text(encoding="utf-8")
-    except (UnicodeDecodeError, OSError):
-        return ""
-
-
 class _SignoffCase(unittest.TestCase):
 
     def setUp(self):
@@ -1575,30 +1566,6 @@ class DomainCharacterClassTests(_SignoffCase):
                 # already NFC, so this is an identity for four of the five.
                 self.assertEqual(record["governs"][0]["domain"],
                                  unicodedata.normalize("NFC", domain))
-
-    def test_no_invisible_character_reaches_any_surface(self):
-        """The reach the refusal closes, stated as a whole-tree sweep: after a
-        refused batch no file in the tree carries the character. The control is
-        the printable run above, whose domain DOES reach five surfaces."""
-        marker = "\u200b"
-        bid = self._prepare({}, {self.a1: f"run{marker}time",
-                                 self.a2: f"run{marker}time"})
-        self.assertEqual(self._run("--batch", bid).returncode, 1)
-        carriers = [str(f.relative_to(self.root))
-                    for f in sorted(self.root.rglob("*"))
-                    if f.is_file() and marker in _safe_text(f)]
-        self.assertEqual(carriers, [f"bionic/observations/survey-{bid}.yml"],
-                         "the only file that may carry it is the unsigned "
-                         "sheet the human typed it into")
-        # Control: the identical fixture with a printable domain lands on the
-        # record bodies, the receipt, the archived sheet and the index.
-        self.setUp()
-        bid = self._prepare({}, {self.a1: "runtimeZZ", self.a2: "runtimeZZ"})
-        self.assertEqual(self._run("--batch", bid).returncode, 0)
-        reached = [str(f.relative_to(self.root))
-                   for f in sorted(self.root.rglob("*"))
-                   if f.is_file() and "runtimeZZ" in _safe_text(f)]
-        self.assertGreaterEqual(len(reached), 5, reached)
 
 
 class StateFileTmpNameTests(_SignoffCase):

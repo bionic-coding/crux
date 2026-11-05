@@ -2356,5 +2356,110 @@ class SuiteDependencyInventoryTests(unittest.TestCase):
                                          "hard_via_helper"])
 
 
+class LiveEnvironmentIsolationTests(unittest.TestCase):
+    """The driver gives every suite run an empty `CRUX_HOME` and no model key.
+
+    A suite started from an ordinary shell holds the owner's key and `~/.crux`. The driver replaces
+    both for the test processes, so no test reaches a live model route. A test that needs a key sets
+    its own controlled value.
+    """
+
+    NAMES = ("OPENROUTER_API_KEY", "PERPLEXITY_API_KEY", "CRUX_ALLOW_LIVE")
+    REPORTER = """
+        import json, os, unittest
+        from pathlib import Path
+
+        class Report(unittest.TestCase):
+            def test_report(self):
+                home = os.environ.get("CRUX_HOME", "")
+                report = {name: os.environ.get(name) for name in ("OPENROUTER_API_KEY", "PERPLEXITY_API_KEY", "CRUX_ALLOW_LIVE")}
+                report["home"] = home
+                report["home_entries"] = sorted(os.listdir(home)) if home and os.path.isdir(home) else None
+                Path(os.environ["REPORT_PATH"]).write_text(json.dumps(report))
+                os.environ["OPENROUTER_API_KEY"] = "test-controlled"
+                self.assertEqual("test-controlled", os.environ["OPENROUTER_API_KEY"])
+    """
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(os.path.realpath(tmp.name))
+        self.tree = _write_tree(self.root / "tree", {"test_report.py": self.REPORTER})
+        self.owner_home = self.root / "owner-crux"
+        self.owner_home.mkdir()
+        (self.owner_home / "env").write_text("OPENROUTER_API_KEY=owner-secret\n")
+
+    def run_driver(self):
+        env = _clean_env()
+        env.update(OPENROUTER_API_KEY="owner-secret", PERPLEXITY_API_KEY="owner-news", CRUX_ALLOW_LIVE="1",
+                   CRUX_HOME=str(self.owner_home), REPORT_PATH=str(self.root / "report.json"))
+        proc = subprocess.run([sys.executable, str(DRIVER), str(self.tree), "--workers", "2"],
+                              cwd=self.root, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                              timeout=RUN_TIMEOUT, env=env)
+        self.assertEqual(0, proc.returncode, proc.stderr)
+        return json.loads((self.root / "report.json").read_text())
+
+    def test_the_child_sees_an_empty_fresh_crux_home_and_no_live_key(self):
+        report = self.run_driver()
+        self.assertNotEqual(str(self.owner_home), report["home"])
+        self.assertNotEqual("", report["home"])
+        self.assertEqual([], report["home_entries"])
+        self.assertEqual({name: None for name in self.NAMES}, {name: report[name] for name in self.NAMES})
+
+    def test_the_fresh_crux_home_is_removed_when_the_run_ends(self):
+        report = self.run_driver()
+        # Positive control: the child listed the home, so it existed while the suite ran.
+        self.assertEqual([], report["home_entries"])
+        self.assertFalse(os.path.exists(report["home"]))
+
+    def test_each_run_gets_its_own_crux_home(self):
+        first = self.run_driver()["home"]
+        second = self.run_driver()["home"]
+        self.assertNotEqual(first, second)
+
+    def test_a_minor_run_gets_its_own_uv_cache_and_a_plain_run_keeps_the_callers(self):
+        # Two suites that run at once on different minors must not share a uv cache: one can rebuild
+        # a script environment while the other runs it. A run that names its minor owns its cache.
+        reporter = """
+            import json, os, unittest
+            from pathlib import Path
+
+            class Report(unittest.TestCase):
+                def test_report(self):
+                    cache = os.environ.get("UV_CACHE_DIR")
+                    Path(os.environ["REPORT_PATH"]).write_text(json.dumps(
+                        {"cache": cache, "exists": bool(cache) and os.path.isdir(cache)}))
+        """
+        tree = _write_tree(self.root / "uvtree", {"test_report.py": reporter})
+
+        def run(*extra, cache=None):
+            env = _clean_env()
+            env.pop("UV_CACHE_DIR", None)
+            if cache:
+                env["UV_CACHE_DIR"] = cache
+            env["REPORT_PATH"] = str(self.root / "uv-report.json")
+            proc = subprocess.run([sys.executable, str(DRIVER), str(tree), "--workers", "1", *extra],
+                                  cwd=self.root, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                                  timeout=RUN_TIMEOUT, env=env)
+            self.assertEqual(0, proc.returncode, proc.stderr)
+            return json.loads((self.root / "uv-report.json").read_text())
+
+        first = run("--python-minor", "3.13")
+        second = run("--python-minor", "3.14")
+        self.assertTrue(first["exists"])
+        self.assertNotEqual(first["cache"], second["cache"])
+        self.assertFalse(os.path.exists(first["cache"]))
+        self.assertIsNone(run()["cache"])
+        self.assertEqual("/caller/cache", run("--python-minor", "3.13", cache="/caller/cache")["cache"])
+
+    def test_the_context_restores_the_callers_environment(self):
+        with mock.patch.dict(os.environ, {"OPENROUTER_API_KEY": "k", "CRUX_HOME": "/owner"}, clear=False):
+            with ps.isolated_live_environment():
+                self.assertNotIn("OPENROUTER_API_KEY", os.environ)
+                self.assertNotEqual("/owner", os.environ["CRUX_HOME"])
+            self.assertEqual("k", os.environ["OPENROUTER_API_KEY"])
+            self.assertEqual("/owner", os.environ["CRUX_HOME"])
+
+
 if __name__ == "__main__":
     unittest.main()

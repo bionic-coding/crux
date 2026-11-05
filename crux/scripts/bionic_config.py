@@ -430,6 +430,7 @@ def parse_config_text(text: str, *, source: str, path: str | Path | None = None
     )  # ADR-0062
     validate_workflow_policy(raw)
     validate_council_policy(raw)
+    validate_decisions_policy(raw)
     # Unknown keys: ignored by design (forward compat valve).
     return (
         config_version, docs_dir, prefix, arch_stack, arch_extractors,
@@ -876,3 +877,31 @@ def load_council_policy(repo_root: str | Path) -> dict:
     text=path.read_text(encoding='utf-8')
     parse_config_text(text,source=source,path=path)
     return validate_council_policy(load_yaml(text) or {})
+
+
+def validate_decisions_policy(raw: dict) -> dict:
+    """Validate the optional `decisions` section: only `classifier: off` exists.
+
+    YAML 1.1 loaders read an unquoted `off` as boolean false, so the string `off` and
+    false are both accepted. Any other value, and any other key, is a configuration error."""
+    mapping = raw.get("decisions", {})
+    if mapping is None:
+        mapping = {}
+    if not isinstance(mapping, dict) or set(mapping) - {"classifier"}:
+        raise BionicConfigError("decisions accepts the classifier key only")
+    if "classifier" not in mapping:
+        return {"classifier": "default"}
+    value = mapping["classifier"]
+    if value is False or (isinstance(value, str) and value == "off"):
+        return {"classifier": "off"}
+    raise BionicConfigError("decisions.classifier must be off (unquoted or quoted); omit the key to use the classifier")
+
+
+def load_decisions_policy(repo_root: str | Path) -> dict:
+    """The repository's classifier setting: {"classifier": "off" | "default"}."""
+    path, source = _select_config_file(Path(repo_root))
+    if path is None:
+        return validate_decisions_policy({})
+    text = path.read_text(encoding="utf-8")
+    parse_config_text(text, source=source, path=path)
+    return validate_decisions_policy(load_yaml(text) or {})

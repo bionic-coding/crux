@@ -9,12 +9,14 @@
 // recognise draws as the visible unknown cell `?`. A number is computed from the inputs. Every other
 // value is free text, and it reaches a line only through drawn(): the removal of view.ts's
 // safeText, then a cut to a display width.
-import type { Agents, Council, CycleView, Escalation, Gate, Parsed, Prompt, QueueItemView, QueueView, ReaderView, RunView, Time } from './view.ts'
+import type { Agents, AssignmentView, Council, CycleView, Escalation, Gate, Parsed, Prompt, QueueItemView, QueueView, ReaderView, RunView, Time } from './view.ts'
 import {
   COUNCIL_KINDS, ESCALATION_NOTE, MAX_SHOWN_RUNS, QUIET, ROUTE_ACTIONS, RUN_STATUS, STATES, bandRun, counted, currentEscalation,
   currentPrompt, cycleTimeText, escalationText, laneCells, lastRunAge, openElapsed, promptBounds, promptSpan, runAxis, runTimes, safeText, stallIdle,
 } from './view.ts'
 import { ELLIPSIS, MAX_WIDTH, cells, drawingWidth, fit, head, wrap } from './width.ts'
+import { QUEUE_COLLAPSED_ROWS, queueControl } from './queue.ts'
+import type { QueueAction } from './queue.ts'
 
 // --- theme keys, spans and lines ----------------------------------------------------------
 
@@ -585,7 +587,7 @@ const moreRuns = (k: number): Line => [span(`+${k} more run${k === 1 ? '' : 's'}
 // A line of spans, or a box of blocks. The hooks module draws a line as one Text holding a Text per
 // span, and a box as a Box: round-bordered with one cell of padding when it names a border key.
 export type Block =
-  | { kind: 'line'; line: Line }
+  | { kind: 'line'; line: Line; action?: QueueAction }
   | { kind: 'box'; direction: 'column' | 'row'; width: number; border: ThemeKey | null; gap: number; children: Block[] }
 
 // Below this width the panels drop their borders.
@@ -612,7 +614,7 @@ export type PaneLayout = 'mini' | 'docked'
 
 const PANE_STATUS = 'Dashboard unavailable: '
 
-const lineBlock = (line: Line, n: number): Block => ({ kind: 'line', line: merged(fitLine(line, n)) })
+const lineBlock = (line: Line, n: number): Extract<Block, { kind: 'line' }> => ({ kind: 'line', line: merged(fitLine(line, n)) })
 const columnBox = (width: number, children: Block[], border: ThemeKey | null = null): Block => ({ kind: 'box', direction: 'column', width, border, gap: 0, children })
 
 // A panel: its lines, each fitted to the inner width, inside a border when it is bordered.
@@ -711,8 +713,8 @@ export const TRACK_SEP = '\u{203A}'
 // The word is always drawn beside the colour. The phase words of one cycle type use distinct keys,
 // and each key resolves to its own token in the OpenCode theme: review takes `text` because `subtle`
 // and `inactive` both resolve to text.muted there. The type word shares the `permission` key with
-// the test phase word and is told apart by its place on the meta line.
-const PHASE_KEYS: Readonly<Record<string, ThemeKey>> = { plan: 'merged', build: 'suggestion', test: 'permission', review: 'text', release: 'text', reflect: 'inactive' }
+// the test and verify phase words (one cycle holds only one of them) and is told apart by its place on the meta line.
+const PHASE_KEYS: Readonly<Record<string, ThemeKey>> = { plan: 'merged', build: 'suggestion', test: 'permission', verify: 'permission', review: 'text', release: 'text', reflect: 'inactive' }
 const phaseKey = (phase: string): ThemeKey => own(PHASE_KEYS, phase) ?? 'text'
 // A cycle status: its glyph and theme key. The word is drawn beside both.
 const CYCLE_STATUS: Readonly<Record<string, { glyph: string; color: ThemeKey }>> = {
@@ -770,26 +772,38 @@ const taskCount = (c: CycleView): string => `${c.tasks.filter(t => t.status === 
 // The tasks in the order the panel draws them: by phase order, stable within a phase.
 const orderedTasks = (c: CycleView) => c.tasks.map((t, i) => ({ t, i })).sort((x, y) => c.phases.indexOf(x.t.phase) - c.phases.indexOf(y.t.phase) || x.i - y.i).map(x => x.t)
 
-// The task strip: each phase that has tasks as its word in its key and a glyph per task. When that
-// does not fit n cells it is the current phase's word and the glyphs nearest the active task (else
-// the current phase's first task), with `+N` for the cells left out.
-function cycleStrip(c: CycleView, n: number): Line {
-  const tasks = orderedTasks(c)
-  const groups = c.phases.map(phase => ({ phase, tasks: tasks.filter(t => t.phase === phase) })).filter(g => g.tasks.length > 0)
-  const labelled = joined(groups.map(g => [span(g.phase, { color: phaseKey(g.phase) }), span(' '), ...g.tasks.map(t => taskCell(t.status))]), ' ')
-  if (lineCells(labelled) <= n) return labelled
-  const found = [tasks.findIndex(t => t.status === 'active'), tasks.findIndex(t => t.phase === c.phase), tasks.findIndex(t => t.status !== 'done')].find(i => i >= 0)
-  const word = [span(c.phase, { color: phaseKey(c.phase) }), span(' ')]
-  const cellsOf = (lo: number, hi: number): Line => {
-    const out: Line = []
-    for (let i = lo; i < hi; i++) {
-      if (i > lo && tasks[i]!.phase !== tasks[i - 1]!.phase) out.push(span(GROUP_SEP, { dim: true }))
-      out.push(taskCell(tasks[i]!.status))
-    }
-    return out
+// The most open attempts a panel lists before it counts the rest.
+const ATTEMPTS_MAX = 10
+
+// A cycle's revision, on a version-3 record only.
+export const revisionLine = (c: CycleView): Line[] => (c.revision === null ? [] : [[span(`revision ${c.revision}`, { dim: true })]])
+
+// One open attempt: who it is, its state and what the reader observed. The reader has no host status
+// call, so liveness is drawn as unknown and never as running or stalled. An attempt reserved on a host
+// that returns a handle, and never attached, gets a second line that names it.
+function attemptLines(a: AssignmentView): Line[] {
+  const onHost = a.host === null ? '' : ` on ${drawn(a.host)}`
+  const lines: Line[] = [[
+    span(stateGlyph(a.state === 'running' ? 'running' : 'pending'), { color: a.state === 'running' ? 'claude' : 'warning' }),
+    span(` ${drawn(a.id)} ${drawn(a.role)} attempt ${a.attempt} ${a.state}${onHost} (${a.observation}, liveness ${a.liveness})`),
+  ]]
+  if (a.unresolved) lines.push([span('! ', { color: 'warning', bold: true }), span(`Unresolved dispatch: ${drawn(a.id)} is reserved and no handle is attached`, { color: 'warning' })])
+  return lines
+}
+
+// The lines a cycle's record adds beyond its phases and tasks, each only when its data is present:
+// the open attempts (an open cycle only; a closed cycle's leftover attempts are not live work), the
+// classification count and the owner exception. The OMP card draws these same lines.
+export function recordLines(c: CycleView): Line[] {
+  const lines: Line[] = []
+  if (isOpen(c)) {
+    for (const a of c.assignments.slice(0, ATTEMPTS_MAX)) lines.push(...attemptLines(a))
+    if (c.assignments.length > ATTEMPTS_MAX) lines.push([span(`+${c.assignments.length - ATTEMPTS_MAX} more open attempts`, { dim: true })])
   }
-  const rest = fitCells(tasks.length, found ?? 0, n - lineCells(word), cellsOf)
-  return rest.length > 0 ? [...word, ...rest] : fitCells(tasks.length, found ?? 0, n, cellsOf)
+  // Only the count: each classification's question, answer, route, model, provider and cost stay in the record and in inspect.
+  if (c.classification_count > 0) lines.push([span(`Classifications: ${c.classification_count}`)])
+  if (c.exception !== null && c.exception !== '') lines.push([span(`Owner exception: ${drawn(c.exception)}`, { color: 'warning' })])
+  return lines
 }
 
 // The lines of one cycle's panel at inner width n. The panel fits each line.
@@ -808,12 +822,12 @@ function cycleLines(c: CycleView, n: number, now: Time): Line[] {
     cycleTrack(c, n),
   ]
   if (c.tasks.length > 0) {
-    lines.push(cycleStrip(c, n))
     lines.push(joined([bar(Math.round((100 * done) / c.tasks.length), Math.min(BAR_WIDTH, Math.max(0, n - cells(count) - 1))), [span(count, { dim: true })]], ' '))
   }
-  // The elapsed line follows the header rows (title, meta, track, strip, bar) and precedes the tasks.
+  // The elapsed line follows title, meta, the single phase track and task progress.
   const time = cycleTimeText(c, now)
   if (time !== null) lines.push([span(time, { dim: true })])
+  lines.push(...revisionLine(c))
   for (const t of orderedTasks(c)) {
     const style: Omit<Span, 'text'> = t.status === 'active' ? { bold: true } : t.status === 'blocked' ? { color: 'error' } : {}
     lines.push([taskCell(t.status), span(' '), span(t.phase, { color: phaseKey(t.phase) }), span(': '), span(drawn(t.description), style)])
@@ -823,6 +837,7 @@ function cycleLines(c: CycleView, n: number, now: Time): Line[] {
   const waiting = [...new Set(c.waits)]
   if (waiting.length > 0) lines.push([span(STATE_GLYPHS.skipped!, { color: 'warning' }), span(` Awaiting approval: ${waiting.map(w => drawn(w)).join(', ')}`, { color: 'warning' })])
   if (c.blocker) lines.push([span(STATE_GLYPHS.skipped!, { color: 'warning' }), span(` Paused: ${drawn(c.blocker)}`, { color: 'warning' })])
+  lines.push(...recordLines(c))
   if (c.reflection) lines.push([span(`Outcome: ${drawn(c.reflection)}`)])
   return lines
 }
@@ -834,7 +849,7 @@ export const OLDER_PAGE_SIZE = 10
 // The most open cycles the slot draws.
 export const OPEN_SLOT_MAX = 2
 // The queue card's rows: the upcoming items, the recently finished ones.
-export const QUEUE_UPCOMING_MAX = 5
+export const QUEUE_UPCOMING_MAX = QUEUE_COLLAPSED_ROWS
 export const QUEUE_FINISHED_MAX = 2
 
 // An open cycle is active or paused. The slot draws the first OPEN_SLOT_MAX of them, in the reader's
@@ -907,33 +922,34 @@ function finishedRow(i: QueueItemView): Line {
   ]
 }
 
-// The queue card at inner width n: a header with the count and the authorization, at most
-// QUEUE_UPCOMING_MAX upcoming rows (pending, held and starting, in queue order), at most
-// QUEUE_FINISHED_MAX finished rows (the last started items whose cycle ended) and a `+N more` row for
-// the upcoming items left out: nine rows at most. Hidden finished items are not counted. A queue with nothing upcoming and nothing finished is null.
-function queueLines(q: QueueView & { ok: true }, n: number): Line[] | null {
+// The queue card's text rows. Expansion changes only the upcoming slice; finished rows retain their
+// separate limit. queueBlock adds the owned action after these rows. An empty queue has no card.
+function queueLines(q: QueueView & { ok: true }, n: number, expanded: boolean): Line[] | null {
   const upcoming = q.items.filter(i => UPCOMING_STATES.includes(i.state))
   const finished = q.items.filter(i => i.state === 'started' && (i.cycle_status === 'completed' || i.cycle_status === 'abandoned'))
   if (upcoming.length === 0 && finished.length === 0) return null
   const a = q.authorization
   const auth = a === null ? 'not authorized' : `authorized: ${a.kind}, remaining ${a.remaining.length === 0 ? 'none' : a.remaining.join(' ')}`
-  const shown = upcoming.slice(0, QUEUE_UPCOMING_MAX)
+  const shown = expanded ? upcoming : upcoming.slice(0, QUEUE_UPCOMING_MAX)
   const shownFinished = finished.slice(-QUEUE_FINISHED_MAX)
-  const left = upcoming.length - shown.length
   const out: Line[] = [joined([[span('Queue', { bold: true })], [span(`${upcoming.length} queued`)], [span(auth, a === null ? { dim: true } : { color: 'success' })]])]
   for (const i of shown) out.push(queueRow(i, n))
   for (const i of shownFinished) out.push(finishedRow(i))
-  if (left > 0) out.push([span(`+${left} more`, { dim: true })])
   return out
 }
 
 // The queue card as a block: bordered when the width allows, one warning line when the queue could not
 // be read, and nothing when there is no queue or nothing to show.
-function queueBlock(q: QueueView | null | undefined, w: number, bordered: boolean): Block | null {
+export function queueBlock(q: QueueView | null | undefined, w: number, bordered: boolean, expanded = false): Block | null {
   if (q === null || q === undefined) return null
   if (!q.ok) return lineBlock([span('Queue unavailable', { color: 'warning' })], w)
-  const lines = queueLines(q, bordered ? w - PANEL_FRAME : w)
-  return lines === null ? null : panel(lines, w, bordered)
+  const inner = bordered ? w - PANEL_FRAME : w
+  const lines = queueLines(q, inner, expanded)
+  if (lines === null) return null
+  const children = lines.map(l => lineBlock(l, inner))
+  const control = queueControl(q, expanded)
+  if (control !== null) children.push({ ...lineBlock([span(control.label, { color: 'suggestion' })], inner), action: control.action })
+  return columnBox(w, children, bordered ? PANEL_BORDER : null)
 }
 
 // The pane at its reported width and layout. The mini layout draws a few rows; the docked layout
@@ -944,7 +960,7 @@ function queueBlock(q: QueueView | null | undefined, w: number, bordered: boolea
 // closed cycles as compact rows with a `page X/Y` footer when there is more than one page. With one
 // closed cycle only its panel draws. `page` is the list's page index, 0 first; it is clamped to the
 // pages there are. A host that cannot turn pages draws the first page and `+N more`.
-export function pane(p: Parsed, ag: Agents, cols: unknown, layout: PaneLayout, harness: Harness, page = 0): Block {
+export function pane(p: Parsed, ag: Agents, cols: unknown, layout: PaneLayout, harness: Harness, page = 0, queueExpanded = false): Block {
   const w = drawingWidth(cols)
   if (!p.ok) return columnBox(w, [lineBlock(statusLine(PANE_STATUS, p.code, w), w)])
   if (p.view.cycles !== undefined) {
@@ -955,7 +971,7 @@ export function pane(p: Parsed, ag: Agents, cols: unknown, layout: PaneLayout, h
     for (const c of slot) rows.push(panel(cycleLines(c, bordered ? w - PANEL_FRAME : w, p.view.now_s), w, bordered))
     const openLeft = all.filter(isOpen).length - slot.length
     if (openLeft > 0) rows.push(lineBlock([span(`+${openLeft} open`, { dim: true })], w))
-    const queue = queueBlock(p.view.queue, w, bordered)
+    const queue = queueBlock(p.view.queue, w, bordered, queueExpanded)
     if (queue !== null) rows.push(queue)
     const [latest, ...rest] = closedOf(all)
     if (latest === undefined) return columnBox(w, rows)

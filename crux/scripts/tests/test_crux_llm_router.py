@@ -681,6 +681,7 @@ KEPT_ROLES = {
     'council_default': ['gpt-6.1-sol', 'gemini-4-argon', 'claude-opus-5.5-xhigh'],
     'council_arbiter': 'claude-opus-5.5-xhigh',
     'release_docs': 'claude-sonnet-5.5',
+    'cycle_classifier': 'gpt-6-luna-decisions',
 }
 
 # The two registry keys retired with the unread roles. Neither is aliased; a
@@ -815,7 +816,7 @@ class RouterRoleReaderTests(unittest.TestCase):
     """Every `model_roles` key has a reader in `crux/` outside the tests.
 
     A role nothing reads is dead configuration. The scan parses every `.py`
-    file under `crux/` except `crux/scripts/tests/` and recognises three
+    file under `crux/` except `crux/scripts/tests/` and recognises four
     reader forms:
 
     1. a call to `get_default_model` or `get_default_models`, by bare name or
@@ -825,6 +826,9 @@ class RouterRoleReaderTests(unittest.TestCase):
     3. a call to one of those two functions whose first argument is a
        module-level name bound to a string literal in the same file
        (`MODEL_ROLE = "google_fast"` in `transcribe-video.py`).
+    4. a current registry role lookup whose config comes from the imported
+       router loader and whose result reaches its model-config reader. Scoped
+       aliases, literals/constants, get/subscript and optional-dict guards count.
 
     Registry entries (`models`) are not roles and are addressed by key.
     `_comment` is a note, not a role. `release_docs` is exempt by name: only
@@ -847,6 +851,90 @@ class RouterRoleReaderTests(unittest.TestCase):
     NOT_A_ROLE_KEYS = ('_comment',)
 
     # ---- the scan and the check, callable on injected inputs ----
+
+    @classmethod
+    def scan_raw_role_readers(cls, tree, name, note):
+        """Trace the known raw-registry shape without treating arbitrary get calls as readers."""
+        import ast
+        module = 'crux.core.llm_caller'
+        functions = {'load_router_config', 'get_model_config'}
+
+        def value(node, env):
+            if isinstance(node, ast.Name):
+                return env.get(node.id)
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                return ('string', node.value)
+            if isinstance(node, ast.Attribute):
+                owner = value(node.value, env)
+                if owner and owner[0] == 'module':
+                    path = owner[1] + '.' + node.attr
+                    if owner[1] == module and node.attr in functions:
+                        return ('function', node.attr)
+                    if module.startswith(path + '.') or path == module:
+                        return ('module', path)
+            if isinstance(node, ast.IfExp) and isinstance(node.orelse, ast.Constant) and node.orelse.value is None:
+                return value(node.body, env)
+            if isinstance(node, ast.Call):
+                if value(node.func, env) == ('function', 'load_router_config') and not node.args and not node.keywords:
+                    return ('config',)
+                if isinstance(node.func, ast.Attribute) and node.func.attr == 'get' and node.args:
+                    return lookup(value(node.func.value, env), value(node.args[0], env))
+            if isinstance(node, ast.Subscript):
+                return lookup(value(node.value, env), value(node.slice, env))
+            return None
+
+        def lookup(owner, key):
+            if owner == ('config',) and key == ('string', 'model_roles'):
+                return ('roles',)
+            if owner == ('roles',) and key and key[0] == 'string':
+                return ('role', key[1])
+            return None
+
+        def nodes_in_scope(body):
+            found = []
+            def visit(node):
+                found.append(node)
+                if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+                    for child in ast.iter_child_nodes(node):
+                        visit(child)
+            for statement in body:
+                visit(statement)
+            return sorted(found, key=lambda node: (getattr(node, 'end_lineno', 0), getattr(node, 'end_col_offset', 0)))
+
+        def scan(body, env):
+            for node in nodes_in_scope(body):
+                if isinstance(node, ast.ImportFrom):
+                    for alias in node.names:
+                        binding = alias.asname or alias.name
+                        env[binding] = (('module', module) if node.module == 'crux.core' and alias.name == 'llm_caller' else
+                                        ('function', alias.name) if node.module == module and alias.name in functions else None)
+                elif isinstance(node, ast.Import):
+                    for alias in node.names:
+                        env[alias.asname or alias.name.split('.')[0]] = ('module', module if alias.asname else 'crux') if alias.name == module else None
+                elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    env[node.name] = None
+                elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+                    assigned = value(node.value, env) if node.value is not None else None
+                    for target in node.targets if isinstance(node, ast.Assign) else [node.target]:
+                        if isinstance(target, ast.Name):
+                            env[target.id] = assigned
+                elif isinstance(node, ast.Call) and node.args and value(node.func, env) == ('function', 'get_model_config'):
+                    role = value(node.args[0], env)
+                    if role and role[0] == 'role':
+                        note(role[1], f'{name}:{node.lineno}: model_roles lookup -> get_model_config')
+            return env
+
+        globals_ = scan(tree.body, {})
+        for function in ast.walk(tree):
+            if isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                env = dict(globals_)
+                for node in nodes_in_scope(function.body):
+                    if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+                        env[node.id] = None
+                arguments = [*function.args.posonlyargs, *function.args.args, *function.args.kwonlyargs]
+                arguments += [arg for arg in (function.args.vararg, function.args.kwarg) if arg]
+                env.update({arg.arg: None for arg in arguments})
+                scan(function.body, env)
 
     @classmethod
     def read_sources(cls):
@@ -898,6 +986,7 @@ class RouterRoleReaderTests(unittest.TestCase):
                     note(first.value, f'{name}:{node.lineno}: {called} literal')
                 elif isinstance(first, ast.Name) and first.id in constants:
                     note(constants[first.id], f'{name}:{node.lineno}: {called} via {first.id}')
+            cls.scan_raw_role_readers(tree, name, note)
         return readers
 
     @classmethod
@@ -979,6 +1068,49 @@ class RouterRoleReaderTests(unittest.TestCase):
         }
         self.assertEqual(
             sorted(self.scan_readers(sources)), ['r_attr', 'r_call', 'r_const', 'r_weight'])
+
+    def test_control_current_raw_registry_role_reaches_the_model_loader(self):
+        sources = {'current.py': '''from crux.core import llm_caller as router
+ROLE = "raw_role"
+def resolve():
+    config = router.load_router_config()
+    roles = config.get("model_roles") if isinstance(config, dict) else None
+    value = roles.get(ROLE) if isinstance(roles, dict) else None
+    key = value
+    return router.get_model_config(key)
+''', 'direct.py': '''from crux.core.llm_caller import load_router_config as load, get_model_config as model
+config = load()
+return_value = model(config["model_roles"]["direct_raw_role"])
+'''}
+        readers = self.scan_readers(sources)
+        self.assertEqual(sorted(readers), ['direct_raw_role', 'raw_role'])
+        self.assertTrue(all('model_roles' in where for places in readers.values() for where in places))
+
+    def test_control_raw_role_lookups_require_provenance_and_a_model_consumer(self):
+        prefix = 'from crux.core import llm_caller as router\n'
+        cases = {
+            'ordinary_dictionary': 'config = {}\nroles = config.get("model_roles")\nkey = roles.get("false_role")\nrouter.get_model_config(key)',
+            'unknown_loader': 'config = other.load_router_config()\nroles = config.get("model_roles")\nkey = roles.get("false_role")\nrouter.get_model_config(key)',
+            'unused_lookup': 'config = router.load_router_config()\nroles = config.get("model_roles")\nkey = roles.get("false_role")',
+            'wrong_consumer': 'config = router.load_router_config()\nroles = config.get("model_roles")\nkey = roles.get("false_role")\nother.get_model_config(key)',
+            'overwritten_roles': 'config = router.load_router_config()\nroles = config.get("model_roles")\nroles = {}\nkey = roles.get("false_role")\nrouter.get_model_config(key)',
+            'overwritten_key': 'config = router.load_router_config()\nkey = config["model_roles"].get("false_role")\nkey = "model-entry"\nrouter.get_model_config(key)',
+            'different_scopes': 'def first():\n    config = router.load_router_config()\n    roles = config.get("model_roles")\ndef second():\n    key = roles.get("false_role")\n    return router.get_model_config(key)',
+            'shadowed_router': 'def resolve(router):\n    config = router.load_router_config()\n    roles = config.get("model_roles")\n    return router.get_model_config(roles.get("false_role"))',
+        }
+        for label, body in cases.items():
+            with self.subTest(label=label):
+                self.assertEqual(self.scan_readers({label + '.py': prefix + body}), {})
+        self.assertEqual(self.scan_readers({'wrong_import.py': prefix.replace('crux.core', 'other') + cases['unused_lookup'] + '\nrouter.get_model_config(key)'}), {})
+
+    def test_control_removed_current_raw_role_consumer_is_red(self):
+        sources = self.read_sources()
+        needle = 'cfg = llm_caller.get_model_config(key)'
+        name = 'scripts/crux/decisions/transport.py'
+        self.assertIn(needle, sources[name], 'fixture premise: classifier consumes the current raw role key')
+        sources[name] = sources[name].replace(needle, 'cfg = None')
+        readers = self.scan_readers(sources)
+        self.assertEqual(self.unread_roles(self.load_config(), readers, self.EXEMPT_ROLES), ['cycle_classifier'])
 
 
 @unittest.skipUnless(HAVE_HTTPX, "httpx not installed — run under uv")

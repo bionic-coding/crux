@@ -1,0 +1,23 @@
+{
+  "host": "codex",
+  "version": null,
+  "version_status": "unknown-not-exposed",
+  "observation": "CYC-0100 session exposed collaboration tools; no installation or native-role injection claimed",
+  "tools": {
+    "collaboration.spawn_agent": {
+      "required": ["task_name", "message"],
+      "properties": ["agent_type", "fork_turns", "message", "model", "reasoning_effort", "task_name"]
+    },
+    "collaboration.wait_agent": {
+      "required": [],
+      "properties": ["timeout_ms"],
+      "timeout_ms_minimum": 10000,
+      "timeout_ms_maximum": 3600000,
+      "global_notification": true
+    },
+    "collaboration.followup_task": {
+      "required": ["target", "message"],
+      "properties": ["target", "message"]
+    }
+  }
+}

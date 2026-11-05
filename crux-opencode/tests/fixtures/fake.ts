@@ -5,6 +5,7 @@
 // returns a process the test drives event by event, in any order.
 import type { Host, KeptEnvelope, ReaderHandle, ReaderSink } from '../../lib/host.ts'
 import type { PlainNode } from '../../lib/render.ts'
+import type { QueueExpansion } from '../../../crux-mods/hooks/lib/queue.ts'
 import { cells } from '../../../crux-mods/hooks/lib/width.ts'
 
 // --- the manual clock, shared by every fake setup of one test -------------------
@@ -78,9 +79,9 @@ export function makeClock(): Clock {
 
 // --- the memory value, shared by every fake setup of one test --------------------
 
-export type Memory = { running: boolean; current: KeptEnvelope | null; writes: (KeptEnvelope | null)[] }
+export type Memory = { running: boolean; current: KeptEnvelope | null; currentRoot?: string; writes: (KeptEnvelope | null)[]; queue: QueueExpansion | null }
 
-export const makeMemory = (): Memory => ({ running: false, current: null, writes: [] })
+export const makeMemory = (): Memory => ({ running: false, current: null, writes: [], queue: null })
 
 // --- faults on the lease functions ------------------------------------------------
 
@@ -286,11 +287,12 @@ export function makeFake(world: World = okWorld(), shared: Shared = {}): Fake {
       mem.running = b === true
       return true
     },
-    writeKept: v => {
+    writeKept: (v, root) => {
       log.push('writeKept')
       if (keptThrows.value) throw new Error('writeKept')
       mem.writes.push(v)
       mem.current = v
+      mem.currentRoot = root
     },
     openPanel: () => {
       opens.count += 1
@@ -315,6 +317,12 @@ export function makeFake(world: World = okWorld(), shared: Shared = {}): Fake {
       if (pager.writeFails) return false
       pager.writes.push(n)
       pager.page = n
+      return true
+    },
+    queueRead: () => mem.queue,
+    queueWrite: value => {
+      if (pager.writeFails) return false
+      mem.queue = value
       return true
     },
     toast: code => {

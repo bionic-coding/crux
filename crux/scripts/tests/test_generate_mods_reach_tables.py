@@ -914,6 +914,8 @@ LIVE_PARTS = [
     (_PANE, "the queue card: the count of queued items, whether the queue is authorized, and each upcoming or recently finished item"),
     (_PANE, "the `cycles:` list: the closed cycles after the latest as one-line rows, ten to a page, with the page number and the `n` and `p` keys that turn the page"),
     (_PANE, "a cycle's elapsed time, and its paused time when there is any"),
+    (_PANE, "an open cycle's open attempts: each one's id, role, attempt number, state and observation, its liveness shown as unknown, and a mark on a reservation whose dispatch is unresolved"),
+    (_PANE, "a cycle's classification count, its owner exception and its record revision"),
     (_BAND, "the book and run of the run whose run file changed last"),
     (_BAND, "the prompt strip: one glyph per prompt, with `|` between modules"),
     (_BAND, "the current prompt's module kind word"),
@@ -1106,7 +1108,7 @@ class FromCrossCheckTests(unittest.TestCase):
                 with self.subTest(part=row["part"], source=source):
                     self.assertTrue(cross_check(source, row["event"], **self.ctx), source)
             checked += 1
-        self.assertEqual(45, checked, "every historical-run and cycle surface row is checked")
+        self.assertEqual(47, checked, "every historical-run and cycle surface row is checked")
 
     def test_seeded_sources_fail_the_cross_check(self):
         for source, event in (
@@ -1147,9 +1149,9 @@ class ParserParityTests(unittest.TestCase):
         self.assertEqual(14, len(parsed["calls"]))
         self.assertEqual(2, len(parsed["env_reads"]))
         self.assertEqual([], parsed["env_writes"])
-        self.assertEqual(["crux-mods.current", "crux-mods.page"], parsed["state_declared"])
-        self.assertEqual(["crux-mods.current", "crux-mods.page"], parsed["state_reads"])
-        self.assertEqual(["crux-mods.current", "crux-mods.page"], parsed["state_writes"])
+        self.assertEqual(["crux-mods.current", "crux-mods.page", "crux-mods.queue"], parsed["state_declared"])
+        self.assertEqual(["crux-mods.current", "crux-mods.page", "crux-mods.queue"], parsed["state_reads"])
+        self.assertEqual(["crux-mods.current", "crux-mods.page", "crux-mods.queue"], parsed["state_writes"])
 
 
 class PublicFingerprintTests(unittest.TestCase):

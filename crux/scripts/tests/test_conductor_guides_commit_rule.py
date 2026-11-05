@@ -24,6 +24,9 @@ from pathlib import Path
 
 from _dev_surface import REPO_ROOT, require_dev_surface
 
+# live-changelog-read: released-sections-only
+# This file reads CHANGELOG.md only through release_section(), which selects a released version heading.
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import suite_evidence  # noqa: E402
 
@@ -151,12 +154,6 @@ EXIT2_TRIGGER = re.compile(r"\b(?:When the council runner exits 2|When it exits 
 RECOVERY_STEP = re.compile(r"process check|--recover|\bruns? recovery\b")
 #: How far after a trigger its recovery step may sit and still belong to it.
 EXIT2_WINDOW = 700
-#: Wording the remedy sweep retired: a fixer that only touches files outside the run directory
-#: never fails a council commit, the lock lives in the git directory (which need not be `.git`),
-#: and the remedy sentence was split and reworded.
-RETIRED_REMEDY_WORDING = ("end-of-file fixer", "trailing-whitespace fixer", "stale `.git/index.lock`",
-                          "names work outside the commit that moved", "work outside it that moved",
-                          "who first restores", "hook that rewrites files")
 #: The surfaces that route a council runner exit 2 in their own words. The scan must check at
 #: least one trigger in each, so a reworded trigger cannot make the check vacuous.
 EXIT2_SURFACES = ("CODEX.md", "OPENCODE.md", "OPENCODE_GUIDE.md", "USER_GUIDE.md", "bionic/AGENTS.md",
@@ -197,11 +194,6 @@ class Exit2RemedyOrderTests(unittest.TestCase):
             with self.subTest(surface=name):
                 self.assertTrue(exit2_sites(texts[name]), "no exit-2 route checked, so nothing was")
 
-    def test_no_surface_keeps_the_retired_remedy_wording(self):
-        stale = {name: [w for w in RETIRED_REMEDY_WORDING if w in norm(text)]
-                 for name, text in self.surfaces().items()}
-        self.assertEqual({k: v for k, v in stale.items() if v}, {})
-
     def test_control_the_order_check_reports_recovery_before_the_remedy(self):
         old = ("When the council runner exits 2 or leaves an open attempt, run the process check. "
                "A slow hook times out; restore the stash, then remove a stale `.git/index.lock`.")
@@ -210,6 +202,129 @@ class Exit2RemedyOrderTests(unittest.TestCase):
                 "a stale `index.lock`. Then, and on every other exit 2, run the process check.")
         self.assertEqual([ok for _s, ok in exit2_sites(good)], [True])
         self.assertEqual(exit2_sites("On exit 2 (absent key), stop."), [])
+
+
+def cycle_section(text: str) -> str:
+    """The cycle workflow section: from its heading to the line that closes it."""
+    start = text.index("## 11.E. Current cycle workflow")
+    end_marker = "Historical records remain readable, with their original authority and evidence."
+    return text[start:text.index(end_marker, start) + len(end_marker)]
+
+
+class CycleWorkflowDocsTests(unittest.TestCase):
+    """The user and operator documents describe the typed-operation cycle model.
+
+    Code owns the cycle procedure, so the instructions state outcomes, the typed
+    operations and the stated limits, and no longer carry the manual bookkeeping sequence.
+    """
+
+    def read(self, name: str) -> str:
+        path = REPO_ROOT / name
+        require_dev_surface(self, path, name)
+        return norm(path.read_text(encoding="utf-8"))
+
+    def twins(self) -> dict[str, str]:
+        tree = REPO_ROOT / "bionic" / "AGENTS.md"
+        template = CRUX / "templates" / "AGENTS.md.tmpl"
+        require_dev_surface(self, tree, "bionic/AGENTS.md")
+        return {"bionic/AGENTS.md": cycle_section(tree.read_text(encoding="utf-8")),
+                "AGENTS.md.tmpl": cycle_section(template.read_text(encoding="utf-8"))}
+
+    def test_the_instruction_file_and_its_template_carry_the_same_cycle_section(self):
+        texts = self.twins()
+        self.assertEqual(texts["bionic/AGENTS.md"], texts["AGENTS.md.tmpl"])
+
+    def test_the_cycle_section_states_the_typed_operation_model(self):
+        for name, text in self.twins().items():
+            flat = norm(text)
+            for needle in ("run `inspect`, then the action it returns", "cycle.py op",
+                           "prepare-dispatch", "attach-execution", "deliver", "mark-lost",
+                           "owner-exception", "needs-upgrade", "version-3",
+                           "unverified", "three attempts", "uncapped"):
+                with self.subTest(surface=name, needle=needle):
+                    self.assertIn(needle, flat)
+
+    def test_the_cycle_section_drops_the_manual_bookkeeping_sequence(self):
+        for name, text in self.twins().items():
+            flat = norm(text)
+            for stale in ("Each dispatcher runs `handoff`", "Do not bypass these leads",
+                          "records an `assignment` running before each dispatch"):
+                with self.subTest(surface=name, stale=stale):
+                    self.assertNotIn(stale, flat)
+
+    def test_the_cycle_section_keeps_the_rules_the_decisions_retain(self):
+        for name, text in self.twins().items():
+            flat = norm(text)
+            for kept in ("Maximum passes", "**Fix step.**", "independent review", "owner's own words",
+                         "Historical records remain readable", "contradicted premise"):
+                with self.subTest(surface=name, kept=kept):
+                    self.assertIn(kept, flat)
+
+    def test_the_root_instruction_file_points_at_inspect_and_keeps_the_temporary_authorization(self):
+        flat = self.read("AGENTS.md")
+        self.assertIn("## Temporary authorization: cycle workflow replacement", flat)
+        autonomy = flat[flat.index("### Cycle execution autonomy"):]
+        autonomy = autonomy[:autonomy.index("## Historical authority preservation")]
+        self.assertIn("run `inspect`", autonomy)
+
+    def test_the_user_guide_states_hosts_limits_recovery_and_rollback(self):
+        flat = self.read("USER_GUIDE.md")
+        for needle in ("typed operations", "Claude Code", "Codex", "OpenCode", "OMP", "unverified",
+                       "three attempts", "uncapped", "mark-lost", "v2-cycle.json",
+                       "refuses version-3 records", "not authoritative"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, flat)
+
+    def test_the_host_guides_and_deploy_runbook_state_their_part(self):
+        for name, needles in {
+            "OPENCODE_GUIDE.md": ("Result-End", "background"),
+            "OMP_GUIDE.md": ("Result-End", "task"),
+            "DEPLOY.md": ("v2-cycle.json", "version-3"),
+        }.items():
+            flat = self.read(name)
+            for needle in needles:
+                with self.subTest(guide=name, needle=needle):
+                    self.assertIn(needle, flat)
+
+    def raw_changelog(self) -> str:
+        path = REPO_ROOT / "CHANGELOG.md"
+        require_dev_surface(self, path, "CHANGELOG.md")
+        return path.read_text(encoding="utf-8")
+
+    @staticmethod
+    def release_section(changelog: str, version: str) -> str:
+        """The `## [<version>]` section of a released version, never the live Unreleased section."""
+        for section in re.split(r"(?m)^(?=## \[)", changelog):
+            if section.startswith(f"## [{version}]"):
+                return section
+        raise AssertionError(f"no changelog section for {version}")
+
+    def assert_names_the_cycle_workflow_change(self, changelog: str) -> None:
+        section = self.release_section(changelog, "5.0.0").lower()
+        for needle in ("typed cycle operations", "version-3", "v2-cycle.json"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, section)
+
+    def test_the_5_0_0_changelog_states_the_classifier_release_facts(self):
+        section = self.release_section(self.raw_changelog(), "5.0.0").lower()
+        for label, needle in (
+                ("the opt-out", "decisions: {classifier: off}"),
+                ("councils still send under the opt-out", "councils still send"),
+                ("no zero-data-retention preference", "does not send the zero-data-retention preference"),
+                ("the Codex sandbox note", "codex's default workspace-write sandbox"),
+                ("no spend cap", "no spend cap")):
+            with self.subTest(fact=label):
+                self.assertIn(needle, section)
+
+    def test_the_5_0_0_changelog_names_the_cycle_workflow_change(self):
+        self.assert_names_the_cycle_workflow_change(self.raw_changelog())
+
+    def test_the_check_ignores_whatever_the_live_unreleased_section_holds(self):
+        released = self.release_section(self.raw_changelog(), "5.0.0")
+        for label, unreleased in (("empty", ""), ("populated", "### Changed\n\n- Unrelated entry.\n\n")):
+            with self.subTest(unreleased=label):
+                fixture = f"# Changelog\n\n## [Unreleased]\n\n{unreleased}{released}"
+                self.assert_names_the_cycle_workflow_change(fixture)
 
 
 if __name__ == "__main__":

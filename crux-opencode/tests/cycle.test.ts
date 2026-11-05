@@ -26,9 +26,9 @@ const tasksOf = (phases: string[]) => phases.map(p => ({ id: `t-${p}`, phase: p,
 const docOf = (type: string, over: Record<string, unknown> = {}) => {
   const phases = SEQUENCES[type]!
   return {
-    format: 'crux.cycle-progress', format_version: 2, ok: true, docs_dir: 'bionic', now_s: 1780000000,
+    format: 'crux.cycle-progress', format_version: 5, ok: true, docs_dir: 'bionic', now_s: 1780000000,
     cycles: [{
-      id: 'CYC-0001', title: 'Update the dashboard', type, status: 'active', phase: phases[0], pass: 1, pass_limit: 2,
+      id: 'CYC-0001', schema_version: 2, revision: null, assignments: [], classification_count: 0, exception: null, title: 'Update the dashboard', type, status: 'active', phase: phases[0], pass: 1, pass_limit: 2,
       phases, tasks: tasksOf(phases), returns: [], waits: [], blocker: null, reflection: null, modified_s: 1780000000,
       started_s: 1779999000, ended_s: null, paused_s: 0, open_started_s: 1779999000, basis: 'recorded',
       phase_times: [{ phase: phases[0], active_s: 1000, paused_s: 0 }], ...over,
@@ -65,7 +65,7 @@ function drawnTokens(type: string): Record<string, string> {
   return out
 }
 
-test('the panel draws the cycle title, status, loop, track and phase-labelled strip', () => {
+test('the panel draws the title, status, loop, one phase track and detailed tasks', () => {
   const doc = docOf('iterate', {
     phase: 'build',
     tasks: [
@@ -97,13 +97,7 @@ test('the panel draws the cycle title, status, loop, track and phase-labelled st
   expect(spanOf(track, 'test')).toEqual({ text: 'test', token: 'text.muted', bold: false })
   expect(track.find(s => s.text.includes('›'))!.token).toBe('text.base')
 
-  const strip = find(rows, 'plan ✓ build ▸')!
-  expect(plain(strip)).toBe('plan ✓ build ▸ test ✗ review ◌')
-  expect(spanOf(strip, '✓')!.token).toBe('text.feedback.success.base')
-  expect(spanOf(strip, '▸')).toEqual({ text: '▸', token: 'syntax.function', bold: true })
-  expect(spanOf(strip, '✗')!.token).toBe('text.feedback.error.base')
-  expect(spanOf(strip, '◌')!.token).toBe('text.muted')
-  expect(spanOf(strip, 'plan')!.token).toBe('syntax.keyword')
+  expect(find(rows, 'plan ✓ build ▸')).toBe(undefined)
 
   const active = find(rows, ': Write code')!
   expect(spanOf(active, 'Write code')!.bold).toBe(true)

@@ -257,7 +257,7 @@ class ReconcileTests(Base):
         self.assertFalse({'test', 'review', 'reflect'} & {p['task'] for p in rep['proposed']})
         un = {u['task']: u['reason'] for u in rep['unresolved']}
         for t in shas:
-            self.assertIn('does not establish', un[t]); self.assertIn(t, un[t])
+            self.assertIn('does not establish', un[t]); self.assertIn('verify' if t == 'test' else t, un[t])
         rep = self.report('--apply')
         self.assertEqual(rep['applied'], [])
         self.assertEqual(self.path().read_bytes(), before)
@@ -309,15 +309,15 @@ class ReconcileTests(Base):
         rep = self.report()
         self.assertNotIn('result-path-missing', [d['kind'] for d in rep['discrepancies']])
 
-    def test_docs_relative_result_path_of_a_done_task_is_refused(self):
+    def test_docs_relative_result_path_is_stored_repository_relative(self):
         # The live trial recorded the docs-relative form; reconcile then reported the
-        # delivered task's existing result file missing. The writer refuses it instead.
+        # delivered task's existing result file missing. The command line now resolves the
+        # docs-relative form to the repository-relative path the writer stores.
         (self.repo / 'bionic/cycles' / self.cid / 'r.md').write_text('result')
         self.run_cli('task', self.cid, '--task-id', 'B3', '--state', 'active', '--result-path', f'cycles/{self.cid}/r.md')
-        out = json.loads(self.run_cli('--compact', 'task', self.cid, '--task-id', 'B3', '--state', 'done', expect=1))
-        self.assertFalse(out['ok']); self.assertIn('repository root', out['error'])
-        self.assertEqual(self.task('B3')['status'], 'active')
-        self.run_cli('task', self.cid, '--task-id', 'B3', '--state', 'done', '--result-path', f'bionic/cycles/{self.cid}/r.md')
+        self.assertEqual(self.task('B3')['result_path'], f'bionic/cycles/{self.cid}/r.md')
+        self.run_cli('task', self.cid, '--task-id', 'B3', '--state', 'done')
+        self.assertEqual(self.task('B3')['status'], 'done')
         self.assertNotIn('result-path-missing', [d['kind'] for d in self.report()['discrepancies']])
 
     def test_task_help_names_the_result_path_base(self):

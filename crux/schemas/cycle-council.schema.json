@@ -231,7 +231,9 @@
       },
       "review_bundle_sha256": {
         "type": "string"
-      }
+      },
+      "call_evidence": {"type": "object"},
+      "checkpoint_failure": {"type": "object"}
     }
   }
 }

@@ -39,12 +39,14 @@ class WriterTests(unittest.TestCase):
     def invoke(self, *args, at="2026-09-27T11:42:35-06:00", mode="journal", body=None):
         if body is not None:
             self.body.write_text(body)
-        command = ["uv", "run", "--no-config", str(SCRIPT), "--repo-root", str(self.root),
+        command = [sys.executable, str(SCRIPT), "--repo-root", str(self.root),
                    "--mode", mode, "--at", at, "--category", "learning",
                    "--subject", "Diagnosed a stale input", "--body-file", str(self.body),
                    *args]
         completed = subprocess.run(command, capture_output=True, text=True,
                                    env={**os.environ, "UV_NO_CONFIG": "1"})
+        if not completed.stdout.strip():
+            self.fail(f"write-journal printed no report (exit {completed.returncode}): {completed.stderr}")
         return completed, json.loads(completed.stdout)
 
     def test_report_claims_no_git_commit_for_files_left_modified(self):
@@ -67,7 +69,7 @@ class WriterTests(unittest.TestCase):
     def index_drift_exit(self):
         """Exit code of the journal-index drift gate over this tree (0 clean, 1 drift)."""
         gate = SCRIPT_DIR / "generate-journal-index.py"
-        done = subprocess.run(["uv", "run", "--no-config", str(gate), "--dry-run", "--repo-root", str(self.root)],
+        done = subprocess.run([sys.executable, str(gate), "--dry-run", "--repo-root", str(self.root)],
                               capture_output=True, text=True, env={**os.environ, "UV_NO_CONFIG": "1"})
         return done.returncode, done.stdout + done.stderr
 
@@ -139,7 +141,7 @@ raise SystemExit(writer.main(sys.argv[6:]))
                 "--subject", "Diagnosed a stale input", "--body-file", str(self.body)]
         if mode == "log-only":
             args += ["--log-op", "promptbook"]
-        result = subprocess.run(["uv", "run", "python3", "-c", driver, *args],
+        result = subprocess.run([sys.executable, "-c", driver, *args],
                                 capture_output=True, text=True)
         return result, json.loads(result.stdout), outside, parked
 
@@ -438,7 +440,7 @@ writer.main(sys.argv[2:])
         args = [str(SCRIPT), "--repo-root", str(self.root), "--mode", "journal",
                 "--at", "2026-09-27T11:42:35-06:00", "--category", "learning",
                 "--subject", "Diagnosed a stale input", "--body-file", str(self.body)]
-        died = subprocess.run(["uv", "run", "python3", "-c", driver, *args], capture_output=True,
+        died = subprocess.run([sys.executable, "-c", driver, *args], capture_output=True,
                               text=True)
         self.assertEqual(died.returncode, 71)
         self.assertTrue(self.month.read_text().startswith("# Journal — 2026-09\n"))
@@ -463,7 +465,7 @@ writer.main(sys.argv[2:])
         args = [str(SCRIPT), "--repo-root", str(self.root), "--mode", "journal",
                 "--at", "2026-09-27T11:42:35-06:00", "--category", "learning",
                 "--subject", "Diagnosed a stale input", "--body-file", str(self.body)]
-        died = subprocess.run(["uv", "run", "python3", "-c", driver, *args], capture_output=True,
+        died = subprocess.run([sys.executable, "-c", driver, *args], capture_output=True,
                               text=True)
         self.assertEqual(died.returncode, 72)
         self.assertEqual(self.month.read_text(), prior)
@@ -472,7 +474,7 @@ writer.main(sys.argv[2:])
         self.assertEqual(len(journal_entries(self.month.read_text(), "2026-09")), 2)
 
     def test_body_stdin_and_body_file_symlink_refusal(self):
-        command = ["uv", "run", "--no-config", str(SCRIPT), "--repo-root", str(self.root),
+        command = [sys.executable, str(SCRIPT), "--repo-root", str(self.root),
                    "--mode", "log-only", "--at", "2026-09-27T11:42:35-06:00",
                    "--category", "learning", "--subject", "Diagnosed a stale input",
                    "--body-stdin", "--log-op", "promptbook"]
@@ -483,7 +485,7 @@ writer.main(sys.argv[2:])
         link = self.root / "body-link.txt"
         link.symlink_to(self.body)
         before = self.snapshot()
-        bad = subprocess.run(["uv", "run", "--no-config", str(SCRIPT), "--repo-root", str(self.root),
+        bad = subprocess.run([sys.executable, str(SCRIPT), "--repo-root", str(self.root),
                               "--mode", "journal", "--at", "2026-09-27T11:43:00-06:00",
                               "--category", "learning", "--subject", "Later observation",
                               "--body-file", str(link)], capture_output=True, text=True)

@@ -40,10 +40,22 @@ highest first, at most 60, followed by the queue. Name a cycle to see older ones
 
 Each cycle shows its type, pass and limit, current phase and status, elapsed time,
 tasks, return reasons, approval waits, any pause reason and the recorded outcome.
+The text view labels its sections Tasks, Attempts and Councils, and nests each open
+attempt under its task. A cycle with classifications shows the line `Classifications: N`,
+where N is the number the cycle record holds; `inspect` shows each one in full.
+
+An active or paused cycle also shows an `Activity:` line. It reads `idle for <age>`
+when no attempt is open, and otherwise `last activity <age> ago` with its source:
+`record-write`, `last-seen`, `commit` (a commit whose `Cycle-Task:` trailer names the
+attempt's task), `result-file` or `worktree-change`. Each open attempt shows its own
+last activity. Activity is not liveness: liveness stays `unknown`, and an activity age
+is never evidence that an attempt is lost.
 
 ## Options
 
 - `--json` prints the machine-readable document that `visualize-cycle-progress.py --json` prints.
+  The JSON carries activity only on request: `cycle.py status --json --activity` or
+  `visualize-cycle-progress.py --json --activity` adds one `activity` key to each cycle.
 - `--watch SECONDS` clears the screen and redraws every SECONDS until Ctrl-C. Suggest it
   for a second terminal beside a session, for example while Codex or OpenCode runs a cycle:
   `uv run "${CRUX_PLUGIN_ROOT}/scripts/cycle.py" --repo-root PATH status --watch 5`.

@@ -35,12 +35,14 @@ from functools import lru_cache
 import gzip
 import hashlib
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path, PurePosixPath
 import re
 import shutil
 import signal
+import stat as _stat
 import subprocess
 import sys
 import tempfile
@@ -120,10 +122,14 @@ _CITATION_RULE = re.compile(r"rule:[a-z][a-z0-9-]*")
 _SEMVER = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
 # Line 1 of a staged public rendition. This is a second copy of the grammar in tools/sync_stage.py
 # (FINGERPRINT_RE) because tools/ does not ship and the engine does. A change to one needs the other.
-# The engine is stricter than sync_stage: line 1 must match in full, not merely contain a match.
+# The engine validates the whole first line. A generation-basis suffix remains
+# hashed: only the original fingerprint comment is a release-varying span.
 _FINGERPRINT_LINE = re.compile(
     r"<!--\s*generated-from:\s*(?P<source>[^@\s]+)@sha256:(?P<digest>[0-9a-f]{64});"
     r"\s*model:\s*(?P<model>[^;]+);\s*date:\s*(?P<date>\d{4}-\d{2}-\d{2})\s*-->")
+_GENERATION_BASIS_SUFFIX = re.compile(
+    r" <!--\s*basis:\s*prompt=sha256:[0-9a-f]{64};\s*generator=sha256:[0-9a-f]{64}"
+    r"(?:;\s*model-config=sha256:[0-9a-f]{64})?\s*-->")
 _TOML_HEADER = re.compile(r"\[\s*([^\[\]]*?)\s*\]\s*(?:#.*)?")
 _PACKAGE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 
@@ -359,7 +365,11 @@ def _locate_readme_footer(text):
 
 def _locate_fingerprint_line(text):
     line = text.split("\n", 1)[0]
-    return (0, len(line)) if _FINGERPRINT_LINE.fullmatch(line) else None
+    match = _FINGERPRINT_LINE.match(line)
+    if match is None:
+        return None
+    suffix = line[match.end():]
+    return match.span() if not suffix or _GENERATION_BASIS_SUFFIX.fullmatch(suffix) else None
 
 
 def _locate(text, kind):
@@ -434,7 +444,9 @@ def _projected_git_entry(root, entry, projections, blob_field):
         return entry
     if (fields[2] != b"0") if blob_field == 1 else (fields[1] != b"blob"):
         return entry
-    blob = _git_blob(root, fields[blob_field].decode())
+    blob_id = fields[blob_field].decode()
+    # A blob id names its content, so one read per scope serves the index and HEAD alike.
+    blob = _listing(("blob", str(root), blob_id), lambda: _git_blob(root, blob_id))
     projected = projected_digest(blob, kinds) if blob is not None else None
     if projected is None:
         return entry
@@ -688,20 +700,54 @@ def _ignored_names(repo, names):
     return {name for name in result.stdout.decode('utf-8', 'surrogateescape').split('\0') if name}
 
 
-def snapshot(root, declaration, source_root=None):
-    """The subject's declared projection and its fingerprint. Nothing here reads the environment."""
-    root = Path(root).resolve()
-    declaration = normalize(declaration)
+def _listing(key, compute):
+    """A directory listing or git inventory, computed once per call scope; the caller never mutates it."""
+    if _SCOPE is None:
+        return compute()
+    if key not in _SCOPE["listings"]:
+        _SCOPE["listings"][key] = compute()
+    return _SCOPE["listings"][key]
+
+
+def _ignored_names_scoped(repo, names):
+    """``_ignored_names``, asked of git once per name list inside a call scope."""
+    if _SCOPE is None:
+        return _ignored_names(repo, names)
+    key = (str(repo), digest(names))
+    if key not in _SCOPE["ignored"]:
+        _SCOPE["ignored"][key] = _ignored_names(repo, names)
+    found = _SCOPE["ignored"][key]
+    return set(found) if found is not None else None
+
+
+# The declaration fields that decide which files a snapshot reads and how it hashes them.
+SELECTION_FIELDS = ("inputs", "exclude_inputs", "input_projections", "git_tracked")
+
+
+def _selected_inputs(root, declaration):
+    """``(files, git_inventory, git_head_tree)`` for the declaration's selection.
+
+    Checks that share a selection share the answer inside a call scope; only the declaration, which
+    the fingerprint also covers, differs between them."""
+    if _SCOPE is None:
+        return _walk_inputs(root, declaration)
+    key = ("selection", str(root), digest({name: declaration.get(name) for name in SELECTION_FIELDS}))
+    files, git_inventory, git_head_tree = _listing(key, lambda: _walk_inputs(root, declaration))
+    return {name: dict(entry) for name, entry in files.items()}, git_inventory, git_head_tree
+
+
+def _walk_inputs(root, declaration):
+    """Select and hash the declaration's inputs: the walk a snapshot makes before the lock binding."""
     files = {}
+    prefixes = [(prefix.rstrip("/"), prefix.rstrip("/") + "/") for prefix in declaration.get("exclude_inputs", [])]
     def excluded(relative):
-        return any(relative == prefix.rstrip("/") or relative.startswith(prefix.rstrip("/") + "/")
-                   for prefix in declaration.get("exclude_inputs", []))
+        return any(relative == bare or relative.startswith(below) for bare, below in prefixes)
     projections = declaration.get("input_projections", {})
-    selection = [(pattern, sorted(root.glob(pattern))) for pattern in declaration["inputs"]]
+    selection = [(pattern, _listing(("glob", str(root), pattern), lambda: sorted(root.glob(pattern)))) for pattern in declaration["inputs"]]
     git_inventory = None
     git_head_tree = None
     if declaration.get("git_tracked", False):
-        git = subprocess.run(["git", "ls-files", "--stage", "-z"], cwd=root, capture_output=True)
+        git = _listing(("ls-files", str(root)), lambda: subprocess.run(["git", "ls-files", "--stage", "-z"], cwd=root, capture_output=True))
         if git.returncode == 0:
             inventory_entries = []
             for entry in git.stdout.split(b"\0"):
@@ -716,7 +762,7 @@ def snapshot(root, declaration, source_root=None):
                 path = root / name
                 selection.append((name, [path] if path.exists() or path.is_symlink() else []))
             git_inventory = hashlib.sha256(b"\0".join(inventory_entries)).hexdigest()
-            head = subprocess.run(["git", "ls-tree", "-r", "-z", "HEAD"], cwd=root, capture_output=True)
+            head = _listing(("ls-tree", str(root)), lambda: subprocess.run(["git", "ls-tree", "-r", "-z", "HEAD"], cwd=root, capture_output=True))
             if head.returncode == 0:
                 # HEAD-relative assertions depend on committed contents, not on the commit ID.
                 # Only the non-excluded projection counts, as for the index.
@@ -726,33 +772,51 @@ def snapshot(root, declaration, source_root=None):
                 git_head_tree = hashlib.sha256(b"\0".join(entries)).hexdigest()
 
     walked = []
+    root_prefix = str(root).rstrip("/") + "/"
     for pattern, matches in selection:
         if excluded(pattern):
             continue
         if not matches:
             files[pattern] = {"missing": True}
+        pattern_parts = Path(pattern).parts
         for match in matches:
-            paths = sorted(match.rglob("*")) if match.is_dir() and not match.is_symlink() else [match]
+            paths = (_listing(("rglob", str(match)), lambda: sorted(match.rglob("*")))
+                     if match.is_dir() and not match.is_symlink() else [match])
             for path in paths:
-                relative = path.relative_to(root).as_posix()
+                text = str(path)
+                if text.startswith(root_prefix) and os.sep == "/":
+                    relative = text[len(root_prefix):]
+                    parts = tuple(relative.split("/"))
+                else:
+                    parts = path.relative_to(root).parts
+                    relative = "/".join(parts) or "."
                 if excluded(relative):
                     continue
-                if any(part in (".git", "__pycache__", ".pytest_cache", ".venv") and part not in Path(pattern).parts for part in path.relative_to(root).parts):
+                if any(part in (".git", "__pycache__", ".pytest_cache", ".venv") and part not in pattern_parts for part in parts):
                     continue
                 if relative == ".crux-test-evidence" or relative.startswith(".crux-test-evidence/"):
                     continue
-                if path.is_symlink():
+                mode = _lstat_mode(path)
+                if mode is not None and _stat.S_ISLNK(mode):
                     raise EvidenceError(f"symlink input requires an explicit real input path: {relative}")
-                if path.is_file():
+                # Not a symlink, so the link-free mode answers is_file().
+                if mode is not None and _stat.S_ISREG(mode):
                     walked.append((relative, pattern, path))
     # An untracked git-ignored file is not an input unless a declared pattern names it literally.
     # When git cannot classify the files, every file counts.
-    ignored = _ignored_names(root, sorted({relative for relative, _, _ in walked})) or set()
+    ignored = _ignored_names_scoped(root, sorted({relative for relative, _, _ in walked})) or set()
     for relative, pattern, path in walked:
         if relative in ignored and not (relative == pattern and not _GLOB_META.search(pattern)):
             continue
-        sha256 = input_digest(path.read_bytes(), projections[relative]) if relative in projections else file_digest(path)
-        files[relative] = {"sha256": sha256, "executable": bool(path.stat().st_mode & 0o111)}
+        files[relative] = _input_entry(path, projections.get(relative))
+    return files, git_inventory, git_head_tree
+
+
+def snapshot(root, declaration, source_root=None):
+    """The subject's declared projection and its fingerprint. Nothing here reads the environment."""
+    root = Path(root).resolve()
+    declaration = normalize(declaration)
+    files, git_inventory, git_head_tree = _selected_inputs(root, declaration)
     lock_digest = None
     packages = effective_requirement(declaration, root)["packages"]
     if packages and "lock" in packages:
@@ -763,6 +827,40 @@ def snapshot(root, declaration, source_root=None):
     value = {"declaration": declaration, "files": files, "git_inventory": git_inventory,
              "git_head_tree": git_head_tree, "lock_sha256": lock_digest}
     return {"fingerprint": digest(value), "inputs": files, "lock_sha256": lock_digest}
+
+
+def _lstat(path):
+    """``os.lstat``, asked once per path inside a call scope; None when the path cannot be stat'ed."""
+    if _SCOPE is not None and str(path) in _SCOPE["lstat"]:
+        return _SCOPE["lstat"][str(path)]
+    try:
+        found = os.lstat(path)
+    except OSError:
+        found = None
+    if _SCOPE is not None:
+        _SCOPE["lstat"][str(path)] = found
+    return found
+
+
+def _lstat_mode(path):
+    found = _lstat(path)
+    return found.st_mode if found is not None else None
+
+
+def _input_entry(path, kinds):
+    """One input's snapshot entry. Inside a call scope each file is hashed once per projection."""
+    key = None
+    if _SCOPE is not None:
+        st = _lstat(path)
+        if st is not None:
+            key = (str(path), st.st_ino, st.st_size, st.st_mtime_ns, tuple(kinds) if kinds else None)
+        if key is not None and key in _SCOPE["files"]:
+            return dict(_SCOPE["files"][key])
+    sha256 = input_digest(path.read_bytes(), kinds) if kinds else file_digest(path)
+    entry = {"sha256": sha256, "executable": bool(path.stat().st_mode & 0o111)}
+    if key is not None:
+        _SCOPE["files"][key] = dict(entry)
+    return entry
 
 
 def git_common_store(base):
@@ -825,7 +923,16 @@ def _read(path):
     if path.is_symlink() or not path.is_file():
         raise EvidenceError("evidence must be a regular file")
     try:
-        record = json.loads(path.read_text())
+        text = path.read_text()
+    except ValueError as exc:
+        raise EvidenceError(f"invalid evidence: {path.name}") from exc
+    return _parse(path, text)
+
+
+def _parse(path, text):
+    """Validate one receipt's text as read from ``path``: seal, identity, version and result."""
+    try:
+        record = json.loads(text)
         seal = record.pop("record_sha256")
         if digest(record) != seal:
             raise EvidenceError("evidence record integrity mismatch")
@@ -856,6 +963,132 @@ def read_receipts(store):
     ``quarantine/`` and other subdirectories are not read.
     """
     return [_read(path) for path in sorted(Path(store).glob("TE-*.json"))]
+
+
+# ---------------------------------------------------------------- one operation's reads
+#
+# A cycle operation asks the same questions of the store many times: inspect and advance validate
+# each attached receipt and look up each missing check, and every lookup used to read and seal-check
+# the whole store and hash every input again. ``call_scope`` holds those answers for one operation.
+# Outside a scope nothing is cached. Inside one, a parsed receipt and a hashed input are reused only
+# while the file keeps its inode, size and modification time. Directory listings, git inventories,
+# lstat results and whole lookups are taken once per scope, as of the moment first asked. A caller
+# that must observe the state at a later moment (the locked half of advance) opens a fresh scope.
+
+_SCOPE = None
+
+
+@contextlib.contextmanager
+def call_scope():
+    """Cache evidence reads for the duration of one operation; a nested scope joins the outer one."""
+    global _SCOPE
+    if _SCOPE is not None:
+        yield _SCOPE
+        return
+    _SCOPE = {"parsed": {}, "values": {}, "files": {}, "ignored": {}, "listings": {}, "lstat": {}, "lookups": {}, "registered": {}, "logs": {}, "contexts": {}, "changelog": {}}
+    try:
+        yield _SCOPE
+    finally:
+        _SCOPE = None
+
+
+def _stat_key(path):
+    st = os.lstat(path)
+    return (str(path), st.st_ino, st.st_size, st.st_mtime_ns)
+
+
+def _read_scoped(path):
+    """``_read`` through the operation's cache."""
+    if _SCOPE is None:
+        return _read(path)
+    try:
+        key = _stat_key(path)
+    except OSError:
+        return _read(path)
+    if key not in _SCOPE["parsed"]:
+        _SCOPE["parsed"][key] = _read(path)
+    return _SCOPE["parsed"][key]
+
+
+_CHECK_KEY = b'"check_id"'
+_JSON_SPACE = (b" ", b"\t", b"\n", b"\r")
+
+
+def _check_id_values(raw):
+    """The values of every literal ``"check_id"`` key in receipt bytes, or None when they cannot be read cheaply.
+
+    Without a ``\\u`` escape anywhere, the declaration's key is spelled literally, so it is one of the
+    occurrences found here, and ``json.decoder.scanstring`` decodes its value exactly as ``json.loads``
+    does. An occurrence inside a string value adds a candidate and can never hide the real key. A
+    file with a ``\\u`` escape, with no literal key, or with a value that does not decode, returns None."""
+    # A one-byte search finds no backslash in most receipts, which rules out a \\u escape at memchr speed.
+    if (b"\\" in raw and b"\\u" in raw) or _CHECK_KEY not in raw:
+        return None
+    values = set()
+    start = 0
+    while (position := raw.find(_CHECK_KEY, start)) != -1:
+        start = index = position + len(_CHECK_KEY)
+        while raw[index:index + 1] in _JSON_SPACE:
+            index += 1
+        if raw[index:index + 1] != b":":
+            continue
+        index += 1
+        while raw[index:index + 1] in _JSON_SPACE:
+            index += 1
+        if raw[index:index + 1] != b'"':
+            continue
+        try:
+            value, _ = json.decoder.scanstring(raw[index + 1:index + 1 + 4096].decode("utf-8"), 0)
+        except ValueError:
+            return None
+        values.add(value)
+    return values
+
+
+def receipts_for(store, check_ids, fingerprint=None):
+    """The receipts in ``store`` whose declaration names one of ``check_ids``.
+
+    Each candidate is read and validated exactly as :func:`read_receipts` validates it, and an
+    unreadable candidate fails closed naming the file. A file whose bytes cannot hold a wanted check
+    id is not parsed: it cannot be a receipt of these checks. With ``fingerprint``, a file with no
+    ``\\u`` escape whose bytes lack that fingerprint is not parsed either: its fingerprint differs."""
+    wanted = set(check_ids)
+    needle = fingerprint.encode() if fingerprint is not None else None
+    found = []
+    for path in sorted(Path(store).glob("TE-*.json")):
+        key = None
+        if _SCOPE is not None:
+            try:
+                key = _stat_key(path)
+            except OSError:
+                key = None
+        if key is not None and key in _SCOPE["parsed"]:
+            record = _SCOPE["parsed"][key]
+        elif key is not None and _SCOPE["values"].get(key) is not None and _SCOPE["values"][key].isdisjoint(wanted):
+            # Read once per operation: the check ids these bytes can hold are already known.
+            continue
+        else:
+            if path.is_symlink() or not path.is_file():
+                raise EvidenceError("evidence must be a regular file")
+            raw = path.read_bytes()
+            if needle is not None and needle not in raw and not (b"\\" in raw and b"\\u" in raw):
+                continue
+            values = _check_id_values(raw)
+            if key is not None:
+                _SCOPE["values"][key] = values
+            if values is not None and values.isdisjoint(wanted):
+                continue
+            try:
+                # Decoded exactly as path.read_text() decodes it in _read.
+                text = io.TextIOWrapper(io.BytesIO(raw)).read()
+            except ValueError as exc:
+                raise EvidenceError(f"invalid evidence: {path.name}") from exc
+            record = _parse(path, text)
+            if key is not None:
+                _SCOPE["parsed"][key] = record
+        if record["declaration"]["check_id"] in wanted:
+            found.append(record)
+    return found
 
 
 # ---------------------------------------------------------------- output logs and completeness
@@ -1277,15 +1510,72 @@ def _same_declaration(record, declaration):
         return False
 
 
-def lookup(root, declaration, *, source_root=None):
-    """Find the newest counted receipt for ``declaration`` on the subject's current inputs."""
+def lookup(root, declaration, *, source_root=None, scoped=True, matching_only=False):
+    """Find the newest counted receipt for ``declaration`` on the subject's current inputs.
+
+    Only receipts of the declaration's check are parsed (:func:`receipts_for`); ``scoped=False``
+    parses the whole store first, as before, and finds the same receipt. Inside a call scope the
+    answer for one declaration is computed once. ``matching_only`` parses only receipts on the current
+    fingerprint: ``state`` and ``record`` are unchanged while one counts, but ``missing`` stands for
+    ``inputs-changed``, schema 1 receipts are not listed in ``ignored``, and another receipt that is
+    unreadable is not read. It serves a finder whose choice is validated again by a full lookup."""
     declaration = normalize(declaration)
     root = Path(root).resolve()
+    key = None
+    if _SCOPE is not None:
+        key = (str(root), digest(declaration), str(source_root), scoped, matching_only)
+        if key in _SCOPE["lookups"]:
+            return _SCOPE["lookups"][key]
+    result = _lookup(root, declaration, source_root, scoped, matching_only)
+    if key is not None:
+        _SCOPE["lookups"][key] = result
+    return result
+
+
+def _context(root, source_root):
+    """A lookup context; inside a call scope one per subject, so the lock export and tool versions are read once."""
+    if _SCOPE is None:
+        return _Context(root, source_root)
+    key = (str(root), str(source_root))
+    if key not in _SCOPE["contexts"]:
+        _SCOPE["contexts"][key] = _Context(root, source_root)
+    return _SCOPE["contexts"][key]
+
+
+def _log_state_scoped(store, record):
+    if _SCOPE is None:
+        return log_state(store, record)
+    key = (str(store), record["id"], record.get("output_sha256"))
+    if key not in _SCOPE["logs"]:
+        _SCOPE["logs"][key] = log_state(store, record)
+    return _SCOPE["logs"][key]
+
+
+def registered_declaration(repo_root, check_id, *, dev_root=None):
+    """``suite_evidence.registered_declaration``, computed once per check inside a call scope.
+
+    Raises ImportError when suite_evidence is unavailable, as importing it directly does."""
+    import suite_evidence
+    if _SCOPE is None or not isinstance(check_id, str) or not check_id.startswith(("checkout:", "staged:")):
+        # suite_evidence.registered_declaration answers an unprefixed id without computing the registry.
+        return suite_evidence.registered_declaration(repo_root, check_id, dev_root=dev_root)
+    # The registry is computed once per subject and shared by every registered check id.
+    key = (str(Path(repo_root).resolve()), str(dev_root))
+    if key not in _SCOPE["registered"]:
+        _SCOPE["registered"][key] = suite_evidence.registered_declarations(repo_root, dev_root=dev_root)
+    found = _SCOPE["registered"][key].get(check_id)
+    return copy.deepcopy(found) if found is not None else None
+
+
+def _lookup(root, declaration, source_root, scoped, matching_only=False):
     current = snapshot(root, declaration, source_root)
     requirement = effective_requirement(declaration, root)
     store = storage(root, source_root)
-    ctx = _Context(root, source_root)
-    receipts = [r for r in read_receipts(store) if r["declaration"]["check_id"] == declaration["check_id"]]
+    ctx = _context(root, source_root)
+    if scoped:
+        receipts = receipts_for(store, {declaration["check_id"]}, current["fingerprint"] if matching_only else None)
+    else:
+        receipts = [r for r in read_receipts(store) if r["declaration"]["check_id"] == declaration["check_id"]]
     receipts.sort(key=lambda r: (r["finished_at"], r["started_at"]), reverse=True)
     ignored, counted = [], []
     for record in receipts:
@@ -1302,7 +1592,7 @@ def lookup(root, declaration, *, source_root=None):
             ignored.append({"id": record["id"], "reason": "environment does not satisfy the requirement: " + "; ".join(problems)})
             continue
         if record["status"] == "passed":
-            state = log_state(store, record)
+            state = _log_state_scoped(store, record)
             if state != "ok":
                 ignored.append({"id": record["id"], "reason": f"output log {state}; a pass needs its retained log"})
                 continue
@@ -1367,7 +1657,7 @@ def validate_evidence(repo_root, evidence_id, check_id=None, *, source_root=None
     """The receipt must be the current valid passing result for its declaration on the subject."""
     if not isinstance(evidence_id, str) or not re.fullmatch(r"TE-[0-9a-f]{32}", evidence_id):
         raise EvidenceError("invalid evidence ID")
-    record = _read(storage(repo_root, source_root) / (evidence_id + ".json"))
+    record = _read_scoped(storage(repo_root, source_root) / (evidence_id + ".json"))
     if record.get("id") != evidence_id:
         raise EvidenceError("evidence identity mismatch")
     if check_id is not None and record["declaration"]["check_id"] != check_id:
@@ -1377,8 +1667,7 @@ def validate_evidence(repo_root, evidence_id, check_id=None, *, source_root=None
                             + ", ".join(_lacking_fields(record)) + "; a version 1 receipt is history, never a pass")
     declaration = normalize(record["declaration"])
     try:
-        import suite_evidence
-        registered = suite_evidence.registered_declaration(repo_root, declaration["check_id"], dev_root=source_root)
+        registered = registered_declaration(repo_root, declaration["check_id"], dev_root=source_root)
     except ImportError:
         registered = None
     if registered is not None and normalize(registered) != declaration:
@@ -1636,18 +1925,22 @@ def _classify(returncode, received, entry, identity_ok):
 
 def execute(repo_root, declaration, retry_reason=None, *, execution_command=None, source_root=None, interpreter=None):
     root = Path(repo_root).resolve()
+    requested_command = declaration.get("command") if isinstance(declaration, dict) else None
     declared_python = None
     if isinstance(declaration, dict) and declaration.get("command") and isinstance(declaration["command"][0], str):
         first = declaration["command"][0]
         if os.path.isabs(first) and _is_python(first):
             declared_python = first
     declaration = normalize(declaration)
+    if execution_command is None:
+        # Identity drops scheduling arguments; execution keeps the validated request.
+        execution_command = list(requested_command)
     requirement = effective_requirement(declaration, root)
     entry = _execution_entry(declaration, execution_command)
     python = declaration["command"][0] == "python"
     secrets = [value.encode() for name, value in os.environ.items()
                if re.search(r"TOKEN|SECRET|PASSWORD|CREDENTIAL|API_KEY", name, re.I) and len(value) >= 4]
-    if any(secret.decode() in argument for secret in secrets for argument in entry):
+    if any(secret.decode() in argument for secret in secrets for argument in execution_command):
         raise EvidenceError("commands must not contain credential environment values")
     directory = storage(root, source_root)
     with _lock(directory / (digest(declaration) + ".lock"), declaration["check_id"]) as lock_fd:

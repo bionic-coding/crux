@@ -36,10 +36,10 @@ There is no prompt minimum or repeat run. Pausing and resuming keeps the same cy
 
 | Type | Sequence | Pass limit |
 |---|---|---:|
-| dev (major change) | Plan → Build → Test → Review → Reflect | 7 |
-| iterate (minor change) | Plan → Build → Test → Review → Reflect | 2 |
-| refactor (nonfunctional improvement) | Plan → Build → Test → Review → Reflect | 7 |
-| quick-fix (bounded correction) | Build → Test → Review → Reflect | 1 |
+| dev (major change) | Plan → Build → Verify → Review → Reflect | 7 |
+| iterate (minor change) | Plan → Build → Verify → Review → Reflect | 2 |
+| refactor (nonfunctional improvement) | Plan → Build → Verify → Review → Reflect | 7 |
+| quick-fix (bounded correction) | Build → Verify → Review → Reflect | 1 |
 | release | Plan → Release → Reflect | 2 |
 
 Limits include the initial attempt. Tests and blocking review findings return to

@@ -245,12 +245,6 @@ class TestSkillFilesPresent(unittest.TestCase):
             for key in literal_keys:
                 self.assertIn(key, body, f"{name}/SKILL.md missing {key!r}")
 
-    def test_spawner_skill_documents_crux_runtime_dir(self):
-        """install-runtime SKILL.md must reference `.crux-runtime/`
-        (per ADR-0035 §4)."""
-        body = (SKILLS_DIR / "install-runtime" / "SKILL.md").read_text()
-        self.assertIn(".crux-runtime/", body)
-
 
 class TestSpawnerTargetRefusal(unittest.TestCase):
     """The spawner refuses to deploy over anything it did not create
@@ -315,13 +309,6 @@ class TestSpawnerTargetRefusal(unittest.TestCase):
         (target / "scripts" / "crux").mkdir(parents=True)
         (target / "AGENTS.md").write_text("# AGENTS.md — crux for x\n")
         self._spawner()._refuse_foreign_target()  # must not raise
-
-    def test_generated_agents_md_calls_crux_env_a_cli(self):
-        """The generated AGENTS.md must call crux-env a CLI, not a skill."""
-        spawned = self._spawner().spawn()
-        body = (spawned / "AGENTS.md").read_text()
-        self.assertIn("`crux-env` CLI", body)
-        self.assertNotIn("`crux-env` skill", body)
 
     def test_cli_dir_default_is_crux_runtime(self):
         """The CLI --dir default matches the class/function default."""

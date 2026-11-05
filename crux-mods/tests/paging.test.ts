@@ -8,7 +8,7 @@ import {OLDER_PAGE_SIZE, olderPages, pane, type Block, type Line} from '../hooks
 import {install, texts, PANE} from './fixtures/world.ts'
 
 const cycleRow = (n: number, status = 'completed', extra: Record<string, unknown> = {}) => ({
-  id: `CYC-${String(n).padStart(4, '0')}`, title: `Cycle title ${n}`, type: 'iterate', status, phase: 'build', pass: 1, pass_limit: 2,
+  id: `CYC-${String(n).padStart(4, '0')}`, schema_version: 2, revision: null, assignments: [], classification_count: 0, exception: null, title: `Cycle title ${n}`, type: 'iterate', status, phase: 'build', pass: 1, pass_limit: 2,
   phases: ['plan', 'build', 'test', 'review', 'reflect'],
   tasks: [
     {id: 'a', phase: 'plan', description: 'Plan it', status: 'done'},
@@ -23,7 +23,7 @@ const qItem = (n: number, state: string, extra: Record<string, unknown> = {}) =>
   id: `Q-${String(n).padStart(4, '0')}`, title: `Queue title ${n}`, state, suggested_type: 'iterate', cycle: null, cycle_status: null, ...extra,
 })
 const doc = (cycles: unknown[], queue?: unknown) => ({
-  format: 'crux.cycle-progress', format_version: 2, ok: true, docs_dir: 'bionic', now_s: 1780000000, cycles,
+  format: 'crux.cycle-progress', format_version: 5, ok: true, docs_dir: 'bionic', now_s: 1780000000, cycles,
   ...(queue === undefined ? {} : {queue}),
 })
 const parsed = (d: unknown) => {
@@ -134,20 +134,20 @@ test('a queue with no authorization says so', () => {
   expect(r[1]).toContain('starting')
 })
 
-test('an overflowing queue is bounded at nine rows with a +N more line', () => {
+test('an overflowing queue shows six upcoming rows, two finished rows and an expansion control', () => {
   const items = [
     ...Array.from({length: 4}, (_, i) => qItem(i + 1, 'started', {cycle: `CYC-${String(i + 1).padStart(4, '0')}`, cycle_status: i % 2 === 0 ? 'completed' : 'abandoned'})),
     ...Array.from({length: 8}, (_, i) => qItem(i + 5, 'pending')),
   ]
   const r = queueRows(draw(doc([cycleRow(1)], {ok: true, items, authorization: null})))
-  expect(r.length).toBe(9)
+  expect(r.length).toBe(10)
   expect(r[0]).toContain('8 queued')
-  // Five upcoming in queue order, then the last two finished in queue order.
-  expect(r.slice(1, 6).map(x => x.match(/Q-\d+/)![0])).toEqual(['Q-0005', 'Q-0006', 'Q-0007', 'Q-0008', 'Q-0009'])
-  expect(r.slice(6, 8).map(x => x.match(/Q-\d+/)![0])).toEqual(['Q-0003', 'Q-0004'])
-  expect(r[7]).toContain('abandoned')
-  // 3 upcoming are left out. The 2 finished items hidden above them are not counted.
-  expect(r[8]).toBe('+3 more')
+  // Six upcoming in queue order, then the last two finished in queue order.
+  expect(r.slice(1, 7).map(x => x.match(/Q-\d+/)![0])).toEqual(['Q-0005', 'Q-0006', 'Q-0007', 'Q-0008', 'Q-0009', 'Q-0010'])
+  expect(r.slice(7, 9).map(x => x.match(/Q-\d+/)![0])).toEqual(['Q-0003', 'Q-0004'])
+  expect(r[8]).toContain('abandoned')
+  // Hidden finished items do not affect the expansion count.
+  expect(r[9]).toBe('+2 more')
 })
 
 test('hidden finished items never draw a +N more line', () => {

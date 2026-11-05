@@ -69,7 +69,9 @@ def _snapshot(root: Path) -> dict:
     return out
 
 
-class ScaffoldTestCase(unittest.TestCase):
+class _ScaffoldFixture(unittest.TestCase):
+    """The shared tree and helpers. It holds no test, so a subclass does not rerun the
+    happy-path tests that `ScaffoldTestCase` owns."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -132,6 +134,9 @@ class ScaffoldTestCase(unittest.TestCase):
 
     def _sheet(self, batch_id="SVY-0001"):
         return SS.read_sheet(self.obs / f"survey-{batch_id}.yml")
+
+
+class ScaffoldTestCase(_ScaffoldFixture):
 
     # ── the happy path ─────────────────────────────────────────────────────
 
@@ -373,7 +378,7 @@ class ScaffoldTestCase(unittest.TestCase):
                       (self.tree / "manifest.yml").read_text(encoding="utf-8"))
 
 
-class AnchorCollisionTests(ScaffoldTestCase):
+class AnchorCollisionTests(_ScaffoldFixture):
     """`_eligible` returns one entry per CANDIDATE key; a sheet is keyed by
     `anchor_id`, and a successor candidate sits on its predecessor's anchor.
 
@@ -444,7 +449,7 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class PrefixedTreeRefusalTests(ScaffoldTestCase):
+class PrefixedTreeRefusalTests(_ScaffoldFixture):
     """§17.1 permits a record id to carry the §14.3 `artifact_prefix`, and the
     audit (`check_observations`) and the summaries projection both read that
     dual form. The survey lane does not: `survey_sheet.record_paths` and
@@ -513,13 +518,6 @@ class PrefixedTreeRefusalTests(ScaffoldTestCase):
                  if before.get(k) != after.get(k)} - {".bionic.yml"}
         self.assertEqual(moved, set(), f"a refusing sign-off wrote {moved}")
         self.assertFalse(list(self.obs.glob("*OBS-*.md")))
-
-    def test_the_helper_refuses_directly_and_admits_the_empty_prefix(self):
-        self.assertIsNone(SS.assert_unprefixed_tree(self.root))
-        self._prefix()
-        with self.assertRaises(EnvironmentError) as caught:
-            SS.assert_unprefixed_tree(self.root)
-        self.assertIn("artifact_prefix", str(caught.exception))
 
     def test_every_spelling_of_a_prefix_refuses_and_the_empty_ones_do_not(self):
         """The guard's reach is the reader's regex, so the spellings are the

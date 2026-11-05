@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Bound diagnostic council call checkpoint",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "id", "attempt", "subject", "subject_sha256", "cycle_id", "phase", "seat", "call_number", "registry_key", "requested_model", "metadata", "vote", "record_sha256"],
+  "properties": {
+    "format": {"const": "crux.council-call-event.v1"},
+    "id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+    "attempt": {"type": "string", "minLength": 1},
+    "subject": {"type": "string", "minLength": 1},
+    "subject_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "cycle_id": {"type": ["string", "null"]},
+    "phase": {"enum": ["request", "outcome"]},
+    "seat": {"enum": ["openai", "anthropic", "gemini"]},
+    "call_number": {"type": "integer", "enum": [1, 2]},
+    "registry_key": {"type": "string", "minLength": 1},
+    "requested_model": {"type": ["string", "null"]},
+    "metadata": {"type": "object"},
+    "vote": {"type": ["object", "null"]},
+    "record_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

@@ -2,8 +2,8 @@
 // Builds a real-time parent -> child subagent tree across sessions, detects active tool calls and
 // task batches, and flags potentially blocked or long-running agents without mutating host state.
 import type { Block, Line, Span } from '../../crux-mods/hooks/lib/draw.ts'
-import { BAR_OFF, BAR_ON, LOOP_GLYPH, STATE_GLYPHS, TRACK_SEP, drawn, fitLine, joined, lineCells, olderLines, olderRow } from '../../crux-mods/hooks/lib/draw.ts'
-import type { CycleView } from '../../crux-mods/hooks/lib/view.ts'
+import { BAR_OFF, BAR_ON, LOOP_GLYPH, STATE_GLYPHS, TRACK_SEP, drawn, fitLine, joined, lineCells, olderLines, olderRow, queueBlock, recordLines, revisionLine } from '../../crux-mods/hooks/lib/draw.ts'
+import type { CycleView, QueueView } from '../../crux-mods/hooks/lib/view.ts'
 import { cycleTimeText } from '../../crux-mods/hooks/lib/view.ts'
 import { cells } from '../../crux-mods/hooks/lib/width.ts'
 
@@ -179,6 +179,7 @@ const PHASE_COLORS: Readonly<Record<string, Span['color']>> = {
   plan: 'merged',
   build: 'suggestion',
   test: 'permission',
+  verify: 'permission',
   review: 'text',
   release: 'text',
   reflect: 'inactive',
@@ -334,6 +335,9 @@ function buildActiveOrPausedCycleCard(c: CycleView, label: string, innerWidth: n
   if (c.blocker !== null) {
     lines.push(fitLine([span('! Blocked / Paused: ', { color: 'error', bold: true }), span(drawn(c.blocker), { color: 'error' })], innerWidth))
   }
+  // The record revision, the open attempts, the classification count and the owner exception: the same
+  // lines the shared pane draws, each only when its data is present.
+  for (const line of [...revisionLine(c), ...recordLines(c)]) lines.push(fitLine(line, innerWidth))
 
   // Show active/blocked/pending tasks first; collapse completed tasks to keep focus on what's remaining
   const activeOrBlocked = c.tasks.filter(t => t.status === 'active' || t.status === 'blocked')
@@ -405,6 +409,7 @@ function buildActiveOrPausedCycleCard(c: CycleView, label: string, innerWidth: n
 function buildLatestClosedCycle(latest: CycleView): Line[] {
   const lines: Line[] = [olderRow(latest)]
   if (latest.reflection) lines.push([span('    Outcome: ', { dim: true }), span(drawn(latest.reflection), { color: 'success', dim: true })])
+  for (const line of [...revisionLine(latest), ...recordLines(latest)]) lines.push([span('    '), ...line])
   return lines
 }
 
@@ -523,7 +528,7 @@ function buildCycleQueueCard(queue: CycleQueueView, cycles: readonly CycleView[]
   return lines
 }
 
-export function buildOmpCyclesPane(cycles: readonly CycleView[], nowS: number | null, live: LiveRuntimeSnapshot | undefined, width: number, page = 0): Block {
+export function buildOmpCyclesPane(cycles: readonly CycleView[], nowS: number | null, live: LiveRuntimeSnapshot | undefined, width: number, page = 0, queue?: QueueView | null, expanded = false): Block {
   const bordered = width >= 36
   const innerWidth = bordered ? width - 4 : width
   const boxOf = (lines: Line[], borderColor: Span['color'] = 'subtle'): Block => ({
@@ -585,7 +590,9 @@ export function buildOmpCyclesPane(cycles: readonly CycleView[], nowS: number | 
   }
 
   // 4. Cycle Queue (when bionic/queue/cycles.yaml has queued items)
-  if (live?.queue !== undefined && live.queue !== null && live.queue.items.length > 0) {
+  const sharedQueue = queueBlock(queue, width, bordered, expanded)
+  if (sharedQueue !== null) blocks.push(sharedQueue)
+  else if (queue === undefined && live?.queue !== undefined && live.queue !== null && live.queue.items.length > 0) {
     blocks.push(boxOf(buildCycleQueueCard(live.queue, cycles, innerWidth), 'permission'))
   }
 

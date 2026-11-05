@@ -95,6 +95,14 @@ class UnpinnedInvocationDetectorTests(unittest.TestCase):
         line = "uv run python3 -c 'x' \"${CRUX_PLUGIN_ROOT}/scripts/test-evidence.py\""
         self.assertEqual(len(unpinned_invocations(line)), 1)
 
+    def test_engine_exception_rejects_similar_or_suffixed_paths(self):
+        for operand in (
+            '"${CRUX_PLUGIN_ROOT}/scripts/test-evidence.py.backup"',
+            '"${CRUX_PLUGIN_ROOT}/scripts/not-test-evidence.py"',
+        ):
+            with self.subTest(operand=operand):
+                self.assertEqual(len(unpinned_invocations(f"uv run python3 {operand}")), 1)
+
     def test_ignores_repo_relative_dev_commands(self):
         line = "`uv run python3 crux/scripts/validate-catalog.py --dry-run`"
         self.assertEqual(unpinned_invocations(line), [])

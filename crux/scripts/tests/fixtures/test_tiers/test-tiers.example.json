@@ -1,0 +1,30 @@
+{
+  "format": "crux.test-tiers",
+  "version": 1,
+  "kind": "python-unittest",
+  "pattern": "test*.py",
+  "areas": {
+    "core": "The core path of the fixture system"
+  },
+  "files": {
+    "test_basic.py": {
+      "tier": "dev",
+      "overrides": {
+        "Critical": {"tier": "release", "area": "core"},
+        "Plain.test_b": {"tier": "ephemeral", "reason": "Proved a one-time fixture transition", "retire_when": "the fixture transition is forgotten"}
+      }
+    },
+    "test_gate.py": {
+      "tier": "release",
+      "area": "core",
+      "overrides": {
+        "Gate.test_y": {"tier": "dev"}
+      }
+    },
+    "test_old.py": {
+      "tier": "ephemeral",
+      "reason": "Pinned a past fixture record",
+      "expires": "2099-01-01"
+    }
+  }
+}

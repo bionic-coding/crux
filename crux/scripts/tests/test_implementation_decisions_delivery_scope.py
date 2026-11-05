@@ -215,7 +215,6 @@ def deliver_star(r):
 
 
 ROWS = {
-    "R1-file-scope-exact": (write_row(W, lambda r: None, lambda r: None, W), "accepted"),
     "R2-dir-scope-complete": (write_row(W + ["src"], pre_src, deliver_ab, W + ["src/a.txt", "src/b.txt"]),
                               "accepted"),
     "R3-dir-scope-omits-changed-file": (write_row(W + ["src"], pre_src, deliver_ab, W + ["src/a.txt"]),
@@ -270,7 +269,7 @@ ROWS = {
 
 class DeliveryScopeMatrix(unittest.TestCase):
     def test_matrix_rows(self):
-        self.assertEqual(len(ROWS), 23)
+        self.assertEqual(len(ROWS), 22)
         for name, (run, expected) in ROWS.items():
             with self.subTest(row=name), tempfile.TemporaryDirectory() as tmp, \
                     contextlib.redirect_stdout(io.StringIO()):

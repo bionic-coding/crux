@@ -41,6 +41,18 @@ For new acceptances, use `decision-policy.py` (inspect `--help` for supported
 operations) to validate council approval of the exact ADR and record acceptance.
 `.bionic.yml` `adr.acceptance` defaults to `council-and-human`; `council-only` is
 an explicit repository option. Never supply human approval on the owner's behalf.
+You may transcribe an actual explicit answer through cycle.py
+`owner-decision present/capture/apply`. Present the concrete question and exact ADR
+digest first. Capture verbatim words, real conversation/message or tool-question
+reference, owner-local date and explicit approve/reject/pending disposition. Use only
+evidence you observed or the owner-facing parent supplied with its actual provenance.
+Ambiguous continuation stays pending. The writer validates bindings, not speaker
+identity or the truth of the quote. Fresh application needs the unique current
+unsuperseded approval and the existing council/lifecycle checks; no owner terminal
+command is required. Corrections append immutable captures. Already-applied replay
+acknowledges its receipt and any later disposition without revoking historical
+standing. This interface grants no other lifecycle transition or outward action.
+The cycle commands reference describes required request fields and recovery.
 Acceptance under this policy makes rules binding without a separate promotion.
 Do not use the historical in-run guidance path for a new-policy acceptance.
 Existing provenance and previously accepted records retain their interpretation.

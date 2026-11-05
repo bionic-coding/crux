@@ -196,7 +196,8 @@
         "enum": [
           "running",
           "finished",
-          "failed"
+          "failed",
+          "interrupted"
         ]
       },
       "started_at": {
@@ -233,15 +234,22 @@
       "finished_at": {
         "type": "string"
       },
+      "recovered_at": {"type": "string"},
       "harness": {
         "type": "string"
+      },
+      "delta": {
+        "type": "object"
       },
       "readiness": {
         "type": "object"
       },
       "review_bundle_sha256": {
         "type": "string"
-      }
+      },
+      "call_checkpoints": {"type": "object"},
+      "call_evidence": {"type": "object"},
+      "checkpoint_failure": {"type": "object"}
     }
   }
 }

@@ -90,17 +90,24 @@ class HealthTests(unittest.TestCase):
             text = architect.read_text(encoding="utf-8").replace(
                 'model = "gpt-6.1-sol"', 'model = "locally-pinned"'
             )
-            first = text.index("\n[[skills.config]]")
-            second = text.index("\n[[skills.config]]", first + 1)
-            text = text[:first] + text[second:]
-            architect.write_text(text.replace("enabled = true", "enabled = false", 1), encoding="utf-8")
+            architect.write_text(text, encoding="utf-8")
+            commander = target / "crux-commander.toml"
+            text = commander.read_text(encoding="utf-8")
+            self.assertIn("\n[[skills.config]]", text)
+            commander.write_text(text.split("\n[[skills.config]]", 1)[0], encoding="utf-8")
+            lead = target / "crux-dev-lead.toml"
+            text = lead.read_text(encoding="utf-8")
+            self.assertIn("enabled = true", text)
+            lead.write_text(text.replace("enabled = true", "enabled = false", 1), encoding="utf-8")
             report = health.inspect_install(target=target, plugin_root=plugin, scope="personal")
         expected = next(role for role in report["roles"] if role["role"] == "architect")
         installed = next(role for role in report["installed"]["roles"] if role["role"] == "architect")
         self.assertEqual(expected["model"], "gpt-6.1-sol")
         self.assertEqual(installed["model"], "locally-pinned")
-        self.assertIn("missing", {binding["status"] for binding in installed["skill_bindings"]})
-        self.assertIn("disabled", {binding["status"] for binding in installed["skill_bindings"]})
+        by_role = {role["role"]: role for role in report["installed"]["roles"]}
+        self.assertIn("missing", {binding["status"] for binding in by_role["commander"]["skill_bindings"]})
+        self.assertIn("disabled", {binding["status"] for binding in by_role["dev-lead"]["skill_bindings"]})
+        self.assertEqual(installed["skill_bindings"], [])
         self.assertEqual(
             next(role for role in report["installed"]["roles"] if role["role"] == "wayfinder")["status"],
             "installed",
@@ -195,13 +202,13 @@ class HealthTests(unittest.TestCase):
             plugin = REPO_ROOT / "crux"
             generated = health.codex_agents.generate(plugin / "agents", skill_root=plugin / "skills")
             health.codex_agents.write(target, generated)
-            architect = target / "crux-architect.toml"
-            text = architect.read_text(encoding="utf-8").replace(
+            commander = target / "crux-commander.toml"
+            text = commander.read_text(encoding="utf-8").replace(
                 str(plugin / "skills" / "cycle" / "SKILL.md"), "/old/crux/skills/cycle/SKILL.md"
             )
-            architect.write_text(text, encoding="utf-8")
+            commander.write_text(text, encoding="utf-8")
             report = health.inspect_install(target=target, plugin_root=plugin, scope="personal")
-        installed = next(item for item in report["installed"]["roles"] if item["role"] == "architect")
+        installed = next(item for item in report["installed"]["roles"] if item["role"] == "commander")
         binding = next(item for item in installed["skill_bindings"] if item["skill"] == "cycle")
         self.assertEqual(binding["installed_path"], "/old/crux/skills/cycle/SKILL.md")
         self.assertEqual(binding["status"], "missing")

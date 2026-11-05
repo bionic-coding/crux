@@ -127,7 +127,42 @@ class EvidenceTests(unittest.TestCase):
         validator.validate(execute(self.root, self.check)["evidence"], schema, "#", "#", errors, "test-evidence")
         self.assertEqual(errors, [])
 
-    def test_suite_adapter_preserves_discovery_and_registers_the_staged_requirement(self):
+    def run_staged_check(self, name):
+        from types import SimpleNamespace
+        from suite_evidence import run_shared
+        args = SimpleNamespace(start="crux/scripts/tests", pattern="test*.py", top=None,
+                               workers=4, records=None, timings=None, source_root=str(self.root),
+                               python_minor="3.13", evidence_scope="staged", retry_reason=None, staged_check=name)
+        write_lock_project(self.root, empty=True)
+        with patch("suite_evidence.evidence_plan", return_value=({"state": "missing"}, {"state": "missing"})), \
+             patch("suite_evidence.flagged_list_problems", return_value=[]), \
+             patch("suite_evidence.execute", side_effect=EvidenceError("stop before execution")) as mocked:
+            with self.assertRaises(EvidenceError):
+                run_shared(args)
+        return mocked.call_args.args[1], mocked.call_args.kwargs["execution_command"]
+
+    def test_suite_adapter_registers_the_staged_flagged_check_with_its_requirement(self):
+        declaration, executed = self.run_staged_check("flagged")
+        self.assertEqual(declaration["check_id"], "staged:py3.13:flagged")
+        self.assertEqual(declaration["requirement"]["variables"]["PYTHONPATH"], "${REPOSITORY}/crux/scripts")
+        self.assertEqual(declaration["requirement"]["packages"]["lock"]["source"], "dev-root")
+        self.assertIn("uv.lock", declaration["inputs"])
+        self.assertIn(".generated", declaration["inputs"])
+        self.assertEqual(declaration["command"], ["python", "crux/scripts/tests/parallel_suite.py", "crux/scripts/tests", "--flagged"])
+        self.assertNotIn("--workers", declaration["command"])
+        self.assertNotIn(sys.executable, declaration["command"])
+        self.assertEqual(executed[0], sys.executable)
+        self.assertIn("--flagged", executed)
+        self.assertIn("--workers", executed)
+
+    def test_suite_adapter_registers_the_staged_health_check_and_passes_it_no_scheduling_argument(self):
+        declaration, executed = self.run_staged_check("health")
+        self.assertEqual(declaration["check_id"], "staged:py3.13:health")
+        self.assertEqual(declaration["command"], ["python", "crux/scripts/staged_health.py"])
+        self.assertEqual(executed, [sys.executable, "crux/scripts/staged_health.py"])
+        self.assertEqual(declaration["requirement"]["packages"]["lock"]["source"], "dev-root")
+
+    def test_suite_adapter_still_treats_an_unnamed_staged_run_as_unregistered(self):
         from types import SimpleNamespace
         from suite_evidence import run_shared
         args = SimpleNamespace(start="crux/scripts/tests", pattern="test*.py", top=None,
@@ -140,13 +175,7 @@ class EvidenceTests(unittest.TestCase):
                 run_shared(args)
         declaration = mocked.call_args.args[1]
         self.assertEqual(declaration["check_id"], "staged:py3.13:unittest:crux/scripts/tests:test*.py")
-        self.assertEqual(declaration["requirement"]["variables"]["PYTHONPATH"], "${REPOSITORY}/crux/scripts")
-        self.assertEqual(declaration["requirement"]["packages"]["lock"]["source"], "dev-root")
-        self.assertIn("uv.lock", declaration["inputs"])
-        self.assertIn(".generated", declaration["inputs"])
-        self.assertNotIn("--workers", declaration["command"])
-        self.assertNotIn(sys.executable, declaration["command"])
-        self.assertIn("--workers", mocked.call_args.kwargs["execution_command"])
+        self.assertNotIn("requirement", declaration)
 
     def test_shared_suite_cli_executes_once_then_reuses(self):
         import shutil

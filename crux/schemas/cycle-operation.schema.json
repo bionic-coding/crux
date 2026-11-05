@@ -1,0 +1,673 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Crux typed cycle operation request",
+  "description": "One request to `cycle.py op CYCLE`. `op` selects the operation; each operation admits exactly its own fields. Every mutating operation carries a caller-chosen op_id that makes a retry idempotent. `inspect` carries no op_id. `commit-record` accepts an optional op_id, validated and echoed but never journaled: it writes no record, and it is idempotent. A recovery action returned by the engine is a request of this shape once the fields its caller_fills list names are filled.",
+  "type": "object",
+  "required": [
+    "op"
+  ],
+  "properties": {
+    "op": {
+      "enum": [
+        "inspect",
+        "dispatch-invocation",
+        "execution-check",
+        "child-link",
+        "release-continue",
+        "advice-refresh",
+        "prepare-dispatch",
+        "attach-execution",
+        "deliver",
+        "mark-lost",
+        "advance",
+        "finish",
+        "owner-exception",
+        "upgrade",
+        "commit-record",
+        "withdraw-decision"
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"op": {"const": "release-continue"}}, "required": ["op"]},
+      "then": {
+        "additionalProperties": false,
+        "required": ["op", "op_id", "assignment", "attempt", "delivery_token", "handle", "host", "target", "step_result", "outcome"],
+        "properties": {
+          "op": {"const": "release-continue"},
+          "op_id": {"type": "string", "pattern": "^[A-Za-z0-9._-]{8,64}$"},
+          "assignment": {"type": "string", "minLength": 1},
+          "attempt": {"type": "integer", "minimum": 1},
+          "delivery_token": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+          "handle": {"type": "string", "minLength": 1},
+          "host": {"type": "string", "minLength": 1},
+          "target": {"enum": ["beta", "official"]},
+          "outcome": {"enum": ["done", "failed", "blocked"]},
+          "step_result": {"type": "object", "additionalProperties": false, "required": ["step", "exit_code"],
+            "properties": {"step": {"type": "string", "minLength": 1}, "exit_code": {"type": "integer"},
+              "ledger_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}},
+          "commits": {"type": "array", "items": {"type": "string", "pattern": "^[0-9a-f]{40}$"}},
+          "evidence": {"type": "array", "items": {"type": "string", "minLength": 1}},
+          "stop": {"enum": ["owner-decision", "approval-wait", "contradicted-premise", "outward-act", "escalation-loop"]}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"op": {"const": "child-link"}}, "required": ["op"]},
+      "then": {
+        "additionalProperties": false,
+        "required": ["op", "op_id", "assignment", "attempt", "child_task"],
+        "properties": {
+          "op": {"const": "child-link"},
+          "op_id": {"type": "string", "pattern": "^[A-Za-z0-9._-]{8,64}$"},
+          "assignment": {"type": "string", "minLength": 1},
+          "attempt": {"type": "integer", "minimum": 1},
+          "child_task": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"op": {"const": "advice-refresh"}}, "required": ["op"]},
+      "then": {
+        "additionalProperties": false,
+        "required": ["op", "op_id"],
+        "properties": {
+          "op": {"const": "advice-refresh"},
+          "op_id": {"type": "string", "pattern": "^[A-Za-z0-9._-]{8,64}$"},
+          "kinds": {"type": "array", "minItems": 1,
+            "items": {"enum": ["execution-arrangement", "context-selection", "focused-test-ranking", "review-routing", "finding-disposition", "review-finding-grouping", "handoff-completeness", "failure-routing"]}},
+          "task_id": {"type": "string", "minLength": 1},
+          "role": {"type": "string", "minLength": 1},
+          "assignment": {"type": "string", "minLength": 1},
+          "evidence_id": {"type": "string", "pattern": "^TE-[0-9a-f]{32}$"}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"op": {"const": "execution-check"}}, "required": ["op"]},
+      "then": {
+        "additionalProperties": false,
+        "required": ["op", "op_id", "assignment", "attempt"],
+        "properties": {
+          "op": {"const": "execution-check"},
+          "op_id": {"type": "string", "pattern": "^[A-Za-z0-9._-]{8,64}$"},
+          "assignment": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"},
+          "attempt": {"type": "integer", "minimum": 1},
+          "checkout": {"type": "string", "minLength": 1},
+          "edited_paths": {"type": "array", "items": {"type": "string", "minLength": 1}}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"op": {"const": "dispatch-invocation"}}, "required": ["op"]},
+      "then": {
+        "additionalProperties": false,
+        "required": ["op", "assignment", "attempt"],
+        "properties": {
+          "op": {"const": "dispatch-invocation"},
+          "assignment": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"},
+          "attempt": {"type": "integer", "minimum": 1}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "op": {
+            "const": "inspect"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "then": {
+        "additionalProperties": false,
+        "required": [
+          "op"
+        ],
+        "properties": {
+          "op": {
+            "const": "inspect"
+          },
+          "host": {
+            "type": "string",
+            "minLength": 1
+          },
+          "summary": {
+            "type": "boolean",
+            "description": "Print only the position, unmet requirements, next actions, open attempts, problems and record state. The full output is the default."
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "op": {
+            "const": "prepare-dispatch"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "then": {
+        "additionalProperties": false,
+        "required": [
+          "op",
+          "op_id",
+          "task_id",
+          "host"
+        ],
+        "properties": {
+          "op": {
+            "const": "prepare-dispatch"
+          },
+          "op_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._-]{8,64}$"
+          },
+          "task_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "role": {
+            "description": "Optional explicit configured role. Otherwise code selects a permitted arrangement or returns the choice to the responsible agent.",
+            "enum": [
+              "architect",
+              "brainstormer",
+              "commander",
+              "dev-lead",
+              "developer",
+              "historian",
+              "librarian",
+              "night-gardener",
+              "reviewer",
+              "wayfinder"
+            ]
+          },
+          "host": {
+            "type": "string",
+            "minLength": 1
+          },
+          "mode": {
+            "type": "string",
+            "minLength": 1
+          },
+          "assignment_text": {
+            "type": "string",
+            "description": "Optional caller addendum. The engine always constructs the mandatory role, objectives, task, evidence and plan assignment."
+          },
+          "assignment": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+          },
+          "result_path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "capabilities": {"type": "object", "additionalProperties": false,
+            "properties": {
+              "available": {"type": "array", "items": {"type": "string", "minLength": 1}},
+              "unavailable": {"type": "array", "items": {"type": "string", "minLength": 1}},
+              "observation": {"type": "string", "minLength": 1}
+            }},
+          "release_continuation": {"type": "object", "additionalProperties": false, "required": ["version"],
+            "properties": {"version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}}},
+          "integration_owner": {
+            "description": "The role that integrates an isolating role's worktree commits onto the main checkout; the invocation and preamble name it. Without it they name the delegator that performs the invocation.",
+            "enum": [
+              "architect",
+              "brainstormer",
+              "commander",
+              "dev-lead",
+              "developer",
+              "historian",
+              "librarian",
+              "night-gardener",
+              "reviewer",
+              "wayfinder"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "op": {
+            "const": "attach-execution"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "then": {
+        "additionalProperties": false,
+        "required": [
+          "op",
+          "op_id",
+          "assignment",
+          "attempt",
+          "handle"
+        ],
+        "properties": {
+          "op": {
+            "const": "attach-execution"
+          },
+          "op_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._-]{8,64}$"
+          },
+          "assignment": {
+            "type": "string",
+            "minLength": 1
+          },
+          "attempt": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "handle": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "op": {
+            "const": "deliver"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "then": {
+        "additionalProperties": false,
+        "required": [
+          "op",
+          "op_id",
+          "assignment",
+          "attempt",
+          "outcome"
+        ],
+        "properties": {
+          "op": {
+            "const": "deliver"
+          },
+          "op_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._-]{8,64}$"
+          },
+          "assignment": {
+            "type": "string",
+            "minLength": 1
+          },
+          "attempt": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "outcome": {
+            "enum": [
+              "done",
+              "blocked",
+              "failed"
+            ]
+          },
+          "commits": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "stage": {
+            "enum": [
+              "implemented",
+              "integrated"
+            ]
+          },
+          "note": {
+            "type": "string",
+            "minLength": 1
+          },
+          "stop": {
+            "description": "Names a blocked delivery as a stop: an owner decision, an approval wait, a contradicted premise, an outward act or an escalation loop. A blocked delivery with a stop triggers no failure routing; one without a stop does.",
+            "enum": [
+              "owner-decision",
+              "approval-wait",
+              "contradicted-premise",
+              "outward-act",
+              "escalation-loop"
+            ]
+          }
+        },
+        "if": {
+          "required": [
+            "stop"
+          ]
+        },
+        "then": {
+          "properties": {
+            "outcome": {
+              "const": "blocked"
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "op": {
+            "const": "mark-lost"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "then": {
+        "additionalProperties": false,
+        "required": [
+          "op",
+          "op_id",
+          "assignment",
+          "attempt",
+          "note",
+          "evidence"
+        ],
+        "properties": {
+          "op": {
+            "const": "mark-lost"
+          },
+          "op_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._-]{8,64}$"
+          },
+          "assignment": {
+            "type": "string",
+            "minLength": 1
+          },
+          "attempt": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "note": {
+            "type": "string",
+            "minLength": 1
+          },
+          "evidence": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "detail"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "minLength": 1
+              },
+              "detail": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "op": {
+            "const": "advance"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "then": {
+        "additionalProperties": false,
+        "required": [
+          "op",
+          "op_id",
+          "expect_revision"
+        ],
+        "properties": {
+          "op": {
+            "const": "advance"
+          },
+          "op_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._-]{8,64}$"
+          },
+          "expect_revision": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "op": {
+            "const": "finish"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "then": {
+        "additionalProperties": false,
+        "required": [
+          "op",
+          "op_id",
+          "expect_revision"
+        ],
+        "properties": {
+          "op": {
+            "const": "finish"
+          },
+          "op_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._-]{8,64}$"
+          },
+          "expect_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "lessons": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "remaining": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "tip": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "op": {
+            "const": "owner-exception"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "then": {
+        "additionalProperties": false,
+        "required": [
+          "op",
+          "op_id",
+          "quote",
+          "conversation",
+          "date"
+        ],
+        "properties": {
+          "op": {
+            "const": "owner-exception"
+          },
+          "op_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._-]{8,64}$"
+          },
+          "quote": {
+            "type": "string",
+            "minLength": 1
+          },
+          "conversation": {
+            "type": "string",
+            "minLength": 1
+          },
+          "date": {
+            "type": "string",
+            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+          },
+          "references": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "op": {
+            "const": "upgrade"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "then": {
+        "additionalProperties": false,
+        "required": [
+          "op",
+          "op_id"
+        ],
+        "properties": {
+          "op": {
+            "const": "upgrade"
+          },
+          "op_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._-]{8,64}$"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "op": {
+            "const": "commit-record"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "then": {
+        "additionalProperties": false,
+        "required": [
+          "op"
+        ],
+        "properties": {
+          "op": {
+            "const": "commit-record"
+          },
+          "op_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._-]{8,64}$",
+            "description": "Optional; validated and echoed in the response, never journaled."
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "op": {
+            "const": "withdraw-decision"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "then": {
+        "additionalProperties": false,
+        "required": [
+          "op",
+          "op_id",
+          "name",
+          "reason",
+          "tasks"
+        ],
+        "properties": {
+          "op": {
+            "const": "withdraw-decision"
+          },
+          "op_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._-]{8,64}$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          },
+          "tasks": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    }
+  ]
+}

@@ -16,6 +16,7 @@ import cycle
 import cycle_workflow as workflow
 from cycle_workflow import CycleError, PHASES
 from test_evidence import execute
+from _classifier_isolation import isolate_classifier
 
 FIXTURES = Path(__file__).resolve().parent / 'fixtures/cycle-records'
 REVIEW_REQUIRED = 'a passing independent review of the current scope is required'
@@ -25,6 +26,7 @@ class CliCycleCase(unittest.TestCase):
     """Drives the real writer through the `cycle.py` entry point in a temp tree."""
 
     def setUp(self):
+        isolate_classifier(self)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name).resolve()
@@ -184,7 +186,7 @@ class DirectBasisTests(CliCycleCase):
             'acceptance': lambda d: d['plan'].update(acceptance=['new']),
             'verification': lambda d: d['plan'].update(verification=['new']),
             'build task': lambda d: d['plan']['tasks'].append(self.task('build')),
-            'test task': lambda d: d['plan']['tasks'].append(self.task('test')),
+            'verify task': lambda d: d['plan']['tasks'].append(self.task('verify')),
             'review task': lambda d: d['plan']['tasks'].append(self.task('review')),
         }
         base = workflow.review_basis(self.doc)
@@ -225,6 +227,7 @@ class DirectBasisTests(CliCycleCase):
         for kind, sequence in PHASES.items():
             if kind == 'release':
                 continue  # a release cycle has no Review phase and no review basis
+            sequence = ['verify' if phase == 'test' else phase for phase in sequence]  # a fresh record names the phase after Build 'verify'
             bearing = 'review'
             doc = self.edited(lambda d: d.update(type=kind))
             base = workflow.review_basis(doc)
@@ -573,7 +576,7 @@ class Version3InvalidatingTests(CliCycleCase):
         edits = {
             'description': lambda d: self.task_of(d).update(description='changed'),
             'expected_evidence': lambda d: self.task_of(d).update(expected_evidence=['changed']),
-            'phase': lambda d: self.task_of(d).update(phase='test'),
+            'phase': lambda d: self.task_of(d).update(phase='verify'),
             'id': lambda d: self.task_of(d).update(id='renamed'),
             'new pre-review task': lambda d: d['plan']['tasks'].append(self.task('build', identity='added')),
             'scope': lambda d: d['plan'].update(scope=['src', 'lib']),
@@ -644,7 +647,7 @@ class PlanDetailsTests(CliCycleCase):
         cid = self.create_quick_fix()
         self.ok('checks', cid, '--check', 'unit')
         self.ok('coverage', cid, '--file', self.write_json('cov.json', self.coverage()))
-        self.assertEqual(self.ok('advance', cid)['phase'], 'test')
+        self.assertEqual(self.ok('advance', cid)['phase'], 'verify')
         doc = self.ok('plan-details', cid, '--file', self.details(verification=['v']), '--reason', 'late detail')
         self.assertEqual(doc['plan']['verification'], ['v'])
 
@@ -655,7 +658,7 @@ class PlanDetailsTests(CliCycleCase):
         for phase, cid in (('review', in_review), ('reflect', in_reflect)):
             with self.subTest(phase):
                 self.assertEqual(workflow.load(self.root, cid)['phase'], phase)
-                self.assertIn('Build or Test', self.refused('plan-details', cid, '--file', self.details(constraints=['c']), '--reason', 'r'))
+                self.assertIn('Build or Verify', self.refused('plan-details', cid, '--file', self.details(constraints=['c']), '--reason', 'r'))
         # Positive control: the same file is accepted in Build.
         fresh = self.create_quick_fix()
         self.ok('plan-details', fresh, '--file', self.details(constraints=['c']), '--reason', 'r')
@@ -701,7 +704,7 @@ class PlanDetailsTests(CliCycleCase):
         cid = self.create_quick_fix()
         self.ok('checks', cid, '--check', 'unit')
         self.ok('coverage', cid, '--file', self.write_json('cov.json', self.coverage()))
-        self.assertEqual(self.ok('advance', cid)['phase'], 'test')
+        self.assertEqual(self.ok('advance', cid)['phase'], 'verify')
         self.assertIn('current or a later phase', self.refused('task-add', cid, '--file', self.write_json('t.json', self.task('build'))))
         # Positive control: the current phase is accepted.
         self.ok('task-add', cid, '--file', self.write_json('t2.json', self.task('test')))

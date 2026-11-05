@@ -13,6 +13,8 @@ export type FocusSlot = {
   // Calls the stored reader. False when the slot is empty, the reader throws or it answers anything
   // but exactly true.
   read: () => boolean
+  // Whether this panel still owns the slot, independent of keyboard focus.
+  owns: (reader: () => boolean) => boolean
   // Empties the slot, whatever it holds.
   clear: () => void
 }
@@ -35,6 +37,7 @@ export function createFocusSlot(): FocusSlot {
         return false
       }
     },
+    owns: reader => current === reader,
     clear: () => {
       current = undefined
     },

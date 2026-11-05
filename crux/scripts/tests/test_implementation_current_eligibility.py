@@ -18,6 +18,7 @@ import test_implementation_cycles as cycles
 import test_implementation_decisions as decision_fixtures
 import test_run_council as runner
 import _historical_close_producer as producer
+import _implementation_templates as templates
 
 
 class CurrentConstraints(unittest.TestCase):
@@ -237,6 +238,14 @@ class RecoveryMechanisms(unittest.TestCase):
         self.assertEqual(support.git(self.root, "rev-parse", "HEAD"), head)
 
 
+def _delivered_template():
+    fixture = fixtures.AuthorityView("runTest"); fixture.setUp()
+    templates.cleanup_at_exit(fixture)
+    driver = CurrentMechanisms("runTest"); driver.fixture = fixture; driver.root = fixture.root
+    fixture.delivered = driver.build_delivered_subject()
+    return fixture
+
+
 class CurrentMechanisms(unittest.TestCase):
     setUp = CurrentConstraints.setUp
     published = CurrentConstraints.published
@@ -374,6 +383,12 @@ class CurrentMechanisms(unittest.TestCase):
         self.assertEqual(len(gateway.requests), 3)
 
     def published_delivered_subject(self):
+        """A private clone of the delivered-and-demoted subject, built once per worker."""
+        copy_ = templates.clone(self, "current-delivered-subject", _delivered_template)
+        self.fixture = copy_; self.root = copy_.root
+        return copy_.delivered
+
+    def build_delivered_subject(self):
         self.nonretiring_source()
         path, run_path, book_path, receipt = self.ordinary_subject(
             "ADR-0110/rotation", archive_book=True)

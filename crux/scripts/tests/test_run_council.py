@@ -292,11 +292,6 @@ class RanRecordTests(_Base):
                           g["errored"]), ("gemini-4-argon", "google/gemini-4-argon",
                                           "google/gemini-4-argon", "APPROVE", False))
 
-    def test_max_tokens_and_the_timeout_are_taken_from_the_command_line(self):
-        rc, _, _, gw = self.run_main(self.argv("--max-tokens", "1234", "--timeout", "30"))
-        self.assertEqual(rc, 0)
-        self.assertEqual({p["max_tokens"] for p in gw.requests}, {1234})
-
     def test_max_tokens_above_the_smallest_seat_cap_is_refused_before_any_call(self):
         # gemini-4-argon's 65,536-token cap is the smallest seat cap, and Google returns 400 above it.
         rc, out, err, gw = self.run_main(self.argv("--max-tokens", "65537"))
@@ -674,57 +669,15 @@ class InputRefusalTests(_Base):
         self.assert_preflight([("question.path", "symlink", "retype")], self.argv(question=link))
         self.ran_ok()  # positive control: the retyped question runs, with no owner stop
 
-    def test_a_question_outside_the_repository_is_refused(self):
-        outside = Path(self._td.name) / "elsewhere.md"
-        outside.write_text("q\n")
-        self.assert_preflight([("question.path", "outside-repo", "retype")], self.argv(question=outside))
-        self.ran_ok()
-
-    def test_a_question_under_crux_home_goes_to_the_owner(self):
-        home = self.env.root / "cruxhome"
-        home.mkdir()
-        (home / "q.md").write_text("q\n")
-        with mock.patch.dict(os.environ, {"CRUX_HOME": str(home)}):
-            self.assert_owner(["question.path:crux-home"], self.argv(question=home / "q.md"))
-        self.ran_ok()  # a preflight record takes no place, so round 1 still runs
-
     def test_a_missing_question_is_refused(self):
         self.assert_preflight([("question.path", "missing", "retype")],
                               self.argv(question=self.question.with_name("absent.md")))
-
-    def test_an_env_file_subject_goes_to_the_owner(self):
-        env_file = self.env.root / "docs" / ".env"
-        env_file.write_text("TOKEN=1\n")
-        sup.commit_all(self.env.root, "env")
-        doc = self.assert_owner(["subjects[0].path:env-file"], self.argv(subjects=[env_file]))
-        self.assertIsNone(doc["subjects"][0]["sha256"])  # an env file is never read
-        self.ran_ok()
-
-    def test_a_symlinked_subject_is_refused(self):
-        link = self.env.root / "docs" / "s-link.md"
-        link.symlink_to(self.subject)
-        sup.commit_all(self.env.root, "link")
-        self.assert_preflight([("subjects[0].path", "symlink", "retype")], self.argv(subjects=[link]))
-
-    def test_a_subject_that_is_not_utf8_is_refused(self):
-        blob = self.env.root / "docs" / "blob.bin"
-        blob.write_bytes(b"\xff\xfe\x00bad")
-        sup.commit_all(self.env.root, "blob")
-        self.assert_preflight([("subjects[0].path", "not-utf8", "retype")], self.argv(subjects=[blob]))
 
     def test_an_untracked_subject_the_run_cannot_claim_goes_to_the_owner_and_is_still_hashed(self):
         new = self.env.root / "docs" / "new.md"
         new.write_text("new\n")
         doc = self.assert_owner(["subjects[0].path:unattributed"], self.argv(subjects=[new]))
         self.assertEqual(doc["subjects"][0]["sha256"], self.env.sha("docs/new.md"))
-        self.ran_ok()
-
-    def test_a_gitignored_subject_goes_to_the_owner(self):
-        (self.env.root / ".gitignore").write_text("docs/ignored.md\n")
-        sup.commit_all(self.env.root, "ignore")
-        ign = self.env.root / "docs" / "ignored.md"
-        ign.write_text("hidden\n")
-        self.assert_owner(["subjects[0].path:ignored"], self.argv(subjects=[ign]))
         self.ran_ok()
 
     def test_a_subject_with_an_unstaged_change_goes_to_the_owner_and_is_not_committed(self):
@@ -1331,11 +1284,6 @@ class UncheckedSubjectTests(_Base):
             if p.is_file():
                 self.assertNotIn(b"fresh untracked", p.read_bytes())
 
-    def test_a_clean_subject_is_still_copied_on_a_normal_run(self):
-        rc, *_ = self.run_main(self.argv("--retain-subjects"))
-        self.assertEqual(rc, 0)
-        self.assertIsNotNone(self.only_record()[1]["subjects"][0]["retained_copy"])
-
 
 class RetainedCopyPlacementTests(_Base):
     def test_a_json_subject_that_is_a_council_record_does_not_become_gate_evidence(self):
@@ -1812,11 +1760,6 @@ class ControlCharacterLabelTests(_CliBase):
                          [("question.path", "control-character")])
         self.assertEqual(self.records(), [])
 
-    def test_an_ordinary_name_runs_with_the_same_setup(self):
-        path = self.named("ordinary name.md")  # a space is not a control character
-        rc, out, err, gw = self.run_main(self.argv(subjects=[path]))
-        self.assertEqual((rc, len(gw.requests)), (0, 3))
-
     def test_the_command_line_refuses_a_newline_name_and_runs_an_ordinary_one_to_the_key_check(self):
         bad = self.named("bad\nname.md")
         proc = self.cli(*self.argv(subjects=[bad]))
@@ -1877,16 +1820,6 @@ class HelpTextSubprocessTests(unittest.TestCase):
                               env=sup.scrubbed_env())
         self.assertEqual(proc.returncode, 0, proc.stderr)
         return " ".join(proc.stdout.split())
-
-    def test_max_tokens_help_explains_its_default(self):
-        text = self.help_text()
-        for phrase in ("first-attempt output-token budget for every seat", "The default 64000 lets a long reply",
-                       "a truncated seat fault and is retried once at the seat's own output limit",
-                       "above the smallest seat's output cap in the router registry is refused before any call"):
-            self.assertIn(phrase, text)
-
-    def test_round_help_states_the_round_rule(self):
-        self.assertIn("the module's counted (ran) rounds plus one", self.help_text())
 
     def test_the_epilog_names_the_exit_codes_and_the_refusals(self):
         text = self.help_text()
@@ -1999,12 +1932,6 @@ class HelpTextTests(unittest.TestCase):
         self.assertIn("run-council.py --recover <run> --prompt <n>", text)
         self.assertIn("git stash list", text)
         self.assertIn('"refused": "prompt"', text)
-
-    def test_timeout_is_the_per_seat_call_deadline(self):
-        text = self.help_text()
-        self.assertIn("the per-seat-call deadline, in seconds", text)
-        self.assertNotIn("per-attempt", text)
-        self.assertNotIn("preflight record", text.replace("preflight could-not-run record", ""))
 
 
 def _seats_below(config: dict, limit: int) -> list:

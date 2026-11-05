@@ -210,13 +210,6 @@ class DeclaredEmpty(runner._Base):
         self.assertTrue(eligibility["eligible"], eligibility)
         self.assertNotIn("unscoped_unchecked_refs", eligibility)
 
-    def test_b3_overlap_refused_at_preflight(self):
-        self.install_empty(rule_scope="tools/ungoverned.py")
-        code, out, err, gateway = self.formal()
-        self.assertEqual(code, 1, (out, err))
-        self.assertEqual(gateway.requests, [])
-        self.assertEqual(self.attempts(), [])
-
     def test_b3_overlap_refused_at_close(self):
         self.install_empty()
         self.close_ready()

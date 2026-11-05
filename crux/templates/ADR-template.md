@@ -81,6 +81,8 @@ alternatives were genuine candidates.>
 **Follow-on work:**
 - <Anything this decision creates: new ADRs to write, briefs to produce, code to migrate.>
 
+<Reconciliation table: one row per live rule this draft amends or shares a domain with, marked retain, narrow or retire; see the propose-adr pre-council self-check.>
+
 ## References
 
 - [[briefs/BRIEF-<slug>]]

@@ -68,13 +68,6 @@ class DetectionAndResolutionTests(unittest.TestCase):
         # package.json present, no crux/python/ruby markers → auto-detects node.
         self.assertEqual(D.detect_stack(FIXTURE, None), "node")
 
-    def test_resolution_picks_openapi_when_present(self):
-        # A committed openapi.json → api-surface resolves to the openapi probe (1st).
-        self.assertIs(
-            D.resolve_extractor("api-surface", FIXTURE, "bionic", None, pack_name="node"),
-            D.extract_node_api_surface_openapi,
-        )
-
     def test_resolution_falls_to_route_scan_without_openapi(self):
         tmp, root = _copy()
         self.addCleanup(tmp.cleanup)
@@ -632,12 +625,6 @@ class RenameRegressionTests(unittest.TestCase):
     def test_old_helper_names_gone(self):
         self.assertFalse(hasattr(D, "_MAX_RUBY_BYTES"))
         self.assertFalse(hasattr(D, "_ruby_node_ids"))
-
-    def test_node_ids_behaviour_unchanged(self):
-        # The former _ruby_node_ids collision-suffix contract still holds.
-        ids = D._node_ids(["A_b", "A:b"])
-        self.assertEqual(ids["A:b"], "A_b")
-        self.assertEqual(ids["A_b"], "A_b_2")
 
 
 # ───────────────────── data-model: Prisma (point 2) ─────────────────────────

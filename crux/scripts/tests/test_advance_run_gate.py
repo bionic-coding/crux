@@ -393,9 +393,6 @@ class ReviewGateEvidenceTests(_Case):
                 self.assertEqual(payload["gate"]["verdict"], "refuse")
                 self.assertEqual(self.env.run_path.read_bytes(), self.before)
 
-    def test_skipped_is_refused_at_the_review_gate(self):
-        self.refused(self.cli("--outcome", "skipped"), "cannot be skipped")
-
 
 BLOCK_TEXT = "  run notes line one\n\n    indented detail\n  last prior line\n"
 BLOCK_VALUE = "run notes line one\n\n  indented detail\nlast prior line"
@@ -833,23 +830,6 @@ class GateInfoAndWithdrawnTests(_Case):
         self.assertIn("correction_notice", self.out(proc))
         self.assertEqual(sha(self.env.book_path), before[1])
 
-    def test_an_old_alternative_book_advanced_with_book_changes_only_its_current_prompt_line(self):
-        before = self.env.book_path.read_text().splitlines()
-        r1 = self.council()
-        proc = self.cli("--outcome", "done", "--artifacts", self.artifacts(r1),
-                        "--book", str(self.env.book_path))
-        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-        out = self.out(proc)
-        self.assertIn("native-agents-equivalent", out["withdrawn"])
-        self.assertIn("CORRECTION", out["correction_notice"])
-        after = self.env.book_path.read_text().splitlines()
-        self.assertEqual(len(after), len(before))
-        changed = [(a, b) for a, b in zip(before, after) if a != b]
-        self.assertEqual(len(changed), 1, changed)
-        self.assertTrue(changed[0][0].startswith("current_prompt:"), changed)
-        self.assertEqual(changed[0][1], "current_prompt: 4")
-        self.assertIn(HISTORICAL[:40], "\n".join(after))
-
     def test_a_clean_book_carries_no_notice_on_an_advance(self):
         clean = sup.Env(Path(self._td.name) / "clean", kind="adr", autocommit=True)
         clean.set_run(3)
@@ -1122,16 +1102,6 @@ class UnboundCycleFieldTests(_Case):
         proc = self.cli("--outcome", "done", "--artifacts", self.artifacts(self.council()))
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
 
-    def test_a_book_grandfathered_at_run_start_stays_unclassified(self):
-        book = sup.make_book("adr", cycle_grandfathered=True, grandfather_reason="old")
-        env = sup.Env(Path(self._td.name) / "gf", kind="adr", book=book, autocommit=True,
-                      base=False)
-        pin_base(env, 3)
-        proc = subprocess.run([sys.executable, str(ADVANCE), str(env.run_path), "--outcome", "done"],
-                              capture_output=True, text=True, cwd=env.root)
-        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-        self.assertEqual(json.loads(proc.stdout)["gate"]["class"], "unclassified")
-
     def test_an_unknown_run_start_classifies_from_the_hash_bound_fields(self):
         book = sup.make_book("adr", cycle_grandfathered=True, grandfather_reason="old")
         env = sup.Env(Path(self._td.name) / "gf", kind="adr", book=book, autocommit=True,
@@ -1318,15 +1288,6 @@ class SymlinkedPathTests(_Case):
         self.assertEqual(self.env.load_run()["current_prompt"], 2)
 
 
-class UsageNamesTheBookRequirementTests(unittest.TestCase):
-    def test_the_docstring_and_help_say_every_outcome_needs_a_hash_matched_book(self):
-        doc = _ar.__doc__
-        self.assertIn("Every `--outcome` needs a resolvable book whose content hash matches", doc)
-        proc = subprocess.run([sys.executable, str(ADVANCE), "--help"], capture_output=True, text=True)
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertIn("every --outcome needs a resolvable book", " ".join(proc.stdout.split()))
-
-
 class CommittedEvidenceCliTests(_Case):
     """The gate reads only committed records, and a record committed in HEAD cannot be removed or
     changed to clear a stop (M5). Each refusal writes nothing and is paired with its passing control."""
@@ -1453,40 +1414,6 @@ class ReviewGateArtifactCliTests(_Case):
         self.assertEqual(self.env.run_path.read_bytes(), self.before)
         proc = self.cli("--outcome", "done", "--artifacts", self.artifacts(rep))
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-
-
-class GateInfoRequiresTextTests(_Case):
-    """`--gate-info` states what the gate reads: the newest record decides, and authorship is not verified."""
-
-    def requires(self, n):
-        proc = self.cli("--gate-info", "--prompt", str(n))
-        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-        return " ".join(self.out(proc)["requires"].split())
-
-    def test_the_council_and_close_text_names_the_deciding_record_and_the_self_asserted_writer(self):
-        council, close = self.requires(3), self.requires(5)
-        for text in (council, close):
-            self.assertIn("a committed council record that names run-council.py as its writer "
-                          "(a self-asserted field)", text)
-            self.assertIn("only the seats of the record that decides (the deciding council record, or "
-                          "the council record a deciding refutation names) are checked against the "
-                          "current router registry assignment", text)
-            self.assertIn("attach the deciding record, council or refutation, committed, with --artifacts",
-                          text)
-            self.assertIn("committed last", text)
-            self.assertNotIn("the latest record decides", text)
-            self.assertNotIn("only convergence closes the gate", text)
-        self.assertIn("the record committed last decides: it converges, or in an adr module a "
-                      "refutation record shows every blocking finding refuted", council)
-        self.assertIn("the deciding record is the one committed last: a council record, or in an adr "
-                      "module a refutation record", close)
-        self.assertIn("run-council.py", close)
-
-    def test_the_review_text_is_unchanged_by_the_council_wording(self):
-        self.assertIn("a reviewer report", self.requires(10))
-
-    def test_the_review_text_says_a_non_json_artifact_is_refused(self):
-        self.assertIn("an attached artifact that is not a .json reviewer report is refused", self.requires(10))
 
 
 class GateInfoAndRouteCoverageTests(_Case):

@@ -1,4 +1,4 @@
-<!-- generated-from: CODEX.md@sha256:51ab99726c0b731868550caeda6daafae1924a63f642d5bd49f05d0c8db39bca; model: deterministic-copy; date: 2026-10-20 -->
+<!-- generated-from: CODEX.md@sha256:d68e822bfca5b6dca648d2b406cd7667469acb8e3c62951dab186bb8979d1eb1; model: deterministic-copy; date: 2026-11-01 -->
 # Install Crux for Codex
 
 This guide installs the Crux plugin, its skills, and its ten Codex role agents. It covers human installation and the procedure an agent should follow after the plugin is available.
@@ -116,11 +116,78 @@ The installer refuses unsafe managed files, escaping paths, malformed source dec
 | Static health is clean but the role is unavailable | Start a fresh thread and record runtime evidence; static health does not prove host discovery. |
 | A role has broader access than expected | Check the parent session's permission overrides. The role prompt remains binding. |
 
+## Current cycle execution
+
+The exposed Codex spawn interface uses `task_name`, `agent_type` and `message`.
+The native wait interface accepts only `timeout_ms`, no `ids`; use at most 60000 ms
+per call. A global wake-up proves no child completed. Match the recorded handle,
+attempt, result path and exact current marker before delivering. Overall wait windows
+remain uncapped and liveness remains unknown without admissible host evidence.
+At default nested depth, return dispatches to the parent that holds the tool.
+
+The commander's existing literal cycle.py lane also supports `context-read` for
+listed canonical context and exact bound reports. It reads assigned uncommitted
+reports without granting arbitrary shell or credential access. Full inspect supplies
+references and ready commands. Follow byte pagination with the original digest.
+`dispatch-invocation` retrieves frozen assignment/addendum/native parameters on
+takeover; read every selected body completely, preserving canonical source directories.
+Current source/grant checks can refuse initial dispatch; recovery never silently
+rebuilds context. Historical missing snapshots remain explicitly unavailable.
+
+Workers use `execution-check` before edits and checkpoint staged `edited_paths`
+before committing source. Separate execution proof permits verified bookkeeping
+descendants while preserving the immutable original review base. Foreign source,
+dirty starts and unrelated ancestry keep the normal integration path.
+
+Routine cycle operations make no provider requests. They use current cached advice
+or return the question to the responsible agent. Say “refresh cycle advice” for an
+optional bounded batch; explicitly requested automatic work sizing remains available.
+Task-domain filtering keeps unrelated skills out of optional dispatch context.
+
+`execution-check` commits its own proof bookkeeping. Before pausing, seal pending
+owned worktree bytes and index identities. Resume admits those exact bytes only for
+the same bound host handle, checkout, immutable base and validated ancestor proof.
+Changed or foreign bytes and new executions use normal recovery. A completed child's
+sealed commits may integrate through a declared, verified conflict-free merge.
+
+Fixed-list release continuation requires the loaded dev-lead's narrow `release-continue`
+grant and actual evidence of every required host capability. Otherwise use normal
+per-task dispatch/attach. Continuation preserves each logical task, attempt, marker,
+report and release gate. It does not grant publication or attest native liveness.
+Fresh installed-host continuation remains unobserved by the source fixtures.
+
+Queue format 2 separates active items from immutable per-item history. Say “show the
+full queue” or “show queue history” for `cycle.py queue list --full`; named history
+remains available through `queue show Q-NNNN`. Preview with `queue archive --dry-run`;
+`queue archive --migrate` explicitly migrates format 1. Reads never migrate. Old queue
+and release readers are unsupported after migration. Cycle/evidence paths stay fixed.
+
+Actual explicit IDR/ADR owner answers may be transcribed through cycle.py
+owner-decision present/capture/apply with verbatim words, real source reference,
+owner-local date and exact presented digest. Ambiguous continuation is pending.
+Reject/pending cannot approve; a later capture does not revoke an applied acceptance.
+No owner terminal command is required. Other authorization lanes remain separate.
+
+Full inspect lists exact council subject/attempt/result references and recovery
+prerequisites. Architect runs its returned probe/await/recover/architect commands.
+New gateway checkpoints retain known findings and unknown in-flight outcomes.
+Recovery sends no request, grants no partial approval and resets no attempt budget.
+
+These are source interfaces and projection checks. Regeneration performs no
+installation or reload and proves no fresh native host injection. Record actual
+observations separately from fixtures and unobserved host behavior.
+
 ## Watching a cycle
 
 Codex has no dashboard panel. To follow a cycle while a Codex session runs it, open a second terminal and run `uv run <plugin-root>/scripts/cycle.py --repo-root <project> status --watch 5`. It redraws the cycle view every 5 seconds until Ctrl-C and writes nothing. Name a cycle after `status` to show only that one.
 
-## Councils
+Say “show the full queue” to see every active item in text; the CLI has no six-row display cap.
+
+## Historical promptbook councils
+
+The following run/prompt commands preserve historical protocol. New cycles use
+`cycle-council.py` through architect and the current cycle interfaces above.
+
 
 A cycle's council gate runs through the council runner (`run-council.py`), which needs the gateway key. Store it with `crux-env set OPENROUTER_API_KEY <value>`. A reviewer in the read-only Codex sandbox returns its report fields, and the commissioning agent runs the report writer. Whether a Codex sandbox allows egress to the gateway is unverified. An unreachable gateway takes the could-not-run stop: the council runner writes DEFER_TO_HUMAN, and the run stops for you. Commit every council subject before a run's next gate prompt. The council runner commits its attempt record and its council record itself; do not commit either by hand. When the council runner exits 2 and stderr names `timeout`, or names outside work the commit moved, the owner's remedy comes first. Restore the work a hook set aside (`git stash list`; the pre-commit framework keeps a backup patch under its cache directory). Only then remove a stale `index.lock` in the git directory. After those two steps, and after any other exit 2 or an open attempt, run the process check and probe the lock with `run-council.py --recover <run> --prompt <n> --probe`. Once no live council runner holds it, run `run-council.py --recover <run> --prompt <n>`, never a new round.
 

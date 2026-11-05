@@ -169,7 +169,7 @@ class ShippedRegistryTests(unittest.TestCase):
 
     def test_every_other_entry_declares_no_set(self):
         for key, entry in self.config["models"].items():
-            if key not in PINNED_TEXT:
+            if key not in PINNED_TEXT and key not in self.DECLARES_SERVED_SET:
                 with self.subTest(key=key):
                     self.assertNotIn("accepted_served_models", entry)
 
@@ -200,6 +200,7 @@ class ShippedRegistryTests(unittest.TestCase):
         "council_default": ["gpt-6.1-sol", "gemini-4-argon", "claude-opus-5.5-xhigh"],
         "council_arbiter": "claude-opus-5.5-xhigh",
         "release_docs": "claude-sonnet-5.5",
+        "cycle_classifier": "gpt-6-luna-decisions",
     }
     #: Each non-text entry: api_string, type, tier, and the first 16 hex digits of
     #: the sha256 of its `json.dumps(entry, sort_keys=True)`. Any edit to an image
@@ -216,7 +217,11 @@ class ShippedRegistryTests(unittest.TestCase):
         "gemini-2.5-flash-image": ("google/gemini-2.5-flash-image", "image_generation",
                                    "image_gen_legacy", "bd925df30581a8c4"),
         "jev-1.13": ("typesafe/jev-1.13", "decisions", None, "703469c46c60ff65"),
+        "gpt-6-luna-decisions": ("openai/gpt-6-luna-decisions", "decisions", None, "cd0c1bb1cecc9134"),
     }
+    #: The classifier's decisions entry declares its one accepted served model. The transport
+    #: reads it, and no council seat can: a decisions entry is never council-eligible.
+    DECLARES_SERVED_SET = {"gpt-6-luna-decisions": ["openai/gpt-6-luna-decisions"]}
 
     def test_the_roles_are_the_pinned_ones(self):
         roles = {k: v for k, v in self.config["model_roles"].items() if k != "_comment"}
@@ -238,7 +243,11 @@ class ShippedRegistryTests(unittest.TestCase):
                 self.assertEqual(
                     hashlib.sha256(json.dumps(entry, sort_keys=True).encode()).hexdigest()[:16],
                     digest)
-                self.assertNotIn("accepted_served_models", entry)
+                if key in self.DECLARES_SERVED_SET:
+                    self.assertEqual(entry["accepted_served_models"], self.DECLARES_SERVED_SET[key])
+                    self.assertFalse(llm_caller.council_eligibility(key).eligible)
+                else:
+                    self.assertNotIn("accepted_served_models", entry)
                 self.assertNotIn("accepted_served_providers", entry)
 
     def test_the_pin_detects_an_edit(self):
@@ -247,6 +256,44 @@ class ShippedRegistryTests(unittest.TestCase):
         entry["tier"] = "image_gen_fast"
         digest = hashlib.sha256(json.dumps(entry, sort_keys=True).encode()).hexdigest()[:16]
         self.assertNotEqual(digest, self.PINNED_NON_TEXT["gpt-image-2.5-sunburst"][3])
+
+    def test_luna_expansion_preserves_its_original_model_and_provider_policy(self):
+        # The approved expansion adds these settings only. Removing them must
+        # reproduce the original full-entry pin, including its data policy.
+        entry = copy.deepcopy(self.config["models"]["gpt-6-luna-decisions"])
+        additions = {field: entry.pop(field) for field in ("input_bounds", "context_keep", "focused_test_keep")}
+        self.assertEqual(additions, {
+            "context_keep": 3, "focused_test_keep": 3,
+            "input_bounds": {
+                "work-sizing": 4000, "review-routing": 4000, "finding-disposition": 4000,
+                "failure-routing": 12000, "execution-arrangement": 4000, "context-selection": 4000,
+                "handoff-completeness": 12000, "review-finding-grouping": 8000,
+                "focused-test-ranking": 4000, "public-document-relevance": 4000,
+            },
+        })
+        self.assertEqual(hashlib.sha256(json.dumps(entry, sort_keys=True).encode()).hexdigest()[:16],
+                         "af82731f78331c50")
+
+    def test_the_luna_pin_rejects_expansion_and_policy_drift(self):
+        changed_bounds = {**self.config["models"]["gpt-6-luna-decisions"]["input_bounds"], "failure-routing": 4000}
+        for field, value in (("input_bounds", changed_bounds), ("context_keep", 4), ("focused_test_keep", 4),
+                             ("api_string", "openai/other"), ("provider", "other"), ("type", "text"),
+                             ("data_collection", "allow"), ("timeout_seconds", 21),
+                             ("accepted_served_models", ["openai/other"]), ("judge_eligible", True),
+                             ("base_url", "https://invalid.example/v1"), ("tool_grants", ["shell"])):
+            with self.subTest(field=field):
+                # Run the actual frozen-entry assertion against an isolated
+                # in-memory edit. A changed digest must remain a failing test.
+                case = ShippedRegistryTests("test_the_non_text_entries_are_the_pinned_ones")
+                setup = case.setUp
+                def edited_setup():
+                    setup()
+                    case.config["models"]["gpt-6-luna-decisions"][field] = value
+                case.setUp = edited_setup
+                result = unittest.TestResult()
+                case.run(result)
+                self.assertEqual(len(result.failures), 1, field)
+                self.assertEqual(result.errors, [], field)
 
 
 class TempRegistry(unittest.TestCase):

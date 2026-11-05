@@ -448,32 +448,18 @@ def handed_off_skills(lane_carried, whole_skill_delegates, harnesses) -> dict[st
 
 
 class AgentSkillDeclarationTests(unittest.TestCase):
-    """ADR-0111: every role declares the skills its workflows require."""
+    """Universal role preloads resolve; conditional workflow skills stay retrievable."""
 
     EXPECTED_ROLE_SKILLS = {
-        "architect": [
-            "propose-adr", "transition-adr", "migrate-adrs", "council", "srde",
-            "cycle", "link-adr-graph", "propose-brief",
-            "log-work", "forge-skill",
-        ],
-        "brainstormer": ["whiteboarding", "query-docs", "forge-skill"],
-        "commander": ["cycle", "run-promptbook", "council", "log-work"],
-        "dev-lead": ["cycle", "forge-skill", "log-work"],
-        "developer": ["forge-skill", "log-work"],
-        "historian": [
-            "cycle", "init-docs", "audit-docs", "cleanup-campsite", "link-adr-graph",
-            "check-drift", "transition-adr", "ingest-research", "process-inbox", "propose-adr",
-            "propose-brief", "log-work",
-            "archive-promptbook", "extract-code-docs", "verify-code-docs",
-            "run-promptbook", "forge-skill",
-        ],
-        "librarian": ["query-docs", "forge-skill"],
-        "night-gardener": [
-            "tend-garden", "cleanup-campsite", "read-news", "refresh-research-sources",
-            "retrospective", "council", "srde", "whiteboarding", "query-docs", "prose-review",
-            "forge-skill", "log-work",
-        ],
-        "reviewer": ["prose-review", "council", "forge-skill"],
+        "architect": [],
+        "brainstormer": ["whiteboarding"],
+        "commander": ["cycle"],
+        "dev-lead": ["cycle"],
+        "developer": [],
+        "historian": [],
+        "librarian": ["query-docs"],
+        "night-gardener": ["tend-garden"],
+        "reviewer": [],
         "wayfinder": [],
     }
 
@@ -551,20 +537,8 @@ class AgentSkillDeclarationTests(unittest.TestCase):
     def _shipped_role_skill_map(self) -> dict[str, list[str]]:
         return {entry["id"]: entry.get("skills") for entry in self._shipped_role_entries()}
 
-    # The dependency closure below expands a skill's required skills for each
-    # role. A skill drops out of the closure only when the role hands the whole
-    # act away: a returns-to-caller lane that carries it in every harness, or a
-    # delegates lane that carries it in every harness and is listed in
-    # WHOLE_SKILL_DELEGATES. A delegates lane may hand over only some steps (the
-    # commander's run-promptbook lane hands over the script runs and writes while
-    # the commander reads the book itself), so a delegates lane is not exempt
-    # until it is listed. A lane that carries only some harnesses leaves the role
-    # running the skill by its envelope in the rest, and a caller-supplies lane
-    # runs the skill in the role on supplied output, so those dependencies stay
-    # required. This reads the "needed to execute" wording in section 2 of the
-    # role-skill decision as the role's own execution; whether that reading is
-    # right is an open architect follow-up. The pairing gate decides which
-    # harnesses a lane carries; it reads the projections and needs PyYAML.
+    # Lane ownership remains distinct from universal preload membership. These
+    # controls preserve whole-workflow versus partial-step handoff semantics.
     # rule:returns-to-caller-passes-on-its-route, rule:delegate-target-covers-the-need
     def _handed_off_skills(self) -> dict[str, set[str]]:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -577,18 +551,7 @@ class AgentSkillDeclarationTests(unittest.TestCase):
         )
 
     def test_shipped_handed_off_set_is_pinned(self):
-        # run-promptbook is not whole-skill delegated: the commander reads the book
-        # and gates prompts itself, so its dependencies stay required (and
-        # REQUIRED_SKILL_DEPENDENCIES has no run-promptbook entry to expand).
-        self.assertEqual(
-            self._handed_off_skills(),
-            {
-                "brainstormer": {"forge-skill"},
-                "librarian": {"forge-skill"},
-                "reviewer": {"forge-skill"},
-                "commander": {"log-work"},
-            },
-        )
+        self.assertEqual(self._handed_off_skills(), {})
         self.assertNotIn("run-promptbook", self.REQUIRED_SKILL_DEPENDENCIES)
 
     def test_handed_off_needs_every_harness_for_a_returns_to_caller_lane(self):
@@ -663,28 +626,33 @@ class AgentSkillDeclarationTests(unittest.TestCase):
         self.assertEqual(raised["librarian"], "write-run")
         self.assertNotEqual(raised, self.EXPECTED_SHELL_SCOPE)
 
-    def test_shipped_roles_declare_the_exact_workflow_skill_map(self):
+    def test_shipped_roles_declare_only_the_exact_universal_preload_map(self):
         self.assertEqual(self._shipped_role_skill_map(), self.EXPECTED_ROLE_SKILLS)
 
-    def test_declared_skills_cover_each_role_workflow_dependency_closure(self):
-        declared_by_role = self._shipped_role_skill_map()
-        handed_off = self._handed_off_skills()
+    def _assert_workflow_dependencies_retrievable(self, plugin):
+        available = {path.parent.name for path in validator.discover_skills(plugin)}
         for role, roots in self.DIRECT_ROLE_SKILLS.items():
-            with self.subTest(role=role):
-                required = set(roots)
-                pending = list(roots)
-                while pending:
-                    skill = pending.pop()
-                    if skill in handed_off.get(role, set()):
-                        continue
-                    for dependency in self.REQUIRED_SKILL_DEPENDENCIES.get(skill, set()):
-                        if dependency not in required:
-                            required.add(dependency)
-                            pending.append(dependency)
-                self.assertTrue(
-                    required <= set(declared_by_role[role]),
-                    f"{role} omits {sorted(required - set(declared_by_role[role]))}",
-                )
+            required = set(roots)
+            pending = list(roots)
+            while pending:
+                skill = pending.pop()
+                for dependency in self.REQUIRED_SKILL_DEPENDENCIES.get(skill, set()):
+                    if dependency not in required:
+                        required.add(dependency)
+                        pending.append(dependency)
+            self.assertTrue(required <= available, f"{role} cannot retrieve {sorted(required - available)}")
+
+    def test_canonical_skills_cover_each_role_workflow_dependency_closure(self):
+        self._assert_workflow_dependencies_retrievable(REPO_ROOT / "crux")
+
+    def test_missing_conditional_dependency_is_not_hidden_by_trimmed_preloads(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            plugin = Path(temporary) / "crux"
+            shutil.copytree(REPO_ROOT / "crux" / "skills", plugin / "skills")
+            self._assert_workflow_dependencies_retrievable(plugin)
+            (plugin / "skills/query-docs/SKILL.md").unlink()
+            with self.assertRaisesRegex(AssertionError, "query-docs"):
+                self._assert_workflow_dependencies_retrievable(plugin)
 
     def test_missing_skills_declaration_is_rejected(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1122,6 +1090,32 @@ class ModelsCatalogNegativeTests(unittest.TestCase):
 
     def test_v5_codex_model_absent_from_the_router_registry(self):
         self._assert_rule("V5", lambda t: t.replace("model: gpt-6.1-sol", "model: gpt-5.6"))
+
+    def _classifier_rules(self, edit):
+        with tempfile.TemporaryDirectory() as td:
+            plugin = _plugin_fixture(Path(td))
+            path = plugin / "scripts" / "crux" / "_config" / "llm_router_config.json"
+            config = json.loads(path.read_text(encoding="utf-8"))
+            edit(config)
+            path.write_text(json.dumps(config), encoding="utf-8")
+            return [f for f in _rules(plugin) if "classifier" in f["error"] or "cycle_classifier" in f["error"]]
+
+    def test_v5_shipped_cycle_classifier_entry_is_clean(self):
+        self.assertEqual(self._classifier_rules(lambda c: None), [])
+
+    def test_v5_cycle_classifier_role_absent_or_empty_is_valid(self):
+        self.assertEqual(self._classifier_rules(lambda c: c["model_roles"].pop("cycle_classifier")), [])
+        self.assertEqual(self._classifier_rules(lambda c: c["model_roles"].update(cycle_classifier="")), [])
+
+    def test_v5_cycle_classifier_entry_weakening_data_collection_is_reported(self):
+        found = self._classifier_rules(lambda c: c["models"]["gpt-6-luna-decisions"].update(data_collection="allow"))
+        self.assertEqual([f["field"] for f in found], ["V5"])
+        self.assertIn("data_collection", found[0]["error"])
+
+    def test_v5_cycle_classifier_entry_carrying_zdr_is_reported(self):
+        found = self._classifier_rules(lambda c: c["models"]["gpt-6-luna-decisions"].update(zdr=True))
+        self.assertEqual([f["field"] for f in found], ["V5"])
+        self.assertIn("zdr", found[0]["error"])
 
     # ── V6 ─────────────────────────────────────────────────────────────────
     def test_v6_frontmatter_disagrees_with_its_level(self):

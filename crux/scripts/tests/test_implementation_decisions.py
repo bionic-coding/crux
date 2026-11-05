@@ -20,6 +20,7 @@ import implementation_decisions as ids
 import implementation_approval as approval
 import council_gate as cg
 import council_records as cr
+import _implementation_templates as templates
 
 
 class Contracts(unittest.TestCase):
@@ -214,11 +215,22 @@ class Fixture:
                     revision_path=self.rel, revision_sha256=cr.sha256_file(self.path))
 
 
+def _built_template():
+    template = ApprovalAndResults('runTest')
+    template.temp = tempfile.TemporaryDirectory()
+    template.addCleanup(template.temp.cleanup)
+    template.f = Fixture(Path(template.temp.name) / 'repo')
+    template.root = template.f.root
+    templates.cleanup_at_exit(template)
+    return template
+
+
 class ApprovalAndResults(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.f = Fixture(Path(self.tmp.name) / 'repo')
+        copy_ = templates.clone(self, 'decisions-default-fixture', _built_template)
+        self.f = copy_.f
 
     def test_current_constraints_preserve_raw_legacy_entries_and_exclude_proposals(self):
         proposal = self.f.env.docs / 'adrs/ADR-0002-proposed.md'

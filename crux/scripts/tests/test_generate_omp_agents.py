@@ -43,7 +43,7 @@ EXPECTED_FILES = {f"{name}.md" for name in EXPECTED_SOURCE_NAMES}
 EXPECTED_MODEL_IDS = {
     "architect": "openrouter/anthropic/claude-opus-5.5",
     "brainstormer": "openrouter/openai/gpt-6.1-sol",
-    "commander": "openrouter/moonshotai/kimi-k3.1-pro",
+    "commander": "openrouter/google/gemini-4-argon",
     "dev-lead": "openrouter/z-ai/glm-5.3",
     "developer": "openrouter/deepseek/deepseek-v4.1-flash-1017",
     "historian": "openrouter/z-ai/glm-5.3",
@@ -78,8 +78,8 @@ EXPECTED_TOOLS = {
 }
 EXPECTED_SPAWNS = {
     "commander": [
-        "architect", "brainstormer", "dev-lead", "historian", "librarian",
-        "night-gardener", "reviewer", "scout", "wayfinder",
+        "architect", "brainstormer", "dev-lead", "developer", "historian",
+        "librarian", "night-gardener", "reviewer", "scout", "wayfinder",
     ],
     "dev-lead": ["developer", "historian", "reviewer", "scout", "wayfinder"],
     "night-gardener": ["historian", "librarian", "scout", "wayfinder"],
@@ -165,6 +165,17 @@ class RenderTests(unittest.TestCase):
                     self.assertEqual(fields.get("read-summarize"), "false")
                 else:
                     self.assertNotIn("read-summarize", fields)
+
+    def test_commander_spawns_developer_and_reviewer_and_operations_roles_hold_bash(self):
+        generated = agents.generate()
+        fields, _ = self._parse(generated["commander.md"])
+        spawns = _bracket_list(fields["spawns"])
+        self.assertIn("developer", spawns)
+        self.assertIn("reviewer", spawns)
+        for role in ("commander", "dev-lead", "architect", "historian"):
+            with self.subTest(role=role):
+                fields, _ = self._parse(generated[f"{role}.md"])
+                self.assertIn("bash", _bracket_list(fields["tools"]))
 
     def test_rendered_tools_and_spawns_match_the_role_contract(self):
         generated = agents.generate()

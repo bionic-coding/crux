@@ -12,6 +12,8 @@ declare module 'claude-code' {
       current: Shaped<Kept | null>
       // The page of the `cycles:` list the pane draws, counted from 0. Only the pane's n and p buttons write it.
       page: Shaped<number>
+      // Queue presentation, bound to the session's project root.
+      queue: Shaped<{ root: string; expanded: boolean }>
     }
   }
 }

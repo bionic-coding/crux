@@ -11,6 +11,7 @@ import sys
 import tempfile
 import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from cycle_historical import make_historical
 from cycle_workflow import CycleError, PHASES, create, load, mutate, review_basis_digest, tree, DELIVERY_FIELDS
 
 SKILL = Path(__file__).resolve().parents[2] / 'skills/cycle'
@@ -37,6 +38,7 @@ class InvalidationBase(unittest.TestCase):
         self.git('config', 'user.email', 't@example.invalid'); self.git('config', 'user.name', 'T')
         self.git('add', '.'); self.git('commit', '-qm', 'baseline')
         self.cid = create(self.repo, self.kind, 'Change', 'Goal', ['src'], ['Works'], 'dev', 'lead')['id']
+        make_historical(self.repo, self.cid)  # these tests drive the phase after Build by its old name 'test'
 
     def git(self, *args):
         return subprocess.check_output(['git', '-C', str(self.repo), *args], text=True, stderr=subprocess.STDOUT).strip()
@@ -155,6 +157,7 @@ class ReturnTests(InvalidationBase):
     def test_quick_fix_resume_after_a_return_keeps_delivered_build(self):
         self.kind = 'quick-fix'
         self.cid = create(self.repo, 'quick-fix', 'Fix', 'Goal', ['src'], ['Works'], 'dev', 'lead')['id']
+        make_historical(self.repo, self.cid)
         self.do('task-add', task={**task_def('fix', 'build')})
         self.do('task', task_id='fix', commits=[self.commit('q1')], stage='integrated', evidence=['ev.md'], state='done')
         self.set_phase('test')
@@ -167,6 +170,7 @@ class ReturnTests(InvalidationBase):
 
     def test_quick_fix_counted_return_after_an_extension_keeps_delivered_build(self):
         self.cid = create(self.repo, 'quick-fix', 'Fix', 'Goal', ['src'], ['Works'], 'dev', 'lead')['id']
+        make_historical(self.repo, self.cid)
         self.do('task-add', task={**task_def('fix', 'build')})
         self.do('task', task_id='fix', commits=[self.commit('q2')], stage='integrated', evidence=['ev.md'], state='done')
         self.set_phase('test')
@@ -321,13 +325,15 @@ class ReplanTests(InvalidationBase):
 
 class PlanFileTests(InvalidationBase):
     def test_status_other_than_pending_is_refused_naming_task(self):
-        tasks = self.default_tasks(); tasks[0]['status'] = 'done'
-        with self.assertRaisesRegex(CycleError, r'plan task plan carries status done.*`task` command'):
+        # A Plan-phase task may be marked done while the cycle is in Plan; any other task may not.
+        tasks = self.default_tasks(); tasks[-2]['status'] = 'done'
+        with self.assertRaisesRegex(CycleError, r'plan task A carries status done.*`task` command'):
             self.set_plan(tasks)
 
     def test_every_delivery_field_is_refused_naming_task(self):
         values = {'assignee': 'dev', 'result_path': 'r.md', 'commits': ['a' * 40], 'evidence': ['ev.md'], 'stage': 'implemented', 'note': 'n',
                   'replaced_commits': [{'from': 'a' * 40, 'to': 'b' * 40, 'at': 't', 'note': 'n'}],
+                  'adopted_commits': [{'sha': 'a' * 40, 'source_task': 'earlier', 'pass': 1, 'attempt': None}],
                   'fix': {'finding': 'f', 'eligibility': 'e', 'pass': 1}}
         self.assertEqual(set(values), set(DELIVERY_FIELDS))
         for field, value in values.items():

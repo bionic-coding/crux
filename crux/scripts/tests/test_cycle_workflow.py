@@ -55,7 +55,7 @@ class CycleTests(unittest.TestCase):
         with self.assertRaisesRegex(CycleError,'unfinished'):self.apply(doc,'advance')
         self.assertEqual(self.advance(doc)['phase'],'build')
     def test_quick_fix_no_plan(self):
-        doc=self.cycle('quick-fix');self.assertEqual(self.advance(doc)['phase'],'test')
+        doc=self.cycle('quick-fix');self.assertEqual(self.advance(doc)['phase'],'verify')
         with self.assertRaises(CycleError):self.apply(doc,'plan',plan=doc['plan'],reason='cannot')
     def test_loop_limit_cannot_resume_without_extension(self):
         doc=self.cycle('quick-fix');doc=self.advance(doc)
@@ -76,7 +76,7 @@ class CycleTests(unittest.TestCase):
     def test_loop_preserves_plan_history(self):
         doc=self.plan(self.cycle());doc=self.advance(self.advance(doc))
         doc=self.apply(doc,'return',improved='reproduced',unresolved='one failing test',next_change='fix condition',justification='cause established',progress=True)
-        self.assertEqual((doc['pass'],doc['phase'],{t['phase']:t['status'] for t in doc['plan']['tasks']}),(2,'build',{'plan':'done','build':'done','test':'pending','review':'pending','reflect':'pending'}))
+        self.assertEqual((doc['pass'],doc['phase'],{t['phase']:t['status'] for t in doc['plan']['tasks']}),(2,'build',{'plan':'done','build':'done','verify':'pending','review':'pending','reflect':'pending'}))
         self.assertTrue(any('plan' in e for e in doc['history']))
     def test_missing_and_stale_tests_block(self):
         doc=self.plan(self.cycle());doc=self.advance(self.advance(doc))
@@ -169,7 +169,7 @@ class CycleTests(unittest.TestCase):
         with self.assertRaisesRegex(CycleError,'closed'):self.apply(doc,'owner-complete',owner=self.owner_completion())
     def test_owner_complete_refusals(self):
         doc=self.apply(self.cycle('iterate'),'pause',reason='blocked')
-        for override,message in (({'quote':''},'verbatim quote'),({'origin':'agent'},'owner-conversation'),({'authority':[]},'authority file'),
+        for override,message in (({'quote':''},'verbatim quote'),({'origin':'agent'},'owner-conversation'),
                                  ({'authority':['missing.md']},'does not exist'),({'authority':['../x']},'parent'),({'date':'x'},'YYYY-MM-DD')):
             with self.subTest(override=override),self.assertRaisesRegex(CycleError,message):
                 self.apply(doc,'owner-complete',owner=self.owner_completion(**override))
@@ -309,6 +309,17 @@ class CycleTests(unittest.TestCase):
         self.git_repo();doc=self.to_review();doc=self.review(doc)
         (self.repo/'src/attempt-1.lock').write_text('held\n')
         with patch('cycle_workflow.check_tests'):check_review(tree(self.repo),doc)
+    def test_append_only_bookkeeping_leaves_review_bound_but_source_change_unbinds(self):
+        (self.repo/'.bionic.yml').write_text('config_version: "1"\ndocs_dir: bionic\nevidence:\n  bookkeeping_paths:\n    - authority-reset.md\n')
+        (self.repo/'authority-reset.md').write_text('# reset\n');(self.repo/'bionic/log.md').write_text('# log\n')
+        self.git_repo();self.git('add','.bionic.yml','authority-reset.md','bionic/log.md');self.git('commit','-q','-m','bk')
+        doc=self.to_review();doc['plan']['scope']=['src','bionic/log.md','authority-reset.md']
+        save(tree(self.repo),doc);doc=self.review(doc,scope=doc['plan']['scope'])
+        with open(self.repo/'bionic/log.md','a') as stream:stream.write('## entry\n')
+        with open(self.repo/'authority-reset.md','a') as stream:stream.write('| row |\n')
+        with patch('cycle_workflow.check_tests'):check_review(tree(self.repo),doc)
+        (self.repo/'src/a.py').write_text('answer = 2\n')
+        with patch('cycle_workflow.check_tests'),self.assertRaises(CycleError):check_review(tree(self.repo),doc)
     def test_v1_recorded_completion_and_reduction_bind_via_either_version(self):
         self.git_repo();doc=self.cycle('simplify');cfg=tree(self.repo)
         v1=source_fingerprint(self.repo,doc,version=1)

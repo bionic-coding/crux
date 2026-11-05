@@ -1,4 +1,4 @@
-<!-- generated-from: CHANGELOG.md@sha256:043601c41c6cdedecec0131618a139cdd681f3f51c45d3c941f29c8b273938c6; model: claude-sonnet-5.5; date: 2026-10-29 -->
+<!-- generated-from: CHANGELOG.md@sha256:2c7f45e78eed28bbe4b6287223914e08af00671313ab80abe71fb7cd9ba32d75; model: claude-sonnet-5.5; date: 2026-11-03 -->
 # Changelog
 
 All notable changes to crux. The format roughly follows [Keep a Changelog](https://keepachangelog.com/) and the project adheres to [Semantic Versioning](https://semver.org/).
@@ -8,6 +8,226 @@ All notable changes to crux. The format roughly follows [Keep a Changelog](https
 ### Added
 
 ### Changed
+
+### Fixed
+
+### Removed
+
+## [5.1.0] — 2026-11-03
+
+### Added
+
+- Test tiers: every test now carries one tier (dev, release or ephemeral), recorded in a per-root `test-tiers.json` manifest. A new `test-tiers` skill and `test-tiers.py` CLI check the labels and list the tests in a tier for any language's test runner. `parallel_suite.py` accepts a new `--tier` flag.
+- Release verification gains a `checkout:test-tiers` check that runs the tier check across the staged project.
+
+### Changed
+
+- Release-tier suites are now registered and run during release verification. The testing documentation and the release runbook describe the tier workflow.
+- The reviewer role definition gains guidance carried over from the test-tier work.
+
+### Fixed
+
+- The preflight now prints the plan and evidence lines of a passing evidence row.
+- Tier selection is now discovered in a child interpreter.
+
+### Removed
+
+## [5.0.4] — 2026-11-01
+
+### Added
+
+- Upcoming queues now show at most six rows initially, along with the exact count of remaining items, and can be expanded and collapsed. This behavior is shared across Claude Code, OpenCode and OMP; OMP exposes its supported command fallback.
+- Supported queue archival now moves terminal items into immutable per-item history. Lookup, dependencies, identifiers and owner authorization chains are preserved, while cycle and evidence paths stay fixed. An explicit migration introduces queue format2.
+- Optional advice refresh now batches admitted questions. Routine cycle control uses current cached advice, or falls back immediately to the responsible agent, without making model calls.
+- Fixed release lists can now continue on a single attached execution when its loaded role grants the narrow capability needed. If the capability is unknown, normal dispatch is retained.
+
+### Changed
+
+- Dispatch now filters optional context by task and role before ranking. Capability discovery reports known reader and tool gaps before a role is invoked.
+- Source proof now commits its own bookkeeping. Exact sealed work can resume on the same execution after token rotation, while changed or foreign bytes are still refused.
+- Release capture now includes mandatory preparation paths before authorization, and refuses omissions from the frozen scope before a cycle is created.
+- Upgrade all active harnesses together after the queue migration. Older readers that only support format1 refuse format2, and archived records are not converted back automatically.
+
+### Fixed
+
+- Detailed dashboards now retain a single phase progression header and every task row.
+- Effective worktree and included Git configuration can no longer hide external merge drivers from deterministic integration proof.
+- When optional advice is cancelled or exhausted, its unavailable result is now journaled so identical recovery requests do not repeat the transport.
+- Release continuation replay now rechecks descriptor, role, artifact, target and authorization facts. Failed or interrupted logical commands stop continuation, while legitimate prepublication and completed-command recovery remain available.
+- Full queue history now preserves execution order when an earlier unresolved cycle stays active and a later terminal item is archived.
+
+### Removed
+
+## [5.0.3] — 2026-11-01
+
+### Added
+
+- A bounded context reader lets the commander read canonical project and plugin context and exact assigned reports without a helper or Git-object workaround. Pagination is bound to the digest of the complete object, and unsafe paths and secret-bearing content are refused.
+- Agents can present an exact decision and record the owner's explicit approval, rejection or pending answer from conversation. The record keeps the owner's verbatim words, provenance and the digest of what was presented, and an ambiguous continuation grants no approval.
+- Dispatch keeps the complete invocation and selected context so another agent can take over. Codex descriptors now match the exposed spawn and wait arguments. Checkout proofs accept verified bookkeeping descendants while preserving the original review base.
+- Council inspect now offers exact recovery commands. Durable per-call checkpoints retain known negative findings and unknown in-flight outcomes without resetting budgets.
+- Dispatch preparation selects permitted optional roles and task-specific canonical skill bodies, and unselected skills stay retrievable. Delivery handoff checks validate references and offer legal recovery steps without automatically reopening tasks. Read-only inspect exposes handoff state and additive focused-test suggestions.
+- Dispatches now render the mandatory task, evidence, constraints, exact decision bindings and integration ownership from the cycle record, with caller prose as an optional addendum. Optional typed `plan.streams` and Build `task.integrates` record validated ownership facts instead of inferring them from prose.
+- A failed acceptance criterion can use the existing bounded fix step with committed before/after observations. `task --adopt-commit` reuses only ancestor commits that the same cycle delivered in an earlier pass, and keeps their provenance.
+- README and USER_GUIDE generation can preserve unchanged paired sections. During beta prep, `generate-public-docs.py --cycle CYC-NNNN` retains optional relevance diagnostics in the exact release cycle before using them. Standalone runs send no optional relevance questions and regenerate dependency candidates conservatively.
+- Gateway cycle councils now launch detached and return an await command. They support flock-based probe and recovery without another provider request. Interrupted attempts remain counted, and a later attempt never overwrites their history.
+- A queued release now authorizes its own publish. Without `--authorization`, `release.py beta` and `release.py official` take the owner's quote from the queue chain of the bound cycle: the authorization instruction that started the cycle's queue item, verbatim. The ledger records it with the artifact, the target and `source` kind `queue`, only once the prerequisite check passes. A beta quote needs the version in the instruction or the item title, and an official quote needs it in the instruction. A revoked authorization yields no quote, and with no queue chain the command refuses and names `--authorization`. `release.py status` shows each quote's source and reads an entry recorded without one as kind `flag`.
+- Queue items gain an optional `release_list`, `beta` by default or `official`. `queue add --release-list official` adds a release item whose `start-next` creates an official-list cycle.
+
+### Changed
+
+- Role skill lists now declare universal preloads only, and conditional workflows remain available through task selection and retrieval. Mandatory role instructions and ownership remain binding when optional classification falls back.
+- Dispatch, attach, delivery and loss operations now commit their own cycle and queue state, and replays catch up any pending commits. `queue start-next` commits the queue and the new cycle together. The final listed release delivery finishes the cycle while keeping open assignments until their own delivery.
+- New dispatches carry tokenized completion markers. Cycle resume and same-execution resume rotate the token and retain previous results, while historical tokenless attempts keep their original contract.
+- Classifier requests now batch shared-state questions and validate each answer separately. Reuse follows complete decision inputs rather than record revisions, and keeps the original request. Named per-kind input bounds default to 4,000 characters and never exceed 12,000, and known refusal codes use deterministic recovery handlers.
+- Upgrade all active harnesses together. Older queue schemas refuse the optional queue `release_list` field, and older engines cannot read the new optional streams, integration and classification metadata once a record contains it.
+- `cycle status`, `visualize-cycle-progress` and the dashboards in crux-mods, crux-opencode and crux-omp now show one line, `Classifications: N`, where N is the record's true count, instead of each classification's question, answer, route, model and cost. The cycle record, `inspect` and the `finish` response keep every detail. The cycle-progress document moves to format version 5 with `classification_count`, so upgrade the engine and the dashboard mods together.
+- `--authorization` stays optional and wins over the queue. A changed artifact still needs the owner's new words through it, because the queue never replaces a quote recorded for another artifact, and the same applies to a release cycle not started from the queue. When the host denies the publish, the agent instructions hand the owner one bare `release.py beta` or `release.py official` command, and the deployment guide names the two allow rules the owner may add.
+
+### Fixed
+
+- Receipt-first ADR acceptance recovery now rechecks current council call evidence before writing Accepted. An already-applied historical acceptance keeps its recorded standing.
+- Generic test-evidence execution now honors the requested worker, records and timing arguments while keeping the normalized evidence identity. Reuse creates no new output.
+- The cycle dashboard reader now accepts cycle records up to 4 MiB. Other source reads keep their existing bound, and records above the cycle ceiling are still refused.
+- Optional discovery deadlines now preserve mandatory context and discard expired or source-stale suggestions rather than installing partial answers.
+- Finish now preserves worktrees held by open attempts of active or paused cycles. Lock diagnostics distinguish a held flock from stale holder metadata, and an `index.lock` of unknown ownership is never removed.
+- Document generation now falls back to regenerating the whole document when any source heading lacks a matching rendition section. Existing renditions without a prompt/generator basis regenerate whole once. Section savings are demonstrated on fully paired fixtures, and earlier unpaired historical examples do not establish those savings.
+- The crux-mods dashboard now shows a task added, removed or changed mid-cycle at the next refresh. Previously a refresh after a record write joined a reader run that had read the record before the write, so the pane kept the old tasks until the 15-second timer. It now keeps one pending run that starts after the in-flight one.
+
+### Removed
+
+## [5.0.2] — 2026-10-31
+
+### Added
+
+- `cycle status` shows an `Activity:` line for an open cycle: `idle for <age>`, or `last activity <age> ago` with its source (record write, attempt last-seen, `Cycle-Task` commit, result file or linked-worktree change). Each open attempt shows its own last activity. `inspect` returns the same information as `activity` and `last_activity`. Activity is not liveness and is never evidence that an attempt is lost. The status JSON gains `activity` only with `--json --activity`, so the dashboards' document is unchanged.
+- `{"op":"inspect","summary":true}` prints only the phase, pass, unmet requirements, actions, open attempts and record state.
+- `finish` removes the cycle's own merged, clean agent worktrees under `.claude/worktrees/` (`git worktree remove`, then `git branch -d`, never forced). It lists every other worktree with the reason it stays.
+- `parallel_suite.py --failed-from RECORDS` reruns only the tests that failed or errored in a `--records` file.
+- The `related-tests.py PATH...` script lists the test files whose text names a changed path.
+- `cycle.py friction CYC --json REQUEST` appends one row to the cycle's friction log and commits it with the record.
+- Every `--json` option, including `op`, accepts `'@PATH'` to read the request from a repository file. Every per-cycle command accepts the cycle as `--cycle CYC` as well as positionally.
+- `queue list --full` prints every item and the authorization history. Plain `queue list` prints one line per open item.
+
+### Changed
+
+- `inspect` and `advance` read the evidence store once per call, parse only the receipts of the cycle's declared checks, and fingerprint each input file once. `cycle status` reads only the receipts of the cycle's window.
+- The text output of `cycle status` labels its sections Tasks, Attempts, Classifications and Councils, and nests each open attempt under its task.
+- `release.py record --cycle` now also prepends the release log operation, commits the retained copy and the log, marks the remaining list tasks done and runs `finish`, so a release cycle closes with no manual step.
+- `create` seeds one Plan task named `plan` for every cycle type with a Plan phase, so the first `inspect` offers the plan writer's dispatch. While the cycle is in Plan, a plan file may mark Plan-phase tasks `done`.
+- `queue add`, `authorize` and `revoke` commit the queue file alone. `queue add --scope` splits a comma-separated value into paths.
+- A council result whose votes suffice and that waits only for the architect now reports `awaiting-architect`. It prints the exact `--architect PATH --record RESULT` command, with each path shell-quoted.
+- The finding-disposition classifier offers `return` only for a blocking finding. A review report without `scope` records the plan scope.
+- `test-evidence.py validate` prints the stored reason as `execution_reason`, with `reuse_eligible` beside it. `report` starts with a `summary` block.
+- The `mods-gate`, `opencode-gate` and `omp-gate` presets now declare the files their scripts read instead of the whole tree. Receipts recorded under the old declarations therefore execute once more.
+- In the development repository, the test-suite runner prints the combined wall time and marks per-suite seconds as overlapping when the suites ran concurrently.
+- The developer and dev-lead agents carry one block of accepted command shapes. The cycle skill gives each contract test to the stream that owns the text it asserts.
+- Evidence and result paths are accepted repository-relative or docs-relative. A path that resolves to different files under each root is refused, and the error names both.
+- New cycles name the phase after Build Verify instead of Test. A new record carries `phase_names: "verify"`, while a record without it keeps Test, so every existing cycle validates, resumes and renders as before and none is rewritten. Plan and task input accepts either name and stores the record's own. The release step keeps its id and command, `release.py verify`. A new beta list describes it as "Run release.py verify", and the instructions call it the release verify step. The dashboards in crux-mods, crux-opencode and crux-omp read both names and draw Verify in Test's colour.
+- Upgrade the engine and the dashboard mods together. An earlier release cannot read a cycle created after the rename, because it refuses the new key and phase value.
+
+### Fixed
+
+- A new beta list's `prepare` step now reads "Bind this cycle to the beta target and check the prep"; only verify freezes the artifact. Existing release records still validate.
+
+### Removed
+
+## [5.0.1] — 2026-10-31
+
+### Added
+
+- In the development repository, the release path now runs every test once per code state in the main run, on the lowest supported Python minor. On every supported minor, `sync.sh --dry-run` runs only a flagged per-minor test list and a health check that compiles and imports the staged scripts, instead of the staged full suite. `release.py verify` reuses the main-run receipts and runs the per-minor checks only when their own receipts do not match.
+- Two new Test presets, `governs-references` and `governs-coverage`, keep the decision records as inputs. A commit that changes only decisions is still checked at the Test phase.
+- The cycle writer now commits the cycle record and queue file itself at a phase-changing `advance`, `pause`, `finish` and `owner-exception`, and through the typed `commit-record` operation. The commit contains only those paths and waits while a full test suite holds the suite lock.
+- `withdraw-decision` withdraws an implementation decision record (IDR) in Plan and removes its dependent tasks in one record write. A replacement names the withdrawn record in `replaces` and continues its council attempt count.
+- A revised IDR whose earlier revision was approved now goes to council as a delta. The changed top-level keys are computed, stored and re-verified at approval.
+- The completion record, `inspect` and `cycle status` now report the cycle's suite runs (executed and reused, by check id with receipt ids), the retry subtotal and the test minutes.
+- `inspect`, `cycle status`, the dashboards and the completion record now show each route classification: question, answer or route, fallback, model, provider and cost. `queue start-next` records a work-sizing classification when the classifier is configured.
+- In the development repository, `sync.sh --dry-run --skip-fingerprints` runs the staged per-minor checks on every supported Python minor without checking the published-tree fingerprints. A cycle's Test phase therefore leaves receipts that `release.py verify` can reuse. The development documentation for cycle testing and the release runbook state the command.
+- In the development repository, `release.py record` now also writes the release log operation into the retained copy as `release-op.md`, beside the printed operation.
+- In the development repository, guard tests now fail on a test that reads the live `## [Unreleased]` changelog section or launches a script through an ambient `uv run python3`.
+
+### Changed
+
+- A commit that changes only documentation-tree decision material (decision records, architecture notes, observations, research, briefs, the index, the manifest and objectives) now leaves the main-run receipts reusable. A commit to root instruction or guide documents still triggers the main run.
+- A council dispute never goes to the owner. The architect records each nit's disposition without another attempt and, at the attempt limit, withdraws or narrows the decision. The attempt limit and its owner extension are unchanged.
+- The commander now gathers every pending owner decision into one message and continues the work that does not depend on them.
+- A direct registered `parallel_suite.py` run now holds the full-suite lock, so a second full run refuses and a record commit waits.
+- The commander's OpenCode and OMP model moves from Kimi K3.1 Pro to Gemini 4 Argon (`argon-latest`, `google/gemini-4-argon`). The now-unused `kimi-latest` alias is removed, so no OpenCode role can select `moonshotai/kimi-k3.1-pro`.
+- The suite driver `parallel_suite.py` now runs every suite with a fresh empty `CRUX_HOME` and without `OPENROUTER_API_KEY`, `PERPLEXITY_API_KEY` and `CRUX_ALLOW_LIVE`, so a suite started from an ordinary shell cannot reach a live model. A run that names `--python-minor` also gets its own uv cache, so suites for different Python minors that run at the same time cannot rebuild a script environment under each other.
+- The release instructions now say the owner runs `release.py beta` and `release.py official`, because the host blocks agents. Agents run prep, prepare and verify, hand the owner the exact beta command, and run smoke, tag and record after it. The runbook says a harness fix outside a suite's inputs ships with `verify --retry-reason` in the same run.
+- One fix task may now answer several small blocking findings, listed in the optional `fix.findings`. It remains one fix per phase per pass.
+- `inspect` now offers only dispatches that `prepare-dispatch` would accept, including the attempt limit, and routes a missing simplify reduction.
+- Classification entries now record the serving provider and cost. A classified Review re-dispatch names the review floor's specialists.
+- The reviewer role now writes its own result file and runs `cycle.py review` when its dispatch names it. The Codex reviewer runs in a workspace-write sandbox and still holds no Edit or Write tool.
+
+### Fixed
+
+- In the development repository, the changelog's header comment is closed again and the `## [Unreleased]` heading is restored.
+- Several tests now start shipped scripts on the test's own interpreter, keep a per-run uv cache, and synchronize instead of relying on wall-clock timing under load.
+- A recorded review now stays bound when Reflect appends to the log, journal, queue, cycle records or a configured bookkeeping file (source fingerprint version 3). A change to any other file in plan scope still unbinds it.
+- The cycle writer now records a late `assignment --state finished` on a closed cycle.
+- `deliver` now applies the task-update check when a delivered commit is unresolved.
+- The clean-environment check now covers the three agent installers. The OpenCode installer declares its empty PEP 723 dependency list.
+
+### Removed
+
+## [5.0.0] — 2026-10-30
+
+### Added
+
+- Typed cycle operations: `cycle.py op CYCLE --json REQUEST` runs `inspect`, `prepare-dispatch`, `attach-execution`, `deliver`, `mark-lost`, `advance`, `finish`, `owner-exception` and `upgrade`. Each mutating operation is a single locked read, validate and save, and takes a caller-chosen `op_id` that replays its recorded result. Refusals name the code and the complete recovery. A role that holds cycle operations runs `inspect`, then the action it returns.
+- Host adapters for Claude Code, Codex, OpenCode and OMP shape the dispatch tool, the handle and the wait. A result is complete when its last line is `Result-End: <assignment>/<attempt>`, and `cycle.py await --marker` waits for it. An attempt waits in uncapped windows of at most 30 minutes. An ended window pauses nothing, and no liveness, loss, pause or escalation is inferred from elapsed time. A task and role accept three attempts in one pass. Recovery of an unresolved dispatch runs through `inspect`, and `mark-lost` needs quoted affirmative host evidence. Host behaviour not yet observed is documented as unverified, and every adapter treats its agent listing as not authoritative.
+- A cycle classifier routes four bounded questions to a fast model: the cycle type at `create --type auto`, review routing on entering Review, finding disposition when a review is recorded, and failure routing on failed deliveries, failed checks and refusals with several recoveries. An answer selects only among routes the code already permits. It grants no pass, waives no decision dependency, lowers no review and creates no authorization. `inspect` offers a stored route as its first next action, and the caller applies it. Every failure falls back to the responsible agent and adds no approval step. The classifier is configured through the `cycle_classifier` role of the central registry and needs `OPENROUTER_API_KEY`. It sends only listed cycle-record fields, within a 4,000-character bound and after a secret scan. Each request carries `data_collection: deny`. The shipped classifier does not send the zero-data-retention preference, so classification state text may be kept under the serving provider's standard retention. Opt out with `decisions: {classifier: off}` in `.bionic.yml`; councils still send through the gateway under the opt-out. There is no spend cap and no per-call approval. Codex's default workspace-write sandbox is likely to make classification fall back every time.
+- Version-3 cycle records carry a revision, an operation journal and per-attempt host, base and delivery. `upgrade` converts an active or paused version-2 cycle and keeps its previous bytes at `<docs_dir>/cycles/<id>/upgrade/v2-cycle.json`.
+
+### Changed
+
+- The commander now runs the typed operations itself through an inline `--json` request. It also dispatches a `developer` directly for bounded work, beside the independent `reviewer`, and dispatches a `dev-lead` for parallel streams, integration across units or named complexity. The historian writes only what needs judgment (reflections, journal entries, inbox filing). A developer dispatched directly takes on the dev-lead's duties and has no changed-path check.
+- New cycles are version-3 records. The previous release (4.9.1) refuses version-3 records. Restoring an upgraded cycle's `v2-cycle.json` discards everything recorded since the upgrade, and a cycle created under 5.0.0 has no version-2 form. Every harness install must move to 5.0.0 together.
+- `owner-exception` is now the exceptional close: it records the owner's quote and conversation, the unmet requirements and every open attempt. `finish` is the routine close.
+
+### Removed
+
+- The manual cycle bookkeeping sequence in the cycle instructions: handoff, then a recorded assignment, then task state; result-path allocation; the per-host await procedure; report retention; and clerical historian delegation. Code performs it now. The low-level commands stay for diagnosis.
+
+### Installation and rollback
+
+- Install 5.0.0 on every harness you use at the same time: Claude Code, Codex, OpenCode and OMP. Then refresh the role agents so the changed role grants project. Restart the Claude Code session, and run `install-codex-agents`, `install-opencode-agents` or `install-omp-agents` again on the other hosts.
+- A typed operation on an active or paused version-2 cycle returns `needs-upgrade` with the `upgrade` request, and `inspect` still reads it. `upgrade` refuses a completed or abandoned cycle, which stays readable. Version-1 cycles keep the low-level commands.
+- Rolling back to 4.9.1: 4.9.1 refuses every version-3 cycle record, open or closed, so it cannot show or change one. A cycle that `upgrade` converted keeps its version-2 bytes at `<docs_dir>/cycles/<id>/upgrade/v2-cycle.json`. Restoring that file makes the cycle readable by 4.9.1 and discards everything recorded since the upgrade: task and assignment state, deliveries and the operation journal. Retained result files and commits stay. A cycle created under 5.0.0, including a release cycle, has no version-2 form.
+- Recovery: an unresolved dispatch (a reservation without a handle, or a lost response) blocks `prepare-dispatch` for its task with `unresolved-dispatch`. Run `inspect`, which orders the recoveries: await the result marker, attach the handle, deliver a complete result, and last `mark-lost`. `mark-lost` needs affirmative evidence, such as a listed dispatch refusal, a terminal host status, or your statement that the execution ended. A timeout or a missing result establishes nothing. The user guide's "How a cycle runs now" section gives the per-host table and the full recovery rules.
+
+### Known limitations
+
+- Host behaviour was observed on Claude Code only, from a subagent caller, where an `Agent` call blocks until the child ends. A top-level session's dispatch, the `background` mode, terminal task statuses and agent listing semantics are unverified on Claude Code. Codex, OpenCode and OMP dispatch, handles and waits are unobserved, and their adapters mark them unverified.
+- An agent that dies silently, or a dispatch that fails with an error its adapter does not list, leaves the attempt waiting in 30-minute windows without bound until you state that the execution ended.
+- A cycle rolled back and then changed under 4.9.1 refuses a second `upgrade` with `upgrade-backup-conflict` while its earlier `upgrade/v2-cycle.json` remains, and the refusal names no recovery.
+- A recorded classification carries no cost or provider.
+
+## [4.9.1] — 2026-10-29
+
+### Added
+
+### Changed
+
+- Cycle decision records now include a self-check before review, plus pointers to a fresh-agent challenge and to fix-round discipline, so a draft addresses known objections before reviewers see it. In a Standard council where two of three reviewers approve and one dissents, the architect answers on the same revision with reasoned agreement if the finding is refuted or its risk is lower than the cost of another round. The architect revises for a binding failure, missing authorization, or a failure no later phase would catch. An unresolved required safety fact gets a targeted check or stops for the owner, nits alone no longer trigger a revision, and no approval threshold changes.
+- ADR migration readiness checks now read each committed file once per check instead of up to three times. As a result, `adr-migration.py` readiness validation, approval and publication start fewer git processes and finish sooner. Every file is still compared with its recorded sha256, with the same refusal messages.
+
+### Fixed
+
+### Removed
+
+## [4.9.0] — 2026-10-29
+
+### Added
+
+- `adr-precouncil.py rules` lists the live rules a draft ADR must reconcile, as a reconciliation table skeleton for Consequences. These are the rules of each ADR the draft amends or supersedes and the rules in each domain it governs, and it reports an advisory when a draft amends or supersedes more than three ADRs. `adr-precouncil.py challenge` prints the brief for one fresh-agent challenge. Both commands are read-only and never block a council.
+
+### Changed
+
+- `propose-adr` now includes one pre-council self-check, run before round 1 and before each reconvene. It covers cited claims, a reconciliation table, the recurring threats, governs-body parity, one obligation per rule and the split rule. The architect agent, `run-adr-council` and the cycle skill point to this self-check instead of restating ADR quality guidance.
+- `run-adr-council` now sends one unrecorded fresh-agent challenge before round 1 in Standard and Strict mode, while Lite keeps its existing challenge pass. The `council` skill states fix-round discipline once, and new cycle council seats are asked to report every finding in a single round. Historical promptbook gate text is unchanged.
 
 ### Fixed
 

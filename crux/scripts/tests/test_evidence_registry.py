@@ -20,7 +20,11 @@ from test_evidence import execute, lookup
 
 CORE = "checkout:unittest:crux/scripts/tests:test*.py"
 TOOLS = "checkout:unittest:tools/tests:test*.py"
-STAGED = "staged:py{}:unittest:crux/scripts/tests:test*.py"
+CORE_RELEASE = "checkout:unittest-release:crux/scripts/tests:test*.py"
+TOOLS_RELEASE = "checkout:unittest-release:tools/tests:test*.py"
+TIER_CHECK = "checkout:test-tiers"
+STAGED = "staged:py{}:flagged"
+STAGED_HEALTH = "staged:py{}:health"
 
 
 class RegistryTests(unittest.TestCase):
@@ -31,15 +35,21 @@ class RegistryTests(unittest.TestCase):
         write_lock_project(self.root)
         (self.root / ".python-version").write_text("3.13\n")
 
-    def test_the_four_suites_and_their_check_ids(self):
+    def test_the_registered_checks_and_their_ids(self):
+        # The main run (two full checkout suites, their two release-tier declarations and the tier check) and,
+        # per supported minor, the staged flagged and health checks.
         declared = suite_evidence.registered_declarations(self.root, dev_root=self.root)
-        self.assertEqual(sorted(declared), sorted([CORE, TOOLS, STAGED.format("3.13"), STAGED.format("3.14")]))
+        self.assertEqual(sorted(declared), sorted([CORE, TOOLS, CORE_RELEASE, TOOLS_RELEASE, TIER_CHECK,
+                                                   STAGED.format("3.13"), STAGED.format("3.14"),
+                                                   STAGED_HEALTH.format("3.13"), STAGED_HEALTH.format("3.14")]))
 
     def test_the_supported_minors_come_from_the_project_matrix(self):
         (self.root / "pyproject.toml").write_text((self.root / "pyproject.toml").read_text() + '\n[tool.crux]\npython-versions = ["3.13", "3.15"]\n')
         declared = suite_evidence.registered_declarations(self.root, dev_root=self.root)
         self.assertIn(STAGED.format("3.15"), declared)
+        self.assertIn(STAGED_HEALTH.format("3.15"), declared)
         self.assertNotIn(STAGED.format("3.14"), declared)
+        self.assertNotIn(STAGED_HEALTH.format("3.14"), declared)
 
     def test_requirements_by_suite(self):
         declared = suite_evidence.registered_declarations(self.root, dev_root=self.root)
@@ -69,11 +79,15 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(shared, other)
 
     def test_the_tester_and_the_release_ask_for_the_same_declaration(self):
-        for scope, start, minor in (("checkout", "crux/scripts/tests", None), ("checkout", "tools/tests", None), ("staged", "crux/scripts/tests", "3.14")):
+        for scope, start, minor in (("checkout", "crux/scripts/tests", None), ("checkout", "tools/tests", None)):
             declaration, registered = suite_evidence.declaration_for(scope, start, "test*.py", None, self.root, minor=minor, dev_root=self.root)
             self.assertTrue(registered)
             by_id = suite_evidence.registered_declaration(self.root, declaration["check_id"], dev_root=self.root)
             self.assertEqual(te.normalize(declaration), te.normalize(by_id))
+        # A staged check has no suite shape: the full staged suite is not registered, the two checks are.
+        for name in ("flagged", "health"):
+            by_accessor = suite_evidence.staged_check_declaration(self.root, name, "3.14", dev_root=self.root)
+            self.assertEqual(by_accessor, suite_evidence.registered_declaration(self.root, f"staged:py3.14:{name}", dev_root=self.root))
 
     def test_a_focused_pattern_or_start_is_not_registered(self):
         declaration, registered = suite_evidence.declaration_for("checkout", "crux/scripts/tests", "test_one.py", None, self.root)
@@ -94,18 +108,23 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(suite_evidence.DOCS_EXCLUSIONS, expected)
         self.assertEqual(suite_evidence.runtime_exclusions(self.root), ["docs/" + name for name in expected])
         declared = suite_evidence.registered_declarations(self.root, dev_root=self.root)
+        records = ["docs/" + name for name in suite_evidence.DECISION_RECORDS]
         for check in (CORE, TOOLS):
-            # The release exclusion follows the shared bookkeeping names; CHANGELOG.md is never listed here (P9).
-            self.assertEqual(declared[check]["exclude_inputs"], ["docs/" + name for name in expected] + ["public"])
+            # The registered checkout declarations add the decision records after the shared bookkeeping names;
+            # the release exclusion follows them; CHANGELOG.md is never listed here (P9).
+            self.assertEqual(declared[check]["exclude_inputs"], ["docs/" + name for name in expected] + records + ["public"])
         for minor in ("3.13", "3.14"):
-            self.assertEqual(declared[STAGED.format(minor)]["exclude_inputs"], ["CHANGELOG.md"])
+            for staged in (STAGED, STAGED_HEALTH):
+                self.assertEqual(declared[staged.format(minor)]["exclude_inputs"], ["CHANGELOG.md"])
+        # The shared list stays free of the records: presets and the live copy keep them as inputs.
         for kept in ("adrs", "observations", "invariants", "arch", "research", "briefs", "AGENTS.md", "manifest.yml"):
             self.assertNotIn(kept, suite_evidence.DOCS_EXCLUSIONS)
 
     def test_a_registration_can_add_more(self):
         with patch.object(suite_evidence, "DOCS_EXCLUSIONS", ("cycles", "journal", "log.md", "inbox")):
             declared = suite_evidence.registered_declarations(self.root, dev_root=self.root)
-            self.assertEqual(declared[CORE]["exclude_inputs"], ["docs/cycles", "docs/journal", "docs/log.md", "docs/inbox", "public"])
+            records = ["docs/" + name for name in suite_evidence.DECISION_RECORDS]
+            self.assertEqual(declared[CORE]["exclude_inputs"], ["docs/cycles", "docs/journal", "docs/log.md", "docs/inbox", *records, "public"])
             self.assertEqual(declared[STAGED.format("3.13")]["exclude_inputs"], ["CHANGELOG.md"])
 
 
@@ -147,7 +166,8 @@ class ReleaseNeutralRegistrationTests(unittest.TestCase):
         self.declared = suite_evidence.registered_declarations(self.root, dev_root=self.root)
 
     def test_the_projections_are_exactly_the_audited_entries(self):
-        for scope, checks in (("checkout", (CORE, TOOLS)), ("staged", (STAGED.format("3.13"), STAGED.format("3.14")))):
+        staged = [staged.format(minor) for minor in ("3.13", "3.14") for staged in (STAGED, STAGED_HEALTH)]
+        for scope, checks in (("checkout", (CORE, TOOLS)), ("staged", staged)):
             expected = {path: kinds for path, (kinds, _verdict) in AUDIT_PROJECTIONS[scope].items()}
             for check in checks:
                 self.assertEqual(self.declared[check]["input_projections"], expected, check)
@@ -163,7 +183,8 @@ class ReleaseNeutralRegistrationTests(unittest.TestCase):
             self.assertNotIn("CHANGELOG.md", self.declared[check]["exclude_inputs"])
             self.assertNotIn("CHANGELOG.md", self.declared[check]["input_projections"])
         for minor in ("3.13", "3.14"):
-            self.assertEqual(self.declared[STAGED.format(minor)]["exclude_inputs"], list(AUDIT_EXCLUSIONS["staged"]))
+            for staged in (STAGED, STAGED_HEALTH):
+                self.assertEqual(self.declared[staged.format(minor)]["exclude_inputs"], list(AUDIT_EXCLUSIONS["staged"]))
 
     def test_a_projected_path_is_never_excluded(self):
         for check, declaration in self.declared.items():
@@ -180,11 +201,14 @@ class ReleaseNeutralRegistrationTests(unittest.TestCase):
             self.assertEqual(holders, ["README.md"], check)
 
     def test_only_the_tools_suite_is_release_neutral(self):
-        lock = {check: te.normalize(d)["requirement"]["packages"]["lock"] for check, d in self.declared.items()}
-        self.assertEqual(lock[TOOLS]["project_version"], "release-neutral")
-        self.assertTrue(lock[TOOLS]["project"])
+        lock = {check: te.normalize(d)["requirement"].get("packages", {}).get("lock")
+                for check, d in self.declared.items() if check != TIER_CHECK}
+        # The release-tier declaration of the tools suite runs in the same environment as the full suite.
+        for neutral in (TOOLS, TOOLS_RELEASE):
+            self.assertEqual(lock[neutral]["project_version"], "release-neutral")
+            self.assertTrue(lock[neutral]["project"])
         for check, found in lock.items():
-            if check != TOOLS:
+            if check not in (TOOLS, TOOLS_RELEASE):
                 self.assertNotIn("project_version", found, check)
                 self.assertFalse(found["project"], check)
 
@@ -263,8 +287,9 @@ class ChangelogProjectionDeclarationTests(unittest.TestCase):
             self.assertNotIn("CHANGELOG.md", declared[check]["exclude_inputs"], check)
             self.assertEqual(te.normalize(declared[check])["input_projections"]["CHANGELOG.md"], kind, check)
         for minor in ("3.13", "3.14"):
-            self.assertNotIn("CHANGELOG.md", declared[STAGED.format(minor)]["input_projections"])
-            self.assertEqual(declared[STAGED.format(minor)]["exclude_inputs"], ["CHANGELOG.md"])
+            for staged in (STAGED, STAGED_HEALTH):
+                self.assertNotIn("CHANGELOG.md", declared[staged.format(minor)]["input_projections"])
+                self.assertEqual(declared[staged.format(minor)]["exclude_inputs"], ["CHANGELOG.md"])
 
     def test_the_static_projections_are_unchanged_beside_the_changelog_entry(self):
         declared = self.declared(self.good())
@@ -309,6 +334,20 @@ class ChangelogProjectionDeclarationTests(unittest.TestCase):
         declared = suite_evidence.registered_declarations(self.root, dev_root=self.root)
         for check in (CORE, TOOLS):
             self.assertNotIn("CHANGELOG.md", declared[check]["input_projections"], check)
+
+    def test_a_call_scope_computes_the_projection_once(self):
+        """inspect and advance ask for the registry several times per call; the history read runs once."""
+        kind = ["changelog-citations:ADR-0001/demo-rule rule:demo-rule"]
+        with patch("implementation_migration.changelog_citation_tokens", **self.good()) as reader:
+            with te.call_scope():
+                first = suite_evidence.registered_declarations(self.root, dev_root=self.root)
+                first[CORE]["input_projections"]["CHANGELOG.md"].append("edited by a caller")
+                second = suite_evidence.registered_declarations(self.root, dev_root=self.root)
+            self.assertEqual(reader.call_count, 1)
+            self.assertEqual(second[CORE]["input_projections"]["CHANGELOG.md"], kind)
+            # The control: outside a scope every call reads again.
+            suite_evidence.registered_declarations(self.root, dev_root=self.root)
+            self.assertEqual(reader.call_count, 2)
 
     def test_a_focused_run_never_carries_the_changelog_projection(self):
         with patch("implementation_migration.changelog_citation_tokens", **self.good()):
@@ -422,6 +461,8 @@ class ReleaseMetadataPresetTests(unittest.TestCase):
             if spec["script"]:
                 (self.root / spec["script"]).parent.mkdir(parents=True, exist_ok=True)
                 (self.root / spec["script"]).write_text("")
+        (self.root / "crux/scripts/tests").mkdir(parents=True, exist_ok=True)
+        (self.root / "crux/scripts/tests/test-tiers.json").write_text("{}\n")  # the test-tiers preset needs a manifest
         for preset, spec in suite_evidence.PRESETS.items():
             with self.subTest(preset=preset):
                 declaration = suite_evidence.preset_declaration(
@@ -570,10 +611,13 @@ class RegisteredBookkeepingTests(unittest.TestCase):
     BOOKKEEPING = ("bionic/journal/2026-10.md", "bionic/log.md", "bionic/inbox/note.md",
                    "bionic/garden/2026-10-01.md", "bionic/whats_next.md", "bionic/queue/cycles.yaml",
                    "bionic/cycles/CYC-0001/cycle.json")
-    INPUTS = ("bionic/adrs/ADR-0001-x.md", "bionic/AGENTS.md", "bionic/manifest.yml",
-              "bionic/observations/OBS-0001-x.md", "bionic/invariants/INV-0001.md",
-              "bionic/arch/overview.md", "bionic/research/note.md", "bionic/briefs/BRIEF-x.md",
-              "crux/scripts/tool.py", "tools/helper.py")
+    # The decision records leave the registered checkout inputs (IDR one-main-test-run); a decision-only
+    # commit reuses the main run's receipt. The kept inputs below still move it.
+    DECISIONS = ("bionic/adrs/ADR-0001-x.md", "bionic/manifest.yml", "bionic/observations/OBS-0001-x.md",
+                 "bionic/arch/overview.md", "bionic/research/note.md", "bionic/briefs/BRIEF-x.md",
+                 "bionic/index.md", "bionic/objectives.md")
+    INPUTS = ("bionic/AGENTS.md", "bionic/invariants/INV-0001.md", "bionic/code/page.md",
+              "bionic/promptbooks/PB-0001.yaml", "crux/scripts/tool.py", "tools/helper.py", "AGENTS.md")
 
     def git(self, *args):
         return subprocess.run(["git", "-c", "user.name=T", "-c", "user.email=t@example.invalid", *args],
@@ -587,7 +631,7 @@ class RegisteredBookkeepingTests(unittest.TestCase):
         (self.root / ".python-version").write_text("3.13\n")
         (self.root / ".bionic.yml").write_text('config_version: "1"\ndocs_dir: bionic\n')
         self.git("init", "-q")
-        for rel in (*self.BOOKKEEPING, *self.INPUTS):
+        for rel in (*self.BOOKKEEPING, *self.DECISIONS, *self.INPUTS):
             path = self.root / rel
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("original\n")
@@ -614,6 +658,18 @@ class RegisteredBookkeepingTests(unittest.TestCase):
         for check in (CORE, TOOLS):
             self.assertEqual(self.fingerprint(check), before[check], check)
 
+    def test_a_decision_record_edit_leaves_both_checkout_suites_fingerprints_unchanged(self):
+        before = {check: self.fingerprint(check) for check in (CORE, TOOLS)}
+        for rel in self.DECISIONS:
+            (self.root / rel).write_text("original\nappended\n")
+        (self.root / "bionic/adrs/ADR-0002-new.md").write_text("a new decision\n")
+        for check in (CORE, TOOLS):
+            self.assertEqual(self.fingerprint(check), before[check], check)
+        self.git("add", "-A")
+        self.git("commit", "-qm", "decisions")
+        for check in (CORE, TOOLS):
+            self.assertEqual(self.fingerprint(check), before[check], check)
+
     def test_an_edit_to_any_other_tracked_file_changes_the_fingerprint(self):
         # POSITIVE DISCRIMINATOR: the equality above is a measurement, because each of these
         # moves the same fingerprint.
@@ -625,6 +681,90 @@ class RegisteredBookkeepingTests(unittest.TestCase):
                 self.assertNotEqual(self.fingerprint(TOOLS), before)
                 (self.root / rel).write_text("original\n")
                 self.assertEqual(self.fingerprint(CORE), before)
+
+
+class DashboardGateInputTests(unittest.TestCase):
+    """Each dashboard gate preset declares the inputs its script reads, so an unrelated change reuses its receipt.
+
+    CYC-0095 measured about 105 s per change, because the three presets declared the whole tree.
+    """
+
+    GATES = ("mods-gate", "opencode-gate", "omp-gate")
+    FILES = (
+        "tools/mods_gate.py", "tools/opencode_gate.py", "tools/omp_gate.py", "tools/opencode_gate_lib/model.py",
+        "tools/opencode_gate_fixtures/clean/crux-opencode/tui.tsx", "crux-mods/hooks/capabilities.ts",
+        "crux-mods/hooks/lib/view.ts", "crux-mods/tests/a.test.ts", "crux-opencode/tui.tsx", "crux-opencode/capabilities.ts",
+        "crux-omp/index.ts", "crux-omp/capabilities.ts", "bionic/adrs/ADR-0156-x.md", "bionic/adrs/archive/ADR-0001-y.md",
+        "bionic/adrs/ADR-0999-unrelated.md", "bionic/adrs/summaries/resolver.json", "crux/templates/micro-crux.md.tmpl",
+        "crux/scripts/other.py", "USER_GUIDE.md", ".claude-plugin/marketplace.json", ".bionic.yml")
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name).resolve()
+        write_lock_project(self.root)
+        (self.root / ".python-version").write_text("3.13\n")
+        for rel in self.FILES:
+            (self.root / rel).parent.mkdir(parents=True, exist_ok=True)
+            (self.root / rel).write_text("original\n")
+        (self.root / ".bionic.yml").write_text('config_version: "1"\ndocs_dir: bionic\n')
+
+    def fingerprints(self):
+        return {preset: te.snapshot(self.root, suite_evidence.preset_declaration(self.root, preset, "c-" + preset))["fingerprint"]
+                for preset in self.GATES}
+
+    def edit(self, rel, text="changed\n"):
+        (self.root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (self.root / rel).write_text(text)
+
+    def test_a_template_change_leaves_all_three_snapshots_unchanged(self):
+        before = self.fingerprints()
+        for rel in ("crux/templates/micro-crux.md.tmpl", "crux/scripts/other.py", "USER_GUIDE.md", "bionic/journal/2026-10.md"):
+            self.edit(rel)
+        self.assertEqual(self.fingerprints(), before)
+
+    def test_a_change_under_the_shared_core_changes_all_three_snapshots(self):
+        before = self.fingerprints()
+        self.edit("crux-mods/hooks/lib/view.ts")
+        after = self.fingerprints()
+        for preset in self.GATES:
+            self.assertNotEqual(after[preset], before[preset], preset)
+
+    def test_each_gate_reads_only_its_own_files(self):
+        # (changed file, the presets whose snapshot it moves). opencode_gate imports mods_gate.
+        cases = (("crux-omp/index.ts", {"omp-gate"}), ("crux-opencode/tui.tsx", {"opencode-gate"}),
+                 ("tools/opencode_gate_lib/model.py", {"opencode-gate"}), ("tools/omp_gate.py", {"omp-gate"}),
+                 ("tools/mods_gate.py", {"mods-gate", "opencode-gate"}), ("tools/opencode_gate.py", {"opencode-gate"}),
+                 ("crux-mods/tests/a.test.ts", {"mods-gate"}), ("crux-mods/hooks/capabilities.ts", {"mods-gate", "opencode-gate"}),
+                 ("bionic/adrs/ADR-0156-x.md", {"mods-gate", "opencode-gate"}),
+                 ("bionic/adrs/summaries/resolver.json", {"mods-gate", "opencode-gate"}),
+                 (".bionic.yml", {"mods-gate", "opencode-gate"}), ("uv.lock", set(self.GATES)))
+        for rel, moved in cases:
+            with self.subTest(path=rel):
+                before = self.fingerprints()
+                original = (self.root / rel).read_text()
+                self.edit(rel, original + "# changed\n")
+                after = self.fingerprints()
+                self.assertEqual({p for p in self.GATES if after[p] != before[p]}, moved)
+                self.edit(rel, original)
+
+    def test_adding_a_root_typescript_config_moves_the_node_and_bun_gates(self):
+        # node resolves crux-mods/hooks/lib's module type from the nearest package.json, which is the root's;
+        # bun looks up tsconfig.json and bunfig.toml from ancestor directories. None exists until it is added.
+        for rel in ("package.json", "tsconfig.json", "bunfig.toml"):
+            with self.subTest(path=rel):
+                before = self.fingerprints()
+                self.edit(rel, "{}\n")
+                after = self.fingerprints()
+                self.assertEqual({p for p in self.GATES if after[p] != before[p]}, {"mods-gate", "omp-gate"})
+                (self.root / rel).unlink()
+
+    def test_the_declarations_are_not_git_tracked_and_keep_the_bookkeeping_exclusions(self):
+        for preset in self.GATES:
+            declaration = suite_evidence.preset_declaration(self.root, preset, "c")
+            self.assertIs(declaration["git_tracked"], False, preset)
+            self.assertEqual(declaration["exclude_inputs"], suite_evidence.runtime_exclusions(self.root), preset)
+            self.assertNotIn("crux", declaration["inputs"], preset)
 
 
 if __name__ == "__main__":

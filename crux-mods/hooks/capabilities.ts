@@ -45,9 +45,9 @@ export const capabilities = {
   "calls": ["$.agent.list", "$.clock.after", "$.clock.every", "$.command.register", "$.env.get", "$.fs.read", "$.fs.stat", "$.process.run", "$.session.root", "$.state.get", "$.state.set", "$.ui.invalidate", "$.ui.open", "$.ui.resolve"],
   "env_reads": ["CLAUDE_CONFIG_DIR", "HOME"],
   "env_writes": [],
-  "state_declared": ["crux-mods.current", "crux-mods.page"],
-  "state_reads": ["crux-mods.current", "crux-mods.page"],
-  "state_writes": ["crux-mods.current", "crux-mods.page"],
+  "state_declared": ["crux-mods.current", "crux-mods.page", "crux-mods.queue"],
+  "state_reads": ["crux-mods.current", "crux-mods.page", "crux-mods.queue"],
+  "state_writes": ["crux-mods.current", "crux-mods.page", "crux-mods.queue"],
   "launch": {
     "launcher": "/usr/bin/env",
     "launcher_args": ["-i"],
@@ -65,7 +65,7 @@ export const capabilities = {
       "tool.call": {"sees": "Each tool call's tool name, and the file path of a Write, Edit, MultiEdit or NotebookEdit call or the command of a Bash call.", "keeps": "Nothing. A call that names a run file schedules a refresh 1.5 seconds later."},
       "prompt.submit": {"sees": "The text and origin kind of every prompt you submit, and whether it carries attachments. It reads nothing while the `read_prompts` setting is off.", "keeps": "Nothing of it. The prompt goes on unchanged. A prompt you type or send through the bridge, with no attachment, that is one of the phrases that ask to see the run opens the `/crux-dashboard` pane and starts a refresh."},
       "ui.render{component=AbovePrompt}": {"sees": "The band's width and whether a survey is showing.", "keeps": "Nothing from the event.", "surface": "the band above the prompt"},
-      "ui.render{component=Pane}": {"sees": "The pane's request id, width and placement, and the page of the `cycles:` list you chose with the `n` and `p` keys.", "keeps": "Nothing from the event.", "surface": "the `/crux-dashboard` pane"},
+      "ui.render{component=Pane}": {"sees": "The pane's request id, width and placement, the page of the `cycles:` list, and queue expansion chosen by its own buttons.", "keeps": "Nothing from the event.", "surface": "the `/crux-dashboard` pane"},
       "command.run{command=crux-dashboard}": {"sees": "That you ran `/crux-dashboard`. It reads nothing else from the event.", "keeps": "Nothing from the event. It refreshes, opens the pane and answers with text that Claude reads."}
     },
     "calls": {
@@ -78,8 +78,8 @@ export const capabilities = {
       "$.fs.stat": {"sees": "Whether a path exists, its kind and its resolved path. It checks the launcher, the project root, the Claude config directory, the plugin record, the installed crux, `HOME`, uv, uv's cache and uv's interpreter directory.", "keeps": "Nothing between launches."},
       "$.process.run": {"sees": "The reader's exit code, standard output and standard error.", "keeps": "Nothing of its own: the checked output is what `$.state.set` keeps. Standard error only selects a status code."},
       "$.session.root": {"sees": "The session's project root.", "keeps": "Nothing between launches. The reader receives it as `--project-root`."},
-      "$.state.get": {"sees": "The last reader result this mod kept, under `crux-mods.current`, and the page of the `cycles:` list, under `crux-mods.page`.", "keeps": "Nothing. It reads the values again for each drawing."},
-      "$.state.set": {"sees": "Nothing.", "keeps": "The last reader result, once checked, under `crux-mods.current` for the session, so a reload of the mod's code keeps the band and the pane. Claude Code holds it in memory and writes no file. Other plugins in the session can read it. A press of the pane's `n` or `p` key writes the page number under `crux-mods.page` the same way. The page changes only which cycles the list draws."},
+      "$.state.get": {"sees": "The checked reader result, cycle page and root-bound queue expansion under `crux-mods.current`, `crux-mods.page` and `crux-mods.queue`.", "keeps": "Nothing. It reads the values again for each drawing."},
+      "$.state.set": {"sees": "Nothing.", "keeps": "The checked reader result under `crux-mods.current`, cycle page under `crux-mods.page`, and root-bound queue expansion under `crux-mods.queue`. Claude Code keeps these in session memory across reloads, with no file. Other plugins can read them. Page keys change only the cycle list. Queue refresh preserves expansion; a different root reads as collapsed."},
       "$.ui.invalidate": {"sees": "Nothing. It asks Claude Code to draw the band and the pane again after each refresh.", "keeps": "Nothing."},
       "$.ui.open": {"sees": "Nothing. It opens the `/crux-dashboard` pane.", "keeps": "Nothing."},
       "$.ui.resolve": {"sees": "The `Box`, `Text` and `Button` components Claude Code draws with.", "keeps": "Nothing."}
@@ -99,6 +99,8 @@ export const capabilities = {
       {"event": "ui.render{component=Pane}", "part": "the queue card: the count of queued items, whether the queue is authorized, and each upcoming or recently finished item", "from": ["visualize-run-progress:queue.items[].id", "visualize-run-progress:queue.items[].title", "visualize-run-progress:queue.items[].state", "visualize-run-progress:queue.items[].cycle", "visualize-run-progress:queue.items[].cycle_status", "visualize-run-progress:queue.authorization.kind", "visualize-run-progress:queue.authorization.remaining"]},
       {"event": "ui.render{component=Pane}", "part": "the `cycles:` list: the closed cycles after the latest as one-line rows, ten to a page, with the page number and the `n` and `p` keys that turn the page", "from": ["visualize-run-progress:cycles[].id", "visualize-run-progress:cycles[].title", "visualize-run-progress:cycles[].type", "visualize-run-progress:cycles[].status", "visualize-run-progress:cycles[].tasks"]},
       {"event": "ui.render{component=Pane}", "part": "a cycle's elapsed time, and its paused time when there is any", "from": ["visualize-run-progress:cycles[].started_s", "visualize-run-progress:cycles[].ended_s", "visualize-run-progress:cycles[].paused_s", "visualize-run-progress:cycles[].basis", "visualize-run-progress:now_s"]},
+      {"event": "ui.render{component=Pane}", "part": "an open cycle's open attempts: each one's id, role, attempt number, state and observation, its liveness shown as unknown, and a mark on a reservation whose dispatch is unresolved", "from": ["visualize-run-progress:cycles[].status", "visualize-run-progress:cycles[].assignments"]},
+      {"event": "ui.render{component=Pane}", "part": "a cycle's classification count, its owner exception and its record revision", "from": ["visualize-run-progress:cycles[].classification_count", "visualize-run-progress:cycles[].exception", "visualize-run-progress:cycles[].revision", "visualize-run-progress:cycles[].schema_version"]},
       {"event": "ui.render{component=AbovePrompt}", "part": "the book and run of the run whose run file changed last", "from": ["visualize-run-progress:runs[].book_id", "visualize-run-progress:runs[].run_id", "visualize-run-progress:runs[].modified_s"]},
       {"event": "ui.render{component=AbovePrompt}", "part": "the prompt strip: one glyph per prompt, with `|` between modules", "from": ["visualize-run-progress:runs[].prompts[].state", "visualize-run-progress:runs[].prompts[].module_tag", "visualize-run-progress:runs[].current_prompt", "visualize-run-progress:runs[].prompts[].n"]},
       {"event": "ui.render{component=AbovePrompt}", "part": "the current prompt's module kind word", "from": ["visualize-run-progress:runs[].prompts[].module_tag", "visualize-run-progress:runs[].current_prompt", "visualize-run-progress:runs[].prompts[].n"]},

@@ -6,6 +6,25 @@ import type { Parsed } from '../../crux-mods/hooks/lib/view.ts'
 import type { Host } from './host.ts'
 import { PANEL_UNAVAILABLE } from './status.ts'
 import type { Scheduler } from './refresh.ts'
+import { applyQueueAction, queueControl, queueExpanded } from '../../crux-mods/hooks/lib/queue.ts'
+import type { QueueExpansion } from '../../crux-mods/hooks/lib/queue.ts'
+
+export type QueueMode = 'expand' | 'collapse' | 'toggle'
+
+// An explicit command fallback for OMP's string-row widget; it observes no terminal input.
+export function queueMode(args: string): QueueMode | null {
+  const value = typeof args === 'string' ? args.trim().toLowerCase() : ''
+  return value === 'queue' ? 'toggle' : value === 'queue expand' ? 'expand' : value === 'queue collapse' ? 'collapse' : null
+}
+
+export function commandQueue(parsed: Parsed | null, state: QueueExpansion | null, root: string, mode: QueueMode): QueueExpansion | null {
+  if (parsed === null || !parsed.ok) return null
+  const expanded = queueExpanded(state, root)
+  const desired = mode === 'toggle' ? !expanded : mode === 'expand'
+  if (desired === expanded) return null
+  const control = queueControl(parsed.view.queue, expanded)
+  return control === null ? null : applyQueueAction(parsed, state, root, control.action)
+}
 
 export function runCommand(host: Host, scheduler: Scheduler): void {
   let open = false

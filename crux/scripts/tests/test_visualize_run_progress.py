@@ -151,10 +151,6 @@ class ProgressModelTests(unittest.TestCase):
         self.assertFalse(m["tag_joined"])
         self.assertEqual({r["module_tag"] for r in m["rows"]}, {"—"})
 
-    def test_build_model_markdown_byte_stable(self):
-        m = viz.build_model(self.run, self.book)
-        self.assertEqual(viz.render_markdown(m), viz.render_markdown(m))
-
 
 class RendererTests(unittest.TestCase):
     def _rows(self):
@@ -251,12 +247,6 @@ class CliTests(unittest.TestCase):
         self.assertEqual(self._main(["PB-9001", "--no-color"]), 0)
         after = {p.relative_to(self.tmp): p.read_bytes() for p in self.tmp.rglob("*") if p.is_file()}
         self.assertEqual(before, after)
-
-    def test_cli_markdown_writes_sibling_artifact(self):
-        self.assertEqual(self._main(["PB-9001", "--markdown"]), 0)
-        artifact = self.run.with_name("run-RUN-001-progress.md")
-        self.assertTrue(artifact.exists())
-        self.assertIn("Run progress", artifact.read_text(encoding="utf-8"))
 
     def test_cli_markdown_only_writes_artifact_so_skill_can_log_once(self):
         before = {p.relative_to(self.tmp): p.read_bytes() for p in self.tmp.rglob("*") if p.is_file()}

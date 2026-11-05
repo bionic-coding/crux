@@ -331,11 +331,12 @@ test('case 5: the open and the launch are constants, and repeated matches join o
   const opens = opensOf(calls)
   expect(opens.length).toBe(n)
   for (const o of opens) expect(o.input).toEqual(PANE_OPEN)
-  // The timers those prompts set fire together, and the launches join: one reader run in all.
+  // The timers those prompts set fire together. The first starts a run; the rest set one pending run
+  // between them: two reader runs in all, never one per match.
   await w.clock.settle()
   expect(w.runs.length).toBe(1)
-  await w.clock.advance(PAST_THE_READER_MS)
-  expect(w.runs.length).toBe(1)
+  await w.clock.advance(PAST_THE_READER_MS * 2)
+  expect(w.runs.length).toBe(2)
   // Later matches, and /crux-dashboard, start launches with the same argv and init.
   await submit($, calls, seen, composer('RUN STATUS'))
   await w.clock.settle()
@@ -343,7 +344,7 @@ test('case 5: the open and the launch are constants, and repeated matches join o
   const answered = $.command.run({ command: 'crux-dashboard' } as any)
   await w.clock.advance(PAST_THE_READER_MS)
   await answered
-  expect(w.runs.length).toBe(3)
+  expect(w.runs.length).toBe(4)
   for (const r of w.runs) {
     expect(r.argv).toEqual(w.runs[0]!.argv)
     expect(r.init).toEqual(w.runs[0]!.init)
@@ -704,12 +705,12 @@ async function refreshCompletes($: any, on: any, answered: string) {
   await w.clock.settle()
   expect(calls.filter(c => c.event === 'clock.after').map(c => c.input.ms)).toEqual([0])
   expect(w.runs.length).toBe(1)
-  // /crux-dashboard while the launch is in flight joins it.
+  // /crux-dashboard while the launch is in flight waits for the one launch that starts after it.
   const asked = $.command.run({ command: 'crux-dashboard' } as any)
-  await w.clock.advance(PAST_THE_READER_MS)
+  await w.clock.advance(PAST_THE_READER_MS * 2)
   const text = String(((await asked) as any).text)
   const pane = (await paneTexts($)).join('\n')
-  expect(w.runs.length).toBe(1)
+  expect(w.runs.length).toBe(2)
   expect(text).toContain('status ok')
   expect(text).toContain('PB-0149 RUN-001')
   expect(pane).toContain('PB-0149')

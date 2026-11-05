@@ -1828,18 +1828,20 @@ def collect_records(adrs: Path, governs_from: int | None = None,
                            or (receipt_path is not None and _source_is_file(receipt_path, _source_io)))
             if prospective and fm.get("status") == "Accepted":
                 try:
-                    from decision_policy import validate_receipt_data
+                    from decision_policy import resolve_acceptance
                     if receipt_path is None or not _source_is_file(receipt_path, _source_io):
                         raise ValueError("acceptance receipt missing")
-                    receipt = json.loads(_source_text(receipt_path, _source_io))
-                    council = _source_contained(adrs.parent, receipt['council'], _source_io)
-                    if council is None:
-                        raise ValueError("acceptance council escapes documentation tree")
                     def proof_reader(relative):
                         proof=_source_contained(adrs.parent,relative,_source_io)
                         if proof is None:raise ValueError('native council proof escapes documentation tree')
                         return _source_bytes(proof,_source_io)
-                    validate_receipt_data(receipt, f"adrs/{path.name}", _source_bytes(council, _source_io),proof_reader=proof_reader)
+                    def proof_exists(relative):
+                        proof=_source_contained(adrs.parent,relative,_source_io)
+                        if proof is None:raise ValueError('acceptance binding escapes documentation tree')
+                        return _source_exists(proof,_source_io)
+                    _,receipt=resolve_acceptance(src,proof_reader=proof_reader,exists=proof_exists)
+                    if receipt['subject']!=f"adrs/{path.name}":
+                        raise ValueError('acceptance receipt subject mismatch')
                     if receipt['accepted_sha256'] != hashlib.sha256(text.encode()).hexdigest():
                         raise ValueError("accepted decision contents changed")
                     accepted_amends[src] = fm.get("amends") or []

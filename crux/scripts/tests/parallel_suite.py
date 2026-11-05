@@ -8,12 +8,27 @@ Usage:
 
     python3 crux/scripts/tests/parallel_suite.py START [-p PATTERN]
         [-t TOP] [-w N] [--records PATH] [--timings PATH]
+        [--select ID]... [--failed-from RECORDS] [--tier TIER]...
     python3 crux/scripts/tests/parallel_suite.py --write-timings RECORDS
         [--timings-out PATH]
+
+`--tier TIER` (dev, release or ephemeral; repeatable) runs only the tests that the
+`test-tiers.json` manifest in START labels with a selected tier. It fails closed when START holds
+no valid manifest, when a discovered test has no label, or when the selection keeps no test. It
+cannot combine with `--flagged`, `--shared-evidence` or `--write-timings`.
 
 The driver runs the tests that `python -m unittest discover -s START` runs,
 through the same loader call, and prints the same summary lines. The literal
 `unittest discover` command stays the serial reference. CI uses this driver.
+
+`--failed-from RECORDS` reruns only what failed in an earlier `--records` run: every test
+whose record has outcome `fail`, `error` or `uxsuccess`, a failed subtest selecting its parent
+test, and a failed `setUpClass` or `setUpModule` holder selecting its class or module. The ids go
+through `--select`, so a stale id (a test the tree no longer has) fails closed exactly as there.
+A records file with no such test runs nothing, prints that, and exits 0. A missing file, a line
+that is not JSON, or a file with no test record exits 2 with `FAILED CLOSED`. With `--select`,
+the rerun keeps only the failed ids under a selected id. START and `-p` still name the tree to
+discover. It cannot combine with `--flagged`, `--shared-evidence` or `--write-timings`.
 
 How a run works:
 
@@ -61,6 +76,21 @@ and every refusal above are unchanged; the bins are only started later. `--worke
 bins that run at once. A worker removes the variable from its environment, so a test that starts a
 driver of its own does not draw on its parent's budget. A variable that names no usable pool fails
 the run closed with exit 2. Without the variable the run is as described above.
+
+The live environment. A run replaces `CRUX_HOME` with a fresh empty directory, removed when the run
+ends, and removes `OPENROUTER_API_KEY`, `PERPLEXITY_API_KEY` and `CRUX_ALLOW_LIVE` from the environment
+its workers inherit, so a suite started from an ordinary shell cannot reach a live model. The caller's
+environment is restored on exit. A test that needs a key sets its own controlled value.
+A run that names `--python-minor` also gets a fresh `UV_CACHE_DIR` (unless the caller set one),
+because suites for different minors run at once and a shared uv cache lets one rebuild a script
+environment while another runs it. The cost is a cold cache: each script environment downloads again.
+
+The full-suite lock. A `--shared-evidence` run of a registered checkout suite holds
+`<git-common-dir>/crux/full-suite.lock` while it executes, the lock `tools/test-suite.py` holds for a
+full run, so the cycle writer defers its record commit and a second full run refuses with exit 2
+naming the holder. It holds nothing under `--plan-test-evidence` or `--reuse-test-evidence-only`, for
+a staged run, for a focused run of an unregistered start, or when `tools/test-suite.py` started it
+(that tool names its inherited descriptor in `CRUX_FULL_SUITE_LOCK_FD`).
 
 The timings file. `suite_timings.json` beside this driver maps a unit key to
 seconds. A key is the last dotted part of the module name, plus `.ClassName`
@@ -124,6 +154,8 @@ The driver is stdlib-only.
 import argparse
 import atexit
 import collections
+import contextlib
+import datetime
 import fcntl
 import importlib.util
 import json
@@ -374,9 +406,50 @@ class _ModuleLoader(unittest.TestLoader):
         return suite
 
 
-def discover(start, pattern, top):
-    """The `unittest discover` loader call: `discover(start, pattern, top)`."""
-    return _ModuleLoader().discover(start, pattern, top)
+def discover(start, pattern, top, select=()):
+    """The `unittest discover` loader call: `discover(start, pattern, top)`.
+
+    `select` names the modules, classes and methods to keep (see `select_tests`). Empty keeps every test.
+    """
+    suite = _ModuleLoader().discover(start, pattern, top)
+    return select_tests(suite, select) if select else suite
+
+
+def _selected(test_id, wanted):
+    """Whether `test_id` is `wanted` or lies under it: a module, class or method id on a segment boundary."""
+    return test_id == wanted or test_id.startswith(wanted + ".")
+
+
+def _prune(suite, wanted):
+    kept = unittest.TestSuite()
+    tag = getattr(suite, "_parallel_suite_module", None)
+    if tag is not None:
+        kept._parallel_suite_module = tag
+    for child in suite:
+        if isinstance(child, unittest.TestSuite):
+            pruned = _prune(child, wanted)
+            if any(True for _ in _leaves(pruned)):
+                kept.addTest(pruned)
+        elif any(_selected(child.id(), item) for item in wanted):
+            kept.addTest(child)
+    return kept
+
+
+def select_tests(suite, select):
+    """The discovered `suite` cut to the tests under the ids in `select`.
+
+    An id matches a test when it equals the test's id or is a dotted prefix of it, so a module, a class
+    or a method selects what it contains and `Alpha` never selects `AlphaExtra`. An id that matches no
+    discovered test raises `LedgerError`: a stale selection must not pass by running nothing.
+    """
+    wanted = tuple(dict.fromkeys(select))
+    ids = [leaf.id() for leaf in _leaves(suite)]
+    missing = [item for item in wanted if not any(_selected(test_id, item) for test_id in ids)]
+    if missing:
+        error = LedgerError("selection", "selection id not found: " + ", ".join(missing))
+        error.missing = missing
+        raise error
+    return _prune(suite, wanted)
 
 
 def _leaves(test):
@@ -559,6 +632,45 @@ def timings_from_records(path):
                 if _is_seconds(record.get("fixture_duration")):
                     sums[key].append(record["fixture_duration"])
     return {key: round(math.fsum(values), TIMINGS_ROUND) for key, values in sorted(sums.items())}
+
+
+_FAILING = frozenset({"fail", "error", "uxsuccess"})
+_HOLDER_FAILED = re.compile(r"^(?:setUp|tearDown)(?:Class|Module) \((.+)\)$")
+
+
+def failed_ids_from_records(path):
+    """The ids of the tests that failed in a `--records` JSONL, sorted.
+
+    A subtest record already carries its parent's id. A failed class or module fixture selects that
+    class or module. Raises `LedgerError` on a missing file, a non-JSON line or a file with no test record.
+    """
+    failed, tests = set(), 0
+    try:
+        fh = open(path, encoding="utf-8")
+    except OSError as exc:
+        raise LedgerError("malformed-records", "cannot read %s: %s" % (path, exc)) from None
+    with fh:
+        for number, line in enumerate(fh, 1):
+            if not line.strip():
+                continue
+            try:
+                record = json.loads(line)
+            except ValueError as exc:
+                raise LedgerError("malformed-records", "%s line %d: %s" % (path, number, exc)) from None
+            if not isinstance(record, dict) or not isinstance(record.get("id"), str):
+                continue
+            kind, outcome = record.get("kind"), record.get("outcome")
+            if kind in ("test", "subtest"):
+                tests += 1
+                if outcome in _FAILING:
+                    failed.add(record["id"])
+            elif kind == "holder" and outcome in _FAILING:
+                match = _HOLDER_FAILED.match(record["id"])
+                if match:
+                    failed.add(match.group(1))
+    if not tests:
+        raise LedgerError("malformed-records", "%s holds no test record" % path)
+    return sorted(failed)
 
 
 def format_timings(timings):
@@ -1019,7 +1131,8 @@ POOL_POLL_SECONDS = 0.2
 # discovery (about 2 s for this suite), so bins stay large enough that this is a few percent of the work.
 POOL_BIN_SECONDS = 120.0
 WAITER_STALE_SECONDS = 30.0
-_WAITER_FORMAT = "%020.3f %017.3f\n"
+_WAITER_WEIGHT_FORMAT = "%020.3f"
+_WAITER_FORMAT = _WAITER_WEIGHT_FORMAT + " %017.3f\n"
 
 
 class PoolError(Exception):
@@ -1150,7 +1263,7 @@ class PoolWaiter:
 
     def deferred(self):
         """Whether a live, fresh waiter of another process or handle outranks this one."""
-        mine = (-self.weight, self.name)
+        mine = (-float(_WAITER_WEIGHT_FORMAT % self.weight), self.name)
         directory = os.path.join(self.pool.directory, "waiters")
         try:
             names = os.listdir(directory)
@@ -1225,7 +1338,7 @@ def _disable_fixture_git_maintenance():
     os.environ["GIT_TEMPLATE_DIR"] = template
 
 
-def _worker_main(conn, bin_index, positions, start, pattern, top, snapshot, expected):
+def _worker_main(conn, bin_index, positions, start, pattern, top, snapshot, expected, select=()):
     # Lead a process group, so the coordinator can stop this worker and every
     # process its tests start with one killpg. The terminal's signals reach
     # only the coordinator's group, and the coordinator stops the workers.
@@ -1246,7 +1359,7 @@ def _worker_main(conn, bin_index, positions, start, pattern, top, snapshot, expe
         os.dup2(devnull, 0)
         os.close(devnull)
     sys.path[:] = snapshot
-    units = build_units(discover(start, pattern, top))
+    units = build_units(discover(start, pattern, top, select))
     manifest = unit_manifest(units)
     discovered_path = list(sys.path)
     if _normal(manifest) != _normal(expected):
@@ -1563,6 +1676,25 @@ def _parse(argv):
     parser.add_argument("-w", "--workers", type=_positive, default=None,
                         help="the worker count (default %d, capped by the CPUs this process may use)"
                              % DEFAULT_WORKERS)
+    parser.add_argument("--select", action="append", default=[], metavar="ID",
+                        help="run only the tests under this module, class or method id; repeatable. "
+                             "An id that matches no discovered test is an error")
+    parser.add_argument("--failed-from", dest="failed_from", default=None, metavar="RECORDS",
+                        help="run only the tests that failed or errored in this --records JSONL "
+                             "(a failed subtest selects its parent); with --select, only those under a selected id")
+    parser.add_argument("--tier", action="append", default=[], choices=("dev", "release", "ephemeral"),
+                        metavar="TIER",
+                        help="run only the tests START/test-tiers.json labels with this tier (dev, release or "
+                             "ephemeral); repeatable. A missing or invalid manifest, a discovered test with "
+                             "no label, and a selection that keeps no test fail closed")
+    parser.add_argument("--flagged", action="store_true",
+                        help="run the tests the flagged list names for this Python minor; an entry whose "
+                             "test skips, and an entry that selects no test, fail the run")
+    parser.add_argument("--flagged-list", dest="flagged_list", default=None, metavar="PATH",
+                        help="the flagged list for --flagged (default: flagged_tests.json beside the driver)")
+    parser.add_argument("--staged-check", dest="staged_check", choices=("flagged", "health"), default=None,
+                        help="with --shared-evidence --evidence-scope staged: run the registered staged "
+                             "check of this name through the evidence engine instead of the full suite")
     parser.add_argument("--records", default=None,
                         help="write the canonical JSONL records to this path")
     parser.add_argument("--timings", default=None,
@@ -1585,6 +1717,21 @@ def _parse(argv):
         parser.error("evidence planning/reuse-only requires --shared-evidence")
     if (args.plan_test_evidence or args.reuse_test_evidence_only) and args.write_timings is not None:
         parser.error("evidence planning/reuse-only cannot write timings")
+    if args.staged_check and not (args.shared_evidence and args.evidence_scope == "staged"):
+        parser.error("--staged-check needs --shared-evidence and --evidence-scope staged")
+    if args.staged_check == "flagged" and args.flagged:
+        parser.error("--staged-check flagged already runs --flagged; give one of them")
+    if args.tier and (args.flagged or args.write_timings is not None):
+        parser.error("--tier chooses its own selection; do not combine it with --flagged or --write-timings")
+    if args.tier and args.shared_evidence and (args.tier != ["release"] or args.select or args.failed_from
+                                               or args.evidence_scope != "checkout" or args.staged_check):
+        parser.error("--shared-evidence takes only --tier release, alone, for the registered release-tier "
+                     "declaration of a checkout suite")
+    if args.flagged and args.select:
+        parser.error("--flagged chooses its own selection; do not combine it with --select")
+    if args.failed_from and (args.flagged or args.shared_evidence or args.write_timings is not None):
+        parser.error("--failed-from chooses its own selection; do not combine it with --flagged, "
+                     "--shared-evidence or --write-timings")
     if args.write_timings is None and args.start is None:
         parser.error("the following arguments are required: start")
     return args
@@ -1601,19 +1748,281 @@ def _write_timings_main(args):
     return 0
 
 
-def main(argv=None):
+def _scripts_on_path():
+    scripts = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if scripts not in sys.path:
+        sys.path.insert(0, scripts)
+
+
+def tier_selection(start, pattern, top, tiers, select=()):
+    """The ids that run under ``--tier``: the discovered tests whose manifest tier is in ``tiers``.
+
+    Reads ``start/test-tiers.json`` through ``test_tiers.load``. Keeps a loader-failure id so an
+    import error still runs and fails. Raises ``LedgerError`` when the manifest is missing or invalid,
+    when a discovered test's module has no label, when a ``select`` id matches no discovered test, and
+    when nothing is left. The result names modules or classes when every discovered test under one is
+    kept, and methods otherwise.
+    """
+    _scripts_on_path()
+    import test_tiers
+    try:
+        data = test_tiers.load(start)
+    except test_tiers.ManifestError as err:
+        raise LedgerError("tier", str(err))
+    ids = _discovered_ids(start, pattern, top)
+    missing = [item for item in dict.fromkeys(select) if not any(_selected(i, item) for i in ids)]
+    if missing:
+        error = LedgerError("selection", "selection id not found: " + ", ".join(missing))
+        error.missing = missing
+        raise error
+    wanted = set(tiers)
+    kept, unlabelled = [], []
+    for test_id in ids:
+        if test_id.startswith(test_tiers.FAILED_TEST_PREFIX):
+            kept.append(test_id)
+            continue
+        tier = test_tiers.tier_of_id(data, test_id)
+        if tier is None:
+            unlabelled.append(test_id)
+        elif tier in wanted and (not select or any(_selected(test_id, item) for item in select)):
+            kept.append(test_id)
+    if unlabelled:
+        raise LedgerError("tier", "discovered test has no tier label in %s: %s"
+                          % (os.path.join(start, test_tiers.MANIFEST_NAME), ", ".join(unlabelled[:5])))
+    if not any(not i.startswith(test_tiers.FAILED_TEST_PREFIX) for i in kept):
+        raise LedgerError("tier", "the tier selection (%s) keeps no test" % ", ".join(sorted(wanted)))
+    return _compress(ids, kept)
+
+
+_DISCOVER_SOURCE = (
+    "import json, sys\n"
+    "sys.path.insert(0, sys.argv[1])\n"
+    "import parallel_suite as p\n"
+    "top = sys.argv[4] or None\n"
+    "ids = [leaf.id() for leaf in p._leaves(p._ModuleLoader().discover(sys.argv[2], sys.argv[3], top))]\n"
+    "with open(sys.argv[5], 'w', encoding='utf-8') as out:\n"
+    "    json.dump(ids, out)\n"
+)
+
+
+def _discovered_ids(start, pattern, top):
+    """The discovered test ids, from a child interpreter.
+
+    Discovery runs test-module code, and that code can change ``sys.path`` and module state. The
+    coordinator discovers once more for its own manifest, and each worker compares its ``sys.path``
+    and manifest with that discovery. A second discovery in the coordinator's process would add its
+    own changes and fail that comparison, so the tier selection discovers in a child of the same
+    interpreter, flags and working directory as the workers.
+    """
+    with tempfile.TemporaryDirectory() as scratch:
+        out = os.path.join(scratch, "ids.json")
+        proc = subprocess.run(
+            [*_worker_interpreter_argv(), "-c", _DISCOVER_SOURCE, os.path.dirname(os.path.abspath(__file__)),
+             start, pattern, top or "", out],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL)
+        if proc.returncode != 0 or not os.path.isfile(out):
+            raise LedgerError("tier", "tier discovery exited %d: %s" % (proc.returncode, proc.stderr.strip()[-2000:]))
+        with open(out, encoding="utf-8") as handle:
+            return json.load(handle)
+
+
+def _compress(all_ids, kept):
+    """``kept`` as the fewest module, class and method ids that select exactly ``kept`` among ``all_ids``."""
+    keep = set(kept)
+    out = []
+    for test_id in kept:
+        if test_id.startswith("unittest.loader."):
+            out.append(test_id)
+    ordinary = [i for i in all_ids if not i.startswith("unittest.loader.")]
+    done = set()
+    for test_id in ordinary:
+        if test_id not in keep or test_id in done:
+            continue
+        parts = test_id.split(".")
+        for size in (1, 2):
+            prefix = ".".join(parts[:size])
+            under = [i for i in ordinary if i == prefix or i.startswith(prefix + ".")]
+            if size < len(parts) and all(i in keep for i in under):
+                out.append(prefix)
+                done.update(under)
+                break
+        else:
+            out.append(test_id)
+            done.add(test_id)
+    return out
+
+
+def _flagged_plan(args):
+    """``(entries, ids)`` for the running minor, or raises `FlaggedError` with the list's problems."""
+    _scripts_on_path()
+    import flagged_tests
+    path = args.flagged_list or os.path.join(os.path.dirname(os.path.abspath(__file__)), "flagged_tests.json")
+    entries = flagged_tests.load(path)
+    problems = flagged_tests.validate(entries)
+    if problems:
+        raise flagged_tests.FlaggedError("the flagged list is invalid: " + "; ".join(problems))
+    minor = args.python_minor or "%d.%d" % sys.version_info[:2]
+    return minor, flagged_tests.applicable(entries, minor), flagged_tests.selection(entries, minor)
+
+
+def _flagged_skips(summary):
+    """The `flagged test skipped` lines for every skipped record of a flagged run."""
+    seen, lines = set(), []
+    for record in summary.records:
+        if record["outcome"] == "skip" and (record["id"], record["reason"]) not in seen:
+            seen.add((record["id"], record["reason"]))
+            lines.append("flagged test skipped: %s (%s)" % (record["id"], record["reason"] or "no reason given"))
+    return lines
+
+
+# The full-suite lock. `tools/test-suite.py` holds `<git-common-dir>/crux/full-suite.lock` for a full run and
+# records its holder as one JSON line (`pid`, `head`, `started_at`, `output_dir`); the cycle writer defers its
+# record commit while the lock is held. An executing registered checkout-suite run holds the same lock, so a
+# writer commit cannot move HEAD under it. The path and the holder format must stay what test-suite.py writes.
+# test-suite.py hands a child run its descriptor and names it in FULL_SUITE_LOCK_FD_ENV; the child then
+# holds nothing of its own.
+FULL_SUITE_LOCK_NAME = "full-suite.lock"
+FULL_SUITE_LOCK_FD_ENV = "CRUX_FULL_SUITE_LOCK_FD"
+
+
+class _LockHeld(Exception):
+    """Another run holds the full-suite lock; the message names the holder."""
+
+
+def _lock_directory():
+    """`<git-common-dir>/crux`, or None when this is not a git work tree."""
+    try:
+        done = subprocess.run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                              capture_output=True, text=True)
+    except OSError:
+        return None
+    return os.path.join(done.stdout.strip(), "crux") if done.returncode == 0 and done.stdout.strip() else None
+
+
+def _inherits_the_lock(path):
+    """True when FULL_SUITE_LOCK_FD_ENV names an open descriptor of the lock file at `path`."""
+    value = os.environ.get(FULL_SUITE_LOCK_FD_ENV)
+    if not value or not value.isdigit():
+        return False
+    try:
+        held, lock = os.fstat(int(value)), os.stat(path)
+    except OSError:
+        return False
+    return (held.st_dev, held.st_ino) == (lock.st_dev, lock.st_ino)
+
+
+def _head():
+    done = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True)
+    return done.stdout.strip() if done.returncode == 0 else None
+
+
+@contextlib.contextmanager
+def _full_suite_lock():
+    """Hold the full-suite lock for the block, or raise `_LockHeld` naming the holder.
+
+    Holds nothing when this run inherited the lock from `tools/test-suite.py` or when the directory is not a
+    git work tree (the evidence engine fails closed there itself).
+    """
+    directory = _lock_directory()
+    if directory is None:
+        yield
+        return
+    path = os.path.join(directory, FULL_SUITE_LOCK_NAME)
+    if _inherits_the_lock(path):
+        yield
+        return
+    for candidate in (directory, path):
+        if os.path.islink(candidate):
+            raise _LockHeld("%s is a symlink; remove it so the run never writes through it" % candidate)
+    with contextlib.suppress(FileExistsError):
+        os.mkdir(directory, 0o700)
+    try:
+        fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    except OSError as err:
+        raise _LockHeld("cannot open %s: %s" % (path, err))
+    try:
+        os.fchmod(fd, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            holder = os.pread(fd, 4096, 0).decode(errors="replace").strip()
+            try:
+                info = json.loads(holder)
+                detail = " ".join("%s=%s" % (key, info.get(key)) for key in ("pid", "head", "started_at", "output_dir"))
+            except (ValueError, AttributeError):
+                detail = "holder unrecorded"
+            raise _LockHeld("lock held: %s; %s" % (path, detail))
+        os.ftruncate(fd, 0)
+        started = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+        os.pwrite(fd, (json.dumps({"pid": os.getpid(), "head": _head(), "started_at": started,
+                                   "output_dir": None}) + "\n").encode(), 0)
+        yield
+    finally:
+        os.close(fd)
+
+
+def _registered_checkout_run(args):
+    """True when `args` name an executing run of a registered checkout suite (not a plan or a reuse-only check)."""
+    if args.evidence_scope != "checkout" or args.staged_check:
+        return False
+    if args.plan_test_evidence or args.reuse_test_evidence_only:
+        return False
+    try:
+        from suite_evidence import declaration_for
+        _, registered = declaration_for(args.evidence_scope, args.start, args.pattern, args.top, os.getcwd())
+    except Exception:  # a declaration that cannot be built fails closed in run_shared, with its own message
+        return False
+    return registered
+
+
+def _run(argv=None):
     args = _parse(argv)
     if args.write_timings is not None:
         return _write_timings_main(args)
+    if args.failed_from:
+        try:
+            failed = failed_ids_from_records(args.failed_from)
+        except LedgerError as err:
+            sys.stderr.write("%s FAILED CLOSED: %s\n" % (_PREFIX, err))
+            return 2
+        if args.select:
+            failed = [i for i in failed if any(_selected(i, item) for item in args.select)]
+        if not failed:
+            sys.stderr.write("%s no failed or errored test to rerun in %s; nothing to run\n"
+                             % (_PREFIX, args.failed_from))
+            return 0
+        args.select = failed
+    if args.tier and not args.shared_evidence:
+        try:
+            args.select = tier_selection(args.start, args.pattern, args.top, args.tier, tuple(args.select))
+        except LedgerError as err:
+            sys.stderr.write("%s FAILED CLOSED: %s\n" % (_PREFIX, err))
+            return 2
     if args.shared_evidence:
-        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        _scripts_on_path()
         from suite_evidence import run_shared
         from test_evidence import EvidenceError
         try:
+            if _registered_checkout_run(args):
+                with _full_suite_lock():
+                    return run_shared(args)
             return run_shared(args)
+        except _LockHeld as err:
+            sys.stderr.write("%s FAILED CLOSED: %s\n" % (_PREFIX, err))
+            return 2
         except (EvidenceError, OSError) as err:
             sys.stderr.write("%s FAILED CLOSED: %s\n" % (_PREFIX, err))
             return 2
+    if args.flagged:
+        try:
+            minor, flagged_entries, flagged_ids = _flagged_plan(args)
+        except Exception as err:  # FlaggedError and a missing `flagged_tests` module alike fail closed
+            sys.stderr.write("%s FAILED CLOSED: %s\n" % (_PREFIX, err))
+            return 2
+        if not flagged_ids:
+            sys.stderr.write("%s no flagged entry applies to Python %s; nothing to run\n" % (_PREFIX, minor))
+            return 0
+        args.select = list(flagged_ids)
     try:
         timings, timings_note = load_timings(args.timings)
     except LedgerError as err:
@@ -1641,7 +2050,7 @@ def main(argv=None):
         for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
             if signal.getsignal(signum) is not signal.SIG_IGN:
                 saved[signum] = signal.signal(signum, _deferring(pending))
-        units = build_units(discover(args.start, args.pattern, args.top))
+        units = build_units(discover(args.start, args.pattern, args.top, tuple(args.select)))
         manifest = unit_manifest(units)
         # Install the raising handler before reading `pending`, so a signal
         # between the two either is already recorded or raises.
@@ -1672,7 +2081,7 @@ def main(argv=None):
             proc = context.Process(
                 target=_worker_main, name="parallel_suite-bin-%d" % b.index, daemon=False,
                 args=(writer, b.index, b.positions, args.start, args.pattern, args.top,
-                      snapshot, manifest))
+                      snapshot, manifest, tuple(args.select)))
             started.append((b, proc))
             conns[b.index] = reader
             proc.start()
@@ -1690,6 +2099,11 @@ def main(argv=None):
         summary = reconcile(manifest, bins, payloads, discovered_path)
         elapsed = time.perf_counter() - began
     except LedgerError as err:
+        if args.flagged and err.branch == "selection":
+            # A flagged entry that names no discovered test is stale; say which entries, and fail the check.
+            for missing in err.missing:
+                sys.stderr.write("%s flagged entry selects no test: %s\n" % (_PREFIX, missing))
+            return 1
         sys.stderr.write("%s FAILED CLOSED: %s\n" % (_PREFIX, err))
         _report_unfinished(started, conns, current, payloads)
         return 2
@@ -1716,7 +2130,56 @@ def main(argv=None):
         merged.write_jsonl(records_path)
     sys.stderr.write(format_summary(summary, elapsed))
     sys.stderr.flush()
-    return exit_code(summary)
+    code = exit_code(summary)
+    if args.flagged:
+        skips = _flagged_skips(summary)
+        for line in skips:
+            sys.stderr.write("%s %s\n" % (_PREFIX, line))
+        if skips:
+            sys.stderr.flush()
+            return code or 1
+    return code
+
+
+# The variables a test process must not inherit: each one routes a call to a live model or search
+# service. `CRUX_HOME` is replaced, not removed, because the env reader falls back to `~/.crux`.
+LIVE_ENVIRONMENT_NAMES = ("OPENROUTER_API_KEY", "PERPLEXITY_API_KEY", "CRUX_ALLOW_LIVE")
+
+
+@contextlib.contextmanager
+def isolated_live_environment(own_uv_cache=False):
+    """Give the processes started inside the block an empty `CRUX_HOME` and no live-model variable.
+
+    `own_uv_cache` also gives them a fresh `UV_CACHE_DIR`, unless the caller already set one.
+    """
+    names = (*LIVE_ENVIRONMENT_NAMES, "CRUX_HOME", "UV_CACHE_DIR")
+    saved = {name: os.environ.get(name) for name in names}
+    home = tempfile.mkdtemp(prefix="crux-suite-home-")
+    cache = tempfile.mkdtemp(prefix="crux-suite-uv-cache-") if own_uv_cache and saved["UV_CACHE_DIR"] is None else None
+    try:
+        for name in LIVE_ENVIRONMENT_NAMES:
+            os.environ.pop(name, None)
+        os.environ["CRUX_HOME"] = home
+        if cache:
+            os.environ["UV_CACHE_DIR"] = cache
+        yield home
+    finally:
+        for name, value in saved.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+        shutil.rmtree(home, ignore_errors=True)
+        if cache:
+            shutil.rmtree(cache, ignore_errors=True)
+
+
+def main(argv=None):
+    # A run that names its Python minor is one of several suites that may run at once, one per minor.
+    # Each owns its uv cache: a shared one lets a minor rebuild a script environment while another runs it.
+    minor_run = bool(_parse(argv).python_minor)
+    with isolated_live_environment(own_uv_cache=minor_run):
+        return _run(argv)
 
 
 if __name__ == "__main__":

@@ -24,7 +24,7 @@ class ProgressTests(unittest.TestCase):
         doc=create(self.root,'quick-fix','Fix','Correct behavior',['src'],['passes'],'builder','tester')
         output=view(self.root)
         c=output['cycles'][0]
-        self.assertEqual(output['format'],'crux.cycle-progress');self.assertEqual(c['phases'],['build','test','review','reflect'])
+        self.assertEqual(output['format'],'crux.cycle-progress');self.assertEqual(c['phases'],['build','verify','review','reflect'])
         self.assertEqual(c['pass_limit'],1);self.assertIn('Pass 1 of 1',render(output))
         mutate(self.root,doc['id'],'pause',reason='needs owner')
         self.assertEqual(view(self.root)['cycles'][0]['blocker'],'needs owner')
@@ -58,7 +58,7 @@ class ProgressTests(unittest.TestCase):
                 a=view(self.root,doc['id'],now=created+90)
                 b=view(self.root,doc['id'],now=created+4000)
                 c=a['cycles'][0]
-                self.assertEqual(a['format_version'],2);self.assertEqual(a['now_s'],created+90)
+                self.assertEqual(a['format_version'],5);self.assertEqual(a['now_s'],created+90)
                 self.assertEqual((c['started_s'],c['ended_s'],c['paused_s'],c['basis']),(int(datetime.fromisoformat(doc['created_at']).timestamp()),None,0,'recorded'))
                 self.assertEqual(c['open_started_s'],c['started_s'])
                 self.assertEqual(c['phase_times'],[{'phase':c['phase'],'active_s':90,'paused_s':0}])
@@ -92,6 +92,31 @@ class ProgressTests(unittest.TestCase):
         path=self.root/'bionic/cycles'/doc['id']/'cycle.json';data=path.read_text();path.unlink()
         other=self.root/'other.json';other.write_text(data);path.symlink_to(other)
         with self.assertRaises((CycleError,SourceIORefusal)):view(self.root)
+
+    def large_record(self, payload_bytes):
+        from cycle_workflow import event, save, tree
+        doc=create(self.root,'quick-fix','Large','Retain context',['src'],['renders'],'builder','tester')
+        event(doc,'fixture-retained-context',context='x'*payload_bytes)
+        save(tree(self.root),doc)
+        return doc['id']
+
+    def test_cycle_record_read_accepts_retained_context_above_two_megabytes(self):
+        cid=self.large_record(2_400_000)
+        path=self.root/'bionic/cycles'/cid/'cycle.json'
+        before=path.read_bytes()
+        self.assertGreater(len(before),2_000_000)
+        self.assertEqual(view(self.root,cid)['cycles'][0]['id'],cid)
+        self.assertEqual(path.read_bytes(),before)
+
+    def test_cycle_record_read_refuses_above_four_mebibytes(self):
+        cid=self.large_record(4*1024*1024)
+        with self.assertRaises(SourceIORefusal):view(self.root,cid)
+
+    def test_cycle_record_read_override_keeps_manifest_default_bound(self):
+        cid=self.large_record(2_400_000)
+        manifest=self.root/'bionic/manifest.yml'
+        manifest.write_text(manifest.read_text()+'#'+'x'*2_000_000+'\n')
+        with self.assertRaises(SourceIORefusal):view(self.root,cid)
 
 
 class LoadedCycleCapTests(unittest.TestCase):
@@ -139,7 +164,7 @@ class QueueDocumentTests(unittest.TestCase):
         self.assertIsNone(view(self.root)['queue'])
         self.add()
         self.assertIsNone(view(self.root,doc['id'])['queue'])
-        self.assertEqual(view(self.root,doc['id'])['format_version'],2)
+        self.assertEqual(view(self.root,doc['id'])['format_version'],5)
     def test_a_valid_queue_gives_bounded_cleaned_items_with_status_and_authorization(self):
         import cycle_queue
         ids=[self.add(str(n)+'x'*190) for n in range(12)]
@@ -174,10 +199,10 @@ class QueueDocumentTests(unittest.TestCase):
         self.assertEqual([i['id'] for i in q['items']],ids[28:60])
         self.assertEqual([i['state'] for i in q['items']][:2],['started','started'])
         self.assertIn(ids[59],[i['id'] for i in q['items']])
-    def test_more_than_fifty_unstarted_keeps_the_first_fifty_in_run_order(self):
+    def test_more_than_fifty_unstarted_keeps_every_item_in_run_order(self):
         ids=[self.add('t'+str(n)) for n in range(55)]
         q=view(self.root)['queue']
-        self.assertEqual([i['id'] for i in q['items']],ids[:50])
+        self.assertEqual([i['id'] for i in q['items']],ids)
     def test_the_authorization_remaining_counts_the_whole_queue_not_the_slice(self):
         import cycle_queue
         from bionic_config import load_config
@@ -187,7 +212,7 @@ class QueueDocumentTests(unittest.TestCase):
         doc['authorization']={'instruction':'go','kind':'queue','count':None,'scope':ids,'started':[],'authorized_at':'2026-01-01T00:00:00+00:00','date':'2026-01-01'}
         cycle_queue.write_queue(load_config(self.root,require_tree=True),doc)
         q=view(self.root)['queue']
-        self.assertEqual(len(q['items']),50);self.assertEqual(q['authorization']['remaining'],ids)
+        self.assertEqual(len(q['items']),60);self.assertEqual(q['authorization']['remaining'],ids)
     def test_no_authorization_gives_null(self):
         self.add();self.assertIsNone(view(self.root)['queue']['authorization'])
     def test_an_invalid_queue_gives_ok_false_while_cycles_render(self):

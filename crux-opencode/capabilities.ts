@@ -32,7 +32,7 @@ export const capabilities = {
   "host_members": ["@opencode/plugin/tui:Plugin.define", "solid-js:createEffect", "solid-js:onCleanup"],
   "type_members": [],
   "builtin_members": ["node:child_process:spawn", "node:child_process:spawn().kill", "node:child_process:spawn().on", "node:child_process:spawn().stderr.on", "node:child_process:spawn().stdout.on", "node:fs:readFileSync", "node:fs:realpathSync", "node:fs:statSync", "node:fs:statSync().isDirectory", "node:fs:statSync().isFile", "node:path:dirname", "node:url:fileURLToPath"],
-  "runtime_globals": ["JSON.parse", "Object.keys", "Object.values", "Object.prototype.hasOwnProperty.call", "Array.isArray", "Array.from", "Number.isInteger", "Number.isFinite", "String.fromCharCode", "Math.max", "Math.min", "Math.floor", "Math.ceil", "Math.round", "String()", "new RegExp", "new Set", "new Map", "new Promise", "new Error", "extends Error", "new Date(1)", "import.meta.url", "setTimeout", "clearTimeout", "setInterval", "clearInterval"],
+  "runtime_globals": ["JSON.parse", "JSON.stringify", "Object.keys", "Object.values", "Object.prototype.hasOwnProperty.call", "Array.isArray", "Array.from", "Number.isInteger", "Number.isFinite", "String.fromCharCode", "Math.max", "Math.min", "Math.floor", "Math.ceil", "Math.round", "String()", "new RegExp", "new Set", "new Map", "new Promise", "new Error", "extends Error", "new Date(1)", "import.meta.url", "setTimeout", "clearTimeout", "setInterval", "clearInterval"],
   "context_members": [
     {"path": "context.app.version", "kind": "primitive"},
     {"path": "context.location.directory", "kind": "primitive"},
@@ -54,16 +54,16 @@ export const capabilities = {
     {"path": "context.keymap.layer", "kind": "void"}
   ],
   "render_input": {"session.composer.top": [], "session.panel": ["name", "width", "focused"]},
-  "callbacks": {"setup": ["context"], "slot.band": [], "slot.panel": ["input"], "effect": [], "panel.cleanup": [], "layer.run": [], "memory.update": ["draft"], "child.spawn": [], "child.exit": [], "child.stdout.data": ["chunk"], "child.stderr.data": ["chunk"], "child.error": [], "child.close": ["code"]},
+  "callbacks": {"setup": ["context"], "slot.band": [], "slot.panel": ["input"], "effect": [], "panel.cleanup": [], "queue.mouse": ["event"], "layer.run": [], "memory.update": ["draft"], "child.spawn": [], "child.exit": [], "child.stdout.data": ["chunk"], "child.stderr.data": ["chunk"], "child.error": [], "child.close": ["code"]},
   "jsx": {
     "box": {"props": ["width", "flexDirection", "border", "borderStyle", "borderColor", "paddingLeft", "paddingRight"], "colour_props": ["borderColor"]},
-    "text": {"props": [], "colour_props": []},
+    "text": {"props": ["onMouseDown"], "colour_props": []},
     "span": {"props": ["style"], "colour_props": ["style"], "colour_keys": ["fg"]},
     "b": {"props": ["style"], "colour_props": ["style"], "colour_keys": ["fg"]}
   },
   "events": [],
   "slots": ["session.composer.top", "session.panel"],
-  "commands": ["crux-dashboard", {"name": "crux-dashboard-next", "decision": "ADR-0164"}, {"name": "crux-dashboard-previous", "decision": "ADR-0164"}],
+  "commands": ["crux-dashboard", {"name": "crux-dashboard-next", "decision": "ADR-0164"}, {"name": "crux-dashboard-previous", "decision": "ADR-0164"}, "crux-dashboard-queue"],
   "panels": ["crux-dashboard"],
   "env_reads": ["HOME"],
   "kit": {"specifier": "claude-code/testing", "members": ["test", "expect", "expect().toBe", "expect().toBeDefined", "expect().toBeGreaterThan", "expect().toBeLessThanOrEqual", "expect().toBeNull", "expect().toContain", "expect().toEqual", "expect().toThrow", "expect().not.toBe", "expect().not.toBeNull", "expect().not.toContain", "expect().not.toEqual"]},

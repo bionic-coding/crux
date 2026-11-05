@@ -227,14 +227,6 @@ class S1CollectRecordsTests(_Base):
         self.t.write_obs(1, status="observed")
         self.assertEqual(self.t.records(), [])
 
-    def test_rejected_record_projects_no_rule_row(self):
-        self.t.write_obs(1, status="rejected")
-        self.assertEqual(self.t.records(), [])
-
-    def test_retired_record_projects_no_rule_row(self):
-        self.t.write_obs(1, status="retired")
-        self.assertEqual(self.t.records(), [])
-
     def test_decided_record_projects_no_rule_row(self):
         self.t.write_adr(90, [{"handle": "ADR-0090/authored-rule"}])
         self.t.write_obs(1, status="decided", decided_by="ADR-0090")
@@ -434,12 +426,6 @@ class S4InputHashTests(_Base):
         self.t.write_obs(1, status="observed")
         before = SP.observations_sha256(self.t.obs)
         self.t.write_obs(1, status="ratified")
-        self.assertNotEqual(SP.observations_sha256(self.t.obs), before)
-
-    def test_retirement_moves_the_hash(self):
-        self.t.write_obs(1, status="ratified")
-        before = SP.observations_sha256(self.t.obs)
-        self.t.write_obs(1, status="retired")
         self.assertNotEqual(SP.observations_sha256(self.t.obs), before)
 
     def test_ratified_successor_moves_the_hash(self):

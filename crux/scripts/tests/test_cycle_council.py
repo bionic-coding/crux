@@ -24,6 +24,20 @@ except ImportError:
 
 
 FIRST_BUDGET=64000
+def checkpointed_result(config, result):
+    """An aggregate-only fixture explicitly models the runner's required local protocol."""
+    from dataclasses import asdict
+    callback = config.on_call_event
+    if callback:
+        models = {'openai': config.openai_model, 'anthropic': config.anthropic_model, 'gemini': config.gemini_model}
+        for vote in result.votes:
+            seat = 'gemini' if vote.provider == 'google' else vote.provider
+            common = {'seat': seat, 'call_number': 1, 'registry_key': models[seat], 'requested_model': models[seat]}
+            callback({**common, 'phase': 'request', 'metadata': {'attempt': 1, 'replied': False}, 'vote': None})
+            callback({**common, 'phase': 'outcome', 'metadata': {'attempt': 1, 'replied': True}, 'vote': asdict(vote)})
+    return result
+
+
 def truncating_gateway():
     """A fake gateway: the first request answers finish "length", every other request approves.
 
@@ -72,7 +86,7 @@ class CouncilTests(unittest.TestCase):
         result=CouncilDeliberation(votes=votes,consensus='UNANIMOUS_APPROVE',consensus_confidence=.9,key_agreements=[],key_disagreements=[],final_recommendation={})
         limits={'one':128000,'two':128000,'three':65536}
         with patch('crux_env.get',return_value='test-gateway-credential'),patch('crux.council.async_council.validate_gate_assignment',return_value={'openai_top':'one','anthropic_top':'two','google_top':'three'}),patch('crux.core.llm_caller.get_model_config',side_effect=lambda model:SimpleNamespace(max_output_tokens=limits[model])),patch('crux.council.async_council.AsyncCouncil') as council:
-            council.return_value.deliberate=AsyncMock(return_value=result)
+            council.return_value.deliberate=AsyncMock(side_effect=lambda *args: checkpointed_result(council.call_args.args[0], result))
             output=convene(self.root,'idr',self.subject,'Review the material implementation choice.',cycle_id=self.doc['id'],**kwargs)
             config=council.call_args.args[0]
             self.assertIsInstance(config,AsyncCouncilConfig);self.assertTrue(config.gate)
@@ -125,7 +139,7 @@ class CouncilTests(unittest.TestCase):
             vote={'decision':'APPROVE','confidence':.9,'reasoning':'supported','findings':[]}
             return httpx.Response(200,json={'model':cfg.api_string,'provider':next(iter(cfg.accepted_served_providers)),
                                            'choices':[{'finish_reason':'stop','message':{'content':json.dumps(vote)}}]})
-        with patch('crux_env.get',return_value='test-gateway-credential'),patch('crux.council.async_council.get',return_value='test-gateway-credential'):
+        with patch('crux_env.get',return_value='test-gateway-credential'),patch('crux.council.async_council.get',return_value='test-gateway-credential'),patch.dict('os.environ',{'OPENROUTER_API_KEY':'test-gateway-credential'}):
             output=convene(self.root,'idr',self.subject,'review',cycle_id=self.doc['id'],
                            max_tokens=64000,transport=httpx.MockTransport(reply))
         self.assertEqual(output['outcome'],'approved');self.assertEqual(len(requests),3)
@@ -179,7 +193,7 @@ class CouncilRecordBudgetTests(unittest.TestCase):
     setUp=CouncilTests.setUp
     def test_legacy_record_carries_per_attempt_budget_with_escalated_retry(self):
         transport,models,seen,calls=truncating_gateway()
-        with patch('crux_env.get',return_value='test-gateway-credential'),patch('crux.council.async_council.get',return_value='test-gateway-credential'):
+        with patch('crux_env.get',return_value='test-gateway-credential'),patch('crux.council.async_council.get',return_value='test-gateway-credential'),patch.dict('os.environ',{'OPENROUTER_API_KEY':'test-gateway-credential'}):
             output=convene(self.root,'idr',self.subject,'review',cycle_id=self.doc['id'],max_tokens=FIRST_BUDGET,transport=transport)
         record=json.loads((self.cfg.docs_root/output['record']).read_text())
         assert_record_budgets(self,record,models,seen,calls)
@@ -209,7 +223,7 @@ class CouncilCliBudgetTests(unittest.TestCase):
             question=Path(directory)/'question.txt';question.write_text('review')
             for flags,expected in (([],None),(['--max-tokens','64000'],64000)):
                 with self.subTest(flags=flags),patch.object(cli,'convene',return_value={'outcome':'approved'}) as call,contextlib.redirect_stdout(io.StringIO()):
-                    self.assertEqual(cli.main(['--purpose','adr','--subject','adrs/proposal.md','--question',str(question),*flags]),0)
+                    self.assertEqual(cli.main(['--foreground','--purpose','adr','--subject','adrs/proposal.md','--question',str(question),*flags]),0)
                     self.assertEqual(call.call_args.kwargs['max_tokens'],expected)
 
     def test_invalid_cli_output_budgets_refuse_before_convene(self):
@@ -242,7 +256,7 @@ class DispositionCouncilTests(MigrationFixture):
             vote={'decision':'APPROVE','confidence':.9,'reasoning':'Exact reviewed package.','findings':[]}
             return httpx.Response(200,json={'model':cfg.api_string,'provider':next(iter(cfg.accepted_served_providers)),
                 'choices':[{'finish_reason':'stop','message':{'content':json.dumps(vote)}}]})
-        with patch('crux_env.get',return_value='test-gateway-credential'),patch('crux.council.async_council.get',return_value='test-gateway-credential'):
+        with patch('crux_env.get',return_value='test-gateway-credential'),patch('crux.council.async_council.get',return_value='test-gateway-credential'),patch.dict('os.environ',{'OPENROUTER_API_KEY':'test-gateway-credential'}):
             output=convene(self.root,'disposition',self.package_path.removeprefix('bionic/'),'Review every disposition.',readiness=self.readiness,transport=httpx.MockTransport(reply))
         self.assertEqual(output['outcome'],'approved');self.assertEqual(len(requests),3)
         record=json.loads((self.docs/output['record']).read_text())
@@ -267,7 +281,7 @@ class DispositionCouncilTests(MigrationFixture):
         path=self.root/'readiness.json';path.write_text(json.dumps(self.readiness))
         question=self.root/'question.txt';question.write_text('Review')
         with patch.object(cli,'convene',return_value={'outcome':'approved'}) as call,contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(cli.main(['--purpose','disposition','--subject',self.package_path.removeprefix('bionic/'),'--question',str(question),'--readiness',str(path)]),0)
+            self.assertEqual(cli.main(['--foreground','--purpose','disposition','--subject',self.package_path.removeprefix('bionic/'),'--question',str(question),'--readiness',str(path)]),0)
             self.assertEqual(call.call_args.kwargs['readiness'],self.readiness)
 
 
@@ -291,19 +305,19 @@ class ModeAwareCouncilTests(unittest.TestCase):
         votes=votes or [CouncilVote(model=p+'/model',provider=p,decision='APPROVE',reasoning='supported',confidence=.9) for p in ('openai','anthropic','google')]
         result=CouncilDeliberation(votes=votes,consensus='UNANIMOUS_APPROVE',consensus_confidence=.9,key_agreements=[],key_disagreements=[],final_recommendation={})
         with patch('crux_env.get',return_value='test-gateway-credential'),patch('crux.council.async_council.validate_gate_assignment',return_value={'openai_top':'one','anthropic_top':'two','google_top':'three'}),patch('crux.core.llm_caller.get_model_config',return_value=SimpleNamespace(max_output_tokens=65536)),patch('crux.council.async_council.AsyncCouncil') as council:
-            council.return_value.deliberate=AsyncMock(return_value=result)
+            council.return_value.deliberate=AsyncMock(side_effect=lambda *args: checkpointed_result(council.call_args.args[0], result))
             output=convene(self.root,options.pop('purpose','consultation'),options.pop('subject','adrs/subject.txt'),'Review all five dimensions.',identity='stable-consultation',**options)
             return output,council.return_value.deliberate.call_args.args[0]
     def test_policy_record_carries_per_attempt_budget_with_escalated_retry(self):
         transport,models,seen,calls=truncating_gateway()
-        with patch('crux_env.get',return_value='test-gateway-credential'),patch('crux.council.async_council.get',return_value='test-gateway-credential'):
+        with patch('crux_env.get',return_value='test-gateway-credential'),patch('crux.council.async_council.get',return_value='test-gateway-credential'),patch.dict('os.environ',{'OPENROUTER_API_KEY':'test-gateway-credential'}):
             output=convene(self.root,'consultation','adrs/subject.txt','Review',identity='budget-record',max_tokens=FIRST_BUDGET,transport=transport)
         record=json.loads((self.docs/output['record']).read_text())
         assert_record_budgets(self,record,models,seen,calls)
     def test_standard_writer_and_common_accepting_validator(self):
         from council_policy import disposition
         from cycle_workflow import digest
-        output,_=self.call();self.assertEqual(output['outcome'],'changes-required')
+        output,_=self.call();self.assertEqual(output['outcome'],'awaiting-architect')
         result=disposition(self.root,output['record'],{'agrees':True,'subject_sha256':digest((self.docs/'adrs/subject.txt').read_bytes()),'rationale':'All constraints checked.','dissent':[]})
         self.assertEqual(result['outcome'],'approved')
         validate_approval(self.root,output['record'],purpose='consultation',subject='adrs/subject.txt')

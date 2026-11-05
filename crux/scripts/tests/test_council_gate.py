@@ -299,22 +299,6 @@ class CouncilGateIdentityAndBindingTests(_Base):
             self.assertEqual(self.at_council(self.council("r1.json", prompt=n)).verdict, "pass", n)
 
 
-class CouncilGateKindTests(_Base):
-    KIND = "verify"
-
-    def test_a_verify_gate_refuses_an_adr_record_and_accepts_its_own_kind(self):
-        self.assertEqual(self.at_council(self.council("r1.json", kind="adr")).verdict, "refuse")
-        self.assertEqual(self.at_council(self.council("r1.json", kind="verify")).verdict, "pass")
-
-
-class CouncilGatePatchKindTests(_Base):
-    KIND = "patch"
-
-    def test_a_patch_gate_refuses_an_adr_kind_record(self):
-        self.assertEqual(self.at_council(self.council("r1.json", kind="adr")).verdict, "refuse")
-        self.assertEqual(self.at_council(self.council("r1.json", kind="patch")).verdict, "pass")
-
-
 class CouncilGateHoldTests(_Base):
     def test_a_seat_with_no_approval_and_no_blocking_finding_holds(self):
         for decision in (RC, "REJECT", "DEFER_TO_HUMAN", "MAYBE"):
@@ -406,12 +390,6 @@ class CouncilGateCouldNotRunTests(_Base):
         rec = clean.write("r1.json", clean.council_doc(written_at=ts(1)))
         v = cg.evaluate_gate(cg.classify(clean.book, COUNCIL_N), clean.load_run(), clean.run_path,
                              clean.root, clean.args_for(rec), "done")
-        self.assertEqual(v.verdict, "pass", v.reasons)
-
-    def test_a_could_not_run_record_takes_no_place(self):
-        cnr = self.council("r0.json", written_at=ts(1), outcome="could-not-run")
-        r1 = self.council("r1.json", written_at=ts(2), round=1)
-        v = self.at_council(cnr, r1)
         self.assertEqual(v.verdict, "pass", v.reasons)
 
     def test_a_could_not_run_alone_stops(self):

@@ -22,6 +22,9 @@ export type ReaderSink = {
 // What the kept memory value holds: the reader's standard output, or a status code.
 export type KeptEnvelope = { ok: true; stdout: string } | { ok: false; code: string }
 
+// Presentation state copied into host-owned memory; it carries no host object or callback.
+export type QueueExpansion = { root: string; expanded: boolean }
+
 // A successful plan: the four values the one admitted launch is built from.
 export type Planned = { ok: true; uv: string; crux: string; home: string; root: string }
 
@@ -43,7 +46,7 @@ export type Host = {
   every: (ms: number, fn: () => void) => () => void
   leaseRead: () => 'held' | 'free' | 'unknown'
   leaseWrite: (b: boolean) => boolean
-  writeKept: (v: KeptEnvelope | null) => void
+  writeKept: (v: KeptEnvelope | null, root?: string) => void
   openPanel: () => boolean
   // Whether the host reports crux's panel open. False when the host cannot say.
   panelOpen: () => boolean
@@ -56,5 +59,7 @@ export type Host = {
   pageRead: () => number
   // Stores the page index. False when the store refused the write.
   pageWrite: (n: number) => boolean
+  queueRead: () => QueueExpansion | null
+  queueWrite: (state: QueueExpansion) => boolean
   toast: (code: string) => void
 }

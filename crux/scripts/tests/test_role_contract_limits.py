@@ -47,7 +47,8 @@ REQUIRED_SENTENCES = {
         "Never run a command that prints a value from them, such as `crux-env.py get` or `crux-env.py load`.",
         "Only the legacy vendored writer, `write-review-report.py`, may read the gateway key through `crux_env`, inside its own process.",
         "Never relay local content outbound",
-        "Your Bash runs only read-only inspection: `git diff`, `git log`, `git show`, `test-evidence.py report`, and the legacy review writer for a historical run.",
+        "Your Bash runs only read-only inspection: `git diff`, `git log`, `git show`, `test-evidence.py report`, `cycle.py context-read` for permitted bound context, and the legacy review writer for a historical run.",
+        "The context reader grants no cycle mutation, arbitrary path, credential or outbound access.",
     ],
 }
 
@@ -126,33 +127,57 @@ GAP_ROUTE = ("You hold no Edit or Write tool, so that clause always applies to y
 
 
 def forge_returners(agents_dir: Path) -> set[str]:
-    """Roles whose skill_lanes return forge-skill to the caller."""
+    """Nonwriters with a Skill grant and forge reflex must return execution to the caller."""
     out = set()
     for path in sorted(agents_dir.glob("*.md")):
-        block = _frontmatter(path.read_text(encoding="utf-8"))
-        if re.search(r"(?m)^[ \t]+skill_lanes:.*\bforge-skill=returns-to-caller\b", block):
+        text = path.read_text(encoding="utf-8")
+        block = _frontmatter(text)
+        held = _tools(block, "tools") - _tools(block, "disallowedTools")
+        if "Skill" in held and not {"Edit", "Write"} <= held and "invoke the `forge-skill` skill" in text:
             out.add(path.stem)
     return out
+
+
+def forge_route_gaps(agents_dir: Path) -> list[str]:
+    return [role for role in sorted(forge_returners(agents_dir))
+            if _collapsed(agents_dir, role).count(GAP_ROUTE) != 1]
 
 
 class RoleContractLimitTests(unittest.TestCase):
     def test_forge_skill_returners_state_the_route_unconditionally(self):
         # The shared reflex says "if you lack ... file-write access", which a
-        # Bash-holding role can read as false. Each role whose lane returns
+        # Bash-holding role can read as false. Each nonwriting role invoking
         # forge-skill states the route without that condition
         # (rule:returns-to-caller-passes-on-its-route).
         roles = forge_returners(PLUGIN_DIR / "agents")
         self.assertEqual(roles, {"brainstormer", "librarian", "reviewer"})
-        for role in sorted(roles):
-            body = re.sub(r"\s+", " ", (PLUGIN_DIR / "agents" / f"{role}.md").read_text(encoding="utf-8"))
-            with self.subTest(role=role):
-                self.assertEqual(body.count(GAP_ROUTE), 1)
+        self.assertEqual(forge_route_gaps(PLUGIN_DIR / "agents"), [])
+
+    def test_missing_forge_return_route_is_detected_without_preload_lane_metadata(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            agents = Path(temporary) / "agents"
+            shutil.copytree(PLUGIN_DIR / "agents", agents)
+            self.assertEqual(forge_route_gaps(agents), [])
+            path = agents / "reviewer.md"
+            path.write_text(path.read_text().replace(GAP_ROUTE, ""))
+            self.assertIn("reviewer", forge_returners(agents))
+            self.assertEqual(forge_route_gaps(agents), ["reviewer"])
 
     def test_bounded_roles_are_the_pinned_set(self):
         self.assertEqual(bounded_roles(PLUGIN_DIR / "agents"), set(REQUIRED_SENTENCES))
 
     def test_every_bounded_role_carries_its_contract_sentences(self):
         self.assertEqual(contract_gaps(PLUGIN_DIR / "agents"), [])
+
+    def test_removing_the_bounded_reader_grant_turns_the_check_red(self):
+        gaps = self._seeded("reviewer", "`cycle.py context-read` for permitted bound context,", "")
+        self.assertEqual(len(gaps), 1)
+        self.assertIn("`cycle.py context-read`", gaps[0])
+
+    def test_removing_the_reader_mutation_ban_turns_the_check_red(self):
+        sentence = "The context reader grants no\ncycle mutation, arbitrary path, credential or outbound access."
+        gaps = self._seeded("reviewer", sentence, "")
+        self.assertEqual(gaps, ["reviewer: missing 'The context reader grants no cycle mutation, arbitrary path, credential or outbound access.'"])
 
     def test_removing_a_sentence_turns_the_check_red(self):
         with tempfile.TemporaryDirectory() as td:

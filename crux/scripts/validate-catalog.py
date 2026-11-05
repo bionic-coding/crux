@@ -1655,6 +1655,58 @@ def _router_registry(plugin_dir: Path) -> tuple[dict, dict] | None:
     return data.get("models") or {}, data.get("model_roles") or {}
 
 
+def _decisions_contract(plugin_dir: Path):
+    """The classifier's denial contract module (`crux/decisions/__init__.py`), or None.
+
+    Loaded by file path, so the catalog validator imports neither `crux` nor `httpx`.
+    The validated plugin's own copy wins; this validator's sibling copy is the
+    fallback for a fixture that carries only the router configuration.
+    """
+    for base in (plugin_dir / "scripts", Path(__file__).resolve().parent):
+        path = base / "crux" / "decisions" / "__init__.py"
+        if path.is_file():
+            spec = importlib.util.spec_from_file_location("_crux_decisions_contract", path)
+            module = importlib.util.module_from_spec(spec)
+            # dataclasses resolve the defining module through sys.modules while the class is built.
+            sys.modules[spec.name] = module
+            try:
+                spec.loader.exec_module(module)
+            except Exception:
+                return None
+            finally:
+                sys.modules.pop(spec.name, None)
+            return module
+    return None
+
+
+def _classifier_findings(router_models: dict, router_roles: dict, plugin_dir: Path) -> list[dict]:
+    """V5: the `cycle_classifier` role, when set, names a decisions entry that keeps the denials.
+
+    An absent or empty role is valid: the classifier is then unconfigured. A weakened
+    entry is a configuration error here and leaves only the classifier unconfigured at
+    run time; the shared router still loads.
+    """
+    role = router_roles.get("cycle_classifier")
+    if not role:
+        return []
+    if not isinstance(role, str) or role not in router_models:
+        return [_finding("V5", f"model_roles.cycle_classifier={role!r} names no entry in the router's `models` registry")]
+    entry = router_models[role]
+    contract = _decisions_contract(plugin_dir)
+    if contract is None:
+        return [_finding("V5", "cannot load the decisions contract; the cycle_classifier entry cannot be checked")]
+    out = []
+    if entry.get("type") != "decisions":
+        out.append(_finding("V5", f"models.{role}: the cycle_classifier entry must have type 'decisions'"))
+    for key, value in contract.REQUIRED_DENIALS.items():
+        if entry.get(key, value) != value:
+            out.append(_finding("V5", f"models.{role}.{key}={entry.get(key)!r} weakens the classifier denial; it must be {value!r}"))
+    for key in sorted(contract.REFUSED_ENTRY_KEYS):
+        if key in entry:
+            out.append(_finding("V5", f"models.{role} carries {key!r}, a provider preference the classifier route never sends"))
+    return out
+
+
 def _codex_runtime_cells(levels: dict, agents: dict) -> list[tuple[str, dict]]:
     """Return every complete Codex runtime cell that V4 and V5 must validate.
 
@@ -1800,6 +1852,7 @@ def validate_models_yml(models_path: Path, plugin_dir: Path) -> list[dict]:
         )
     else:
         router_models, router_roles = registry
+        findings.extend(_classifier_findings(router_models, router_roles, plugin_dir))
         for path, codex in codex_cells:
             model = codex["model"]
             if model not in router_models:

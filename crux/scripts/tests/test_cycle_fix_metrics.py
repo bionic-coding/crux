@@ -35,7 +35,7 @@ class FixMetricsTests(FixBase):
         cid = self.to_test()
         self.add_fix(cid, 'test')
         rows = self.handoff(cid)['fixes']
-        self.assertEqual(rows, [{'task': 'fix-1', 'pass': 1, 'phase': 'test', 'finding': 'F-1: b.txt holds bad', 'status': 'pending'}])
+        self.assertEqual(rows, [{'task': 'fix-1', 'pass': 1, 'phase': 'verify', 'finding': 'F-1: b.txt holds bad', 'status': 'pending'}])
         self.deliver(cid)
         self.ok('task', cid, '--task-id', 'fix-1', '--state', 'done')
         self.assertEqual(self.handoff(cid)['fixes'][0]['status'], 'done')

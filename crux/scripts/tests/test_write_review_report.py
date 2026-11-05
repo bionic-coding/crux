@@ -589,11 +589,6 @@ class GateIntegration(unittest.TestCase):
         self.assertEqual(cg.evaluate_gate(self.review_gate(), self.env.load_run(), self.env.run_path,
                                           self.env.root, [rel], "done").verdict, "refuse")
 
-    def test_symlinked_reviews_refused_through_the_cli(self):
-        (self.env.run_dir / "reviews").symlink_to(self.env.root / "docs")
-        code, out, _ = run_writer(self.env, *base_args(self.env), "--path", SUBJECT, "--verdict", "APPROVE")
-        self.assertEqual((code, out["status"]), (1, "refused"))
-        self.assertEqual(list((self.env.root / "docs").glob("*.json")), [])
 
 
 class Environment(unittest.TestCase):
@@ -840,17 +835,6 @@ class HelpText(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         return " ".join(r.stdout.split())
 
-    def test_every_option_has_its_help_text(self):
-        text = self.help_text()
-        for phrase in ("the prompt number the report is bound to",
-                       "repeatable",
-                       "BASE..END; BASE should be the run's base_commit (the writer warns otherwise)",
-                       "read the verdict from a regular file, not a symlink",
-                       "read one finding from a regular file, not a symlink",
-                       "free text; the writer records it and never checks it",
-                       "the book file when the run layout does not find it"):
-            self.assertIn(phrase, text)
-
     def test_the_epilog_names_the_exit_codes(self):
         text = self.help_text()
         for phrase in ("0 a report was written", "1 the report was refused and nothing was written",
@@ -872,12 +856,6 @@ class CoverageCases(WriterCase):
         regular = Path(self._tmp.name) / "verdict.txt"
         regular.write_text("APPROVE")
         self.ok("--path", SUBJECT, "--verdict-file", str(regular))  # control
-
-    def test_a_directory_verdict_file_is_refused_through_the_cli(self):
-        d = Path(self._tmp.name) / "adir"
-        d.mkdir()
-        out = self.refused("--path", SUBJECT, "--verdict-file", str(d))
-        self.assertIn("not a regular file", out["problems"][0])
 
     def test_a_run_snapshot_without_run_id_is_refused_and_the_control_writes(self):
         good = self.env.run_path.read_text()

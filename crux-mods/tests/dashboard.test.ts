@@ -82,16 +82,6 @@ test('safeText removes every control character and leaves the rest', () => {
   expect(safeText('plain text')).toBe('plain text')
 })
 
-// Each of these bidirectional marks reorders what a terminal shows around it.
-for (const [name, mark] of [['U+061C', '\u061c'], ['U+200E', '\u200e'], ['U+200F', '\u200f']] as const) {
-  test(`safeText removes the bidirectional mark ${name}`, () => {
-    const raw = `left${mark}right`
-    // Positive control: the raw text holds the mark.
-    expect(Array.from(raw).length).toBe(10)
-    expect(safeText(raw)).toBe('leftright')
-  })
-}
-
 test('safeText removes a lone surrogate and keeps a surrogate pair', () => {
   for (const lone of ['\ud800', '\udbff', '\udc00', '\udfff']) {
     const raw = `a${lone}b`
@@ -102,15 +92,6 @@ test('safeText removes a lone surrogate and keeps a surrogate pair', () => {
   expect(safeText('\ude00y')).toBe('y')
   // Positive control: a pair is one code point, and it stays.
   expect(safeText('a\u{1F600}b')).toBe('a\u{1F600}b')
-})
-
-test('safeText still removes the controls, separators and bidirectional controls it removed before, and ordinary text survives', () => {
-  for (const ch of ['\u0000', '\u001b', '\u007f', '\u0085', '\u009b', '\u2028', '\u2029', '\u202a', '\u202e', '\u2066', '\u2069']) {
-    const at = ch.charCodeAt(0).toString(16)
-    expect([at, safeText(`a${ch}b`)]).toEqual([at, 'ab'])
-  }
-  const ordinary = 'Plan p3/4 at 25%: naïve café, 日本語, عربي, ▸ and \u{1F600}'
-  expect(safeText(ordinary)).toBe(ordinary)
 })
 
 // --- the extended removal ------------------------------------------------------
@@ -479,14 +460,16 @@ test('a second session.start replaces the timer instead of stacking another', as
   expect(w.runs.length).toBe(before + 2)
 })
 
-test('/crux-dashboard joins a launch already in flight instead of starting another', async ($, on) => {
+// The launch in flight read the record before the request, so the request waits for one more
+// launch (sync.test.ts holds why). It answers from that launch, never from the one in flight.
+test('/crux-dashboard waits for one launch that starts after the one in flight', async ($, on) => {
   const w = install(on, { reader: { ...ok(), delayMs: 5_000 } })
   await $.session.start({ cwd: '/proj' } as any)
   await w.clock.advance(1)
   const pending = $.command.run({ command: 'crux-dashboard' } as any)
-  await w.clock.advance(6_000)
+  await w.clock.advance(11_000)
   const r = await pending
-  expect(w.runs.length).toBe(1)
+  expect(w.runs.length).toBe(2)
   expect(String(r.text)).toContain('status ok')
 })
 

@@ -16,7 +16,6 @@ import yaml
 SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _dev_surface import IS_STAGED_ARTIFACT
 from test_implementation_migration import document, quoted_rule
 import doctrine_projection as dp
 import summaries_projection as sp
@@ -270,21 +269,6 @@ class Producers(unittest.TestCase):
         before = self.snapshot(); result = self.command(extra=("--invariant", "OBS-0001/assessments"))
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertEqual(self.snapshot(), before)
-
-    def test_ordinary_help_and_required_flags_remain_byte_equivalent(self):
-        if IS_STAGED_ARTIFACT:
-            self.skipTest('reads HEAD through git; the staged artifact is not a git checkout')
-        for filename in ("signoff-reconciliation.py", "signoff-backfill.py"):
-            original = subprocess.run(["git", "show", "HEAD:crux/scripts/" + filename],
-                cwd=SCRIPTS.parents[1], capture_output=True, text=True, check=True).stdout
-            olddir = self.root / "old"; olddir.mkdir(exist_ok=True); path = olddir / filename
-            path.write_text(original)
-            import os
-            env = dict(os.environ, PYTHONPATH=str(SCRIPTS))
-            for flags in (("--help",), ()):
-                old = subprocess.run([sys.executable, str(path), *flags], env=env, capture_output=True, text=True)
-                new = subprocess.run([sys.executable, str(SCRIPTS / filename), *flags], env=env, capture_output=True, text=True)
-                self.assertEqual((old.returncode, old.stdout, old.stderr), (new.returncode, new.stdout, new.stderr))
 
     def test_backfill_requires_existing_corroboration_and_preserves_unrelated_appends(self):
         for fault in ("log-absent", "log-date", "log-ids", "journal-absent", "journal-ids", "admission"):

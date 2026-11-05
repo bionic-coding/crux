@@ -389,7 +389,7 @@ class ReviewsIndexTestCase(_Harness):
         self.assertEqual(json.loads(self.run_cli("--dry-run").stdout)["orphan_rows"], [])
 
 
-class RedactionRoutingTestCase(ReviewsIndexTestCase):
+class RedactionRoutingTestCase(_Harness):
     """The CALL sites, not the function — `rule:mined-values-fenced-and-bounded`.
 
     A review report is hand-kept and, downstream, a pull request can ADD one;
@@ -492,7 +492,7 @@ class RedactionRoutingTestCase(ReviewsIndexTestCase):
         self.assertEqual(control["orphan_rows"], ["2026-06-01.md"])
 
 
-class ContainmentTestCase(ReviewsIndexTestCase):
+class ContainmentTestCase(_Harness):
     """[SECURITY:S5] No read and no write leaves the resolved `<docs_dir>`.
 
     ADR-0101 requirement 5 asks that "the resolved write path is

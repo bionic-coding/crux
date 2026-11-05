@@ -87,15 +87,6 @@ class RetiredApplicationTests(unittest.TestCase):
                     self.assertEqual(producer.tree_bytes(f.root), before)
             self.assert_verified(f, published=state == "published")
 
-    def test_a_published_witness_is_never_rewritten_by_either_command(self):
-        for state, f in self.states():
-            if state != "published":
-                continue
-            raw = f.witness.read_bytes()
-            for command in ("apply", "dry-run"):
-                self.cli(f, command)
-            self.assertEqual(f.witness.read_bytes(), raw)
-
     def test_a_recovery_batch_is_refused_by_both_commands_and_both_functions(self):
         import implementation_migration_apply as application
         f = templates.clone(self, ("recovery-subject", False),

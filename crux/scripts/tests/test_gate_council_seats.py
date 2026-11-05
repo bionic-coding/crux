@@ -348,7 +348,6 @@ class EscapedSeatFaultTests(unittest.TestCase):
     the seat's role and registry key. A cancellation is never a vote: it propagates."""
 
     def deliberate_with(self, gateway, raise_for_gemini):
-        council = gate_council(gateway)
         original = AsyncCouncil._call_seat_async
 
         async def call(self_, seat, prompt, system=None):
@@ -356,8 +355,11 @@ class EscapedSeatFaultTests(unittest.TestCase):
                 raise raise_for_gemini
             return await original(self_, seat, prompt, system)
 
+        # The council samples the credential once at construction to decide which seats exist,
+        # so it is built inside the patch: the test must not depend on a configured credential.
         with mock.patch.dict("os.environ", {"OPENROUTER_API_KEY": DUMMY_KEY}), \
                 mock.patch.object(AsyncCouncil, "_call_seat_async", call):
+            council = gate_council(gateway)
             return asyncio.run(council.deliberate("Is this sound?"))
 
     def test_an_escaped_exception_errors_the_seat_with_its_role_and_registry_key(self):

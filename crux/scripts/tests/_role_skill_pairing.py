@@ -28,6 +28,7 @@ A residual is a host fact this static gate cannot observe. Each residual is
 a fact the triple depends on, not a failure:
 
     codex-skill-binding     Codex binds the role's declared skills at spawn; not observed here.
+    codex-skill-retrieval   Codex obtains a nonpreloaded canonical skill body; not observed here.
     codex-uv-cache          a `uv run` script needs the uv cache writable under the Codex sandbox.
     codex-egress            a script that fetches dependencies needs network egress under the Codex sandbox.
     codex-git-writable      a write that touches `.git` needs it writable; recorded in the run as
@@ -237,8 +238,11 @@ def _lane(role: Role, roles: dict, t: Triple, kind: str, supplied, ladder) -> No
             t.ok, t.residuals = True, role.residuals(h, supplied, ladder)
     else:
         target = roles.get(kind.removeprefix("delegates:"))
-        if target is None or t.skill not in target.skills:
-            bad = ["target does not declare the skill"]
+        # Declared skills are universal preloads, not the target's full workflow
+        # capability. evaluate already resolves this exact canonical skill and
+        # validates its access requirement before a delegation lane is considered.
+        if target is None:
+            bad = ["target role does not exist"]
         elif t.skill in target.lanes:
             bad = ["target holds a lane for the skill"]
         elif target.missing(h, t.need, ladder):
@@ -247,6 +251,8 @@ def _lane(role: Role, roles: dict, t: Triple, kind: str, supplied, ladder) -> No
             bad = [f"no dispatch grant for {target.name}"]
         else:
             t.ok, t.residuals = True, target.residuals(h, t.need, ladder)
+            if h == "codex" and t.skill not in target.skills:
+                t.residuals = tuple(sorted((set(t.residuals) - {"codex-skill-binding"}) | {"codex-skill-retrieval"}))
     t.why = [] if t.ok else t.why + bad
 
 

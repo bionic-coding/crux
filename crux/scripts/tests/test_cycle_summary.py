@@ -9,10 +9,12 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import cycle
 from cycle_workflow import PHASES, create, load, mutate
+from test_cycle_slice import version_two
 
 SUMMARY_KEYS = {'id', 'type', 'title', 'status', 'phase', 'pass', 'pass_limit', 'plan_revision', 'blocker', 'tasks',
                 'required_checks', 'evidence_count', 'latest_review', 'decision_count', 'recent_history'}
-TASK_KEYS = {'id', 'phase', 'status', 'stage', 'assignee', 'commits', 'description'}
+V3_KEYS = {'schema_version', 'revision', 'attempts', 'classifications'}
+TASK_KEYS ={'id', 'phase', 'status', 'stage', 'assignee', 'commits', 'description'}
 
 
 class SummaryTests(unittest.TestCase):
@@ -40,13 +42,23 @@ class SummaryTests(unittest.TestCase):
             body = json.loads(self.run_cli(command, self.cid))
             self.assertTrue(body['ok']); self.assertNotIn('cycle', body)
             s = body['summary']
-            self.assertEqual(set(s), SUMMARY_KEYS)
+            self.assertEqual(set(s), SUMMARY_KEYS | V3_KEYS)
+            self.assertEqual((s['schema_version'], s['revision'], s['attempts']), (3, load(self.repo, self.cid)['revision'], {'reserved': 0, 'running': 0}))
             self.assertEqual((s['id'], s['type'], s['status']), (self.cid, 'iterate', 'active'))
             self.assertEqual(len(s['tasks']), len(PHASES['iterate']))
             self.assertEqual(set(s['tasks'][0]), TASK_KEYS)
             self.assertLessEqual(len(s['recent_history']), 5)
             self.assertEqual(s['recent_history'][-1]['action'], 'plan')
             self.assertEqual(set(s['recent_history'][-1]), {'action', 'at'})
+
+    def test_a_version_two_record_keeps_the_earlier_summary_keys_only(self):
+        version_two(self.path)
+        body = json.loads(self.run_cli('show', self.cid))
+        self.assertEqual(set(body['summary']), SUMMARY_KEYS)
+
+    def test_attempt_counts_follow_the_open_attempts(self):
+        mutate(self.repo, self.cid, 'assignment', id='dev-1', state='running', role='developer')
+        self.assertEqual(json.loads(self.run_cli('show', self.cid))['summary']['attempts'], {'reserved': 0, 'running': 1})
 
     def test_full_is_the_whole_record_as_printed_before(self):
         expected = json.dumps({'ok': True, 'cycle': load(self.repo, self.cid)}, indent=2) + '\n'

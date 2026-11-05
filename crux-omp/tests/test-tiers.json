@@ -1,0 +1,56 @@
+{
+  "format": "crux.test-tiers",
+  "version": 1,
+  "kind": "file-glob",
+  "pattern": "*.test.ts",
+  "areas": {
+    "dashboards": "The run and cycle dashboards of crux-mods, crux-opencode and crux-omp"
+  },
+  "files": {
+    "capabilities.test.ts": {
+      "tier": "release",
+      "area": "dashboards"
+    },
+    "command.test.ts": {
+      "tier": "dev"
+    },
+    "cycle-v3.test.ts": {
+      "tier": "dev"
+    },
+    "cycle-verify.test.ts": {
+      "tier": "dev"
+    },
+    "events.test.ts": {
+      "tier": "dev"
+    },
+    "extension.test.ts": {
+      "tier": "release",
+      "area": "dashboards"
+    },
+    "lease.test.ts": {
+      "tier": "dev"
+    },
+    "lifecycle.test.ts": {
+      "tier": "dev"
+    },
+    "plan.test.ts": {
+      "tier": "dev"
+    },
+    "queue.test.ts": {
+      "tier": "dev"
+    },
+    "reader.test.ts": {
+      "tier": "release",
+      "area": "dashboards"
+    },
+    "refresh.test.ts": {
+      "tier": "dev"
+    },
+    "render.test.ts": {
+      "tier": "dev"
+    },
+    "status.test.ts": {
+      "tier": "dev"
+    }
+  }
+}

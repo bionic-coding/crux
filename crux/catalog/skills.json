@@ -248,7 +248,12 @@
       "show the queue",
       "run the next item",
       "run the next N items",
-      "run the queue"
+      "run the queue",
+      "refresh cycle advice",
+      "show queue history",
+      "show the full queue",
+      "archive completed queue items",
+      "migrate the queue"
     ]
   },
   {
@@ -1220,6 +1225,35 @@
     ],
     "context": "fork",
     "model": "claude-sonnet-5-5"
+  },
+  {
+    "id": "test-tiers",
+    "name": "test-tiers",
+    "description": "Label every test with one tier (dev, release or ephemeral) in a per-root test-tiers.json manifest, check the labels, and list a tier for any language's test runner.",
+    "tags": [
+      "testing",
+      "test-tiers",
+      "release",
+      "evidence",
+      "labelling"
+    ],
+    "bundles": [
+      "crux-docs"
+    ],
+    "risk_level": "medium",
+    "requires_access": "write-tree",
+    "routing_note": "Writes test-tiers.json manifests and runs the shipped `test-tiers.py check` and `list`; never deletes a test and never narrows a cycle gate. Running the tests themselves stays with the project's runner and the cycle's test coordinator.",
+    "triggers": [
+      "label the tests",
+      "label this test",
+      "check the test tiers",
+      "check the test labels",
+      "list the release tier",
+      "which tests are release tests",
+      "adopt test tiers",
+      "set up test tiers",
+      "mark this test ephemeral"
+    ]
   },
   {
     "id": "transition-adr",

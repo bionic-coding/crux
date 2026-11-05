@@ -123,7 +123,7 @@ class RenderTests(unittest.TestCase):
     @unittest.skipUnless(HAVE_TOMLLIB, "tomllib not available — Python 3.11+ (or uv) required")
     def test_read_only_roles_do_not_gain_write_default(self):
         generated = agents.generate()
-        for source_name in ("brainstormer", "librarian", "reviewer", "wayfinder"):
+        for source_name in ("brainstormer", "librarian", "wayfinder"):
             parsed = tomllib.loads(generated[agents.codex_agent_filename(source_name)])
             self.assertEqual(parsed["sandbox_mode"], "read-only")
 
@@ -133,16 +133,55 @@ class RenderTests(unittest.TestCase):
         # docs tree; a read-only sandbox would refuse every write. Holding Bash
         # without Edit does not widen any other role: reviewer and librarian stay read-only.
         self.assertIn("commander", agents.WORKSPACE_WRITE_WITHOUT_EDIT)
-        self.assertEqual(agents.WORKSPACE_WRITE_WITHOUT_EDIT, frozenset({"commander"}))
+        self.assertEqual(agents.WORKSPACE_WRITE_WITHOUT_EDIT, frozenset({"commander", "reviewer"}))
         generated = agents.generate()
         parsed = tomllib.loads(generated[agents.codex_agent_filename("commander")])
         self.assertEqual(parsed["sandbox_mode"], "workspace-write")
         source = agents.parse_source(agents.SOURCE_DIR / "commander.md")
         self.assertIn("Bash", source.tools)
         self.assertNotIn("Edit", source.tools)
-        for other in ("reviewer", "librarian"):
+        for other in ("librarian",):
             parsed = tomllib.loads(generated[agents.codex_agent_filename(other)])
             self.assertEqual(parsed["sandbox_mode"], "read-only")
+
+    @unittest.skipUnless(HAVE_TOMLLIB, "tomllib not available — Python 3.11+ (or uv) required")
+    def test_reviewer_writes_its_own_result_file_without_holding_edit(self):
+        # The cycle engine names a result path outside the repository, and a host
+        # blocks another agent copying a reviewer's approval. A read-only sandbox
+        # refuses the reviewer's own write, so the reviewer joins the named
+        # exception. It still holds no Edit or Write tool, and its role text
+        # limits shell writes to the dispatch-named result path.
+        generated = agents.generate()
+        parsed = tomllib.loads(generated[agents.codex_agent_filename("reviewer")])
+        self.assertEqual(parsed["sandbox_mode"], "workspace-write")
+        source = agents.parse_source(agents.SOURCE_DIR / "reviewer.md")
+        self.assertIn("Bash", source.tools)
+        self.assertNotIn("Edit", source.tools)
+        self.assertNotIn("Write", source.tools)
+        body = (agents.SOURCE_DIR / "reviewer.md").read_text(encoding="utf-8")
+        self.assertIn("result file", body)
+        self.assertIn("Result-End", body)
+        self.assertNotIn("new cycle reports return to the caller", body)
+
+    @unittest.skipUnless(HAVE_TOMLLIB, "tomllib not available — Python 3.11+ (or uv) required")
+    def test_commander_projection_carries_the_developer_and_reviewer_grants(self):
+        # Codex has no spawn tool: a grant projects to the role body plus the binding
+        # directive that returns delegation to the parent. Both grants must survive.
+        source = agents.parse_source(agents.SOURCE_DIR / "commander.md")
+        self.assertIn("Agent(developer)", source.tools)
+        self.assertIn("Agent(reviewer)", source.tools)
+        parsed = tomllib.loads(agents.generate()[agents.codex_agent_filename("commander")])
+        instructions = parsed["developer_instructions"]
+        self.assertIn("dispatch a developer and an independent reviewer", instructions)
+        self.assertIn("return the invocation and its attach request to your caller", instructions)
+
+    @unittest.skipUnless(HAVE_TOMLLIB, "tomllib not available — Python 3.11+ (or uv) required")
+    def test_operations_roles_can_write_the_cycle_record(self):
+        generated = agents.generate()
+        for role in ("commander", "dev-lead", "architect", "historian"):
+            with self.subTest(role=role):
+                parsed = tomllib.loads(generated[agents.codex_agent_filename(role)])
+                self.assertEqual(parsed["sandbox_mode"], "workspace-write")
 
     def test_librarian_can_read_through_shell_without_write_permissions(self):
         source = agents.parse_source(agents.SOURCE_DIR / "librarian.md")

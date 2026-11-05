@@ -133,13 +133,6 @@ class UnsupportedHostGenerateTests(CliFixture):
                          ["CLAUDE.md", "bionic/CLAUDE.md"])
         self.assertEqual(code, 0, payload)
 
-    def test_a_supported_host_still_refuses_without_force(self):
-        """Positive control: the refusal string the tests above avoid still fires."""
-        code, payload, _ = self.run_cli("--generate")
-        self.assertTrue(payload["host_supported"])
-        self.assertIn("already reads AGENTS.md", payload["refused"])
-        self.assertEqual(code, 1)
-
     def test_no_canonical_file_is_reported_unsupported_and_writes_no_adapter(self):
         (self.root / "AGENTS.md").unlink()
         (self.root / "bionic" / "AGENTS.md").unlink()

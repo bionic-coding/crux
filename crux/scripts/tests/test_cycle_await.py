@@ -53,6 +53,15 @@ class AwaitTests(unittest.TestCase):
         self.assertEqual((res['task'], res['cycle'], res['result_path']), ('B2', self.cid, str(self.r2)))
         self.assertGreater(res['waited_seconds'], 0.5)
 
+    def test_task_form_honours_the_marker(self):
+        self.r2.write_text('Assignment: B2\nAttempt: 1\nbody\n')
+        res = self.run_cli('--task-id', 'B2', '--marker', 'B2/1', '--timeout', '1.5', expect=1)
+        self.assertFalse(res['arrived'])
+        with self.r2.open('a') as handle:
+            handle.write('Result-End: B2/1\n')
+        res = self.run_cli('--task-id', 'B2', '--marker', 'B2/1', '--timeout', '5')
+        self.assertEqual((res['arrived'], res['task']), (True, 'B2'))
+
     def test_already_present(self):
         self.r2.write_text('report')
         res = self.run_cli('--task-id', 'B2', '--timeout', '10')
@@ -183,6 +192,72 @@ class AwaitPathTests(unittest.TestCase):
                 res = self.run_cli(*argv, expect=1)
                 self.assertFalse(res['ok']); self.assertIn('error', res)
         self.assertIn('absolute', self.run_cli('--path', 'relative/r.md', '--timeout', '1', expect=1)['error'])
+
+
+class AwaitMarkerTests(unittest.TestCase):
+    """`--marker A/N`: arrival is the end-marker line, never a stable incomplete file."""
+    HEAD = 'Assignment: build-it\nAttempt: 2\n\nReport body.\n'
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.r = self.root / 'build-it-attempt-2.md'
+
+    def run_cli(self, *argv, expect=0):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = cycle.main(['--repo-root', str(self.root), '--compact', 'await', *argv])
+        self.assertEqual(code, expect, out.getvalue())
+        return json.loads(out.getvalue())
+
+    def wait(self, timeout='0.6', expect=1):
+        return self.run_cli('--path', str(self.r), '--marker', 'build-it/2', '--timeout', timeout, expect=expect)
+
+    def test_stable_file_without_marker_never_arrives(self):
+        self.r.write_text(self.HEAD)
+        start = time.monotonic()
+        res = self.wait(timeout='2.5')
+        self.assertTrue(res['ok']); self.assertFalse(res['arrived'])
+        # The default form would have arrived on this stable, non-empty file.
+        self.assertGreaterEqual(time.monotonic() - start, 2.4)
+
+    def test_marker_arrives_without_a_stability_interval(self):
+        self.r.write_text(self.HEAD + 'Result-End: build-it/2\n\n')
+        start = time.monotonic()
+        res = self.wait(timeout='20', expect=0)
+        self.assertTrue(res['arrived']); self.assertEqual(res['result_path'], str(self.r))
+        self.assertLess(time.monotonic() - start, 0.9)
+
+    def test_marker_written_while_waiting(self):
+        self.r.write_text(self.HEAD)
+        def later():
+            time.sleep(0.6)
+            with self.r.open('a') as handle:
+                handle.write('Result-End: build-it/2\n')
+        t = threading.Thread(target=later); t.start()
+        res = self.wait(timeout='20', expect=0)
+        t.join()
+        self.assertTrue(res['arrived'])
+
+    def test_other_attempts_marker_or_a_marker_before_more_text_is_incomplete(self):
+        for text in (self.HEAD + 'Result-End: build-it/1\n',
+                     self.HEAD + 'Result-End: other/2\n',
+                     self.HEAD + 'Result-End: build-it/2\nmore text\n',
+                     'Result-End: build-it/2 \u2026\n'):
+            with self.subTest(text=text):
+                self.r.write_text(text)
+                self.assertFalse(self.wait(timeout='0.3')['arrived'])
+
+    def test_symlinked_result_never_arrives(self):
+        real = self.root / 'real.md'; real.write_text(self.HEAD + 'Result-End: build-it/2\n')
+        self.r.symlink_to(real)
+        self.assertFalse(self.wait(timeout='0.3')['arrived'])
+
+    def test_malformed_marker_refused(self):
+        for value in ('build-it', 'build-it/0', '/2', 'build it/2', 'a/b'):
+            with self.subTest(value=value):
+                res = self.run_cli('--path', str(self.r), '--marker', value, '--timeout', '1', expect=1)
+                self.assertFalse(res['ok']); self.assertIn('--marker', res['error'])
 
 
 if __name__ == '__main__':

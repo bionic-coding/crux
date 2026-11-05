@@ -174,7 +174,7 @@ class ShippedCatalogTests(unittest.TestCase):
         expected = {
             "architect":      ("claude-opus-5-5", "opus-latest",    "gpt-6.1-sol",   "high"),
             "brainstormer":   ("claude-opus-5-5", "sol-latest",    "gpt-6.1-sol",   "high"),
-            "commander":      ("claude-opus-5-5", "kimi-latest", "gpt-6-astra",   "high"),
+            "commander":      ("claude-opus-5-5", "argon-latest", "gpt-6-astra",   "high"),
             "dev-lead":       ("claude-opus-5-5", "glm-latest",    "gpt-6.1-sol",   "high"),
             "developer":      ("claude-sonnet-5-5", "deepseek-flash", "gpt-6.1-terra", "high"),
             "historian":      ("claude-sonnet-5-5", "glm-latest",    "gpt-6.1-terra", "high"),
@@ -199,13 +199,13 @@ class ShippedCatalogTests(unittest.TestCase):
 
         brainstormer carries no override, so it inherits the flagship
         default; the architect names Opus and the dev-lead names GLM over it.
-        night-gardener inherits the apex default. The reviewer names Argon and
-        the commander names Kimi over the apex default.
+        night-gardener inherits the apex default. The reviewer and the
+        commander name Argon over the apex default; no agent uses Kimi.
         """
         catalog = MC.load()
         self.assertEqual(catalog.aliases["opus-latest"], "openrouter/anthropic/claude-opus-5.5")
         self.assertEqual(catalog.aliases["sol-latest"], "openrouter/openai/gpt-6.1-sol")
-        self.assertEqual(catalog.aliases["kimi-latest"], "openrouter/moonshotai/kimi-k3.1-pro")
+        self.assertNotIn("kimi-latest", catalog.aliases)
         self.assertEqual(catalog.aliases["glm-latest"], "openrouter/z-ai/glm-5.3")
         self.assertEqual(catalog.aliases["argon-latest"], "openrouter/google/gemini-4-argon")
         self.assertEqual(catalog.levels["flagship"].opencode, "sol-latest")
@@ -219,7 +219,7 @@ class ShippedCatalogTests(unittest.TestCase):
         self.assertEqual(catalog.agents["night-gardener"].level, "apex")
         self.assertIsNone(catalog.agents["night-gardener"].opencode)
         self.assertEqual(catalog.agents["reviewer"].opencode, "argon-latest")
-        self.assertEqual(catalog.agents["commander"].opencode, "kimi-latest")
+        self.assertEqual(catalog.agents["commander"].opencode, "argon-latest")
 
     def test_apex_uses_astra_flagship_sol_and_standard_terra_at_high_effort(self):
         catalog = MC.load()
@@ -618,7 +618,7 @@ class RuleFindingTests(unittest.TestCase):
 
     def test_reference_graph_rejects_an_unreached_level(self):
         raw = MC.load_raw()
-        raw["agents"]["commander"] = {"level": "flagship", "opencode": "kimi-latest"}
+        raw["agents"]["commander"] = {"level": "flagship", "opencode": "argon-latest"}
         raw["agents"]["reviewer"] = "flagship"
         raw["agents"]["night-gardener"] = "flagship"
         self.assertTrue(any("apex" in f for f in MC.check_reference_graph(raw)))

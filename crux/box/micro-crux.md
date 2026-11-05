@@ -604,12 +604,16 @@ version-1/version-2 JSON Schema alone.
 
 | Type | Phases in these sources | Default total passes |
 |---|---|---:|
-| dev | plan → build → test → review → reflect | 7 |
-| iterate | plan → build → test → review → reflect | 2 |
-| refactor | plan → build → test → review → reflect | 7 |
-| simplify | plan → build → test → review → reflect | 3 |
-| quick-fix | build → test → review → reflect | 1 |
+| dev | plan → build → verify → review → reflect | 7 |
+| iterate | plan → build → verify → review → reflect | 2 |
+| refactor | plan → build → verify → review → reflect | 7 |
+| simplify | plan → build → verify → review → reflect | 3 |
+| quick-fix | build → verify → review → reflect | 1 |
 | release | plan → release → reflect | 2 |
+
+A new cycle record carries `"phase_names": "verify"` and names the phase after
+build `verify`. A record without that key uses `test` for the same phase; keep
+its stored names and never add the key to an existing record.
 
 Use a later locally adopted release contract if present. Do not treat a
 proposed release change as implemented merely because its draft exists.
@@ -651,7 +655,7 @@ If forbidden, leave the proposed plan and exact restriction in the inbox.
 The actor must be authorized to maintain this active cycle. A full plan revision
 requires `phase: "plan"`. Do not manually rewind the phase to permit an edit.
 Quick-fix can update only `constraints` and `verification` through plan details
-in Build or Test; each supplied list is nonempty strings and needs a reason.
+in Build or Verify; each supplied list is nonempty strings and needs a reason.
 Quick-fix adds tasks for current/later phases. Other cycles add a task in the
 current phase or revise the full plan in Plan.
 
@@ -730,7 +734,7 @@ needs approved selection reasoning and a reduction record for production,
 tests, instructions, and execution; an increase in one area cannot be netted
 against a decrease elsewhere.
 
-Blocking test or review findings return to build in every type, unless one
+Blocking verify or review findings return to build in every type, unless one
 qualifies for a fix task (small, in scope, cause stated, no decision, schema,
 interface or dependency change; one per phase per pass, no pass consumed).
 Record what improved, what remains unresolved, what will change, and why a
@@ -802,7 +806,7 @@ review evidence from real work. Empty evidence lists establish no passing gate.
       },
       {
         "id": "check",
-        "phase": "test",
+        "phase": "verify",
         "description": "Verify blank and nonblank behavior.",
         "depends_on": [
           "fix"
@@ -861,7 +865,8 @@ review evidence from real work. Empty evidence lists establish no passing gate.
   "extensions": [],
   "release": null,
   "coverage": null,
-  "completion": null
+  "completion": null,
+  "phase_names": "verify"
 }
 ```
 <!-- END EXAMPLE: initial-cycle -->
@@ -1487,7 +1492,7 @@ Cross-field and lifecycle requirements in the guide apply in addition to schemas
 ### Crux single-undertaking cycle
 
 Source: `crux/schemas/cycle.schema.json`  
-Source SHA-256: `69cbd19b0d298ac60220929860ec77d18d3fb1a7bff9aef4fd0419a7977b36cb`
+Source SHA-256: `f8839a569481bc650484d021b3fe542652f15b7c42722f2d4b1913f3c0e70bc5`
 
 <!-- BEGIN EXAMPLE: cycle.schema.json -->
 ```json
@@ -1526,7 +1531,8 @@ Source SHA-256: `69cbd19b0d298ac60220929860ec77d18d3fb1a7bff9aef4fd0419a7977b36c
     "schema_version": {
       "enum": [
         1,
-        2
+        2,
+        3
       ]
     },
     "id": {
@@ -1564,6 +1570,7 @@ Source SHA-256: `69cbd19b0d298ac60220929860ec77d18d3fb1a7bff9aef4fd0419a7977b36c
         "plan",
         "build",
         "test",
+        "verify",
         "review",
         "release",
         "reflect"
@@ -1628,6 +1635,36 @@ Source SHA-256: `69cbd19b0d298ac60220929860ec77d18d3fb1a7bff9aef4fd0419a7977b36c
             "minLength": 1
           }
         },
+        "streams": {
+          "type": "array",
+          "description": "Optional declared implementation streams. Absence records no stream facts.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "paths",
+              "independent"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+              },
+              "paths": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "independent": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
         "acceptance": {
           "type": "array",
           "minItems": 1,
@@ -1666,6 +1703,7 @@ Source SHA-256: `69cbd19b0d298ac60220929860ec77d18d3fb1a7bff9aef4fd0419a7977b36c
                   "plan",
                   "build",
                   "test",
+                  "verify",
                   "review",
                   "release",
                   "reflect"
@@ -1677,6 +1715,15 @@ Source SHA-256: `69cbd19b0d298ac60220929860ec77d18d3fb1a7bff9aef4fd0419a7977b36c
               },
               "depends_on": {
                 "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "integrates": {
+                "type": "array",
+                "minItems": 2,
+                "description": "Build task IDs this Build unit integrates; each must also be a dependency.",
                 "items": {
                   "type": "string",
                   "minLength": 1
@@ -1760,6 +1807,40 @@ Source SHA-256: `69cbd19b0d298ac60220929860ec77d18d3fb1a7bff9aef4fd0419a7977b36c
                   }
                 }
               },
+              "adopted_commits": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "sha",
+                    "source_task",
+                    "pass",
+                    "attempt"
+                  ],
+                  "properties": {
+                    "sha": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{40}$"
+                    },
+                    "source_task": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "pass": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "attempt": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "minimum": 1
+                    }
+                  }
+                }
+              },
               "fix": {
                 "type": "object",
                 "additionalProperties": false,
@@ -1777,9 +1858,67 @@ Source SHA-256: `69cbd19b0d298ac60220929860ec77d18d3fb1a7bff9aef4fd0419a7977b36c
                     "type": "string",
                     "minLength": 1
                   },
+                  "findings": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string",
+                      "pattern": "^r[0-9]+:blocking:[0-9]+$"
+                    }
+                  },
                   "pass": {
                     "type": "integer",
                     "minimum": 1
+                  },
+                  "criterion": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "index",
+                      "before"
+                    ],
+                    "properties": {
+                      "index": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "before": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "path",
+                          "sha256"
+                        ],
+                        "properties": {
+                          "path": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "sha256": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{64}$"
+                          }
+                        }
+                      },
+                      "after": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "path",
+                          "sha256"
+                        ],
+                        "properties": {
+                          "path": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "sha256": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{64}$"
+                          }
+                        }
+                      }
+                    }
                   },
                   "before": {
                     "type": "string",
@@ -2002,6 +2141,10 @@ Source SHA-256: `69cbd19b0d298ac60220929860ec77d18d3fb1a7bff9aef4fd0419a7977b36c
               "completed",
               "abandoned"
             ]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
           }
         }
       }
@@ -2028,6 +2171,11 @@ Source SHA-256: `69cbd19b0d298ac60220929860ec77d18d3fb1a7bff9aef4fd0419a7977b36c
       "type": [
         "object",
         "null"
+      ]
+    },
+    "phase_names": {
+      "enum": [
+        "verify"
       ]
     },
     "release_list": {
@@ -2083,6 +2231,7 @@ Source SHA-256: `69cbd19b0d298ac60220929860ec77d18d3fb1a7bff9aef4fd0419a7977b36c
           },
           "state": {
             "enum": [
+              "reserved",
               "running",
               "finished",
               "lost"
@@ -2111,6 +2260,362 @@ Source SHA-256: `69cbd19b0d298ac60220929860ec77d18d3fb1a7bff9aef4fd0419a7977b36c
               "string",
               "null"
             ]
+          },
+          "host": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "mode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "base": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-9a-f]{40}$"
+          },
+          "delivery_token": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{32}$"
+          },
+          "execution": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "review_base",
+              "execution_head",
+              "checkout",
+              "proof"
+            ],
+            "properties": {
+              "review_base": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{40}$"
+              },
+              "execution_head": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{40}$"
+              },
+              "checkout": {
+                "type": "string",
+                "minLength": 1
+              },
+              "proof": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "path",
+                  "sha256"
+                ],
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "sha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  }
+                }
+              }
+            }
+          },
+          "execution_history": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "execution_started": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "delivery_token",
+              "checkout"
+            ],
+            "properties": {
+              "delivery_token": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^[0-9a-f]{32}$"
+              },
+              "checkout": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "resume_seal": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "host",
+              "agent",
+              "checkout",
+              "review_base",
+              "previous_token",
+              "proof"
+            ],
+            "properties": {
+              "host": {
+                "type": "string",
+                "minLength": 1
+              },
+              "agent": {
+                "type": "string",
+                "minLength": 1
+              },
+              "checkout": {
+                "type": "string",
+                "minLength": 1
+              },
+              "review_base": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{40}$"
+              },
+              "previous_token": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{32}$"
+              },
+              "proof": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "path",
+                  "sha256"
+                ],
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "sha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  }
+                }
+              }
+            }
+          },
+          "release_continuation": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "format",
+              "list",
+              "version",
+              "target",
+              "steps",
+              "owner",
+              "descriptor",
+              "commands",
+              "capabilities",
+              "role_sha256",
+              "artifact"
+            ],
+            "properties": {
+              "format": {
+                "const": 1
+              },
+              "list": {
+                "enum": [
+                  "beta",
+                  "official"
+                ]
+              },
+              "version": {
+                "type": "string",
+                "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+              },
+              "target": {
+                "type": "string",
+                "minLength": 1
+              },
+              "steps": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "owner": {
+                "type": "string",
+                "minLength": 1
+              },
+              "descriptor": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "path",
+                  "sha256"
+                ],
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "sha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  }
+                }
+              },
+              "commands": {
+                "type": "object"
+              },
+              "capabilities": {
+                "type": "object"
+              },
+              "role_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "artifact": {
+                "type": [
+                  "object",
+                  "null"
+                ]
+              }
+            }
+          },
+          "invocation_snapshot": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "sha256"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          },
+          "invocation_history": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path",
+                "sha256"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              }
+            }
+          },
+          "previous_results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path",
+                "sha256"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              }
+            }
+          },
+          "delivery": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "sha256",
+              "outcome",
+              "commits",
+              "evidence",
+              "stage",
+              "note"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "outcome": {
+                "enum": [
+                  "done",
+                  "blocked",
+                  "failed"
+                ]
+              },
+              "commits": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{40}$"
+                }
+              },
+              "evidence": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "stage": {
+                "enum": [
+                  "implemented",
+                  "integrated",
+                  null
+                ]
+              },
+              "note": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "stop": {
+                "description": "The stop a blocked delivery named (an owner decision, an approval wait, a contradicted premise, an outward act or an escalation loop). Absent on deliveries that named none and on records written before the field.",
+                "enum": [
+                  "owner-decision",
+                  "approval-wait",
+                  "contradicted-premise",
+                  "outward-act",
+                  "escalation-loop"
+                ]
+              }
+            }
           }
         }
       }
@@ -2198,6 +2703,100 @@ Source SHA-256: `69cbd19b0d298ac60220929860ec77d18d3fb1a7bff9aef4fd0419a7977b36c
         "input_sha256": {
           "type": "string",
           "pattern": "^[0-9a-f]{64}$"
+        },
+        "test_runs": {
+          "description": "Written by finish from the durable receipt store: executions are the receipts whose run started inside the cycle's window (creation to finish), each once and including failed and interrupted ones; reused are the receipts the record attaches that started outside it and add no minutes; minutes sum the executed wall seconds; with_retry_reason is the subtotal of executions started with a retry reason. A run killed before it wrote a receipt is not counted.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "executions",
+            "with_retry_reason",
+            "minutes",
+            "executed",
+            "reused",
+            "unreadable"
+          ],
+          "properties": {
+            "executions": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "with_retry_reason": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "minutes": {
+              "type": "number",
+              "minimum": 0
+            },
+            "executed": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "check_id",
+                  "runs",
+                  "receipts",
+                  "with_retry_reason",
+                  "minutes"
+                ],
+                "properties": {
+                  "check_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "runs": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "receipts": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^TE-[0-9a-f]{32}$"
+                    }
+                  },
+                  "with_retry_reason": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "minutes": {
+                    "type": "number",
+                    "minimum": 0
+                  }
+                }
+              }
+            },
+            "reused": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "check_id",
+                  "receipts"
+                ],
+                "properties": {
+                  "check_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "receipts": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^TE-[0-9a-f]{32}$"
+                    }
+                  }
+                }
+              }
+            },
+            "unreadable": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
         }
       }
     },
@@ -2376,8 +2975,516 @@ Source SHA-256: `69cbd19b0d298ac60220929860ec77d18d3fb1a7bff9aef4fd0419a7977b36c
           }
         }
       }
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "results_dir": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "operations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "op_id",
+          "op",
+          "request_sha256",
+          "at",
+          "revision",
+          "result"
+        ],
+        "properties": {
+          "op_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._-]{8,64}$"
+          },
+          "op": {
+            "type": "string",
+            "minLength": 1
+          },
+          "request_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "at": {
+            "type": "string",
+            "minLength": 1
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "result": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    "classifications": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "request_id",
+          "question_set",
+          "question_version",
+          "model",
+          "served_model",
+          "answer",
+          "route",
+          "fallback",
+          "subject",
+          "fingerprint",
+          "pass",
+          "phase",
+          "at",
+          "revision"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "work-sizing",
+              "review-routing",
+              "finding-disposition",
+              "failure-routing",
+              "public-document-relevance",
+              "execution-arrangement",
+              "context-selection",
+              "handoff-completeness",
+              "review-finding-grouping",
+              "focused-test-ranking"
+            ]
+          },
+          "request_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "question_set": {
+            "type": "string",
+            "minLength": 1
+          },
+          "reused_from": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "index",
+              "revision",
+              "request_id"
+            ],
+            "properties": {
+              "index": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "revision": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "request_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "question_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "context_question_ids": {
+            "type": "array",
+            "description": "Input reconstruction cohort, separate from actual wire question_ids. Historical absence uses the original question_ids interpretation.",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "question_version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "routing_policy_version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "served_model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "served_provider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "cost": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "answer": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "choice": {
+                "type": "string",
+                "minLength": 1
+              },
+              "probabilities": {
+                "type": [
+                  "object",
+                  "null"
+                ]
+              }
+            }
+          },
+          "route": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fallback": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "subject": {
+            "type": "string",
+            "minLength": 1
+          },
+          "fingerprint": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "trigger": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pass": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "phase": {
+            "type": "string",
+            "minLength": 1
+          },
+          "at": {
+            "type": "string",
+            "minLength": 1
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "required": [
+                "route"
+              ],
+              "properties": {
+                "route": {
+                  "type": "string"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "fallback": {
+                  "type": "null"
+                }
+              }
+            },
+            "else": {
+              "required": [
+                "fallback"
+              ],
+              "properties": {
+                "fallback": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "deferrals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "finding",
+          "note",
+          "pass",
+          "phase",
+          "at"
+        ],
+        "properties": {
+          "finding": {
+            "type": "string",
+            "pattern": "^r[0-9]+:(blocking|advisory|cosmetic):[0-9]+$"
+          },
+          "note": {
+            "type": "string",
+            "minLength": 1
+          },
+          "pass": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "phase": {
+            "type": "string",
+            "minLength": 1
+          },
+          "at": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "withdrawals": {
+      "type": "array",
+      "description": "IDR names withdrawn in the Plan phase. A withdrawn name accepts no revision, approval or council attempt; its dependent tasks were removed from the plan in the same write.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "reason",
+          "tasks",
+          "at",
+          "plan_revision"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          },
+          "tasks": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "at": {
+            "type": "string",
+            "minLength": 1
+          },
+          "plan_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "deferral": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "note",
+              "at",
+              "reason",
+              "tasks",
+              "attempts"
+            ],
+            "properties": {
+              "note": {
+                "type": "string",
+                "minLength": 1
+              },
+              "at": {
+                "type": "string",
+                "minLength": 1
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1
+              },
+              "tasks": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "attempts": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "round",
+                    "id",
+                    "status",
+                    "record",
+                    "progress"
+                  ],
+                  "properties": {
+                    "round": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "status": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "record": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "progress": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "schema_version"
+        ],
+        "properties": {
+          "schema_version": {
+            "const": 3
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "coverage",
+          "completion",
+          "revision",
+          "operations",
+          "results_dir"
+        ],
+        "properties": {
+          "assignments": {
+            "items": {
+              "required": [
+                "host",
+                "base",
+                "delivery"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "schema_version"
+        ],
+        "properties": {
+          "schema_version": {
+            "enum": [
+              1,
+              2
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "revision": false,
+          "operations": false,
+          "results_dir": false,
+          "assignments": {
+            "items": {
+              "properties": {
+                "state": {
+                  "enum": [
+                    "running",
+                    "finished",
+                    "lost"
+                  ]
+                },
+                "host": false,
+                "mode": false,
+                "delivery_token": false,
+                "execution": false,
+                "execution_history": false,
+                "execution_started": false,
+                "resume_seal": false,
+                "release_continuation": false,
+                "invocation_snapshot": false,
+                "invocation_history": false,
+                "previous_results": false,
+                "base": false,
+                "delivery": false
+              }
+            }
+          },
+          "classifications": false,
+          "deferrals": false,
+          "withdrawals": false
+        }
+      }
+    }
+  ]
 }
 ```
 <!-- END EXAMPLE: cycle.schema.json -->
@@ -2385,7 +3492,7 @@ Source SHA-256: `69cbd19b0d298ac60220929860ec77d18d3fb1a7bff9aef4fd0419a7977b36c
 ### Crux persistent cycle queue
 
 Source: `crux/schemas/cycle-queue.schema.json`  
-Source SHA-256: `b2806cd976091c00697860fa8561b3334442156c542190c2db7e67bb515fb044`
+Source SHA-256: `4bf616bedf1cd3b58071cbb8b3ca55f7de2ae774c2a67d6c029fdd8de3cb35eb`
 
 <!-- BEGIN EXAMPLE: cycle-queue.schema.json -->
 ```json
@@ -2408,7 +3515,10 @@ Source SHA-256: `b2806cd976091c00697860fa8561b3334442156c542190c2db7e67bb515fb04
       "const": "crux.cycle-queue"
     },
     "format_version": {
-      "const": 1
+      "enum": [
+        1,
+        2
+      ]
     },
     "next_number": {
       "type": "integer",
@@ -2481,6 +3591,13 @@ Source SHA-256: `b2806cd976091c00697860fa8561b3334442156c542190c2db7e67bb515fb04
               "type": "string",
               "pattern": "\\S"
             }
+          },
+          "release_list": {
+            "description": "Optional, on a release item only: the task list of the cycle it starts. Absent means beta.",
+            "enum": [
+              "beta",
+              "official"
+            ]
           },
           "state": {
             "enum": [
@@ -3184,7 +4301,7 @@ Source SHA-256: `c1d994bfad185bd675d89ec4d9f664906e2c6ab8cbb8b0ccb027f870db7b474
 ### Prospective frozen council attempt
 
 Source: `crux/schemas/cycle-council-attempt.schema.json`  
-Source SHA-256: `494ac15e0e6e97bdfb38d0c5e627233b27e9e2c2d2e96e589fe3613db8c85c3c`
+Source SHA-256: `0975ab5ecd770ddaba56fec39f16ca4a23f134c62d2d837a3ecd60860fed9529`
 
 <!-- BEGIN EXAMPLE: cycle-council-attempt.schema.json -->
 ```json
@@ -3386,7 +4503,8 @@ Source SHA-256: `494ac15e0e6e97bdfb38d0c5e627233b27e9e2c2d2e96e589fe3613db8c85c3
         "enum": [
           "running",
           "finished",
-          "failed"
+          "failed",
+          "interrupted"
         ]
       },
       "started_at": {
@@ -3423,14 +4541,29 @@ Source SHA-256: `494ac15e0e6e97bdfb38d0c5e627233b27e9e2c2d2e96e589fe3613db8c85c3
       "finished_at": {
         "type": "string"
       },
+      "recovered_at": {
+        "type": "string"
+      },
       "harness": {
         "type": "string"
+      },
+      "delta": {
+        "type": "object"
       },
       "readiness": {
         "type": "object"
       },
       "review_bundle_sha256": {
         "type": "string"
+      },
+      "call_checkpoints": {
+        "type": "object"
+      },
+      "call_evidence": {
+        "type": "object"
+      },
+      "checkpoint_failure": {
+        "type": "object"
       }
     }
   }
@@ -3441,7 +4574,7 @@ Source SHA-256: `494ac15e0e6e97bdfb38d0c5e627233b27e9e2c2d2e96e589fe3613db8c85c3
 ### Prospective mode-aware council result
 
 Source: `crux/schemas/cycle-council.schema.json`  
-Source SHA-256: `a875ab9dff18c06d0c82225e916d2efff5b9d9eb85c9b1786fdb6b5ad7626ca4`
+Source SHA-256: `d33e937145fc9a81ec9fcd12fa568ed26e9a58eaa779ba2d7804d527babf4536`
 
 <!-- BEGIN EXAMPLE: cycle-council.schema.json -->
 ```json
@@ -3678,6 +4811,12 @@ Source SHA-256: `a875ab9dff18c06d0c82225e916d2efff5b9d9eb85c9b1786fdb6b5ad7626ca
       },
       "review_bundle_sha256": {
         "type": "string"
+      },
+      "call_evidence": {
+        "type": "object"
+      },
+      "checkpoint_failure": {
+        "type": "object"
       }
     }
   }
@@ -3701,31 +4840,31 @@ No timestamp, machine path, or uncommitted-history claim enters the guide.
   "format_version": 1,
   "sources": {
     "crux/schemas/adr-provenance.schema.json": "c1d994bfad185bd675d89ec4d9f664906e2c6ab8cbb8b0ccb027f870db7b474c",
-    "crux/schemas/cycle-council-attempt.schema.json": "494ac15e0e6e97bdfb38d0c5e627233b27e9e2c2d2e96e589fe3613db8c85c3c",
-    "crux/schemas/cycle-council.schema.json": "a875ab9dff18c06d0c82225e916d2efff5b9d9eb85c9b1786fdb6b5ad7626ca4",
-    "crux/schemas/cycle-queue.schema.json": "b2806cd976091c00697860fa8561b3334442156c542190c2db7e67bb515fb044",
-    "crux/schemas/cycle.schema.json": "69cbd19b0d298ac60220929860ec77d18d3fb1a7bff9aef4fd0419a7977b36cb",
+    "crux/schemas/cycle-council-attempt.schema.json": "0975ab5ecd770ddaba56fec39f16ca4a23f134c62d2d837a3ecd60860fed9529",
+    "crux/schemas/cycle-council.schema.json": "d33e937145fc9a81ec9fcd12fa568ed26e9a58eaa779ba2d7804d527babf4536",
+    "crux/schemas/cycle-queue.schema.json": "4bf616bedf1cd3b58071cbb8b3ca55f7de2ae774c2a67d6c029fdd8de3cb35eb",
+    "crux/schemas/cycle.schema.json": "f8839a569481bc650484d021b3fe542652f15b7c42722f2d4b1913f3c0e70bc5",
     "crux/schemas/test-evidence.schema.json": "0820d002a5ed0676186d3fb534e2c47bdb281b36e798c1446f4d59b243d31e3b",
     "crux/scripts/adr_provenance.py": "6e9e9b1f7ca1188b57ee19110bdc51fb1d7f8758d2a001315b2a56fa5fcc829f",
     "crux/scripts/authoring_scope.py": "2970ad31854348b156c82c88804fd7055c93a172b4281dd2e5663a24f52261e2",
-    "crux/scripts/bionic_config.py": "0833931b4b78ae959424af4c65fbcabbeff8785381ae75b2a9b389ca2821adf3",
-    "crux/scripts/council_policy.py": "260baae9d6975c03a7407b2abe0d939f021abc9f62ef65822977c748526a2828",
-    "crux/scripts/cycle_council.py": "5e0d2a5673ba1cae5910ff57e672f4a918afabe068788b7fb6ad6189383ee069",
-    "crux/scripts/cycle_queue.py": "938d9ae23fa5e83dea44fa25989aa8e2aaf5aac7725b9776d7b342ac80019802",
-    "crux/scripts/cycle_workflow.py": "a9e824a13999d3e35d6540eab50022cc289112845c8101cf334dc650356238ac",
-    "crux/scripts/decision_policy.py": "ead9f78f78a7cadef428eea0538cc97d210f810e5502c9eaf2da32c85e74309b",
+    "crux/scripts/bionic_config.py": "561f120be08ab97b129bf0c89684f6fd95e7d0d9731b45fe65301004d9fa679f",
+    "crux/scripts/council_policy.py": "c630dc4c968b76e505f757ba9427552aef699cd7068524d0012a25130561efbd",
+    "crux/scripts/cycle_council.py": "7f1ecec2680759bf5f7b88f3441e47dc0b68118596036f4381638a090e54731e",
+    "crux/scripts/cycle_queue.py": "994450eaca769f9b6338b115082a703a1a49b400f78814bf8651de69685ceb5f",
+    "crux/scripts/cycle_workflow.py": "f2cd10b0e3e3e408201aca192115a068302a8a746b23c1b23ce0ab4b745674b7",
+    "crux/scripts/decision_policy.py": "7a42894ff3c5129a72fb2208017d93e546d5b990acbb90d89bc53332687e0cc0",
     "crux/scripts/generate-micro-crux.py": "e412bbb790192035c83b44f39059ce41a3e9632d7f18565c70bb1696d4fdb7e5",
-    "crux/scripts/test_evidence.py": "6ea406b46d6e09419af357c523b41193916b19053d1a261dd4474058ab3a98e0",
-    "crux/skills/cycle/references/review.md": "c992fdf4e803766b830162ac9e93548c83ad5be8676b66217c28f9b3a149dde3",
-    "crux/skills/cycle/references/testing.md": "61b15310312e6312784787cdfa8647eb97f1d17d987d9c79b38ae758d17fd2f9",
+    "crux/scripts/test_evidence.py": "f89b329670012558b972ef1cc0abcbf49b567bac39560f48759b69d6b7f0263e",
+    "crux/skills/cycle/references/review.md": "c80e861ca64b15a92d341a8aa28568b50178a4f2a5c6ea8b9697a197d36499e6",
+    "crux/skills/cycle/references/testing.md": "2e629de23cdae676c6dad25c856d86727c6999138313753f623fc1426c579d64",
     "crux/skills/ingest-research/SKILL.md": "a280b046f5db82c66b822beebda0db2485888a93871cf7370059a223620a0b75",
     "crux/skills/refresh-research-sources/SKILL.md": "eb729469a4a4b425c671424540aa598e5ee4f4a5e8ea4afb38c1939651a595dc",
     "crux/skills/transition-brief/SKILL.md": "779a142c98c957c7ccdfeb341561c8c400358d88773bcf18d644ed3883551002",
-    "crux/templates/ADR-template.md": "0d0e9f907fa33aa9709eecacb2ba573cce9ad604e56f972e7a07a01137878ca3",
-    "crux/templates/AGENTS.md.tmpl": "533159f002e3b1e2b4cbc45a68bdc7edc5c31dc7badc0ce517eb4485ff683409",
+    "crux/templates/ADR-template.md": "2ed32d5ec415cdd4e63f7d92f5c041196a712ff310e4eef4a66cc969b95747c5",
+    "crux/templates/AGENTS.md.tmpl": "68fb0def5e34d8284ef5db98e636144361f20ba7a34434a75b7036b7163e78a0",
     "crux/templates/BRIEF-template.md": "25b0ddcfbeeaedac93f6fd7eaeee13a2cd6aa6485b4d76b7c9a689571bd5cbe3",
     "crux/templates/manifest.yml.tmpl": "6144ab96dbec0d319bc4d3608abe909f37ac8139c0211bf7e0cdef7acc98ae4e",
-    "crux/templates/micro-crux.md.tmpl": "41f452f26556550da36cfd7a8219d9941a5cb07e2e372e9088fe72e752c59279",
+    "crux/templates/micro-crux.md.tmpl": "803add3840e7302c2b813f41508e464b017feee4fa3a07a22aff9b844856346c",
     "crux/templates/objectives.md.tmpl": "68465558af5fdc117ad5b18bed32006f04956d7f33aafabe40b9e9b06cc778b7"
   },
   "tree_schema_version": "5"

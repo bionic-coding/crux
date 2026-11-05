@@ -121,6 +121,24 @@ class AssignmentStateTests(AssignmentCase):
         self.run_cli('--id', 'stream-a', '--state', 'finished')
         self.assertIn('cycle is paused', self.run_cli('--id', 'stream-b', '--state', 'running', '--role', 'dev-lead', expect=1)['error'])
 
+    def close(self, status='completed'):
+        record = json.loads(self.path.read_text()); record['status'] = status
+        self.path.write_text(json.dumps(record, indent=2) + '\n')
+
+    def test_closed_cycle_records_a_late_finished_and_nothing_else(self):
+        self.run_cli(*self.START)
+        self.run_cli('--id', 'dev-1', '--state', 'running', '--role', 'developer')
+        self.close()
+        result = self.run_cli('--id', 'stream-a', '--state', 'finished', '--note', 'late hand-back')
+        self.assertEqual((self.entry()['state'], self.entry()['note']), ('finished', 'late hand-back'))
+        self.assertEqual(result['cycle']['status'], 'completed')
+        for argv in (('--id', 'stream-b', '--state', 'running', '--role', 'developer'), ('--id', 'dev-1', '--seen'),
+                     ('--id', 'dev-1', '--state', 'lost', '--note', 'host evidence')):
+            self.assertIn('closed cycles cannot', self.run_cli(*argv, expect=1)['error'])
+        with self.assertRaisesRegex(Exception, 'closed cycles cannot'):
+            mutate(self.repo, self.cid, 'pause', reason='x')
+        self.assertEqual(self.entry('dev-1')['state'], 'running')
+
     def test_handoff_lists_running_assignments_and_resume_steps(self):
         self.run_cli(*self.START)
         self.run_cli('--id', 'dev-1', '--state', 'running', '--role', 'developer')

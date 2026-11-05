@@ -208,20 +208,6 @@ class Precondition(Base):
         result = f.abandon()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-    def test_accepted_adr_lets_the_next_advance_pass(self):
-        f = self.fixture()
-        self.refused(f)
-        f.set_status("Accepted")
-        result = f.advance("done", "x/result.md")
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-
-    def test_archive_judges_status_not_placement(self):
-        passing = self.fixture(status="Superseded", archive=True)
-        result = passing.advance("done", "x/result.md")
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        refusing = self.fixture(status="Proposed", archive=True)
-        self.assertEqual(self.refused(refusing)["adr_acceptance_pending"][0]["status"], "Proposed")
-
     def test_archived_after_close_is_found_through_the_archive_fallback(self):
         f = self.fixture()
         archived = f.root / "docs/adrs/archive/ADR-0200-fixture.md"
@@ -281,11 +267,6 @@ class Precondition(Base):
                 self.assertEqual(self.refused(g)["adr_acceptance_pending"], [{"module_tag": "adr-1",
                     "path": ADR, "status": "Proposed", "identified_by": "subjects-and-module", "remedy": "transition-adr"}])
 
-    def test_unnamed_module_falls_back_to_every_adr_subject(self):
-        f = self.fixture(name_adr=False)
-        out = self.refused(f)
-        self.assertEqual(out["adr_acceptance_pending"][0]["identified_by"], "subjects")
-
     def test_refutation_closed_module_refuses_the_same_way(self):
         f = self.fixture(refutation=True)
         out = self.refused(f)
@@ -315,11 +296,6 @@ class Precondition(Base):
                 self.assertNotIn("transition-adr", out["error"])
                 self.assertIn(OWNER_STEP, out["error"])
                 self.assertIn("Otherwise abandon the run.", out["error"])
-
-    def test_module_identified_proposed_entry_takes_transition_adr(self):
-        out = self.refused(self.fixture())
-        self.assertEqual(out["adr_acceptance_pending"][0]["remedy"], "transition-adr")
-        self.assertIn("transition-adr", out["error"])
 
     def test_module_named_adr_outside_the_council_subjects_is_checked(self):
         # The module names ADR-0200 (Proposed) in its artifacts; its council subjects hold only

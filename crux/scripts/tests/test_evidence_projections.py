@@ -148,6 +148,24 @@ class ProjectionTests(unittest.TestCase):
         malformed_footer = README_TEXT.replace("v1.2.3", "v1.2")
         self.assertIsNone(projected(malformed_footer, *kinds))
 
+    def test_fingerprint_prefix_projects_while_generation_basis_stays_hashed(self):
+        basis = f" <!-- basis: prompt=sha256:{'b' * 64}; generator=sha256:{'c' * 64}; model-config=sha256:{'d' * 64} -->"
+        text = README_TEXT.replace(FINGERPRINT, FINGERPRINT + basis)
+        kinds = ('generated-fingerprint-line', 'readme-footer-version')
+        digest = projected(text, *kinds)
+        self.assertIsNotNone(digest)
+        self.assertEqual(te._locate(text, 'generated-fingerprint-line'), (0, len(FINGERPRINT)))
+        self.assertEqual(projected(text.replace(SHA, 'e' * 64), *kinds), digest)
+        for old in ('b', 'c', 'd'):
+            self.assertNotEqual(projected(text.replace(old * 64, 'f' * 64), *kinds), digest)
+        for malformed in (text.replace('prompt=sha256:', 'unknown=sha256:'),
+                          text.replace('b' * 64, 'b' * 63),
+                          text.replace(basis, basis + basis),
+                          text.replace(FINGERPRINT, FINGERPRINT + FINGERPRINT),
+                          text.replace(basis, basis + ' untrusted suffix')):
+            with self.subTest(header=malformed.splitlines()[0]):
+                self.assertIsNone(projected(malformed, *kinds))
+
     def test_a_value_outside_strict_format_falls_back_to_the_raw_digest(self):
         for value in ("1.2", "1.2.3-rc1", "01.2.3", "1.2.3.4", " 1.2.3", "v1.2.3", "@@projected@@"):
             with self.subTest(value=value):

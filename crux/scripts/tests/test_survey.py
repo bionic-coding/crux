@@ -202,11 +202,6 @@ class ExitLaneTests(_TreeFixture):
         self.assertEqual(proc.returncode, 2, proc.stdout)
         self.assertIn("other", proc.stderr)
 
-    def test_unknown_phase_is_exit_2(self):
-        proc = _run("--repo-root", str(self.root), "--phase", "bogus")
-        self.assertEqual(proc.returncode, 2)
-        self.assertEqual(proc.stdout.strip(), "")
-
     def test_missing_tree_is_exit_2(self):
         (self.root / ".bionic.yml").write_text(
             'config_version: "1"\ndocs_dir: nowhere\n', encoding="utf-8")

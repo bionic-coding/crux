@@ -722,7 +722,7 @@ All other concerns are accumulative (append-only or mutable-with-history). The r
 | "cleanup" / "hygiene check" / "what's next" / "clean up the docs" / "refresh whats_next" | `cleanup-campsite` | Forward-looking process-state scan; regenerates `docs/whats_next.md`. Distinct from `audit-docs` — proposes actions, never edits prose. |
 | "compile the doctrine" / "build the doctrine" / "regenerate the doctrine" / "refresh the doctrine" / "is the doctrine current" / "doctrine drift" | `compile-doctrine` | Regenerative — rewrites `<docs_dir>/adrs/doctrine/` wholesale from the summaries projection, reconciled against the ratified invariants and the human-signed reconciliation ledger. `--dry-run` is the drift check. Stops and recommends `summarize-adrs.py` first when the summaries projection has drifted; never writes `reconciliations.yml`. |
 | "run the council" / "convene the council" / "ask the council" / "get a multi-model opinion" | `council` |  |
-| "start a cycle" / "run the cycle" / "resume the cycle" / "cycle status" / "new dev cycle" / "iterate on this" / "quick fix" / "refactor this" / "simplify cycle" / "run a simplify cycle" / "simplify <area>" / "release cycle" / "update the cycle" / "reconcile the cycle record" / "add to the queue" / "show the queue" / "run the next item" / "run the next N items" / "run the queue" | `cycle` | One undertaking with type-specific phases, bounded passes, independent review, and shared test evidence; no prompt minimum or repeated runs. |
+| "start a cycle" / "run the cycle" / "resume the cycle" / "cycle status" / "new dev cycle" / "iterate on this" / "quick fix" / "refactor this" / "simplify cycle" / "run a simplify cycle" / "simplify <area>" / "release cycle" / "update the cycle" / "reconcile the cycle record" / "add to the queue" / "show the queue" / "run the next item" / "run the next N items" / "run the queue" / "refresh cycle advice" / "show queue history" / "show the full queue" / "archive completed queue items" / "migrate the queue" | `cycle` | One undertaking with type-specific phases, bounded passes, independent review, and shared test evidence; no prompt minimum or repeated runs. |
 | "show cycle status" / "what's the status of CYC-NNNN" / "where are the cycles" / "list the cycles" / "watch the cycle" / "show the cycle dashboard" | `cycle-status` | Read-only. Runs `cycle.py status` and shows its output; never advances or edits a cycle. The bare phrase "cycle status" routes to `cycle`. |
 | "build the arch" / "build the arch directory" / "derive arch" / "regenerate the architecture" / "refresh the architecture map" / "rebuild the arch spine" / "update the arch" | `derive-arch` | Regenerative — rewrites `<docs_dir>/arch/` wholesale from the project's sources. `--dry-run` is the drift check. The primary current-state surface. |
 | "begin development cycle" / "cycle this feature" / "build a cycle promptbook" / "rigorous plan" / "do this the right way" | `dev-cycle` | New work uses cycle with type dev; no promptbook is allocated. |
@@ -762,6 +762,7 @@ All other concerns are accumulative (append-only or mutable-with-history). The r
 | "scaffold a survey sheet" / "start a batch review of observations" / "build the observation review sheet" / "survey the observed candidates" / "open a ratification batch" / "I want to review the observed candidates in one pass" | `survey-sheet` | Scaffolds one SVY-NNNN batch review sheet from the observation candidate state file, seeding the machine cells and leaving verdict, domain and rationale empty. Half of the batch-ratification pair; `survey-signoff` is the other half. Human gate — excluded from run-execution autonomy; carries `disable-model-invocation`. Never fills a verdict, never publishes a record. |
 | "sign off the survey" / "sign the survey sheet" / "sign off SVY-NNNN" / "publish the batch" / "batch-ratify the observations" / "I have filled in the review sheet" / "finish the observation batch" | `survey-signoff` | The single human write path that signs one filled-in SVY-NNNN review sheet and publishes its records under one digest-bound receipt. The only batch route past `observed`; `transition-observation` remains the only single-record route. Human gate — excluded from run-execution autonomy; carries `disable-model-invocation`. Never authors a verdict; never signs two batches at once. |
 | "tend the garden" / "run the night gardener" / "night pass" / "morning note" | `tend-garden` | Turn-gated overnight review; silent skip when it isn't her turn. |
+| "label the tests" / "label this test" / "check the test tiers" / "check the test labels" / "list the release tier" / "which tests are release tests" / "adopt test tiers" / "set up test tiers" / "mark this test ephemeral" | `test-tiers` | Writes test-tiers.json manifests and runs the shipped `test-tiers.py check` and `list`; never deletes a test and never narrows a cycle gate. Running the tests themselves stays with the project's runner and the cycle's test coordinator. |
 | "accept ADR-NNNN" / "deprecate ADR-NNNN" / "supersede ADR-NNNN with ADR-MMMM" / "retract ADR-NNNN" / "promote ADR-NNNN: rules N" | `transition-adr` | Enforces state machine. |
 | "publish brief" / "abandon brief" / "close out a brief" / "mark brief published" / "mark brief abandoned" / "transition BRIEF-<slug>" | `transition-brief` | Transitions a brief `draft → published \| abandoned`; mutates only frontmatter, never the body; updates the rollup + writes a `brief` op. |
 | "ratify decision <id>" / "reject decision <id>" / "defer decision <id>" / "ratify decision <id> as observation" | `transition-decision` |  |
@@ -1148,61 +1149,165 @@ There is no prompt minimum. The record drives progress visualization.
 The owner's ordered queue of cycle requests is `<docs_dir>/queue/cycles.yaml`, managed
 through `cycle.py queue` and run by commander only under the owner's recorded authorization.
 
-The main session routes cycle execution through commander, implementation through
-dev-lead, and developer units through dev-lead. Do not bypass these leads. Other
-workflows use their designated lead, including night-gardener for garden work.
-Every developer dispatch names the full base commit SHA and integration owner.
+Queue format 2 keeps active/unresolved items, the monotonic counter and all current
+and ended authorizations in `queue/cycles.yaml`. Each terminal started item moves once
+to immutable `queue/history/items/Q-NNNN.json`, retaining original fields, order,
+provenance, digest and terminal cycle binding. Cycle and evidence paths never move.
+Readers support formats 1 and 2. Migration is explicit: inspect `queue archive --dry-run`,
+then use `queue archive --migrate`. Reads and ordinary format-1 writes never migrate.
+Format-2 mutations and terminal-cycle completion sweep eligible terminal items.
+Pending, held, active, paused, missing or invalid records remain active.
+
+The queue writer validates selected items, writes history before removing active copies,
+then commits exactly touched active/history paths together. Identical copies coalesce;
+conflicts refuse. Recovery completes an interrupted transaction without losing an item.
+The terminal sweep runs after releasing the cycle lock; joint start uses queue-then-cycle
+lock order. Ordinary cycle commits cannot capture pending queue changes.
+
+Say “show queue history” for `queue list --full`, “show the full queue” for the full
+list, or name an item for `queue show Q-NNNN`. These use the same resolver as dependencies
+and release authorization. Missing/corrupt required history and revoked quotes refuse.
+History items cannot be edited, requeued or reused. The 500-item cap applies to active
+entries in format 2; allocation also checks history collisions. Existing removal of an
+unstarted item creates no history tombstone. Old plugins that reject format 2 and old
+release readers that cannot resolve archived items are unsupported after migration.
+
+Code owns the cycle procedure. `cycle.py op CYCLE --json REQUEST` runs typed
+operations: `inspect` (read-only), `prepare-dispatch`, `attach-execution`, `deliver`,
+`mark-lost`, `advance`, `finish`, `owner-exception`, `upgrade`, `commit-record` and
+`withdraw-decision`, `dispatch-invocation` (read-only), `execution-check`,
+`child-link`, `advice-refresh` and `release-continue`. Each mutating
+operation reads, validates and saves the record in one locked step. A caller-chosen
+`op_id` makes a repeated request replay its journaled result. A refusal names the code,
+the observed value and the complete recovery. A role that holds cycle operations follows one rule:
+run `inspect`, then the action it returns. The commander submits each request as one
+single-quoted inline `--json` string (an apostrophe as `\u0027`, a newline as `\n`), so
+it needs no file and no historian. The low-level commands stay for diagnosis. Every
+mutating command runs against the main checkout, and a linked worktree refuses it.
+
+The main session routes cycle execution through the commander. For bounded work the
+commander dispatches a developer and an independent reviewer. It dispatches a dev-lead
+when the plan has parallel streams, integration across units, or complexity the plan
+names. Other workflows use their designated lead, including night-gardener for garden
+work. Every developer dispatch names the full base commit SHA and integration owner.
 The dev-lead integrates committed worktrees and verifies ancestry, scope, and evidence.
-Commander may run several dev-leads at once, one per independent stream with disjoint
-owned paths recorded in the plan; each integrates its own units, one at a time, and
-commander stays accountable for the cycle. Before editing another stream's path, a
-dev-lead records a hand-over: a Build task whose description starts `Hand-over:`,
-naming the path, owning stream and reason, relayed through commander. Plan orders
-tasks so the first Build task delivers one working end-to-end path. Each dispatcher
-runs `handoff` and records an `assignment` running before each dispatch and resume; a
-refusal names a live agent to message or await. It records `finished` after the final
-report and the execution end, and `lost` only with host evidence, never for elapsed
-time. Nobody messages an agent while an assignment it dispatched is still running.
+A developer the commander dispatches directly takes the dev-lead's duties: it builds on
+the task base and any trailer-tagged commits, commits its unit on the main checkout with
+a `Cycle-Task:` trailer, runs the unit's checks, and calls no cycle operation except execution-check for worker proof. Direct
+developer dispatches on the main checkout run one at a time, and that path has no
+changed-path check. Commander may run several dev-leads at once, one per independent
+stream with disjoint owned paths recorded in the plan; each integrates its own units,
+one at a time, and commander stays accountable for the cycle. Before editing another
+stream's path, a dev-lead records a hand-over: a Build task whose description starts
+`Hand-over:`, naming the path, owning stream and reason, relayed through commander.
+Plan orders tasks so the first Build task delivers one working end-to-end path. The
+historian writes synthesis and documentation that need judgment, such as reflections,
+journal entries and inbox filing, and does no clerical record work.
+
+The engine constructs every mandatory assignment from the role boundary, objectives,
+task, expected evidence, acceptance criteria, constraints, scope, exact decision
+bindings and integration owner. Caller `assignment_text` is an optional subordinate
+addendum. Native role instructions and host tool grants remain binding; missing roles
+are reported. Record stream ownership as optional `plan.streams` entries
+`{id, paths, independent}` and Build integration as `task.integrates` naming at least
+two existing Build dependencies. The writer rejects invalid or overlapping independent
+scopes. Missing historical fields mean no declared facts; prose establishes none.
+
+`prepare-dispatch` reserves an attempt and returns the host invocation; the calling
+agent performs it with its own dispatch tool, never through the cycle writer, then
+submits `attach-execution` with the handle the host returned. A host adapter shapes the
+dispatch tool, the handle and the wait for Claude Code, Codex, OpenCode and OMP. An
+optional `mode` on `prepare-dispatch`, stored on the attempt, selects the adapter's
+invocation, whether a handle is returned and the loss-evidence rules; a mode that
+returns no handle skips `attach-execution`. A
+result is complete only when its last line matches the engine's current marker.
+New attempts use `Result-End: <assignment>/<attempt>#<token>`; historical tokenless
+attempts retain `Result-End: <assignment>/<attempt>`, and
+`deliver` refuses any other file. Nobody messages an agent while its attempt is
+reserved or running. An attempt waits in windows of at most 30 minutes. Windows are
+uncapped: ending one pauses nothing and changes no state, and `inspect` returns the wait
+descriptor again for the next one. No liveness, loss, pause or escalation is inferred
+from elapsed time; the owner supervises quiet runs. A task and
+role accept at most three attempts in one pass, counted across assignments; after that
+`prepare-dispatch` refuses `attempt-limit`. A counted `return` is offered only in
+Verify/Test or Review with a remaining pass, outside fixed release lists; otherwise
+stop or pause. Elapsed
+time never marks an attempt lost. `mark-lost` needs affirmative evidence that the
+execution terminated or never started: a dispatch refusal the adapter lists as proving
+no execution, a terminal host status, a handle-less dispatch that returned without a
+complete result, absence from a listing the adapter records as authoritative, or the
+owner's confirmation. The request names the kind and its quoted detail in `evidence`.
+Every adapter treats its listing as not authoritative, and each host behavior no test
+has observed stays unverified on that host. A refusal that names a missing grant or role is a contradicted
+premise and pauses the cycle. After the projection is fixed and the cycle resumed, that
+attempt is marked lost with the quoted refusal when the adapter lists it, otherwise with
+the owner's statement; it counts as one of the three attempts. An attempt whose host
+session died silently, or whose dispatch call failed with an error the adapter does not
+list, waits without bound: the caller reports it each window, quoting any error, and only
+the owner's statement then leads to `mark-lost`. A crash between a reservation and `attach-execution`
+leaves an unresolved dispatch that `inspect` reports with ordered recoveries; the
+reservation, attach and delivery writes are each atomic, and the host dispatch between
+them is not. Under Codex's default depth a delegator running as a subagent may hold no
+dispatch tool: it calls `prepare-dispatch` and hands the invocation to its caller.
+
+Before resuming the same open host execution after a hand-back, run inspect's
+`assignment --resume-token` command and relay its new marker. The previous result is
+retained. Cycle resume also rotates modern open tokens. A marker proves completeness,
+never correctness. A blocked delivery's explicit `stop` is retained and suppresses
+semantic failure routing; a stopless block lists a pause beside any classified route.
+Exact known refusal codes return `recovery_handlers` without a classifier call.
+Their actions preserve authorization, evidence, phase, pass and attempt eligibility.
 
 | Type | Purpose | Sequence | Maximum passes |
 |---|---|---|---:|
-| dev | Major changes; approved IDR required | Plan → Build → Test → Review → Reflect | 7 |
-| iterate | Minor changes | Plan → Build → Test → Review → Reflect | 2 |
-| refactor | Preserve functional behavior and improve engineering efficiency | Plan → Build → Test → Review → Reflect | 7 |
-| simplify | Remove complexity without losing behavior; selection IDR required | Plan → Build → Test → Review → Reflect | 3 |
-| quick-fix | Bounded correction; slim testing, review, reflection | Build → Test → Review → Reflect | 1 |
+| dev | Major changes; approved IDR required | Plan → Build → Verify → Review → Reflect | 7 |
+| iterate | Minor changes | Plan → Build → Verify → Review → Reflect | 2 |
+| refactor | Preserve functional behavior and improve engineering efficiency | Plan → Build → Verify → Review → Reflect | 7 |
+| simplify | Remove complexity without losing behavior; selection IDR required | Plan → Build → Verify → Review → Reflect | 3 |
+| quick-fix | Bounded correction; slim testing, review, reflection | Build → Verify → Review → Reflect | 1 |
 | release | One fixed step list, beta or official | Release | none |
 
-Limits include the initial pass. Failed acceptance tests and blocking review findings
+Limits include the initial pass. Records created before the rename show Test, which is the
+same phase as Verify, and plan and task input accepts either name. Failed acceptance tests and blocking review findings
 return to Build in every type, where a different plan is revised. Record progress,
 unresolved findings, the proposed correction, and why another pass is justified.
 Pause when progress stalls or the limit is exhausted. Human approval is required to
 extend the limit and never disables the progress rule. Internal task retries cannot
 hide returns from testing or review. Type changes preserve pass count and history and
 cannot silently bypass an exhausted limit. Council rounds are separate counters. A
-known acceptance failure during Test returns immediately, even when the selected
+known acceptance failure during Verify returns immediately, even when the selected
 automated checks pass.
 
-**Fix step.** In Test or Review the commander may answer one small finding with a fix
-task instead of a return: no pass is consumed and Plan stays closed. A finding
-qualifies when the fix stays in plan scope, changes no approved decision, schema,
-interface or dependency, the finding states its cause, and the fix is small (a few
-files, about 50 changed lines). The commander records why it qualifies. Allow one fix
-per phase per pass. A developer writes the fix through dev-lead; the commander's shell
-stays the cycle writer and read-only git. An ineligible finding, a failed fix, or a
+**Fix step.** In Verify or Review the commander may answer small findings with one fix
+task instead of a return: no pass is consumed and Plan stays closed. One fix task may
+answer several blocking findings. Each finding qualifies when the fix for it stays in
+plan scope, changes no approved decision, schema, interface or dependency, the finding
+states its cause, and a reviewer can check it in the fix diff. The whole fix is small
+(a few files, about 50 changed lines). The commander records why it qualifies. Allow
+one fix per phase per pass. A developer, dispatched directly or through a dev-lead, writes the fix;
+the commander's shell stays the cycle writer and read-only git. An ineligible finding, a failed fix, or a
 blocking fix-diff review returns to Build. After a Review finding a reviewer checks
-only the fix diff; after a Test finding the normal Review covers it. Metrics count fix
+only the fix diff; after a Verify finding the normal Review covers it. Metrics count fix
 tasks.
+
+A failed acceptance criterion may use the same one fix allowance. Its zero-based
+index names a committed JSON before observation with `criterion`, `value`, `met`
+and measured `commit`; `met` must be false. Attach a committed after observation
+through `task --fix-observation`; completion requires `met: true`, a fix commit and
+the same eligibility/review obligations. `--adopt-commit` may reuse an ancestor
+already delivered by this cycle in an earlier pass, after trailer and provenance
+checks. Earlier deliveries remain unchanged.
 
 A simplify cycle removes complexity and keeps behavior. Its architect assesses recent
 decision-driven changes or a named area and records one selection IDR with `assessed`,
 `proposals` and `selected`; the plan scope covers every path changed in production,
 tests, instructions and execution. The approval of that exact revision selects the
-proposals. The owner's approval always suffices, and only the owner runs it. Council
+proposals. The owner's actual explicit approval always suffices through the
+conversational evidence interface below; the legacy command remains compatible. Council
 approval suffices only for a queue-started cycle whose plan scope lies within its item's
 frozen scope.
-Queue authorization approves no IDR. In Test, `reduction` records `decrease`,
-`unchanged` or `increase` per area, never netted. An increase refuses Test and
+Queue authorization approves no IDR. In Verify, `reduction` records `decrease`,
+`unchanged` or `increase` per area, never netted. An increase refuses Verify and
 Reflect and is reported as different work. Leaving simplify needs `--human-approval`.
 
 Every dev requires an IDR; other types need one for material implementation choices
@@ -1214,6 +1319,65 @@ may initiate proposals outside cycles. `.bionic.yml` `adr.acceptance` defaults t
 `council-and-human`; `council-only` explicitly permits council-only acceptance.
 New-policy acceptance makes rules binding without promotion. Historical provenance
 is unchanged. Consultations never implicitly approve a record.
+IDR councils run in Plan. The architect records each nit's disposition (`apply-in-build`
+or `declined` with its reason) for the approved revision; a nit never starts another
+attempt. A revision of an approved IDR is reviewed as a code-computed delta, and approval
+binds the new revision. A council dispute never goes to the owner: at the attempt limit,
+or when a blocking finding recurs after a revision that addressed it, the architect runs
+`withdraw-decision` in Plan, which marks the name withdrawn and removes its listed
+dependent tasks in one record write. Leaving Plan refuses while a listed task is in the
+plan. A replacement names the withdrawn record in `replaces` and continues its attempt
+count. A dev cycle at that point may change type to iterate; a simplify cycle defers and
+abandons. The per-record attempt limit and its owner extension stand; no agent requests
+the extension. The commander sends every pending owner decision in one message and
+continues the work that does not depend on them.
+
+Routine cycle operations use only current, locally validated cached advice and make
+no provider request. This includes prepare/inspect, dispatch retrieval, execution proof,
+attach, delivery, ordinary advancement, review boundaries, finish and release continuation.
+Missing advice returns immediately to the responsible agent without an approval step.
+Explicit `create --type auto`, queue items explicitly typed `auto`, and optional
+`advice-refresh` are the intentional classifier request paths. Explicitly typed queue
+items keep their type without a sizing request.
+
+Say “refresh cycle advice” to request `advice-refresh`. It batches admitted questions
+about recorded tasks, assignments, findings or failed receipts. It is never a prerequisite
+or an automatic delivery tail. One five-second cooperative discovery/transport budget
+bounds the refresh; exhaustion returns unavailable. A filesystem or Git call already
+running cannot be preempted. Each answer has independent validation and fallback.
+Current input fingerprints, privacy scans, configured model/endpoint, denial policy,
+opt-out and deterministic review/test/authorization gates still apply. Replaying an
+operation ID does not issue another request.
+
+Task/role domain eligibility filters optional context before ranking. Broad repository
+scope alone admits no skill. Mandatory role/project instructions and expressly required
+workflows remain. Compare the invocation's required capabilities with actual known host
+evidence before dispatch. Unknown support stays unknown; report known gaps before work.
+Never route a read to a role whose contract forbids the only available reader.
+
+`inspect` exposes recorded classifications and current cached suggestions. Suggestions
+select only permitted routes and establish no correctness, authorization or test pass.
+Compare their premises with retained evidence before acting. Missing or contradicted
+advice leaves deterministic legal actions available. Keep the recorded review floor.
+Use `cycle.py defer` for follow-up findings. A sizing fallback prints a receipt for
+`create --sizing-receipt` after the responsible agent chooses the type.
+Finding disposition offers `return` only for a blocking finding. Advisory and cosmetic
+findings never spend a pass.
+`.bionic.yml` `decisions: {classifier: off}` opts out. Historical classifications retain
+their original interpretation. Every classification remains readable in
+`inspect` (`classifications`) and in the `finish` response. These retain
+each question, answer, route or fallback, serving model/provider and reported cost.
+`cycle status` and the dashboards show only the line `Classifications: N`,
+where N is the number of classifications the cycle record holds.
+
+Gateway cycle councils convene detached by default and return an attempt plus
+`await_command`; initial success is not approval. Await the terminal outcome, then
+record the architect disposition. `--probe` reads the attempt flock. `--recover`
+sends no request, refuses a held flock, recovers the original persisted result, or
+marks an unowned execution interrupted. That attempt still counts. A missing launcher
+message proves no absence: after the exact child ends, inspect its exact claim ID.
+Never delete a claim or substitute owner approval for mechanical recovery. Native
+Lite retains its sealed-dispatch procedure.
 
 Every cycle receives independent review by someone other than its implementer.
 `.bionic.yml` `review.scrutiny` defaults to `standard`; alternatives are `focused`
@@ -1233,8 +1397,16 @@ installation checks bind the actual artifact; deployment checks inspect deployme
 Declare affected behavior and integration points, selected related checks with
 coverage rationale, and reasons for omitted checks. Build checks, recorded with
 `checks --phase build`, include every test that imports, invokes, reads, globs or
-enumerates a changed path, and Build ends only when they pass; Test reuses them.
+enumerates a changed path, and Build ends only when they pass; Verify reuses them.
 New tests alone are insufficient.
+Every test runs once per code state in the main run on the floor minor. A docs-tree
+decision-only commit (adrs, arch, observations, research, briefs, index.md, manifest.yml,
+objectives.md) leaves the main-run receipts reusable; a change to root instruction or
+guide documents or to the kept docs entries still runs it. Verify declares drift-gates,
+governs-references and governs-coverage, which keep the decision records as inputs. In
+the Crux development repository, the flagged per-minor list and the health check run
+against the staged artifact on every supported minor. A rerun on an unchanged code state needs `--retry-reason` and counts as a
+recovery execution. `finish` records the cycle's suite runs and test minutes.
 If automated tests do not apply, explain why and record an appropriate inspection
 check. Declare cycle checks from the evidence presets, which carry the shared
 bookkeeping exclusions. A path is bookkeeping for a check only when the check does not
@@ -1243,10 +1415,38 @@ check's verdict. Document any other input exclusion; never exclude an actual dep
 just to reuse evidence. The cycle skill's testing reference is the canonical statement.
 New version-two records require this declaration and valid passing evidence.
 
+Test tiers label every test with exactly one tier.[^tier-one] `dev` serves the focused
+checks of what a change touches. `release` is a chosen subset, never every test, that
+covers each declared system area and runs at release verification. `ephemeral` marks a
+test that verified a behaviour once and carries no long-term value. Its label carries a
+reason and an expiry date or a retirement condition, and the test stays until a change
+names it for removal.[^tier-ephemeral] A project adopts tiers by committing a
+`test-tiers.json` manifest in each test root; the `test-tiers` skill states the format,
+the check and the runner contract. A change that adds a test file or test method labels
+it in the same change.[^tier-label] Tiers narrow development loops only: a unit's
+focused checks, fix-step reruns and reviewer probes. No gate narrows by
+tier.[^tier-gates] Completing a cycle of any type except release requires current
+passing evidence for every test. A tier-filtered receipt never counts as that
+evidence. A release cycle completes on its fixed step list.[^tier-complete] In a project
+that adopts tiers, the tier check is a required check at Verify.[^tier-verify] Release
+verification there runs the tier check and establishes passing evidence for the release
+tier.[^tier-release] Merging a pull request requires every test to pass on its head.
+Pull-request CI runs every test its environment can run and the tier check. A test it
+cannot run needs recorded passing evidence for the head before the merge.[^tier-merge]
+
 A release cycle has no Plan, Review or Reflect phase and no pass limit. It is created
 with `--list beta` or `--list official` and runs that fixed step list: the type
 carries the steps, so no agent authors a release plan. Publication needs the owner's
-own words, quoted for each new artifact. A failed step is fixed and rerun with no return,
+own words, quoted for each new artifact. Authorizing a release queue item also
+authorizes publishing that item's version to its target. It authorizes no push and no
+other outward action. The publish command takes the owner's quote from the queue chain,
+so agents run every step. In the Crux development repository the bare publish commands
+are `uv run tools/release.py beta --version X.Y.Z` and
+`uv run tools/release.py official --version X.Y.Z --cycle CYC-NNNN`, with no environment
+prefix, compound command or redirection. When the host denies one, the agent must quote the
+denial and hand the owner that one bare command, which carries no quote. A changed
+artifact, or a release not started from the queue, needs the owner's new words through
+`--authorization`. A failed step is fixed and rerun with no return,
 pass or new cycle. Recover from actual external state; never blindly retry publication.
 Every other cycle reflects on completion or abandonment with outcomes,
 lessons, and follow-up work. A paused cycle records its blocker instead of closing.
@@ -1254,13 +1454,126 @@ Routine authorized work proceeds without per-step confirmation; external actions
 still require applicable authorization. Missing owner decisions, contradicted
 premises, explicit pauses, and materially changed scope remain stop points.
 
-Before completion, commit intended changes and record full SHA(s) through the
-`completion` command. Explain remaining uncommitted work. Only an actual user
-request permits an uncommitted-delivery exception; quote it with context. The writer
-checks committed scoped inputs, excluding its own bookkeeping to avoid self-reference.
-The record is committed at phase closes, recovery checkpoints and closure.
-Version-one records remain readable under their original schema and gates; active
-legacy cycles follow the new delivery guidance without retroactive schema enforcement.
+A capable dev-lead may opt into fixed-list `release-continue` at initial dispatch.
+The frozen invocation binds the cycle, list, target, integration owner, commands and
+authority limits. Beta keeps six logical tasks; official keeps three. Each retains its
+own counted attempt, immutable base, current marker, report, command result and evidence.
+After the actual command succeeds, continuation retains that exact marked report and
+reserves the next eligible task on the same attached host handle. The returned context
+delta supplies its fresh marker. It requests no new native dispatch or attach and proves
+no liveness. The engine never executes repository command text.
+
+The loaded role must grant `release-continue`; actual host evidence must establish all
+required capabilities. Unknown or missing support uses ordinary per-task dispatch.
+Regenerating roles proves no installed reload. Failure, interruption, denial, an owner
+stop, stale token, wrong handle/list/target or changed artifact stops continuation.
+Another host needs normal dispatch/attach. Replay completes pending bookkeeping without
+repeating an external act. The existing artifact/target authorization and bare publish
+commands remain binding; beta never authorizes official.
+
+Optional `tools/crux-release.json` supplies literal prep scope, targets and fixed argv
+arrays. Queue capture completes known mandatory prep scope before authorization.
+Creation/start refuses omissions before allocation; never widen frozen queue authority.
+The descriptor does not replace editorial duties, the owed live check or owner words.
+
+Before completion, commit intended changes and explain remaining uncommitted work.
+`finish` takes the caller's lessons and remaining work, records the full completion
+SHA(s) and closes the cycle; the low-level `completion` command stays for diagnosis. `owner-exception`
+is the exceptional close: it records the owner's quote and conversation verbatim, the
+unmet requirements unchanged, and every open attempt. Only an actual user request
+permits an uncommitted-delivery exception; quote it with context. The writer checks
+committed scoped inputs, excluding its own bookkeeping to avoid self-reference.
+The cycle writer commits its record at a phase-changing advance,
+pause, finish, owner-exception, execution-check and every dispatch/delivery operation, and through
+`commit-record` at recovery checkpoints. A replay catches up pending commits without
+repeating the operation. `queue start-next` commits queue and new record together.
+The commit holds only those paths and defers rather than fails. Full-suite ownership
+comes from its flock, not stale holder metadata; an owner-unknown `index.lock` is
+never removed. Finish preserves worktrees held by active or paused cycles' open
+attempts, using task trailers or recorded result paths and reporting the owner.
+The final listed release delivery finishes the cycle; a refused finish stays visible
+while the delivered result remains committed.
+New cycles are version-3 records. Version-one and version-two records remain readable
+under their original schema and gates; active legacy cycles follow the new delivery
+guidance without retroactive schema enforcement. Typed operations refuse a version-one
+record `unsupported-version`. On a version-two record `inspect` reads and every typed
+mutation returns `needs-upgrade` with the upgrade request. `upgrade` applies to an
+active or paused version-two cycle with no running assignment and keeps the previous
+bytes at `<docs_dir>/cycles/<id>/upgrade/v2-cycle.json`. The previous release refuses
+version-3 records; restoring those bytes discards everything recorded since the
+upgrade. A cycle created under the beta has no version-two form, and every harness
+install moves to the beta together.
+
+
+**Context and execution proof.** Full inspect lists permitted `context-read`
+references and ready argv, including exact bound uncommitted reports. Read every
+selected frozen body completely through its digest and pagination; use its canonical
+origin directory for relative references. Native readers remain usable under existing
+grants. References alone prove no read. The bounded reader adds no arbitrary shell,
+network or credential access. On takeover, `dispatch-invocation` retrieves the exact
+frozen assignment/addendum/native parameters without reconstructing the request.
+Initial dispatch revalidates current role/grant/source bindings; stale inputs refuse.
+Historical absent snapshots remain unavailable, never reconstructed from current text.
+
+Workers use `execution-check` before edits and checkpoint staged `edited_paths`
+before source commits. The original review base stays immutable; separate proof
+admits exact bookkeeping descendants and retained same-task source. Message prefixes
+or blanket docs exclusions prove nothing. Dirty starts, foreign source and unrelated
+ancestry retain normal isolation/integration. Unchanged proofs are reused; routine
+bookkeeping needs no reset or handback. The commands reference defines exact fields.
+
+`execution-check` commits its exact proof and cycle bookkeeping through the writer's
+normal deferral policy. A successful commit needs no separate proof flush or handback.
+An unchanged proof replays only across its own validated writer checkpoint; other
+bookkeeping changes require a fresh observation. Never remove an unknown index lock.
+
+Before pausing, seal pending owned worktree bytes and index identities. Same-execution
+resume may admit those exact bytes after token rotation only with the same bound host
+handle, checkout, immutable review base and validated ancestor proof. Changed sealed
+bytes, foreign edits, unrelated ancestry or another execution require normal recovery.
+An `edited_paths` list alone proves no ownership. Never reset, restore files around a
+check, accept a stale marker or exempt source by a trailer or directory name.
+
+An active dev-lead can use `child-link` to declare a completed child without reopening
+its own task or changing its marker/base. Integration proof admits exact delivered child
+commits with retained marked reports and checkpoints. It also admits an exact two-parent
+merge whose tree equals conflict-free built-in `git merge-tree` output. Unknown children,
+extra edits, manual resolutions and custom merge drivers refuse. Retain registered child
+checkouts until parent proof and delivery finish.
+
+**Conversational owner decisions.** cycle.py owner-decision present/capture/apply
+retains the concrete question, exact subject/digest, verbatim answer, real source
+reference and owner-local date. Only transcribe explicit intent actually observed or
+supplied by the owner-facing parent with provenance. Ambiguous continuation is
+pending; reject/pending never approve. Fresh application requires the unique current
+unsuperseded approval and existing council/lifecycle gates under the same lock.
+Corrections append immutable captures. Already-applied replay reports its existing
+receipt and later disposition without reapplying or revoking historical standing.
+No owner terminal command is required. This lane grants no extension, exception or
+outward action. Legacy approvals retain their interpretation.
+
+**Advisory routing.** Compare route premises with retained reports and current
+evidence before acting. Record a contradicted label through the supported assessment
+or task/note command, then use deterministic legal actions. An advisory label cannot
+compel reopening proven completed work or obtaining new approval. Genuine evidence
+gates remain binding. Deadline exhaustion returns unavailable; it never makes stale
+routes current or incomplete selections authoritative. The deadline cooperates between
+work units and cannot preempt one filesystem, regex or Git call.
+
+**Council recovery.** Full inspect exposes exact subject/attempt/result references,
+digests, recovery argv and prerequisites. Architect executes the council actions;
+descriptors grant no capability. New gateway request/outcome checkpoints are mandatory.
+Persistence failure stops further calls and positive approval. Durable negatives survive;
+unknown outcomes stay unknown. Recovery sends no request and resets no attempt count.
+Partial events never approve. New approval/application revalidates current evidence;
+already-applied historical acceptance keeps its standing.
+
+**Host observations.** Codex spawn uses task_name/agent_type/message; native wait
+uses timeout_ms only, no ids, at most 60000 ms per call. A global wake-up is not
+completion; use the recorded handle/attempt and exact marker. Uncapped overall windows
+and unknown liveness remain. Static projections/fixtures prove no fresh native host
+injection. Record actual host/version evidence separately; unavailable live behavior
+remains unobserved. Source regeneration requires no installation or reload.
 
 The `cycle` skill's review and testing references carry the execution guidance.
 Historical records remain readable, with their original authority and evidence.
@@ -1860,3 +2173,12 @@ A migration writes one `schema` op, never one entry per file.
 [^guidance-cheap]: rule:guidance-changes-without-a-decision
 
 [^historical-reviews]: rule:historical-review-reports-stay-readable
+
+[^tier-one]: rule:every-test-has-exactly-one-tier, rule:release-tier-is-a-proper-subset, rule:release-tier-covers-every-declared-area
+[^tier-ephemeral]: rule:ephemeral-labels-carry-a-reason, rule:ephemeral-labels-carry-an-end-condition, rule:ephemeral-tests-leave-only-by-explicit-change
+[^tier-label]: rule:new-tests-are-labelled-in-the-same-change
+[^tier-gates]: rule:tiers-never-narrow-a-cycle-gate
+[^tier-complete]: rule:completion-requires-every-tier
+[^tier-verify]: rule:tier-check-is-required-at-verify
+[^tier-release]: rule:release-verify-covers-the-release-tier, rule:release-verify-runs-the-tier-check
+[^tier-merge]: rule:merge-requires-every-test-on-the-head, rule:pr-ci-runs-every-runnable-test, rule:pr-ci-runs-the-tier-check, rule:unrunnable-ci-tests-need-recorded-evidence

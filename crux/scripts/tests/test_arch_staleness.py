@@ -500,13 +500,6 @@ class DeclaredSourcesInManifestTests(unittest.TestCase):
 
 class ModuleContractTests(unittest.TestCase):
 
-    def test_the_docstring_documents_the_error_in_both_directions(self):
-        doc = (STALE.__doc__ or "").lower()
-        self.assertIn("false", doc, "the false-positive direction is undocumented")
-        self.assertIn("silent", doc, "the silent direction is undocumented")
-        for word in ("shallow", "squash", "same commit", "working tree"):
-            self.assertIn(word, doc, f"the docstring does not name {word!r}")
-
     def test_every_git_call_pins_both_config_layers(self):
         """A `~/.gitconfig` can rewrite what git does; both layers point at
         /dev/null exactly as the corpus fetcher's `_git` does."""

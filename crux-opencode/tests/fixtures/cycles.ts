@@ -10,7 +10,7 @@ import { jsonText } from './plain.ts'
 const PHASES = ['plan', 'build', 'test', 'review', 'reflect']
 
 export const cycleRow = (n: number, status = 'completed') => ({
-  id: `CYC-${String(n).padStart(4, '0')}`, title: `Cycle title ${n}`, type: 'iterate', status, phase: 'build', pass: 1, pass_limit: 2,
+  id: `CYC-${String(n).padStart(4, '0')}`, schema_version: 2, revision: null, assignments: [], classification_count: 0, exception: null, title: `Cycle title ${n}`, type: 'iterate', status, phase: 'build', pass: 1, pass_limit: 2,
   phases: PHASES,
   tasks: [
     { id: 'a', phase: 'plan', description: 'Plan it', status: 'done' },
@@ -27,7 +27,7 @@ export const qItem = (n: number, state: string) => ({
 })
 
 export const doc = (cycles: unknown[], queue?: unknown) => ({
-  format: 'crux.cycle-progress', format_version: 2, ok: true, docs_dir: 'bionic', now_s: 1780000000, cycles,
+  format: 'crux.cycle-progress', format_version: 5, ok: true, docs_dir: 'bionic', now_s: 1780000000, cycles,
   ...(queue === undefined ? {} : { queue }),
 })
 

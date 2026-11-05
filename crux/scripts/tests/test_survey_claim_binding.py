@@ -220,10 +220,10 @@ class SheetMigrationTests(_ClaimCase):
     downstream. A v1 sheet may still be read and digested; it may not be signed
     on any publish path — a first signature and a resume alike.
 
-    What this class asserts is the SHAPE of the v1 preimage. The value is
-    pinned elsewhere, by a frozen vector — a hardcoded v1 document and its
-    hardcoded digest hex — in `test_survey_sheet.V1FrozenDigestVectorTests`.
-    Shape and value are one claim, and the hex is written once."""
+    The v1 preimage is pinned elsewhere: by a frozen vector (a hardcoded v1
+    document and its hardcoded digest hex) in
+    `test_survey_sheet.V1FrozenDigestVectorTests`, and by its key lists in
+    `test_survey_slug_cell.VersionSelectorTests`."""
 
     def _v1_sheet(self, bid="SVY-0001"):
         return {"config_version": "1", "batch_id": bid,
@@ -234,24 +234,6 @@ class SheetMigrationTests(_ClaimCase):
                 "rows": [{"anchor_id": self.a1, "proposed_domain": "runtime",
                           "verdict": "ratify", "domain": "",
                           "rationale": "Reviewed."}]}
-
-    def test_a_v1_sheet_still_reads_and_digests_under_the_v1_preimage(self):
-        """The migration is in the PREIMAGE, not in a refusal to read: an
-        archived v1 sheet must keep digesting to the value its receipt
-        recorded, or every batch already published downstream reports
-        CHK-OBS-SURVEY-DIGEST BROKEN on upgrade."""
-        path = self.obs / "survey-SVY-0001.yml"
-        doc = self._v1_sheet()
-        SS.write_sheet(path, doc, contained_under=self.tree)
-        self.assertEqual(SS.read_sheet(path)["config_version"], "1")
-        # The v1 preimage is the OLD field list and the OLD fold: five cells
-        # per row, hashed exactly as they were before this file existed.
-        self.assertEqual(len(SS.sheet_row_keys("1")), 5)
-        self.assertEqual(len(SS.sheet_row_keys("2")), 7)
-        self.assertEqual(len(SS.sheet_row_keys("3")), 8)
-        canonical = SS.canonical_sheet_string(doc)
-        for key in ("rule", "evidence"):
-            self.assertNotIn(f"{key}=", canonical)
 
     def test_a_v1_sheet_cannot_be_newly_signed(self):
         """Refusing to BIND an unmigrated sheet is the whole point: a v1 sheet

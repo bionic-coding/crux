@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import re
 
-from cycle_workflow import CLOSED, CycleError, load, mutate_tracked, on_head, resolve_commit, result_file, run_git, tree
+from cycle_workflow import CLOSED, CycleError, describe_live, holder_routes, load, mutate_tracked, on_head, resolve_commit, result_file, run_git, task_holder, tree
 
 ANY_CYCLE = re.compile(r'^((?:[A-Z][A-Z0-9]{1,9}-)?CYC-[0-9]{4,})(?![0-9A-Za-z-])')
 TASK_TRAILER = re.compile(r'^Cycle-Task:[ \t]*(\S+)[ \t]*$', re.M)
@@ -164,7 +164,12 @@ def reconcile(repo, identity, apply=False):
             if task.get('stage') == 'integrated':
                 unresolve(tid, 'task is integrated but a linked commit is not on HEAD; not changed')
                 continue
-        if task['status'] in ('pending', 'active') and (new or valid):
+        holder = task_holder(doc, tid)
+        if holder and task['status'] in ('pending', 'active') and (new or valid):
+            # Version 3: an open attempt holds the task, so the holder rule refuses a status change.
+            # Commits and stage are still proposed; the state follows its delivery or loss.
+            unresolve(tid, f"state left as {task['status']}; {holder['state']} assignment {holder['id']} attempt {holder['attempt']} holds the task ({describe_live(holder)}). {holder_routes(holder)}")
+        elif task['status'] in ('pending', 'active') and (new or valid):
             candidates.add(tid)
         elif task['status'] == 'blocked' and (new or valid):
             unresolve(tid, 'state left as blocked; linked commits exist')

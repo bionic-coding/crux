@@ -1,0 +1,40 @@
+{
+  "entries": [
+    {
+      "test": "test_cycle_ops_advance.ConcurrencyTests",
+      "class": "harness",
+      "reason": "starts two cycle.py processes at once; each child interpreter must resolve the locked dependencies and print its report. On Python 3.14 the staged full suite ran both children without httpx, so they printed nothing (JSONDecodeError, empty output). The class holds no test that skips.",
+      "origin": "TE-5ee549c406fb4639b58a7acac4ed4f89"
+    },
+    {
+      "test": "test_cycle_ops_records.RecordTests.test_inline_quote_with_apostrophe_and_newline_through_a_real_shell",
+      "class": "harness",
+      "reason": "starts cycle.py through a real shell; the shell's python must resolve the locked dependencies. On Python 3.14 the staged full suite ran it without httpx (ModuleNotFoundError).",
+      "origin": "TE-5ee549c406fb4639b58a7acac4ed4f89"
+    },
+    {
+      "test": "test_cycle_slice.EndToEndTests.test_request_forms",
+      "class": "harness",
+      "reason": "starts cycle.py as a subprocess; the interpreter that runs it must resolve the locked dependencies. On Python 3.14 the staged full suite ran it without httpx (ModuleNotFoundError).",
+      "origin": "TE-5ee549c406fb4639b58a7acac4ed4f89"
+    },
+    {
+      "test": "test_write_journal.WriterTests",
+      "class": "harness",
+      "reason": "runs write-journal.py through `uv run`, which needs a `python` on PATH and a uv script environment that a shared cache prune can remove while the suite runs. Five different methods failed this way, on both minors, in five staged receipts and in no checkout receipt (no JSON report, exit 1). The class holds no test that skips.",
+      "origin": "TE-9527e58d30404d659821778060aa796e"
+    },
+    {
+      "test": "test_evidence_environment.RefusalTests.test_unregistered_behavior_variables_are_removed_from_the_child",
+      "class": "harness",
+      "reason": "asserts which interpreter behavior variables the evidence child sees. The staged suite sets PYTHONDONTWRITEBYTECODE for its children, so the staged full suite on Python 3.13 saw ['PYTHONDONTWRITEBYTECODE'] where the checkout run of the same revision saw none. The test reads the staged variable set now.",
+      "origin": "TE-06857a730a4b4794b3e347fa1cc257ed"
+    },
+    {
+      "test": "test_web_to_markdown.MarkdownPassthroughTests.test_a_plain_text_response_is_passed_through_too",
+      "class": "harness",
+      "reason": "runs web-to-markdown.py through `uv run --script`; the staged full suite on Python 3.14 failed with uv `cause: No such file or directory` (a uv script environment missing from the cache). Listed by method because the class skips without uv.",
+      "origin": "TE-91e2ef3a8bff44fbbdd71b1a7f2da6d8"
+    }
+  ]
+}

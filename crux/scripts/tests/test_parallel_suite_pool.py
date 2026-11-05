@@ -186,6 +186,29 @@ class WaiterPriorityTests(_PoolCase):
         winners = [w for w in (first, second) if self.pool_.try_acquire(w) is not None]
         self.assertEqual(len(winners), 1, "two equal waiters both took a slot, or neither did")
 
+    def test_serialized_weights_choose_one_winner_and_preserve_priority(self):
+        cases = (
+            (sum([6.56, .35, .08, .08, .08]), sum([6.56, .35, .08, .08, .08]), 0),
+            (7.1504, 7.1504, 0),
+            (7.149, 7.151, 1),
+            (7.1504, 7.1501, 0),
+        )
+        for first_weight, second_weight, expected in cases:
+            with self.subTest(first=first_weight, second=second_weight):
+                pools = [ps.SlotPool(self.pool_.directory, clock=lambda: self.now[0]) for _ in range(2)]
+                waiters = [pool.waiter(weight) for pool, weight in zip(pools, (first_weight, second_weight))]
+                try:
+                    for waiter in waiters:
+                        waiter.refresh()
+                    self.assertLess(waiters[0].name, waiters[1].name)
+                    acquired = [pool.try_acquire(waiter) for pool, waiter in zip(pools, waiters)]
+                    self.assertEqual([i for i, slot in enumerate(acquired) if slot is not None], [expected])
+                finally:
+                    for waiter in waiters:
+                        waiter.close()
+                    for pool in pools:
+                        pool.release_all()
+
 
 def _tree(root: Path, modules: dict[str, str]) -> Path:
     tree = root / "tree"

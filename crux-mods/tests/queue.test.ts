@@ -3,7 +3,7 @@ import {parseReader, answer} from '../hooks/lib/view.ts'
 import {touchesRunFile} from '../hooks/lib/claude.ts'
 
 const cycleRow = (n: number, status = 'completed') => ({
-  id: `CYC-${String(n).padStart(4, '0')}`, title: `Cycle title ${n}`, type: 'quick-fix', status, phase: 'test', pass: 1, pass_limit: 1,
+  id: `CYC-${String(n).padStart(4, '0')}`, schema_version: 2, revision: null, assignments: [], classification_count: 0, exception: null, title: `Cycle title ${n}`, type: 'quick-fix', status, phase: 'test', pass: 1, pass_limit: 1,
   phases: ['build', 'test', 'review', 'reflect'], tasks: [{id: 'check', phase: 'test', description: 'Verify', status: status === 'active' ? 'active' : 'done'}],
   returns: [], waits: [], blocker: null, reflection: null, modified_s: 1780000000,
   started_s: 1779999000, ended_s: status === 'active' || status === 'paused' ? null : 1779999900, paused_s: 0,
@@ -14,7 +14,7 @@ const qItem = (n: number, state: string, extra: Record<string, unknown> = {}) =>
   id: `Q-${String(n).padStart(4, '0')}`, title: `Queue secret title ${n}`, state, suggested_type: 'iterate', cycle: null, cycle_status: null, ...extra,
 })
 const doc = (cycles: unknown[], queue?: unknown) => ({
-  format: 'crux.cycle-progress', format_version: 2, ok: true, docs_dir: 'bionic', now_s: 1780000000, cycles,
+  format: 'crux.cycle-progress', format_version: 5, ok: true, docs_dir: 'bionic', now_s: 1780000000, cycles,
   ...(queue === undefined ? {} : {queue}),
 })
 const parse = (d: unknown) => parseReader(JSON.stringify(d))
@@ -37,7 +37,7 @@ test('the parser rejects a malformed queue', () => {
   expect(parse(doc([], ok([], {kind: 'sometimes', remaining: []}))).ok).toBe(false)
   expect(parse(doc([], ok([], {kind: 'queue', remaining: ['nope']}))).ok).toBe(false)
   expect(parse(doc([], {ok: true, items: [], authorization: null, extra: 1})).ok).toBe(false)
-  expect(parse(doc([], ok(Array.from({length: 51}, (_, i) => qItem(i + 1, 'pending'))))).ok).toBe(false)
+  expect(parse(doc([], ok(Array.from({length: 501}, (_, i) => qItem(i + 1, 'pending'))))).ok).toBe(false)
   expect(parse(doc([], {ok: false})).ok).toBe(false)
   expect(parse(doc([], 'text')).ok).toBe(false)
 })
@@ -109,12 +109,12 @@ test('the queue summary covers empty, short and overflowing queues', () => {
   const big = text(doc([cycleRow(1)], {ok: true, items, authorization: null}))
   expect(big).toContain('queue Q-0004 starting')
   expect(big).toContain('queue Q-0008 pending')
-  expect(big).not.toContain('queue Q-0009 pending')
+  expect(big).toContain('queue Q-0009 pending')
   expect(big).toContain('queue Q-0003 completed CYC-0003')
   expect(big).toContain('queue Q-0002 abandoned CYC-0002')
   expect(big).not.toContain('queue Q-0001 completed')
-  // Only the one hidden upcoming item counts; the hidden finished item does not.
-  expect(big).toContain('queue more 1')
+  // Text-only callers receive the complete upcoming list.
+  expect(big).not.toContain('queue more')
   expect(text(doc([cycleRow(1)], {ok: false, error: 'broken'}))).toContain('queue unavailable')
   expect(text(doc([cycleRow(1)], null))).not.toContain('queue')
 })

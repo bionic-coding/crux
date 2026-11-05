@@ -50,6 +50,7 @@ type Cancel = () => void
 
 // One reader run.
 type Active = {
+  root: string | undefined
   sink: RunSink | undefined
   handle: ReaderHandle | undefined
   // This run holds the lease.
@@ -75,6 +76,7 @@ const clear = (cancel: Cancel | undefined) => {
 }
 
 const newActive = (): Active => ({
+  root: undefined,
   sink: undefined,
   handle: undefined,
   acquired: false,
@@ -214,7 +216,7 @@ export function createScheduler(host: Host): Scheduler {
 
     if (live) {
       try {
-        host.writeKept(envelope)
+        host.writeKept(envelope, act.root)
       } catch {
         // The next run writes again.
       }
@@ -311,6 +313,7 @@ export function createScheduler(host: Host): Scheduler {
         endRun(act, { ok: false, code: plan.code })
         return
       }
+      act.root = plan.root
       const lease = acquire(host)
       if (lease === 'busy') {
         if (wasExplicit) pendingExplicit = true

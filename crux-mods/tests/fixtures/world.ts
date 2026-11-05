@@ -31,6 +31,9 @@ export type Opts = {
   reader?: Reader | 'throw' | 'timeout'
   // Successive reader results, the last repeating; overrides `reader`.
   readers?: Reader[]
+  // The reader result as the process starts, read from the test's own record; overrides `readers`.
+  // A reader reads its input when it starts, so a run started before a write answers the old input.
+  readAtStart?: () => Reader
   // `throw` for an agent list the engine cannot answer.
   agents?: unknown[] | 'throw'
   // `throw` for a pane the engine cannot open, `unplaced` for one it does not place.
@@ -96,7 +99,7 @@ export function install(on: any, o: Opts = {}): World {
   })
   on('process.run', async (_$: any, e: any) => {
     w.runs.push({ argv: [...e.argv], init: e.init })
-    const r = o.readers !== undefined ? o.readers[Math.min(w.runs.length - 1, o.readers.length - 1)]! : (o.reader ?? { exitCode: 0, stdout: '' })
+    const r = o.readAtStart !== undefined ? o.readAtStart() : o.readers !== undefined ? o.readers[Math.min(w.runs.length - 1, o.readers.length - 1)]! : (o.reader ?? { exitCode: 0, stdout: '' })
     if (r === 'throw') throw new Error('cannot start')
     // A hook that throws counts as absent: the call falls to the kit's floor, which rejects with its
     // own message. The kit does not enforce timeoutMs either. A `{ deny }` answer rejects the mod's

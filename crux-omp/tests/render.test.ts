@@ -117,6 +117,11 @@ test('an active cycle and a paused cycle render without falling back to reader-o
       cycles: [
         {
           id: 'CYC-0019',
+          schema_version: 2,
+          revision: null,
+          assignments: [],
+          classification_count: 0,
+          exception: null,
           title: 'Minimal persistent cycle queue',
           type: 'dev',
           status: 'active',
@@ -142,6 +147,11 @@ test('an active cycle and a paused cycle render without falling back to reader-o
         },
         {
           id: 'CYC-0018',
+          schema_version: 2,
+          revision: null,
+          assignments: [],
+          classification_count: 0,
+          exception: null,
           title: 'Paused cycle example',
           type: 'iterate',
           status: 'paused',
@@ -180,7 +190,7 @@ const releaseCycleView = (phases: string[], pass_limit: number): Parsed => ({
     reader_version: '4.1.6', docs_dir: 'bionic', now_s: 1792436200, runs: [], runs_skipped: 0,
     last_completed: null, last_completed_status: 'none', last_completed_undated: 0, last_completed_unresolved: 0,
     cycles: [{
-      id: 'CYC-0041', title: 'Release cycle', type: 'release', status: 'active', phase: phases[0]!, pass: 1, pass_limit,
+      id: 'CYC-0041', schema_version: 2, revision: null, assignments: [], classification_count: 0, exception: null, title: 'Release cycle', type: 'release', status: 'active', phase: phases[0]!, pass: 1, pass_limit,
       phases, tasks: phases.map(p => ({ id: 't-' + p, phase: p, description: 'Work in ' + p, status: 'active' })),
       returns: [], waits: [], blocker: null, reflection: null, modified_s: 1792436198, started_s: 1792417339,
       ended_s: null, paused_s: 0, open_started_s: 1792435468, basis: 'recorded', phase_times: [],
@@ -209,7 +219,7 @@ const closedCycles = (n: number): Parsed => ({
     reader_version: '4.1.6', docs_dir: 'bionic', now_s: 1792436200, runs: [], runs_skipped: 0,
     last_completed: null, last_completed_status: 'none', last_completed_undated: 0, last_completed_unresolved: 0,
     cycles: Array.from({ length: n }, (_, i) => ({
-      id: `CYC-${String(100 - i).padStart(4, '0')}`, title: `Closed cycle ${100 - i}`, type: 'iterate', status: 'completed', phase: 'reflect',
+      id: `CYC-${String(100 - i).padStart(4, '0')}`, schema_version: 2, revision: null, assignments: [], classification_count: 0, exception: null, title: `Closed cycle ${100 - i}`, type: 'iterate', status: 'completed', phase: 'reflect',
       pass: 1, pass_limit: 2, phases: ['plan', 'reflect'], tasks: [{ id: 't', phase: 'plan', description: 'x', status: 'done' }],
       returns: [], waits: [], blocker: null, reflection: i === 0 ? 'Shipped' : null, modified_s: 1792436000 - i, started_s: 1792430000 - i,
       ended_s: 1792436000 - i, paused_s: 0, open_started_s: null, basis: 'recorded', phase_times: [],

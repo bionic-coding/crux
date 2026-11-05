@@ -197,10 +197,16 @@ the advisory is inert; that is a tree-configuration matter, not a finding about 
 
 ### 11. Hand off to the user
 
-- Tell the user: ADR id assigned, file path, current status (`Proposed`).
-- Explicitly instruct: edit the five body sections (`Context`, `Decision`, `Alternatives Considered`, `Consequences`, `References`) — do NOT change the frontmatter.
-- If step 9a reported a row for this ADR, name the rule and say whether it was shortened or why its length is what precision costs. Do NOT restate `docs/AGENTS.md` §11.D rule 7 in the hand-off; name it.
-- Point the author at `docs/AGENTS.md` §11.D before they write: requirements and postconditions, not recipe; name a source of truth rather than restating a shape; measurements go in a footnote marked informative; the four narrative sections carry a line budget, and going over it on purpose means declaring why. Naming the section is the whole instruction — do not paraphrase the rule here.
+- Tell the user: ADR id assigned, file path, current status (`Proposed`). The author edits the five body sections (`Context`, `Decision`, `Alternatives Considered`, `Consequences`, `References`) and leaves the frontmatter alone.
+- If step 9a reported a row for this ADR, name the rule and say whether it was shortened or why its length is what precision costs. Do NOT restate `docs/AGENTS.md` §11.D rule 7; name it.
+- Point the author at `docs/AGENTS.md` §11.D before they write, and name the section without paraphrasing it.
+- Pre-council self-check. Run it once before round 1 and again before each reconvene; it is advisory and blocks nothing:
+  - a `path:line` citation for every factual claim about code or the corpus;
+  - a reconciliation table in Consequences (retain, narrow or retire; `retires:` for each retire) covering every amended ADR's live rules and every live rule in the draft's domains, started from `uv run "${CRUX_PLUGIN_ROOT}/scripts/adr-precouncil.py" rules --repo-root <repo-root> --adr <path>`;
+  - the recurring threats, each answered: crash mid-write, concurrent writer, stale projection, partial fix (applied at one site of a concept, not every site), historical record reinterpreted;
+  - governs-body parity: each `governs` entry names the body sentence it summarises, and an entry that says more than its body is a defect;
+  - one obligation per `governs` rule (§11.D), then `check-governs-coverage.py`, `lint-governs-references.py` and `summarize-adrs.py --dry-run` clean;
+  - a draft that amends or supersedes more than three ADRs is split or narrowed, or declares in one line why not.
 - If accepted-immediately, tell the user the body is now frozen except via supersession.
 - Optionally call `log-work --silent --category decision --subject "ADR-NNNN proposed: <title>"` if the user opted into auto-journaling for ADRs.
 

@@ -73,6 +73,7 @@ crux-docs:
     - "srde"
     - "survey-sheet"
     - "survey-signoff"
+    - "test-tiers"
     - "transition-adr"
     - "transition-brief"
     - "transition-decision"

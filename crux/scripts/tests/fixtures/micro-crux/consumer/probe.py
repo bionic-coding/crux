@@ -82,6 +82,10 @@ def seed(root, scenario):
         doc["schema_version"] = 1
         doc.pop("coverage")
         doc.pop("completion")
+        for key in ("revision", "operations", "results_dir"):
+            doc.pop(key, None)
+        for entry in doc["history"]:
+            entry.pop("revision", None)
         doc["history"][0]["local_extension"] = {"preserve": "owner-authored additional context"}
         cycle.save(cycle.tree(root), doc)
     if scenario == "unsupported":

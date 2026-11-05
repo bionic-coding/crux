@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from _evidence_fixtures import (CONDITIONAL, MINOR, conditional_dists, lock_requirement, make_venv, raw_receipt,
                                 reseal_in_place, variant, write_lock_project)
 import test_evidence as te
+from _classifier_isolation import isolate_classifier
 from test_evidence import EvidenceError, execute, lookup, validate_evidence
 
 SCRIPTS = Path(__file__).resolve().parents[1]
@@ -34,6 +35,8 @@ class EnvironmentBase(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
+        # A `cycle.py advance` subprocess enters Review, which asks the classifier; keep it off the gateway.
+        isolate_classifier(self)
         self.root = Path(self.temp.name).resolve()
         self.store = self.root / "evidence"
         patcher = patch.dict(os.environ, {"CRUX_TEST_EVIDENCE_STORE": str(self.store)})

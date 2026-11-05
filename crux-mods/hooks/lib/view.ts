@@ -41,6 +41,15 @@ export const LAST_COMPLETED_STATUSES = ['not-requested', 'run-in-progress', 'und
 export const MAX_SUMMARY_LINES = 240
 export const MAX_SUMMARY_LINE = 1000
 export const MAX_SUMMARY_TOTAL = 32000
+// Source: FORMAT_VERSION in cycle_progress.py. The one version of the cycle document this view accepts.
+export const CYCLE_FORMAT_VERSION = 5
+// Source: MAX_ASSIGNMENTS and MAX_EXCEPTION in cycle_progress.py.
+export const CYCLE_MAX_ASSIGNMENTS = 50
+export const CYCLE_MAX_EXCEPTION = 300
+// Source: ASSIGNMENT_STATES, OBSERVATIONS and LIVENESS in cycle_progress.py.
+export const CYCLE_ASSIGNMENT_STATES = ['reserved', 'running'] as const
+export const CYCLE_OBSERVATIONS = ['reserved-unbound', 'running-bound'] as const
+export const CYCLE_LIVENESS = ['unknown'] as const
 // The status codes this view gives. reader-output-invalid and no-active-run are also launch
 // codes; reader-format-mismatch is this view's own. A text answer carries only launch codes,
 // reader-failed:<a reader error code> and these.
@@ -84,8 +93,22 @@ export type RunView = {
   prompts: Prompt[]; councils: Council[]; councils_skipped: number; gates: Gate[]
   summary: string[]; summary_truncated: boolean; escalations: Escalation[]
 }
+// An open attempt as the reader reports it: reserved or running, what the reader observed of it, and
+// its liveness, which is always unknown because the reader has no host status call. `unresolved` is
+// true for a reservation whose host returns a handle that was never attached.
+export type AssignmentView = {
+  id: string; task: string | null; role: string; host: string | null; attempt: number
+  state: (typeof CYCLE_ASSIGNMENT_STATES)[number]; observation: (typeof CYCLE_OBSERVATIONS)[number]
+  liveness: (typeof CYCLE_LIVENESS)[number]; unresolved: boolean
+}
 export type CycleView = {
-  id: string; title: string; type: string; status: string; phase: string; pass: number; pass_limit: number
+  id: string
+  // The record's version, and its revision (null on versions 1 and 2). assignments holds the open
+  // attempts only. classification_count is how many route classifications the record holds, uncapped;
+  // their details stay in the record and in inspect. exception is the owner exception text, when the record has one.
+  schema_version: 1 | 2 | 3; revision: number | null
+  assignments: AssignmentView[]; classification_count: number; exception: string | null
+  title: string; type: string; status: string; phase: string; pass: number; pass_limit: number
   phases: string[]; tasks: {id: string; phase: string; description: string; status: string}[]
   returns: {pass: number; phase: string; reason: string}[]; waits: string[]
   blocker: string | null; reflection: string | null; modified_s: number
@@ -364,6 +387,8 @@ export function parseReader(stdout: string): Parsed {
 }
 
 // Cycle JSON has its own version and key contract; legacy run keys stay frozen.
+// These are the sequences of records made before the rename, which name the checking phase `test`.
+// A record made after it names that phase `verify`, in the same place (see verifyOf below).
 const CYCLE_PHASES: Record<string, string[]> = {
   dev: ['plan','build','test','review','reflect'], iterate: ['plan','build','test','review','reflect'],
   refactor: ['plan','build','test','review','reflect'], 'quick-fix': ['build','test','review','reflect'],
@@ -372,8 +397,11 @@ const CYCLE_PHASES: Record<string, string[]> = {
 }
 // A release cycle made from a list has the one phase `release`; one recorded earlier keeps three.
 const LISTED_RELEASE = ['release']
+const verifyOf = (phases: string[]): string[] => phases.map(p => p === 'test' ? 'verify' : p)
+// A sequence is the type's `test` sequence or its `verify` sequence, never a mix of the two.
 const sequenceOk = (kind: string, phases: string[]): boolean =>
-  phases.join(',') === CYCLE_PHASES[kind]!.join(',') || (kind === 'release' && phases.join(',') === LISTED_RELEASE.join(','))
+  phases.join(',') === CYCLE_PHASES[kind]!.join(',') || phases.join(',') === verifyOf(CYCLE_PHASES[kind]!).join(',') ||
+  (kind === 'release' && phases.join(',') === LISTED_RELEASE.join(','))
 function cycleObject(value: unknown, keys: string[]): Obj {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return bad()
   const o = value as Obj
@@ -399,7 +427,7 @@ function parseQueue(value: unknown): QueueView | null {
   }
   const q=cycleObject(value,['ok','items','authorization'])
   if (q.ok !== true) return bad()
-  const items=arr(q.items,50).map(v=>{
+  const items=arr(q.items,500).map(v=>{
     const i=cycleObject(v,['id','title','state','suggested_type','cycle','cycle_status'])
     const state=oneOf(i.state,['pending','held','starting','started'] as const)
     const started=state==='started'
@@ -416,9 +444,20 @@ function parseQueue(value: unknown): QueueView | null {
   return {ok:true,items,authorization}
 }
 
+function assignment(value: unknown): AssignmentView {
+  const a=cycleObject(value,['id','task','role','host','attempt','state','observation','liveness','unresolved'])
+  const attempt=int(a.attempt)
+  if (attempt<1) return bad()
+  return {
+    id:free(a.id),task:orNull(a.task,free),role:free(a.role),host:orNull(a.host,free),attempt,
+    state:oneOf(a.state,CYCLE_ASSIGNMENT_STATES),observation:oneOf(a.observation,CYCLE_OBSERVATIONS),
+    liveness:oneOf(a.liveness,CYCLE_LIVENESS),unresolved:bool(a.unresolved),
+  }
+}
+
 function parseCycles(doc: unknown): Parsed {
   const d = doc as Obj
-  if (d.format_version !== 2) return {ok:false,code:'reader-format-mismatch'}
+  if (d.format_version !== CYCLE_FORMAT_VERSION) return {ok:false,code:'reader-format-mismatch'}
   if (d.ok === false) {
     const o=cycleObject(doc,['format','format_version','ok','error'])
     const e=cycleObject(o.error,['code'])
@@ -428,18 +467,22 @@ function parseCycles(doc: unknown): Parsed {
   const o=cycleObject(doc,['format','format_version','ok','docs_dir','now_s','cycles',...(withQueue?['queue']:[])])
   if (o.ok !== true) return bad()
   const cycles=arr(o.cycles,60).map(value => {
-    const c=cycleObject(value,['id','title','type','status','phase','pass','pass_limit','phases','tasks','returns','waits','blocker','reflection','modified_s','started_s','ended_s','paused_s','open_started_s','basis','phase_times'])
+    const c=cycleObject(value,['id','schema_version','revision','assignments','classification_count','exception','title','type','status','phase','pass','pass_limit','phases','tasks','returns','waits','blocker','reflection','modified_s','started_s','ended_s','paused_s','open_started_s','basis','phase_times'])
     const kind=oneOf(c.type,Object.keys(CYCLE_PHASES))
-    const phases=arr(c.phases,6).map(p=>oneOf(p,CYCLE_PHASES[kind]!))
+    const phases=arr(c.phases,6).map(p=>oneOf(p,[...CYCLE_PHASES[kind]!,...verifyOf(CYCLE_PHASES[kind]!)]))
     if (!sequenceOk(kind,phases)) return bad()
     const pass=int(c.pass), limit=int(c.pass_limit)
     if (pass<1 || pass>limit) return bad()
     return {
-      id:str(c.id,/^(?:[A-Z][A-Z0-9]{1,9}-)?CYC-[0-9]{4,}$/),title:free(c.title),type:kind,
+      id:str(c.id,/^(?:[A-Z][A-Z0-9]{1,9}-)?CYC-[0-9]{4,}$/),
+      schema_version:c.schema_version===1||c.schema_version===2||c.schema_version===3?c.schema_version:bad(),revision:orNull(c.revision,v=>int(v,4102444800)),
+      assignments:arr(c.assignments,CYCLE_MAX_ASSIGNMENTS).map(assignment),classification_count:int(c.classification_count),
+      exception:orNull(c.exception,v=>{const s=free(v);return countPoints(s)>CYCLE_MAX_EXCEPTION?bad():s}),
+      title:free(c.title),type:kind,
       status:oneOf(c.status,['active','paused','completed','abandoned']),phase:oneOf(c.phase,phases),
       pass,pass_limit:limit,phases,
       tasks:arr(c.tasks,500).map(v=>{const t=cycleObject(v,['id','phase','description','status']);return {id:free(t.id),phase:oneOf(t.phase,phases),description:free(t.description),status:oneOf(t.status,['pending','active','done','blocked'])}}),
-      returns:arr(c.returns,20).map(v=>{const r=cycleObject(v,['pass','phase','reason']);return {pass:int(r.pass),phase:oneOf(r.phase,['plan','build','test','review','release','reflect']),reason:free(r.reason)}}),
+      returns:arr(c.returns,20).map(v=>{const r=cycleObject(v,['pass','phase','reason']);return {pass:int(r.pass),phase:oneOf(r.phase,['plan','build','test','verify','review','release','reflect']),reason:free(r.reason)}}),
       waits:arr(c.waits,20).map(free),blocker:orNull(c.blocker,free),reflection:orNull(c.reflection,free),modified_s:int(c.modified_s,4102444800),
       started_s:int(c.started_s,4102444800),ended_s:orNull(c.ended_s,v=>int(v,4102444800)),paused_s:int(c.paused_s,4102444800),
       open_started_s:orNull(c.open_started_s,v=>int(v,4102444800)),basis:oneOf(c.basis,['recorded','derived'] as const),
@@ -519,14 +562,15 @@ function runLines(r: RunView, lead: string): string[] {
 
 // The most compact lines the answer lists under `cycles:`.
 const MAX_ANSWER_CYCLES = 10
-const MAX_ANSWER_UPCOMING = 5
+// The most open attempts a cycle's answer lists before it counts the rest.
+const MAX_ANSWER_ASSIGNMENTS = 10
 const MAX_ANSWER_FINISHED = 2
 // A task id is free text; the answer names it only when it is a plain token.
 const SAFE_TASK_ID = /^[A-Za-z0-9._-]{1,60}$/
 
 // The queue summary: ids, states, cycle ids and counts. Never a title. Upcoming rows are the pending,
 // held and starting items in queue order; finished rows are the last started items whose cycle ended.
-// `queue more N` counts hidden upcoming items only.
+// Text-only clients receive every upcoming ID; graphical adapters own collapse controls.
 function queueLines(q: QueueView): string[] {
   if (!q.ok) return ['queue unavailable']
   const upcoming = q.items.filter(i => i.state !== 'started')
@@ -534,10 +578,8 @@ function queueLines(q: QueueView): string[] {
   const shownFinished = finished.slice(-MAX_ANSWER_FINISHED)
   const a = q.authorization
   const lines = [`queue queued ${upcoming.length} authorization ${a === null ? 'none' : a.kind} remaining ${a === null || a.remaining.length === 0 ? 'none' : a.remaining.join(',')}`]
-  for (const i of upcoming.slice(0, MAX_ANSWER_UPCOMING)) lines.push(`queue ${i.id} ${i.state}`)
+  for (const i of upcoming) lines.push(`queue ${i.id} ${i.state}`)
   for (const i of shownFinished) lines.push(`queue ${i.id} ${i.cycle_status} ${i.cycle}`)
-  const left = upcoming.length - Math.min(upcoming.length, MAX_ANSWER_UPCOMING)
-  if (left > 0) lines.push(`queue more ${left}`)
   return lines
 }
 
@@ -564,9 +606,22 @@ export function answer(p: Parsed): string {
         if (time !== null) lines.push(`time ${time}`)
         const current = c.tasks.find(t => t.status === 'active')
         if (isOpen(c) && current !== undefined) lines.push(`current task ${SAFE_TASK_ID.test(current.id) ? current.id : 'unnamed'}`)
+        if (c.revision !== null) lines.push(`revision ${c.revision}`)
+        // Open attempts are live work of an open cycle only. Each line is closed tokens: an id that
+        // passes SAFE_TASK_ID, counts, states, observations and liveness. Free text never appears.
+        if (isOpen(c)) {
+          for (const a of c.assignments.slice(0, MAX_ANSWER_ASSIGNMENTS)) {
+            lines.push(`assignment ${SAFE_TASK_ID.test(a.id) ? a.id : 'unnamed'} attempt ${a.attempt} state ${a.state} observation ${a.observation} liveness ${a.liveness}${a.unresolved ? ' unresolved' : ''}`)
+          }
+          if (c.assignments.length > MAX_ANSWER_ASSIGNMENTS) lines.push(`assignments more ${c.assignments.length - MAX_ANSWER_ASSIGNMENTS}`)
+        }
+        if (c.classification_count > 0) lines.push(`classifications ${c.classification_count}`)
+        if (c.exception !== null && c.exception !== '') lines.push('owner-exception yes')
       }
       for (const c of open) cycleBlock(c)
-      if (v.queue !== undefined && v.queue !== null) lines.push(...queueLines(v.queue))
+      const queueOffset = lines.length
+      const queue = v.queue !== undefined && v.queue !== null ? queueLines(v.queue) : []
+      lines.push(...queue)
       // The latest closed cycle in full, then at most MAX_ANSWER_CYCLES compact lines for the others.
       const [latest, ...rest] = closed
       if (latest !== undefined) cycleBlock(latest)
@@ -575,7 +630,12 @@ export function answer(p: Parsed): string {
         for (const c of rest.slice(0, MAX_ANSWER_CYCLES)) lines.push(`${c.id} type ${c.type} status ${c.status}${cyclePass(c)}`)
         if (rest.length > MAX_ANSWER_CYCLES) lines.push(`+${rest.length - MAX_ANSWER_CYCLES} more`)
       }
-      const capped = lines.length > MAX_ANSWER_LINES ? [...lines.slice(0, MAX_ANSWER_LINES), `more lines ${lines.length - MAX_ANSWER_LINES}`] : lines
+      // Keep every admitted queue ID even when cycle details reach their limit.
+      // Queue parsing separately bounds this addition to at most 503 lines.
+      const detail = [...lines.slice(0, queueOffset), ...lines.slice(queueOffset + queue.length)]
+      const capped = detail.slice(0, MAX_ANSWER_LINES)
+      capped.splice(Math.min(queueOffset, capped.length), 0, ...queue)
+      if (detail.length > MAX_ANSWER_LINES) capped.push(`more lines ${detail.length - MAX_ANSWER_LINES}`)
       return `${NOTE}\n\n\`\`\`text\n${capped.join('\n')}\n\`\`\``
     }
     lines.push(`dashboard status ok reader ${v.reader_version} runs ${v.runs.length}`)

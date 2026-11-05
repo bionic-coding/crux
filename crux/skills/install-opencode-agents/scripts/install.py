@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.11"
+# dependencies = []
+# ///
 """Install Crux-generated OpenCode agents into a target project without clobbering edits."""
 
 from __future__ import annotations

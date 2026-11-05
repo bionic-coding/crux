@@ -40,10 +40,10 @@ import json
 import logging
 import re
 import sys
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 # Defensive: make `crux_env` and the bundled package importable when this
 # file is run as a plain script (`uv run …/scripts/crux/council/async_council.py`)
@@ -210,7 +210,7 @@ class _Attempt:
 
     __slots__ = ("replied", "finish_reason", "served_model", "served_provider",
                  "generation_id", "cfg", "served_model_match", "served_provider_match",
-                 "fault_label", "max_tokens", "escalate")
+                 "fault_label", "max_tokens", "escalate", "seat", "number", "checkpoint_started")
 
     def __init__(self):
         self.replied: bool = False
@@ -224,6 +224,9 @@ class _Attempt:
         self.fault_label: Optional[str] = None
         self.max_tokens: Optional[int] = None  # the output budget the request carried, once built
         self.escalate: bool = False  # True on the retry of a truncated attempt
+        self.seat = None
+        self.number = None
+        self.checkpoint_started = False
 
     def provenance(self) -> GatewayReply:
         """The reported provenance as a reply the two checks read. No content."""
@@ -469,6 +472,10 @@ def validate_gate_assignment() -> Dict[str, str]:
     return resolved
 
 
+class CouncilCheckpointError(Exception):
+    """A required local checkpoint failed; no provider retry or approval may follow."""
+
+
 @dataclass
 class AsyncCouncilConfig:
     """Configuration for async council. Model fields resolve from model_roles at instantiation."""
@@ -490,8 +497,12 @@ class AsyncCouncilConfig:
     blocker_test: bool = False
     # Test and runner seam: an alternative transport for the gateway client.
     transport: Optional[httpx.AsyncBaseTransport] = None
+    # Optional for library/native callers; cycle gateway runners always install their sink.
+    on_call_event: Optional[Callable[[dict], None]] = None
 
     def __post_init__(self):
+        if self.on_call_event is not None and not callable(self.on_call_event):
+            raise ValueError('on_call_event must be callable or None')
         # `type(...) is int`, not isinstance: a bool is an int, and 1.0 == 1.
         if self.max_tokens is not None and (
                 type(self.max_tokens) is not int or self.max_tokens <= 0):
@@ -594,6 +605,8 @@ class AsyncCouncil:
 
     def __init__(self, config: Optional[AsyncCouncilConfig] = None):
         self.config = config or AsyncCouncilConfig()
+        self._checkpoint_failure = None
+        self._call_tasks = []
         # The config is mutable, so its construction-time validation is not enough:
         # a seat edited, or the gate flag set, afterwards would skip it.
         self._gate = False
@@ -677,6 +690,29 @@ class AsyncCouncil:
             return models[seat]
         return getattr(self.config, f"{seat}_model")
 
+    def _call_event(self, phase, attempt, vote=None):
+        callback = getattr(self.config, 'on_call_event', None)
+        if callback is None:
+            return
+        if phase == 'outcome' and not attempt.checkpoint_started:
+            return  # No gateway request reached its checkpoint.
+        if phase == 'request' and self._checkpoint_failure:
+            raise self._checkpoint_failure
+        event = {'phase': phase, 'seat': attempt.seat, 'call_number': attempt.number,
+                 'registry_key': self._seat_model(attempt.seat), 'requested_model': attempt.cfg.api_string if attempt.cfg else None,
+                 'metadata': attempt.record(attempt.number), 'vote': asdict(vote) if vote is not None else None}
+        try:
+            callback(event)
+        except Exception:
+            failure = CouncilCheckpointError('council call checkpoint unavailable: ' + phase)
+            self._checkpoint_failure = failure
+            # Already in-flight outcomes remain unknown unless they reached their own sink.
+            current = asyncio.current_task()
+            for task in self._call_tasks:
+                if task is not current and not task.done():
+                    task.cancel()
+            raise failure from None
+
     async def _post_seat(self, cfg, prompt, system=None, response_format=None,
                          attempt: Optional[_Attempt] = None) -> str:
         """One gateway round-trip for one seat, over httpx.AsyncClient.
@@ -717,6 +753,8 @@ class AsyncCouncil:
             client_kwargs["transport"] = transport
         if attempt is not None:
             attempt.cfg = cfg
+            self._call_event('request', attempt)
+            attempt.checkpoint_started = True
         async with httpx.AsyncClient(**client_kwargs) as client:
             response = await client.post(url, headers=headers, json=payload)
             raise_for_gateway_status(response)
@@ -767,7 +805,7 @@ class AsyncCouncil:
             raise MalformedResponseError("reply holds no parseable JSON object")
         return data
 
-    async def _run_seat(self, attempt_fn) -> _SeatRun:
+    async def _run_seat(self, attempt_fn, *, seat=None) -> _SeatRun:
         """Run one seat: an attempt, and at most one more after a retryable fault.
 
         Each attempt runs under its own full `timeout_seconds` deadline, so a
@@ -790,6 +828,7 @@ class AsyncCouncil:
         attempts: List[Dict[str, Any]] = []
         for number in range(2 if may_retry else 1):
             attempt = _Attempt()
+            attempt.seat, attempt.number = seat, number + 1
             # A retry after a truncated reply asks for the model's full output limit.
             attempt.escalate = number == 1 and first_label == "truncated"
             try:
@@ -798,11 +837,14 @@ class AsyncCouncil:
                 if self._gate:
                     self._enforce_served(attempt)
             except Exception as e:
+                if isinstance(e, CouncilCheckpointError):
+                    raise
                 label = self._fault_label(e)
                 attempt.fault_label = label
                 attempts.append(attempt.record(number + 1))
                 if attempt.replied:
                     served = (attempt.served_model, attempt.served_provider, attempt.generation_id)
+                self._call_event('outcome', attempt)
                 if number == 0 and may_retry and label in _RETRYABLE_FAULT_LABELS:
                     logger.warning(f"seat attempt failed ({label}); retrying once")
                     first_label, first_finish, retried = label, attempt.finish_reason, True
@@ -814,6 +856,7 @@ class AsyncCouncil:
             attempts.append(attempt.record(number + 1))
             if attempt.replied:
                 served = (attempt.served_model, attempt.served_provider, attempt.generation_id)
+            self._call_event('outcome', attempt, value)
             return _SeatRun(value=value, finish_reason=attempt.finish_reason, retried=retried,
                             first_fault_label=first_label, first_finish_reason=first_finish,
                             served_model=served[0], served_provider=served[1],
@@ -892,7 +935,7 @@ class AsyncCouncil:
                 # a vote is a malformed reply, never a configuration error.
                 raise MalformedResponseError("reply cannot be built into a vote") from None
 
-        run = await self._run_seat(_once)
+        run = await self._run_seat(_once, seat=seat)
         provenance = dict(
             role=role, registry_key=model, requested_model=requested["model"],
             served_model=run.served_model, served_provider=run.served_provider,
@@ -1162,6 +1205,7 @@ class AsyncCouncil:
         two deadlines.
         """
         self._assert_gate_unchanged()
+        self._checkpoint_failure = None
         logger.info("ASYNC COUNCIL DELIBERATION")
         start_time = datetime.now()
 
@@ -1181,7 +1225,7 @@ class AsyncCouncil:
 
         for seat in self._SEAT_ORDER:
             if seat in self.available_providers:
-                tasks.append(self._call_seat_async(seat, prompt, system))
+                tasks.append(asyncio.create_task(self._call_seat_async(seat, prompt, system)))
                 task_seats.append(seat)
                 task_names.append(self._SEAT_LABELS[seat])
 
@@ -1205,7 +1249,13 @@ class AsyncCouncil:
 
         # No outer deadline: each task carries its own, so a seat that times out
         # returns as an exception here and becomes that seat's errored vote below.
-        votes: List[CouncilVote] = await asyncio.gather(*tasks, return_exceptions=True)
+        self._call_tasks = tasks
+        try:
+            votes: List[CouncilVote] = await asyncio.gather(*tasks, return_exceptions=True)
+        finally:
+            self._call_tasks = []
+        if self._checkpoint_failure:
+            raise self._checkpoint_failure
 
         # Handle exceptions
         clean_votes = []

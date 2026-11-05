@@ -15,6 +15,9 @@ from test_evidence import EvidenceError, execute
 
 CORE = 'checkout:unittest:crux/scripts/tests:test*.py'
 TOOLS = 'checkout:unittest:tools/tests:test*.py'
+TIERS = 'checkout:test-tiers'
+CORE_RELEASE = 'checkout:unittest-release:crux/scripts/tests:test*.py'
+TOOLS_RELEASE = 'checkout:unittest-release:tools/tests:test*.py'
 CONTRACT = '''import unittest
 from pathlib import Path
 
@@ -75,7 +78,7 @@ class BuildChecksTests(Scratch):
         with self.assertRaisesRegex(CycleError, 'missing passing evidence for unit'):
             self.apply(doc, 'advance')
         doc = self.attach(doc, self.unit())
-        self.assertEqual(self.apply(doc, 'advance')['phase'], 'test')
+        self.assertEqual(self.apply(doc, 'advance')['phase'], 'verify')
 
     def test_stale_build_evidence_refuses_advance(self):
         doc = self.attach(self.apply(self.create(), 'checks', checks=['unit'], phase='build'), self.unit())
@@ -98,12 +101,12 @@ class BuildChecksTests(Scratch):
         doc = self.apply(self.create(), 'checks', checks=['unit'])
         self.assertEqual(doc['required_checks'], ['unit'])
         self.assertNotIn('build_checks', doc)
-        self.assertEqual(self.apply(doc, 'advance')['phase'], 'test')
+        self.assertEqual(self.apply(doc, 'advance')['phase'], 'verify')
 
     def test_record_without_build_checks_advances_as_before(self):
         doc = self.create()
         self.assertNotIn('build_checks', doc)
-        self.assertEqual(self.apply(doc, 'advance')['phase'], 'test')
+        self.assertEqual(self.apply(doc, 'advance')['phase'], 'verify')
 
     def test_build_checks_are_unique_and_leave_the_review_basis_alone(self):
         doc = self.create()
@@ -117,6 +120,15 @@ class BuildChecksTests(Scratch):
         doc = self.apply(self.create(), 'advance')
         with self.assertRaisesRegex(CycleError, 'Build phase'):
             self.apply(doc, 'checks', checks=['unit'], phase='build')
+
+    def test_a_consuming_project_needs_no_suite_or_tier_check_to_finish_testing(self):
+        # Only a plugin-authoring checkout owes the full suites and the tier check; a consuming project
+        # declares whatever focused checks it relies on.
+        self.assertEqual(whole_state_checks(tree(self.root)), [])
+        doc = self.attach(self.apply(self.create(), 'checks', checks=['unit']), self.unit())
+        doc = self.apply(doc, 'checks', checks=['unit'])
+        doc = self.cover(doc, ['unit'])
+        check_tests(tree(self.root), doc)
 
     def test_the_cli_accepts_phase_build(self):
         doc = self.create()
@@ -135,13 +147,17 @@ class AuthoringCheckoutTests(Scratch):
         (self.root / 'crux/scripts/cycle_workflow.py').write_text('')
 
     def test_build_exit_names_each_missing_registered_suite(self):
+        # Build exit requires every registered checkout id except the release-tier suites (IDR test-tiers A4):
+        # the two full suites and the tier check. A release-tier receipt never satisfies it.
         ids = [c for c in registered_declarations(self.root) if c.startswith('checkout:')]
-        self.assertEqual(sorted(ids), sorted([CORE, TOOLS]))
+        self.assertEqual(sorted(ids), sorted([CORE, TOOLS, TIERS, CORE_RELEASE, TOOLS_RELEASE]))
         doc = self.create()
         with self.assertRaises(CycleError) as raised:
             self.apply(doc, 'advance')
         self.assertIn(CORE, str(raised.exception))
         self.assertIn(TOOLS, str(raised.exception))
+        self.assertIn(TIERS, str(raised.exception))
+        self.assertNotIn('unittest-release', str(raised.exception))
         doc = self.apply(doc, 'checks', checks=[CORE], phase='build')
         with self.assertRaises(CycleError) as raised:
             self.apply(doc, 'advance')
@@ -149,9 +165,49 @@ class AuthoringCheckoutTests(Scratch):
         self.assertIn(TOOLS, str(raised.exception))
 
     def test_declared_suites_still_need_passing_evidence(self):
-        doc = self.apply(self.create(), 'checks', checks=[CORE, TOOLS], phase='build')
+        doc = self.apply(self.create(), 'checks', checks=[CORE, TOOLS, TIERS], phase='build')
         with self.assertRaisesRegex(CycleError, 'missing passing evidence for ' + CORE.replace('*', r'\*')):
             self.apply(doc, 'advance')
+
+
+class CompletionRequiresTheWholeStateTests(AuthoringCheckoutTests):
+    """Verify, Review and Reflect need the full suites and the tier check, never a release-tier receipt (IDR test-tiers A4)."""
+
+    def covered(self, checks):
+        doc = self.apply(self.create(), 'checks', checks=checks)
+        return self.cover(doc, checks)
+
+    def test_the_whole_state_checks_are_the_full_suites_and_the_tier_check(self):
+        self.assertEqual(whole_state_checks(tree(self.root)), sorted([CORE, TOOLS, TIERS]))
+
+    def test_check_tests_refuses_a_focused_check_alone_in_the_authoring_checkout(self):
+        doc = self.covered(['unit'])
+        with self.assertRaises(CycleError) as raised:
+            check_tests(tree(self.root), doc)
+        message = str(raised.exception)
+        for check in (CORE, TOOLS, TIERS):
+            self.assertIn(check, message)
+
+    def test_check_tests_names_only_what_is_missing(self):
+        doc = self.covered([CORE, TOOLS, 'unit'])
+        with self.assertRaises(CycleError) as raised:
+            check_tests(tree(self.root), doc)
+        self.assertIn(TIERS, str(raised.exception))
+        self.assertNotIn('unittest', str(raised.exception))
+
+    def test_a_release_tier_declaration_never_stands_in_for_a_full_suite(self):
+        doc = self.covered([CORE_RELEASE, TOOLS_RELEASE, TIERS])
+        with self.assertRaises(CycleError) as raised:
+            check_tests(tree(self.root), doc)
+        message = str(raised.exception)
+        self.assertIn(CORE, message)
+        self.assertIn(TOOLS, message)
+        self.assertNotIn(TIERS, message)
+
+    def test_with_all_three_declared_the_refusal_moves_on_to_their_evidence(self):
+        doc = self.covered([CORE, TOOLS, TIERS])
+        with self.assertRaisesRegex(CycleError, 'missing passing evidence for ' + CORE.replace('*', r'\*')):
+            check_tests(tree(self.root), doc)
 
 
 class SkillsContractConflictTests(unittest.TestCase):
@@ -196,7 +252,7 @@ class SkillsContractConflictTests(unittest.TestCase):
         self.assertEqual(passed['evidence']['status'], 'passed')
         doc = mutate(self.root, doc['id'], 'evidence', check_id='contract', evidence_id=passed['evidence']['id'], use=passed['action'])
         doc = mutate(self.root, doc['id'], 'advance')
-        self.assertEqual(doc['phase'], 'test')
+        self.assertEqual(doc['phase'], 'verify')
         doc = mutate(self.root, doc['id'], 'checks', checks=['contract'])
         doc = mutate(self.root, doc['id'], 'coverage', coverage={'affected': ['skills'], 'checks': [{'check_id': 'contract', 'rationale': 'the contract test reads the changed reference'}], 'not_selected': 'No unrelated full-suite run needed for this fixture.'})
         again = execute(self.root, self.declaration())

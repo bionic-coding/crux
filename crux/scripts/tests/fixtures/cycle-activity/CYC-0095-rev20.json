@@ -1,0 +1,1022 @@
+{
+  "assignments": [
+    {
+      "agent": null,
+      "attempt": 1,
+      "base": "3108c62ec93d8950146b3597e51b60569e373b47",
+      "delivery": {
+        "commits": [
+          "d4f2347ceac766ee8a27dffb49bc720b142f33b4"
+        ],
+        "evidence": [],
+        "note": "Integrated by ff-only at d4f2347c; changed paths inside owned list plus the minimal cycle_ops.py touch the assignment allowed. Known: ~260 existing cycle tests fail until build-engine updates them (slice report).",
+        "outcome": "done",
+        "path": "cycles/CYC-0095/results/build-slice-attempt-1.md",
+        "sha256": "8fe9396bee28fede1749113a5c53fba70af698cbab924740add877554567f6d3",
+        "stage": "integrated"
+      },
+      "ended_at": "2026-10-31T14:51:07.694433+00:00",
+      "host": "claude-code",
+      "id": "build-slice",
+      "last_seen": "2026-10-31T14:51:07.694433+00:00",
+      "mode": "blocking",
+      "note": null,
+      "result_path": "/var/folders/y0/lljk5spx0lndscy5_dtjcb880000gn/T/crux-results-CYC-0095-m8g__sjo/build-slice-attempt-1.md",
+      "role": "developer",
+      "started_at": "2026-10-31T14:47:00.024382+00:00",
+      "state": "finished",
+      "task": "build-slice"
+    },
+    {
+      "agent": null,
+      "attempt": 1,
+      "base": "3fba30f8a7a4f3a6e3068fbf02cb7f093a1630d7",
+      "delivery": {
+        "commits": [
+          "a6ff330f44bae3a7050b74c7f2631536289e8031"
+        ],
+        "evidence": [],
+        "note": "Rebased c4f1fc04 onto main (other commits landed on bionic/adrs, objectives, queue) and ff-merged; paths inside owned list. Cycle subset 1252 OK per developer. Known: test_cycle_instruction_contracts.py (10) asserts old wording and micro-crux contracts (2) need regeneration; dev-lead handles both in build-integrate.",
+        "outcome": "done",
+        "path": "cycles/CYC-0095/results/build-engine-attempt-1.md",
+        "sha256": "0f28fdb4c38cc2c104f614d74edc8d02035a52f71d812f8110dfe1ad7bed6088",
+        "stage": "integrated"
+      },
+      "ended_at": "2026-10-31T15:32:04.428258+00:00",
+      "host": "claude-code",
+      "id": "build-engine",
+      "last_seen": "2026-10-31T15:32:04.428258+00:00",
+      "mode": "blocking",
+      "note": null,
+      "result_path": "/var/folders/y0/lljk5spx0lndscy5_dtjcb880000gn/T/crux-results-CYC-0095-m8g__sjo/build-engine-attempt-1.md",
+      "role": "developer",
+      "started_at": "2026-10-31T14:52:17.187516+00:00",
+      "state": "finished",
+      "task": "build-engine"
+    },
+    {
+      "agent": null,
+      "attempt": 1,
+      "base": "3fba30f8a7a4f3a6e3068fbf02cb7f093a1630d7",
+      "delivery": {
+        "commits": [
+          "67f01ead8825cf38b0ee88eac13a56ce916c331d"
+        ],
+        "evidence": [],
+        "note": "Rebased e594dde4 onto main and ff-merged; paths inside owned list. mods/opencode/omp gates exit 0 per developer; crux-mods/hooks/lib changes owe independent review and a live OpenCode 2 check before the next official release.",
+        "outcome": "done",
+        "path": "cycles/CYC-0095/results/build-dashboards-attempt-1.md",
+        "sha256": "a877ce1a31a9859493c55b3f5bd0e4a6649be05f926161c8f4e82b25f2e182f6",
+        "stage": "integrated"
+      },
+      "ended_at": "2026-10-31T15:32:04.595876+00:00",
+      "host": "claude-code",
+      "id": "build-dashboards",
+      "last_seen": "2026-10-31T15:32:04.595876+00:00",
+      "mode": "blocking",
+      "note": null,
+      "result_path": "/var/folders/y0/lljk5spx0lndscy5_dtjcb880000gn/T/crux-results-CYC-0095-m8g__sjo/build-dashboards-attempt-1.md",
+      "role": "developer",
+      "started_at": "2026-10-31T14:52:17.405385+00:00",
+      "state": "finished",
+      "task": "build-dashboards"
+    },
+    {
+      "agent": null,
+      "attempt": 1,
+      "base": "3fba30f8a7a4f3a6e3068fbf02cb7f093a1630d7",
+      "delivery": {
+        "commits": [
+          "820ad66b321d1ad8178b4cc4cf85b9f0274c3676"
+        ],
+        "evidence": [],
+        "note": "Rebased c591a185 onto main and ff-merged; paths inside owned list. DONE_WITH_CONCERNS: test_cycle_instruction_contracts.py asserts old wording (10 tests), protected from this unit; dev-lead updates it in build-integrate.",
+        "outcome": "done",
+        "path": "cycles/CYC-0095/results/build-instructions-attempt-1.md",
+        "sha256": "f5e72570d5c4cefd51a9248cd4222d5db4118455dc5511f5099cd3927b0ad904",
+        "stage": "integrated"
+      },
+      "ended_at": "2026-10-31T15:32:04.763228+00:00",
+      "host": "claude-code",
+      "id": "build-instructions",
+      "last_seen": "2026-10-31T15:32:04.763228+00:00",
+      "mode": "blocking",
+      "note": null,
+      "result_path": "/var/folders/y0/lljk5spx0lndscy5_dtjcb880000gn/T/crux-results-CYC-0095-m8g__sjo/build-instructions-attempt-1.md",
+      "role": "developer",
+      "started_at": "2026-10-31T14:52:17.617070+00:00",
+      "state": "finished",
+      "task": "build-instructions"
+    },
+    {
+      "agent": null,
+      "attempt": 1,
+      "base": "f436875228cf99076c40cc6ccc687b16710aab0d",
+      "delivery": null,
+      "ended_at": null,
+      "host": "claude-code",
+      "id": "test-acceptance",
+      "last_seen": "2026-10-31T16:13:14.180487+00:00",
+      "mode": "blocking",
+      "note": null,
+      "result_path": "/var/folders/y0/lljk5spx0lndscy5_dtjcb880000gn/T/crux-results-CYC-0095-m8g__sjo/test-acceptance-attempt-1.md",
+      "role": "dev-lead",
+      "started_at": "2026-10-31T16:13:14.180487+00:00",
+      "state": "reserved",
+      "task": "test-acceptance"
+    }
+  ],
+  "blocker": null,
+  "build_checks": [
+    "checkout:unittest:crux/scripts/tests:test*.py",
+    "checkout:unittest:tools/tests:test*.py",
+    "CYC-0095-drift-gates",
+    "CYC-0095-journal-index",
+    "CYC-0095-governs-references",
+    "CYC-0095-governs-coverage",
+    "CYC-0095-release-metadata",
+    "CYC-0095-mods-gate",
+    "CYC-0095-opencode-gate",
+    "CYC-0095-omp-gate"
+  ],
+  "classifications": [
+    {
+      "answer": {
+        "choice": "dev",
+        "probabilities": {
+          "dev": 0.79,
+          "insufficient-information": 0.01,
+          "iterate": 0.15,
+          "quick-fix": 0.02,
+          "refactor": 0.02,
+          "simplify": 0.01
+        }
+      },
+      "at": "2026-10-31T14:19:31.127253+00:00",
+      "cost": 0.0,
+      "fallback": null,
+      "fingerprint": null,
+      "kind": "work-sizing",
+      "model": "openai/gpt-6-luna-decisions",
+      "pass": 1,
+      "phase": "plan",
+      "question_set": "work-sizing",
+      "question_version": "1",
+      "request_id": "gen-dec-1793456370-bZMUO1pMnenp91paVLRs",
+      "revision": 1,
+      "route": "dev",
+      "served_model": "openai/gpt-6-luna-decisions-20261006",
+      "served_provider": "OpenAI",
+      "subject": "CYC-0095",
+      "trigger": "queue-advisory"
+    }
+  ],
+  "completion": null,
+  "coordinator": "dev-lead",
+  "coverage": null,
+  "created_at": "2026-10-31T14:19:31.127036+00:00",
+  "decisions": [
+    {
+      "accepted": false,
+      "approval": null,
+      "kind": "idr",
+      "name": "verify-phase-vocabulary",
+      "path": "cycles/CYC-0095/decisions/97c01067288742388d008f859688b72f.json",
+      "sha256": "e90f466ee087561c06325bfe25dba46444a7d2dd1a3d68a2051eb68f6ee02eba"
+    },
+    {
+      "accepted": false,
+      "approval": "cycles/CYC-0095/councils/decisions/8171443aa89fcdf82c9f467b/council-e4304ea1b1874cd1bd8237b81dd491c9.json",
+      "kind": "idr",
+      "name": "verify-phase-vocabulary",
+      "path": "cycles/CYC-0095/decisions/05d6166d878b412b898ed9e35b578db9.json",
+      "sha256": "95f7aa80937ad243686a736ccfe18782c55405416fb51417159f3357f4989a29"
+    }
+  ],
+  "evidence": [
+    {
+      "check_id": "checkout:unittest:crux/scripts/tests:test*.py",
+      "declaration_sha256": "373022d030de9edbb7346f04babfdca3de4f0e9a610080d5fb32d7f69651346d",
+      "evidence_id": "TE-b6ae0ff17b2b49f19e8618426f26df87",
+      "pass": 1,
+      "use": "reused"
+    },
+    {
+      "check_id": "checkout:unittest:tools/tests:test*.py",
+      "declaration_sha256": "a19ae1653fcb4fec5a2bfd0107be72b246a8358798fa1e05e2d5141db2205f4b",
+      "evidence_id": "TE-ff8cc9a5c5b7465fb92385165b1500b3",
+      "pass": 1,
+      "use": "reused"
+    },
+    {
+      "check_id": "CYC-0095-drift-gates",
+      "declaration_sha256": "58906fb30c3408ceafcf940102f87a1ab63aa809be78dbfdd3ddf4feb3e8847d",
+      "evidence_id": "TE-63758e8791fd45559e62341f1151061d",
+      "pass": 1,
+      "use": "reused"
+    },
+    {
+      "check_id": "CYC-0095-journal-index",
+      "declaration_sha256": "208f97a0e49e73790da9ac58b8124ef29e9e0dd60dee94f1e6e35e9af895e5d9",
+      "evidence_id": "TE-f424fdcb49dd4c2f8311e6da04c81c73",
+      "pass": 1,
+      "use": "reused"
+    },
+    {
+      "check_id": "CYC-0095-governs-references",
+      "declaration_sha256": "5a502427b0d6d3fab3935442f91f7b39fe378153e1d24207fcd5e18574d63c7c",
+      "evidence_id": "TE-419b501862fe472a8119b050f7a8ef25",
+      "pass": 1,
+      "use": "reused"
+    },
+    {
+      "check_id": "CYC-0095-governs-coverage",
+      "declaration_sha256": "241a003094e34646d52cc65a3e77c4dcc7fff74b06ca16e042694d908e851a11",
+      "evidence_id": "TE-bca3c9d8b6714881abcc859a7589b4c5",
+      "pass": 1,
+      "use": "reused"
+    },
+    {
+      "check_id": "CYC-0095-release-metadata",
+      "declaration_sha256": "ae536ad210ee114b20adc96f2039b89bcb82bae5ef4fc447eaa8f5a4060236f9",
+      "evidence_id": "TE-d258446d69ce4159896155588a40599a",
+      "pass": 1,
+      "use": "reused"
+    },
+    {
+      "check_id": "CYC-0095-mods-gate",
+      "declaration_sha256": "8a3c90222bba8c56d0c76d4e77f290d42bf795f4b067dd32be798b2baab19124",
+      "evidence_id": "TE-bc15c16695e348599aae85aab29026e1",
+      "pass": 1,
+      "use": "reused"
+    },
+    {
+      "check_id": "CYC-0095-opencode-gate",
+      "declaration_sha256": "c81a62c51f0fbd9c525c0032d6c9006a155a136c22453fa133c2c076896ecb93",
+      "evidence_id": "TE-5e398d38637e41b49f3b869f2a9a1182",
+      "pass": 1,
+      "use": "reused"
+    },
+    {
+      "check_id": "CYC-0095-omp-gate",
+      "declaration_sha256": "e8cdcf302db5af10d9fb410fde4995c3c223a130b1722da3796a114eb4170649",
+      "evidence_id": "TE-053956f3ffbe47eb898e3936d33edb43",
+      "pass": 1,
+      "use": "reused"
+    }
+  ],
+  "extensions": [],
+  "goal": "New cycles name the phase after Build 'verify' instead of 'test', everywhere a person or agent sees it: the cycle engine and typed operations, schemas, inspect actions, the cycle skill and role definitions, bionic/AGENTS.md \u00a711.E and its template, the dashboards and readers, generated outputs and user docs. Existing and historical cycles that recorded 'test' keep working and read as before.",
+  "history": [
+    {
+      "action": "created",
+      "at": "2026-10-31T14:19:31.127342+00:00",
+      "pass": 1,
+      "phase": "plan",
+      "queue": {
+        "item": "Q-0046",
+        "token": "5acce4b970c046c9903053251ca3494c"
+      },
+      "revision": 1,
+      "status": "active"
+    },
+    {
+      "action": "decision",
+      "at": "2026-10-31T14:35:01.688841+00:00",
+      "pass": 1,
+      "phase": "plan",
+      "revision": 2,
+      "status": "active"
+    },
+    {
+      "action": "decision",
+      "at": "2026-10-31T14:39:10.303296+00:00",
+      "pass": 1,
+      "phase": "plan",
+      "revision": 3,
+      "status": "active"
+    },
+    {
+      "action": "approve-decision",
+      "at": "2026-10-31T14:43:38.154118+00:00",
+      "pass": 1,
+      "phase": "plan",
+      "revision": 4,
+      "status": "active"
+    },
+    {
+      "action": "plan-revised",
+      "at": "2026-10-31T14:43:50.560659+00:00",
+      "pass": 1,
+      "phase": "plan",
+      "previous": {
+        "acceptance": [
+          "A new cycle of every type records and displays 'verify' for the phase after Build",
+          "Every committed cycle record under bionic/cycles/ (including active and completed cycles with 'test') validates, reads, resumes and renders unchanged; no historical record is rewritten",
+          "Commands and requests that name the old 'test' phase still work for existing cycles",
+          "The release cycle's own 'verify' step and the new phase are named so a reader cannot confuse them",
+          "Required checks pass and an independent reviewer files its own approval"
+        ],
+        "constraints": [],
+        "revision": 1,
+        "scope": [
+          "crux/, crux-mods/, crux-opencode/, crux-omp/, opencode/, tools/, AGENTS.md, bionic/AGENTS.md, USER_GUIDE.md, OPENCODE_GUIDE.md, OMP_GUIDE.md, CHANGELOG.md"
+        ],
+        "tasks": [],
+        "verification": []
+      },
+      "reason": "Architect plan for Q-0046 under the approved IDR verify-phase-vocabulary: scope split into individual paths, constraints, verification and tasks for every phase.",
+      "revision": 5,
+      "status": "active"
+    },
+    {
+      "action": "plan",
+      "at": "2026-10-31T14:43:50.560803+00:00",
+      "pass": 1,
+      "phase": "plan",
+      "reason": "Architect plan for Q-0046 under the approved IDR verify-phase-vocabulary: scope split into individual paths, constraints, verification and tasks for every phase.",
+      "revision": 5,
+      "status": "active"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-31T14:45:02.948144+00:00",
+      "pass": 1,
+      "phase": "plan",
+      "revision": 6,
+      "state": "done",
+      "status": "active",
+      "task": "plan-idr-verify-phase"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-31T14:45:05.584114+00:00",
+      "pass": 1,
+      "phase": "plan",
+      "revision": 7,
+      "state": "done",
+      "status": "active",
+      "task": "plan-write"
+    },
+    {
+      "action": "advance",
+      "at": "2026-10-31T14:45:11.663172+00:00",
+      "from_phase": "plan",
+      "op_id": "adv-plan-build-1",
+      "pass": 1,
+      "phase": "build",
+      "reused": [],
+      "revision": 8,
+      "status": "active",
+      "to_phase": "build"
+    },
+    {
+      "action": "prepare-dispatch",
+      "assignment": "build-slice",
+      "at": "2026-10-31T14:47:00.038132+00:00",
+      "attempt": 1,
+      "base": "3108c62ec93d8950146b3597e51b60569e373b47",
+      "host": "claude-code",
+      "mode": "blocking",
+      "op_id": "pd-build-slice-1",
+      "pass": 1,
+      "phase": "build",
+      "revision": 9,
+      "role": "developer",
+      "status": "active",
+      "task": "build-slice"
+    },
+    {
+      "action": "deliver",
+      "assignment": "build-slice",
+      "at": "2026-10-31T14:51:07.705964+00:00",
+      "attempt": 1,
+      "op_id": "dl-build-slice-1",
+      "outcome": "done",
+      "pass": 1,
+      "phase": "build",
+      "revision": 10,
+      "sha256": "8fe9396bee28fede1749113a5c53fba70af698cbab924740add877554567f6d3",
+      "status": "active",
+      "task": "build-slice"
+    },
+    {
+      "action": "prepare-dispatch",
+      "assignment": "build-engine",
+      "at": "2026-10-31T14:52:17.199354+00:00",
+      "attempt": 1,
+      "base": "3fba30f8a7a4f3a6e3068fbf02cb7f093a1630d7",
+      "host": "claude-code",
+      "mode": "blocking",
+      "op_id": "pd-build-engine-1",
+      "pass": 1,
+      "phase": "build",
+      "revision": 11,
+      "role": "developer",
+      "status": "active",
+      "task": "build-engine"
+    },
+    {
+      "action": "prepare-dispatch",
+      "assignment": "build-dashboards",
+      "at": "2026-10-31T14:52:17.416679+00:00",
+      "attempt": 1,
+      "base": "3fba30f8a7a4f3a6e3068fbf02cb7f093a1630d7",
+      "host": "claude-code",
+      "mode": "blocking",
+      "op_id": "pd-build-dashboards-1",
+      "pass": 1,
+      "phase": "build",
+      "revision": 12,
+      "role": "developer",
+      "status": "active",
+      "task": "build-dashboards"
+    },
+    {
+      "action": "prepare-dispatch",
+      "assignment": "build-instructions",
+      "at": "2026-10-31T14:52:17.628194+00:00",
+      "attempt": 1,
+      "base": "3fba30f8a7a4f3a6e3068fbf02cb7f093a1630d7",
+      "host": "claude-code",
+      "mode": "blocking",
+      "op_id": "pd-build-instructions-1",
+      "pass": 1,
+      "phase": "build",
+      "revision": 13,
+      "role": "developer",
+      "status": "active",
+      "task": "build-instructions"
+    },
+    {
+      "action": "deliver",
+      "assignment": "build-engine",
+      "at": "2026-10-31T15:32:04.438374+00:00",
+      "attempt": 1,
+      "op_id": "dl-build-engine-1b",
+      "outcome": "done",
+      "pass": 1,
+      "phase": "build",
+      "revision": 14,
+      "sha256": "0f28fdb4c38cc2c104f614d74edc8d02035a52f71d812f8110dfe1ad7bed6088",
+      "status": "active",
+      "task": "build-engine"
+    },
+    {
+      "action": "deliver",
+      "assignment": "build-dashboards",
+      "at": "2026-10-31T15:32:04.606101+00:00",
+      "attempt": 1,
+      "op_id": "dl-build-dashboards-1",
+      "outcome": "done",
+      "pass": 1,
+      "phase": "build",
+      "revision": 15,
+      "sha256": "a877ce1a31a9859493c55b3f5bd0e4a6649be05f926161c8f4e82b25f2e182f6",
+      "status": "active",
+      "task": "build-dashboards"
+    },
+    {
+      "action": "deliver",
+      "assignment": "build-instructions",
+      "at": "2026-10-31T15:32:04.773217+00:00",
+      "attempt": 1,
+      "op_id": "dl-build-instructions-1",
+      "outcome": "done",
+      "pass": 1,
+      "phase": "build",
+      "revision": 16,
+      "sha256": "f5e72570d5c4cefd51a9248cd4222d5db4118455dc5511f5099cd3927b0ad904",
+      "status": "active",
+      "task": "build-instructions"
+    },
+    {
+      "action": "task-updated",
+      "assignee": "dev-lead",
+      "at": "2026-10-31T15:57:20.824018+00:00",
+      "commits": [
+        "84fcf7b0261e47c5bb3a7bfb9d03a6da7e958f1b",
+        "48f9e47baf6d78bc23c12dc8ca89b6df751567ee"
+      ],
+      "evidence": [
+        "cycles/CYC-0095/evidence/build/phase-literal-search.md"
+      ],
+      "note": "Dev-lead integrated the three streams, regenerated micro-crux and bionic/arch, updated test_cycle_instruction_contracts.py to the Verify wording, added the CHANGELOG entry, and fixed the micro-crux initial-cycle example the first main run caught.",
+      "pass": 1,
+      "phase": "build",
+      "revision": 17,
+      "stage": "integrated",
+      "state": "done",
+      "status": "active",
+      "task": "build-integrate"
+    },
+    {
+      "action": "checks",
+      "at": "2026-10-31T15:57:20.916745+00:00",
+      "pass": 1,
+      "phase": "build",
+      "revision": 18,
+      "status": "active"
+    },
+    {
+      "action": "advance",
+      "at": "2026-10-31T16:12:20.863926+00:00",
+      "from_phase": "build",
+      "op_id": "adv-build-test-1",
+      "pass": 1,
+      "phase": "test",
+      "reused": [
+        "checkout:unittest:crux/scripts/tests:test*.py",
+        "checkout:unittest:tools/tests:test*.py",
+        "CYC-0095-drift-gates",
+        "CYC-0095-journal-index",
+        "CYC-0095-governs-references",
+        "CYC-0095-governs-coverage",
+        "CYC-0095-release-metadata",
+        "CYC-0095-mods-gate",
+        "CYC-0095-opencode-gate",
+        "CYC-0095-omp-gate"
+      ],
+      "revision": 19,
+      "status": "active",
+      "to_phase": "test"
+    },
+    {
+      "action": "prepare-dispatch",
+      "assignment": "test-acceptance",
+      "at": "2026-10-31T16:13:14.191718+00:00",
+      "attempt": 1,
+      "base": "f436875228cf99076c40cc6ccc687b16710aab0d",
+      "host": "claude-code",
+      "mode": "blocking",
+      "op_id": "pd-test-acceptance-1",
+      "pass": 1,
+      "phase": "test",
+      "revision": 20,
+      "role": "dev-lead",
+      "status": "active",
+      "task": "test-acceptance"
+    }
+  ],
+  "id": "CYC-0095",
+  "implementers": [
+    "dev-lead"
+  ],
+  "operations": [
+    {
+      "at": "2026-10-31T14:45:11.663345+00:00",
+      "op": "advance",
+      "op_id": "adv-plan-build-1",
+      "request_sha256": "f3f6a172e2227e3f502e7b485d562872ddf9286cac648b9c2b8037740ba641c6",
+      "result": {
+        "phase": "build",
+        "reused": [],
+        "revision": 8,
+        "status": "active"
+      },
+      "revision": 8
+    },
+    {
+      "at": "2026-10-31T14:47:00.038326+00:00",
+      "op": "prepare-dispatch",
+      "op_id": "pd-build-slice-1",
+      "request_sha256": "63add6ec379af3557adc5eede747440859786b6e44f88d2bc07ca604a5698142",
+      "result": {
+        "assignment": "build-slice",
+        "attempt": 1,
+        "base": "3108c62ec93d8950146b3597e51b60569e373b47",
+        "result_path": "/var/folders/y0/lljk5spx0lndscy5_dtjcb880000gn/T/crux-results-CYC-0095-m8g__sjo/build-slice-attempt-1.md",
+        "revision": 9,
+        "task": "build-slice"
+      },
+      "revision": 9
+    },
+    {
+      "at": "2026-10-31T14:51:07.706080+00:00",
+      "op": "deliver",
+      "op_id": "dl-build-slice-1",
+      "request_sha256": "f9d8ed15eb9744ed286491379464b6eba37e23f8d9ad89ccda53d933d6fbbe6e",
+      "result": {
+        "assignment": "build-slice",
+        "attempt": 1,
+        "outcome": "done",
+        "result_path": "/var/folders/y0/lljk5spx0lndscy5_dtjcb880000gn/T/crux-results-CYC-0095-m8g__sjo/build-slice-attempt-1.md",
+        "retained": "cycles/CYC-0095/results/build-slice-attempt-1.md",
+        "revision": 10,
+        "sha256": "8fe9396bee28fede1749113a5c53fba70af698cbab924740add877554567f6d3",
+        "status": "done",
+        "task": "build-slice"
+      },
+      "revision": 10
+    },
+    {
+      "at": "2026-10-31T14:52:17.199466+00:00",
+      "op": "prepare-dispatch",
+      "op_id": "pd-build-engine-1",
+      "request_sha256": "bf5c0f480ee2880e0804f065cb345fc70230c1d7261433dba1a66a6e4c0ee4bf",
+      "result": {
+        "assignment": "build-engine",
+        "attempt": 1,
+        "base": "3fba30f8a7a4f3a6e3068fbf02cb7f093a1630d7",
+        "result_path": "/var/folders/y0/lljk5spx0lndscy5_dtjcb880000gn/T/crux-results-CYC-0095-m8g__sjo/build-engine-attempt-1.md",
+        "revision": 11,
+        "task": "build-engine"
+      },
+      "revision": 11
+    },
+    {
+      "at": "2026-10-31T14:52:17.416783+00:00",
+      "op": "prepare-dispatch",
+      "op_id": "pd-build-dashboards-1",
+      "request_sha256": "3cba9753fe9ffb0fcc9120f928e3ccd6593cab11df1f479c907551a8b73a1a30",
+      "result": {
+        "assignment": "build-dashboards",
+        "attempt": 1,
+        "base": "3fba30f8a7a4f3a6e3068fbf02cb7f093a1630d7",
+        "result_path": "/var/folders/y0/lljk5spx0lndscy5_dtjcb880000gn/T/crux-results-CYC-0095-m8g__sjo/build-dashboards-attempt-1.md",
+        "revision": 12,
+        "task": "build-dashboards"
+      },
+      "revision": 12
+    },
+    {
+      "at": "2026-10-31T14:52:17.628306+00:00",
+      "op": "prepare-dispatch",
+      "op_id": "pd-build-instructions-1",
+      "request_sha256": "5e4dfc9b0274ad59458df192089ac20acc819365af72c26198c35c079af92c99",
+      "result": {
+        "assignment": "build-instructions",
+        "attempt": 1,
+        "base": "3fba30f8a7a4f3a6e3068fbf02cb7f093a1630d7",
+        "result_path": "/var/folders/y0/lljk5spx0lndscy5_dtjcb880000gn/T/crux-results-CYC-0095-m8g__sjo/build-instructions-attempt-1.md",
+        "revision": 13,
+        "task": "build-instructions"
+      },
+      "revision": 13
+    },
+    {
+      "at": "2026-10-31T15:32:04.438491+00:00",
+      "op": "deliver",
+      "op_id": "dl-build-engine-1b",
+      "request_sha256": "5ddd7102cf9ac55876af42a5c4b782cb698b8beb2a124d4dc9761a4c265381d4",
+      "result": {
+        "assignment": "build-engine",
+        "attempt": 1,
+        "outcome": "done",
+        "result_path": "/var/folders/y0/lljk5spx0lndscy5_dtjcb880000gn/T/crux-results-CYC-0095-m8g__sjo/build-engine-attempt-1.md",
+        "retained": "cycles/CYC-0095/results/build-engine-attempt-1.md",
+        "revision": 14,
+        "sha256": "0f28fdb4c38cc2c104f614d74edc8d02035a52f71d812f8110dfe1ad7bed6088",
+        "status": "done",
+        "task": "build-engine"
+      },
+      "revision": 14
+    },
+    {
+      "at": "2026-10-31T15:32:04.606205+00:00",
+      "op": "deliver",
+      "op_id": "dl-build-dashboards-1",
+      "request_sha256": "cffb9690ea67bd792f72f5fe9b4213191388ebc8e343ad8c097a09e9a8216197",
+      "result": {
+        "assignment": "build-dashboards",
+        "attempt": 1,
+        "outcome": "done",
+        "result_path": "/var/folders/y0/lljk5spx0lndscy5_dtjcb880000gn/T/crux-results-CYC-0095-m8g__sjo/build-dashboards-attempt-1.md",
+        "retained": "cycles/CYC-0095/results/build-dashboards-attempt-1.md",
+        "revision": 15,
+        "sha256": "a877ce1a31a9859493c55b3f5bd0e4a6649be05f926161c8f4e82b25f2e182f6",
+        "status": "done",
+        "task": "build-dashboards"
+      },
+      "revision": 15
+    },
+    {
+      "at": "2026-10-31T15:32:04.773326+00:00",
+      "op": "deliver",
+      "op_id": "dl-build-instructions-1",
+      "request_sha256": "d274701ada8d407135058df255a6e7f0a80259d98c6d495375aabfa7d4e315a7",
+      "result": {
+        "assignment": "build-instructions",
+        "attempt": 1,
+        "outcome": "done",
+        "result_path": "/var/folders/y0/lljk5spx0lndscy5_dtjcb880000gn/T/crux-results-CYC-0095-m8g__sjo/build-instructions-attempt-1.md",
+        "retained": "cycles/CYC-0095/results/build-instructions-attempt-1.md",
+        "revision": 16,
+        "sha256": "f5e72570d5c4cefd51a9248cd4222d5db4118455dc5511f5099cd3927b0ad904",
+        "status": "done",
+        "task": "build-instructions"
+      },
+      "revision": 16
+    },
+    {
+      "at": "2026-10-31T16:12:20.864187+00:00",
+      "op": "advance",
+      "op_id": "adv-build-test-1",
+      "request_sha256": "29ae8a7f2dd163bfe80950148639ee0d7c86a4d2ff81933485eb4ec5b3184193",
+      "result": {
+        "phase": "test",
+        "reused": [
+          "checkout:unittest:crux/scripts/tests:test*.py",
+          "checkout:unittest:tools/tests:test*.py",
+          "CYC-0095-drift-gates",
+          "CYC-0095-journal-index",
+          "CYC-0095-governs-references",
+          "CYC-0095-governs-coverage",
+          "CYC-0095-release-metadata",
+          "CYC-0095-mods-gate",
+          "CYC-0095-opencode-gate",
+          "CYC-0095-omp-gate"
+        ],
+        "revision": 19,
+        "status": "active"
+      },
+      "revision": 19
+    },
+    {
+      "at": "2026-10-31T16:13:14.191858+00:00",
+      "op": "prepare-dispatch",
+      "op_id": "pd-test-acceptance-1",
+      "request_sha256": "253b783eae72d6fef59384ab8daf790ac773fe4ebc494d03b1a11186d588be4c",
+      "result": {
+        "assignment": "test-acceptance",
+        "attempt": 1,
+        "base": "f436875228cf99076c40cc6ccc687b16710aab0d",
+        "result_path": "/var/folders/y0/lljk5spx0lndscy5_dtjcb880000gn/T/crux-results-CYC-0095-m8g__sjo/test-acceptance-attempt-1.md",
+        "revision": 20,
+        "task": "test-acceptance"
+      },
+      "revision": 20
+    }
+  ],
+  "pass": 1,
+  "pass_limit": 7,
+  "phase": "test",
+  "plan": {
+    "acceptance": [
+      "A new cycle of every type records and displays 'verify' for the phase after Build",
+      "Every committed cycle record under bionic/cycles/ (including active and completed cycles with 'test') validates, reads, resumes and renders unchanged; no historical record is rewritten",
+      "Commands and requests that name the old 'test' phase still work for existing cycles",
+      "The release cycle's own 'verify' step and the new phase are named so a reader cannot confuse them",
+      "Required checks pass and an independent reviewer files its own approval"
+    ],
+    "constraints": [
+      "Implement the approved IDR verify-phase-vocabulary (cycles/CYC-0095/decisions/05d6166d878b412b898ed9e35b578db9.json, sha256 95f7aa80937ad243686a736ccfe18782c55405416fb51417159f3357f4989a29, approved by council record cycles/CYC-0095/councils/decisions/8171443aa89fcdf82c9f467b/council-e4304ea1b1874cd1bd8237b81dd491c9.json); a material change to it needs a new revision and fresh council approval before dependent work.",
+      "New records carry phase_names \"verify\"; a record without the key keeps the historical names, with 'test' after Build.",
+      "No committed cycle record under bionic/cycles/ is rewritten; load, validate, inspect, render and upgrade add no key and change no stored phase.",
+      "schema_version stays 3; upgrade adds only v3_fields(), never phase_names.",
+      "A record without phase_names keeps its review basis digests unchanged, so a stored review still binds.",
+      "Plan and task-add input accepts 'test' and 'verify' and stores the record's own name.",
+      "The release step id stays 'verify' and tools/release.py verify keeps its name and behavior; only the description text of a new beta list's verify step changes.",
+      "Instructions write 'the Verify phase' for the phase and 'the release verify step' or 'release.py verify' for the release step, never a bare 'verify'.",
+      "Every dashboard phase table that names 'test' also names 'verify', and Verify draws in Test's colour key.",
+      "Historical surfaces keep their text: released CHANGELOG sections, promptbook templates, ADR bodies, journal entries, cycle records and review reports.",
+      "Generated outputs are regenerated by their regenerators, never hand-edited: micro-crux (crux/box and root preview), opencode/agents/, crux/catalog/skills.json, the routing-table regions, crux/catalog/rules.json if a cited rule changes, and the bionic/arch spine (its data model reads crux/schemas/cycle.schema.json).",
+      "bionic/objectives.md is not edited: the OBJ-7 measure wording is an owner decision.",
+      "No ADR file, lifecycle or authority metadata changes, and crux-authority-reset.md is not edited by this cycle's agents; candidates go to the commander.",
+      "Changes to crux-mods/hooks/lib/ need the cycle's independent review; they also owe a live OpenCode 2 check from the beta install before the next official release.",
+      "CYC-0095 runs on the installed 5.0.1 engine as a historical-vocabulary record: its tasks use phase 'test'.",
+      "No push, publish or release."
+    ],
+    "revision": 2,
+    "scope": [
+      "crux/scripts/cycle_workflow.py",
+      "crux/scripts/cycle_ops.py",
+      "crux/scripts/cycle_classify.py",
+      "crux/scripts/cycle.py",
+      "crux/scripts/cycle_progress.py",
+      "crux/scripts/cycle_hosts.py",
+      "crux/schemas/cycle.schema.json",
+      "crux/scripts/tests",
+      "crux-mods/hooks/lib/view.ts",
+      "crux-mods/hooks/lib/draw.ts",
+      "crux-omp/lib/live.ts",
+      "crux-mods/tests",
+      "crux-opencode/tests",
+      "crux-omp/tests",
+      "crux/skills",
+      "crux/agents",
+      "crux/templates/AGENTS.md.tmpl",
+      "crux/templates/USER_GUIDE.md",
+      "crux/templates/micro-crux.md.tmpl",
+      "crux/catalog/skills.json",
+      "crux/catalog/rules.json",
+      "crux/box/micro-crux.md",
+      "micro-crux.md",
+      "opencode/agents",
+      "bionic/arch",
+      "tools/run-drift-gates.py",
+      "tools/release.py",
+      "tools/tests",
+      "AGENTS.md",
+      "bionic/AGENTS.md",
+      "README.md",
+      "USER_GUIDE.md",
+      "DEPLOY.md",
+      "OPENCODE_GUIDE.md",
+      "OMP_GUIDE.md",
+      "CHANGELOG.md"
+    ],
+    "tasks": [
+      {
+        "depends_on": [],
+        "description": "Architect records IDR verify-phase-vocabulary, runs the pre-council self-check and fresh-agent challenge, convenes the Standard council (purpose idr), records approval and the architect agreement with nit dispositions.",
+        "expected_evidence": [
+          "Council record approving the exact IDR revision",
+          "approve-decision recorded with the architect agreement"
+        ],
+        "id": "plan-idr-verify-phase",
+        "phase": "plan",
+        "status": "done"
+      },
+      {
+        "depends_on": [
+          "plan-idr-verify-phase"
+        ],
+        "description": "Architect records this plan with split scope, constraints, verification and tasks for every phase, and seeds the friction log.",
+        "expected_evidence": [
+          "Plan revision recorded by cycle.py plan",
+          "bionic/cycles/CYC-0095/evidence/friction.md"
+        ],
+        "id": "plan-write",
+        "phase": "plan",
+        "status": "done"
+      },
+      {
+        "assignee": "build-slice",
+        "commits": [
+          "d4f2347ceac766ee8a27dffb49bc720b142f33b4"
+        ],
+        "depends_on": [
+          "plan-write"
+        ],
+        "description": "Vertical slice. In crux/scripts/cycle_workflow.py: add phase_names to create (not to v3_fields), make phases_of return the record's vocabulary, add CHECK_PHASES, and route the requirements gate (the 'test' branch), the low-level advance and the plan check through them. Add 'verify' and the optional phase_names key to crux/schemas/cycle.schema.json. New test crux/scripts/tests/test_cycle_verify_phase.py: a cycle created by the checkout engine in a temporary tree goes Build to Verify end to end and its status shows Verify, while a historical fixture record with phase 'test' loads, advances Test to Review and shows Test. Owned paths: crux/scripts/cycle_workflow.py, crux/schemas/cycle.schema.json, crux/scripts/tests/test_cycle_verify_phase.py.",
+        "expected_evidence": [
+          "Commit with Cycle-Task: build-slice",
+          "test_cycle_verify_phase.py passes"
+        ],
+        "id": "build-slice",
+        "note": "Integrated by ff-only at d4f2347c; changed paths inside owned list plus the minimal cycle_ops.py touch the assignment allowed. Known: ~260 existing cycle tests fail until build-engine updates them (slice report).",
+        "phase": "build",
+        "result_path": "/var/folders/y0/lljk5spx0lndscy5_dtjcb880000gn/T/crux-results-CYC-0095-m8g__sjo/build-slice-attempt-1.md",
+        "stage": "integrated",
+        "status": "done"
+      },
+      {
+        "assignee": "build-engine",
+        "commits": [
+          "a6ff330f44bae3a7050b74c7f2631536289e8031"
+        ],
+        "depends_on": [
+          "build-slice"
+        ],
+        "description": "Complete the engine on the slice. Every remaining sequence lookup reads phases_of(doc) (review basis cutoff, task-add, change-type keeps phase_names, typed advance in cycle_ops.py); every remaining 'test' comparison uses CHECK_PHASES (cycle_workflow.py plan-details, reduction, return, change-type guards, FIX_PHASES; cycle_ops.py phase_checks and declaration_routes; cycle_classify.py RETURN_PHASES). Map 'test' and 'verify' to the record's own name for plan-file and task-add input before replan pairing. Engine messages name the record's phase (cycle_workflow.py:621, :623, :1167, :1186, :1206, :1558, :1655; cycle_ops.py:991 docstring; cycle_hosts.py:27); 'Test runs' in cycle_summary.py:173 stays. New beta-list verify step description names release.py verify. Update existing tests that drive freshly created cycles past Build to 'verify'; keep fixture and dict-literal records on 'test' as historical coverage. Add tests: every type's sequence; input mapping both ways; fix task, return, change-type, plan-details and reduction in both vocabularies; review binding on a historical fixture; upgrade adds no phase_names; every committed bionic/cycles record loads with unchanged bytes; no bare phase comparison against 'test' remains. Owned paths: crux/scripts/cycle_workflow.py, cycle_ops.py, cycle_classify.py, cycle.py, cycle_progress.py, cycle_hosts.py, crux/scripts/tests/ (except test_cycle_verify_phase.py, shared with build-slice). Council nits applied here (architect agreement on the approval record): anthropic_top:F1, a historical fixture starts in Build with one declared required check, advances into 'test' and refuses Review until the check passes; anthropic_top:F2, the input-mapping helper returns the value unchanged when the record's sequence holds neither name (release), and a release task-add case asserts the refusal; anthropic_top:F3, widen the one-time search to all shipped code and every crux/schemas/*.json and record the result in Build evidence. Also: the committed historical-records test checks validate, load and unchanged bytes only and depends on no installed plugin version; the Python completeness scan uses ast over crux/scripts/cycle*.py as the IDR defines it.",
+        "expected_evidence": [
+          "Commits with Cycle-Task: build-engine",
+          "Focused and related cycle tests pass"
+        ],
+        "id": "build-engine",
+        "note": "Rebased c4f1fc04 onto main (other commits landed on bionic/adrs, objectives, queue) and ff-merged; paths inside owned list. Cycle subset 1252 OK per developer. Known: test_cycle_instruction_contracts.py (10) asserts old wording and micro-crux contracts (2) need regeneration; dev-lead handles both in build-integrate.",
+        "phase": "build",
+        "result_path": "/var/folders/y0/lljk5spx0lndscy5_dtjcb880000gn/T/crux-results-CYC-0095-m8g__sjo/build-engine-attempt-1.md",
+        "stage": "integrated",
+        "status": "done"
+      },
+      {
+        "assignee": "build-dashboards",
+        "commits": [
+          "67f01ead8825cf38b0ee88eac13a56ce916c331d"
+        ],
+        "depends_on": [
+          "build-slice"
+        ],
+        "description": "Dashboards accept and colour both vocabularies. In crux-mods/hooks/lib/view.ts the CYCLE_PHASES table and the per-phase membership check (line 488, stored phase at 498) accept 'verify', sequenceOk accepts the type's 'test' or 'verify' sequence in order, and the returns phase list adds 'verify'. Add verify with Test's key to PHASE_KEYS in crux-mods/hooks/lib/draw.ts and PHASE_COLORS in crux-omp/lib/live.ts. Extend the distinct-keys test (crux-mods/tests/cycle-dashboard.test.ts:195-207) with each type's 'verify' sequence, add an equivalent crux-omp colour test, and render one record of each vocabulary and a release cycle in crux-mods/tests/, crux-opencode/tests/ and crux-omp/tests/ (fixtures included). Add a TypeScript test that every phase table naming 'test' also names 'verify'. Owned paths: crux-mods/hooks/lib/view.ts, crux-mods/hooks/lib/draw.ts, crux-omp/lib/live.ts, crux-mods/tests/, crux-opencode/tests/, crux-omp/tests/. Council nits applied here: anthropic_top:F4, the TypeScript completeness scan exempts the historical sequence array, or is dropped if the table shape makes it awkward; anthropic_top:F5, confirm the omp gate in sync.sh runs the crux-omp tests, otherwise record the omp colour guard as cycle-time only.",
+        "expected_evidence": [
+          "Commit with Cycle-Task: build-dashboards",
+          "mods, opencode and omp gates pass"
+        ],
+        "id": "build-dashboards",
+        "note": "Rebased e594dde4 onto main and ff-merged; paths inside owned list. mods/opencode/omp gates exit 0 per developer; crux-mods/hooks/lib changes owe independent review and a live OpenCode 2 check before the next official release.",
+        "phase": "build",
+        "result_path": "/var/folders/y0/lljk5spx0lndscy5_dtjcb880000gn/T/crux-results-CYC-0095-m8g__sjo/build-dashboards-attempt-1.md",
+        "stage": "integrated",
+        "status": "done"
+      },
+      {
+        "assignee": "build-instructions",
+        "commits": [
+          "820ad66b321d1ad8178b4cc4cf85b9f0274c3676"
+        ],
+        "depends_on": [
+          "build-slice"
+        ],
+        "description": "Instructions name the Verify phase: crux/skills/cycle/SKILL.md and references (commands.md, testing.md, review.md), other skills naming the phase (cycle-status, check-drift if they do), crux/agents/*.md, crux/templates/AGENTS.md.tmpl, crux/templates/USER_GUIDE.md, crux/templates/micro-crux.md.tmpl, bionic/AGENTS.md section 11.E, AGENTS.md, README.md, USER_GUIDE.md, DEPLOY.md, OPENCODE_GUIDE.md, OMP_GUIDE.md, and the help and docstrings in tools/run-drift-gates.py and tools/release.py. The cycle skill and section 11.E state once that records created before the rename show Test, the same phase, and that input accepts either name. Use the wording the plan constraints name for the release verify step. Leave historical surfaces untouched. Regenerate opencode/agents/, crux/catalog/skills.json and the routing-table regions with their regenerators. Owned paths: the files named here plus opencode/agents/ and crux/catalog/skills.json.",
+        "expected_evidence": [
+          "Commits with Cycle-Task: build-instructions",
+          "validate-catalog, generate-opencode-agents, generate-routing-table, generate-runtime-compat and generate-rules-catalog --dry-run exit 0",
+          "check-public-release-content passes"
+        ],
+        "id": "build-instructions",
+        "note": "Rebased c591a185 onto main and ff-merged; paths inside owned list. DONE_WITH_CONCERNS: test_cycle_instruction_contracts.py asserts old wording (10 tests), protected from this unit; dev-lead updates it in build-integrate.",
+        "phase": "build",
+        "result_path": "/var/folders/y0/lljk5spx0lndscy5_dtjcb880000gn/T/crux-results-CYC-0095-m8g__sjo/build-instructions-attempt-1.md",
+        "stage": "integrated",
+        "status": "done"
+      },
+      {
+        "assignee": "dev-lead",
+        "commits": [
+          "84fcf7b0261e47c5bb3a7bfb9d03a6da7e958f1b",
+          "48f9e47baf6d78bc23c12dc8ca89b6df751567ee"
+        ],
+        "depends_on": [
+          "build-engine",
+          "build-dashboards",
+          "build-instructions"
+        ],
+        "description": "Integrate the streams. Regenerate crux/box/micro-crux.md and the root micro-crux.md preview from the final schema and template, and the bionic/arch spine with derive-arch.py (bionic/arch/data-model.md lists the cycle phase enum). Add the CHANGELOG.md Unreleased entry for the rename. Record the complete Build check set with checks --phase build and attach passing receipts: checkout:unittest:crux/scripts/tests:test*.py, checkout:unittest:tools/tests:test*.py, CYC-0095-drift-gates, CYC-0095-journal-index, CYC-0095-governs-references, CYC-0095-governs-coverage, CYC-0095-release-metadata, CYC-0095-mods-gate, CYC-0095-opencode-gate, CYC-0095-omp-gate. Each unit ran its focused tests first (test_cycle_verify_phase.py, the test_cycle_*.py modules, the crux-mods, crux-opencode and crux-omp test suites, and the projection tests for catalog, routing table, opencode agents and micro-crux); the two checkout suites cover every test that imports, reads or enumerates a changed path. Owned paths: crux/box/micro-crux.md, micro-crux.md, bionic/arch, CHANGELOG.md. The CHANGELOG entry states that the engine and the dashboard mods upgrade together and that an earlier release cannot read a cycle created after the rename.",
+        "evidence": [
+          "cycles/CYC-0095/evidence/build/phase-literal-search.md"
+        ],
+        "expected_evidence": [
+          "generate-micro-crux --dry-run and derive-arch --dry-run exit 0",
+          "Build checks recorded with current passing receipts"
+        ],
+        "id": "build-integrate",
+        "note": "Dev-lead integrated the three streams, regenerated micro-crux and bionic/arch, updated test_cycle_instruction_contracts.py to the Verify wording, added the CHANGELOG entry, and fixed the micro-crux initial-cycle example the first main run caught.",
+        "phase": "build",
+        "stage": "integrated",
+        "status": "done"
+      },
+      {
+        "assignee": "test-acceptance",
+        "depends_on": [
+          "build-integrate"
+        ],
+        "description": "Declare the required checks and coverage (main run core and tools suites, drift-gates, governs-references, governs-coverage, journal-index, release-metadata (CHANGELOG.md and README.md change), mods, opencode and omp gates), reuse unchanged receipts, and check acceptance criteria 1 to 4 by observation: create one cycle of every type in a temporary tree, and diff the checkout reader's status JSON over bionic/cycles against the installed 5.0.1 reader at the same commit. Write bionic/cycles/CYC-0095/evidence/test/historical-render.md.",
+        "expected_evidence": [
+          "Required checks with passing receipts",
+          "bionic/cycles/CYC-0095/evidence/test/historical-render.md"
+        ],
+        "id": "test-acceptance",
+        "phase": "test",
+        "result_path": "/var/folders/y0/lljk5spx0lndscy5_dtjcb880000gn/T/crux-results-CYC-0095-m8g__sjo/test-acceptance-attempt-1.md",
+        "status": "active"
+      },
+      {
+        "depends_on": [
+          "test-acceptance"
+        ],
+        "description": "Independent reviewer, not an implementer, reviews the full range from the task base at Standard scrutiny. Review floor: the engine and schema change (historical records, review binding, upgrade), crux-mods/hooks/lib/view.ts and draw.ts (imported by crux-opencode and crux-omp) and crux-omp/lib/live.ts, the release-step wording, and the regenerated projections. The reviewer files its own report.",
+        "expected_evidence": [
+          "Approving reviewer report recorded through cycle.py review"
+        ],
+        "id": "review-independent",
+        "phase": "review",
+        "status": "pending"
+      },
+      {
+        "depends_on": [
+          "review-independent"
+        ],
+        "description": "Record delivered criteria, carry bionic/cycles/CYC-0095/evidence/plan/pending-owner-decisions.md forward (council nit anthropic_top:F6), lessons from the friction log, remaining work (OBJ-7 measure wording for the owner, authority-reset candidates for ADR-0165 and ADR-0168 wording, the live OpenCode 2 check owed before the next official release) and follow-up references.",
+        "expected_evidence": [
+          "Reflection recorded",
+          "Friction log synthesised"
+        ],
+        "id": "reflect",
+        "phase": "reflect",
+        "status": "pending"
+      }
+    ],
+    "verification": [
+      "Slice evidence: a cycle created by the checkout engine records phase_names 'verify', advances Build to Verify and shows 'Verify'; a historical fixture record advances Test to Review and shows 'Test'.",
+      "Every type: dev, iterate, refactor, simplify and quick-fix cycles created by the checkout engine name 'verify' after Build; a beta and an official release cycle carry no Verify phase.",
+      "Historical records: every committed bionic/cycles/*/cycle.json validates and loads under the checkout engine with unchanged bytes; the checkout reader's status JSON for the tree equals the installed 5.0.1 reader's output at the same commit, apart from fields added since 5.0.1 (evidence at bionic/cycles/CYC-0095/evidence/test/historical-render.md).",
+      "Old names: plan and task-add accept 'test' on a new record and 'verify' on a historical record and store the record's own name; fix tasks are accepted in Test on a historical record and in Verify on a new one; return, change-type, plan-details and reduction work in both vocabularies.",
+      "Review binding: a review stored on a historical fixture record still binds after the change.",
+      "Dashboards: crux-mods, crux-opencode and crux-omp tests render one record of each vocabulary and a release cycle; Verify draws in a key distinct from Review on each dashboard; every TypeScript phase table naming 'test' also names 'verify'.",
+      "Release disambiguation: a new beta list's verify step description names release.py verify; an old release record validates; instructions use the phase and step wording the constraints name (a grep finds no bare 'Test phase' in current instructions).",
+      "Completeness: a test finds no bare phase comparison against 'test' in crux/scripts/cycle*.py outside CHECK_PHASES and the historical sequence.",
+      "Main run: the registered checkout core and tools suites pass on the floor minor on the final code state, with receipt ids.",
+      "drift-gates (cycle scope), governs-references, governs-coverage, journal-index and release-metadata pass on the final tree.",
+      "mods, opencode and omp gates pass.",
+      "An independent reviewer, not the implementer, files an approving report at Standard scrutiny over the full range from the task base."
+    ]
+  },
+  "reflection": null,
+  "release": null,
+  "required_checks": [],
+  "results_dir": "/var/folders/y0/lljk5spx0lndscy5_dtjcb880000gn/T/crux-results-CYC-0095-m8g__sjo",
+  "review_policy": {
+    "rationale": "repository default",
+    "risks": [],
+    "scrutiny": "standard"
+  },
+  "reviews": [],
+  "revision": 20,
+  "schema_version": 3,
+  "status": "active",
+  "title": "Rename the cycle Test phase to Verify",
+  "type": "dev",
+  "updated_at": "2026-10-31T16:13:14.191735+00:00"
+}

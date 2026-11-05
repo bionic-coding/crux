@@ -39,6 +39,18 @@ Strict. New setup explicitly selects Standard or an owner-selected Lite mode.
 - Standard: three gateway provider seats, two approvals and architect agreement.
   Address every dissent with a typed disposition. Resolved/refuted findings need
   retained checkable evidence; a non-binding trade-off needs an explanation.
+  Single-seat dissent rule: when two seats approve and one dissents, revise
+  only if the finding is a binding failure or missing authorization, or states
+  a plausible failure, consequence and smallest fix that the architect cannot
+  refute and no later phase would catch. For an unresolved required safety
+  fact, obtain a targeted check; if it stays unresolved, withdraw the dependent
+  choice. A required safety fact about data policy or publishing is not a council
+  dispute: it is the outward-facing stop, and the one question put to the owner.
+  Otherwise answer on the same revision with reasoned agreement. Record `refuted` with a named check
+  when the finding fails the blocking standard. Record `accepted-tradeoff` with
+  the reason when a later phase would catch it or its risk is lower than the
+  cost of another round. When all three seats approve with nits only, record
+  agreement; do not revise for nits.
 - Strict: all three gateway seats approve with no recorded blocking findings.
 
 Standard and Strict require `OPENROUTER_API_KEY` through `crux-env`. Missing
@@ -51,15 +63,63 @@ Use `cycle-council.py` for ADR, IDR, ADR-creation, consultation and disposition
 purposes. Consultation approves no decision. Its `--identity` stays stable across
 renamed files. IDRs retain their cycle name across revisions. The configured
 attempt limit defaults to seven for new mode-aware decisions. Stop on stalled
-progress. Extensions beyond seven and authorized mode changes retain owner
-conversation provenance, findings and total count. Historical reviews keep their
-original policy and limit.
+progress. A council dispute never goes to the owner. At the limit, or when the
+same blocking finding recurs on two consecutive attempts after a revision that
+answered it, the architect withdraws the decision with `withdraw-decision`;
+no agent requests an extension. A narrowed replacement names the record it
+replaces, and its attempts continue that record's count. An extension or mode
+change the owner records on their own initiative keeps its provenance, findings
+and total count. Historical reviews keep their original policy and limit.
+
+Gateway convening is detached by default. Initial success names a running attempt
+and `await_command`; it is not a vote or approval. Run the returned await command
+for the terminal outcome, then the existing architect disposition. `--foreground`
+is the synchronous diagnostic form. `--probe ATTEMPT` reads the attempt flock.
+`--recover ATTEMPT` sends no request: it refuses while the flock is held, recovers
+the original persisted result, or marks an unowned execution interrupted. An
+interrupted claim still counts, and a later convening is a separate counted attempt.
+Full cycle inspect exposes exact subject/attempt/result references, recovery argv
+and prerequisites without requests or writes. New gateway attempts always persist
+request/outcome checkpoints under existing ownership. A persistence failure stops
+further calls and positive approval. Durable negatives survive; missing outcomes
+stay unknown. Recovery sends no request and resets no budget. Partial events never
+approve; later convening uses prior findings as historical context beside fresh votes.
+New approval/application checks current bound evidence. Pure sealed historical
+validation and applied acceptance retain their standing. The cycle commands reference
+gives the interfaces; historical/native-Lite callers keep their original protocols.
+The runner holds ownership through result persistence; never hand-edit or delete
+a claim. A missing launcher acknowledgement proves nothing: after the exact child
+terminates, check its exact preallocated claim identity before reporting no claim.
+Use recovery for an existing claim; do not request a substitute owner approval.
+Native Lite follows its separate sealed-dispatch procedure.
+
+Settle a dispute under the configured mode. Record the architect agreement even
+when every seat approves: it names the approved sha256 and each nit id with a
+disposition, `apply-in-build` (a note on a Build task) or `declined` with its
+reason, in the `nits` list of the `--architect` JSON. A nit never starts another
+attempt, and the approved revision stays as approved. `srde` output may be kept as
+evidence for a `refuted` disposition of an IDR dissent; `srde` never runs on the
+ADR path.
+
+A new revision of an IDR whose earlier revision was approved is reviewed as a
+delta. The writer computes each top-level contents key added, removed or changed
+against the latest approved revision, stores it in the attempt, and checks it
+again against both revisions' bytes at convening and at approval. The seats
+receive the full new revision with the changed keys marked and judge the change.
+Approval binds the new revision's sha256, and a delta attempt counts toward the
+same limit.
 
 A Standard result waits for the architect even when its provider votes suffice.
-Use `--architect <JSON> --record <result>` to record exact-revision agreement and
+That result reports the outcome `awaiting-architect`, exits 1 and prints the command
+to run; the sealed record keeps `changes-required`. Use `--architect PATH --record
+<result>`, where PATH names a JSON file, to record exact-revision agreement and
 typed dissent; do not call another council just to add that agreement. The writer
 resolves evidence artifacts safely and hashes their bytes. A targeted check for a
 required fact is not another mandatory council round.
+
+Fix-round discipline, for every mode: fix all findings (or refute one with a named check) in one revision, apply each
+fix at every site that states the same concept, and rerun the pre-council
+self-check's mechanical checks before reconvening.
 
 The following promptbook procedures preserve historical gateway-only behavior.
 They do not override configured prospective modes.

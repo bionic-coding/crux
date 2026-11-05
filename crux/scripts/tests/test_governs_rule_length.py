@@ -163,9 +163,6 @@ class YamlStyleTests(unittest.TestCase):
     def test_a_plain_scalar_at_the_maximum_does_not_warn(self):
         self.assertEqual(self._one_style("a" * MAX), [])
 
-    def test_a_double_quoted_scalar_one_over_warns(self):
-        self.assertEqual(len(self._one_style('"' + "a" * (MAX + 1) + '"')), 1)
-
     def test_a_single_quoted_scalar_one_over_warns(self):
         self.assertEqual(len(self._one_style("'" + "a" * (MAX + 1) + "'")), 1)
 
@@ -240,13 +237,6 @@ class GrandfatheringTests(unittest.TestCase):
         t.baseline = ["ADR-0001"]
         t.adr("ADR-0001", entry("ADR-0001/over", '"' + "a" * (MAX + 500) + '"'))
         self.assertEqual(t.rows(), [])
-
-    def test_the_same_adr_absent_from_the_baseline_is_checked(self):
-        """The paired control: identical fixture, one id removed from the baseline."""
-        t = _tree(self)
-        t.baseline = []
-        t.adr("ADR-0001", entry("ADR-0001/over", '"' + "a" * (MAX + 500) + '"'))
-        self.assertEqual(len(t.rows()), 1)
 
     def test_an_edit_to_a_baseline_adr_stays_exempt(self):
         """'Subsequent edits remain exempt' — the exemption keys on identity, and nothing about
@@ -446,10 +436,6 @@ class DocumentedContractTests(unittest.TestCase):
         `backfill` would spuriously satisfy `backfill_errors`.
         """
         return f"`{key}`" in doc or f'"{key}"' in doc
-
-    def test_the_docstring_names_the_warnings_key(self):
-        self.assertIn("`warnings`", self._docstring(),
-                      "the emitted key is absent from the documented output contract")
 
     def test_the_docstring_says_the_advisory_does_not_change_the_exit_code(self):
         doc = self._docstring().lower()

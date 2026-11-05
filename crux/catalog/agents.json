@@ -27,18 +27,7 @@
     "risk_level": "medium",
     "maxTurns": 100,
     "effort": "high",
-    "skills": [
-      "propose-adr",
-      "transition-adr",
-      "migrate-adrs",
-      "council",
-      "srde",
-      "cycle",
-      "link-adr-graph",
-      "propose-brief",
-      "log-work",
-      "forge-skill"
-    ]
+    "skills": []
   },
   {
     "id": "brainstormer",
@@ -65,15 +54,11 @@
     "risk_level": "low",
     "shell_scope": "read-local",
     "skill_lanes": {
-      "forge-skill": "returns-to-caller",
-      "query-docs": "caller-supplies",
       "whiteboarding": "caller-supplies"
     },
     "maxTurns": 50,
     "skills": [
-      "whiteboarding",
-      "query-docs",
-      "forge-skill"
+      "whiteboarding"
     ]
   },
   {
@@ -86,6 +71,7 @@
       "Glob",
       "Agent(architect)",
       "Agent(brainstormer)",
+      "Agent(developer)",
       "Agent(dev-lead)",
       "Agent(historian)",
       "Agent(librarian)",
@@ -111,17 +97,11 @@
     "risk_level": "medium",
     "shell_scope": "write-run",
     "skill_lanes": {
-      "council": "delegates:architect",
-      "cycle": "delegates:historian",
-      "log-work": "delegates:historian",
-      "run-promptbook": "delegates:historian"
+      "cycle": "delegates:historian"
     },
     "maxTurns": 250,
     "skills": [
-      "cycle",
-      "run-promptbook",
-      "council",
-      "log-work"
+      "cycle"
     ]
   },
   {
@@ -157,9 +137,7 @@
     "risk_level": "high",
     "maxTurns": 250,
     "skills": [
-      "cycle",
-      "forge-skill",
-      "log-work"
+      "cycle"
     ]
   },
   {
@@ -188,10 +166,7 @@
     "risk_level": "medium",
     "maxTurns": 200,
     "effort": "medium",
-    "skills": [
-      "forge-skill",
-      "log-work"
-    ],
+    "skills": [],
     "isolation": "worktree"
   },
   {
@@ -221,25 +196,7 @@
     "risk_level": "medium",
     "maxTurns": 100,
     "effort": "medium",
-    "skills": [
-      "cycle",
-      "init-docs",
-      "audit-docs",
-      "cleanup-campsite",
-      "link-adr-graph",
-      "check-drift",
-      "transition-adr",
-      "ingest-research",
-      "process-inbox",
-      "propose-adr",
-      "propose-brief",
-      "log-work",
-      "archive-promptbook",
-      "extract-code-docs",
-      "verify-code-docs",
-      "run-promptbook",
-      "forge-skill"
-    ],
+    "skills": [],
     "memory": "project"
   },
   {
@@ -266,14 +223,12 @@
     "risk_level": "low",
     "shell_scope": "run-plugin-script",
     "skill_lanes": {
-      "forge-skill": "returns-to-caller",
       "query-docs": "caller-supplies"
     },
     "maxTurns": 50,
     "effort": "medium",
     "skills": [
-      "query-docs",
-      "forge-skill"
+      "query-docs"
     ]
   },
   {
@@ -309,18 +264,7 @@
     "risk_level": "high",
     "maxTurns": 100,
     "skills": [
-      "tend-garden",
-      "cleanup-campsite",
-      "read-news",
-      "refresh-research-sources",
-      "retrospective",
-      "council",
-      "srde",
-      "whiteboarding",
-      "query-docs",
-      "prose-review",
-      "forge-skill",
-      "log-work"
+      "tend-garden"
     ],
     "memory": "project"
   },
@@ -347,17 +291,9 @@
     ],
     "risk_level": "low",
     "shell_scope": "write-run",
-    "skill_lanes": {
-      "council": "returns-to-caller",
-      "forge-skill": "returns-to-caller"
-    },
     "maxTurns": 200,
     "effort": "high",
-    "skills": [
-      "prose-review",
-      "council",
-      "forge-skill"
-    ]
+    "skills": []
   },
   {
     "id": "wayfinder",

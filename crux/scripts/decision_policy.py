@@ -34,6 +34,113 @@ def frontmatter(text):
     return front, text[match.end():]
 
 
+def receipt_identity(receipt):
+    """Return the immutable identity of an original or recovery receipt."""
+    adr=receipt['adr']
+    if not isinstance(adr,str) or not re.fullmatch(r'(?:[A-Z][A-Z0-9]*-)?ADR-\d{4,}',adr):
+        raise CycleError('invalid acceptance receipt ADR identity')
+    if 'recovery_of' not in receipt:
+        return f'adrs/acceptances/{adr}.json'
+    sha=receipt['owner_decision']['sha256']
+    if not isinstance(sha,str) or not re.fullmatch('[0-9a-f]{64}',sha):
+        raise CycleError('invalid recovery owner evidence digest')
+    return f'adrs/acceptances/recoveries/{adr}/{sha}.json'
+
+
+def _receipt_reference(read, reference):
+    if (not isinstance(reference,dict) or set(reference)!={'path','sha256'}
+            or not isinstance(reference['path'],str)
+            or not re.fullmatch(r'adrs/acceptances/(?:(?:[A-Z][A-Z0-9]*-)?ADR-\d{4,}\.json|recoveries/(?:[A-Z][A-Z0-9]*-)?ADR-\d{4,}/[0-9a-f]{64}\.json)',reference['path'])):
+        raise CycleError('invalid acceptance receipt reference')
+    raw=read(reference['path'])
+    if digest(raw)!=reference['sha256']:
+        raise CycleError('acceptance receipt reference changed')
+    receipt=json.loads(raw)
+    if receipt_identity(receipt)!=reference['path']:
+        raise CycleError('acceptance receipt reference identity mismatch')
+    return receipt
+
+
+def _recovery_root(receipt, read):
+    """Validate immutable predecessor receipts without consulting mutable currentness."""
+    seen=set()
+    while 'recovery_of' in receipt:
+        identity=receipt_identity(receipt)
+        if identity in seen:
+            raise CycleError('cyclic acceptance recovery')
+        seen.add(identity)
+        previous=receipt['recovery_of']
+        prior=_receipt_reference(read,previous)
+        validate_receipt_data(prior,receipt['subject'],read(prior['council']),proof_reader=read,_history=False)
+        ignored={'owner_decision','human_approval','at','recovery_of'}
+        if ({k:v for k,v in prior.items() if k not in ignored}
+                != {k:v for k,v in receipt.items() if k not in ignored}):
+            raise CycleError('acceptance recovery changed proposal or approval bindings')
+        from owner_decision import validate_reapproval
+        validate_reapproval(read,prior.get('owner_decision'),receipt.get('owner_decision'))
+        receipt=prior
+    return receipt_identity(receipt)
+
+
+def resolve_acceptance(adr, *, proof_reader, exists, _pending=False):
+    """Resolve the current immutable receipt; a present invalid binding never falls back."""
+    canonical=receipt_identity({'adr':adr})
+    binding_path=f'adrs/acceptances/{adr}.current.json'
+    original=proof_reader(canonical)
+    selected=canonical
+    if exists(binding_path):
+        binding=json.loads(proof_reader(binding_path))
+        if (not isinstance(binding,dict) or set(binding)!={'format','adr','original','current'}
+                or binding['format']!='crux.adr-acceptance-current.v1' or binding['adr']!=adr
+                or binding['original']!={'path':canonical,'sha256':digest(original)}):
+            raise CycleError('invalid current acceptance binding')
+        receipt=_receipt_reference(proof_reader,binding['current'])
+        selected=binding['current']['path']
+        if selected==canonical or _recovery_root(receipt,proof_reader)!=canonical:
+            raise CycleError('current acceptance must bind a recovery of its original receipt')
+    else:
+        if exists(f'adrs/acceptances/recoveries/{adr}') and not _pending:
+            raise CycleError('current acceptance binding missing')
+        receipt=json.loads(original)
+        if receipt_identity(receipt)!=canonical:
+            raise CycleError('invalid original acceptance identity')
+    validate_receipt_data(receipt,receipt['subject'],proof_reader(receipt['council']),proof_reader=proof_reader)
+    return selected,receipt
+
+
+def _current_receipt(cfg, adr, *, _pending=False):
+    from cycle_council import docs_proof_reader
+    return resolve_acceptance(adr,proof_reader=docs_proof_reader(cfg),
+                              exists=lambda name:contained(cfg.docs_root,name).exists(),_pending=_pending)
+
+
+def _recover_receipt(cfg, receipt, owner_decision, captured):
+    """Bind a later approval only while the caller holds the acceptance mutation lock."""
+    from cycle_council import docs_proof_reader
+    from owner_decision import validate_reapproval
+    read=docs_proof_reader(cfg)
+    validate_reapproval(read,receipt.get('owner_decision'),owner_decision['capture'])
+    prior=receipt_identity(receipt)
+    recovered={**receipt,'owner_decision':owner_decision['capture'],'human_approval':captured['quote'],
+               'at':now(),'recovery_of':{'path':prior,'sha256':digest(read(prior))}}
+    _validate_receipt(cfg,recovered,receipt['subject'])
+    name=receipt_identity(recovered)
+    path=contained(cfg.docs_root,name)
+    if path.exists():
+        retained=json.loads(read(name))
+        if {k:v for k,v in retained.items() if k!='at'}!={k:v for k,v in recovered.items() if k!='at'}:
+            raise CycleError('conflicting immutable acceptance recovery')
+        recovered=retained
+    else:
+        atomic(path,recovered)
+    canonical=f'adrs/acceptances/{receipt["adr"]}.json'
+    atomic(contained(cfg.docs_root,f'adrs/acceptances/{receipt["adr"]}.current.json'),{
+        'format':'crux.adr-acceptance-current.v1','adr':receipt['adr'],
+        'original':{'path':canonical,'sha256':digest(read(canonical))},
+        'current':{'path':name,'sha256':digest(read(name))}})
+    return recovered
+
+
 def propose(repo, proposal, *, origin, cycle_id=None, creation_approval=None, creation_subject=None):
     """Allocate an ADR only after cycle creation justification, when applicable."""
     if origin not in {'direct','whiteboard','inbox','cycle'}:
@@ -107,7 +214,8 @@ def propose(repo, proposal, *, origin, cycle_id=None, creation_approval=None, cr
         return {'adr':identity,'path':path.relative_to(cfg.docs_root).as_posix()}
 
 
-def accept(repo, subject, approval, *, human_approval=None, policy_basis=None, migration_package=None, migration_owner=None):
+def accept(repo, subject, approval, *, human_approval=None, policy_basis=None, migration_package=None, migration_owner=None,
+           owner_decision=None):
     """Accept a prospective proposal; resume a receipt-first interrupted write."""
     with locked(repo) as (cfg, directory):
         package_policy=None
@@ -143,15 +251,36 @@ def accept(repo, subject, approval, *, human_approval=None, policy_basis=None, m
         receipts=contained(cfg.docs_root, 'adrs/acceptances')
         receipts.mkdir(exist_ok=True)
         receipt_path=contained(receipts, f"{front['id']}.json")
-        if receipt_path.exists():
-            receipt=json.loads(receipt_path.read_text())
-            _validate_receipt(cfg, receipt, subject)
+        if receipt_path.exists() or contained(receipts,f"{front['id']}.current.json").exists():
+            _,receipt=_current_receipt(cfg,front['id'],_pending=front.get('status')=='Proposed')
+            if receipt['subject']!=subject:
+                raise CycleError('acceptance receipt subject mismatch')
             if migration_package is not None and (receipt.get('migration_package')!=migration_package or receipt.get('migration_owner')!=migration_owner):
                 raise CycleError('acceptance recovery binds another package or instruction')
             if receipt['council'] != approval:
                 raise CycleError('acceptance already binds another council')
             if digest(text.encode()) not in {receipt['proposed_sha256'], receipt['accepted_sha256']}:
                 raise CycleError('decision changed during acceptance recovery')
+            if front.get('status') == 'Proposed':
+                # Receipt persistence alone did not apply this acceptance.
+                validate_approval(repo, approval, purpose='adr', subject=subject)
+            if receipt.get('owner_decision') is not None or owner_decision is not None:
+                from owner_decision import authorize_adr, adr_result
+                if owner_decision is None:
+                    owner_decision = {'purpose':'adr-acceptance','cycle_id':receipt['cycle_id'],'subject':subject,
+                                      'subject_sha256':receipt['proposed_sha256'],'capture':receipt['owner_decision']}
+                if digest(text.encode()) == receipt['accepted_sha256']:
+                    if receipt.get('owner_decision') != owner_decision.get('capture'):
+                        raise CycleError('acceptance already binds another owner evidence record')
+                    if cycle is not None and (not target['accepted'] or target['approval'] != approval
+                                              or target['sha256'] != receipt['accepted_sha256']):
+                        target.update(approval=approval, accepted=True, sha256=receipt['accepted_sha256'])
+                        event(cycle, 'adr-accepted', adr=front['id'], standing='binding')
+                        save(cfg, cycle)
+                    return adr_result(cfg, receipt, owner_decision, already_applied=True)
+                captured=authorize_adr(cfg, owner_decision, subject, metadata.get('cycle_id'), receipt['proposed_sha256'])
+                if receipt.get('owner_decision') != owner_decision.get('capture'):
+                    receipt=_recover_receipt(cfg,receipt,owner_decision,captured)
             updated=receipt['accepted_text']
         else:
             if front.get('status') != 'Proposed':
@@ -160,6 +289,10 @@ def accept(repo, subject, approval, *, human_approval=None, policy_basis=None, m
             if council.get('cycle_id') != metadata.get('cycle_id'):
                 raise CycleError('ADR approval belongs to another cycle')
             policy=package_policy if package_policy is not None else load_workflow_policy(repo)['adr.acceptance']
+            if owner_decision is not None:
+                from owner_decision import authorize_adr
+                captured=authorize_adr(cfg, owner_decision, subject, metadata.get('cycle_id'), digest(text.encode()))
+                human_approval=captured['quote']
             if policy=='council-and-human' and not (isinstance(human_approval, str) and human_approval.strip()):
                 raise CycleError('human acceptance approval is required by repository policy')
             front.update(status='Accepted', date=now()[:10], accepted_date=now()[:10])
@@ -170,6 +303,8 @@ def accept(repo, subject, approval, *, human_approval=None, policy_basis=None, m
                      'council':approval, 'council_sha256':digest(contained(cfg.docs_root,approval).read_bytes()),
                      'cycle_id':metadata.get('cycle_id'),'policy':policy,
                      'human_approval':human_approval,'standing':'binding','at':now()}
+            if owner_decision is not None:
+                receipt['owner_decision']=owner_decision['capture']
             if migration_package is not None:
                 receipt.update(migration_package=migration_package,policy_basis=policy_basis,migration_owner=migration_owner)
                 from adr_migration import validate_package_acceptance_data
@@ -181,6 +316,9 @@ def accept(repo, subject, approval, *, human_approval=None, policy_basis=None, m
             target.update(approval=approval, accepted=True, sha256=digest(path.read_bytes()))
             event(cycle, 'adr-accepted', adr=front['id'], standing='binding')
             save(cfg, cycle)
+        if receipt.get('owner_decision') is not None:
+            from owner_decision import adr_result
+            return adr_result(cfg, receipt, owner_decision, already_applied=False)
         return receipt
 
 
@@ -190,7 +328,7 @@ def _validate_receipt(cfg, receipt, subject):
     return validate_receipt_data(receipt, subject, raw,proof_reader=docs_proof_reader(cfg))
 
 
-def validate_receipt_data(receipt, subject, raw, *, proof_reader=None):
+def validate_receipt_data(receipt, subject, raw, *, proof_reader=None, _history=True):
     """Validate captured bytes and any prospective Lite retained proof."""
     if receipt.get('format') != 'crux.adr-acceptance' or receipt.get('subject') != subject or receipt.get('standing') != 'binding':
         raise CycleError('invalid acceptance receipt identity')
@@ -211,6 +349,15 @@ def validate_receipt_data(receipt, subject, raw, *, proof_reader=None):
         raise CycleError('invalid recorded acceptance policy')
     if policy=='council-and-human' and not str(receipt.get('human_approval') or '').strip():
         raise CycleError('ADR acceptance lacks required human approval')
+    if receipt.get('owner_decision') is not None:
+        from owner_decision import validate_capture_evidence, _binding
+        if proof_reader is None:
+            raise CycleError('owner acceptance evidence requires its retained proof reader')
+        capture=validate_capture_evidence(proof_reader, receipt['owner_decision'])
+        if (_binding(capture) != {'purpose':'adr-acceptance','cycle_id':receipt.get('cycle_id'),
+                                  'subject':subject,'subject_sha256':receipt['proposed_sha256']}
+                or capture['disposition'] != 'approve' or capture['quote'] != receipt.get('human_approval')):
+            raise CycleError('owner acceptance evidence does not bind this approval')
     if digest(raw) != receipt['council_sha256']:
         raise CycleError('acceptance council record changed')
     record=json.loads(raw)
@@ -219,14 +366,18 @@ def validate_receipt_data(receipt, subject, raw, *, proof_reader=None):
                     subject_sha256=receipt['proposed_sha256'], cycle_id=receipt.get('cycle_id'),proof_reader=proof_reader)
     if record.get('cycle_id') != receipt.get('cycle_id'):
         raise CycleError('council does not bind this proposal owner')
+    if _history and 'recovery_of' in receipt:
+        if proof_reader is None:raise CycleError('acceptance recovery requires retained proofs')
+        _recovery_root(receipt,proof_reader)
     return receipt
 
 
 def validate_acceptance(cfg, decision):
     path=contained(cfg.docs_root,decision['path'])
     front, body=frontmatter(path.read_text())
-    receipt=json.loads(contained(cfg.docs_root,f"adrs/acceptances/{front['id']}.json").read_text())
-    _validate_receipt(cfg,receipt,decision['path'])
+    _,receipt=_current_receipt(cfg,front['id'])
+    if receipt['subject']!=decision['path']:
+        raise CycleError('acceptance receipt subject mismatch')
     if receipt['accepted_sha256'] != digest(path.read_bytes()):
         raise CycleError('ADR acceptance does not bind current decision contents')
     return receipt

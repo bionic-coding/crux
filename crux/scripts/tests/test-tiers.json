@@ -1,0 +1,2346 @@
+{
+  "format": "crux.test-tiers",
+  "version": 1,
+  "kind": "python-unittest",
+  "pattern": "test*.py",
+  "areas": {
+    "adr-lifecycle": "ADR lifecycle: acceptance, summaries, doctrine, resolver, rules catalog and provenance",
+    "arch-derive": "The derived architecture spine and its stack packs",
+    "catalogs-and-projections": "Catalogs and projections: skills, agents, routing, runtime-compat, role projections and micro-crux",
+    "code-docs": "Code documentation extraction and its extractors",
+    "config-and-env": "Configuration, environment and secret handling",
+    "council": "Council review: runs, transport, records and approval gates",
+    "cycle-engine": "The typed cycle engine: records, phases, operations, dispatch, delivery, execution proof and review gates",
+    "dashboards": "The run and cycle dashboards of crux-mods, crux-opencode and crux-omp",
+    "decisions-classifier": "The decisions classifier transport and the cycle routing it feeds",
+    "docs-tree-maintenance": "Documentation tree maintenance: audit, journal and indexes",
+    "queue": "The persistent cycle queue: ordering, authorization and sequential start",
+    "release-and-staging": "Release and staging: release verify, the staging allowlist, staged checks and release gates",
+    "test-evidence": "Test evidence: receipts, reuse, the registry, the parallel suite driver, the flagged list and test tiers"
+  },
+  "files": {
+    "test_admission_source_io.py": {
+      "tier": "release",
+      "area": "cycle-engine"
+    },
+    "test_adr0097_program_postcondition.py": {
+      "tier": "dev",
+      "overrides": {
+        "Adr0097ProgramPostconditionTests": {
+          "tier": "ephemeral",
+          "reason": "Proved once that the regenerated projections carried no retired handle at v3.3.0, the Program postcondition of ADR-0097; later projection drift is caught by the summaries and doctrine drift gates",
+          "retire_when": "ADR-0097's Program postcondition is retired in the authority reset or the four retired handles leave the rule table's retired roster"
+        }
+      }
+    },
+    "test_adr_acceptance_precondition.py": {
+      "tier": "dev",
+      "overrides": {
+        "Precondition": {
+          "tier": "release",
+          "area": "adr-lifecycle"
+        }
+      }
+    },
+    "test_adr_archive.py": {
+      "tier": "dev"
+    },
+    "test_adr_fence_validation.py": {
+      "tier": "dev"
+    },
+    "test_adr_footnote_check.py": {
+      "tier": "dev"
+    },
+    "test_adr_migration.py": {
+      "tier": "dev"
+    },
+    "test_adr_migration_publication.py": {
+      "tier": "dev",
+      "overrides": {
+        "PublicationTests": {
+          "tier": "release",
+          "area": "adr-lifecycle"
+        }
+      }
+    },
+    "test_adr_path_templates.py": {
+      "tier": "dev"
+    },
+    "test_adr_precouncil.py": {
+      "tier": "dev"
+    },
+    "test_adr_provenance_cli.py": {
+      "tier": "dev",
+      "overrides": {
+        "RecordRefusalTests": {
+          "tier": "release",
+          "area": "adr-lifecycle"
+        },
+        "SecretAndInputPathTests": {
+          "tier": "release",
+          "area": "adr-lifecycle"
+        }
+      }
+    },
+    "test_adr_provenance_record.py": {
+      "tier": "dev"
+    },
+    "test_adr_signals.py": {
+      "tier": "dev"
+    },
+    "test_advance_run.py": {
+      "tier": "dev"
+    },
+    "test_advance_run_gate.py": {
+      "tier": "dev",
+      "overrides": {
+        "CouncilGateEvidenceTests": {
+          "tier": "release",
+          "area": "council"
+        }
+      }
+    },
+    "test_agent_craft_disciplines.py": {
+      "tier": "dev"
+    },
+    "test_allocation_regeneration_steps.py": {
+      "tier": "dev"
+    },
+    "test_ambient_git_env.py": {
+      "tier": "dev"
+    },
+    "test_approval_profiles.py": {
+      "tier": "dev"
+    },
+    "test_arch_corpus.py": {
+      "tier": "dev"
+    },
+    "test_arch_corpus_credentials.py": {
+      "tier": "release",
+      "area": "arch-derive"
+    },
+    "test_arch_dangling_source.py": {
+      "tier": "dev"
+    },
+    "test_arch_decision_applicability.py": {
+      "tier": "dev"
+    },
+    "test_arch_default_bootstrap.py": {
+      "tier": "release",
+      "area": "arch-derive"
+    },
+    "test_arch_detection.py": {
+      "tier": "dev"
+    },
+    "test_arch_facts.py": {
+      "tier": "dev"
+    },
+    "test_arch_migration_authority.py": {
+      "tier": "dev"
+    },
+    "test_arch_pack_acceptance.py": {
+      "tier": "dev"
+    },
+    "test_arch_projections.py": {
+      "tier": "dev",
+      "overrides": {
+        "FreshTreeDerivesCleanTests": {
+          "tier": "release",
+          "area": "arch-derive"
+        }
+      }
+    },
+    "test_arch_retained_evidence.py": {
+      "tier": "dev"
+    },
+    "test_arch_runtime.py": {
+      "tier": "dev"
+    },
+    "test_arch_runtime_capture.py": {
+      "tier": "dev"
+    },
+    "test_arch_runtime_entrypoint.py": {
+      "tier": "dev"
+    },
+    "test_arch_runtime_negative.py": {
+      "tier": "release",
+      "area": "arch-derive"
+    },
+    "test_arch_runtime_reentry.py": {
+      "tier": "dev"
+    },
+    "test_arch_safe_read_bounds.py": {
+      "tier": "dev",
+      "overrides": {
+        "ContainmentExceptionTests": {
+          "tier": "release",
+          "area": "arch-derive"
+        }
+      }
+    },
+    "test_arch_split_seam.py": {
+      "tier": "dev"
+    },
+    "test_arch_stack_packs.py": {
+      "tier": "dev"
+    },
+    "test_arch_staleness.py": {
+      "tier": "dev"
+    },
+    "test_arch_strict_gate.py": {
+      "tier": "dev"
+    },
+    "test_arch_verdicts.py": {
+      "tier": "dev",
+      "overrides": {
+        "TwoChannelTests": {
+          "tier": "release",
+          "area": "arch-derive"
+        }
+      }
+    },
+    "test_archive_precondition.py": {
+      "tier": "dev"
+    },
+    "test_assessment_worked_report.py": {
+      "tier": "dev"
+    },
+    "test_authority_internal_memos.py": {
+      "tier": "dev"
+    },
+    "test_authority_lifecycle_views.py": {
+      "tier": "dev",
+      "overrides": {
+        "ProposedViews": {
+          "tier": "release",
+          "area": "adr-lifecycle"
+        }
+      }
+    },
+    "test_authority_once.py": {
+      "tier": "dev"
+    },
+    "test_authority_view_cli.py": {
+      "tier": "release",
+      "area": "adr-lifecycle"
+    },
+    "test_authority_view_repeats.py": {
+      "tier": "dev"
+    },
+    "test_bionic_config.py": {
+      "tier": "dev",
+      "overrides": {
+        "TestPrecedence": {
+          "tier": "release",
+          "area": "config-and-env"
+        },
+        "SchemaVersionGateTests": {
+          "tier": "release",
+          "area": "config-and-env"
+        }
+      }
+    },
+    "test_bionic_config_buffers.py": {
+      "tier": "dev"
+    },
+    "test_bionic_config_decisions.py": {
+      "tier": "release",
+      "area": "decisions-classifier"
+    },
+    "test_bionic_config_source_io.py": {
+      "tier": "dev"
+    },
+    "test_build_claude_adapter.py": {
+      "tier": "dev",
+      "overrides": {
+        "DestructiveWriteRefusalTests": {
+          "tier": "release",
+          "area": "catalogs-and-projections"
+        },
+        "SymlinkRefusalTests": {
+          "tier": "release",
+          "area": "catalogs-and-projections"
+        }
+      }
+    },
+    "test_build_skill_zips.py": {
+      "tier": "dev"
+    },
+    "test_bypath_load.py": {
+      "tier": "dev",
+      "overrides": {
+        "ByPathLoadTests": {
+          "tier": "release",
+          "area": "catalogs-and-projections"
+        }
+      }
+    },
+    "test_changelog_reference.py": {
+      "tier": "dev"
+    },
+    "test_check_blast_radius.py": {
+      "tier": "dev"
+    },
+    "test_check_no_stale_skill_names.py": {
+      "tier": "dev"
+    },
+    "test_check_promptbook_index.py": {
+      "tier": "dev"
+    },
+    "test_check_public_release_content.py": {
+      "tier": "release",
+      "area": "release-and-staging"
+    },
+    "test_check_refutation_record.py": {
+      "tier": "dev"
+    },
+    "test_check_template_parity.py": {
+      "tier": "dev"
+    },
+    "test_citation_surface_keying.py": {
+      "tier": "dev"
+    },
+    "test_claude_compat.py": {
+      "tier": "dev"
+    },
+    "test_code_doc_callers.py": {
+      "tier": "dev"
+    },
+    "test_codex_agent_health.py": {
+      "tier": "release",
+      "area": "catalogs-and-projections"
+    },
+    "test_commander_batches_owner_decisions.py": {
+      "tier": "dev"
+    },
+    "test_conductor_guides_commit_rule.py": {
+      "tier": "dev"
+    },
+    "test_council_aggregation.py": {
+      "tier": "dev",
+      "overrides": {
+        "AggregationTests": {
+          "tier": "release",
+          "area": "council"
+        }
+      }
+    },
+    "test_council_attempt_behaviour.py": {
+      "tier": "release",
+      "area": "council"
+    },
+    "test_council_attempt_state.py": {
+      "tier": "dev"
+    },
+    "test_council_challenge_constants.py": {
+      "tier": "dev"
+    },
+    "test_council_commit.py": {
+      "tier": "dev",
+      "overrides": {
+        "CommitOwnedTests": {
+          "tier": "release",
+          "area": "council"
+        }
+      }
+    },
+    "test_council_commit_timeout.py": {
+      "tier": "dev"
+    },
+    "test_council_gate.py": {
+      "tier": "dev",
+      "overrides": {
+        "CouncilGateBasicTests": {
+          "tier": "release",
+          "area": "council"
+        },
+        "CouncilGateHoldTests": {
+          "tier": "release",
+          "area": "council"
+        },
+        "CouncilGateIdentityAndBindingTests": {
+          "tier": "release",
+          "area": "council"
+        }
+      }
+    },
+    "test_council_gate_attempts.py": {
+      "tier": "dev",
+      "overrides": {
+        "OpenAttemptStopTests": {
+          "tier": "release",
+          "area": "council"
+        }
+      }
+    },
+    "test_council_gate_pending.py": {
+      "tier": "dev"
+    },
+    "test_council_ingest.py": {
+      "tier": "dev"
+    },
+    "test_council_instruction_contract.py": {
+      "tier": "dev"
+    },
+    "test_council_integration.py": {
+      "tier": "dev",
+      "overrides": {
+        "ActualRunnerCloseTests": {
+          "tier": "release",
+          "area": "council"
+        },
+        "SealedCurrentAdmissionTests": {
+          "tier": "release",
+          "area": "council"
+        }
+      }
+    },
+    "test_council_log_boundary.py": {
+      "tier": "release",
+      "area": "council"
+    },
+    "test_council_log_labels.py": {
+      "tier": "dev"
+    },
+    "test_council_native.py": {
+      "tier": "dev"
+    },
+    "test_council_operating_assumptions.py": {
+      "tier": "dev"
+    },
+    "test_council_policy.py": {
+      "tier": "release",
+      "area": "council"
+    },
+    "test_council_record_order.py": {
+      "tier": "dev"
+    },
+    "test_council_records.py": {
+      "tier": "dev"
+    },
+    "test_council_recovery.py": {
+      "tier": "dev",
+      "overrides": {
+        "CommittedTests": {
+          "tier": "release",
+          "area": "council"
+        },
+        "RecognisedTests": {
+          "tier": "release",
+          "area": "council"
+        }
+      }
+    },
+    "test_council_recovery_failclosed.py": {
+      "tier": "dev"
+    },
+    "test_council_redaction.py": {
+      "tier": "dev",
+      "overrides": {
+        "RedactionNonLeakageTests": {
+          "tier": "release",
+          "area": "council"
+        }
+      }
+    },
+    "test_council_refusal.py": {
+      "tier": "dev"
+    },
+    "test_council_registry_validation.py": {
+      "tier": "dev",
+      "overrides": {
+        "GateRefusalTests": {
+          "tier": "release",
+          "area": "council"
+        }
+      }
+    },
+    "test_council_retry.py": {
+      "tier": "dev"
+    },
+    "test_council_schemas.py": {
+      "tier": "dev",
+      "overrides": {
+        "CouncilRecordSchemaTests": {
+          "tier": "release",
+          "area": "council"
+        }
+      }
+    },
+    "test_council_seat_budget.py": {
+      "tier": "dev"
+    },
+    "test_council_served_model.py": {
+      "tier": "dev",
+      "overrides": {
+        "GateSeatServedModelTests": {
+          "tier": "release",
+          "area": "council"
+        }
+      }
+    },
+    "test_council_served_provider.py": {
+      "tier": "dev"
+    },
+    "test_council_yaml_v3.py": {
+      "tier": "dev"
+    },
+    "test_crux_async_council.py": {
+      "tier": "dev"
+    },
+    "test_crux_config.py": {
+      "tier": "dev",
+      "overrides": {
+        "TestLoaderHardening": {
+          "tier": "release",
+          "area": "config-and-env"
+        },
+        "TestDocsDirContainment": {
+          "tier": "release",
+          "area": "config-and-env"
+        },
+        "TestCLI": {
+          "tier": "release",
+          "area": "config-and-env"
+        }
+      }
+    },
+    "test_crux_core.py": {
+      "tier": "dev"
+    },
+    "test_crux_council.py": {
+      "tier": "dev"
+    },
+    "test_crux_env.py": {
+      "tier": "dev",
+      "overrides": {
+        "TestCLI": {
+          "tier": "release",
+          "area": "config-and-env"
+        },
+        "TestModule": {
+          "tier": "release",
+          "area": "config-and-env"
+        }
+      }
+    },
+    "test_crux_infrastructure.py": {
+      "tier": "dev"
+    },
+    "test_crux_llm_router.py": {
+      "tier": "dev"
+    },
+    "test_cycle_activity.py": {
+      "tier": "dev"
+    },
+    "test_cycle_adr_prefix.py": {
+      "tier": "dev"
+    },
+    "test_cycle_advisory_deadline.py": {
+      "tier": "dev"
+    },
+    "test_cycle_arrangement_facts.py": {
+      "tier": "dev"
+    },
+    "test_cycle_assignment_builder.py": {
+      "tier": "dev"
+    },
+    "test_cycle_assignments.py": {
+      "tier": "dev"
+    },
+    "test_cycle_await.py": {
+      "tier": "dev"
+    },
+    "test_cycle_bookkeeping.py": {
+      "tier": "dev"
+    },
+    "test_cycle_build_checks.py": {
+      "tier": "dev",
+      "overrides": {
+        "BuildChecksTests": {
+          "tier": "release",
+          "area": "cycle-engine"
+        }
+      }
+    },
+    "test_cycle_child_link.py": {
+      "tier": "dev"
+    },
+    "test_cycle_classify.py": {
+      "tier": "dev",
+      "overrides": {
+        "FallbackTests": {
+          "tier": "release",
+          "area": "decisions-classifier"
+        }
+      }
+    },
+    "test_cycle_classify_batching.py": {
+      "tier": "dev"
+    },
+    "test_cycle_classify_currentness.py": {
+      "tier": "dev"
+    },
+    "test_cycle_classify_focused.py": {
+      "tier": "dev"
+    },
+    "test_cycle_classify_hook_fixtures.py": {
+      "tier": "dev"
+    },
+    "test_cycle_classify_new_kinds.py": {
+      "tier": "dev"
+    },
+    "test_cycle_classify_records.py": {
+      "tier": "dev"
+    },
+    "test_cycle_classify_reuse.py": {
+      "tier": "dev"
+    },
+    "test_cycle_classify_visibility.py": {
+      "tier": "dev"
+    },
+    "test_cycle_cli_forms.py": {
+      "tier": "dev"
+    },
+    "test_cycle_commit.py": {
+      "tier": "dev"
+    },
+    "test_cycle_commit_replacement.py": {
+      "tier": "dev"
+    },
+    "test_cycle_compat_upgrade.py": {
+      "tier": "dev"
+    },
+    "test_cycle_compat_v2.py": {
+      "tier": "dev"
+    },
+    "test_cycle_context_read.py": {
+      "tier": "dev"
+    },
+    "test_cycle_council.py": {
+      "tier": "dev",
+      "overrides": {
+        "CouncilTests": {
+          "tier": "release",
+          "area": "council"
+        },
+        "ModeAwareCouncilTests": {
+          "tier": "release",
+          "area": "council"
+        }
+      }
+    },
+    "test_cycle_council_events.py": {
+      "tier": "dev"
+    },
+    "test_cycle_council_recovery.py": {
+      "tier": "dev"
+    },
+    "test_cycle_council_settlement.py": {
+      "tier": "dev"
+    },
+    "test_cycle_council_simplify.py": {
+      "tier": "dev"
+    },
+    "test_cycle_decision_policy.py": {
+      "tier": "release",
+      "area": "adr-lifecycle"
+    },
+    "test_cycle_delivery.py": {
+      "tier": "release",
+      "area": "cycle-engine"
+    },
+    "test_cycle_dirty_resume.py": {
+      "tier": "dev"
+    },
+    "test_cycle_dispatch_recovery.py": {
+      "tier": "dev"
+    },
+    "test_cycle_doc_classify.py": {
+      "tier": "dev"
+    },
+    "test_cycle_evidence_integration.py": {
+      "tier": "release",
+      "area": "cycle-engine"
+    },
+    "test_cycle_execution.py": {
+      "tier": "release",
+      "area": "cycle-engine"
+    },
+    "test_cycle_fast_operations.py": {
+      "tier": "release",
+      "area": "decisions-classifier"
+    },
+    "test_cycle_fix_metrics.py": {
+      "tier": "dev"
+    },
+    "test_cycle_fix_step.py": {
+      "tier": "dev"
+    },
+    "test_cycle_friction.py": {
+      "tier": "dev"
+    },
+    "test_cycle_hosts.py": {
+      "tier": "dev"
+    },
+    "test_cycle_inspect_speed.py": {
+      "tier": "dev"
+    },
+    "test_cycle_instruction_contracts.py": {
+      "tier": "dev"
+    },
+    "test_cycle_integrated_merge.py": {
+      "tier": "release",
+      "area": "cycle-engine"
+    },
+    "test_cycle_invalidation.py": {
+      "tier": "dev"
+    },
+    "test_cycle_invocation_snapshot.py": {
+      "tier": "dev"
+    },
+    "test_cycle_legacy_cutover.py": {
+      "tier": "dev"
+    },
+    "test_cycle_ops_activity.py": {
+      "tier": "dev"
+    },
+    "test_cycle_ops_advance.py": {
+      "tier": "dev",
+      "overrides": {
+        "AdvancePhaseTests": {
+          "tier": "release",
+          "area": "cycle-engine"
+        },
+        "ConcurrencyTests": {
+          "tier": "release",
+          "area": "cycle-engine"
+        }
+      }
+    },
+    "test_cycle_ops_chain.py": {
+      "tier": "release",
+      "area": "cycle-engine"
+    },
+    "test_cycle_ops_delivery.py": {
+      "tier": "dev",
+      "overrides": {
+        "DeliveryTests": {
+          "tier": "release",
+          "area": "cycle-engine"
+        }
+      }
+    },
+    "test_cycle_ops_finish.py": {
+      "tier": "dev",
+      "overrides": {
+        "ReleaseFinishTests": {
+          "tier": "release",
+          "area": "cycle-engine"
+        },
+        "CompletionOrderTests": {
+          "tier": "release",
+          "area": "cycle-engine"
+        }
+      }
+    },
+    "test_cycle_ops_foundation.py": {
+      "tier": "dev"
+    },
+    "test_cycle_ops_hooks.py": {
+      "tier": "dev"
+    },
+    "test_cycle_ops_lifecycle.py": {
+      "tier": "dev"
+    },
+    "test_cycle_ops_records.py": {
+      "tier": "dev",
+      "overrides": {
+        "RecordTests.test_inline_quote_with_apostrophe_and_newline_through_a_real_shell": {
+          "tier": "release",
+          "area": "cycle-engine"
+        }
+      }
+    },
+    "test_cycle_plan_writer.py": {
+      "tier": "dev"
+    },
+    "test_cycle_progress.py": {
+      "tier": "dev"
+    },
+    "test_cycle_progress_format3.py": {
+      "tier": "dev"
+    },
+    "test_cycle_progress_order.py": {
+      "tier": "dev"
+    },
+    "test_cycle_progress_task_changes.py": {
+      "tier": "dev"
+    },
+    "test_cycle_questions.py": {
+      "tier": "dev"
+    },
+    "test_cycle_queue.py": {
+      "tier": "dev",
+      "overrides": {
+        "AuthorizationTests": {
+          "tier": "release",
+          "area": "queue"
+        },
+        "StartNextTests": {
+          "tier": "release",
+          "area": "queue"
+        }
+      }
+    },
+    "test_cycle_queue_commit.py": {
+      "tier": "dev"
+    },
+    "test_cycle_record_persistence.py": {
+      "tier": "dev"
+    },
+    "test_cycle_recovery.py": {
+      "tier": "dev"
+    },
+    "test_cycle_reflection_lists.py": {
+      "tier": "dev"
+    },
+    "test_cycle_release_continuation.py": {
+      "tier": "release",
+      "area": "cycle-engine"
+    },
+    "test_cycle_release_ledger.py": {
+      "tier": "dev",
+      "overrides": {
+        "CreateTests": {
+          "tier": "release",
+          "area": "cycle-engine"
+        },
+        "AdvanceTests": {
+          "tier": "release",
+          "area": "cycle-engine"
+        }
+      }
+    },
+    "test_cycle_review_basis.py": {
+      "tier": "dev"
+    },
+    "test_cycle_review_scope_message.py": {
+      "tier": "dev"
+    },
+    "test_cycle_simplify.py": {
+      "tier": "dev"
+    },
+    "test_cycle_slice.py": {
+      "tier": "dev",
+      "overrides": {
+        "EndToEndTests": {
+          "tier": "release",
+          "area": "cycle-engine"
+        }
+      }
+    },
+    "test_cycle_status.py": {
+      "tier": "dev"
+    },
+    "test_cycle_status_main.py": {
+      "tier": "dev"
+    },
+    "test_cycle_summary.py": {
+      "tier": "dev"
+    },
+    "test_cycle_test_runs.py": {
+      "tier": "dev"
+    },
+    "test_cycle_timing.py": {
+      "tier": "dev"
+    },
+    "test_cycle_verify_engine.py": {
+      "tier": "dev"
+    },
+    "test_cycle_verify_phase.py": {
+      "tier": "dev"
+    },
+    "test_cycle_withdraw_decision.py": {
+      "tier": "dev"
+    },
+    "test_cycle_workflow.py": {
+      "tier": "release",
+      "area": "cycle-engine"
+    },
+    "test_cycle_worktrees.py": {
+      "tier": "dev"
+    },
+    "test_decision_record_inputs.py": {
+      "tier": "dev"
+    },
+    "test_decisions_transport.py": {
+      "tier": "dev",
+      "overrides": {
+        "SecretHandlingTests": {
+          "tier": "release",
+          "area": "decisions-classifier"
+        },
+        "ImportBoundaryTests": {
+          "tier": "release",
+          "area": "decisions-classifier"
+        },
+        "ValidationTests": {
+          "tier": "release",
+          "area": "decisions-classifier"
+        }
+      }
+    },
+    "test_derive_arch.py": {
+      "tier": "dev",
+      "overrides": {
+        "ArchDeriveTests": {
+          "tier": "release",
+          "area": "arch-derive"
+        },
+        "ArchRuntimeConfinementTests": {
+          "tier": "release",
+          "area": "arch-derive"
+        }
+      }
+    },
+    "test_derive_arch_cli.py": {
+      "tier": "dev"
+    },
+    "test_doctrine_catalog_source_io.py": {
+      "tier": "dev"
+    },
+    "test_doctrine_migration_projection.py": {
+      "tier": "dev"
+    },
+    "test_doctrine_observations.py": {
+      "tier": "dev",
+      "overrides": {
+        "CompileDriverGateTests": {
+          "tier": "release",
+          "area": "adr-lifecycle"
+        },
+        "LiveLedgerCompatibilityTests": {
+          "tier": "release",
+          "area": "adr-lifecycle"
+        }
+      }
+    },
+    "test_elixir_extractor.py": {
+      "tier": "dev"
+    },
+    "test_elixir_pack.py": {
+      "tier": "dev",
+      "overrides": {
+        "DriftAndDeterminismTests": {
+          "tier": "release",
+          "area": "arch-derive"
+        }
+      }
+    },
+    "test_empty_constraint_set.py": {
+      "tier": "dev"
+    },
+    "test_entrypoint_clean_env.py": {
+      "tier": "release",
+      "area": "release-and-staging"
+    },
+    "test_evidence_actual_argv.py": {
+      "tier": "dev"
+    },
+    "test_evidence_bookkeeping.py": {
+      "tier": "dev",
+      "overrides": {
+        "FiveWritesLeaveEvidenceValidTests": {
+          "tier": "release",
+          "area": "test-evidence"
+        },
+        "PositiveControlTests": {
+          "tier": "release",
+          "area": "test-evidence"
+        }
+      }
+    },
+    "test_evidence_capture_wrapper.py": {
+      "tier": "dev"
+    },
+    "test_evidence_cli.py": {
+      "tier": "release",
+      "area": "test-evidence"
+    },
+    "test_evidence_environment.py": {
+      "tier": "dev",
+      "overrides": {
+        "RefusalTests": {
+          "tier": "release",
+          "area": "test-evidence"
+        }
+      }
+    },
+    "test_evidence_ignored_inputs.py": {
+      "tier": "dev"
+    },
+    "test_evidence_lock_binding.py": {
+      "tier": "dev"
+    },
+    "test_evidence_lock_holder.py": {
+      "tier": "dev"
+    },
+    "test_evidence_lookup.py": {
+      "tier": "dev",
+      "overrides": {
+        "LookupRuleTests": {
+          "tier": "release",
+          "area": "test-evidence"
+        }
+      }
+    },
+    "test_evidence_projections.py": {
+      "tier": "dev"
+    },
+    "test_evidence_registry.py": {
+      "tier": "dev",
+      "overrides": {
+        "RegistryTests": {
+          "tier": "release",
+          "area": "test-evidence"
+        }
+      }
+    },
+    "test_evidence_retention.py": {
+      "tier": "dev",
+      "overrides": {
+        "Cyc0009Tests": {
+          "tier": "ephemeral",
+          "reason": "Pins the retained receipts of one past cycle (CYC-0009 final dry run) and protects no behaviour that can still regress; the retained-store reader is covered by DurableStoreTests and CompletenessTests",
+          "retire_when": "the CYC-0009 retained receipts are archived"
+        }
+      }
+    },
+    "test_evidence_yaml_dependency.py": {
+      "tier": "dev"
+    },
+    "test_extract_code_docs.py": {
+      "tier": "dev",
+      "overrides": {
+        "NoExtractorsIsNotACleanGateTests": {
+          "tier": "release",
+          "area": "code-docs"
+        }
+      }
+    },
+    "test_extract_code_docs_capability.py": {
+      "tier": "dev"
+    },
+    "test_extract_code_docs_extractor_names.py": {
+      "tier": "dev"
+    },
+    "test_extract_code_docs_ownership.py": {
+      "tier": "dev",
+      "overrides": {
+        "UnownedRootRefusesTests": {
+          "tier": "release",
+          "area": "code-docs"
+        },
+        "OwnershipProofFailsTests": {
+          "tier": "release",
+          "area": "code-docs"
+        }
+      }
+    },
+    "test_extract_code_docs_repairs.py": {
+      "tier": "dev",
+      "overrides": {
+        "D6PerExtractorContainmentTests": {
+          "tier": "release",
+          "area": "code-docs"
+        },
+        "D1AncestorSymlinkTests": {
+          "tier": "release",
+          "area": "code-docs"
+        }
+      }
+    },
+    "test_extract_code_docs_round1.py": {
+      "tier": "dev"
+    },
+    "test_flagged_tests.py": {
+      "tier": "dev",
+      "overrides": {
+        "FlaggedCheckTests": {
+          "tier": "release",
+          "area": "test-evidence"
+        }
+      }
+    },
+    "test_forge_log_enum.py": {
+      "tier": "dev"
+    },
+    "test_garden_contract.py": {
+      "tier": "dev"
+    },
+    "test_gate_council_seats.py": {
+      "tier": "dev"
+    },
+    "test_gateway_errors.py": {
+      "tier": "dev",
+      "overrides": {
+        "DataCollectionDenyTests": {
+          "tier": "release",
+          "area": "council"
+        }
+      }
+    },
+    "test_generate_codex_agents.py": {
+      "tier": "dev",
+      "overrides": {
+        "RenderTests": {
+          "tier": "release",
+          "area": "catalogs-and-projections"
+        },
+        "WriteSymlinkRefusalTests": {
+          "tier": "release",
+          "area": "catalogs-and-projections"
+        }
+      }
+    },
+    "test_generate_journal_index.py": {
+      "tier": "dev",
+      "overrides": {
+        "CheckModeTests": {
+          "tier": "release",
+          "area": "docs-tree-maintenance"
+        },
+        "ExitMapTests": {
+          "tier": "release",
+          "area": "docs-tree-maintenance"
+        },
+        "OutputIndexGuardTests": {
+          "tier": "release",
+          "area": "docs-tree-maintenance"
+        }
+      }
+    },
+    "test_generate_mods_reach_tables.py": {
+      "tier": "dev",
+      "overrides": {
+        "ContainmentTests": {
+          "tier": "release",
+          "area": "catalogs-and-projections"
+        },
+        "LiveCheckoutTests": {
+          "tier": "release",
+          "area": "catalogs-and-projections"
+        }
+      }
+    },
+    "test_generate_omp_agents.py": {
+      "tier": "dev",
+      "overrides": {
+        "RenderTests": {
+          "tier": "release",
+          "area": "catalogs-and-projections"
+        },
+        "WriteSymlinkRefusalTests": {
+          "tier": "release",
+          "area": "catalogs-and-projections"
+        }
+      }
+    },
+    "test_generate_opencode_agents.py": {
+      "tier": "dev",
+      "overrides": {
+        "TransformRuleTests": {
+          "tier": "release",
+          "area": "catalogs-and-projections"
+        },
+        "GenerateTests": {
+          "tier": "release",
+          "area": "catalogs-and-projections"
+        },
+        "SourceLeafSymlinkTests": {
+          "tier": "release",
+          "area": "catalogs-and-projections"
+        }
+      }
+    },
+    "test_generate_reviews_index.py": {
+      "tier": "dev",
+      "overrides": {
+        "ReviewsIndexTestCase": {
+          "tier": "release",
+          "area": "docs-tree-maintenance"
+        },
+        "ContainmentTestCase": {
+          "tier": "release",
+          "area": "docs-tree-maintenance"
+        }
+      }
+    },
+    "test_generate_routing_table.py": {
+      "tier": "dev",
+      "overrides": {
+        "RunEndToEndTestCase": {
+          "tier": "release",
+          "area": "catalogs-and-projections"
+        },
+        "ExitAndEnrollmentTestCase": {
+          "tier": "release",
+          "area": "catalogs-and-projections"
+        },
+        "FreshProjectRoutingTests": {
+          "tier": "release",
+          "area": "catalogs-and-projections"
+        }
+      }
+    },
+    "test_generate_runtime_compat.py": {
+      "tier": "dev",
+      "overrides": {
+        "RealTreeTests": {
+          "tier": "release",
+          "area": "catalogs-and-projections"
+        },
+        "CliContractTests": {
+          "tier": "release",
+          "area": "catalogs-and-projections"
+        }
+      }
+    },
+    "test_generate_writing_rules.py": {
+      "tier": "dev",
+      "overrides": {
+        "ShippedSurfaceTestCase": {
+          "tier": "release",
+          "area": "catalogs-and-projections"
+        },
+        "ExitCodeTestCase": {
+          "tier": "release",
+          "area": "catalogs-and-projections"
+        }
+      }
+    },
+    "test_git_read_cache.py": {
+      "tier": "dev"
+    },
+    "test_git_replace_refs.py": {
+      "tier": "dev",
+      "overrides": {
+        "ReviewerReportWriterTests": {
+          "tier": "release",
+          "area": "cycle-engine"
+        },
+        "ReviewGateTests": {
+          "tier": "release",
+          "area": "cycle-engine"
+        },
+        "CouncilGateTests": {
+          "tier": "release",
+          "area": "council"
+        }
+      }
+    },
+    "test_golden_diff_classify.py": {
+      "tier": "dev"
+    },
+    "test_governs_reader_tolerance.py": {
+      "tier": "dev"
+    },
+    "test_governs_retirement.py": {
+      "tier": "dev",
+      "overrides": {
+        "RetirementValidityTests": {
+          "tier": "release",
+          "area": "adr-lifecycle"
+        },
+        "RetirementRequiresAcceptedTests": {
+          "tier": "release",
+          "area": "adr-lifecycle"
+        }
+      }
+    },
+    "test_governs_rule_length.py": {
+      "tier": "dev"
+    },
+    "test_governs_scope_source_io.py": {
+      "tier": "dev"
+    },
+    "test_historical_migration_retirement.py": {
+      "tier": "dev"
+    },
+    "test_implementation_authority.py": {
+      "tier": "dev",
+      "overrides": {
+        "AuthorityView": {
+          "tier": "release",
+          "area": "adr-lifecycle"
+        },
+        "PublicationProof": {
+          "tier": "release",
+          "area": "adr-lifecycle"
+        }
+      }
+    },
+    "test_implementation_council_transport.py": {
+      "tier": "dev",
+      "overrides": {
+        "Transport": {
+          "tier": "release",
+          "area": "council"
+        }
+      }
+    },
+    "test_implementation_current_eligibility.py": {
+      "tier": "dev"
+    },
+    "test_implementation_cycle_contracts.py": {
+      "tier": "dev"
+    },
+    "test_implementation_cycles.py": {
+      "tier": "dev",
+      "overrides": {
+        "Structure": {
+          "tier": "release",
+          "area": "cycle-engine"
+        },
+        "StartBoundary": {
+          "tier": "release",
+          "area": "cycle-engine"
+        },
+        "WriterControls": {
+          "tier": "release",
+          "area": "cycle-engine"
+        }
+      }
+    },
+    "test_implementation_decisions.py": {
+      "tier": "dev"
+    },
+    "test_implementation_decisions_delivery_scope.py": {
+      "tier": "dev"
+    },
+    "test_implementation_fixture_copy.py": {
+      "tier": "dev"
+    },
+    "test_implementation_git_object_ids.py": {
+      "tier": "dev"
+    },
+    "test_implementation_migration.py": {
+      "tier": "dev"
+    },
+    "test_implementation_migration_absent_default.py": {
+      "tier": "dev"
+    },
+    "test_implementation_migration_alternate_tree.py": {
+      "tier": "dev"
+    },
+    "test_implementation_migration_apply.py": {
+      "tier": "dev"
+    },
+    "test_implementation_migration_batched_inputs.py": {
+      "tier": "dev"
+    },
+    "test_implementation_migration_citation_sources.py": {
+      "tier": "dev"
+    },
+    "test_implementation_migration_counters.py": {
+      "tier": "dev"
+    },
+    "test_implementation_migration_disposition.py": {
+      "tier": "dev"
+    },
+    "test_implementation_migration_no_git.py": {
+      "tier": "dev"
+    },
+    "test_implementation_migration_shared_helpers.py": {
+      "tier": "dev"
+    },
+    "test_implementation_migration_shared_reads.py": {
+      "tier": "dev"
+    },
+    "test_implementation_migration_signed_additions.py": {
+      "tier": "dev"
+    },
+    "test_implementation_migration_spans.py": {
+      "tier": "dev"
+    },
+    "test_implementation_migration_subject_eligibility.py": {
+      "tier": "dev"
+    },
+    "test_implementation_prose_routing.py": {
+      "tier": "dev"
+    },
+    "test_init_docs_defaults.py": {
+      "tier": "dev",
+      "overrides": {
+        "ManifestTemplateTests": {
+          "tier": "release",
+          "area": "docs-tree-maintenance"
+        },
+        "FreshRepositoryInstructionNameTests": {
+          "tier": "release",
+          "area": "docs-tree-maintenance"
+        }
+      }
+    },
+    "test_initial_migration_exception.py": {
+      "tier": "dev"
+    },
+    "test_install_codex_agents_personal.py": {
+      "tier": "release",
+      "area": "catalogs-and-projections"
+    },
+    "test_install_opencode_agents.py": {
+      "tier": "dev",
+      "overrides": {
+        "InstallerTests": {
+          "tier": "release",
+          "area": "catalogs-and-projections"
+        },
+        "SymlinkRefusalTests": {
+          "tier": "release",
+          "area": "catalogs-and-projections"
+        }
+      }
+    },
+    "test_install_schema_axes.py": {
+      "tier": "dev"
+    },
+    "test_instruction_migration.py": {
+      "tier": "dev",
+      "overrides": {
+        "DiscoveryTests": {
+          "tier": "release",
+          "area": "config-and-env"
+        },
+        "RefusalTests": {
+          "tier": "release",
+          "area": "config-and-env"
+        }
+      }
+    },
+    "test_invariants.py": {
+      "tier": "dev",
+      "overrides": {
+        "ConcernWiringTests": {
+          "tier": "release",
+          "area": "docs-tree-maintenance"
+        },
+        "CheckRuleTests": {
+          "tier": "release",
+          "area": "docs-tree-maintenance"
+        }
+      }
+    },
+    "test_isolated_child_bytecode.py": {
+      "tier": "release",
+      "area": "config-and-env"
+    },
+    "test_issued_policy_two.py": {
+      "tier": "dev"
+    },
+    "test_journal_migration_reference.py": {
+      "tier": "dev"
+    },
+    "test_journal_parser_divergence.py": {
+      "tier": "dev"
+    },
+    "test_journal_reference.py": {
+      "tier": "dev",
+      "overrides": {
+        "CliTests": {
+          "tier": "release",
+          "area": "docs-tree-maintenance"
+        }
+      }
+    },
+    "test_live_copy.py": {
+      "tier": "dev"
+    },
+    "test_log_work_prose.py": {
+      "tier": "dev"
+    },
+    "test_md_fences.py": {
+      "tier": "dev"
+    },
+    "test_micro_crux_consumer.py": {
+      "tier": "dev"
+    },
+    "test_micro_crux_contracts.py": {
+      "tier": "dev",
+      "overrides": {
+        "MicroCruxContractTests": {
+          "tier": "release",
+          "area": "catalogs-and-projections"
+        }
+      }
+    },
+    "test_micro_crux_installer.py": {
+      "tier": "release",
+      "area": "config-and-env"
+    },
+    "test_migration_admission_selector_io.py": {
+      "tier": "dev"
+    },
+    "test_migration_reader_remedy.py": {
+      "tier": "dev"
+    },
+    "test_migration_receipts.py": {
+      "tier": "dev"
+    },
+    "test_models_catalog.py": {
+      "tier": "dev",
+      "overrides": {
+        "ShippedCatalogTests": {
+          "tier": "release",
+          "area": "catalogs-and-projections"
+        }
+      }
+    },
+    "test_module_name_collisions.py": {
+      "tier": "dev"
+    },
+    "test_no_mod_hooks_in_crux.py": {
+      "tier": "dev",
+      "overrides": {
+        "NoModHooksInCruxTests": {
+          "tier": "release",
+          "area": "dashboards"
+        }
+      }
+    },
+    "test_node_pack.py": {
+      "tier": "dev",
+      "overrides": {
+        "DetectionAndResolutionTests": {
+          "tier": "release",
+          "area": "arch-derive"
+        },
+        "DriftAndDeterminismTests": {
+          "tier": "release",
+          "area": "arch-derive"
+        }
+      }
+    },
+    "test_observation_evidence.py": {
+      "tier": "dev",
+      "overrides": {
+        "ResolveContainedTests": {
+          "tier": "release",
+          "area": "adr-lifecycle"
+        }
+      }
+    },
+    "test_observation_evidence_source_io.py": {
+      "tier": "dev"
+    },
+    "test_observation_migration_admission.py": {
+      "tier": "dev"
+    },
+    "test_observations.py": {
+      "tier": "dev",
+      "overrides": {
+        "CheckObsAnchorTests": {
+          "tier": "release",
+          "area": "adr-lifecycle"
+        },
+        "EvidenceContainmentTests": {
+          "tier": "release",
+          "area": "adr-lifecycle"
+        }
+      }
+    },
+    "test_observations_root_read_siblings.py": {
+      "tier": "release",
+      "area": "adr-lifecycle"
+    },
+    "test_omp_agent_health.py": {
+      "tier": "dev"
+    },
+    "test_openrouter_live_proof.py": {
+      "tier": "dev"
+    },
+    "test_openrouter_video_probe.py": {
+      "tier": "dev"
+    },
+    "test_orchestration_agent_contracts.py": {
+      "tier": "dev"
+    },
+    "test_orchestration_template_contracts.py": {
+      "tier": "dev"
+    },
+    "test_order_audit.py": {
+      "tier": "dev",
+      "overrides": {
+        "RealTree": {
+          "tier": "ephemeral",
+          "reason": "Pins the real PB-0141 RUN-001 tree to an agree outcome, a one-time historical record",
+          "retire_when": "the profile-3 order audit command is retired"
+        }
+      }
+    },
+    "test_owner_approval_command.py": {
+      "tier": "release",
+      "area": "adr-lifecycle"
+    },
+    "test_owner_decision.py": {
+      "tier": "dev",
+      "overrides": {
+        "OwnerAdrTests": {
+          "tier": "release",
+          "area": "adr-lifecycle"
+        }
+      }
+    },
+    "test_parallel_suite.py": {
+      "tier": "dev",
+      "overrides": {
+        "DriverEndToEndTests": {
+          "tier": "release",
+          "area": "test-evidence"
+        },
+        "PluginSuiteInterpreterTests": {
+          "tier": "release",
+          "area": "test-evidence"
+        }
+      }
+    },
+    "test_parallel_suite_failed_from.py": {
+      "tier": "dev"
+    },
+    "test_parallel_suite_lock.py": {
+      "tier": "dev",
+      "overrides": {
+        "RefusalTests": {
+          "tier": "release",
+          "area": "test-evidence"
+        }
+      }
+    },
+    "test_parallel_suite_pool.py": {
+      "tier": "dev"
+    },
+    "test_parallel_suite_select.py": {
+      "tier": "dev"
+    },
+    "test_parallel_suite_tiers.py": {
+      "tier": "release",
+      "area": "test-evidence"
+    },
+    "test_pb0150_provenance_postcondition.py": {
+      "tier": "ephemeral",
+      "reason": "Verified once that the PB-0150 cycle's rule citations resolve and its promotion path builds; the cycle is closed and the test pins that record",
+      "retire_when": "the ADR-0150 and ADR-0151 rule slugs are retired, or the PB-0150 record is archived",
+      "overrides": {
+        "AcceptHookTests": {
+          "tier": "dev"
+        }
+      }
+    },
+    "test_pep723_blocks.py": {
+      "tier": "dev",
+      "overrides": {
+        "TestBlockCoverage": {
+          "tier": "release",
+          "area": "config-and-env"
+        }
+      }
+    },
+    "test_projection_status_exposure.py": {
+      "tier": "dev",
+      "overrides": {
+        "ResolverExposesStatusTests": {
+          "tier": "release",
+          "area": "adr-lifecycle"
+        }
+      }
+    },
+    "test_promote_changelog.py": {
+      "tier": "dev",
+      "overrides": {
+        "PromoteHappyPathTest": {
+          "tier": "release",
+          "area": "release-and-staging"
+        },
+        "ReRunGuardTest": {
+          "tier": "release",
+          "area": "release-and-staging"
+        },
+        "CliDryRunTest": {
+          "tier": "release",
+          "area": "release-and-staging"
+        }
+      }
+    },
+    "test_provenance_projection.py": {
+      "tier": "dev",
+      "overrides": {
+        "NoRecordIsByteIdenticalTests": {
+          "tier": "release",
+          "area": "adr-lifecycle"
+        },
+        "StandingRenderingTests": {
+          "tier": "release",
+          "area": "adr-lifecycle"
+        },
+        "JoinRefusalTests": {
+          "tier": "release",
+          "area": "adr-lifecycle"
+        }
+      }
+    },
+    "test_publication_eligibility.py": {
+      "tier": "dev",
+      "overrides": {
+        "EligibilityTableTests": {
+          "tier": "release",
+          "area": "adr-lifecycle"
+        },
+        "RegeneratorRefusalTests": {
+          "tier": "release",
+          "area": "adr-lifecycle"
+        }
+      }
+    },
+    "test_publication_migration_eligibility.py": {
+      "tier": "dev"
+    },
+    "test_python_bindings.py": {
+      "tier": "dev"
+    },
+    "test_python_extractor.py": {
+      "tier": "dev",
+      "overrides": {
+        "CliRoundtripTests": {
+          "tier": "release",
+          "area": "code-docs"
+        },
+        "CliParseFailureTests": {
+          "tier": "release",
+          "area": "code-docs"
+        }
+      }
+    },
+    "test_python_goldens.py": {
+      "tier": "dev",
+      "overrides": {
+        "RealSetGoldenTests": {
+          "tier": "release",
+          "area": "code-docs"
+        },
+        "SyntheticSetGoldenTests": {
+          "tier": "release",
+          "area": "code-docs"
+        }
+      }
+    },
+    "test_python_hostile.py": {
+      "tier": "dev",
+      "overrides": {
+        "HostileLoadingWritesNoMarkerTests": {
+          "tier": "release",
+          "area": "code-docs"
+        }
+      }
+    },
+    "test_python_load.py": {
+      "tier": "dev"
+    },
+    "test_python_locals.py": {
+      "tier": "dev"
+    },
+    "test_python_pack.py": {
+      "tier": "dev",
+      "overrides": {
+        "DetectionAndResolutionTests": {
+          "tier": "release",
+          "area": "arch-derive"
+        },
+        "DriftAndDeterminismTests": {
+          "tier": "release",
+          "area": "arch-derive"
+        },
+        "ApiSurfaceTests": {
+          "tier": "release",
+          "area": "arch-derive"
+        },
+        "DataModelTests": {
+          "tier": "release",
+          "area": "arch-derive"
+        },
+        "ModuleGraphTests": {
+          "tier": "release",
+          "area": "arch-derive"
+        }
+      }
+    },
+    "test_python_page.py": {
+      "tier": "dev"
+    },
+    "test_python_parse_refusal.py": {
+      "tier": "dev"
+    },
+    "test_python_render.py": {
+      "tier": "dev"
+    },
+    "test_read_news.py": {
+      "tier": "dev"
+    },
+    "test_record_numbers.py": {
+      "tier": "dev",
+      "overrides": {
+        "CheckerEntryPointTests": {
+          "tier": "release",
+          "area": "docs-tree-maintenance"
+        },
+        "LiveCheckoutTests": {
+          "tier": "release",
+          "area": "docs-tree-maintenance"
+        }
+      }
+    },
+    "test_recover.py": {
+      "tier": "dev"
+    },
+    "test_recover_migration_authority.py": {
+      "tier": "dev"
+    },
+    "test_recover_recorded_source_io.py": {
+      "tier": "dev"
+    },
+    "test_recover_state_source_io.py": {
+      "tier": "dev"
+    },
+    "test_reflex_blocks.py": {
+      "tier": "dev"
+    },
+    "test_regenerator_scope.py": {
+      "tier": "dev",
+      "overrides": {
+        "OutOfScopeTests": {
+          "tier": "release",
+          "area": "catalogs-and-projections"
+        },
+        "SharedProbeTests": {
+          "tier": "release",
+          "area": "catalogs-and-projections"
+        },
+        "RepoRootResolutionTests": {
+          "tier": "release",
+          "area": "catalogs-and-projections"
+        }
+      }
+    },
+    "test_related_test_candidates.py": {
+      "tier": "dev"
+    },
+    "test_related_tests.py": {
+      "tier": "dev",
+      "overrides": {
+        "RelatedTestsTests": {
+          "tier": "release",
+          "area": "test-evidence"
+        }
+      }
+    },
+    "test_release_content_gate_contract.py": {
+      "tier": "release",
+      "area": "release-and-staging"
+    },
+    "test_release_prep_projection.py": {
+      "tier": "release",
+      "area": "release-and-staging"
+    },
+    "test_retained_evidence.py": {
+      "tier": "dev",
+      "overrides": {
+        "HoldingSourceContractTests": {
+          "tier": "release",
+          "area": "test-evidence"
+        },
+        "SourceDiscoveryResolverTests": {
+          "tier": "release",
+          "area": "test-evidence"
+        }
+      }
+    },
+    "test_retained_operator_interfaces.py": {
+      "tier": "dev"
+    },
+    "test_retro_marker.py": {
+      "tier": "dev"
+    },
+    "test_review_findings.py": {
+      "tier": "dev",
+      "overrides": {
+        "ReportStandingTests": {
+          "tier": "release",
+          "area": "docs-tree-maintenance"
+        }
+      }
+    },
+    "test_review_report_formats.py": {
+      "tier": "dev",
+      "overrides": {
+        "RangeReportEndToEnd": {
+          "tier": "release",
+          "area": "cycle-engine"
+        },
+        "FormatDispatch": {
+          "tier": "release",
+          "area": "cycle-engine"
+        }
+      }
+    },
+    "test_reviews_migration_history.py": {
+      "tier": "dev"
+    },
+    "test_role_contract_limits.py": {
+      "tier": "dev"
+    },
+    "test_role_skill_pairing.py": {
+      "tier": "dev",
+      "overrides": {
+        "RealTreeTests": {
+          "tier": "release",
+          "area": "catalogs-and-projections"
+        },
+        "CommandLineTests": {
+          "tier": "release",
+          "area": "catalogs-and-projections"
+        }
+      }
+    },
+    "test_root_agents.py": {
+      "tier": "dev",
+      "overrides": {
+        "RootStateTableTests": {
+          "tier": "release",
+          "area": "docs-tree-maintenance"
+        }
+      }
+    },
+    "test_ruby_pack.py": {
+      "tier": "dev",
+      "overrides": {
+        "DetectionAndResolutionTests": {
+          "tier": "release",
+          "area": "arch-derive"
+        },
+        "RoutesTests": {
+          "tier": "release",
+          "area": "arch-derive"
+        },
+        "DataModelTests": {
+          "tier": "release",
+          "area": "arch-derive"
+        },
+        "ModuleGraphTests": {
+          "tier": "release",
+          "area": "arch-derive"
+        },
+        "DriftAndDeterminismTests": {
+          "tier": "release",
+          "area": "arch-derive"
+        }
+      }
+    },
+    "test_rule_citation_planning_surfaces.py": {
+      "tier": "dev"
+    },
+    "test_rule_slug_prose_surfaces.py": {
+      "tier": "dev"
+    },
+    "test_run_council.py": {
+      "tier": "dev",
+      "overrides": {
+        "GateAgreementTests": {
+          "tier": "release",
+          "area": "council"
+        },
+        "WriteTests": {
+          "tier": "release",
+          "area": "council"
+        },
+        "RanRecordTests": {
+          "tier": "release",
+          "area": "council"
+        },
+        "SecretScanTests": {
+          "tier": "release",
+          "area": "council"
+        }
+      }
+    },
+    "test_run_council_claim.py": {
+      "tier": "dev",
+      "overrides": {
+        "ClaimTests": {
+          "tier": "release",
+          "area": "council"
+        },
+        "ClaimFailureTests": {
+          "tier": "release",
+          "area": "council"
+        }
+      }
+    },
+    "test_run_council_preflight.py": {
+      "tier": "dev",
+      "overrides": {
+        "OwnerTests": {
+          "tier": "release",
+          "area": "council"
+        }
+      }
+    },
+    "test_run_work_witness.py": {
+      "tier": "dev"
+    },
+    "test_secret_scan.py": {
+      "tier": "dev",
+      "overrides": {
+        "KeyShapeTests": {
+          "tier": "release",
+          "area": "config-and-env"
+        },
+        "SerializedTextTests": {
+          "tier": "release",
+          "area": "config-and-env"
+        },
+        "InputPathTests": {
+          "tier": "release",
+          "area": "config-and-env"
+        }
+      }
+    },
+    "test_shipped_citations_resolve.py": {
+      "tier": "release",
+      "area": "adr-lifecycle"
+    },
+    "test_shipped_council_surfaces.py": {
+      "tier": "dev"
+    },
+    "test_skill_prose_safety.py": {
+      "tier": "release",
+      "area": "catalogs-and-projections"
+    },
+    "test_skill_python_invocation.py": {
+      "tier": "dev",
+      "overrides": {
+        "ShippedSkillsPinPythonTests": {
+          "tier": "release",
+          "area": "catalogs-and-projections"
+        }
+      }
+    },
+    "test_staged_checks_registry.py": {
+      "tier": "dev",
+      "overrides": {
+        "RegistrationTests": {
+          "tier": "release",
+          "area": "release-and-staging"
+        }
+      }
+    },
+    "test_staged_health.py": {
+      "tier": "dev",
+      "overrides": {
+        "CleanStageTests": {
+          "tier": "release",
+          "area": "release-and-staging"
+        },
+        "SeededFaultTests": {
+          "tier": "release",
+          "area": "release-and-staging"
+        },
+        "CommandLineTests": {
+          "tier": "release",
+          "area": "release-and-staging"
+        }
+      }
+    },
+    "test_summaries_migration_projection.py": {
+      "tier": "dev"
+    },
+    "test_summaries_observations.py": {
+      "tier": "dev",
+      "overrides": {
+        "S1CollectRecordsTests": {
+          "tier": "release",
+          "area": "adr-lifecycle"
+        },
+        "S4InputHashTests": {
+          "tier": "release",
+          "area": "adr-lifecycle"
+        }
+      }
+    },
+    "test_summaries_required_reads.py": {
+      "tier": "dev"
+    },
+    "test_summaries_source_io.py": {
+      "tier": "dev"
+    },
+    "test_survey.py": {
+      "tier": "dev",
+      "overrides": {
+        "VerifyGreenPathTests": {
+          "tier": "release",
+          "area": "docs-tree-maintenance"
+        },
+        "ExitLaneTests": {
+          "tier": "release",
+          "area": "docs-tree-maintenance"
+        }
+      }
+    },
+    "test_survey_claim_binding.py": {
+      "tier": "dev"
+    },
+    "test_survey_docs_dir_containment.py": {
+      "tier": "dev"
+    },
+    "test_survey_index_hardening.py": {
+      "tier": "dev"
+    },
+    "test_survey_migration_admission.py": {
+      "tier": "dev"
+    },
+    "test_survey_postconditions.py": {
+      "tier": "dev"
+    },
+    "test_survey_receipts_projection.py": {
+      "tier": "dev"
+    },
+    "test_survey_scaffold.py": {
+      "tier": "dev"
+    },
+    "test_survey_sheet.py": {
+      "tier": "dev"
+    },
+    "test_survey_signoff.py": {
+      "tier": "dev",
+      "overrides": {
+        "CellsOneToEightTests": {
+          "tier": "release",
+          "area": "docs-tree-maintenance"
+        },
+        "PublishedRecordTests": {
+          "tier": "release",
+          "area": "docs-tree-maintenance"
+        }
+      }
+    },
+    "test_survey_slug_cell.py": {
+      "tier": "dev"
+    },
+    "test_survey_source_io.py": {
+      "tier": "dev"
+    },
+    "test_swift_app_gate.py": {
+      "tier": "release",
+      "area": "arch-derive"
+    },
+    "test_swift_generators.py": {
+      "tier": "dev"
+    },
+    "test_swift_pack.py": {
+      "tier": "dev",
+      "overrides": {
+        "RegisteredDerivePathTests": {
+          "tier": "release",
+          "area": "arch-derive"
+        },
+        "RendererTests": {
+          "tier": "release",
+          "area": "arch-derive"
+        },
+        "XcodeFixtureTests": {
+          "tier": "release",
+          "area": "arch-derive"
+        },
+        "NoExecutionTests": {
+          "tier": "release",
+          "area": "arch-derive"
+        }
+      }
+    },
+    "test_swift_pbxproj.py": {
+      "tier": "dev"
+    },
+    "test_swift_surrogate_escapes.py": {
+      "tier": "dev"
+    },
+    "test_swift_work_bound.py": {
+      "tier": "dev"
+    },
+    "test_swift_xcinputs.py": {
+      "tier": "dev"
+    },
+    "test_swift_xcode.py": {
+      "tier": "dev",
+      "overrides": {
+        "ClassicMembershipTests": {
+          "tier": "release",
+          "area": "arch-derive"
+        },
+        "SyncedMembershipTests": {
+          "tier": "release",
+          "area": "arch-derive"
+        }
+      }
+    },
+    "test_swift_xcode_controls.py": {
+      "tier": "dev"
+    },
+    "test_swift_xcode_products.py": {
+      "tier": "dev"
+    },
+    "test_template_splices.py": {
+      "tier": "dev"
+    },
+    "test_test_evidence.py": {
+      "tier": "release",
+      "area": "test-evidence"
+    },
+    "test_test_tiers.py": {
+      "tier": "dev",
+      "overrides": {
+        "CheckTests": {
+          "tier": "release",
+          "area": "test-evidence"
+        },
+        "MergeTests": {
+          "tier": "release",
+          "area": "test-evidence"
+        }
+      }
+    },
+    "test_test_tiers_check.py": {
+      "tier": "release",
+      "area": "test-evidence"
+    },
+    "test_test_tiers_skill.py": {
+      "tier": "dev"
+    },
+    "test_tier_workflow.py": {
+      "tier": "release",
+      "area": "test-evidence"
+    },
+    "test_timing_helper.py": {
+      "tier": "dev"
+    },
+    "test_transcribe_video.py": {
+      "tier": "dev"
+    },
+    "test_untrusted.py": {
+      "tier": "dev"
+    },
+    "test_untrusted_gate.py": {
+      "tier": "dev",
+      "overrides": {
+        "RealTreeTests": {
+          "tier": "release",
+          "area": "config-and-env"
+        }
+      }
+    },
+    "test_validate_catalog.py": {
+      "tier": "dev",
+      "overrides": {
+        "BundleClosureTests": {
+          "tier": "release",
+          "area": "catalogs-and-projections"
+        },
+        "BundlesYmlTests": {
+          "tier": "release",
+          "area": "catalogs-and-projections"
+        },
+        "ModelsCatalogPositiveTests": {
+          "tier": "release",
+          "area": "catalogs-and-projections"
+        },
+        "RosterKeyConfinementTests": {
+          "tier": "release",
+          "area": "catalogs-and-projections"
+        }
+      }
+    },
+    "test_validate_catalog_access.py": {
+      "tier": "dev"
+    },
+    "test_validate_catalog_agents.py": {
+      "tier": "dev"
+    },
+    "test_validate_promptbook.py": {
+      "tier": "dev"
+    },
+    "test_verify_patch_template_gates.py": {
+      "tier": "dev"
+    },
+    "test_visualize_run_progress.py": {
+      "tier": "dev",
+      "overrides": {
+        "CliTests": {
+          "tier": "release",
+          "area": "dashboards"
+        },
+        "GoldenOutputTests": {
+          "tier": "release",
+          "area": "dashboards"
+        }
+      }
+    },
+    "test_visualize_run_progress_json.py": {
+      "tier": "dev",
+      "overrides": {
+        "ShapeTests": {
+          "tier": "release",
+          "area": "dashboards"
+        }
+      }
+    },
+    "test_web_to_markdown.py": {
+      "tier": "dev",
+      "overrides": {
+        "MarkdownPassthroughTests.test_a_plain_text_response_is_passed_through_too": {
+          "tier": "release",
+          "area": "docs-tree-maintenance"
+        }
+      }
+    },
+    "test_write_journal.py": {
+      "tier": "release",
+      "area": "docs-tree-maintenance"
+    },
+    "test_write_review_report.py": {
+      "tier": "dev",
+      "overrides": {
+        "WrittenReport": {
+          "tier": "release",
+          "area": "cycle-engine"
+        },
+        "GateIntegration": {
+          "tier": "release",
+          "area": "cycle-engine"
+        }
+      }
+    },
+    "test_xcode_fixture_harness.py": {
+      "tier": "dev"
+    },
+    "test_yaml_capability.py": {
+      "tier": "dev"
+    },
+    "test_yaml_min_catalog.py": {
+      "tier": "dev",
+      "overrides": {
+        "ShippedCatalogParityTests": {
+          "tier": "release",
+          "area": "catalogs-and-projections"
+        }
+      }
+    }
+  }
+}

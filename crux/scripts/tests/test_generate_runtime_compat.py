@@ -360,13 +360,13 @@ class CliContractTests(unittest.TestCase):
     def test_dry_run_on_the_real_tree_exits_zero_with_json(self):
         # --repo-root is explicit: the CLI takes its target from the invocation, so
         # without it this case declines whenever the suite runs from a directory that
-        # is not this checkout, and the 56-target assertion below measures nothing.
+        # is not this checkout, and the 53-target assertion below measures nothing.
         result = self._run("--dry-run", "--repo-root", str(SCRIPT.parents[2]))
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         payload = json.loads(result.stdout)
         self.assertEqual(payload["drifted"], [])
         # A gate that measured nothing would also print an empty drift list.
-        self.assertEqual(payload["targets"], 52)
+        self.assertEqual(payload["targets"], 53)
 
     def test_seeded_drift_makes_the_cli_exit_one_with_json_on_stdout(self):
         """Positive control for the row above, through the same CLI."""
@@ -430,11 +430,11 @@ class CliContractTests(unittest.TestCase):
 class RealTreeTests(unittest.TestCase):
     """Facts about THIS checkout, which the synthetic lanes cannot assert."""
 
-    def test_the_projection_covers_52_of_the_56_catalogued_skills(self):
+    def test_the_projection_covers_53_of_the_57_catalogued_skills(self):
         targets = gen.resolve_targets(REPO_ROOT)
         catalogued = gen._catalogued_skills(REPO_ROOT)
-        self.assertEqual(len(catalogued), 56)
-        self.assertEqual(len(targets), 52)
+        self.assertEqual(len(catalogued), 57)
+        self.assertEqual(len(targets), 53)
         self.assertEqual(len(gen.EXEMPT_SKILLS), 4)
         self.assertEqual(len(targets) + len(gen.EXEMPT_SKILLS), len(catalogued))
 

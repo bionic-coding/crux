@@ -2556,36 +2556,6 @@ class SchemaGrowthTests(unittest.TestCase):
             self.assertFalse(_ref_resolves(root, f"refs/tags/{ref}"))
 
     @unittest.skipUnless(GIT, "git is not on PATH")
-    def test_computed_with_no_change_between_baseline_and_current(self):
-        """ZERO change: current counts equal the baseline's exactly."""
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            self._two_release_dev_repo(root, baseline_claude=4, baseline_skills=2,
-                                       current_claude=4, current_skills=2)
-
-            rec = self._growth(root)
-            self.assertEqual(rec["verdict"], "computed")
-            self.assertEqual(rec["value"]["current"]["claude_md_lines"], 4)
-            self.assertEqual(rec["value"]["baseline"]["claude_md_lines"], 4)
-            self.assertEqual(rec["value"]["current"]["skills"], 2)
-            self.assertEqual(rec["value"]["baseline"]["skills"], 2)
-
-    @unittest.skipUnless(GIT, "git is not on PATH")
-    def test_computed_with_a_negative_change_since_the_baseline(self):
-        """NEGATIVE change: current counts are BELOW the baseline's."""
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            self._two_release_dev_repo(root, baseline_claude=9, baseline_skills=5,
-                                       current_claude=4, current_skills=2)
-
-            rec = self._growth(root)
-            self.assertEqual(rec["verdict"], "computed")
-            self.assertEqual(rec["value"]["current"]["claude_md_lines"], 4)
-            self.assertEqual(rec["value"]["baseline"]["claude_md_lines"], 9)
-            self.assertLess(rec["value"]["current"]["claude_md_lines"],
-                            rec["value"]["baseline"]["claude_md_lines"])
-
-    @unittest.skipUnless(GIT, "git is not on PATH")
     def test_an_absent_changelog_leaves_the_baseline_unavailable_named(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

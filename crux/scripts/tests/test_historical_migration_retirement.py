@@ -3,7 +3,7 @@
 `advance-run.py --migration-batch` (E4) refuses before it loads or writes the run, and
 `run-council.py --migration-batch` (E3) refuses before the batch is loaded, before preflight and
 before any attempt is claimed. Both are driven unstubbed as child processes on a closed fixture,
-a published fixture, a run at a council prompt and a recovery batch. Each test checks the exact
+a run at a council prompt and a recovery batch. Each test checks the exact
 line, the exit code and a byte-identical tree (`.git` refs, index and objects included), then
 pairs the refusal with a positive control: the production verifier admits the same fixture.
 
@@ -40,15 +40,12 @@ def question_for(rel, path):
 
 
 class _Surface:
-    """What a closed and a published fixture share. A subclass supplies `published`."""
-    published = False
+    """The advance-run cases, driven on a closed fixture."""
 
     def setUp(self):
         self.home = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.home, True)
         self.f = fixtures.closed(self)  # A private clone of what the production close code recorded.
-        if self.published:
-            self.f.publish()
         self.root = self.f.root
         self.rel = self.f.f.rel
 
@@ -57,8 +54,6 @@ class _Surface:
         proof = producer.assert_close_admitted(self.root, self.f.f.run_path, slot=self.f.f.slot,
             batch_path=self.rel, batch_sha256=migration._digest(self.f.f.path.read_bytes()))
         self.assertEqual(proof.binding, self.f.proof.binding)
-        if self.published:
-            self.assertEqual(len(producer.assert_publication_admitted(self.root)["publications"]), 1)
         inventory = producer.script("implementation-migration.py", "inventory", "--repo-root", str(self.root),
                                     "--batch", self.rel, home=self.home)
         self.assertEqual(inventory.returncode, 0, inventory.stdout + inventory.stderr)
@@ -107,12 +102,6 @@ class _Surface:
 
 class ClosedFixture(_Surface, unittest.TestCase):
     """A close recorded in the run and committed, with no publication."""
-    published = False
-
-
-class PublishedFixture(_Surface, unittest.TestCase):
-    """A close and its committed publication."""
-    published = True
 
 
 class SelectorFixture(unittest.TestCase):

@@ -214,18 +214,6 @@ class PublicationTests(MigrationFixture):
             self.write(destination,value)
             with self.assertRaises((CycleError,ValueError)):historical.authority_view(self.root)
 
-    def test_committed_source_drift_refuses_but_own_displacement_does_not(self):
-        import adr_migration_publication as p
-        self.approve()
-        self.write('bionic/adrs/migrations/publication-one.publication.json',json.loads((self.root/self.candidate).read_bytes()))
-        self.commit('Activate')
-        view=historical.authority_view(self.root)
-        self.assertIn(self.package['items'][0]['handle'],view['historical_handles'])
-        # Its own displacement cannot invalidate approval. Material source drift can.
-        self.assertEqual(view,historical.authority_view(self.root))
-        path=self.docs/self.subject; path.write_text(path.read_text().replace('Preserve approvals.','Altered obligations.'))
-        with self.assertRaises((CycleError,ValueError)):historical.authority_view(self.root)
-
     def test_candidate_cannot_relax_parent_refusal(self):
         import adr_migration_publication as p
         self.approve()

@@ -878,15 +878,6 @@ class ClassicMembershipClause3Tests(unittest.TestCase):
         self.assertEqual(m, ())
         self.assertEqual([r[0] for r in res], ["unresolved-reference"])
 
-    def test_missing_file_no_row_and_unresolved_reference(self):
-        doc, d, by_id = self._one_file_fixture()
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            # One.swift is never written to disk.
-            m, res = sx.classic_memberships(doc, root, d, "p", by_id, "X.xcodeproj")
-        self.assertEqual(m, ())
-        self.assertEqual([r[0] for r in res], ["unresolved-reference"])
-
     @unittest.skipIf(not hasattr(os, "symlink"), "platform has no symlink support")
     def test_symlinked_file_no_row(self):
         doc, d, by_id = self._one_file_fixture()

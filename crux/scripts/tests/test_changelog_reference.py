@@ -85,6 +85,7 @@ class ChangelogReferenceTests(unittest.TestCase):
     def test_actual_historical_footnote_reference_and_raw_bytes_preserved(self):
         if IS_STAGED_ARTIFACT:
             self.skipTest('the staged CHANGELOG.md is the public rendition, which carries no footnotes')
+        # live-changelog-read: released-sections-only
         # The live file is read through the migration span (the rows the citation readers consume) and
         # compared byte for byte with itself after the read. Every other assertion on historical
         # classification runs on a fixture, so a release-only edit to CHANGELOG.md breaks no test here.

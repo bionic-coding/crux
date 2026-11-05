@@ -97,7 +97,8 @@ class PersonalInstallTests(unittest.TestCase):
             self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
             refreshed = self.run_install("--codex-home", str(codex_home), "--force", executable=relocated)
             self.assertEqual(refreshed.returncode, 0, refreshed.stdout + refreshed.stderr)
-            installed = tomllib.loads((codex_home / "agents" / "crux-architect.toml").read_text(encoding="utf-8"))
+            installed = tomllib.loads((codex_home / "agents" / "crux-commander.toml").read_text(encoding="utf-8"))
+            self.assertTrue(installed["skills"]["config"], installed)
             self.assertTrue(
                 all(entry["path"].startswith(str(plugin.resolve())) for entry in installed["skills"]["config"]), installed
             )

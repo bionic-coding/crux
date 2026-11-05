@@ -11,6 +11,8 @@ import type { Parsed } from './lib/view.ts'
 import type { Kept } from '../types'
 import { band, clampPage, olderPages, pane, styleOf } from './lib/draw.ts'
 import type { Block } from './lib/draw.ts'
+import { applyQueueAction, queueExpanded } from './lib/queue.ts'
+import type { QueueAction, QueueExpansion } from './lib/queue.ts'
 import { asksForTheRun } from './lib/phrases.ts'
 
 // The mods loader follows `$` only into functions declared in this file, so
@@ -39,7 +41,10 @@ const current = atom({ plugin: 'crux-mods', key: 'current' } as const, null as K
 // The pane clamps it when it draws, so a refresh that changes the number of cycles writes nothing.
 const PAGE_SHAPE = 'page-1'
 const pageAtom = atom({ plugin: 'crux-mods', key: 'page' } as const, 0, { shape: PAGE_SHAPE })
+const queueAtom = atom({ plugin: 'crux-mods', key: 'queue' } as const, { root: '', expanded: false } as QueueExpansion, { shape: 'queue-1' })
 let inFlight: Promise<Parsed> | undefined
+// The one run that starts when the run in flight ends, shared by every caller until it starts.
+let pending: Promise<Parsed> | undefined
 let timer: Timer | undefined
 // True while the 15 s timer skips its refresh because the reader ran out of time.
 let backedOff = false
@@ -193,10 +198,23 @@ async function keepResult($: Eng, keep: Kept): Promise<void> {
   }
 }
 
-// One launch at a time: a caller that arrives while one is in flight waits for
-// it instead of starting another. It returns the result its own launch produced.
+// One launch at a time. A run reads the record when it starts, so a caller that arrives while one
+// is in flight cannot take that run's answer: the record may have changed since. It sets the
+// pending run, which starts when the run in flight ends. Callers that arrive in the meantime share
+// that one pending run, so a burst of callers costs one launch more, never one each.
 function refresh($: Eng): Promise<Parsed> {
-  if (inFlight !== undefined) return inFlight
+  if (inFlight === undefined) return launch($)
+  if (pending === undefined) {
+    const start = () => {
+      pending = undefined
+      return launch($)
+    }
+    pending = inFlight.then(start, start)
+  }
+  return pending
+}
+
+function launch($: Eng): Promise<Parsed> {
   inFlight = (async () => {
     try {
       let result: Parsed
@@ -276,13 +294,45 @@ async function stepPage($: Eng, delta: number, pages: number): Promise<void> {
   }
 }
 
+async function queueNow($: Eng): Promise<QueueExpansion | null> {
+  try {
+    return await read($, queueAtom)
+  } catch {
+    return null
+  }
+}
+
+async function queueRoot($: Eng): Promise<string> {
+  try {
+    return await $.session.root()
+  } catch {
+    return ''
+  }
+}
+
+async function pressQueue($: Eng, root: string, action: QueueAction): Promise<void> {
+  try {
+    if (root === '' || root !== await queueRoot($)) return
+    const current = await keptNow($)
+    await update($, queueAtom, state => applyQueueAction(current, state, root, action) ?? state)
+  } catch {
+    // Refused or stale actions leave presentation unchanged.
+  }
+}
+
 // A block from lib/draw.ts as elements. A line is one Text holding a Text per span, so it stays one
 // line of text: sibling Texts in a row Box would be laid out side by side as columns. A box is a Box,
 // round-bordered with one cell of padding when it names a border key. The dashboard draws no
 // other element.
-function element(Box: any, Text: any, b: Block): any {
-  if (b.kind === 'line') return <Text wrap="truncate">{b.line.map(s => <Text {...styleOf(s)}>{s.text}</Text>)}</Text>
-  const children = b.children.map(c => element(Box, Text, c))
+function element(Box: any, Text: any, b: Block, Button?: any, queuePress?: (action: QueueAction) => void): any {
+  if (b.kind === 'line') {
+    if (b.action !== undefined && Button !== undefined && queuePress !== undefined) {
+      const action = b.action
+      return <Button key="queue-toggle" plain hotkey="q" onPress={() => queuePress(action)}>{b.line.map(s => s.text).join('')}</Button>
+    }
+    return <Text wrap="truncate">{b.line.map(s => <Text {...styleOf(s)}>{s.text}</Text>)}</Text>
+  }
+  const children = b.children.map(c => element(Box, Text, c, Button, queuePress))
   if (b.border !== null) {
     return (
       <Box flexDirection={b.direction} width={b.width} borderStyle="round" borderColor={b.border} paddingX={1}>
@@ -377,9 +427,11 @@ export const register: Register = (on, options) => {
     if (e.requestId !== PANE_ID) return next(e)
     const now = await keptNow($)
     if (now === null) return next(e)
-    const block = pane(now, await agentsOf($), e.props.bodyColumns, layoutOf(e.props.placement), HARNESS, await pageNow($))
+    const root = await queueRoot($)
+    const expanded = queueExpanded(await queueNow($), root)
+    const block = pane(now, await agentsOf($), e.props.bodyColumns, layoutOf(e.props.placement), HARNESS, await pageNow($), expanded)
     const { Box, Text, Button } = $.ui.resolve(e) as any
-    const drawing = element(Box, Text, block)
+    const drawing = element(Box, Text, block, Button, action => void pressQueue($, root, action))
     // Past one page of the `cycles:` list the pane offers two buttons, n for the next page and p for the
     // previous. A press only changes which page the pane draws.
     const pages = olderPages(now)

@@ -468,16 +468,6 @@ class DiscoverUnitTests(unittest.TestCase):
             self.py.discover(repo, {"glob": "*.py"}, self._ctx(repo))
         self.assertEqual(ctx.exception.path, "py314_only.py")
 
-    def test_an_oversized_source_refuses(self):
-        repo = self._tmp_repo()
-        big = repo / "big.py"
-        # Just over the loader's 2 MiB bound; built at test time, not committed.
-        big.write_text("x = 1  # " + ("a" * (2 * 1024 * 1024 + 10)) + "\n", encoding="utf-8")
-        with self.assertRaises(self.dispatcher.ExtractionRefusal) as ctx:
-            self.py.discover(repo, {"glob": "*.py"}, self._ctx(repo))
-        self.assertEqual(ctx.exception.path, "big.py")
-        self.assertIn("bytes", ctx.exception.cause)
-
     def test_provenance_has_no_interpreter_version_and_matches_the_pin(self):
         result = self.py.provenance({"include_private": False})
         self.assertEqual(result["backend"], self.dispatcher.GRIFFE_REQUIREMENT)

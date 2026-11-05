@@ -235,6 +235,8 @@ def evaluate(row):
     """Derive a mode-aware outcome; a dissent label alone is no veto."""
     mode=row.get('policy',{}).get('mode')
     if mode not in MODES:raise CycleError('unknown frozen council mode')
+    if (row.get('call_evidence') or {}).get('required') and (row.get('call_evidence') or {}).get('complete') is not True:
+        return 'could-not-run'
     if row.get('binding_failures'):return 'changes-required'
     seats=row.get('seats',[]);architect=row.get('architect') or {}
     agreement=(architect.get('agrees') is True and architect.get('subject_sha256')==row.get('subject_sha256')
@@ -271,6 +273,35 @@ def evaluate(row):
     return 'approved'
 
 
+NIT_DISPOSITIONS=('apply-in-build','declined')
+
+
+def nit_ids(record):
+    """The ids of the nit findings a council record holds, in order: every seat for Standard and Strict, the final pass for Lite.
+
+    A finding with no id is named `<provider>:<position>`."""
+    if (record.get('policy') or {}).get('mode')=='lite':
+        final=[p for p in record.get('passes',[]) if p.get('pass')=='final']
+        groups=[('final',(final[-1].get('vote') or {}).get('findings',[]))] if final else []
+    else:groups=[(s.get('provider'),s.get('findings',[])) for s in record.get('seats',[])]
+    return [f.get('id') or f'{who}:{n}' for who,found in groups for n,f in enumerate(found) if isinstance(f,dict) and f.get('kind')=='nit']
+
+
+def check_nit_dispositions(row,value):
+    """The architect agreement names each nit of the record with a disposition: apply-in-build, or declined with its reason."""
+    nits=nit_ids(row);listed=value.get('nits',[])
+    if not isinstance(listed,list) or any(not isinstance(n,dict) for n in listed):raise CycleError('architect nit dispositions must be a list of objects')
+    ids=[n.get('id') for n in listed]
+    unknown=[i for i in ids if i not in nits]
+    if unknown:raise CycleError('architect agreement names an unknown nit: '+', '.join(map(str,unknown)))
+    missing=[i for i in nits if i not in ids]
+    if missing:raise CycleError('architect agreement must record a disposition for each nit; missing: '+', '.join(missing))
+    for n in listed:
+        if n.get('disposition') not in NIT_DISPOSITIONS:raise CycleError(f"nit {n.get('id')} needs a disposition of apply-in-build or declined")
+        if n['disposition']=='declined' and not (isinstance(n.get('note'),str) and n['note'].strip()):
+            raise CycleError(f"nit {n.get('id')} is declined and needs its reason in note")
+
+
 def disposition(repo,record_path,value):
     """The owning writer resolves and retains checkable dissent evidence bytes."""
     cfg=tree(repo);path=contained(cfg.docs_root,record_path);row=read_json(repo,path.relative_to(cfg.repo_root).as_posix())
@@ -280,6 +311,7 @@ def disposition(repo,record_path,value):
         raise CycleError('architect disposition subject changed')
     value=deepcopy(value)
     if value.get('subject_sha256')!=row['subject_sha256']:raise CycleError('architect disposition binds another revision')
+    if value.get('agrees') is True:check_nit_dispositions(row,value)
     dissent_items=value.get('dissent',[])
     if not isinstance(dissent_items,list) or any(not isinstance(d,dict) for d in dissent_items):raise CycleError('typed architect dissent must be a list')
     def retain_evidence(item):
@@ -316,6 +348,9 @@ def disposition(repo,record_path,value):
     updated=seal(row)
     if encoded(updated)==path.read_bytes():
         return {'record':record_path,'outcome':row['outcome']}
+    if row['outcome'] == 'approved':
+        from cycle_council_events import validate_current
+        validate_current(repo, row, record_path=record_path)
     atomic(path,updated)
     from cycle_council import commit_evidence
     commit_evidence(cfg.repo_root,[path],'Record exact architect council disposition')

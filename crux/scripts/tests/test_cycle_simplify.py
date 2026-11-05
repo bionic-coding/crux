@@ -128,7 +128,7 @@ class Base(unittest.TestCase):
         """Advance an approved simplify cycle from Plan to the Test phase."""
         doc = self.finish(doc)
         doc = self.finish(doc)
-        self.assertEqual(doc['phase'], 'test')
+        self.assertEqual(doc['phase'], 'verify')
         return doc
 
 
@@ -260,9 +260,20 @@ class ReductionTests(Base):
         with patch('cycle_workflow.check_tests'):
             return self.finish(doc)
 
+    def test_inspect_routes_a_missing_reduction_to_the_low_level_command(self):
+        import cycle_ops
+        doc = self.at_test()
+        def routes():
+            return [a for a in cycle_ops.inspect(self.repo, doc['id'], {})['actions'] if a.get('argv') and a['argv'][6:7] == ['reduction']]
+        [route] = routes()
+        self.assertEqual((route['argv'][6], route['argv'][7], route['caller_fills']), ('reduction', doc['id'], ['--json']))
+        # Once a reduction of this pass is recorded, the route goes away.
+        self.write(doc, reduction())
+        self.assertEqual(routes(), [])
+
     def test_reduction_is_refused_outside_the_test_phase(self):
         doc = self.approved(self.direct(), 'owner')
-        with self.assertRaisesRegex(CycleError, 'Test phase'):
+        with self.assertRaisesRegex(CycleError, 'Verify phase'):
             self.write(doc, reduction())
 
     def test_reduction_is_refused_outside_simplify(self):

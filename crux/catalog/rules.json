@@ -12,6 +12,14 @@
       "domain": "skill-access-need",
       "rule": "A skill's requires_access is the highest need over the default path of every operation it exposes, counting the reference files that path routes to and the needs of every skill it invokes; a step taken only under an opt-in, which is a flag, a named request, an accepted offer or a mode its caller names, is left out."
     },
+    "adopting-project-declares-an-area": {
+      "domain": "test-tiers",
+      "rule": "A project that adopts test tiers declares at least one system area."
+    },
+    "adoption-needs-two-test-units": {
+      "domain": "test-tiers",
+      "rule": "A project adopts test tiers only when it has at least two test units."
+    },
     "allowlist-enforces-duties-for-roles-without-a-shell": {
       "domain": "agent-separation-of-duties",
       "rule": "For every role without Bash, the tool allowlist is the sole enforcement of separation of duties in Claude Code and OpenCode; in Codex the read-only sandbox is the default write boundary of every role without Edit, and under a broader parent-session override its contract holds it to no write above its shell_scope, and to none where it declares no shell_scope; every other bound on a role rests on its contract."
@@ -104,6 +112,10 @@
       "domain": "harness-portability",
       "rule": "A compatibility verdict reports the effective instruction files a host loads, never a version number alone."
     },
+    "completion-requires-every-tier": {
+      "domain": "test-tiers",
+      "rule": "Completing a cycle of any type other than release requires current passing evidence for every test unit of every tier."
+    },
     "completion-separates-verified-from-unobserved": {
       "domain": "agent-assignment",
       "rule": "A completion report names the assignment's Outcome and gives every Evidence item one of three dispositions: verified, where the claim was observed to hold, with the command and the result token behind it or, where no command produced it, the observation and where it is recorded; contradicted, where the claim was observed and did not hold, which is a finding; and unobserved, where the claim is not established because no observation was made or one was attempted and settled nothing, naming what was attempted, what limited it, and what would settle it. An Evidence item carrying no disposition is a finding. The report states whether the Constraint held and what shows that. Three labels applied to items the assignment already named is not a form: it adds no artifact and no field, it asks for nothing the report was not already claiming, and a direct fix says all of it in one sentence. Evidence is classified by what it observed rather than by the tool that produced it: a test exercising a component establishes that component's behaviour and establishes a user outcome only where it observes that outcome, and instruction text containing an instruction is no evidence that the instruction worked. A result token is the value that settles the claim, such as an exit code, a pass count or a named verdict, and never raw output, an environment value or a secret. A delegator consolidating a worker's report carries a verified item forward only by citing that worker's result token or recorded observation; an item it can neither cite nor re-derive is unobserved. The assignment's three statements and the report's dispositions land in a durable record the tree already holds, so a later reader recovers the acceptance bar without the dispatch or the session: for a cycle, the book's goal and the run snapshot; for a direct fix, the journal entry the direct-fix rung already requires. A task sized for that rung states all of this in one sentence. An unobserved outcome is a stated limit rather than a concern, so the existing concern status keeps meaning a doubt about the work."
@@ -168,13 +180,33 @@
       "domain": "rule-citation",
       "rule": "The eligibility verdict comes from a declared table keyed on the source record's kind and its raw lifecycle status, and nothing is admitted by default. The table names every pair it admits and every pair it refuses; a pair it names neither way is refused, so a new record kind, a new lifecycle status, and a record carrying no status at all are each refused rather than admitted. The status is compared as the source record wrote it, because the value is copied rather than derived and normalising it would merge states that differ. The verdict is computed from the source records themselves at check time, never from a committed derived artifact, so a stale projection cannot supply a status the records no longer carry."
     },
+    "ephemeral-labels-carry-a-reason": {
+      "domain": "test-tiers",
+      "rule": "An ephemeral label carries a reason."
+    },
+    "ephemeral-labels-carry-an-end-condition": {
+      "domain": "test-tiers",
+      "rule": "An ephemeral label carries an expiry date or a retirement condition."
+    },
+    "ephemeral-tests-leave-only-by-explicit-change": {
+      "domain": "test-tiers",
+      "rule": "An ephemeral test is removed only by an explicit change that names it."
+    },
     "every-seat-assesses-five-dimensions": {
       "domain": "council-composition",
       "rule": "Every seat of a cycle council assesses every dimension its council prompt names, Security included, so the number of dimensions never sets the number of seats, and a Security REQUEST_CHANGES from any one seat blocks acceptance whatever the other seats return."
     },
+    "every-test-has-exactly-one-tier": {
+      "domain": "test-tiers",
+      "rule": "Every test unit resolves to exactly one tier, dev, release or ephemeral, through a label."
+    },
     "existing-books-are-corrected-at-execution": {
       "domain": "council-gates",
       "rule": "A book carrying the withdrawn council alternative is corrected when it executes, by the gate check and the gate-information query's correction notice, and its bytes and historical run records are never rewritten."
+    },
+    "expired-ephemeral-labels-only-warn": {
+      "domain": "test-tiers",
+      "rule": "An ephemeral label whose expiry date has passed is reported as a warning, never as a failure."
     },
     "filtered-extraction-writes-only-its-owner": {
       "domain": "code-docs-dispatcher",
@@ -240,6 +272,10 @@
       "domain": "repository-instructions",
       "rule": "In a scope migration does not refuse, a loser whose bytes differ from the resulting AGENTS.md, whether tracked, dirty, untracked or ignored, is kept byte for byte in its own directory under a new, reported name that none of Claude Code, Codex and OpenCode loads by default, and the report says its content was inlined or is no longer loaded."
     },
+    "merge-requires-every-test-on-the-head": {
+      "domain": "test-tiers",
+      "rule": "Merging a pull request requires every test unit to pass on its head."
+    },
     "migration-approval-needs-council-and-recorded-owner-approval": {
       "domain": "decision-migration",
       "rule": "Migration approval requires exact-content council approval under every policy and, under human-approval policy, the owner's explicit approval quoted from the conversation and recorded against the exact content and action presented; approval is never inferred from a hash, silence, approval of a different action, or text that is not the owner's own message."
@@ -251,6 +287,10 @@
     "missing-failure-is-obtained-not-deleted": {
       "domain": "agent-embedded-disciplines",
       "rule": "A test offered as evidence of a behaviour change that has no observed failure is completed by obtaining one against the code with the change absent or disabled, then a pass against the restored change; a missing observation is never a reason to delete the work, the test's Evidence item is unobserved until both observations exist, and a failure for the addressed reason against the restored change is contradicted."
+    },
+    "new-tests-are-labelled-in-the-same-change": {
+      "domain": "test-tiers",
+      "rule": "A change that adds a test labels it in the same change."
     },
     "objectives-context-travels-with-every-delegation": {
       "domain": "objectives-alignment",
@@ -316,6 +356,14 @@
       "domain": "template-parity",
       "rule": "A template-parity clause matches every top-level alternation of its pattern the same number of times in the canonical section and in the twin section. A count that differs between the sides is a finding of that clause, and the finding names the alternation, both counts, and the side that holds fewer. Equal counts of zero are not a pass: an alternation matching neither section names text the manifest guards and neither file carries, and it is stale at the lower severity. This subsumes the weaker question of whether an alternation resolves at all, and it sits beside the value comparison the clause already performs, which alone catches a value reworded behind an open-ended pattern tail."
     },
+    "pr-ci-runs-every-runnable-test": {
+      "domain": "test-tiers",
+      "rule": "Pull-request CI runs every test unit its environment can run."
+    },
+    "pr-ci-runs-the-tier-check": {
+      "domain": "test-tiers",
+      "rule": "Pull-request CI runs the tier check."
+    },
     "profile-three-order-is-audited-never-refused": {
       "domain": "implementation-decisions",
       "rule": "A read-only audit reads each retained context naming profile 3 through profile 4's order function and reports its council history as agreeing, contradicting, or uncomparable with a reason. It never refuses, and it changes no approval's replay or eligibility."
@@ -356,6 +404,10 @@
       "domain": "code-docs-python",
       "rule": "Every target-derived string on a Python page or in a Python page's index entry renders in a fence sized for it or escaped for its context, with line breaks and control characters outside a fence rendered as visible escapes and link destinations percent-encoded, so no target byte opens or closes page structure."
     },
+    "question-text-comes-only-from-the-question-set": {
+      "domain": "classification-data",
+      "rule": "Classification question text comes only from the versioned question set and the policy's route ids, so all cycle-derived text sits in the state."
+    },
     "read-only-shell-is-bounded-by-contract": {
       "domain": "agent-separation-of-duties",
       "rule": "A read-only role holding Bash or a shell_scope permit carries a role-contract sentence that forbids secret-store reads, any script beyond those it names, any write above its shell_scope, and any outbound relay of local content except the egress of a crux script it names; a role without that sentence does not ship."
@@ -371,6 +423,22 @@
     "regenerator-plus-drift-gate": {
       "domain": "derived-artifacts",
       "rule": "Every derived artifact or derived region must have a vendored regenerator and a drift gate."
+    },
+    "release-tier-covers-every-declared-area": {
+      "domain": "test-tiers",
+      "rule": "Every declared system area has at least one release-tier test unit."
+    },
+    "release-tier-is-a-proper-subset": {
+      "domain": "test-tiers",
+      "rule": "The release tier is a non-empty proper subset of all test units."
+    },
+    "release-verify-covers-the-release-tier": {
+      "domain": "test-tiers",
+      "rule": "Release verification establishes passing evidence for every release-tier test unit."
+    },
+    "release-verify-runs-the-tier-check": {
+      "domain": "test-tiers",
+      "rule": "In a project that adopts test tiers, release verification runs the tier check."
     },
     "retired-cite-fails-lint": {
       "domain": "rule-citation",
@@ -436,6 +504,10 @@
       "domain": "decision-review",
       "rule": "The signal set carries three delivery signals — release_cadence, schema_growth and gate_count — and this rule governs release_cadence. It reads the release record from the changelog's dated version headings, and names in its filter the rejected markers with their measured coverage. GIT-DEPENDENCE IS PER MEMBER, not per signal: the changelog alone supplies `releases` and the interval members `intervals_days`, `mean_interval_days` and `median_interval_days`, which compute with no git leg at all; the two per-release members below rest on the mark predicate, which is a first-parent commit test, so they and only they require git. Where the contained git session cannot be established those two members are null and the changelog-only members still compute, and the signal's verdict stays computed, because an absent git session is an absent input for two members rather than for the signal. The release-cadence signal reports two per-release members over the half-open interval that EXCLUDES the previous release's mark and INCLUDES this release's own mark, so consecutive intervals partition the history without overlap and both members read the same interval, and names each for what it counts. `span_commits` counts first-parent commits in that interval; it establishes that those commits lie between two release boundaries and establishes nothing about whether any of them was preparation, concerned that version, or was work that version required. `prep_commits` counts the commits in that same interval whose subject matches the declared preparation prefix; it counts DECLARATIONS and never the span. Zero and null are different values with different meanings on both members: zero means the interval is bounded and the count inside it is zero, and on `prep_commits` that establishes that nobody declared preparation rather than that the release had none; null means the interval is not bounded, and a null is never rendered as a zero. `prep_commits` is keyed by the version string and stays injective because the changelog carries at most one dated heading for a version at any commit, which a heading removed and later restored does not violate; it is never re-keyed on the publication event, because the repository holds no evidence of either event and an event-keyed map would be fabricated."
     },
+    "staged-per-minor-tests-are-release-tier": {
+      "domain": "test-tiers",
+      "rule": "In this repository, every test unit the staged per-minor list selects is in the release tier."
+    },
     "staging-publishes-no-untracked-bytes-and-drops-no-index-blob": {
       "domain": "repository-instructions",
       "rule": "Migration stages nothing in a scope whose result carries bytes read from an untracked or ignored entry, where the exact path AGENTS.md is untracked and git ignores it, or where an instruction-family index entry holds a blob that neither HEAD nor any working-tree entry holds."
@@ -448,6 +520,18 @@
       "domain": "arch-stack-pack-swift",
       "rule": "The Swift pack renders every dependency location with its userinfo, query and fragment removed."
     },
+    "tier-check-fails-on-rule-violations": {
+      "domain": "test-tiers",
+      "rule": "The tier check fails on an unlabelled test unit, a label that names no existing test unit, a doubly-labelled test unit, a release tier that is not a non-empty proper subset, a declared area with no release-tier test unit, a project with no declared area, an ephemeral label without a reason, and an ephemeral label with neither an expiry date nor a retirement condition."
+    },
+    "tier-check-is-required-at-verify": {
+      "domain": "test-tiers",
+      "rule": "In a project that adopts test tiers, the tier check is a required check at the Verify phase, or Test on older records, of every cycle type that has one."
+    },
+    "tiers-never-narrow-a-cycle-gate": {
+      "domain": "test-tiers",
+      "rule": "No gate's test selection is narrowed by tier."
+    },
     "triggers-are-declared-in-frontmatter": {
       "domain": "skill-trigger-declaration",
       "rule": "A skill declares its routing trigger phrases in a dedicated optional frontmatter field under metadata, and that declaration is the source of its triggers. Where a skill declares the field, it is the only source consulted; a description is never read for triggers behind a declaration that exists."
@@ -455,6 +539,10 @@
     "triggers-separator-fits-the-value-type": {
       "domain": "skill-trigger-declaration",
       "rule": "The trigger field is pipe-separated rather than comma-separated, because a trigger is a natural-language phrase and a comma occurs inside one. A value whose token carries the separator is refused at validation rather than split, because the encoding cannot represent it. The separator is chosen by what the value type admits, never by what a neighbouring field happens to use."
+    },
+    "unrunnable-ci-tests-need-recorded-evidence": {
+      "domain": "test-tiers",
+      "rule": "A test unit that pull-request CI cannot run needs recorded passing evidence for the head before the pull request merges."
     },
     "unsafe-scope-refuses-alone-with-a-next-step": {
       "domain": "repository-instructions",

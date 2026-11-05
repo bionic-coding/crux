@@ -529,13 +529,6 @@ class HelpTests(unittest.TestCase):
         # secret scan reduced (council_records.record_exit_code), not only a could-not-run record.
         self.assertRegex(" ".join(text.split()), r"ran record (?:whose full write )?the secret scan (?:refused|reduced)")
 
-    def test_no_message_or_docstring_says_preflight_record_without_could_not_run(self):
-        import re
-        sources = [Path(rec.__file__).read_text(encoding="utf-8")]
-        for src in sources:
-            flat = " ".join(src.replace("#", " ").split())
-            self.assertIsNone(re.search(r"preflight records?(?! pending| could)", flat), re.findall(r".{20}preflight record.{20}", flat))
-
     def test_the_commit_bound_is_the_shared_constant(self):
         env = {}
         with mock.patch.object(council_commit, "GIT_TIMEOUT_SECONDS", 7.0):

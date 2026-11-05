@@ -246,8 +246,11 @@ def validate_readiness(repo, readiness, *, action_commit=None, initial=True):
         raise CycleError('readiness is missing required U1 implementation inventory')
     if not sources or not readiness['tests']:
         raise CycleError('readiness requires source and passing test evidence')
+    read_once = {}
     def committed(ref):
-        raw = blob(repo, basis, ref['path'])
+        if ref['path'] not in read_once:
+            read_once[ref['path']] = blob(repo, basis, ref['path'])
+        raw = read_once[ref['path']]
         if digest(raw) != ref['sha256']:
             raise CycleError('readiness evidence does not match committed bytes')
         return raw
@@ -280,9 +283,12 @@ def _governing(repo, package):
     if not path.is_relative_to(cfg.docs_root):
         raise CycleError('governing ADR must belong to configured documentation tree')
     subject = path.relative_to(cfg.docs_root).as_posix()
-    expected_receipt=(cfg.docs_root/f'adrs/acceptances/{receipt["adr"]}.json').relative_to(cfg.repo_root).as_posix()
+    from decision_policy import _current_receipt
+    selected,current=_current_receipt(cfg,receipt['adr'])
+    expected_receipt=(cfg.docs_root/selected).relative_to(cfg.repo_root).as_posix()
     if package['governing_adr']['receipt']!=expected_receipt:
-        raise CycleError('governing ADR receipt must use its canonical identity path')
+        raise CycleError('governing ADR receipt must use its current immutable identity path')
+    if receipt!=current:raise CycleError('governing ADR receipt does not bind current acceptance')
     council = read(repo, (cfg.docs_root / receipt['council']).relative_to(cfg.repo_root).as_posix())
     from cycle_council import docs_proof_reader
     validate_receipt_data(receipt, subject, council,proof_reader=docs_proof_reader(cfg))
@@ -585,6 +591,11 @@ def validate_package_acceptance(repo, package_path, *, committed=True):
     receipt=json.loads(read(repo,package['governing_adr']['receipt']))
     from decision_policy import validate_receipt_data
     cfg=tree(repo)
+    from decision_policy import _current_receipt
+    selected,current=_current_receipt(cfg,receipt['adr'])
+    if (package['governing_adr']['receipt']!=(cfg.docs_root/selected).relative_to(cfg.repo_root).as_posix()
+            or receipt!=current):
+        raise CycleError('package acceptance requires its current immutable receipt')
     council=read(repo,(cfg.docs_root/receipt['council']).relative_to(cfg.repo_root).as_posix())
     from cycle_council import docs_proof_reader
     validate_receipt_data(receipt,receipt['subject'],council,proof_reader=docs_proof_reader(cfg))

@@ -171,6 +171,17 @@ class TimingTests(unittest.TestCase):
         r = cycle_timing(d, T0 + timedelta(seconds=50))
         self.assertEqual([(s['pass'], s['phase']) for s in r['segments']], [(1, 'plan'), (1, 'build'), (2, 'plan'), (2, 'build')])
 
+    def test_version_3_history_with_revision_yields_the_same_timing(self):
+        rows = [(0, 'created', 1, 'plan', 'active'), (50, 'pause', 1, 'plan', 'paused'), (80, 'resume', 1, 'plan', 'active'), (120, 'advance', 1, 'build', 'active')]
+        plain = doc('dev', rows)
+        versioned = doc('dev', rows)
+        versioned['schema_version'] = 3
+        versioned['revision'] = 7
+        for number, entry in enumerate(versioned['history'], 1):
+            entry['revision'] = number
+        now = T0 + timedelta(seconds=300)
+        self.assertEqual(cycle_timing(versioned, now), cycle_timing(plain, now))
+
     def test_real_historical_records_are_derived_and_reconcile(self):
         root = Path(__file__).resolve().parents[3] / 'bionic/cycles'
         path = root / 'CYC-0009/cycle.json'

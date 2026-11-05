@@ -7,6 +7,7 @@
 // no later run (the host runs the same computation again on every reactive change).
 import { band, fitLine, olderPages, pane, statusLine } from '../../crux-mods/hooks/lib/draw.ts'
 import type { Block } from '../../crux-mods/hooks/lib/draw.ts'
+import type { QueueAction } from '../../crux-mods/hooks/lib/queue.ts'
 import { kept } from '../../crux-mods/hooks/lib/view.ts'
 import type { Parsed } from '../../crux-mods/hooks/lib/view.ts'
 import { drawingWidth } from '../../crux-mods/hooks/lib/width.ts'
@@ -22,11 +23,11 @@ export type PlainSpan = { text: string; token: string; bold: boolean }
 // children of a row.
 export type PlainNode =
   | { kind: 'box'; width: number; direction: 'row' | 'column'; border: string | null; padding: number; children: PlainNode[] }
-  | { kind: 'text'; spans: PlainSpan[] }
+  | { kind: 'text'; spans: PlainSpan[]; action?: QueueAction }
   | { kind: 'spacer'; width: number }
 
 function nodeOf(b: Block): PlainNode {
-  if (b.kind === 'line') return { kind: 'text', spans: b.line.map(s => ({ text: s.text, token: spanToken(s), bold: s.bold === true })) }
+  if (b.kind === 'line') return { kind: 'text', spans: b.line.map(s => ({ text: s.text, token: spanToken(s), bold: s.bold === true })), ...(b.action === undefined ? {} : { action: b.action }) }
   const row = b.direction === 'row'
   const children = b.children.flatMap((c, i): PlainNode[] =>
     row && i > 0 && b.gap > 0 ? [{ kind: 'spacer', width: b.gap }, nodeOf(c)] : [nodeOf(c)],
@@ -59,18 +60,19 @@ function withHint(parsed: Parsed, block: Block): Block {
   return { kind: 'box', direction: block.direction, width: block.width, border: block.border, gap: block.gap, children: block.children.concat([hint]) }
 }
 
-function drawPanel(parsed: Parsed | null, width: unknown, page: number): PlainNode | null {
+function drawPanel(parsed: Parsed | null, width: unknown, page: number, expanded: boolean): PlainNode | null {
   if (parsed === null) return null
   if (isUnsupported(parsed)) return nodeOf(unsupportedBlock(width, { color: 'error' }))
-  return nodeOf(withHint(parsed, pane(parsed, UNAVAILABLE_AGENTS, width, 'docked', HARNESS, page)))
+  return nodeOf(withHint(parsed, pane(parsed, UNAVAILABLE_AGENTS, width, 'docked', HARNESS, page, expanded)))
 }
 
-export function readView(supported: boolean, read: () => unknown): Parsed | null {
+export function readView(supported: boolean, read: () => unknown, root?: string, sourceRoot?: string | null): Parsed | null {
   if (!supported) {
     return UNSUPPORTED
   }
   try {
-    return kept(read(), KEPT_CODES)
+    const parsed = kept(read(), KEPT_CODES)
+    return parsed !== null && parsed.ok && sourceRoot !== undefined && root !== sourceRoot ? null : parsed
   } catch {
     return INVALID
   }
@@ -88,15 +90,15 @@ export function bandNode(parsed: Parsed | null, width: unknown): PlainNode | nul
   }
 }
 
-export function panelNode(parsed: Parsed | null, name: unknown, width: unknown, page: number): PlainNode | null {
+export function panelNode(parsed: Parsed | null, name: unknown, width: unknown, page: number, expanded = false): PlainNode | null {
   if (name !== 'crux-dashboard') {
     return null
   }
   try {
-    return drawPanel(parsed, width, page)
+    return drawPanel(parsed, width, page, expanded)
   } catch {
     try {
-      return drawPanel(INVALID, width, page)
+      return drawPanel(INVALID, width, page, expanded)
     } catch {
       return null
     }

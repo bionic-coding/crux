@@ -14,6 +14,8 @@ import { createFocusSlot } from './lib/focus.ts'
 import type { Host, KeptEnvelope, ReaderSink } from './lib/host.ts'
 import { registerAll } from './lib/lifecycle.ts'
 import { turnPage } from './lib/page.ts'
+import { expandedQueue, queueClick, toggleQueue } from './lib/queue.ts'
+import type { QueueAction } from './lib/queue.ts'
 import { isSupported } from './lib/plan.ts'
 import { createScheduler } from './lib/refresh.ts'
 import { bandNode, panelNode, readView } from './lib/render.ts'
@@ -26,7 +28,7 @@ export default Plugin.define({
     const asNumber = (v: unknown) => (typeof v === 'number' ? v : undefined)
     const asByte = (v: unknown) => (typeof v === 'number' ? v : -1)
 
-    const [state, setState] = context.storage.memory('crux-dashboard', { initial: { current: null, running: false, page: 0 } })
+    const [state, setState] = context.storage.memory('crux-dashboard', { initial: { current: null, currentRoot: null, running: false, page: 0, queue: { root: '', expanded: false } } })
 
     // The panel publishes its focus reader here. One slot per setup, so a reload's new setup never
     // shares the old one.
@@ -168,10 +170,11 @@ export default Plugin.define({
           return false
         }
       },
-      writeKept: (v: KeptEnvelope | null) => {
+      writeKept: (v: KeptEnvelope | null, root?: string) => {
         try {
           setState((draft) => {
             draft.current = v
+            draft.currentRoot = root ?? null
           })
         } catch {
           try {
@@ -224,6 +227,23 @@ export default Plugin.define({
           return false
         }
       },
+      queueRead: () => {
+        try {
+          return state.queue
+        } catch {
+          return null
+        }
+      },
+      queueWrite: (value) => {
+        try {
+          setState((draft) => {
+            draft.queue = value
+          })
+          return true
+        } catch {
+          return false
+        }
+      },
       toast: (code: string) => {
         try {
           context.ui.toast.show({ message: code })
@@ -235,7 +255,7 @@ export default Plugin.define({
 
     const scheduler = createScheduler(host)
 
-    const view = () => readView(supported, () => state.current)
+    const view = () => readView(supported, () => state.current, host.directory(), state.currentRoot ?? null)
 
     // Each case returns the theme leaf, or the base text colour when the theme leaves it undefined.
     // The source check accepts only that form: `leaf ?? context.theme.text.base`. The text.base case
@@ -269,7 +289,7 @@ export default Plugin.define({
       }
     }
 
-    const draw = (node: PlainNode | null) => {
+    const draw = (node: PlainNode | null, queuePress?: (action: QueueAction | undefined, button: unknown) => void) => {
       if (node === null) {
         return undefined
       }
@@ -277,6 +297,9 @@ export default Plugin.define({
         return <box width={node.width} />
       }
       if (node.kind === 'text') {
+        if (node.action !== undefined && queuePress !== undefined) {
+          return <text onMouseDown={(event) => queuePress(node.action, event.button)}>{node.spans.map((s) => <span style={{ fg: colour(s.token) }}>{s.text}</span>)}</text>
+        }
         return (
           <text>
             {node.spans.map((s) =>
@@ -288,7 +311,7 @@ export default Plugin.define({
       if (node.border === null) {
         return (
           <box width={node.width} flexDirection={node.direction}>
-            {node.children.map((c) => draw(c))}
+            {node.children.map((c) => draw(c, queuePress))}
           </box>
         )
       }
@@ -302,14 +325,14 @@ export default Plugin.define({
           paddingLeft={node.padding}
           paddingRight={node.padding}
         >
-          {node.children.map((c) => draw(c))}
+          {node.children.map((c) => draw(c, queuePress))}
         </box>
       )
     }
 
-    const paint = (n: PlainNode | null) => {
+    const paint = (n: PlainNode | null, root?: string, active?: () => boolean) => {
       try {
-        return draw(n)
+        return draw(n, queueClick(host, view, root, () => active?.() === true))
       } catch {
         return undefined
       }
@@ -354,7 +377,7 @@ export default Plugin.define({
           scheduler.request('panel')
         }
       })
-      return <>{paint(panelNode(view(), inputName(), inputWidth(), host.pageRead()))}</>
+      return <>{paint(panelNode(view(), inputName(), inputWidth(), host.pageRead(), expandedQueue(host)), host.directory(), () => slot.owns(isFocused))}</>
     }
 
     // A registrar that returns a disposer: attempt keeps it and calls it, guarded, on cleanup.
@@ -413,6 +436,13 @@ export default Plugin.define({
                 group: 'Crux',
                 bind: 'p',
                 run: () => turnPage(host, view(), -1),
+              },
+              {
+                id: 'crux-dashboard-queue',
+                title: 'Expand or collapse the crux dashboard queue',
+                group: 'Crux',
+                bind: 'q',
+                run: () => toggleQueue(host, view()),
               },
             ],
             bindings: [],

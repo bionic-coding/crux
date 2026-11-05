@@ -26,8 +26,14 @@ CLI = SCRIPTS / "test-evidence.py"
 CORE = "checkout:unittest:crux/scripts/tests:test*.py"
 TOOLS = "checkout:unittest:tools/tests:test*.py"
 NOTES = ("crux-authority-reset.md", "crux-implementation-evidence.md")
-EXCLUDING_PRESETS = ("whole-tree", "drift-gates", "mods-gate", "opencode-gate", "omp-gate")
+# The dashboard gates declare the inputs their scripts read, not the whole tree (CYC-0096), so a generic
+# edit does not move them. test_evidence_registry.DashboardGateInputTests owns their input contract.
+DASHBOARD_GATES = ("mods-gate", "opencode-gate", "omp-gate")
+BROAD_PRESETS = ("whole-tree", "drift-gates", "governs-references", "governs-coverage")
+EXCLUDING_PRESETS = (*BROAD_PRESETS, *DASHBOARD_GATES)
 GATE_SCRIPTS = {"drift-gates": "tools/run-drift-gates.py", "mods-gate": "tools/mods_gate.py",
+                "governs-references": "crux/scripts/lint-governs-references.py",
+                "governs-coverage": "crux/scripts/check-governs-coverage.py",
                 "opencode-gate": "tools/opencode_gate.py", "omp-gate": "tools/omp_gate.py",
                 "journal-index": "crux/scripts/generate-journal-index.py"}
 BOOKKEEPING_YML = ('config_version: "1"\ndocs_dir: bionic\nevidence:\n  bookkeeping_paths:\n'
@@ -89,7 +95,7 @@ class FiveWritesLeaveEvidenceValidTests(RepoCase):
     def write_journal_entry(self):
         body = self.root / "body.txt"
         body.write_text("A bookkeeping entry written by the real writer.\n")
-        done = subprocess.run(["uv", "run", "--no-config", str(WRITER), "--repo-root", str(self.root), "--mode", "journal",
+        done = subprocess.run([sys.executable, str(WRITER), "--repo-root", str(self.root), "--mode", "journal",
                                "--at", "2026-10-20T11:42:35-06:00", "--category", "learning", "--subject", "Bookkeeping entry",
                                "--body-file", str(body)], capture_output=True, text=True, env={**os.environ, "UV_NO_CONFIG": "1"})
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
@@ -144,7 +150,9 @@ class PositiveControlTests(RepoCase):
     """An edit to an input still moves the fingerprint, so the equality above is a measurement."""
 
     EDITS = ("crux/scripts/tool.py", "crux/scripts/tests/test_x.py", "AGENTS.md", "crux/schemas/thing.schema.json",
-             "bionic/adrs/ADR-0001-x.md", "bionic/arch/overview.md", "tools/helper.py", ".bionic.yml")
+             "tools/helper.py", ".bionic.yml", "bionic/AGENTS.md")
+    # Decision records move every preset's fingerprint and neither registered checkout suite's.
+    DECISION_EDITS = ("bionic/adrs/ADR-0001-x.md", "bionic/arch/overview.md", "bionic/manifest.yml")
 
     def test_an_edit_to_each_input_changes_every_excluding_declaration(self):
         for rel in self.EDITS:
@@ -154,7 +162,24 @@ class PositiveControlTests(RepoCase):
                 self.write(rel, original + "# changed\n")
                 after = self.fingerprints()
                 for name in before:
+                    if name in DASHBOARD_GATES:
+                        continue
                     self.assertNotEqual(after[name], before[name], f"{rel} did not move {name}")
+                self.commit("edit " + rel)
+
+    def test_a_decision_record_edit_moves_every_preset_and_no_registered_checkout_suite(self):
+        for rel in self.DECISION_EDITS:
+            with self.subTest(path=rel):
+                before = self.fingerprints()
+                self.write(rel, (self.root / rel).read_text() + "# changed\n")
+                after = self.fingerprints()
+                for name in before:
+                    if name in (CORE, TOOLS):
+                        self.assertEqual(after[name], before[name], f"{rel} moved {name}")
+                    elif name in DASHBOARD_GATES:
+                        continue
+                    else:
+                        self.assertNotEqual(after[name], before[name], f"{rel} did not move {name}")
                 self.commit("edit " + rel)
 
     def test_a_journal_month_edit_moves_the_journal_index_declaration_only_through_its_inputs(self):
@@ -172,6 +197,8 @@ class PositiveControlTests(RepoCase):
         self.write("crux-unlisted-note.md", "changed\n")
         after = self.fingerprints()
         for name in before:
+            if name in DASHBOARD_GATES:
+                continue
             self.assertNotEqual(after[name], before[name], name)
 
 
@@ -255,16 +282,22 @@ class DeclareTests(RepoCase):
     def test_every_excluding_preset_carries_the_registered_exclusions(self):
         registered = suite_evidence.registered_declaration(self.root, CORE, dev_root=self.root)
         expected = suite_evidence.runtime_exclusions(self.root)
-        # A registered checkout suite also leaves out the release paths its reader audit cleared; a preset never does.
+        # A registered checkout suite also leaves out the decision records and the release paths its reader
+        # audit cleared; a preset never does, so a preset's inputs include the decision records.
+        records = ["bionic/" + name for name in suite_evidence.DECISION_RECORDS]
         self.assertEqual(registered["exclude_inputs"],
-                         [*expected, *suite_evidence.RELEASE_EXCLUSIONS["checkout"]])
+                         [*expected, *records, *suite_evidence.RELEASE_EXCLUSIONS["checkout"]])
         for preset in EXCLUDING_PRESETS:
             with self.subTest(preset=preset):
                 command = ["python", "tools/anything.py"] if preset == "whole-tree" else None
                 declaration = suite_evidence.preset_declaration(self.root, preset, "c", command=command)
                 self.assertEqual(declaration["exclude_inputs"], expected)
-                self.assertEqual(declaration["inputs"], suite_evidence.INPUTS)
-                self.assertIs(declaration["git_tracked"], True)
+                if preset in DASHBOARD_GATES:
+                    self.assertNotEqual(declaration["inputs"], suite_evidence.INPUTS)
+                    self.assertIs(declaration["git_tracked"], False)
+                else:
+                    self.assertEqual(declaration["inputs"], suite_evidence.INPUTS)
+                    self.assertIs(declaration["git_tracked"], True)
                 self.assertNotIn("preset", declaration)
                 self.assertEqual(declaration["check_id"], "c")
                 te.normalize(declaration)
@@ -319,12 +352,12 @@ class DeclareTests(RepoCase):
             suite_evidence.preset_declaration(self.root, "drift-gates", " ")
 
     def test_the_preset_names(self):
-        self.assertEqual(set(suite_evidence.PRESETS), {*EXCLUDING_PRESETS, "journal-index", "release-metadata"})
+        self.assertEqual(set(suite_evidence.PRESETS), {*EXCLUDING_PRESETS, "journal-index", "release-metadata", "test-tiers"})
 
 
 class DeclareCliTests(RepoCase):
     def run_cli(self, *args):
-        return subprocess.run(["uv", "run", "--no-config", str(CLI), "declare", "--repo-root", str(self.root), *args],
+        return subprocess.run([sys.executable, str(CLI), "declare", "--repo-root", str(self.root), *args],
                               capture_output=True, text=True, env={**os.environ, "UV_NO_CONFIG": "1"})
 
     def test_declare_prints_the_concrete_declaration_and_it_validates(self):
@@ -335,7 +368,7 @@ class DeclareCliTests(RepoCase):
         self.assertEqual(declaration["exclude_inputs"], suite_evidence.runtime_exclusions(self.root))
         check = self.root / "declared.json"
         check.write_text(done.stdout)
-        looked = subprocess.run(["uv", "run", "--no-config", str(CLI), "lookup", "--repo-root", str(self.root), "--check", str(check)],
+        looked = subprocess.run([sys.executable, str(CLI), "lookup", "--repo-root", str(self.root), "--check", str(check)],
                                 capture_output=True, text=True, env={**os.environ, "UV_NO_CONFIG": "1"})
         self.assertEqual(json.loads(looked.stdout)["state"], "missing", looked.stderr)
 

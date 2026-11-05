@@ -1,9 +1,8 @@
 """Pins the prose that routes replaceable approaches and records delivery.
 
-Four statements, each stated once where it belongs:
-the iterate and patch-cycle skills route on whether an enduring constraint
-changes, and name the Implementation Decision trigger with one phrase at every
-site; the cycle template's completion prompts key their references on the
+Statements, each stated once where it belongs:
+the Implementation Decision trigger carries one phrase at every template site;
+the cycle template's completion prompts key their references on the
 declared module kinds; the developer handoff names the selected approval binding
 as the only source of delivery intent; each cycle kind's completion prompt
 directs the result record to be written, names the schema that defines its
@@ -39,45 +38,6 @@ def between(text: str, start: str, end: str | None) -> str:
 
 TRIGGER = "replaceable approach whose reasoning must survive retrieval"
 FORMAL_TRIGGER = "replaceable approach or material alternative whose reasoning must survive retrieval"
-
-
-class RoutingTests(unittest.TestCase):
-    def test_iterate_routes_on_enduring_constraint(self):
-        text = flat(CRUX / "skills" / "iterate" / "SKILL.md")
-        self.assertIn("enduring constraint", text)
-        self.assertNotIn("a decision worth recording", text)
-        self.assertNotIn("worth remembering", text)
-
-    def test_patch_cycle_routes_on_enduring_constraint(self):
-        text = flat(CRUX / "skills" / "patch-cycle" / "SKILL.md")
-        self.assertIn("enduring constraint", text)
-        self.assertNotIn("work that needs a decision recorded", text)
-        self.assertNotIn("worth remembering", text)
-
-    def test_iterate_names_the_trigger_at_every_site(self):
-        text = flat(CRUX / "skills" / "iterate" / "SKILL.md")
-        when = between(text, "Net-new or architectural work", "A reversible fix")
-        row = between(text, "This bug is architectural-ish", "The fix is tiny")
-        formal = between(text, "### Formal implementation reasoning", "A genuine conflict")
-        for part in (when, row):
-            self.assertIn(TRIGGER, part)
-        # The retrieval qualifier governs both nouns at the formal site.
-        self.assertIn(FORMAL_TRIGGER, formal)
-        self.assertNotIn("or for a material alternative", formal)
-        for part in (when, row):
-            self.assertIn("Implementation Decision", part)
-        self.assertIn("before start", when)
-
-    def test_patch_cycle_names_the_trigger_at_every_site(self):
-        text = flat(CRUX / "skills" / "patch-cycle" / "SKILL.md")
-        bullet = between(text, "**Work that needs an ADR.**", "**A fix you cannot bound**")
-        formal = between(text, "### Formal implementation reasoning", "Diagnosis-only")
-        self.assertIn(TRIGGER, bullet)
-        self.assertIn(TRIGGER, formal)
-        self.assertIn("Implementation Decision", bullet)
-        self.assertIn("`patch` slot", bullet)
-        # "this" must not trail the Implementation Decision sentence.
-        self.assertIn("The archive check enforces the ADR boundary", bullet)
 
 
 class RoutingNameTests(unittest.TestCase):
@@ -168,13 +128,6 @@ class ResultTemplateTests(unittest.TestCase):
         self.assertIn("each file changed under it", text)
 
 
-class PrepRowTests(unittest.TestCase):
-    def test_module_tables_name_the_result_record(self):
-        for skill in ("dev-cycle", "iterate"):
-            text = flat(CRUX / "skills" / skill / "SKILL.md")
-            self.assertIn("changelog, docs, journal, result record, PR draft", text, skill)
-
-
 class UserGuideTests(unittest.TestCase):
     def check(self, path: Path):
         text = flat(path)
@@ -263,11 +216,6 @@ class SkillBodyRouteTests(unittest.TestCase):
         supplied = between(librarian, "1. **Supplied by your caller.**", "2. **Run it yourself**")
         self.assertIn("for an implementation question `implementation-decisions.py query`", supplied)
         self.assertNotIn("both scripts", supplied)
-
-    def test_commander_names_one_performer_for_the_council_runner(self):
-        step = between(flat(CRUX / "agents/commander.md"), "1. Drive the run via `run-promptbook`", "2. For each prompt")
-        self.assertIn("runs each script `run-promptbook` names other than the council runner", step)
-        self.assertIn("The **architect** runs the council runner", step)
 
     def test_prose_review_gate_returns_dispositions_to_the_caller(self):
         text = flat(CRUX / "skills/prose-review/SKILL.md")

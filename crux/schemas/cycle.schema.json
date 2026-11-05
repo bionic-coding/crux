@@ -33,7 +33,8 @@
     "schema_version": {
       "enum": [
         1,
-        2
+        2,
+        3
       ]
     },
     "id": {
@@ -71,6 +72,7 @@
         "plan",
         "build",
         "test",
+        "verify",
         "review",
         "release",
         "reflect"
@@ -135,6 +137,20 @@
             "minLength": 1
           }
         },
+        "streams": {
+          "type": "array",
+          "description": "Optional declared implementation streams. Absence records no stream facts.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "paths", "independent"],
+            "properties": {
+              "id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+              "paths": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+              "independent": {"type": "boolean"}
+            }
+          }
+        },
         "acceptance": {
           "type": "array",
           "minItems": 1,
@@ -173,6 +189,7 @@
                   "plan",
                   "build",
                   "test",
+                  "verify",
                   "review",
                   "release",
                   "reflect"
@@ -188,6 +205,12 @@
                   "type": "string",
                   "minLength": 1
                 }
+              },
+              "integrates": {
+                "type": "array",
+                "minItems": 2,
+                "description": "Build task IDs this Build unit integrates; each must also be a dependency.",
+                "items": {"type": "string", "minLength": 1}
               },
               "status": {
                 "enum": [
@@ -267,6 +290,20 @@
                   }
                 }
               },
+              "adopted_commits": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["sha", "source_task", "pass", "attempt"],
+                  "properties": {
+                    "sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+                    "source_task": {"type": "string", "minLength": 1},
+                    "pass": {"type": "integer", "minimum": 1},
+                    "attempt": {"type": ["integer", "null"], "minimum": 1}
+                  }
+                }
+              },
               "fix": {
                 "type": "object",
                 "additionalProperties": false,
@@ -284,9 +321,41 @@
                     "type": "string",
                     "minLength": 1
                   },
+                  "findings": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string",
+                      "pattern": "^r[0-9]+:blocking:[0-9]+$"
+                    }
+                  },
                   "pass": {
                     "type": "integer",
                     "minimum": 1
+                  },
+                  "criterion": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["index", "before"],
+                    "properties": {
+                      "index": {"type": "integer", "minimum": 0},
+                      "before": {
+                        "type": "object", "additionalProperties": false,
+                        "required": ["path", "sha256"],
+                        "properties": {
+                          "path": {"type": "string", "minLength": 1},
+                          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+                        }
+                      },
+                      "after": {
+                        "type": "object", "additionalProperties": false,
+                        "required": ["path", "sha256"],
+                        "properties": {
+                          "path": {"type": "string", "minLength": 1},
+                          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+                        }
+                      }
+                    }
                   },
                   "before": {
                     "type": "string",
@@ -509,6 +578,10 @@
               "completed",
               "abandoned"
             ]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
           }
         }
       }
@@ -535,6 +608,11 @@
       "type": [
         "object",
         "null"
+      ]
+    },
+    "phase_names": {
+      "enum": [
+        "verify"
       ]
     },
     "release_list": {
@@ -590,6 +668,7 @@
           },
           "state": {
             "enum": [
+              "reserved",
               "running",
               "finished",
               "lost"
@@ -618,6 +697,173 @@
               "string",
               "null"
             ]
+          },
+          "host": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "mode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "base": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-9a-f]{40}$"
+          },
+          "delivery_token": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+          "execution": {
+            "type": "object", "additionalProperties": false,
+            "required": ["review_base", "execution_head", "checkout", "proof"],
+            "properties": {
+              "review_base": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+              "execution_head": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+              "checkout": {"type": "string", "minLength": 1},
+              "proof": {
+                "type": "object", "additionalProperties": false, "required": ["path", "sha256"],
+                "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+              }
+            }
+          },
+          "execution_history": {"type": "array", "items": {"type": "object"}},
+          "execution_started": {
+            "type": "object", "additionalProperties": false, "required": ["delivery_token", "checkout"],
+            "properties": {
+              "delivery_token": {"type": ["string", "null"], "pattern": "^[0-9a-f]{32}$"},
+              "checkout": {"type": "string", "minLength": 1}
+            }
+          },
+          "resume_seal": {
+            "type": "object", "additionalProperties": false,
+            "required": ["host", "agent", "checkout", "review_base", "previous_token", "proof"],
+            "properties": {
+              "host": {"type": "string", "minLength": 1},
+              "agent": {"type": "string", "minLength": 1},
+              "checkout": {"type": "string", "minLength": 1},
+              "review_base": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+              "previous_token": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+              "proof": {"type": "object", "additionalProperties": false, "required": ["path", "sha256"],
+                "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}}
+            }
+          },
+          "release_continuation": {
+            "type": "object", "additionalProperties": false,
+            "required": ["format", "list", "version", "target", "steps", "owner", "descriptor", "commands", "capabilities", "role_sha256", "artifact"],
+            "properties": {
+              "format": {"const": 1}, "list": {"enum": ["beta", "official"]},
+              "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+              "target": {"type": "string", "minLength": 1},
+              "steps": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+              "owner": {"type": "string", "minLength": 1},
+              "descriptor": {"type": "object", "additionalProperties": false, "required": ["path", "sha256"],
+                "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}},
+              "commands": {"type": "object"}, "capabilities": {"type": "object"},
+              "role_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+              "artifact": {"type": ["object", "null"]}
+            }
+          },
+          "invocation_snapshot": {
+            "type": "object", "additionalProperties": false, "required": ["path", "sha256"],
+            "properties": {
+              "path": {"type": "string", "minLength": 1},
+              "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+            }
+          },
+          "invocation_history": {
+            "type": "array", "items": {
+              "type": "object", "additionalProperties": false, "required": ["path", "sha256"],
+              "properties": {
+                "path": {"type": "string", "minLength": 1},
+                "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+              }
+            }
+          },
+          "previous_results": {
+            "type": "array",
+            "items": {
+              "type": "object", "additionalProperties": false,
+              "required": ["path", "sha256"],
+              "properties": {
+                "path": {"type": "string", "minLength": 1},
+                "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+              }
+            }
+          },
+          "delivery": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "sha256",
+              "outcome",
+              "commits",
+              "evidence",
+              "stage",
+              "note"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "outcome": {
+                "enum": [
+                  "done",
+                  "blocked",
+                  "failed"
+                ]
+              },
+              "commits": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{40}$"
+                }
+              },
+              "evidence": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "stage": {
+                "enum": [
+                  "implemented",
+                  "integrated",
+                  null
+                ]
+              },
+              "note": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "stop": {
+                "description": "The stop a blocked delivery named (an owner decision, an approval wait, a contradicted premise, an outward act or an escalation loop). Absent on deliveries that named none and on records written before the field.",
+                "enum": [
+                  "owner-decision",
+                  "approval-wait",
+                  "contradicted-premise",
+                  "outward-act",
+                  "escalation-loop"
+                ]
+              }
+            }
           }
         }
       }
@@ -705,6 +951,100 @@
         "input_sha256": {
           "type": "string",
           "pattern": "^[0-9a-f]{64}$"
+        },
+        "test_runs": {
+          "description": "Written by finish from the durable receipt store: executions are the receipts whose run started inside the cycle's window (creation to finish), each once and including failed and interrupted ones; reused are the receipts the record attaches that started outside it and add no minutes; minutes sum the executed wall seconds; with_retry_reason is the subtotal of executions started with a retry reason. A run killed before it wrote a receipt is not counted.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "executions",
+            "with_retry_reason",
+            "minutes",
+            "executed",
+            "reused",
+            "unreadable"
+          ],
+          "properties": {
+            "executions": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "with_retry_reason": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "minutes": {
+              "type": "number",
+              "minimum": 0
+            },
+            "executed": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "check_id",
+                  "runs",
+                  "receipts",
+                  "with_retry_reason",
+                  "minutes"
+                ],
+                "properties": {
+                  "check_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "runs": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "receipts": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^TE-[0-9a-f]{32}$"
+                    }
+                  },
+                  "with_retry_reason": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "minutes": {
+                    "type": "number",
+                    "minimum": 0
+                  }
+                }
+              }
+            },
+            "reused": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "check_id",
+                  "receipts"
+                ],
+                "properties": {
+                  "check_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "receipts": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^TE-[0-9a-f]{32}$"
+                    }
+                  }
+                }
+              }
+            },
+            "unreadable": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
         }
       }
     },
@@ -883,6 +1223,490 @@
           }
         }
       }
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "results_dir": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "operations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "op_id",
+          "op",
+          "request_sha256",
+          "at",
+          "revision",
+          "result"
+        ],
+        "properties": {
+          "op_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._-]{8,64}$"
+          },
+          "op": {
+            "type": "string",
+            "minLength": 1
+          },
+          "request_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "at": {
+            "type": "string",
+            "minLength": 1
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "result": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    "classifications": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "request_id",
+          "question_set",
+          "question_version",
+          "model",
+          "served_model",
+          "answer",
+          "route",
+          "fallback",
+          "subject",
+          "fingerprint",
+          "pass",
+          "phase",
+          "at",
+          "revision"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "work-sizing",
+              "review-routing",
+              "finding-disposition",
+              "failure-routing",
+              "public-document-relevance",
+              "execution-arrangement",
+              "context-selection",
+              "handoff-completeness",
+              "review-finding-grouping",
+              "focused-test-ranking"
+            ]
+          },
+          "request_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "question_set": {
+            "type": "string",
+            "minLength": 1
+          },
+          "reused_from": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["index", "revision", "request_id"],
+            "properties": {
+              "index": {"type": "integer", "minimum": 0},
+              "revision": {"type": "integer", "minimum": 1},
+              "request_id": {"type": ["string", "null"]}
+            }
+          },
+          "question_ids": {
+            "type": "array",
+            "items": {"type": "string", "minLength": 1}
+          },
+          "context_question_ids": {
+            "type": "array",
+            "description": "Input reconstruction cohort, separate from actual wire question_ids. Historical absence uses the original question_ids interpretation.",
+            "items": {"type": "string", "minLength": 1}
+          },
+          "question_version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "routing_policy_version": {"type": "string", "minLength": 1},
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "served_model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "served_provider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "cost": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "answer": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "choice": {
+                "type": "string",
+                "minLength": 1
+              },
+              "probabilities": {
+                "type": [
+                  "object",
+                  "null"
+                ]
+              }
+            }
+          },
+          "route": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fallback": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "subject": {
+            "type": "string",
+            "minLength": 1
+          },
+          "fingerprint": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "trigger": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pass": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "phase": {
+            "type": "string",
+            "minLength": 1
+          },
+          "at": {
+            "type": "string",
+            "minLength": 1
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "required": [
+                "route"
+              ],
+              "properties": {
+                "route": {
+                  "type": "string"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "fallback": {
+                  "type": "null"
+                }
+              }
+            },
+            "else": {
+              "required": [
+                "fallback"
+              ],
+              "properties": {
+                "fallback": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "deferrals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "finding",
+          "note",
+          "pass",
+          "phase",
+          "at"
+        ],
+        "properties": {
+          "finding": {
+            "type": "string",
+            "pattern": "^r[0-9]+:(blocking|advisory|cosmetic):[0-9]+$"
+          },
+          "note": {
+            "type": "string",
+            "minLength": 1
+          },
+          "pass": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "phase": {
+            "type": "string",
+            "minLength": 1
+          },
+          "at": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "withdrawals": {
+      "type": "array",
+      "description": "IDR names withdrawn in the Plan phase. A withdrawn name accepts no revision, approval or council attempt; its dependent tasks were removed from the plan in the same write.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "reason",
+          "tasks",
+          "at",
+          "plan_revision"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          },
+          "tasks": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "at": {
+            "type": "string",
+            "minLength": 1
+          },
+          "plan_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "deferral": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "note",
+              "at",
+              "reason",
+              "tasks",
+              "attempts"
+            ],
+            "properties": {
+              "note": {
+                "type": "string",
+                "minLength": 1
+              },
+              "at": {
+                "type": "string",
+                "minLength": 1
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1
+              },
+              "tasks": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "attempts": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "round",
+                    "id",
+                    "status",
+                    "record",
+                    "progress"
+                  ],
+                  "properties": {
+                    "round": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "status": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "record": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "progress": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "schema_version"
+        ],
+        "properties": {
+          "schema_version": {
+            "const": 3
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "coverage",
+          "completion",
+          "revision",
+          "operations",
+          "results_dir"
+        ],
+        "properties": {
+          "assignments": {
+            "items": {
+              "required": [
+                "host",
+                "base",
+                "delivery"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "schema_version"
+        ],
+        "properties": {
+          "schema_version": {
+            "enum": [
+              1,
+              2
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "revision": false,
+          "operations": false,
+          "results_dir": false,
+          "assignments": {
+            "items": {
+              "properties": {
+                "state": {
+                  "enum": [
+                    "running",
+                    "finished",
+                    "lost"
+                  ]
+                },
+                "host": false,
+                "mode": false,
+                "delivery_token": false,
+                "execution": false,
+                "execution_history": false,
+                "execution_started": false,
+                "resume_seal": false,
+                "release_continuation": false,
+                "invocation_snapshot": false,
+                "invocation_history": false,
+                "previous_results": false,
+                "base": false,
+                "delivery": false
+              }
+            }
+          },
+          "classifications": false,
+          "deferrals": false,
+          "withdrawals": false
+        }
+      }
+    }
+  ]
 }

@@ -34,7 +34,33 @@ skill's configured-mode section before dispatch. Lite uses verified native Apex
 and separate contexts without OpenRouter. Standard and Strict use gateway seats
 and require its credential. Standard also needs the architect's reasoned
 exact-revision agreement. Human acceptance is independent of council mode.
+A council dispute is settled under the configured mode and never goes to the owner;
+`srde` never runs on this path.
 Never select a different mode because credentials or capabilities are unavailable.
+
+Gateway `cycle-council.py` convenes detached by default. Initial success returns
+the attempt and `await_command`, not approval. Await its terminal result and then
+record the architect disposition. `--probe ATTEMPT` is read-only; `--recover ATTEMPT`
+sends no request, refuses a held flock, recovers the original result or marks an
+unowned attempt interrupted. It keeps that attempt's count. Use `--foreground`
+only for synchronous diagnostics. Never delete a claim or substitute owner design
+approval for recovery. A missing launcher acknowledgement alone proves nothing.
+Full cycle inspect exposes exact subject/attempt/result references, digests,
+supported recovery argv and prerequisites. It sends no request and writes nothing.
+New gateway attempts require durable request/outcome checkpoints under the existing
+ownership. Persistence failure prevents further calls and positive approval. Recovery
+preserves known negative findings and unknown in-flight outcomes without resetting
+the counted attempt. Partial events never approve. New architect approval/application
+checks current bound evidence; applied historical acceptance keeps its standing.
+See the cycle commands reference. Native Lite and historical protocols stay unchanged.
+
+Before round 1, run the `propose-adr` pre-council self-check. In Standard and
+Strict, then dispatch one unrecorded advisory challenge to a fresh reviewer
+context with no authoring context, briefed by
+`uv run "${CRUX_PLUGIN_ROOT}/scripts/adr-precouncil.py" challenge`; it leaves
+no record, no writer pass and no approval effect. In Lite, the Lite challenge
+pass is this challenge. The operating assumptions carry the blocking standard
+(plausible failure, consequence, smallest fix, complexity test) to every seat.
 
 The promptbook path below preserves historical behavior only.
 
@@ -215,10 +241,9 @@ Inside a run, the council record is the verdict, and the conductor attaches its 
 This section describes the informational driver outside a cycle run. Inside a run, the gate path above applies and the gate check derives convergence per seat. This skill is a **single-convene primitive**: one invocation runs exactly one `deliberate_sync` against the ADR **as it exists on disk right now**, and returns one verdict. It does **not** loop internally, edit the ADR, or count rounds. A multi-round convergence loop composes across repeated invocations, with **loop ownership held by the caller**:
 
 - **One invocation = one round.** Re-invoke `run-adr-council <ADR-id>` for each new round.
-- **Findings carry over via the ADR body + `--question`.** Between rounds the caller edits the ADR in place to address findings (the body is the carrier; `status` stays `Proposed`), then re-invokes. Append the prior round's **still-unresolved** findings to `--question` as a fenced "prior-round findings addressed:" block so the council can confirm closure — cap it to the unresolved set so the prompt doesn't grow unbounded.
+- **Findings carry over** in the ADR body (`status` stays `Proposed`). Append the prior round's still-unresolved findings to `--question` as a fenced "prior-round findings addressed:" block. Follow the `council` skill's fix-round discipline before each re-invocation.
 - **Convergence** = `UNANIMOUS_APPROVE` over responding seats, `conditioned` false, and no dissenting point from a responding seat whose decision is not `APPROVE_WITH_NITS` → the caller advances to accept. The dissenting points of an `APPROVE_WITH_NITS` seat are its `nit_items`; they do not block convergence, so report them. A `UNANIMOUS_` label other than `UNANIMOUS_APPROVE` (such as `UNANIMOUS_DEFER_TO_HUMAN`, `UNANIMOUS_REVISE` or `UNANIMOUS_OFF_SCALE`) is not convergence.
-- **Split / mixed** → the caller runs its address-findings step (a fix in the ADR, or a named check that refutes the finding), then re-invokes for the next round.
-- **Stop criterion and round counting belong to the caller, NOT this skill.** This skill counts nothing and never escalates; the bound (≤ 3 rounds → stop + escalate) lives in the caller's ADR module. This division keeps the driver generic, constant, and stateless (its load-bearing invariant) and avoids two competing escalation authorities.
+- **Stop criterion and round counting belong to the caller, NOT this skill.** This skill counts nothing and never escalates; the bound (≤ 3 rounds → stop, then the caller settles the dispute under its council mode) lives in the caller's ADR module. This division keeps the driver generic, constant, and stateless (its load-bearing invariant) and avoids two competing settlement authorities. A council dispute is never an owner question.
 
 ## Self-test
 

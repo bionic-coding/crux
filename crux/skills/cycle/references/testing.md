@@ -27,13 +27,49 @@ bind the actual artifact. Deployment smoke checks run against the new deployment
 External checks use explicit freshness requirements. Release reuses matching
 correctness evidence and produces only missing or invalidated evidence.
 
-In the Crux development repository, a release has no separate test step. verify is
-the only release step that runs the registered suites. It reuses the newest passing receipt whose inputs match exactly
-and executes a suite only when no receipt matches. Finish the prep (version surfaces,
-changelog, generated release documents and the prep commit) before verify. A late
-change to anything a suite reads makes verify execute that suite again; nothing
+In the Crux development repository, a release has no separate test step. The release verify step (`release.py verify`) is
+the only release step that runs the registered suites. For each suite it first looks up the
+full declaration without executing and reuses an eligible full pass. A current failing full
+receipt fails the step, with no fallback. Otherwise it executes that suite's release-tier
+declaration, which reads the same inputs and adds `--tier release`. Finish the prep (version surfaces,
+changelog, generated release documents and the prep commit) before the release verify step. A late
+change to anything a suite reads makes the release verify step execute that suite again; nothing
 refuses, and the release takes longer. The release command's prepare step prints an
-advisory naming the suites that verify would execute. The advisory changes no verdict.
+advisory naming the suites that the release verify step would execute, release-tier suites
+included. The advisory changes no verdict. The release verify step also runs the registered
+tier check, `checkout:test-tiers`.
+
+Every test runs in the main run once per code state on the floor minor (3.13): the checkout
+core suite and the checkout tools suite. A second run of those suites on the same code state
+adds no evidence. The staged artifact gets two short checks on every minor in
+`pyproject.toml` `[tool.crux] python-versions` (3.13 and 3.14): `flagged` runs the committed
+list of tests that can differ between interpreters or the packaged tree, and `health` compiles
+every staged `.py` file and imports every staged module. The failures they find at the release verify step cost
+a version bump, so a cycle that changes shipped paths runs them in its Verify phase. The test
+coordinator runs the sync.sh dry run once, after the last commit, on a clean tree:
+
+    bash sync.sh --public-repo idyll/crux --dry-run --skip-fingerprints
+
+The dry run stages the tree, runs the staged gates, and runs `flagged` and `health` on every
+minor through the evidence engine. The engine writes one receipt per minor and check to the
+durable store, so `release.py verify` reuses them while the staged inputs match.
+`--skip-fingerprints` skips only the check that `public/` matches its sources, because the
+release prep regenerates `public/` after Verify; `release.py prepare` still checks it. The
+command publishes nothing and takes no ledger. To look the receipts up without executing, add
+`--plan-test-evidence`. A cycle whose changes all fall outside the staged allowlist, such as the
+documentation tree alone, needs no staged run. Report the per-minor receipts as executed or
+reused, like any other check.
+
+Every cycle's Verify also declares the `drift-gates`, `governs-references` and `governs-coverage`
+checks (`test-evidence.py declare --preset governs-references|governs-coverage`; see "Declare
+cycle checks from presets" below). They read the decision records, which the main run does not.
+
+The main run keeps its receipts across these changes. A docs-tree decision-only commit
+(`adrs`, `arch`, `observations`, `research`, `briefs`, `index.md`, `manifest.yml` and
+`objectives.md`) leaves the main-run receipts reusable. A commit that touches the root
+instruction or guide documents or the kept docs entries (`AGENTS.md`, `invariants`, `code` and
+`promptbooks`) still runs the main run. A rerun of the main run on an unchanged code state needs
+`--retry-reason` and counts as a recovery execution, not as a second test.
 
 Report reused, newly executed, invalidated, retried, and awaited checks with their
 reasons. Do not impose a second full suite simply at integration, review, or release.
@@ -47,6 +83,12 @@ tests do not apply, explain why and declare an appropriate verifiable inspection
 or smoke check. Unknown reach needs conservative coverage, not an automatic full
 suite. Review examines this declaration alongside valid run/reuse evidence.
 
+Typed `advance` attaches a matching reusable receipt before it refuses a missing
+current-pass check. It revalidates the receipt against the current inputs under the
+cycle lock, so a source change since the lookup refuses rather than attaching a stale
+receipt. It never executes a check and never attaches a failure. Run a check through
+the test coordinator when no receipt matches.
+
 ## Build checks
 
 Build declares the checks it must pass before it ends: `checks --phase build`,
@@ -57,9 +99,53 @@ test. A test that builds a path from parts, such as `parent / "skills"`, reads e
 file below it. In the Crux development repository that means the two registered
 checkout suites. The cycle's one test coordinator runs them once after the streams
 integrate, and is the only writer of `checks --phase build`. It records the complete
-union, because each call replaces the set. Test reuses those receipts while their
+union, because each call replaces the set. Verify reuses those receipts while their
 inputs are unchanged. A known failure found at Build stops the cycle in Build; do not
-carry it to Test.
+carry it to Verify.
+
+In the Crux development repository two tools shorten a focused loop.
+`crux/scripts/related-tests.py PATH...` lists the test files under `crux/scripts/tests`
+and `tools/tests` that name a changed path by repository path, file name or module
+stem, with one hop through a script that reads a changed template or data file. Start
+the Build check selection from its list. `parallel_suite.py DIR --records
+FILE` records each outcome, and a later `parallel_suite.py DIR --failed-from FILE`
+reruns only the tests that failed or errored there; a file with no failure runs nothing
+and exits 0. Both take `--tier`: a focused loop may select `related-tests.py --tier dev
+--tier release`, plus every test file the change edits, of any tier. A focused rerun is
+a development loop, not a receipt: the Build checks still need current passing evidence.
+
+## Test tiers
+
+Every test carries exactly one tier label in its root's `test-tiers.json`: `dev`,
+`release` or `ephemeral`.[^one] The `test-tiers` skill states the manifest, the check and
+the rubric. A change that adds a test file or test method labels it in the same
+change.[^label] An ephemeral test is labelled with a reason and an end condition, and
+stays until a change names it for removal.[^ephemeral]
+
+Tiers select development loops only: a unit's focused checks, fix-step reruns and
+reviewer probes. No gate narrows by tier.[^gates] A unit gate still runs every test the
+change could reach, and the Build-exit run still runs every test. Completing a cycle of
+any type except release requires current passing evidence for every test. A release-tier
+receipt never satisfies it.[^complete] A release cycle completes on its fixed step list.
+Release verification establishes evidence for the release tier and runs the tier
+check.[^release] Merging a pull request requires every test to pass on its head.[^merge]
+
+In a project that adopts tiers, the tier check is a required check at Verify.[^verify]
+Declare it with the `test-tiers` preset, which applies in any project. Run it before the
+all-tests run, so a labelling fault costs no full rerun.
+
+In the Crux development repository the registered tier check is `checkout:test-tiers`.
+It checks all five roots (`crux/scripts/tests`, `tools/tests`, `crux-mods/tests`,
+`crux-opencode/tests` and `crux-omp/tests`). Build exit requires every registered
+`checkout:` check except the release-tier suites `checkout:unittest-release:...`, so the
+two full suites and `checkout:test-tiers`. Verify, Review and Reflect, and therefore
+`finish`, refuse unless both full suites and the tier check have current passing
+evidence. An input-changing edit in those phases reruns both full suites once for the new
+code state. Each Python manifest is an input of its own suite, so a label-only edit
+reruns that suite once. Every test the staged per-minor `flagged` list selects is in the
+release tier.[^flagged] The sync.sh dry run also checks each staged root's labels, then
+the release subset and area coverage of the staged roots together. The TypeScript gates still run every TypeScript test; their labels are checked, not used
+for selection.
 
 Outside a plugin-authoring checkout the writer does not require Build checks. The
 instruction to declare them still applies, and the reviewer checks the declaration.
@@ -120,7 +206,10 @@ computed on the decompressed bytes of a compressed copy. It is **eligible** when
 would reuse it for the current inputs and environment. A complete version-1 receipt is
 ineligible, and an incomplete pass never counts.
 `test-evidence.py report --evidence-id ID [--directory DIR]` prints both verdicts and
-reads a retained directory without writing to it.
+reads a retained directory without writing to it. Its output starts with a `summary` block:
+check id, status, command, source revision, `complete`, `reuse_eligible` and
+`execution_reason`. `validate` prints the stored reason as `execution_reason`, the reason
+the check ran, with `reuse_eligible` beside it.
 
 In the Crux development repository, release evidence lives in the durable store
 `<git-common-dir>/crux/test-evidence`, for checkout and staged suites alike. With
@@ -131,8 +220,7 @@ place, then gzips a log above 1 MiB.
 
 ## Evidence commands
 
-A JSON check declaration names `check_id`, `command` as an argument array (write the
-interpreter as `python`; the engine ignores its path), `inputs` as repository-relative
+A JSON check declaration names `check_id`, `command` as an argument array, `inputs` as repository-relative
 paths/globs, optional `environment` variable names, an optional `requirement`, and an
 optional positive `freshness_seconds`. Include dependency lockfiles and tool config
 in inputs. Never put secrets in commands or declarations. For example:
@@ -154,6 +242,18 @@ in coverage.
 
 An untracked git-ignored file is not an input unless a declaration names it literally.
 
+Fresh generic execution preserves requested argv, including interpreter spelling,
+workers, records and timings. The normalized declaration supplies canonical identity;
+`executed_command` records actual argv. An explicit override must normalize to that
+same identity. Interpreter/environment, secret scanning and capture checks still apply.
+A reused receipt retains its original command and log and creates no new output.
+It promises no newly requested records file and is never a fictional execution.
+
+Commit source before costly checks whose inputs include Git inventory or HEAD-tree
+bindings. Staging/committing during their execution invalidates that observation.
+Changed index bindings can invalidate a same-byte precommit receipt; a file-equivalence
+audit preserves useful historical observations but cannot upgrade engine eligibility.
+
 ### Declare cycle checks from presets
 
 Declare a cycle check with a preset; never hand-write a declaration that copies the
@@ -172,17 +272,27 @@ environment, and writes `uv.lock` in a project that has none, as any `uv run` do
 The engine exits 2 when that environment lacks PyYAML and the docs directory holds a
 migration batch (`adrs/migrations/*.yaml`) or a declaration carries a `changelog-citations:` projection.
 
+For checks declared against the project lock, resolve the selected plugin root and
+invoke even an installed runner as
+`uv run python3 "${CRUX_PLUGIN_ROOT}/scripts/test-evidence.py" run --repo-root . --check CHECK`.
+Invoking the evidence runner directly as a script uses its isolated PEP 723
+environment; child tests can then lack project packages or produce an ineligible
+receipt despite exit 0. Match the declaration's environment and validate eligibility.
+This evidence-runner requirement does not change the normal `uv run SCRIPT` contract
+for other Crux scripts.
+
 | Preset | Command | Inputs and exclusions |
 |---|---|---|
 | `whole-tree` | the caller's `--command JSON` | every Git-tracked file plus Crux's broad input list, minus the shared exclusions |
 | `drift-gates` | `tools/run-drift-gates.py --cycle-scope` | as `whole-tree` |
-| `mods-gate`, `opencode-gate`, `omp-gate` | that gate's script with `--phase dev` | as `whole-tree`; refuses when the script is absent |
+| `mods-gate`, `opencode-gate`, `omp-gate` | that gate's script with `--phase dev` | only what that script reads: its plugin directory, the shared core under `crux-mods/hooks/lib` where it imports it, the gate script and its library, the decision records it checks and the root project files that uv, node and bun read; no tracked-file inventory, so a change elsewhere reuses the receipt. Refuses when the script is absent |
 | `release-metadata` | `tools/release-preflight.py --metadata` | the broad inputs of `whole-tree`; no release exclusion, no projection |
 | `journal-index` | `generate-journal-index.py --dry-run` | the journal directory, `crux/scripts` and `.bionic.yml`; no exclusions |
+| `test-tiers` | the shipped `test-tiers.py check`, with an `--expect-root` argument for each manifest present when declared | as `whole-tree`, plus each expected root directory, so an untracked new test file changes them; refuses when the project holds no manifest |
 
-Every preset except `whole-tree` runs a script at a fixed path in the Crux development
-repository, under `tools/` or `crux/scripts/`. In any other project it refuses as not
-applicable; do not copy or recreate those scripts. A consuming project declares its own
+Every preset except `whole-tree` and `test-tiers` runs a script at a fixed path in the
+Crux development repository, under `tools/` or `crux/scripts/`. In any other project it
+refuses as not applicable; do not copy or recreate those scripts. A consuming project declares its own
 checks with `whole-tree` and its own test command, for example `--preset whole-tree
 --check-id CYC-ID-tests --command '["python", "-m", "unittest"]'`. Every Git-tracked
 file is an input, so a change to a tracked file invalidates the receipt. That
@@ -215,7 +325,10 @@ check once.
 
 A journal entry, log append, queue edit, cycle-record write or configured-file edit,
 committed or not, therefore leaves the registered suites and every excluding preset
-valid. Reflect needs no evidence refresh for them.
+valid. Reflect needs no evidence refresh for them, and no review re-record. A recorded
+review's source fingerprint excludes the same paths, so these writes leave the review
+bound. A change to any other file in plan scope unbinds the review. A cycle whose
+deliverable is one of these files gets no review binding on that file.
 
 ```bash
 uv run python3 "${CRUX_PLUGIN_ROOT}/scripts/test-evidence.py" lookup --repo-root . --check check.json
@@ -265,11 +378,11 @@ a release-only change from invalidating their receipts.
   kind on its path.
 - **What reuses.** A release-only change keeps the other receipts. An authored edit to
   `README.md`, `USER_GUIDE.md` or any other source during release prep is a real change,
-  and verify executes the suites that read it again.
+  and the release verify step executes the suites that read it again.
 
 The metadata check covers what the suites no longer see. Every full preflight executes
 it (`tools/release-preflight.py --metadata`). In that repository, record the `release-metadata`
-preset at Test when a cycle changes `CHANGELOG.md`, `public/` or a version surface, and when in
+preset at Verify when a cycle changes `CHANGELOG.md`, `public/` or a version surface, and when in
 doubt, because it takes seconds. Only `README.md` carries a footer projection.
 
 Audit every new projection or release exclusion before it joins the registry, in three
@@ -295,18 +408,18 @@ docs-tree gates: `summarize-adrs.py`, `compile-doctrine.py`, `generate-reviews-i
 `derive-arch.py` and `check_observations.py`. Each takes about three minutes over the
 decision tree, and a release reads the same tree its cycle already checked.
 
-Each cycle's Test phase runs one check-drift step, made of two preset checks. The
+Each cycle's Verify phase runs one check-drift step, made of two preset checks. The
 `drift-gates` preset is a required check. It runs the runner with `--cycle-scope`,
 which runs every roster gate except `generate-journal-index.py` and reports that gate
 under `skipped` with the reason `write-time`. The `journal-index` preset runs that one
-gate; record its receipt on a Test-phase task, not as a required check. Together the
-two cover the whole roster at Test. Reuse applies to both, so an unchanged tree runs
+gate; record its receipt on a Verify-phase task, not as a required check. Together the
+two cover the whole roster at Verify. Reuse applies to both, so an unchanged tree runs
 nothing again.
 
 The journal index is not a required check because its only writer regenerates it on
 every journal write, and release verification still runs its gate. The Reflect journal
 entry therefore changes no required evidence. A journal month edited outside
-`log-work` after Test drifts the index until release verification or an on-demand
+`log-work` after Verify drifts the index until release verification or an on-demand
 `check-drift` reports it.
 
 The five docs-tree gates stay in the roster, in `check-drift` and in the `drift-gates`
@@ -318,7 +431,7 @@ that a real input change triggers.
 
 A cycle whose changes add or modify a migration replay receipt or a prospective publication
 record runs `uv run "${CRUX_PLUGIN_ROOT}/scripts/migration-receipt.py" verify --repo-root .
---since <cycle base commit>` at its Test phase. The command replays the prior reader for each
+--since <cycle base commit>` at its Verify phase. The command replays the prior reader for each
 receipt added or changed since that commit, with every receipt ignored, because a read trusts a
 committed receipt without replaying it. Record the command, its exit code and the commit it
 ran against as evidence. Release verification runs the same check from the previous release's
@@ -328,6 +441,16 @@ nothing to run.
 
 ## Simplify reduction evidence
 
-A simplify cycle also records `reduction` in Test, per area, bound to the current source
+A simplify cycle also records `reduction` in Verify, per area, bound to the current source
 fingerprint (see the commands reference). The fingerprint ignores untracked git-ignored files. A
 test run on other source does not satisfy it.
+
+[^one]: rule:every-test-has-exactly-one-tier
+[^label]: rule:new-tests-are-labelled-in-the-same-change
+[^ephemeral]: rule:ephemeral-labels-carry-a-reason, rule:ephemeral-labels-carry-an-end-condition, rule:ephemeral-tests-leave-only-by-explicit-change
+[^gates]: rule:tiers-never-narrow-a-cycle-gate
+[^complete]: rule:completion-requires-every-tier
+[^release]: rule:release-verify-covers-the-release-tier, rule:release-verify-runs-the-tier-check
+[^merge]: rule:merge-requires-every-test-on-the-head
+[^verify]: rule:tier-check-is-required-at-verify
+[^flagged]: rule:staged-per-minor-tests-are-release-tier

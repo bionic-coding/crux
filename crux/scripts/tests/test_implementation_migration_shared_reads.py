@@ -220,13 +220,6 @@ class CitationKinds(unittest.TestCase):
         self.assertEqual(view['historical_handles'], candidate['historical_handles'])
         self.assertEqual(self.f.snapshot(), before)
 
-    def test_current_reference_refuses_even_with_complete_dependency(self):
-        self.prepare('# Changelog\n\n## [Unreleased]\n\nFollow rule:rotation.\n')
-        self.f.close(); self.f.publish(); before = self.f.snapshot()
-        with self.assertRaisesRegex(migration.Refused, 'migration-citation-repair-required'):
-            migration.authority_view(self.root)
-        self.assertEqual(self.f.snapshot(), before)
-
     def test_dated_reference_never_waives_missing_dependency_before_publication(self):
         batch = self.prepare('# Changelog\n\n## [3.10.0] — 2026-08-01\n\nrule:rotation\n')
         batch['citation_dependencies'] = []

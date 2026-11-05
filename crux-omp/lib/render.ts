@@ -8,7 +8,8 @@ import { band, pane } from '../../crux-mods/hooks/lib/draw.ts'
 import type { Block, Span, ThemeKey } from '../../crux-mods/hooks/lib/draw.ts'
 import { kept } from '../../crux-mods/hooks/lib/view.ts'
 import type { Parsed } from '../../crux-mods/hooks/lib/view.ts'
-import { cells, drawingWidth } from '../../crux-mods/hooks/lib/width.ts'
+import { queueControl } from '../../crux-mods/hooks/lib/queue.ts'
+import { cells, drawingWidth, fit } from '../../crux-mods/hooks/lib/width.ts'
 import { buildOmpBandLine, buildOmpCyclesPane } from './live.ts'
 import type { LiveRuntimeSnapshot } from './live.ts'
 import { HARNESS, INVALID, KEPT_CODES, UNAVAILABLE_AGENTS } from './status.ts'
@@ -140,11 +141,14 @@ function drawBand(parsed: Parsed | null, width: unknown, live?: LiveRuntimeSnaps
   return block === null ? null : blockLines(block, styler)
 }
 
-function drawPanel(parsed: Parsed | null, width: unknown, live?: LiveRuntimeSnapshot, styler?: OmpStyler, page = 0): string[] | null {
+function drawPanel(parsed: Parsed | null, width: unknown, live?: LiveRuntimeSnapshot, styler?: OmpStyler, page = 0, expanded = false): string[] | null {
   if (parsed === null && live === undefined) return null
   const w = drawingWidth(width)
   if (parsed !== null && parsed.ok && parsed.view.cycles !== undefined) {
-    return blockLines(buildOmpCyclesPane(parsed.view.cycles, parsed.view.now_s, live, w, page), styler)
+    const block = buildOmpCyclesPane(parsed.view.cycles, parsed.view.now_s, live, w, page, parsed.view.queue, expanded)
+    const rows = blockLines(block, styler)
+    if (queueControl(parsed.view.queue, expanded) !== null) rows.push(fit('Queue: /crux-dashboard queue', w))
+    return rows
   }
   if (parsed === null && live !== undefined) {
     return blockLines(buildOmpCyclesPane([], null, live, w), styler)
@@ -165,9 +169,9 @@ export function bandLines(parsed: Parsed | null, width: unknown, live?: LiveRunt
   }
 }
 
-export function panelLines(parsed: Parsed | null, width: unknown, live?: LiveRuntimeSnapshot, styler?: OmpStyler, page = 0): string[] | null {
+export function panelLines(parsed: Parsed | null, width: unknown, live?: LiveRuntimeSnapshot, styler?: OmpStyler, page = 0, expanded = false): string[] | null {
   try {
-    return drawPanel(parsed, width, live, styler, page)
+    return drawPanel(parsed, width, live, styler, page, expanded)
   } catch {
     try {
       return drawPanel(INVALID, width, undefined, styler)

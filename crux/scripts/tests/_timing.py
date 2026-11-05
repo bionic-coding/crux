@@ -25,14 +25,24 @@ import time
 clock = time.thread_time
 
 
-def assert_grows_linearly(test, seconds, n, what, factor=8, attempts=3, floor=0.001):
+#: Where between linear and quadratic growth the bound sits, as an exponent of `factor`. Linear work
+#: grows `factor ** 1` times and quadratic work `factor ** 2` times. The midpoint, 1.5, failed linear
+#: work: a 30,000-item list measured 29 times its 3,750-item run on a loaded host (0.077 s against
+#: 0.061 s allowed), because the large run misses the CPU cache more than the small one. At 1.75 the
+#: bound is about 38 times for `factor` 8: linear work has to be 4.8 times slower than its ideal to
+#: fail, and quadratic work (64 times) still fails with 1.7 times to spare.
+BOUND_EXPONENT = 1.75
+
+
+def assert_grows_linearly(test, seconds, n, what, factor=8, attempts=3, floor=0.001,
+                          exponent=BOUND_EXPONENT):
     """Assert that work grows linearly, not quadratically, in its input.
 
     `seconds(size)` runs the work once over an input of `size` and returns
     the `clock` seconds it took, setup excluded. From `n // factor` to `n`,
     linear work grows about `factor` times and quadratic work about
-    `factor ** 2` times. The bound is their geometric mean, `factor ** 1.5`,
-    which is about 23 for 8.
+    `factor ** 2` times. The bound is `factor ** exponent`, which is about
+    38 for 8 at the default `BOUND_EXPONENT`.
 
     The bound is relative, so a slow host passes: an absolute 2.0 s bound
     failed at 2.5 s under a loaded gate. Thread CPU time keeps preemption
@@ -40,12 +50,12 @@ def assert_grows_linearly(test, seconds, n, what, factor=8, attempts=3, floor=0.
     runs, which drops a run slowed by a cache or allocator effect on one
     size only. `floor` keeps a sub-millisecond small run, where timer
     resolution and interpreter noise outweigh the work, from setting the
-    bound. It only ever loosens the bound, by at most `factor ** 1.5 * floor`
-    seconds: 23 ms by default."""
+    bound. It only ever loosens the bound, by at most `factor ** exponent * floor`
+    seconds: 38 ms by default."""
     small = large = float("inf")
     for _ in range(attempts):
         small = min(small, seconds(n // factor))
         large = min(large, seconds(n))
-    test.assertLess(large, factor ** 1.5 * max(small, floor),
+    test.assertLess(large, factor ** exponent * max(small, floor),
                     f"{what}: {n} took {large:.3f} s and {n // factor} took {small:.3f} s "
                     f"of thread CPU time; linear work grows about {factor} times")

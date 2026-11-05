@@ -9,8 +9,8 @@ import * as viewCore from '../hooks/lib/view.ts'
 import * as drawCore from '../hooks/lib/draw.ts'
 
 const cycle = {
-  format:'crux.cycle-progress',format_version:2,ok:true,docs_dir:'bionic',now_s:1780000000,
-  cycles:[{id:'CYC-0001',title:'Fix the tool',type:'quick-fix',status:'active',phase:'test',pass:1,pass_limit:1,
+  format:'crux.cycle-progress',format_version:5,ok:true,docs_dir:'bionic',now_s:1780000000,
+  cycles:[{id:'CYC-0001',schema_version:2,revision:null,assignments:[],classification_count:0,exception:null,title:'Fix the tool',type:'quick-fix',status:'active',phase:'test',pass:1,pass_limit:1,
     phases:['build','test','review','reflect'],tasks:[{id:'check',phase:'test',description:'Verify affected behavior',status:'active'}],
     returns:[],waits:[],blocker:null,reflection:null,modified_s:1780000000,
     started_s:1779999000,ended_s:null,paused_s:0,open_started_s:1779999500,basis:'recorded',phase_times:[{phase:'build',active_s:500,paused_s:0},{phase:'test',active_s:500,paused_s:0}]}],
@@ -109,12 +109,12 @@ test('cycle pane track marks done, current and upcoming phases', () => {
   expect(track({...active,status:'paused'})).toBe('\u2713 plan \u203A \u2298 build \u203A \u25CC test \u203A \u25CC review \u203A \u25CC reflect')
 })
 
-test('cycle pane groups tasks by phase order and draws the strip and bar', () => {
+test('cycle pane groups tasks by phase order and keeps one phase header plus the bar', () => {
   const ls = paneLines(active, 100).map(plain)
   const order = ['Plan it', 'Write code', 'Add tests', 'Run tests', 'Review it'].map(t => ls.findIndex(l => l.includes(': ' + t)))
   expect(order.every(i => i >= 0)).toBe(true)
   expect([...order].sort((a, b) => a - b)).toEqual(order)
-  expect(ls.some(l => l.includes('plan \u2713 build \u2713\u25B8 test \u2717 review \u25CC'))).toBe(true)
+  expect(ls.some(l => l.includes('plan \u2713 build \u2713\u25B8 test \u2717 review \u25CC'))).toBe(false)
   expect(ls.some(l => l.includes('\u25AE\u25AE\u25AF') && l.includes('2/5 tasks'))).toBe(true)
 })
 
@@ -164,14 +164,14 @@ test('cycle pane keeps the current phase and the active task glyph at 40 and 20 
         const ls = paneLines({...flow,status,phase:status === 'completed' ? 'reflect' : phase,pass:1,tasks:phaseTasks}, width)
         const shown = status === 'completed' ? 'reflect' : phase
         const wordLines = ls.filter(l => plain(l).includes(shown))
-        // The track and the strip each name the current phase.
+        // The track and task rows retain the current phase without a second summary strip.
         expect([status, phase, width, wordLines.length >= 2]).toEqual([status, phase, width, true])
         const track = ls[2]!
         expect([status, phase, width, plain(track).includes(shown)]).toEqual([status, phase, width, true])
-        // The strip row shows the active task's glyph, in the running glyph or its completed form.
-        const strip = ls[3]!
+        // The detailed task row shows its own glyph.
+        const current = ls.find(l => /^▸ [a-z]+:/.test(plain(l)))!
         const glyph = status === 'completed' ? '\u2713' : '\u25B8'
-        expect([status, phase, width, plain(strip).includes(glyph)]).toEqual([status, phase, width, true])
+        expect([status, phase, width, plain(current).includes(glyph)]).toEqual([status, phase, width, true])
         // The status word survives the narrowest width: the type word gives way first.
         expect([status, phase, width, plain(ls[1]!).includes(status)]).toEqual([status, phase, width, true])
       }
@@ -185,9 +185,9 @@ test('cycle pane keeps the current phase and the active task glyph at 40 and 20 
 })
 
 test('cycle pane draws phase words in keys that do not draw progress', () => {
-  const strip = paneLines(active, 100)[3]!
-  const words = strip.filter(s => ['plan', 'build', 'test', 'review'].includes(s.text))
-  // Positive control: the strip holds all four phase words, so the check below ran on each.
+  const rows = paneLines(active, 100).filter(l => plain(l).includes(': '))
+  const words = ['plan', 'build', 'test', 'review'].map(p => rows.find(l => l.some(s => s.text === p))!.find(s => s.text === p)!)
+  // Every phase remains labelled in its detailed task row.
   expect(words.map(s => s.text)).toEqual(['plan', 'build', 'test', 'review'])
   for (const w of words) expect(['success', 'claude', 'warning', 'error'].includes(w.color as string)).toBe(false)
 })
@@ -199,9 +199,11 @@ test('cycle pane draws the phase words of one type in distinct keys', () => {
     simplify: ['plan', 'build', 'test', 'review', 'reflect'],
     release: ['plan', 'release', 'reflect'],
   }
+  // A new record names the phase `verify`; it draws in Test's key, so each sequence stays distinct.
+  for (const type of ['dev', 'iterate', 'refactor', 'quick-fix', 'simplify']) types[type + ':verify'] = types[type]!.map(p => p === 'test' ? 'verify' : p)
   for (const type of Object.keys(types)) {
     const phases = types[type]!
-    const rows = paneLines({type, phases, phase: phases[0], pass: 1, pass_limit: 2, tasks: phases.map(p => ({id: 't' + p, phase: p, description: 'Work in ' + p, status: 'pending'}))}, 100)
+    const rows = paneLines({type: type.split(':')[0], phases, phase: phases[0], pass: 1, pass_limit: 2, tasks: phases.map(p => ({id: 't' + p, phase: p, description: 'Work in ' + p, status: 'pending'}))}, 100)
     const keys = phases.map(p => find(rows, ': Work in ' + p)!.find(s => s.text === p)!.color)
     expect(new Set(keys).size).toBe(phases.length)
   }
@@ -209,6 +211,8 @@ test('cycle pane draws the phase words of one type in distinct keys', () => {
   const rows = paneLines(active, 100)
   expect(find(rows, ': Review it')!.find(s => s.text === 'review')!.color).toBe('text')
   expect(find(rows, ': Run tests')!.find(s => s.text === 'test')!.color).toBe('permission')
+  const verifyRows = paneLines({...active, phases: ['plan', 'build', 'verify', 'review', 'reflect'], tasks: [{id: 'v', phase: 'verify', description: 'Run checks', status: 'pending'}]}, 100)
+  expect(find(verifyRows, ': Run checks')!.find(s => s.text === 'verify')!.color).toBe('permission')
 })
 
 // The band's drawing for the cycle in this file. Before the band took the pane's style, it drew one
@@ -376,8 +380,8 @@ const START = 1779990000
 const cycleOf = (type: string, now_s: number, over: Record<string, unknown> = {}) => {
   const phases = SEQUENCES[type]!
   return {
-    format:'crux.cycle-progress',format_version:2,ok:true,docs_dir:'bionic',now_s,
-    cycles:[{id:'CYC-0001',title:'Timed',type,status:'active',phase:phases[0],pass:1,pass_limit:3,phases,tasks:[],returns:[],waits:[],
+    format:'crux.cycle-progress',format_version:5,ok:true,docs_dir:'bionic',now_s,
+    cycles:[{id:'CYC-0001',schema_version:2,revision:null,assignments:[],classification_count:0,exception:null,title:'Timed',type,status:'active',phase:phases[0],pass:1,pass_limit:3,phases,tasks:[],returns:[],waits:[],
       blocker:null,reflection:null,modified_s:now_s,started_s:START,ended_s:null,paused_s:0,open_started_s:START,basis:'recorded',
       phase_times:[{phase:phases[0]!,active_s:now_s-START,paused_s:0}],...over}],
   }

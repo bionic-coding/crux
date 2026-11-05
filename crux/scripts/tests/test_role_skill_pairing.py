@@ -24,11 +24,12 @@ GREEN = Path(__file__).resolve().parent / "fixtures" / "role_skill_pairing" / "g
 ALL = ("claude-code", "codex", "opencode")
 CS, RC = "caller-supplies", "returns-to-caller"
 # Pairs sum the declared skills; triples count each pair across three harnesses.
-EXPECTED_PAIRS, EXPECTED_TRIPLES = 56, 168
+EXPECTED_PAIRS, EXPECTED_TRIPLES = 5, 15
 SCRIPT = Path(gate.__file__).resolve()
 # Residual facts over the passing real-tree triples; each name is a fact about a host the static gate cannot see.
-EXPECTED_RESIDUALS = {"opencode-external-read": 53, "codex-skill-binding": 52, "codex-egress": 47,
-                      "codex-uv-cache": 47, "codex-git-writable": 43, "codex-shell-permit": 2}
+EXPECTED_RESIDUALS = {"opencode-external-read": 5, "codex-skill-binding": 4, "codex-egress": 3,
+                      "codex-uv-cache": 3, "codex-git-writable": 3, "codex-shell-permit": 1,
+                      "codex-skill-retrieval": 1}
 GREEN_CARRIED = {(r, s, h, k) for r, s, k in (("reader", "supplied-skill", CS), ("reader", "report-skill", RC),
                                               ("conductor", "tree-skill", "delegates:writer")) for h in ALL}
 
@@ -37,17 +38,9 @@ def _expected_lane_carried() -> set:
     def each(role, skill, kind, harnesses=ALL):
         return {(role, skill, h, kind) for h in harnesses}
 
-    out = each("brainstormer", "query-docs", CS) | each("brainstormer", "whiteboarding", CS)
+    out = each("brainstormer", "whiteboarding", CS)
     out |= each("librarian", "query-docs", CS, ("codex",))
-    for role in ("brainstormer", "librarian", "reviewer"):
-        out |= each(role, "forge-skill", RC)
-    out |= each("reviewer", "council", RC, ("codex",))
     out |= each("commander", "cycle", "delegates:historian")
-    out |= each("commander", "run-promptbook", "delegates:historian")
-    out |= each("commander", "log-work", "delegates:historian")
-    # The access ladder alone covers council in Claude Code and Codex; OpenCode
-    # needs the lane. Commander prose still requires architect to run councils.
-    out |= each("commander", "council", "delegates:architect", ("opencode",))
     return out
 
 
@@ -71,7 +64,7 @@ class RealTreeTests(unittest.TestCase):
 
     def test_lane_carried_set_is_exact(self):
         expected = _expected_lane_carried()
-        self.assertEqual(len(expected), 27)
+        self.assertEqual(len(expected), 7)
         assert_lane_set(self, self.report, expected)
 
     def test_every_lane_carries_a_triple(self):
@@ -270,13 +263,37 @@ class ControlTests(VariantCase):
             assert_lane_set(self, variant_with(None), expected)
         self.assertIn("('scoped', 'read-skill', 'codex', 'returns-to-caller')", str(caught.exception))
 
-    def test_i_target_must_declare_the_skill_and_hold_no_lane_for_it(self):
-        undeclared = self.variant(agents=[("writer", "[tree-skill, run-skill, read-skill]", "[run-skill, read-skill]")])
+    def test_i_target_can_retrieve_a_nonpreloaded_skill_but_hold_no_lane_for_it(self):
+        retrievable = self.variant(agents=[("writer", "[tree-skill, run-skill, read-skill]", "[run-skill, read-skill]")])
         laned = self.variant(agents=[("writer", 'risk_level: "low"', 'risk_level: "low"\n  skill_lanes: "tree-skill=returns-to-caller"')])
         for h in ALL:
-            self.red(undeclared, "conductor", "tree-skill", h, "target does not declare the skill")
+            self.green(retrievable, "conductor", "tree-skill", h)
             self.red(laned, "conductor", "tree-skill", h, "target holds a lane for the skill")
             self.green(self.variant(), "conductor", "tree-skill", h)
+
+    def test_retrievable_delegate_still_requires_canonical_skill_metadata(self):
+        report = self.variant(
+            agents=[("writer", "[tree-skill, run-skill, read-skill]", "[run-skill, read-skill]")],
+            skills=[("tree-skill", '  requires_access: "write-tree"\n', "")],
+        )
+        for harness in ALL:
+            self.red(report, "conductor", "tree-skill", harness, "skill tree-skill has no valid requires_access")
+
+    def test_retrievable_delegate_still_requires_canonical_resource_and_grants(self):
+        trim = ("writer", "[tree-skill, run-skill, read-skill]", "[run-skill, read-skill]")
+        root = self.variant_root(agents=[trim])
+        (root / "skills/tree-skill/SKILL.md").unlink()
+        absent = gate.evaluate(root)
+        weak = self.variant(agents=[trim, ("writer", "Edit, Write, ", "")])
+        for harness in ALL:
+            self.red(absent, "conductor", "tree-skill", harness, "skill tree-skill has no valid requires_access")
+            self.red(weak, "conductor", "tree-skill", harness, "target writer envelope lacks")
+
+    def test_nonpreloaded_codex_target_names_unobserved_retrieval(self):
+        report = self.variant(agents=[("writer", "[tree-skill, run-skill, read-skill]", "[run-skill, read-skill]")])
+        residuals = self.triple(report, "conductor", "tree-skill", "codex").residuals
+        self.assertIn("codex-skill-retrieval", residuals)
+        self.assertNotIn("codex-skill-binding", residuals)
 
     def test_a_broken_role_rides_no_lane(self):
         role = dict(tools="Read, Grep, Glob, Edit, Write, Skill", skills="read-skill", lanes=f"read-skill={RC}")

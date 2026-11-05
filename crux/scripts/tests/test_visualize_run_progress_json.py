@@ -1413,35 +1413,6 @@ class ReviewLoopOneTests(_JsonCase):
 
     # --- M7: a linear status scan and a bounded process -------------------------
 
-    _OLD_TOP_STATUS = r"^status:[ \t]*(.*?)[ \t]*\r?$"
-
-    def _hostile_status_text(self, n):
-        return _run().replace("status: in_progress\n", "status: in_progress\nstatus:x" + " " * n + "y\n", 1)
-
-    def test_a_long_status_line_is_scanned_in_linear_time(self):
-        text = self._hostile_status_text(24_000)
-        # Positive control: the old pattern needs more than the budget on this text.
-        probe = ("import re,sys; re.compile(sys.argv[1], re.M).findall(sys.stdin.read())")
-        proc = subprocess.Popen([sys.executable, "-I", "-c", probe, self._OLD_TOP_STATUS],
-                                stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
-                                stderr=subprocess.DEVNULL, start_new_session=True, text=True)
-        try:
-            proc.communicate(text, timeout=1.5)
-            old_finished = True
-        except subprocess.TimeoutExpired:
-            old_finished = False
-        finally:
-            if proc.poll() is None:
-                os.killpg(proc.pid, 9)
-            proc.wait()
-        self.assertFalse(old_finished, "the old pattern should exceed the 1.5 s budget")
-        p = self._project()
-        p.run(text)
-        start = time.monotonic()
-        doc = self.doc(root=p.root)
-        self.assertLess(time.monotonic() - start, 1.5)
-        self.assertEqual(doc["runs_skipped"] + len(doc["runs"]), 1)
-
     def test_the_status_line_helpers_are_gone_and_the_plain_closed_form_decides(self):
         # Replaces the test that pinned `_top_statuses` to its status-line pattern: the plain
         # closed form decides now, and the status-line helpers are gone.
