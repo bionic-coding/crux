@@ -174,13 +174,13 @@ class ShippedCatalogTests(unittest.TestCase):
         expected = {
             "architect":      ("claude-opus-5-5", "opus-latest",    "gpt-6.1-sol",   "high"),
             "brainstormer":   ("claude-opus-5-5", "sol-latest",    "gpt-6.1-sol",   "high"),
-            "commander":      ("claude-opus-5-5", "argon-latest", "gpt-6-astra",   "high"),
+            "commander":      ("claude-opus-5-5", "kimi-latest", "gpt-6-astra",   "high"),
             "dev-lead":       ("claude-opus-5-5", "glm-latest",    "gpt-6.1-sol",   "high"),
             "developer":      ("claude-sonnet-5-5", "deepseek-flash", "gpt-6.1-terra", "high"),
             "historian":      ("claude-sonnet-5-5", "glm-latest",    "gpt-6.1-terra", "high"),
             "librarian":      ("claude-sonnet-5-5", "glm-latest",    "gpt-6.1-terra", "high"),
             "night-gardener": ("claude-opus-5-5", "opus-latest", "gpt-6-astra",   "high"),
-            "reviewer":       ("claude-opus-5-5", "argon-latest", "gpt-6.1-sol",   "xhigh"),
+            "reviewer":       ("claude-opus-5-5", "kimi-latest", "gpt-6.1-sol",   "xhigh"),
             "wayfinder":      ("claude-sonnet-5-5", "glm-latest",    "gpt-6.1-terra", "high"),
         }
         catalog = MC.load()
@@ -200,14 +200,14 @@ class ShippedCatalogTests(unittest.TestCase):
         brainstormer carries no override, so it inherits the flagship
         default; the architect names Opus and the dev-lead names GLM over it.
         night-gardener inherits the apex default. The reviewer and the
-        commander name Argon over the apex default; no agent uses Kimi.
+        commander name Kimi over the apex default.
         """
         catalog = MC.load()
         self.assertEqual(catalog.aliases["opus-latest"], "openrouter/anthropic/claude-opus-5.5")
         self.assertEqual(catalog.aliases["sol-latest"], "openrouter/openai/gpt-6.1-sol")
-        self.assertNotIn("kimi-latest", catalog.aliases)
+        self.assertNotIn("argon-latest", catalog.aliases)
         self.assertEqual(catalog.aliases["glm-latest"], "openrouter/z-ai/glm-5.3")
-        self.assertEqual(catalog.aliases["argon-latest"], "openrouter/google/gemini-4-argon")
+        self.assertEqual(catalog.aliases["kimi-latest"], "openrouter/moonshotai/kimi-k3.1-pro")
         self.assertEqual(catalog.levels["flagship"].opencode, "sol-latest")
         self.assertEqual(catalog.levels["apex"].opencode, "opus-latest")
         self.assertEqual(catalog.agents["architect"].level, "flagship")
@@ -218,8 +218,8 @@ class ShippedCatalogTests(unittest.TestCase):
         self.assertEqual(catalog.agents["dev-lead"].opencode, "glm-latest")
         self.assertEqual(catalog.agents["night-gardener"].level, "apex")
         self.assertIsNone(catalog.agents["night-gardener"].opencode)
-        self.assertEqual(catalog.agents["reviewer"].opencode, "argon-latest")
-        self.assertEqual(catalog.agents["commander"].opencode, "argon-latest")
+        self.assertEqual(catalog.agents["reviewer"].opencode, "kimi-latest")
+        self.assertEqual(catalog.agents["commander"].opencode, "kimi-latest")
 
     def test_apex_uses_astra_flagship_sol_and_standard_terra_at_high_effort(self):
         catalog = MC.load()
@@ -364,7 +364,7 @@ class ClaudeOverrideResolutionTests(unittest.TestCase):
         self.assertIsNone(catalog.agents["reviewer"].claude)
         self.assertEqual(catalog.levels["apex"].claude, "claude-opus-5-5")
         self.assertEqual(catalog.resolve("reviewer").claude, "claude-opus-5-5")
-        self.assertEqual(catalog.resolve("reviewer").opencode, catalog.aliases["argon-latest"])
+        self.assertEqual(catalog.resolve("reviewer").opencode, catalog.aliases["kimi-latest"])
         self.assertEqual(catalog.resolve("reviewer").codex.model, "gpt-6.1-sol")
 
     def test_removing_an_override_returns_the_agent_to_its_level_cell(self):
@@ -618,7 +618,7 @@ class RuleFindingTests(unittest.TestCase):
 
     def test_reference_graph_rejects_an_unreached_level(self):
         raw = MC.load_raw()
-        raw["agents"]["commander"] = {"level": "flagship", "opencode": "argon-latest"}
+        raw["agents"]["commander"] = {"level": "flagship", "opencode": "kimi-latest"}
         raw["agents"]["reviewer"] = "flagship"
         raw["agents"]["night-gardener"] = "flagship"
         self.assertTrue(any("apex" in f for f in MC.check_reference_graph(raw)))

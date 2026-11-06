@@ -1,4 +1,4 @@
-<!-- generated-from: CHANGELOG.md@sha256:173f07055881b1dc23bbf2bf48b112d53a392c5dc8f5c715df11c43d7762ce36; model: claude-sonnet-5.5; date: 2026-11-05 -->
+<!-- generated-from: CHANGELOG.md@sha256:38d7e0d72b08ca213c91304b3cab1520bc86a604266ae82a269bd9c3271f6bd4; model: claude-sonnet-5.5; date: 2026-11-05 -->
 # Changelog
 
 All notable changes to crux. The format roughly follows [Keep a Changelog](https://keepachangelog.com/) and the project adheres to [Semantic Versioning](https://semver.org/).
@@ -8,6 +8,18 @@ All notable changes to crux. The format roughly follows [Keep a Changelog](https
 ### Added
 
 ### Changed
+
+### Fixed
+
+### Removed
+
+## [5.2.1] — 2026-11-05
+
+### Added
+
+### Changed
+
+- The commander and the reviewer now run Kimi K3.1 Pro (`kimi-latest`, `moonshotai/kimi-k3.1-pro`) on OpenCode and OMP, in place of Gemini 4 Argon. The `kimi-latest` alias returns and the unused `argon-latest` alias is removed. This reverses the 5.0.1 note that no OpenCode role selects `moonshotai/kimi-k3.1-pro`. Claude Code and Codex models are unchanged.
 
 ### Fixed
 

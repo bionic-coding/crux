@@ -1240,7 +1240,7 @@ class AgentCodexOverrideValidationTests(unittest.TestCase):
     REVIEWER_CODEX = (
         "  reviewer:\n"
         "    level: apex\n"
-        "    opencode: argon-latest\n"
+        "    opencode: kimi-latest\n"
         "    codex:\n"
         "      model: gpt-6.1-sol\n"
         "      reasoning_effort: xhigh\n"

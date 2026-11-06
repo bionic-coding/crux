@@ -43,13 +43,13 @@ EXPECTED_FILES = {f"{name}.md" for name in EXPECTED_SOURCE_NAMES}
 EXPECTED_MODEL_IDS = {
     "architect": "openrouter/anthropic/claude-opus-5.5",
     "brainstormer": "openrouter/openai/gpt-6.1-sol",
-    "commander": "openrouter/google/gemini-4-argon",
+    "commander": "openrouter/moonshotai/kimi-k3.1-pro",
     "dev-lead": "openrouter/z-ai/glm-5.3",
     "developer": "openrouter/deepseek/deepseek-v4.1-flash-1017",
     "historian": "openrouter/z-ai/glm-5.3",
     "librarian": "openrouter/z-ai/glm-5.3",
     "night-gardener": "openrouter/anthropic/claude-opus-5.5",
-    "reviewer": "openrouter/google/gemini-4-argon",
+    "reviewer": "openrouter/moonshotai/kimi-k3.1-pro",
     "wayfinder": "openrouter/z-ai/glm-5.3",
 }
 
