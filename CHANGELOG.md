@@ -1,4 +1,4 @@
-<!-- generated-from: CHANGELOG.md@sha256:2c7f45e78eed28bbe4b6287223914e08af00671313ab80abe71fb7cd9ba32d75; model: claude-sonnet-5.5; date: 2026-11-03 -->
+<!-- generated-from: CHANGELOG.md@sha256:173f07055881b1dc23bbf2bf48b112d53a392c5dc8f5c715df11c43d7762ce36; model: claude-sonnet-5.5; date: 2026-11-05 -->
 # Changelog
 
 All notable changes to crux. The format roughly follows [Keep a Changelog](https://keepachangelog.com/) and the project adheres to [Semantic Versioning](https://semver.org/).
@@ -8,6 +8,22 @@ All notable changes to crux. The format roughly follows [Keep a Changelog](https
 ### Added
 
 ### Changed
+
+### Fixed
+
+### Removed
+
+## [5.2.0] — 2026-11-05
+
+### Added
+
+- In the development repository, the release tool has a new `candidate` command. It prints the newest beta that has been published, smoke-tested and tagged but has not yet shipped officially. An official release request that names no version now resolves to that beta, and the agent states the chosen version and proceeds.
+
+### Changed
+
+- In the development repository, the owner's official go-ahead, given after the beta tag, now attests the hand test of the tagged beta, including any owed live OpenCode 2 check. The release tool's `official` command records the attestation from the queued quote, and `status` shows whether a note came from a person or from the go-ahead. The owner no longer runs a command or answers a follow-up question to cut a public release.
+- In the development repository, a queued official release item whose instruction names no version now publishes when its title names the candidate, its authorization covers that item alone, and the authorization came after the version's smoke test and tag.
+- In the development repository, the official release cycle's first task no longer collects the live-check result. Release continuation also no longer refuses a required check that has no note at that step.
 
 ### Fixed
 

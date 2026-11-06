@@ -363,8 +363,42 @@ artifact, or a release not started from the queue, needs the owner's new words: 
 owner the command with its `--authorization` quote placeholder. Never paraphrase the
 owner's words or supply them yourself. The official go-ahead stays distinct from the beta
 authorization. A queued official item (`queue add --release-list official`) whose
-instruction names the version is the owner's go-ahead. Otherwise collect the go-ahead
-once, together with any owed live-check result.
+instruction names the version, or names none and whose title names the candidate, is the
+owner's go-ahead. An official cycle not started from the queue takes the owner's words
+through `--authorization`.
+
+On a request to cut a public or official release, run the candidate command that the
+project's release runbook names. In the Crux development repository DEPLOY.md names
+`uv run tools/release.py candidate`. Relay its line in full, owed-check reasons included, as
+your one-line statement of the chosen version, and proceed without asking. A request that
+names a version uses that version; release.py still refuses a beta that is not tagged and
+smoke-passed. With no eligible beta, stop with the candidate's one-line reason. When the
+runbook names no candidate command, an official request that names no version stops with one
+line saying the request must name a version. Once a newer beta, tagged or untagged, is
+excluded by a recorded unpublished reason, the candidate can name an older beta while the beta
+default branch may still serve the newer bytes; the relayed candidate line is the guard.
+
+Queue no official item before that version's beta tag, and authorize one only with words the
+owner gave after that version's tag time. Owner words given earlier, including a combined
+beta-and-official request, are no go-ahead: stop after the beta tag with one line saying the
+official release waits for the owner's go-ahead after the hand test. The owner's next request
+takes the candidate path. Add the official item, titled with the version, at the head of the
+queue (`queue add --release-list official --position 1`), then run `queue authorize next` with
+the owner's verbatim words. A new authorization replaces any active one, so when another
+queue authorization is active, your one-line candidate statement also says the official
+authorization supersedes it. Confirm that the
+returned scope names that item alone before the queue starts it; otherwise revoke the
+authorization, only if you created it, and stop with one line. Run the official cycle with no
+further question.
+
+The owner's request, given after the beta tag, is the go-ahead. It attests the hand test of the
+tagged beta, including any owed live OpenCode 2 check, and `release.py official` records that
+attestation from the queue quote. On this path never ask the owner for a version or a
+live-check note. The only hand-off is a host denial of the bare publish command. When
+`release.py official` refuses a queued go-ahead with its withheld-go-ahead route, pause the
+official cycle. Resume it as a release not started from the queue, with the owner's new words
+through `--authorization`, and when a live check is owed record the same words with
+`release.py smoke --live-check`.
 
 A failed step stops the release. After the fix lands by its own route, set that step's
 task back to pending with `cycle.py task`. Every later task reopens, and no return,

@@ -42,8 +42,8 @@ RELEASE_LISTS = {
         ('record', 'Copy the ledger into this cycle and prepend its release op to the log', 'release.py record and the commit that holds the log op'),
     ],
     'official': [
-        ('live-check-and-go-ahead', "Collect the owner's quoted go-ahead and any owed live-check result for the tagged artifact",
-         "the owner's quote and release.py smoke --live-check when owed"),
+        ('live-check-and-go-ahead', "Take the owner's queued go-ahead, given after the beta was tagged, as the owner's attestation that the tagged artifact was hand-tested, including any owed live check",
+         "the owner's quoted go-ahead for the tagged artifact; release.py official records it as the live-check attestation when a check is owed"),
         ('official', 'Publish and tag the official release with the same go-ahead', 'release.py official published'),
         ('record', 'Copy the ledger into this cycle, with the reason when the target did not publish, and prepend its release op to the log',
          'release.py record and the commit that holds the log op'),

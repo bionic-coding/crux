@@ -89,14 +89,14 @@ class ReleaseContinuationTests(SliceBase):
             current = self.ok(self.request(current))['continuation']
         return current
 
-    def official_live_request(self):
+    def official_live_request(self, live_note='Fixture live check passed'):
         beta_cycle = self.cid
         self.cid = create(self.repo, 'release', 'Official v5.0.4', 'Release the beta artifact',
                           ['src', 'bionic/log.md'], ['released'], 'builder', 'tester', release_list='official')['id']
         self.ledger.update(cycles={'beta': beta_cycle, 'official': None},
             artifact={'stage_sha256': 'a' * 64, 'git_tree': 'b' * 40},
             steps={name: {'state': 'passed'} for name in ('verify', 'beta', 'smoke', 'tag')},
-            live_check={'required': True, 'note': 'Fixture live check passed'})
+            live_check={'required': True, 'note': live_note})
         self.ledger['authorizations']['beta'] = {'quote': 'I approve the 5.0.4 beta release',
             'repo': 'private/project', 'artifact': dict(self.ledger['artifact'])}
         self.ledger['targets']['beta'] = {'repo': 'private/project', 'tree': 'b' * 40, 'commit': 'c' * 40}
@@ -116,6 +116,13 @@ class ReleaseContinuationTests(SliceBase):
         self.assertEqual(first['continuation']['task'], 'official')
         self.assertEqual(self.ok(request)['continuation'], first['continuation'])
         self.assertIsNone(self.ledger['cycles']['official'])
+
+    def test_live_check_and_go_ahead_proceeds_with_a_required_check_and_no_note(self):
+        """The official publish records the owner's go-ahead as the attestation, so this step no longer refuses."""
+        request = self.official_live_request(live_note=None)
+        first = self.ok(request)
+        self.assertEqual(first['continuation']['task'], 'official')
+        self.assertNotIn('continuation_unavailable', first)
 
     def test_official_successor_rejects_another_cycle_binding(self):
         request = self.official_live_request()

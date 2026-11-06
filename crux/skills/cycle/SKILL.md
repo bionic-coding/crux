@@ -98,10 +98,15 @@ step list, so nobody authors a release plan. Each step below is a task, in order
     `release.py record --cycle` completes unheld steps and preserves open attempts
     for their delegator's normal delivery. The last listed delivery finishes the cycle.
 - Official list: live-check-and-go-ahead, official, record.
-  - live-check-and-go-ahead: collect any owed live-check result and the owner's
-    go-ahead, quoted, in one request. A queued official item
-    (`queue add --release-list official`) whose instruction names the version is the
-    owner's go-ahead.
+  - live-check-and-go-ahead: take the owner's queued go-ahead, given after the beta
+    was tagged, as the owner's attestation that the tagged beta was hand-tested,
+    including any owed live check. A queued official item
+    (`queue add --release-list official`) whose instruction names the version, or names
+    none and whose title names the candidate, is the owner's go-ahead; `release.py official`
+    records the attestation from the queue quote. A request that names no version runs
+    the project's candidate command (in the Crux development repository
+    `uv run tools/release.py candidate`) and relays its line as the chosen version. The
+    agent collects no version and no live-check note from the owner on this path.
   - official: publish the tagged pre-release tree to the public target with
     `release.py official`, which tags it in the same act, then run record.
   - record: keep the release record in the cycle and add one log entry.
@@ -808,9 +813,11 @@ Pass free-text values single-quoted, with an embedded single quote written as `'
   pass limit and stops.
 - A release queue item starts a beta-list cycle. Name its prep paths and
   `<docs_dir>/log.md` as scope. An item added with `queue add --release-list official`
-  starts an official-list cycle; its instruction names the version as the owner's
-  go-ahead. An official cycle not started from the queue is created directly with
-  `create --type release --list official`.
+  starts an official-list cycle; its instruction, given after the version's beta tag,
+  is the owner's go-ahead. Queue no official item before that tag. Add it titled with the
+  version at the head of the queue (`--position 1`), run `queue authorize next`, and
+  confirm the scope names that item alone. An official cycle not started from the queue
+  is created directly with `create --type release --list official`.
 - Queue authorization approves no IDR, but authorizing a simplify queue item lets the
   configured council select proposals within its scope. The same holds for a
   queue-started cycle change-typed into simplify. Selection outside that scope pauses

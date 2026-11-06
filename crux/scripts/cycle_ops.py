@@ -1362,10 +1362,6 @@ def continuation_ledger(cfg, doc, entry, observation):
         raise Refused([failure('release-artifact-changed', 'the frozen artifact changed; normal recovery and new owner words are required')])
     if identity is not None:
         spec['artifact'] = identity
-    if step == 'live-check-and-go-ahead':
-        live = ledger.get('live_check') or {}
-        if live.get('required') and not live.get('note'):
-            raise Refused([failure('release-live-check-required', 'the required live-check result remains unrecorded')])
     if step in ('beta-and-smoke', 'tag', 'official', 'record'):
         continuation_authorization(ledger, spec, identity)
 

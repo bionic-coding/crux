@@ -1007,9 +1007,18 @@ queue chain of the bound cycle, so the agent runs the bare command:
 `uv run tools/release.py official --version X.Y.Z --cycle CYC-NNNN`, with no environment
 prefix, compound command or redirection. When the host denies it, quote the denial and
 hand the owner that one bare command, which carries no quote. A queued official item
-(`queue add --release-list official`) whose instruction names the version is the owner's
-go-ahead. A changed artifact, or a release not started from the queue, needs the owner's
-new words through `--authorization`.
+(`queue add --release-list official`) whose instruction names the version, or names none and
+whose title names the candidate, is the owner's go-ahead. That go-ahead, given after the
+beta tag, attests the hand test, including any owed live OpenCode 2 check, and
+`release.py official` records the attestation from the queue quote. A request that names no
+version runs the project's candidate command (in the Crux development repository
+`uv run tools/release.py candidate`), which prints the newest beta that was published,
+smoke-passed and tagged and has not shipped officially, or one refusal line. The agent relays
+that line, queues the official item after the beta tag at the head of the queue
+(`queue add --position 1`), runs `queue authorize next` and confirms the scope names that item
+alone. A project whose runbook names no candidate command has none, so a request there must
+name the version. A changed artifact, or a release not started from the queue, needs the
+owner's new words through `--authorization`.
 
 To rerun after a failure, set the failed step's task back to pending once the fix has
 landed:

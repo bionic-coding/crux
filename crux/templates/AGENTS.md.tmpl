@@ -1444,7 +1444,7 @@ so agents run every step. In the Crux development repository the bare publish co
 are `uv run tools/release.py beta --version X.Y.Z` and
 `uv run tools/release.py official --version X.Y.Z --cycle CYC-NNNN`, with no environment
 prefix, compound command or redirection. When the host denies one, the agent must quote the
-denial and hand the owner that one bare command, which carries no quote. A changed
+denial and hand the owner that one bare command, which carries no quote. For an official release the owner's request, given after the beta tag, is the go-ahead: it attests the hand test, including any owed live OpenCode 2 check, and the agent asks the owner for neither a version nor a live-check note. A request that names no version resolves to the newest beta that was published, smoke-passed and tagged and has not shipped officially, through the project's candidate command (in the Crux development repository `uv run tools/release.py candidate`). A changed
 artifact, or a release not started from the queue, needs the owner's new words through
 `--authorization`. A failed step is fixed and rerun with no return,
 pass or new cycle. Recover from actual external state; never blindly retry publication.

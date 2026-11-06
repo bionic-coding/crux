@@ -155,6 +155,47 @@ class ReleaseListInstructionContracts(unittest.TestCase):
         self.assertIn("A withheld go-ahead or a tooling outage pauses an official cycle", commander)
         self.assertNotIn("before publication inside Release", commander)
 
+    def test_official_requests_resolve_the_version_and_attest_the_hand_test_without_asking_the_owner(self):
+        commander = flat("agents/commander.md")
+        for clause in ("run the candidate command that the project's release runbook names",
+                       "`uv run tools/release.py candidate`",
+                       "Relay its line in full, owed-check reasons included",
+                       "proceed without asking",
+                       "stop with the candidate's one-line reason",
+                       "the request must name a version",
+                       "Queue no official item before that version's beta tag",
+                       "authorize one only with words the owner gave after that version's tag time",
+                       "`queue add --release-list official --position 1`", "`queue authorize next`",
+                       "names that item alone", "revoke the authorization, only if you created it",
+                       "A new authorization replaces any active one",
+                       "stop after the beta tag with one line saying the official release waits for the owner's go-ahead",
+                       "attests the hand test", "never ask the owner for a version or a live-check note",
+                       "with the owner's new words through `--authorization`",
+                       "`release.py smoke --live-check`"):
+            self.assertIn(clause, commander)
+        self.assertEqual(missing(commander, ("says the official authorization supersedes it",
+                                             "the relayed candidate line is the guard")), [])
+        self.assertNotIn("Otherwise collect the go-ahead", commander)
+        for relative, clauses in (("agents/dev-lead.md", ("attests the hand test", "never ask the owner for a version or a live-check note")),
+                                  ("skills/cycle/SKILL.md", ("uv run tools/release.py candidate", "Queue no official item before that tag",
+                                                               "`queue authorize next`", "collects no version and no live-check note from the owner")),
+                                  ("skills/cycle/references/commands.md", ("uv run tools/release.py candidate", "`queue authorize next`",
+                                                                           "names that item alone", "must name the version")),
+                                  ("templates/AGENTS.md.tmpl", ("uv run tools/release.py candidate", "asks the owner for neither a version nor a live-check note"))):
+            self.assertEqual(missing(flat(relative), clauses), [], relative)
+            self.assertNotIn("collected once, with any owed live-check", flat(relative), relative)
+
+    def test_runbook_and_guides_describe_the_candidate_route_and_the_attestation(self):
+        text = repo_flat(self, "DEPLOY.md")
+        for clause in ("| `candidate` |", "uv run tools/release.py candidate", "attested by the owner's official go-ahead",
+                       "`attested_by` kind `official-go-ahead`", "the owner runs no command", "only hand-off is a host denial",
+                       "Queue no official item before that version's beta tag", "`queue authorize next`", "names that item alone",
+                       "stops after the tag with one line", "the relayed candidate line is the guard"):
+            self.assertIn(clause, text)
+        self.assertNotIn("collected once, with any owed live-check result", text)
+        for relative in ("AGENTS.md", "bionic/AGENTS.md"):
+            self.assertIn("uv run tools/release.py candidate", repo_flat(self, relative), relative)
+
     def test_runbook_lists_six_beta_and_three_official_steps_and_names_limits(self):
         text = repo_flat(self, "DEPLOY.md")
         for clause in ("Beta release: six steps", "Official release: three steps",

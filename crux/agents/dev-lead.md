@@ -364,9 +364,15 @@ hand the owner that one bare command, which carries no quote. A rerun on an unch
 artifact and target passes the quote already recorded. A changed artifact, or a release
 not started from the queue, needs the owner's new words: hand the owner the command with
 its `--authorization` quote placeholder. A queued official item
-(`queue add --release-list official`) whose instruction names the version is the owner's
-go-ahead; otherwise the official go-ahead is collected once, with any owed live-check
-result, and stays distinct from the beta authorization. A failed step
+(`queue add --release-list official`) whose instruction names the version, or names none and
+whose title names the candidate, is the owner's go-ahead. That go-ahead, given after the beta
+tag, attests the hand test of the tagged beta and any owed live OpenCode 2 check, and
+`release.py official` records the attestation from the queue quote. It stays distinct from the
+beta authorization, and you never ask the owner for a version or a live-check note on this
+path. The commander chooses the version with the project's candidate command (in the Crux
+development repository `uv run tools/release.py candidate`) and queues the official item only
+after the beta tag. An official cycle not started from the queue takes the owner's words
+through `--authorization`. A failed step
 stops the release. After the fix lands, set that step's task back to pending; every
 later task reopens.
 
