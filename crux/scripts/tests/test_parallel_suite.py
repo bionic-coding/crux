@@ -2181,28 +2181,28 @@ class PluginSuiteInterpreterTests(unittest.TestCase):
         self.assertFalse(_can_import(self.yaml_only, "griffe"))
 
     def test_an_interpreter_without_the_suite_dependencies_is_refused(self):
-        proc = self._run(self.bare, str(HERE), "-p", "test_arch_facts.py")
+        proc = self._run(self.bare, str(HERE), "-p", "test_arch_facts.py", "--allow-linked-worktree")
         self._assert_refused(proc, ", ".join(ps.PLUGIN_SUITE_MODULES))
         self.assertIn(str(self.bare), proc.stderr)
 
     def test_a_partly_provisioned_interpreter_names_only_the_missing_modules(self):
-        proc = self._run(self.yaml_only, str(HERE), "-p", "test_arch_facts.py")
+        proc = self._run(self.yaml_only, str(HERE), "-p", "test_arch_facts.py", "--allow-linked-worktree")
         self._assert_refused(proc, "httpx, griffe")
 
     def test_the_relative_and_dot_slash_forms_target_the_own_tests_directory(self):
         for form in ("crux/scripts/tests", "./crux/scripts/tests", "crux/scripts/tests/"):
             with self.subTest(form=form):
-                proc = self._run(self.bare, form, "-p", "test_arch_facts.py")
+                proc = self._run(self.bare, form, "-p", "test_arch_facts.py", "--allow-linked-worktree")
                 self._assert_refused(proc, ", ".join(ps.PLUGIN_SUITE_MODULES))
         with self.subTest(form="."):
-            proc = self._run(self.bare, ".", "-p", "test_arch_facts.py", cwd=HERE)
+            proc = self._run(self.bare, ".", "-p", "test_arch_facts.py", "--allow-linked-worktree", cwd=HERE)
             self._assert_refused(proc, ", ".join(ps.PLUGIN_SUITE_MODULES))
 
     def test_a_symlinked_route_to_the_own_tests_directory_is_recognised(self):
         link = Path(self._tmp.name) / "tests-link"
         if not link.exists():
             link.symlink_to(HERE, target_is_directory=True)
-        proc = self._run(self.bare, str(link), "-p", "test_arch_facts.py")
+        proc = self._run(self.bare, str(link), "-p", "test_arch_facts.py", "--allow-linked-worktree")
         self._assert_refused(proc, ", ".join(ps.PLUGIN_SUITE_MODULES))
 
     def test_a_foreign_start_directory_is_not_probed(self):
@@ -2253,8 +2253,8 @@ class PluginSuiteInterpreterTests(unittest.TestCase):
         if _can_import(sys.executable, "yaml", "-S"):
             self.skipTest("-S does not hide yaml from this interpreter")
         proc = subprocess.run([sys.executable, "-S", str(DRIVER), str(HERE), "-p",
-                               "test_arch_facts.py"], cwd=REPO, capture_output=True, text=True,
-                              timeout=RUN_TIMEOUT)
+                               "test_arch_facts.py", "--allow-linked-worktree"], cwd=REPO,
+                              capture_output=True, text=True, timeout=RUN_TIMEOUT)
         self.assertEqual(proc.returncode, 3, proc.stderr)
         self.assertIn("parallel_suite: FAILED CLOSED", proc.stderr)
         self.assertIn("yaml", proc.stderr)

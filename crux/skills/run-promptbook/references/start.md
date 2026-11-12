@@ -111,10 +111,23 @@ Walk active, runs, and archive. Rebuild the index (same format as documented in 
 
 Read `docs/index.md`, update only the `_Last updated:` line to today. Counts under `## Promptbooks` don't change on run start (active/archived counts are unchanged); the per-book `current_run`/progress is in `docs/promptbooks/index.md`, not the master rollup.
 
-### 6. Append to `docs/log.md`
+### 6. Record the `promptbook` operation
+
+Write the entry through the log writer (`docs/AGENTS.md` §6).[^log-writer] Write the body below to a file outside the tree, then run:
+
+```
+uv run "${CRUX_PLUGIN_ROOT}/scripts/operation-log.py" append --repo-root <repo-root> \
+  --op promptbook --subject 'started PB-NNNN-<slug>/RUN-NNN' --date YYYY-MM-DD --body-file <path>
+```
+
+The entry it writes at the top of the current month's detail file `docs/log/YYYY-MM.md`:
 
 ```
 ## [YYYY-MM-DD] promptbook | started PB-NNNN-<slug>/RUN-NNN
 ```
 
 Body: book id, run id, total_prompts, current_prompt.
+
+A refused append keeps this skill's other writes and adds no entry: fix the cause it names, then rerun the append alone (§6). Then run the commit step of §6 over the result's `commit_paths` and `restore_paths`.
+
+[^log-writer]: rule:log-entries-go-through-the-log-writer, rule:no-writer-writes-the-legacy-log-file

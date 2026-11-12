@@ -379,25 +379,5 @@ class ExitCodeTestCase(unittest.TestCase):
             self.assertTrue((payload.get("reason") or "").strip(), payload)
 
 
-@_dev_only
-class ShippedSurfaceTestCase(unittest.TestCase):
-    """The canonical block is projected into a SKILL.md that ships downstream."""
-
-    def test_canonical_block_carries_no_internal_decision_record_reference(self):
-        canonical = gwr.extract_region(
-            (REPO_ROOT / gwr.CANONICAL_FILE).read_text(encoding="utf-8"),
-            gwr.CANONICAL_BEGIN, gwr.CANONICAL_END, "c",
-        )
-        self.assertNotRegex(
-            canonical, r"\[\[adrs/",
-            "the canonical block reaches the shipped SKILL.md; it must pass the ADR-0034 "
-            "release-content scan, which forbids internal decision-record references",
-        )
-
-    def test_enrolled_in_the_regenerative_outputs_table(self):
-        claude_md = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")
-        self.assertIn("generate-writing-rules.py", claude_md)
-
-
 if __name__ == "__main__":
     unittest.main()

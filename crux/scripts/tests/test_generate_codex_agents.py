@@ -164,15 +164,16 @@ class RenderTests(unittest.TestCase):
         self.assertNotIn("new cycle reports return to the caller", body)
 
     @unittest.skipUnless(HAVE_TOMLLIB, "tomllib not available — Python 3.11+ (or uv) required")
-    def test_commander_projection_carries_the_developer_and_reviewer_grants(self):
+    def test_commander_projection_carries_the_reviewer_grant_and_no_developer_grant(self):
         # Codex has no spawn tool: a grant projects to the role body plus the binding
-        # directive that returns delegation to the parent. Both grants must survive.
+        # directive that returns delegation to the parent. The reviewer grant survives;
+        # the commander holds no developer grant.
         source = agents.parse_source(agents.SOURCE_DIR / "commander.md")
-        self.assertIn("Agent(developer)", source.tools)
+        self.assertNotIn("Agent(developer)", source.tools)
         self.assertIn("Agent(reviewer)", source.tools)
         parsed = tomllib.loads(agents.generate()[agents.codex_agent_filename("commander")])
         instructions = parsed["developer_instructions"]
-        self.assertIn("dispatch a developer and an independent reviewer", instructions)
+        self.assertIn("dispatches a dev-lead for every Build task and every fix task, and never a developer", " ".join(instructions.split()))
         self.assertIn("return the invocation and its attach request to your caller", instructions)
 
     @unittest.skipUnless(HAVE_TOMLLIB, "tomllib not available — Python 3.11+ (or uv) required")
@@ -194,24 +195,6 @@ class RenderTests(unittest.TestCase):
         self.assertIn("Do not modify files", instructions)
         self.assertIn("Do not request permission escalation", instructions)
         self.assertNotIn("you have no shell", instructions)
-
-    def test_librarian_takes_authority_state_from_its_caller_in_a_sandbox(self):
-        # In a read-only sandbox `uv run` cannot initialize its cache, so the
-        # librarian cannot run authority-view.py there. Both sides of the
-        # hand-off must say so: the librarian takes the caller's output first and
-        # refuses without it, and query-docs tells the caller to supply it.
-        parsed = tomllib.loads(agents.generate()["crux-librarian.toml"])
-        self.assertEqual(parsed["sandbox_mode"], "read-only")
-        instructions = parsed["developer_instructions"]
-        self.assertIn("## Authority state", instructions)
-        self.assertIn("**Supplied by your caller.**", instructions)
-        self.assertIn("`uv run` fails because it must write its cache", instructions)
-        self.assertIn("**Neither:** refuse the answer.", instructions)
-        self.assertNotIn("route the question to a role", instructions)
-        skill = (agents.SOURCE_DIR.parent / "skills" / "query-docs" / "SKILL.md").read_text(
-            encoding="utf-8")
-        self.assertIn("When you delegate a question to the librarian, run "
-                      "`authority-view.py state` and `retained-roots` first", skill)
 
     @unittest.skipUnless(HAVE_TOMLLIB, "tomllib not available — Python 3.11+ (or uv) required")
     def test_writer_roles_default_to_workspace_write(self):

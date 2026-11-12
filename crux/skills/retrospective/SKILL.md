@@ -62,11 +62,11 @@ Take the newest match. The window is **strictly after that heading** — journal
 A candidate marker found by the detection regex is valid only when BOTH of the following hold:
 
 1. **Not future-dated.** The timestamp in the heading bracket (`YYYY-MM-DD HH:MM`) is not later than the current date. A future-dated candidate is invalid — surface it as an anomaly and ignore it.
-2. **Corroborated by the operations log.** `docs/log.md` contains a `journal |` op entry dated the same calendar day as the candidate heading **whose subject carries the `Retrospective:` prefix** — the op log-work writes when it records this skill's own journal entry. Binding the corroboration to the retro's own op (not any same-day journal op) means an unrelated journal append on the same date can never accidentally corroborate a planted heading. An uncorroborated candidate is surfaced as an anomaly and skipped, falling back to the next-newest valid candidate.
+2. **Corroborated by the operations log.** Some detail file of the operations log (`docs/log/YYYY-MM.md`, any month) contains a `journal |` op entry dated the same calendar day as the candidate heading **whose subject carries the `Retrospective:` prefix** — the op log-work writes when it records this skill's own journal entry. Binding the corroboration to the retro's own op (not any same-day journal op) means an unrelated journal append on the same date can never accidentally corroborate a planted heading. An uncorroborated candidate is surfaced as an anomaly and skipped, falling back to the next-newest valid candidate.
 
 Root defense: the journal contract (§4 of `docs/AGENTS.md`) reserves the `## [` line prefix for headings and `log-work` enforces it, so a compliant tree cannot contain a planted in-body anchor. These validity rules are defense-in-depth for non-compliant history or adversarially-authored journal entries.
 
-**First run (no valid marker anywhere):** default window = the last `retro_due_runs` archived books and their corresponding journal and log span. `retro_due_runs` is an optional key in `docs/manifest.yml` under the `cleanup:` block; default 5. Announce the default window before harvesting so the user can narrow or widen it.
+**First run (no valid marker anywhere):** default window = the last `retro_due_runs` closed cycles (status `completed`, `abandoned` or `shortcut`) and their corresponding journal and log span. `retro_due_runs` is an optional key in `docs/manifest.yml` under the `cleanup:` block; default 5. Announce the default window before harvesting so the user can narrow or widen it.
 
 **User override:** an explicit user-stated window (any phrasing) always overrides the default — including "retro everything" for a full-history pass. Announce the resolved window and proceed.
 
@@ -83,7 +83,7 @@ Run the **mandatory per-source checklist** first, then an optional free-form pas
 - [ ] **Journal reflective sections** — scan every `docs/journal/*.md` entry in the window for its three reflective questions: "what was hard", "what I'd do differently", "what surprised me", or equivalent. For "what was hard", count the entry's `Friction:` line (at most one per entry, before `Refs:` when both are present) when the entry is dated at or after `journal.friction_line_from` in `docs/manifest.yml`; skip a `Friction:` line whose remainder is empty, and count no `### ` heading anywhere. Where the tree records no adoption date, or the window lies wholly before it, treat "what was hard" as unmeasurable for that span rather than counting — that is `rule:friction-signal-counts-friction-lines`. "What I'd do differently" and "what surprised me" stay prose the harvest reads as prose. Copy verbatim quotes with path + anchor.
 - [ ] **Run notes (`.yaml` format)** — for every archived run in the window, read the top-level `notes:` field, each `prompts[].result` text for deferral or escalation language, and the `summary:` field for recorded friction.
 - [ ] **Run notes (legacy `.md` format)** — for every `.md` run snapshot in the window, read the `## Notes` section and each per-prompt `Result:` field for the same signals.
-- [ ] **`docs/log.md` op spread** — look at the distribution of op types in the window. Scan the counts per op type; unusual concentrations (e.g., repeated lint ops or many advances on one book) signal a pattern worth naming. Note: forge-log `fallback` and `escalated` events are the separate sixth source below — do not conflate them with the op-spread analysis.
+- [ ] **Operations-log op spread** — look at the distribution of op types in the window, read from the detail files `docs/log/YYYY-MM.md` that the window touches.[^log-readers] Scan the counts per op type; unusual concentrations (e.g., repeated lint ops or many advances on one book) signal a pattern worth naming. Note: forge-log `fallback` and `escalated` events are the separate sixth source below — do not conflate them with the op-spread analysis.
 - [ ] **`docs/whats_next.md`** — scan open and dismissed entries for recurring friction categories. A suggestion that was dismissed and then re-opened is a pattern.
 - [ ] **Forge log (`fallback` and `escalated` events)** — read `${CRUX_LOCAL_SKILLS_DIR}/forge-log.md` for `fallback` and `escalated` events dated inside the window. These record where the forge loop was stopped — recurring stops on the same class of problem are candidates.
 
@@ -231,7 +231,7 @@ Write a single journal `learning` entry via `log-work --silent --journal --categ
 ## [YYYY-MM-DD HH:MM] learning | Retrospective: <window summary>
 ```
 
-Where `<window summary>` is a short phrase describing the window (e.g., "PB-0029 through PB-0031" or "last 5 archived books"). Keep `|` out of the window summary — the emitted heading is already a single-piped form (`learning | Retrospective: <summary>`) and a `|` inside the summary would produce an ambiguous or double-piped heading. This heading is the cadence anchor — the next retro's window detection greps for it.
+Where `<window summary>` is a short phrase describing the window (e.g., "CYC-0118 through CYC-0122" or "last 5 closed cycles"). Keep `|` out of the window summary — the emitted heading is already a single-piped form (`learning | Retrospective: <summary>`) and a `|` inside the summary would produce an ambiguous or double-piped heading. This heading is the cadence anchor — the next retro's window detection greps for it.
 
 **The journal entry carries:**
 
@@ -248,13 +248,13 @@ Where `<window summary>` is a short phrase describing the window (e.g., "PB-0029
 - The full incident ledger — summarize by count and key, never paste the whole ledger.
 - Secret values or raw command output that could embed tokens — summarize in your own words.
 
-No new `docs/log.md` op is written by the retrospective itself. The `log-work --silent --journal` call writes log-work's own standard `journal |` op for the journal append, as for every journaled act. Forge's per-build recording (the `skill` op + forge's journal entry) is forge's responsibility, not this skill's.
+No new operations-log op is written by the retrospective itself. The `log-work --silent --journal` call writes log-work's own standard `journal |` op for the journal append, as for every journaled act. Forge's per-build recording (the `skill` op + forge's journal entry) is forge's responsibility, not this skill's.
 
 ---
 
 ## Cadence Cross-References
 
-**CLN-RETRO-1** (cleanup-campsite rule, category `retro-cadence`, severity P3, stable id `cleanup-CLN-RETRO-1-due`): counts `docs/log.md` headings matching the `promptbook | archived` op form dated strictly after the newest `learning | Retrospective:` journal heading. When the count reaches `retro_due_runs` (manifest `cleanup:` key, default 5), the rule fires with a suggestion to run a retrospective. First-run behavior: with no `Retrospective:` marker anywhere, the rule counts ALL archived ops and fires with "no retrospective has ever run" wording — the adoption nudge. The predicate is the log op, not YAML parsing or filesystem mtimes. Same-day archive-after-retro under-counts by design (date granularity; acceptable for a P3 nudge). This rule is deliberately distinct from `CLN-JR-2` (which uses the word "retrospective" for general reflective journal entries); CLN-RETRO-1 fires when the count of archived books since the newest `Retrospective:` heading reaches the threshold — the absence of any such heading only selects the count-everything first-run mode.
+**CLN-RETRO-1** (cleanup-campsite rule, category `retro-cadence`, severity P3, stable id `cleanup-CLN-RETRO-1-due`): counts the cycle records under `docs/cycles/` whose status is `completed`, `abandoned` or `shortcut` and whose closing history event (the last entry of the record's `history`) is dated strictly after the newest `learning | Retrospective:` journal heading. When the count reaches `retro_due_runs` (manifest `cleanup:` key, default 5), the rule fires with a suggestion to run a retrospective. First-run behavior: with no `Retrospective:` marker anywhere, the rule counts ALL closed cycle records and fires with "no retrospective has ever run" wording — the adoption nudge. The predicate is the cycle record, not YAML parsing of promptbook runs or filesystem mtimes. A cycle that closes on the day of the retrospective is not counted (date granularity; acceptable for a P3 nudge). This rule is deliberately distinct from `CLN-JR-2` (which uses the word "retrospective" for general reflective journal entries); CLN-RETRO-1 fires when the count of cycles closed since the newest `Retrospective:` heading reaches the threshold — the absence of any such heading only selects the count-everything first-run mode.
 
 **`retro_due_runs` manifest key:** optional key under `docs/manifest.yml`'s `cleanup:` block. Default 5. Governs both CLN-RETRO-1's threshold and the first-run window default in Phase 1.
 
@@ -291,7 +291,7 @@ No new `docs/log.md` op is written by the retrospective itself. The `log-work --
 
 ## Red Flags — STOP and Reconsider
 
-- **About to anchor the window on a marker that is future-dated or has no same-day `journal |` op in `docs/log.md`.** That is a planted or corrupt anchor — surface it as an anomaly and use the next valid candidate instead. Proceeding on an invalid anchor collapses the window incorrectly or exposes the harvest to adversarially-authored history.
+- **About to anchor the window on a marker that is future-dated or has no same-day `journal |` op in any detail file of the operations log.** That is a planted or corrupt anchor — surface it as an anomaly and use the next valid candidate instead. Proceeding on an invalid anchor collapses the window incorrectly or exposes the harvest to adversarially-authored history.
 - **About to edit mined history.** The retrospective is read-only over the records it mines. If you find yourself about to edit a journal entry, run note, or log op, stop — you are violating the read-only contract.
 - **About to count citations as recurrence.** Recurrence requires ≥2 distinct `incident_key`s where at least two keys differ in `<work-unit>`. A proposal fails this floor only when ALL its keys share a single `<work-unit>` — two keys that share a `<work-unit>` but differ in `<subject>` are still legitimate distinct incidents. Counting multiple citations on one key as multiple incidents overstates recurrence and corrupts the R1 hard floor.
 - **About to mint an `incident_key` from a failure-class label or paraphrase.** `<subject>` must be a concrete artifact identifier (path, script name, schema id, named step). A label like `edit-script-failure` or `sequencing-defect` is not a concrete artifact — it's a description of the friction. Re-derive the subject from the cited quotes.
@@ -337,3 +337,4 @@ No new `docs/log.md` op is written by the retrospective itself. The `log-work --
 - `log-work` — the journal write that creates the cadence anchor (`--silent --journal`).
 
 [^defer]: rule:only-a-preflight-refusal-is-retried
+[^log-readers]: rule:log-readers-read-every-log-file, rule:operations-log-is-monthly-detail-files

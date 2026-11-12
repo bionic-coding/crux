@@ -126,7 +126,7 @@ class AlternateTree(unittest.TestCase):
         real = migration._discover_publications
         def changed(repo):
             result = real(repo)
-            migration.cr.git(repo, "commit", "--allow-empty", "-m", "synthetic concurrent history change")
+            sup.git(repo, "commit", "--allow-empty", "-m", "synthetic concurrent history change")
             return result
         with patch.object(migration, "_discover_publications", side_effect=changed):
             self.refuse(code="migration-history-head-changed")

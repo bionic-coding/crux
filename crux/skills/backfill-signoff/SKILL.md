@@ -35,7 +35,7 @@ One invocation signs **one** batch. The write set, all under one threaded date:
 
 1. the batch's `signed` date flips in the reviews manifest (receipt history is append-only, never touched);
 2. the admitted handles append to `adr.governs_backfilled` in `<docs_dir>/manifest.yml` (append-only per handle; a tombstoned handle is retained);
-3. the `backfill` log op prepends to `<docs_dir>/log.md` (per docs/AGENTS.md §6);
+3. the script adds the `backfill` log op through the log writer, at the top of the current month's detail file `<docs_dir>/log/YYYY-MM.md` (per docs/AGENTS.md §6);[^log-writer]
 4. the journal hook appends to `<docs_dir>/journal/<YYYY-MM>.md` (category `review`, subject `backfill sign-off <batch-id>`);
 5. `adr.governs_backfill_complete: true` is set **iff** the simulated post-sign arithmetic has zero pending cohort ADRs — absent otherwise, never false.
 
@@ -140,6 +140,13 @@ uv run "${CRUX_PLUGIN_ROOT}/scripts/signoff-backfill.py" --batch <id> [--date YY
 ```
 The script validates fail-closed (batch exists and is unsigned; recorded digest equals live digest — drift-since-review voids a verdict; the recorded anchor space-fold-equals the live one; the admission legs hold; no-rule ADRs are cohort members carrying no live governs entries; the live tree's backfill contract is otherwise clean), writes the four surfaces plus the marker when the arithmetic holds, then runs the coverage gate and re-derives the summaries projection inside the write set.
 
+The script writes the `backfill` entry itself and commits nothing. It prints an `operation-log:` line, a JSON object with `changed_paths`, `commit_paths`, `restore_paths` and `left_strays`. A run that stops after the repair can still have changed the operations log, so run the commit step of `docs/AGENTS.md` §6 whatever the script's exit status:
+
+1. When `restore_paths` is not empty, run `git restore --staged --quiet -- <restore_paths>`.
+2. When `commit_paths` is not empty, run `git add -- <commit_paths>` and then `git commit --only -- <commit_paths>`.
+
+A refused log entry keeps the other surfaces this skill wrote and adds no entry. It refuses for one of three causes: the entry's own body or heading fails validation, a tree fault that names its own fix, or another writer's concurrent change. Fix the named cause, then rerun the same command: it writes only the missing entry (§6).
+
 ### 5. Post-gates
 The coverage gate must exit 0 and the summaries drift gate must report clean. Both run inside the write; a red post-gate after a landed write set is reported loudly — remediate before the next batch, and re-run the same command to confirm.
 
@@ -159,10 +166,11 @@ Report the batch id, the signed date, the derived ADR ids, and the marker state 
 - [ ] The batch was unsigned in `<docs_dir>/adrs/summaries/backfill-reviews.yml` before step 4 (or the re-run was an idempotent completion).
 - [ ] The dry-run rendering was produced **in this session** and the owner read every enumerated span.
 - [ ] Validation reported clean before any write: no drift-since-review, no anchor mismatch, no laundering leg, no red tree.
-- [ ] The four surfaces carry one threaded date: the batch's `signed`, the log heading, the journal hook date.
-- [ ] The log entry's `ADRs:` line and the journal hook name exactly the batch's derived ADR ids.
+- [ ] The four surfaces carry one threaded date: the batch's `signed`, the operations log entry's heading, the journal hook date.
+- [ ] The operations log entry's `ADRs:` line and the journal hook name exactly the batch's derived ADR ids.
 - [ ] The completion marker was set only when the simulated arithmetic had zero pending — absent otherwise, never false.
 - [ ] The coverage gate exits 0 and the summaries drift gate is clean after the write.
+- [ ] The `backfill` entry stands at the top of the current month's detail file `<docs_dir>/log/YYYY-MM.md`, and the commit step ran over `commit_paths` and `restore_paths`.
 - [ ] A re-run of the same command reports a no-op.
 
 ## Red flags — STOP and reconsider
@@ -182,7 +190,7 @@ Report the batch id, the signed date, the derived ADR ids, and the marker state 
 | "The tree is red for an unrelated reason; this batch is fine — sign it." | Signing onto a red tree hides the batch's own contribution to the failure. Clean the tree first. |
 | "I'll fix the receipt text by hand and save a batch." | Hand-written receipts lack the log and journal corroboration and fail cross-validation. A correction is a new receipt in a new batch through this skill. |
 | "The marker is close enough — set it and let the last ADR catch up." | The marker is terminal and binary; set early, it lies on every run. Zero pending is the only threshold. |
-| "Re-running after the crash will double-write the log." | Every write is absence-conditional: a present, consistent surface is skipped; only the missing ones are written. |
+| "Re-running after the crash will double-write the operations log." | Every write is absence-conditional: a present, consistent surface is skipped; only the missing ones are written. |
 
 ## See also
 
@@ -190,3 +198,5 @@ Report the batch id, the signed date, the derived ADR ids, and the marker state 
 - `docs/AGENTS.md` §6 — the `backfill` log op's grammar; §7 — the three `adr.governs_backfill*` manifest keys; §11.A — the `anchor` sub-field contract.
 - The governs coverage gate (`scripts/check-governs-coverage.py`) — the contract the post-gates run.
 - `transition-invariant` — the human-gate skill whose shape this one mirrors.
+
+[^log-writer]: rule:log-entries-go-through-the-log-writer, rule:no-writer-writes-the-legacy-log-file

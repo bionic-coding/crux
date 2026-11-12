@@ -94,11 +94,13 @@ uv run "${CRUX_PLUGIN_ROOT}/scripts/signoff-survey.py" --repo-root <repo-root> -
 
 ### 4. Write no log op
 
-The scaffold logs nothing. Do not append to `<docs_dir>/log.md`.
+The scaffold logs nothing. Do not run `operation-log.py append`, and add no entry to the operations log by hand.[^log-writer]
 
-The subject `observation | survey batch SVY-NNNN` is the SIGN-OFF's, reserved by §6 and written by the sign-off with the published record ids in the body. A scaffold-written entry under that subject wedges the batch it just created. The sign-off reads any entry under that subject as its own log op already landed, so it skips writing the real one. It then refuses the batch, because the entry standing on disk names no published records. Nothing is published, and both projections refuse the whole tree. The remedy is to delete the entry the scaffold should never have written. That deletion is permitted: `survey-signoff` red-flags a hand-edited receipt, a hand-edited staged record, a hand-edited `<docs_dir>/observations/index.md`, and anything under `_surveys/`, and `log.md` is on none of those lists.
+The subject `observation | survey batch SVY-NNNN` is the SIGN-OFF's, reserved by §6 and written by the sign-off with the published record ids in the body. A scaffold-written entry under that subject wedges the batch it just created. The sign-off reads any entry under that subject as its own log op already landed, so it skips writing the real one. It then refuses the batch, because the entry standing on disk names no published records. Nothing is published, and both projections refuse the whole tree. The remedy is to delete the entry the scaffold should never have written. That deletion is permitted: `survey-signoff` red-flags a hand-edited receipt, a hand-edited staged record, a hand-edited `<docs_dir>/observations/index.md`, and anything under `_surveys/`, and the operations log's detail files `<docs_dir>/log/YYYY-MM.md` are on none of those lists.
 
-The batch is not unrecorded in the meantime. Its id, its rows and its scaffold provenance are in the sheet, and `manifest.yml`'s `observation.next_survey_number` records that the id was issued. The tree's `log.md` entry for the batch is written once, by the sign-off, and names what the batch actually published.
+The batch is not unrecorded in the meantime. Its id, its rows and its scaffold provenance are in the sheet, and `manifest.yml`'s `observation.next_survey_number` records that the id was issued. The operations log entry for the batch is written once, by the sign-off, and names what the batch actually published.
+
+The sign-off script writes that entry through the log writer and commits nothing. Its JSON payload carries `changed_paths`, `commit_paths`, `restore_paths` and `left_strays`. After every sign-off run, whatever its exit code, run the commit step of `docs/AGENTS.md` §6: when `restore_paths` is not empty, run `git restore --staged --quiet -- <restore_paths>`; when `commit_paths` is not empty, run `git add -- <commit_paths>` and then `git commit --only -- <commit_paths>`. A refused log entry has one of three causes: the entry's own body or heading fails validation, a tree fault that names its own fix, or another writer's concurrent change. Fix the named cause and rerun the sign-off, which adds only the missing entry.
 
 ## Verification checklist
 
@@ -108,7 +110,7 @@ The batch is not unrecorded in the meantime. Its id, its rows and its scaffold p
 - [ ] The batch id came from `observation.next_survey_number` and no id was reused.
 - [ ] No observation record was created, modified, or transitioned.
 - [ ] `<docs_dir>/observations/index.md` was NOT touched — the scaffold writes no record and therefore no row.
-- [ ] `<docs_dir>/log.md` was NOT touched — the `survey batch SVY-NNNN` subject belongs to the sign-off.
+- [ ] The operations log (`<docs_dir>/log/`) was NOT touched — the `survey batch SVY-NNNN` subject belongs to the sign-off.
 
 ## Red flags — STOP and reconsider
 
@@ -118,7 +120,7 @@ The batch is not unrecorded in the meantime. Its id, its rows and its scaffold p
 - About to hand-edit `observation.next_survey_number` because a number was burnt. A burnt number is a number nobody signs; reuse is the failure, not over-allocation.
 - About to run this skill unattended inside a promptbook or dev-cycle. NEVER — it is a human gate, excluded from run-execution autonomy.
 - About to run the sign-off in the same breath as the scaffold. The sheet is scaffolded so that a human can read it; signing an unread sheet is gate-washing.
-- About to append an `observation | survey batch SVY-NNNN` entry to `log.md` because the scaffold "should be recorded". That subject is the sign-off's, and an entry under it wedges the batch: the sign-off reads its own log op as already landed, and then refuses a batch it never published. Deleting that entry is the permitted fix — `log.md` is not one of the surfaces the sign-off forbids hand-editing — but the entry never written costs nothing to remove.
+- About to append an `observation | survey batch SVY-NNNN` entry to the operations log because the scaffold "should be recorded". That subject is the sign-off's, and an entry under it wedges the batch: the sign-off reads its own log op as already landed, and then refuses a batch it never published. Deleting that entry is the permitted fix — the operations log's detail files are not among the surfaces the sign-off forbids hand-editing — but the entry never written costs nothing to remove.
 
 ## Rationalization table
 
@@ -146,3 +148,5 @@ The batch is not unrecorded in the meantime. Its id, its rows and its scaffold p
 - `audit-docs` — the CHK-OBS-SURVEY-* rules (`docs/AGENTS.md` §17.3) that read the batch surfaces.
 - `docs/AGENTS.md` §17.5 — the batch-ratification protocol: sheet and receipt schemas, layout, batch identity, and the state table. The source of truth.
 - The batch-ratification decision this implements (see the ADR log).
+
+[^log-writer]: rule:log-entries-go-through-the-log-writer, rule:no-writer-writes-the-legacy-log-file

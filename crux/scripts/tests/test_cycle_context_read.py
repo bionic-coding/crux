@@ -307,5 +307,115 @@ class ContextReadTests(SliceBase):
             self.assert_refused('repo:AGENTS.md', 'object-changed')
 
 
+    def _log_doc(self, *names):
+        """A record whose goal References block names `names`, the route the IDR keeps for the log."""
+        raw = json.loads(self.record_path().read_text())
+        heading = '\n\nReferences (read before planning; read-only, not scope):\n'
+        raw['goal'] = raw.get('goal', '') + heading + ''.join(f'- {name}\n' for name in names)
+        return raw
+
+    def test_operation_log_above_one_mebibyte_pages_through_a_goal_reference(self):
+        reader = self.reader()
+        entry = '## 2026-11-08 log entry\n\nOne operation recorded newest first.\n\n'
+        text = (entry * ((reader.MAX_OBJECT_BYTES + 200000) // len(entry) + 1))
+        path = self.write('bionic/log.md', text)
+        self.assertGreater(path.stat().st_size, reader.MAX_OBJECT_BYTES)
+        raw = self._log_doc('bionic/log.md')
+        first = reader.read_context(tree(self.repo), raw, 'repo:bionic/log.md')
+        self.assertTrue(first['ok'], first)
+        self.assertEqual(first['size_bytes'], len(text.encode()))
+        self.assertEqual(first['text'], text[:reader.MAX_PAGE_BYTES])
+        last_offset = len(text.encode()) - 100
+        last = reader.read_context(tree(self.repo), raw, 'repo:bionic/log.md',
+                                   offset=last_offset, sha256=first['sha256'])
+        self.assertTrue(last['complete'], last)
+        self.assertEqual(last['text'], text[last_offset:])
+
+    def test_non_log_object_of_the_same_size_still_refuses_too_large(self):
+        reader = self.reader()
+        size = reader.MAX_OBJECT_BYTES + 200000
+        self.write('bionic/notes.md', 'x' * size)
+        raw = self._log_doc('bionic/notes.md')
+        response = reader.read_context(tree(self.repo), raw, 'repo:bionic/notes.md')
+        self.assertEqual(response['error']['code'], 'object-too-large', response)
+        self.assertEqual(response['size_bytes'], size)
+        self.assertNotIn('text', response)
+
+    def test_operation_log_with_a_secret_like_line_refuses_whole_object(self):
+        reader = self.reader()
+        self.write('bionic/log.md', 'x' * (reader.MAX_OBJECT_BYTES + 10) + '\nghp_' + 'a' * 36 + '\n')
+        raw = self._log_doc('bionic/log.md')
+        response = reader.read_context(tree(self.repo), raw, 'repo:bionic/log.md')
+        self.assertEqual(response['error']['code'], 'secret-detected', response)
+        self.assertNotIn('text', response)
+
+    def test_operation_log_above_eight_mebibytes_refuses_too_large(self):
+        reader = self.reader()
+        self.assertEqual(reader.LOG_OBJECT_BYTES, 8 * 1024 * 1024)
+        self.write('bionic/log.md', 'x' * (reader.LOG_OBJECT_BYTES + 1))
+        raw = self._log_doc('bionic/log.md')
+        response = reader.read_context(tree(self.repo), raw, 'repo:bionic/log.md')
+        self.assertEqual(response['error']['code'], 'object-too-large', response)
+        self.assertEqual(response['size_bytes'], reader.LOG_OBJECT_BYTES + 1)
+        self.assertNotIn('text', response)
+
+    STRAY = 'bionic/log/.stray-' + 'a' * 64 + '.md'
+    STAGED_LEGACY = 'bionic/log/.legacy-' + 'b' * 64 + '.md'
+
+    def test_detail_files_and_a_staged_stray_between_one_and_eight_mebibytes_are_readable(self):
+        reader = self.reader()
+        for name in ('bionic/log/2026-11.md', self.STRAY):
+            with self.subTest(name=name):
+                size = reader.MAX_OBJECT_BYTES + 200000
+                self.write(name, 'x' * size)
+                response = reader.read_context(tree(self.repo), self._log_doc(name), 'repo:' + name)
+                self.assertTrue(response['ok'], response)
+                self.assertEqual(response['size_bytes'], size)
+
+    def test_a_staged_legacy_file_between_one_and_eight_mebibytes_is_readable(self):
+        reader = self.reader()
+        size = reader.MAX_OBJECT_BYTES + 200000
+        # POSITIVE CONTROL: a summary file of this size refuses, so the read below
+        # succeeds because of the staged legacy name and not because of the size.
+        self.write('bionic/log/summary.md', 'x' * size)
+        control = reader.read_context(tree(self.repo), self._log_doc('bionic/log/summary.md'),
+                                      'repo:bionic/log/summary.md')
+        self.assertEqual(control['error']['code'], 'object-too-large', control)
+        self.write(self.STAGED_LEGACY, 'x' * size)
+        response = reader.read_context(tree(self.repo), self._log_doc(self.STAGED_LEGACY),
+                                       'repo:' + self.STAGED_LEGACY)
+        self.assertTrue(response['ok'], response)
+        self.assertEqual(response['size_bytes'], size)
+
+    def test_a_detail_file_above_eight_mebibytes_refuses_too_large(self):
+        reader = self.reader()
+        name = 'bionic/log/2026-11.md'
+        self.write(name, 'x' * (reader.LOG_OBJECT_BYTES + 1))
+        response = reader.read_context(tree(self.repo), self._log_doc(name), 'repo:' + name)
+        self.assertEqual(response['error']['code'], 'object-too-large', response)
+        self.assertEqual(response['size_bytes'], reader.LOG_OBJECT_BYTES + 1)
+        self.assertNotIn('text', response)
+
+    def test_other_objects_under_the_log_directory_keep_the_one_mebibyte_bound(self):
+        reader = self.reader()
+        size = reader.MAX_OBJECT_BYTES + 200000
+        # POSITIVE CONTROL: a detail file of this size is readable, so the refusals below
+        # come from the path and not from the size.
+        self.write('bionic/log/2026-11.md', 'x' * size)
+        control = reader.read_context(tree(self.repo), self._log_doc('bionic/log/2026-11.md'),
+                                      'repo:bionic/log/2026-11.md')
+        self.assertTrue(control['ok'], control)
+        for name in ('bionic/log/summary.md', 'bionic/log/.split-complete.json',
+                     'bionic/log/2026-13.md', 'bionic/log/nested/2026-11.md', 'bionic/notlog/2026-11.md'):
+            with self.subTest(name=name):
+                self.write(name, 'x' * size)
+                response = reader.read_context(tree(self.repo), self._log_doc(name), 'repo:' + name)
+                self.assertEqual(response['error']['code'], 'object-too-large', response)
+                self.assertEqual(response['size_bytes'], size)
+
+    def test_operation_log_without_a_listed_reference_stays_unknown(self):
+        self.write('bionic/log.md', 'Newest first.\n')
+        self.assert_refused('repo:bionic/log.md', 'unknown-reference')
+
 if __name__ == '__main__':
     unittest.main()

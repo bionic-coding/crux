@@ -109,11 +109,17 @@ Op-specific preconditions:
 - `<docs_dir>/observations/index.md`: update the record's row (new status; `decided_by` where the index carries it). The index **visibly marks** non-`ratified` records (observed/rejected/retired/decided are not hidden — survey debt must be legible).
 - `docs/index.md`: the `## Observations (N)` count is unchanged on a transition (the record still exists); update `_Last updated:`.
 
-### 6. Append to `docs/log.md`
+### 6. Record the `observation` operation
+Write the entry through the log writer (`docs/AGENTS.md` §6).[^log-writer] Write the body (record id, the transition, one line; on `decide`, the `decided_by` id) to a file outside the tree, then run:
+```
+uv run "${CRUX_PLUGIN_ROOT}/scripts/operation-log.py" append --repo-root <repo-root> \
+  --op observation --subject 'OBS-NNNN: <old> → <new>' --date YYYY-MM-DD --body-file <path>
+```
+The entry it writes at the top of the current month's detail file `docs/log/YYYY-MM.md`:
 ```
 ## [YYYY-MM-DD] observation | OBS-NNNN: <old> → <new>
 ```
-Body: record id, the transition, one line; on `decide`, the `decided_by` id. The `observation` op is a member of the `docs/AGENTS.md` §6 op enum (both the current-writer and historical-reader regexes) — emit it directly.
+The `observation` op is a member of the `docs/AGENTS.md` §6 op enum (both the current-writer and historical-reader regexes) — emit it directly. A refused append keeps this skill's other writes and adds no entry: fix the cause it names, then rerun the append alone (§6). Then run the commit step of §6 over the result's `commit_paths` and `restore_paths`.
 
 ### 7. Hand off
 Confirm the new status + file path. Remind: no scan, scaffold, or re-mine reaches `ratified`. Two human routes reach it and no third does — this skill is the only **single-record** route, and `survey-signoff` is the only **batch** route (`docs/AGENTS.md` §17.5). For `ratify`, note the record's claim is now immutable.
@@ -138,7 +144,7 @@ For `retire` or `decide`, note the record's disposition; on `decide`, the summar
 - [ ] No two live (`observed`/`ratified`) records share an `anchor_id` after the write, or the write was refused.
 - [ ] `<docs_dir>/observations/index.md` row updated; the record remains visibly marked if non-`ratified`.
 - [ ] `docs/index.md` `## Observations (N)` count unchanged; `_Last updated:` bumped.
-- [ ] `docs/log.md` has the transition entry under the `observation` op.
+- [ ] The current month's detail file `docs/log/YYYY-MM.md` has the transition entry at the top under the `observation` op, written by `operation-log.py append`.
 - [ ] No record was ratified without an explicit per-record human instruction (no auto/batch ratify).
 - [ ] Any batch request was redirected to `survey-signoff` rather than served here one record at a time.
 
@@ -175,3 +181,5 @@ For `retire` or `decide`, note the record's disposition; on `decide`, the summar
 - `audit-docs` — the CHK-OBS rules (`docs/AGENTS.md` §17.3) that read the status this skill sets.
 - `docs/AGENTS.md` §17 — the observations-concern contract (§17.1 frontmatter schema, §17.2 lifecycle, writer boundary, and immutable claim, §17.3 audit rules).
 - The observation-record decision this implements (see the ADR log).
+
+[^log-writer]: rule:log-entries-go-through-the-log-writer, rule:no-writer-writes-the-legacy-log-file

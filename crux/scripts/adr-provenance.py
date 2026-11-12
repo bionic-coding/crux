@@ -49,7 +49,7 @@ SUBCOMMANDS (every one takes `--repo-root DIR`, default "."):
       in-run change. THE CALLER COPIES `--instruction` VERBATIM FROM THE OWNER'S OWN MESSAGE,
       single-quoted so the shell expands nothing, with each single quote inside written '\''.
       This script cannot verify that the words are the owner's. An agent report, a run note or
-      a council verdict is never that instruction (rule:owner-promotes-guidance). `--body`
+      a council verdict is never that instruction (rule:historical-records-keep-their-interpretation). `--body`
       records that the owner promoted the ADR's in-run body passages; no projection reads it. A
       promotion is never a gate and never pauses a run.
 

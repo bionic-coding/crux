@@ -6,11 +6,13 @@ inspect names every unmet Build check; the preamble names the engine and where t
 
 Every test builds its own temporary git repository with the docs tree visible to git."""
 import contextlib
+import dataclasses
 import io
 import json
 from pathlib import Path
 import sys
 import unittest
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -260,17 +262,96 @@ class PreambleTests(tc.CommitBase):
         self.assertEqual(prepared['invocation']['isolation']['integration_owner'], 'the delegator that dispatched you')
         self.assertIn('the delegator that dispatched you integrates them', self.prompt(prepared))
 
-    def test_a_host_that_drops_isolation_runs_in_the_main_checkout(self):
+    def test_a_host_without_per_call_isolation_runs_developers_in_the_main_checkout(self):
         prepared = self.prepare(host='codex')
         isolation = prepared['invocation']['isolation']
         self.assertEqual((isolation['worktree'], isolation['integration_owner']), (False, None))
-        self.assertIn('drops', isolation['basis'])
+        self.assertIn('no per-call isolation parameter', isolation['basis'])
+        self.assertNotIn('isolation', prepared['invocation']['parameters'])
         self.assertIn('You run in the main checkout on this host', prepared['invocation']['parameters']['message'])
+        for host in ('opencode', 'omp'):
+            with self.subTest(host=host):
+                found = cycle_hosts.isolation(host, 'developer')
+                self.assertEqual((found['worktree'], found['integration_owner']), (False, None))
+                self.assertIn('no per-call isolation parameter', found['basis'])
 
     def test_a_role_with_no_isolation_runs_in_the_main_checkout(self):
-        found = cycle_hosts.isolation('claude-code', 'reviewer')
-        self.assertEqual((found['worktree'], found['integration_owner']), (False, None))
-        self.assertEqual(cycle_hosts.role_isolation('developer'), 'worktree')
+        for role in ('reviewer', 'dev-lead', 'commander', 'architect', 'historian'):
+            with self.subTest(role=role):
+                found = cycle_hosts.isolation('claude-code', role)
+                self.assertEqual((found['worktree'], found['integration_owner']), (False, None))
+        self.assertFalse(hasattr(cycle_hosts, 'role_isolation'))
+
+
+class PerCallIsolationTests(tc.CommitBase):
+    """The engine decides isolation from the role and host (IDR dev-lead-owned-build approaches 3 and 4)."""
+
+    def prompt(self, prepared):
+        return prepared['invocation']['parameters']['prompt']
+
+    def test_only_developer_invocations_on_claude_code_carry_isolation_worktree(self):
+        developer = self.prepare(integration_owner='dev-lead')
+        self.assertEqual(developer['invocation']['parameters']['isolation'], 'worktree')
+        self.assertTrue(developer['invocation']['isolation']['worktree'])
+        for role in sorted(set(cycle_hosts.ROLES) - {'developer'}):
+            with self.subTest(role=role):
+                params = cycle_hosts.ADAPTERS['claude-code'].parameters(
+                    role, 'p', 'd', cycle_hosts.mode_of('claude-code'))
+                self.assertNotIn('isolation', params)
+        for host in ('codex', 'opencode', 'omp'):
+            with self.subTest(host=host):
+                params = cycle_hosts.ADAPTERS[host].parameters('developer', 'p', 'd', cycle_hosts.mode_of(host))
+                self.assertNotIn('isolation', params)
+
+    def test_an_opencode_developer_invocation_carries_no_isolation_parameter(self):
+        """CYC-0117 C4: OpenCode's subagent call has no isolation parameter, even if the flag were set."""
+        opencode = cycle_hosts.ADAPTERS['opencode']
+        flagged = dataclasses.replace(opencode, per_call_isolation=True)
+        for mode in cycle_hosts.modes('opencode'):
+            with self.subTest(mode=mode):
+                for found in (opencode, flagged):
+                    params = found.parameters('developer', 'p', 'd', cycle_hosts.mode_of('opencode', mode))
+                    self.assertNotIn('isolation', params)
+                    self.assertEqual(params['subagent_type'], 'developer')
+        # Positive control: the same flag on Claude Code adds the parameter.
+        self.assertEqual(cycle_hosts.ADAPTERS['claude-code'].parameters(
+            'developer', 'p', 'd', cycle_hosts.mode_of('claude-code'))['isolation'], 'worktree')
+
+    def test_isolation_does_not_read_the_role_definition(self):
+        # The developer definition may declare anything; the engine decides from role and host alone.
+        with mock.patch.object(cycle_hosts, 'PLUGIN_ROOT', Path('/nonexistent-plugin-root')):
+            self.assertTrue(cycle_hosts.isolation('claude-code', 'developer')['worktree'])
+            self.assertFalse(cycle_hosts.isolation('claude-code', 'dev-lead')['worktree'])
+
+    def test_the_isolated_preamble_states_the_placement_check_and_focused_checks(self):
+        prompt = self.prompt(self.prepare(integration_owner='dev-lead'))
+        self.assertIn('git rev-parse --path-format=absolute --git-dir --git-common-dir', prompt)
+        self.assertIn('When the two paths are equal, or the command fails', prompt)
+        self.assertIn('make no edit and deliver `blocked` with no stop, quoting both values', prompt)
+        self.assertIn('Report your checkout path (`pwd`) and branch', prompt)
+        self.assertIn('Run focused checks only', prompt)
+        self.assertIn("the cycle's test coordinator, the dev-lead", prompt)
+
+    def test_the_reviewer_preamble_states_focused_checks_and_the_dev_lead_preamble_does_not(self):
+        reviewer = cycle_hosts.preamble(cycle='CYC-0001', task='t', assignment='t', attempt=1, objectives='o',
+                                        result_path='r', base='b', task_commits=[],
+                                        isolated=cycle_hosts.isolation('claude-code', 'reviewer'), role='reviewer')
+        self.assertIn('Run focused checks only', reviewer)
+        self.assertNotIn('git rev-parse --path-format=absolute', reviewer)
+        lead = cycle_hosts.preamble(cycle='CYC-0001', task='t', assignment='t', attempt=1, objectives='o',
+                                    result_path='r', base='b', task_commits=[],
+                                    isolated=cycle_hosts.isolation('claude-code', 'dev-lead'), role='dev-lead')
+        self.assertNotIn('Run focused checks only', lead)
+        self.assertIn('You run in the main checkout on this host', lead)
+
+    def test_only_claude_code_accepts_per_call_isolation_and_it_is_no_longer_unverified(self):
+        # The live probe observed it top level and nested; the adapter cites that evidence.
+        adapter = cycle_hosts.ADAPTERS['claude-code']
+        self.assertTrue(adapter.per_call_isolation)
+        self.assertFalse(any(cycle_hosts.ADAPTERS[h].per_call_isolation for h in ('codex', 'opencode', 'omp')))
+        self.assertNotIn('per-call worktree isolation of a plugin-defined agent', adapter.unverified)
+        source = Path(cycle_hosts.__file__).read_text()
+        self.assertIn('bionic/cycles/CYC-0117/evidence/build/isolation-probe.json', source)
 
 
 if __name__ == '__main__':

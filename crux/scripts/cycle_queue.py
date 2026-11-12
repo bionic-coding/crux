@@ -62,7 +62,7 @@ from pathlib import Path
 
 from bionic_config import BionicConfigError
 import cycle_commit
-from cycle_workflow import CycleError, ID, PHASES, atomic_bytes, contained, create, load, now, tree, validate as validate_cycle
+from cycle_workflow import CLOSED, CycleError, ID, PHASES, atomic_bytes, contained, create, load, now, tree, validate as validate_cycle
 
 FORMAT = 'crux.cycle-queue'
 QUEUE_ID = re.compile(r'^Q-[0-9]{4,}$')
@@ -101,9 +101,9 @@ class QueueEnvError(CycleError):
 class QueueStop(QueueError):
     """start-next cannot proceed; the reason, item and detail tell the owner what to decide."""
 
-    def __init__(self, reason, item, detail):
+    def __init__(self, reason, item, detail, missing=None):
         super().__init__(f'{reason}: {detail}')
-        self.reason, self.item, self.detail = reason, item, detail
+        self.reason, self.item, self.detail, self.missing = reason, item, detail, missing
 
 
 def _bad(location, message):
@@ -221,7 +221,7 @@ def _check_history_binding(cfg, item, source=None):
     events = cycle.get('history', [])
     created = events[0] if events else None
     origin = created.get('queue') if isinstance(created, dict) and created.get('action') == 'created' else None
-    if cycle['status'] not in ('completed', 'abandoned') or origin != {'item': item['id'], 'token': item['start_token']}:
+    if cycle['status'] not in CLOSED or origin != {'item': item['id'], 'token': item['start_token']}:
         raise QueueError(f"history {item['id']} has an invalid terminal cycle binding")
 
 
@@ -330,7 +330,7 @@ def _archive_items(repo, cfg, doc, dry_run=False, only_ids=None):
 
     selected = [item for item in doc['items'] if item['state'] == 'started'
                 and (only_ids is None or item['id'] in only_ids)
-                and cycle_status(repo, item['cycle']) in ('completed', 'abandoned') and committed(item)]
+                and cycle_status(repo, item['cycle']) in CLOSED and committed(item)]
     records = []
     for item in selected:
         _check_history_binding(cfg, item)
@@ -652,7 +652,13 @@ def decide(doc, statuses):
     if unsatisfied:
         names = ', '.join(f"{d['id']} ({_label(d, statuses)})" for d in unsatisfied)
         reason = 'dependency-abandoned' if any(_label(d, statuses) == 'abandoned' for d in unsatisfied) else 'blocked'
-        return _stop(reason, head['id'], f"{head['id']} waits for {names}" + ('; the owner edits depends_on or removes the item' if reason == 'dependency-abandoned' else ''))
+        shortcut = [d['id'] for d in unsatisfied if _label(d, statuses) == 'shortcut']
+        text = f"{head['id']} waits for {names}"
+        if reason == 'dependency-abandoned':
+            text += '; the owner edits depends_on or removes the item'
+        elif shortcut:
+            text += f"; {', '.join(shortcut)} closed as a shortcut with gaps, so the owner edits depends_on or removes the item"
+        return _stop(reason, head['id'], text)
     if head['suggested_type'] not in PHASES and head['suggested_type'] != AUTO_TYPE:
         return _stop('type-unsupported', head['id'], f"type {head['suggested_type']} is not a cycle type; edit the item's type")
     return ('go', head)
@@ -1056,6 +1062,15 @@ def start_next(repo, implementer='dev-lead', coordinator='dev-lead'):
         if verdict[0] == 'stop':
             raise QueueStop(verdict[1], verdict[2], verdict[3])
         head = verdict[1]
+        # Prerequisites refuse before the sizing request, the archive and the starting intent, so the item stays pending.
+        import cycle_prereqs
+        prereqs = cycle_prereqs.check(cfg.repo_root, split_scope(head['scope']))
+        if prereqs['missing']:
+            missing = prereqs['missing']
+            raise QueueStop('environment-prerequisite', head['id'],
+                            f"{head['id']} stays pending until the environment provides: "
+                            + '; '.join(f"{m['code']} ({m['observed']}): {m['fix']}" for m in missing),
+                            missing=missing)
         # Reserve room for the largest filesystem-supported cycle name and its
         # adoption fields before any archive, intent or new cycle is written.
         preview = deepcopy(doc)
@@ -1140,7 +1155,8 @@ def run(a):
     try:
         return 0, dispatch(a)
     except QueueStop as stop:
-        return 1, {'ok': False, 'stop': {'reason': stop.reason, 'item': stop.item, 'detail': stop.detail}}
+        return 1, {'ok': False, 'stop': {'reason': stop.reason, 'item': stop.item, 'detail': stop.detail,
+                                         **({'missing': stop.missing} if stop.missing else {})}}
     except (QueueEnvError, BionicConfigError, OSError) as exc:
         return 2, {'ok': False, 'error': str(exc)}
     except (CycleError, ValueError, KeyError) as exc:

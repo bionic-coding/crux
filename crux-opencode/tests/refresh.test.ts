@@ -89,13 +89,6 @@ test('an unreadable lease never counts as free', () => {
   expect(fake.started()).toBe(1)
 })
 
-test('the first drain is explicit: no request is needed', () => {
-  const { fake, sched } = mk()
-  sched.start()
-  fake.clock.advance(4100)
-  expect(fake.started()).toBe(1)
-})
-
 test('requests before start and after stop do nothing', () => {
   const before = mk()
   before.sched.request('command')

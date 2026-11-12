@@ -193,7 +193,7 @@ class JsonFormTests(SliceBase):
                 cycle.parser().parse_args([command, 'CYC-0001'] + (['--reason', 'r'] if command in ('plan', 'plan-details') else []))
             with self.subTest(command=command, both=True), self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
                 cycle.parser().parse_args([command, 'CYC-0001', '--file', 'x.json', '--json', '{}'] + (['--reason', 'r'] if command in ('plan', 'plan-details') else []))
-        self.assertEqual(sorted(cycle.FILE_COMMANDS), sorted(['plan', 'review', 'decision', 'reflect', 'task-add', 'coverage', 'plan-details', 'owner-complete', 'reduction']))
+        self.assertEqual(sorted(cycle.FILE_COMMANDS), sorted(['plan', 'review', 'decision', 'reflect', 'task-add', 'coverage', 'plan-details', 'owner-complete', 'shortcut', 'reduction']))
 
     def test_help_names_the_json_form(self):
         for command in cycle.FILE_COMMANDS:

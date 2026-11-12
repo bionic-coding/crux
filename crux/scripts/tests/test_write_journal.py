@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -14,9 +15,13 @@ from unittest.mock import patch
 
 SCRIPT = Path(__file__).resolve().parents[1] / "write-journal.py"
 SCRIPT_DIR = SCRIPT.parent
-LOG_HEADER = "# Operations log\n\n_Append-only. Newest first._\n\n"
+# The log record lands in the detail file of the month holding the local date, which every
+# invocation here fixes at TODAY under the test-only override.
+TODAY = "2026-09-27"
+LOG_HEADER = "# Operations log: 2026-09\n\n_Append-only. Latest write first._\n\n"
 sys.path.insert(0, str(SCRIPT_DIR))
 from journal_index import journal_entries, parse_index_row  # noqa: E402
+import operation_log  # noqa: E402
 
 
 class WriterTests(unittest.TestCase):
@@ -32,9 +37,16 @@ class WriterTests(unittest.TestCase):
         (self.tree / "AGENTS.md").write_bytes(source.read_bytes())
         self.month = self.tree / "journal" / "2026-09.md"
         self.index = self.tree / "journal" / "index.md"
-        self.log = self.tree / "log.md"
+        # A split tree: log/ with its completion record, so the repair phase has no work.
+        (self.tree / "log").mkdir()
+        (self.tree / "log" / ".split-complete.json").write_bytes(operation_log.completion_bytes(None, {}))
+        self.log = self.tree / "log" / "2026-09.md"
         self.body = self.root / "body.txt"
         self.body.write_text("The first attempt failed because the input was stale.\n")
+        environment = patch.dict(os.environ, {operation_log.TEST_ENV: "1"})
+        environment.start()
+        self.addCleanup(environment.stop)
+        self.baseline = self.snapshot()
 
     def invoke(self, *args, at="2026-09-27T11:42:35-06:00", mode="journal", body=None):
         if body is not None:
@@ -42,7 +54,7 @@ class WriterTests(unittest.TestCase):
         command = [sys.executable, str(SCRIPT), "--repo-root", str(self.root),
                    "--mode", mode, "--at", at, "--category", "learning",
                    "--subject", "Diagnosed a stale input", "--body-file", str(self.body),
-                   *args]
+                   "--today", TODAY, *args]
         completed = subprocess.run(command, capture_output=True, text=True,
                                    env={**os.environ, "UV_NO_CONFIG": "1"})
         if not completed.stdout.strip():
@@ -54,17 +66,20 @@ class WriterTests(unittest.TestCase):
         git = ["git", "-C", str(self.root), "-c", "user.name=t", "-c", "user.email=t@t"]
         subprocess.run([*git, "init", "-q"], check=True)
         self.index.write_text("# Journal index\n")
-        self.log.write_text(LOG_HEADER)
+        self.log.write_text(LOG_HEADER + "## [2026-09-01] init | Tree\n\nBody.\n\n")
         subprocess.run([*git, "add", "-A"], check=True)
         subprocess.run([*git, "commit", "-qm", "base"], check=True)
         result, payload = self.invoke()
         self.assertEqual((result.returncode, payload["status"]), (0, "complete"), result.stdout)
         status = subprocess.run([*git, "status", "--porcelain"], capture_output=True,
                                 text=True, check=True).stdout
-        self.assertIn("log.md", status)
+        self.assertIn("docs/log/2026-09.md", status)
         self.assertNotIn("committed", payload)
         self.assertEqual(sorted(payload["recorded"]),
-                         sorted(["journal/2026-09.md", "journal/index.md", "log.md"]))
+                         sorted(["journal/2026-09.md", "journal/index.md", "log/2026-09.md"]))
+        # The log part of the result names the paths log-work commits.
+        self.assertEqual(payload["changed_paths"], ["docs/log/2026-09.md"])
+        self.assertEqual((payload["commit_paths"], payload["restore_paths"]), (["docs/log/2026-09.md"], []))
 
     def index_drift_exit(self):
         """Exit code of the journal-index drift gate over this tree (0 clean, 1 drift)."""
@@ -94,13 +109,21 @@ class WriterTests(unittest.TestCase):
         self.assertEqual(code, 1, output)
 
     def snapshot(self):
-        return {p.name: p.read_bytes() for p in (self.month, self.index, self.log) if p.exists()}
+        found = {p.relative_to(self.tree).as_posix(): p.read_bytes()
+                 for p in (self.month, self.index) if p.exists()}
+        log_dir = self.tree / "log"
+        if log_dir.is_dir() and not log_dir.is_symlink():
+            found.update({f"log/{p.name}": (p.read_bytes() if p.is_file() and not p.is_symlink() else b"<non-regular>")
+                          for p in log_dir.iterdir()})
+        if (self.tree / "log.md").exists():
+            found["log.md"] = (self.tree / "log.md").read_bytes()
+        return found
 
     def swapped_during_temporary_create(self, *, mode: str, stage: int):
         """Swap the destination directory after validation, at temp creation."""
         outside = self.root / f"outside-{mode}-{stage}"
         outside.mkdir()
-        parent = self.tree / ("journal" if mode == "journal" else "")
+        parent = self.tree / ("journal" if mode == "journal" else "log")
         parked = self.root / f"parked-{mode}-{stage}"
         driver = """
 import importlib.util, json, os, pathlib, sys, tempfile
@@ -138,7 +161,8 @@ raise SystemExit(writer.main(sys.argv[6:]))
         args = [str(SCRIPT), str(parent), str(parked), str(outside), str(stage),
                 "--repo-root", str(self.root), "--mode", mode,
                 "--at", "2026-09-27T11:42:35-06:00", "--category", "learning",
-                "--subject", "Diagnosed a stale input", "--body-file", str(self.body)]
+                "--subject", "Diagnosed a stale input", "--body-file", str(self.body),
+                "--today", TODAY]
         if mode == "log-only":
             args += ["--log-op", "promptbook"]
         result = subprocess.run([sys.executable, "-c", driver, *args],
@@ -157,15 +181,15 @@ raise SystemExit(writer.main(sys.argv[6:]))
             mode="log-only", stage=1)
         self.assertEqual((result.returncode, payload["status"]), (1, "refused"), result.stdout)
         self.assertEqual(list(outside.iterdir()), [])
-        self.assertTrue((parked / "manifest.yml").exists())
-        self.assertFalse((parked / "log.md").exists())
+        self.assertTrue((parked / ".split-complete.json").exists())
+        self.assertFalse((parked / "2026-09.md").exists())
 
     def test_directory_swap_during_index_temporary_create_reports_partial(self):
         result, payload, outside, parked = self.swapped_during_temporary_create(
             mode="journal", stage=2)
         self.assertEqual((result.returncode, payload["status"]), (1, "partial"), result.stdout)
         self.assertEqual(payload["recorded"], ["journal/2026-09.md"])
-        self.assertEqual(payload["pending"], ["journal/index.md", "log.md"])
+        self.assertEqual(payload["pending"], ["journal/index.md", "log/2026-09.md"])
         self.assertEqual(list(outside.iterdir()), [])
         self.assertTrue((parked / "2026-09.md").exists())
         self.assertFalse((parked / "index.md").exists())
@@ -189,7 +213,7 @@ raise SystemExit(writer.main(sys.argv[6:]))
         self.log.write_text("## [2026-09-01] query | Prior operation\n\nPrior body.\n")
         first, result = self.invoke("--refs", "rule:journal-friction-line")
         self.assertEqual((first.returncode, result["status"]), (0, "complete"), first.stderr)
-        self.assertEqual(result["written"], ["journal/2026-09.md", "journal/index.md", "log.md"])
+        self.assertEqual(result["written"], ["journal/2026-09.md", "journal/index.md", "log/2026-09.md"])
         self.assertIn("Prior body.", self.month.read_text())
         self.assertIn("Prior operation", self.log.read_text())
         self.assertEqual(len(journal_entries(self.month.read_text(), "2026-09")), 2)
@@ -233,7 +257,7 @@ raise SystemExit(writer.main(sys.argv[6:]))
 
     def test_log_only_has_one_write_and_is_replayable(self):
         first, result = self.invoke("--log-op", "promptbook", mode="log-only")
-        self.assertEqual((first.returncode, result["written"]), (0, ["log.md"]), first.stderr)
+        self.assertEqual((first.returncode, result["written"]), (0, ["log/2026-09.md"]), first.stderr)
         self.assertFalse(self.month.exists())
         self.assertFalse(self.index.exists())
         self.assertIn("2026-09-27T11:42-06:00", self.log.read_text())
@@ -277,23 +301,73 @@ raise SystemExit(writer.main(sys.argv[6:]))
         self.assertEqual((replay.returncode, payload["written"]), (0, []), replay.stdout)
         self.assertEqual(self.snapshot(), before)
 
-    def test_displaced_or_duplicate_log_header_refuses_before_writing(self):
+    def test_missing_or_edited_detail_header_keeps_outside_bytes_and_inserts_at_first_entry(self):
         prior = "## [2026-09-01] query | Prior operation\n\nPrior body.\n\n"
-        for malformed in (prior + LOG_HEADER, LOG_HEADER + prior + LOG_HEADER):
-            with self.subTest(malformed=malformed.startswith(LOG_HEADER)):
-                self.log.write_text(malformed)
+        for outside in ("", "# Edited heading\n\nA hand note.\n\n"):
+            with self.subTest(outside=outside):
+                self.log.write_text(outside + prior)
+                first, payload = self.invoke("--log-op", "promptbook", mode="log-only")
+                self.assertEqual((first.returncode, payload["status"]), (0, "complete"), first.stdout)
+                self.assertEqual(self.log.read_text(), outside +
+                                 "## [2026-09-27] promptbook | Diagnosed a stale input\n\n"
+                                 "The first attempt failed because the input was stale.\n"
+                                 "Recorded at 2026-09-27T11:42-06:00.\n\n" + prior)
+
+    def test_a_legacy_log_md_is_split_before_the_write(self):
+        shutil.rmtree(self.tree / "log")
+        legacy = "# Operations log\n\n## [2026-08-01] init | Tree\n\nBody.\n"
+        (self.tree / "log.md").write_text(legacy)
+        good, payload = self.invoke()
+        self.assertEqual((good.returncode, payload["status"]), (0, "complete"), good.stdout)
+        self.assertFalse((self.tree / "log.md").exists())
+        self.assertEqual((self.tree / "log" / "2026-08.md").read_text(),
+                         "# Operations log: 2026-08\n\n_Append-only. Latest write first._\n\n"
+                         "## [2026-08-01] init | Tree\n\nBody.\n")
+        self.assertIn("## [2026-09-27] journal | learning: Diagnosed a stale input", self.log.read_text())
+        self.assertTrue((self.tree / "log" / ".split-complete.json").is_file())
+        for path in ("docs/log.md", "docs/log/2026-08.md", "docs/log/.split-complete.json", "docs/log/2026-09.md"):
+            self.assertIn(path, payload["changed_paths"])
+
+    def test_an_invalid_request_on_an_unsplit_tree_or_beside_a_stray_changes_nothing(self):
+        stray = "## [2026-09-02] query | Written by an older plugin\n\nBody.\n"
+        for label in ("unsplit", "stray"):
+            with self.subTest(fixture=label):
+                if label == "unsplit":
+                    shutil.rmtree(self.tree / "log", ignore_errors=True)
+                    (self.tree / "log.md").write_text("# Operations log\n\n## [2026-08-01] init | Tree\n\nBody.\n")
+                else:
+                    (self.tree / "log.md").write_text(stray)
                 before = self.snapshot()
-                bad, payload = self.invoke()
-                self.assertEqual((bad.returncode, payload["status"]), (1, "refused"))
-                self.assertEqual(self.snapshot(), before)
+                for extra, mode, body in ((("--log-op", "bogus"), "log-only", None), ((), "journal", "A sentence.\n```\n")):
+                    bad, payload = self.invoke(*extra, mode=mode, body=body)
+                    self.assertEqual((bad.returncode, payload["status"]), (1, "refused"), bad.stdout)
+                    self.assertEqual(self.snapshot(), before)
+                # POSITIVE CONTROL: a valid request repairs the log and writes.
+                good, payload = self.invoke(body="A sentence.\n")
+                self.assertEqual((good.returncode, payload["status"]), (0, "complete"), good.stdout)
+                self.assertFalse((self.tree / "log.md").exists())
+
+    def test_a_malformed_stray_heading_refuses_with_the_journal_month_unchanged(self):
+        (self.tree / "log.md").write_text("## [2026-09-02] nonsense | Bad heading\n\nBody.\n")
+        before = self.snapshot()
+        bad, payload = self.invoke()
+        self.assertEqual((bad.returncode, payload["status"], payload.get("code")),
+                         (1, "refused", "malformed-heading"), bad.stdout)
+        self.assertEqual(self.snapshot(), before)
+        self.assertFalse(self.month.exists())
+        # POSITIVE CONTROL: after the heading is fixed the same request writes.
+        (self.tree / "log.md").write_text("## [2026-09-02] query | Fixed heading\n\nBody.\n")
+        good, payload = self.invoke()
+        self.assertEqual((good.returncode, payload["status"]), (0, "complete"), good.stdout)
+        self.assertTrue(self.month.exists())
 
     def test_invalid_operation_fence_and_unsafe_path_write_nothing(self):
         invalid, payload = self.invoke("--log-op", "bogus", mode="log-only")
         self.assertEqual((invalid.returncode, payload["status"]), (1, "refused"))
-        self.assertEqual(self.snapshot(), {})
+        self.assertEqual(self.snapshot(), self.baseline)
         fence, payload = self.invoke(body="A sentence.\n```\n")
         self.assertEqual((fence.returncode, payload["status"]), (1, "refused"))
-        self.assertEqual(self.snapshot(), {})
+        self.assertEqual(self.snapshot(), self.baseline)
         self.log.symlink_to(self.root / "outside-log.md")
         unsafe, payload = self.invoke()
         self.assertEqual((unsafe.returncode, payload["status"]), (1, "refused"))
@@ -304,7 +378,7 @@ raise SystemExit(writer.main(sys.argv[6:]))
         forged = "journal | forged\n## [2026-09-27] release"
         bad, payload = self.invoke("--log-op", forged, mode="log-only")
         self.assertEqual((bad.returncode, payload["status"]), (1, "refused"))
-        self.assertEqual(self.snapshot(), {})
+        self.assertEqual(self.snapshot(), self.baseline)
 
     def test_log_only_replay_reads_recorded_minute_field_not_narrative(self):
         first_body = "I scheduled the check for 2026-09-27T11:43-06:00.\n"
@@ -343,7 +417,7 @@ raise SystemExit(writer.main(sys.argv[6:]))
         self.assertEqual((replay.returncode, payload["status"]), (0, "complete"), replay.stdout)
         self.assertTrue(any("offset" in warning and "unverified" in warning
                             for warning in payload["warnings"]))
-        self.assertEqual(payload["written"], ["journal/index.md", "log.md"])
+        self.assertEqual(payload["written"], ["journal/index.md", "log/2026-09.md"])
 
     def test_caller_offset_selects_month_independent_of_host_zone(self):
         with patch.dict(os.environ, {"TZ": "Pacific/Kiritimati"}):
@@ -408,18 +482,19 @@ raise SystemExit(writer.main(sys.argv[2:]))
 """
         args = [str(SCRIPT), "--repo-root", str(self.root), "--mode", "journal",
                 "--at", "2026-09-27T11:42:35-06:00", "--category", "learning",
-                "--subject", "Diagnosed a stale input", "--body-file", str(self.body)]
+                "--subject", "Diagnosed a stale input", "--body-file", str(self.body),
+                "--today", TODAY]
         failure = subprocess.run([sys.executable, "-c", driver, *args],
                                  capture_output=True, text=True)
         payload = json.loads(failure.stdout)
         self.assertEqual((failure.returncode, payload["status"]), (1, "partial"))
         self.assertEqual(payload["recorded"], ["journal/2026-09.md"])
-        self.assertEqual(payload["pending"], ["journal/index.md", "log.md"])
+        self.assertEqual(payload["pending"], ["journal/index.md", "log/2026-09.md"])
         self.assertFalse(self.index.exists())
         self.assertFalse(self.log.exists())
         replay, payload = self.invoke()
         self.assertEqual((replay.returncode, payload["status"]), (0, "complete"), replay.stderr)
-        self.assertEqual(payload["written"], ["journal/index.md", "log.md"])
+        self.assertEqual(payload["written"], ["journal/index.md", "log/2026-09.md"])
         self.assertEqual(len(journal_entries(self.month.read_text(), "2026-09")), 1)
         self.assertEqual(parse_index_row(self.index.read_text(), "2026-09")["entries"], 1)
 
@@ -439,7 +514,8 @@ writer.main(sys.argv[2:])
 """
         args = [str(SCRIPT), "--repo-root", str(self.root), "--mode", "journal",
                 "--at", "2026-09-27T11:42:35-06:00", "--category", "learning",
-                "--subject", "Diagnosed a stale input", "--body-file", str(self.body)]
+                "--subject", "Diagnosed a stale input", "--body-file", str(self.body),
+                "--today", TODAY]
         died = subprocess.run([sys.executable, "-c", driver, *args], capture_output=True,
                               text=True)
         self.assertEqual(died.returncode, 71)
@@ -464,7 +540,8 @@ writer.main(sys.argv[2:])
 """
         args = [str(SCRIPT), "--repo-root", str(self.root), "--mode", "journal",
                 "--at", "2026-09-27T11:42:35-06:00", "--category", "learning",
-                "--subject", "Diagnosed a stale input", "--body-file", str(self.body)]
+                "--subject", "Diagnosed a stale input", "--body-file", str(self.body),
+                "--today", TODAY]
         died = subprocess.run([sys.executable, "-c", driver, *args], capture_output=True,
                               text=True)
         self.assertEqual(died.returncode, 72)
@@ -477,7 +554,7 @@ writer.main(sys.argv[2:])
         command = [sys.executable, str(SCRIPT), "--repo-root", str(self.root),
                    "--mode", "log-only", "--at", "2026-09-27T11:42:35-06:00",
                    "--category", "learning", "--subject", "Diagnosed a stale input",
-                   "--body-stdin", "--log-op", "promptbook"]
+                   "--body-stdin", "--log-op", "promptbook", "--today", TODAY]
         completed = subprocess.run(command, input="Recorded a run result.\n", text=True,
                                    capture_output=True)
         self.assertEqual(completed.returncode, 0, completed.stdout)
@@ -488,7 +565,7 @@ writer.main(sys.argv[2:])
         bad = subprocess.run([sys.executable, str(SCRIPT), "--repo-root", str(self.root),
                               "--mode", "journal", "--at", "2026-09-27T11:43:00-06:00",
                               "--category", "learning", "--subject", "Later observation",
-                              "--body-file", str(link)], capture_output=True, text=True)
+                              "--body-file", str(link), "--today", TODAY], capture_output=True, text=True)
         self.assertEqual((bad.returncode, json.loads(bad.stdout)["status"]), (1, "refused"))
         self.assertEqual(self.snapshot(), before)
 
@@ -502,10 +579,10 @@ writer.main(sys.argv[2:])
         eleven_lines = "\n".join(f"A concrete sentence {i}." for i in range(11)) + "\n"
         bad, payload = self.invoke(body=eleven_lines)
         self.assertEqual((bad.returncode, payload["status"]), (1, "refused"))
-        self.assertEqual(self.snapshot(), {})
+        self.assertEqual(self.snapshot(), self.baseline)
         bad, payload = self.invoke("--refs", "not-a-ref", body="I found the cause.\n")
         self.assertEqual((bad.returncode, payload["status"]), (1, "refused"))
-        self.assertEqual(self.snapshot(), {})
+        self.assertEqual(self.snapshot(), self.baseline)
 
     def test_journal_preserves_interior_paragraph_breaks(self):
         body = "The first attempt failed.\n\nThe second fixed it.\n"
@@ -517,7 +594,7 @@ writer.main(sys.argv[2:])
         bad, payload = self.invoke("--log-op", "promptbook", mode="log-only",
                                    body="First operation.\n\nSecond operation.\n")
         self.assertEqual((bad.returncode, payload["status"]), (1, "refused"))
-        self.assertEqual(self.snapshot(), {})
+        self.assertEqual(self.snapshot(), self.baseline)
 
 
 if __name__ == "__main__":

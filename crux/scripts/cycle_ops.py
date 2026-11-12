@@ -55,11 +55,12 @@ import cycle_commit
 import cycle_hosts
 import cycle_dispatch
 import cycle_execution
+import cycle_local_skills
 from cycle_workflow import (
     ASSIGNMENT_V3_FIELDS, CHECK_PHASES, CLOSED, OPEN, PHASES, CycleError, LinkedWorktree, atomic_bytes, check_coverage, check_references, check_tests, contained, event,
     legacy, listed, load, locked, main_checkout, now, path_class, phases_of, read_retained, requirements, resolve_commit, run_git, save,
-    source_fingerprint, tree, updated_task, v3_fields,
-    council_state, latest_idr, withdraw_decision, withdrawn_names,
+    source_fingerprint, tree, updated_task, v3_fields, dependency_satisfied,
+    council_state, latest_idr, withdraw_decision, withdrawn_names, adr_dependency_problems,
 )
 
 SCHEMA = Path(__file__).resolve().parent.parent / 'schemas/cycle-operation.schema.json'
@@ -178,7 +179,10 @@ def run(repo_root, cycle_id, request):
         result = mutate(repo_root, cycle_id, request, decisions_deadline=deadline)
         found = {**result, **classify_success(repo_root, cycle_id, request, result, decisions_deadline=deadline)}
         # Routine hooks consume current cache only; they never own a provider wait.
-        if op in cycle_commit.COMMITTING:
+        if op == 'execution-check' and request.get('record_commit') == 'defer':
+            # The worker's adjacency-bound source commit goes first; it then runs commit-record.
+            found['record_commit'] = deferred_record_commit(repo_root, cycle_id)
+        elif op in cycle_commit.COMMITTING:
             found['record_commit'] = cycle_commit.after_write(repo_root, cycle_id)
         if op in ('deliver', 'release-continue'):
             found.update(release_finish(repo_root, cycle_id, request))
@@ -195,12 +199,93 @@ def run(repo_root, cycle_id, request):
         return 1, {**base, 'ok': False, 'errors': [failure(exc.code, str(exc), observed=exc.details, recovery=[
             *([{'argv': exc.details['argv'], 'caller_fills': [], 'purpose': 'fast-forward this clean older checkout to the immutable base, then check again'}]
               if 'argv' in exc.details else []),
+            *execution_recovery(repo_root, cycle_id, exc, request),
             action({'op': 'inspect'}, [], 'inspect the exact attempt; use normal isolated checkout/integration for unverified source, never reset shared work')])]}
     except cycle_dispatch.SnapshotError as exc:
         return 1, {**base, 'ok': False, 'errors': [failure(exc.code, str(exc), recovery=[
             action({'op': 'inspect'}, [], 'inspect the exact attempt; await or attach it, or use existing affirmative loss evidence before a new attempt')])]}
     except CycleError as exc:
         return 1, {**base, 'ok': False, 'errors': [failure('cycle-refused', str(exc))]}
+
+
+def deferred_record_commit(repo_root, cycle_id):
+    """execution-check with record_commit "defer": the proof and record stay on disk, uncommitted."""
+    try:
+        cfg = tree(repo_root)
+        pending = cycle_commit.pending_files(cfg, cycle_commit.record_paths(cfg, cycle_id)) or []
+    except (CycleError, OSError):
+        pending = []
+    return {'changed': False, 'commit': None, 'deferred': 'requested-adjacent-commit', 'pending': pending,
+            'request': {'op': 'commit-record'},
+            'note': ('make the adjacency-bound source commit now with git commit --only naming exactly the '
+                     "checkpoint's edited paths, then run commit-record; this relies on the one-editor guard")}
+
+
+# A refusal's recovery names one route each. Neither route depends on another task's intent.
+NEW_PASS_ROUTE = ('return to a new pass: a counted return with --execution-task, legal from Build after every attempt '
+                  'is delivered (the writer re-runs the proof of that task and refuses unless it refuses this way), and '
+                  "from Verify or Review. The new pass's task base is HEAD at the task's first reservation in that pass, "
+                  'so this commit then lies below the base. It needs no replacement task and keeps delivered work; an '
+                  'unfinished fix task leaves the plan. It counts against the pass limit; at an exhausted limit the cycle '
+                  'pauses for the existing resume route. Consequence: the commit lies below every new task base, so no '
+                  "execution proof accounts for it, and its task's next done delivery covers only commits above that "
+                  "task's new base; the return-requested event retains every abandoned range under execution_refusal")
+RETURN_FILLS = ('--improved', '--unresolved', '--next-change', '--justification', '--progress')
+DAMAGED_REPORT_NOTE = ('a retained delivery report that would ground this commit is damaged: restore the bytes that '
+                       'match its recorded sha256 from the commit that retained it (git log -- PATH, then git show '
+                       'COMMIT:PATH) and check again; otherwise take the new-pass route')
+OUTSIDE_SCOPE_NOTE = ('a path outside the recorded scope cannot be committed by this attempt. Remove uncommitted bytes '
+                      'at exactly these paths only when your own edit in this attempt wrote them and git status showed '
+                      'the path clean before that edit; otherwise remove nothing. In both cases deliver blocked naming '
+                      'the paths; the plan owner adds them to scope or another task regenerates them')
+OUTSIDE_STREAM_NOTE = ("the plan owner revises this task's stream: add these paths to the stream when it stays disjoint "
+                       "from every other independent stream, otherwise remove the task's stream field so it falls back "
+                       'to plan-scope ownership. Before delivering blocked, remove your own uncommitted bytes at exactly '
+                       'these paths, put a diff of the removed bytes in the blocked report so the re-dispatch can '
+                       'reapply them, and list your commits in the blocked delivery')
+
+
+def refused_task(repo_root, cycle_id, request):
+    """The task a refused request names: a prepare-dispatch task_id, or an execution-check assignment's task."""
+    request = request or {}
+    if request.get('op') == 'prepare-dispatch' and isinstance(request.get('task_id'), str):
+        return request['task_id']
+    if isinstance(request.get('assignment'), str):
+        try:
+            entry = assignment_entry(load(repo_root, cycle_id), request['assignment'])
+        except (CycleError, OSError, ValueError, KeyError, TypeError):
+            entry = None
+        if entry is not None:
+            return entry.get('task')
+    return None
+
+
+def execution_recovery(repo_root, cycle_id, exc, request=None):
+    """Code-specific recovery for an execution refusal; empty for other codes."""
+    def low(args, purpose, fills=()):
+        return {'argv': ['uv', 'run', str(CYCLE_SCRIPT), '--repo-root', str(repo_root), '--compact', *args],
+                'caller_fills': list(fills), 'purpose': purpose}
+    paths = exc.details.get('paths', [])
+    if exc.code in ('execution-foreign-source', 'execution-source-outside-scope'):
+        task = refused_task(repo_root, cycle_id, request)
+        if task:
+            routes = [low(['return', cycle_id, '--execution-task', task], NEW_PASS_ROUTE, RETURN_FILLS)]
+        else:
+            routes = [low(['return', cycle_id], NEW_PASS_ROUTE, ['--execution-task', *RETURN_FILLS])]
+        for item in exc.details.get('damaged_reports', []):
+            try:
+                cfg = tree(repo_root)
+                name = (cfg.docs_root / str(item.get('path'))).relative_to(cfg.repo_root).as_posix()
+            except (CycleError, OSError, ValueError):
+                name = str(item.get('path'))
+            routes.append({'argv': ['git', '-C', str(repo_root), 'log', '--format=%H', '--', name],
+                           'caller_fills': [], 'purpose': DAMAGED_REPORT_NOTE, 'report': item})
+        return routes
+    if exc.code == 'execution-edited-path-outside-scope':
+        return [{'argv': None, 'caller_fills': [], 'purpose': OUTSIDE_SCOPE_NOTE, 'paths': paths}]
+    if exc.code == 'execution-edited-path-outside-stream':
+        return [low(['plan', cycle_id], OUTSIDE_STREAM_NOTE, ['--file', '--reason']) | {'paths': paths}]
+    return []
 
 
 def refresh_advice(repo_root, cycle_id, request):
@@ -219,14 +304,12 @@ def refresh_advice(repo_root, cycle_id, request):
         task = task_entry(doc, request.get('task_id')) if request.get('task_id') else None
         kinds = list(dict.fromkeys(request.get('kinds', ['review-routing', 'focused-test-ranking'])))
         role = request.get('role')
-        if any(kind in kinds for kind in ('execution-arrangement', 'context-selection')) and task is None:
+        if 'context-selection' in kinds and task is None:
             raise Refused([failure('unknown-task', 'task context advice requires a recorded task_id')])
-        if 'context-selection' in kinds and role not in cycle_advisory.permitted_roles(doc, task):
-            raise Refused([failure('role-selection-required', 'context advice requires a permitted explicit role')])
+        if 'context-selection' in kinds and role not in cycle_advisory.available_roles():
+            raise Refused([failure('role-selection-required', 'context advice requires an explicit configured role')])
         jobs = []
         if task is not None:
-            if 'execution-arrangement' in kinds:
-                jobs.append(cycle_classify.Job('execution-arrangement', task['id']))
             if 'context-selection' in kinds:
                 choices = cycle_advisory.candidates(doc, task, role)
                 jobs += [cycle_classify.Job('context-selection', f'{task["id"]}:skill-{i}', 'role:' + role)
@@ -532,7 +615,7 @@ def commit(cfg, doc, request, result, fields):
 
 JOURNAL_KEYS = ('revision', 'assignment', 'attempt', 'task', 'result_path', 'base', 'delivery_token', 'invocation_snapshot', 'execution', 'execution_observation', 'handle', 'retained', 'sha256',
                 'outcome', 'status', 'completion', 'phase', 'reused', 'next_assignment', 'next_attempt', 'next_delivery_token', 'stopped', 'step_result',
-                'advice', 'classification_unavailable')
+                'advice', 'classification_unavailable', 'evidence_size')
 
 
 def journal_result(result):
@@ -806,13 +889,16 @@ def build_invocation(cfg, doc, request, entry, context=None):
     and where the role runs on this host (IDR lean-workflow-traps-and-recovery approaches 12 and 13)."""
     context = context if context is not None else optional_context(cfg, doc, entry['task'], entry['role'])
     source_snapshot = cycle_dispatch.source_snapshot(cfg, doc, entry['role'], context)
+    # Local candidates of the attempt's host change only the prompt text (IDR local-skill-dispatch-and-use approaches 1 to 7).
+    local = cycle_local_skills.candidates(cfg.repo_root, entry['host'], task_entry(doc, entry['task'])['description'])
     base = entry['base']
     owner = request.get('integration_owner')
     preamble = cycle_hosts.preamble(cycle=doc['id'], task=entry['task'], assignment=entry['id'], attempt=entry['attempt'],
                                     objectives=objectives_path(cfg), result_path=entry['result_path'], base=base,
                                     task_commits=trailer_commits(cfg, base, entry['task']) if base else [],
                                     engine=str(CYCLE_SCRIPT), isolated=cycle_hosts.isolation(entry['host'], entry['role'], owner),
-                                    delivery_token=entry.get('delivery_token'))
+                                    delivery_token=entry.get('delivery_token'), role=entry['role'],
+                                    local_skill_report=local['available'])
     text = cycle_hosts.assignment(role=entry['role'], host=entry['host'], objectives=objectives_path(cfg),
                                   repo_root=cfg.repo_root, docs_root=cfg.docs_root, cycle=doc,
                                   task=task_entry(doc, entry['task']), addendum=request.get('assignment_text', ''),
@@ -827,7 +913,7 @@ def build_invocation(cfg, doc, request, entry, context=None):
                  'This transport grants only release-continue and execution-check; native grants remain binding. '
                  'No command is executed by the engine. Frozen release limits/command descriptors:\n'
                  + json.dumps(entry['release_continuation'], sort_keys=True) + '\n')
-    return cycle_dispatch.build(cfg, doc, request, entry, text, preamble, context, source_snapshot)
+    return cycle_dispatch.build(cfg, doc, request, entry, text, preamble, context, source_snapshot, local)
 
 
 def dispatch_invocation(cfg, doc, request):
@@ -845,7 +931,7 @@ def dispatch_invocation(cfg, doc, request):
     task = task_entry(doc, entry['task'])
     errors = [problem] if (problem := stale_cycle(doc, allow_paused=False)) else []
     if (task is None or task['phase'] != doc['phase'] or task['status'] != 'active'
-            or task['assignee'] != entry['id'] or any(task_entry(doc, dep)['status'] != 'done' for dep in task['depends_on'])):
+            or task['assignee'] != entry['id'] or any(not dependency_satisfied(doc, dep) for dep in task['depends_on'])):
         errors.append(failure('invocation-task-ineligible', 'the recorded task no longer permits this reserved invocation',
                               recovery=[action({'op': 'inspect'}, [], 'inspect current eligibility and the exact attempt recovery')]))
     if errors:
@@ -860,6 +946,71 @@ def stale_cycle(doc, allow_paused):
     if doc['status'] == 'paused' and not allow_paused:
         return failure('cycle-paused', 'the cycle is paused; resume it first', field='status', expected='active', observed='paused')
     return None
+
+
+# ───────────────────────────── the main checkout's one editor ─────────────────────────────
+# IDR one-editor-per-checkout revision 3, approaches 1 to 3: at most one editing attempt holds the main checkout.
+
+EDITING_ROLES = ('developer', 'dev-lead')
+
+
+def editing_task(task):
+    """A Build-phase task or a fix task. A release step is in phase release, so it is never an editing task."""
+    return task is not None and (task['phase'] == 'build' or 'fix' in task)
+
+
+def targets_main_checkout(entry):
+    """Whether an attempt edits the main checkout: its recorded host gives it no worktree, or no adapter knows the host."""
+    host = entry.get('host')
+    if not host or cycle_hosts.adapter(host) is None:
+        return True
+    return not cycle_hosts.isolation(host, entry['role'])['worktree']
+
+
+def open_editors(doc, *, task_id=None):
+    """The open set: every reserved or running editing attempt that targets the main checkout.
+
+    The one reader for prepare-dispatch and the low-level `assignment --state running` path. It leaves out the
+    attempts of the task being reserved: an open attempt of that task already refuses on its own."""
+    found = []
+    for entry in doc.get('assignments', []):
+        if entry['state'] not in OPEN or entry['role'] not in EDITING_ROLES or not entry.get('task') or entry['task'] == task_id:
+            continue
+        if editing_task(task_entry(doc, entry['task'])) and targets_main_checkout(entry):
+            found.append(entry)
+    return found
+
+
+def checkout_refusal(held, role):
+    """checkout-has-open-editing-attempt, naming each open attempt with its recoveries."""
+    observed = [{'assignment': e['id'], 'attempt': e['attempt'], 'task': e['task'], 'role': e['role']} for e in held]
+    recovery = [action({'op': 'inspect'}, [], 'inspect each open attempt and await its result')]
+    for entry in held:
+        recovery.extend(attempt_routes(entry))
+    names = ', '.join(f"{e['role']} attempt {e['id']}/{e['attempt']} on task {e['task']}" for e in held)
+    found = failure('checkout-has-open-editing-attempt',
+                    f'the main checkout is held by {names}; wait for it to deliver or be marked lost with host evidence. '
+                    'Only an invocation that isolates in its own worktree is admitted beside it',
+                    field='task_id', expected='no open editing attempt on the main checkout', observed=observed, recovery=recovery)
+    if role == 'dev-lead':
+        found['note'] = ('Only the open dev-lead may dispatch this unit, as a developer, and only on a host with per-call isolation; '
+                         'the commander dispatches no developer.')
+    return found
+
+
+def holds_unit_reservation(doc, task):
+    """A Build or fix task a developer reserved in this pass is a unit: only its coordinating dev-lead redispatches it."""
+    return editing_task(task) and bool(reservations(doc, task['id'], 'developer'))
+
+
+def redispatch_role(doc, task, role):
+    """The role an inspect handler offers for a task: dev-lead for an editing task, none for a unit, else the given role.
+
+    Never a developer: inspect offers the commander no developer dispatch, so a developer-reserved task of any
+    phase stays an agent offer for its coordinating dev-lead."""
+    if not editing_task(task):
+        return None if role == 'developer' else role
+    return None if holds_unit_reservation(doc, task) else 'dev-lead'
 
 
 # ───────────────────────────── operations ─────────────────────────────
@@ -877,7 +1028,7 @@ def dispatch_failures(cfg, doc, task, roles):
     if task['status'] not in ('pending', 'blocked'):
         errors.append(failure('task-not-eligible', f"task {task['id']} is {task['status']}", field='task_id',
                               expected=['pending', 'blocked'], observed=task['status']))
-    waiting = [d for d in task['depends_on'] if task_entry(doc, d)['status'] != 'done']
+    waiting = [d for d in task['depends_on'] if not dependency_satisfied(doc, d)]
     if waiting:
         errors.append(failure('dependencies-incomplete', 'dependencies are not done: ' + ', '.join(waiting), field='task_id', observed=waiting))
     holder = next((e for e in doc.get('assignments', []) if e['task'] == task['id'] and e['state'] in OPEN), None)
@@ -886,6 +1037,22 @@ def dispatch_failures(cfg, doc, task, roles):
                               field='task_id', expected='no reserved or running attempt', observed=f"{holder['id']}/{holder['attempt']}",
                               recovery=[action({'op': 'inspect'}, [], 'inspect the open attempt and follow the recovery it returns'),
                                         *attempt_routes(holder)]))
+    for problem in adr_dependency_problems(cfg, doc, task):
+        errors.append(failure(problem['code'], problem['problem'], field='adr_dependencies',
+                              expected='an accepted ADR decision recorded in this cycle',
+                              observed={'name': problem['name'], 'status': problem['status']},
+                              recovery=[action({'op': 'inspect'}, [], 'inspect the cycle decisions; the task waits for the ADR acceptance')]))
+    # The dev-lead half of the checkout guard. A dev-lead never isolates, so it needs no host; a request that names no
+    # role selects the dev-lead for a Build or fix task.
+    if editing_task(task) and (not roles or 'dev-lead' in roles):
+        if holds_unit_reservation(doc, task):
+            errors.append(failure('unit-task-needs-coordinator',
+                                  f"task {task['id']} holds a developer reservation in pass {doc['pass']}, so it is a unit; "
+                                  'only its coordinating dev-lead redispatches it, as a developer',
+                                  field='role', expected='developer, dispatched by the coordinating dev-lead', observed='dev-lead',
+                                  recovery=[action({'op': 'inspect'}, [], 'inspect the coordinating task and dispatch it instead')]))
+        if (held := open_editors(doc, task_id=task['id'])):
+            errors.append(checkout_refusal(held, 'dev-lead'))
     for role in roles:
         if len(reservations(doc, task['id'], role)) >= ATTEMPT_LIMIT:
             errors.append(failure('attempt-limit', f'task {task["id"]} has had {ATTEMPT_LIMIT} {role} attempts in pass {doc["pass"]}',
@@ -921,6 +1088,11 @@ def dispatch_validation(cfg, doc, request, role):
     mode = request.get('mode')
     if cycle_hosts.adapter(host) is None:
         errors.append(failure('unknown-host', f'no adapter for host {host}', field='host', expected=sorted(cycle_hosts.ADAPTERS), observed=host))
+    elif (role == 'developer' and editing_task(task) and not cycle_hosts.isolation(host, role)['worktree']
+            and (held := open_editors(doc, task_id=task['id']))):
+        # The developer half of the checkout guard: it needs the host, because only a host with per-call isolation
+        # gives a developer its own worktree.
+        errors.append(checkout_refusal(held, role))
     elif mode is not None and mode not in cycle_hosts.modes(host):
         errors.append(failure('unknown-mode', f'the {host} adapter offers no dispatch mode {mode}', field='mode',
                               expected=list(cycle_hosts.modes(host)), observed=mode))
@@ -988,7 +1160,8 @@ def prepare_dispatch(cfg, doc, request, *, resolved_role=None, context=None, con
         ensure_directory(Path(fresh['result_path']).parent)
         return {'assignment': ident, 'attempt': attempt, 'task': task['id'], 'result_path': fresh['result_path'],
                 'base': fresh['base'], 'delivery_token': fresh['delivery_token'], 'invocation_snapshot': snapshot,
-                'execution': execution, 'invocation': deepcopy(bundle['invocation'])}, fields
+                'execution': execution, 'invocation': deepcopy(bundle['invocation']),
+                'local_skills': cycle_dispatch.local_skills(bundle)}, fields
     explicit = request.get('result_path')
     # Choose the assignment and attempt.
     retry = entry is not None and (entry['state'] == 'lost' or (entry['state'] == 'finished' and (entry.get('delivery') or {}).get('outcome') in ('failed', 'blocked')))
@@ -1031,7 +1204,8 @@ def prepare_dispatch(cfg, doc, request, *, resolved_role=None, context=None, con
               'delivery_token': fresh['delivery_token'],
               'invocation_snapshot': snapshot, 'execution': execution, 'invocation': bundle['invocation'],
               'optional_context': {'selected': [item['id'] for item in (context or {}).get('selected', [])],
-                                   'retrievable': (context or {}).get('retrievable', [])}}
+                                   'retrievable': (context or {}).get('retrievable', [])},
+              'local_skills': cycle_dispatch.local_skills(bundle)}
     result['capability_status'] = cycle_hosts.capability_status(role, request.get('capabilities'), continuation=spec is not None)
     return result, fields
 
@@ -1247,12 +1421,14 @@ def child_link(cfg, doc, request):
     units = [ident for ident in task['depends_on'] if task_entry(doc, ident)['phase'] == 'build'
              and task_entry(doc, ident)['status'] == 'done']
     integrated = list(dict.fromkeys([*task.get('integrates', []), *units, child['id']]))
-    if len(integrated) < 2:
-        raise Refused([failure('integration-base-required', 'a declared integration requires at least two completed Build units')])
     task['depends_on'] = list(dict.fromkeys([*task['depends_on'], child['id']]))
-    task['integrates'] = integrated
+    # A declared integration names at least two completed Build units. A lead's first child,
+    # with no completed Build prerequisite, joins as a dependency only; the next link, which
+    # then counts it among the completed prerequisites, declares the integration.
+    if len(integrated) >= 2:
+        task['integrates'] = integrated
     return {'assignment': parent['id'], 'attempt': parent['attempt'], 'task': task['id'],
-            'child_task': child['id'], 'integrates': integrated}, {'task': task['id'], 'child_task': child['id']}
+            'child_task': child['id'], 'integrates': task.get('integrates', [])}, {'task': task['id'], 'child_task': child['id']}
 
 
 def continuation_delta(cfg, doc, entry):
@@ -1559,9 +1735,9 @@ def delivery_repeat(cfg, doc, request, entry):
                            recovery=conflict_recovery(cfg, doc, entry))])
 
 
-def conflict_recovery(cfg, doc, entry):
+def conflict_recovery(cfg, doc, entry, role=None):
     task = task_entry(doc, entry['task'])
-    dispatch = action({'op': 'prepare-dispatch', 'task_id': task['id'], 'role': entry['role'], 'host': entry['host']},
+    dispatch = action({'op': 'prepare-dispatch', 'task_id': task['id'], 'role': role or entry['role'], 'host': entry['host']},
                       [], 'dispatch a new assignment for the changed work')
     if task['status'] in ('pending', 'blocked'):
         return [dispatch]
@@ -1686,8 +1862,35 @@ def finish(cfg, doc, request):
         doc['completion']['test_runs'] = runs
     doc['status'] = 'completed'
     tip = doc['completion']['commits'][-1]
-    return {'status': 'completed', 'completion': {'tip': tip, 'commits': doc['completion']['commits'],
-                                                  'classifications': cycle_questions.rows(doc), 'test_runs': runs}}, {'tip': tip}
+    completion = {'tip': tip, 'commits': doc['completion']['commits'],
+                  'classifications': cycle_questions.rows(doc), 'test_runs': runs}
+    result = {'status': 'completed', 'completion': completion}
+    if not release:
+        # ADR-0168: the reflection of a cycle other than a listed release cycle reports its evidence's committed size.
+        result['evidence_size'] = evidence_size(cfg, doc, git_head(cfg) or tip)
+    return result, {'tip': tip}
+
+
+EVIDENCE_SIZE_MEASURE = 'sum of blob sizes from git ls-tree -r -l at the completion HEAD over {path}'
+
+
+def evidence_size(cfg, doc, commit):
+    """The committed size of the cycle directory at `commit`: {bytes, files, measure}.
+
+    `finish` passes the checkout HEAD at completion, which includes the record commits made after the
+    last task commit. The measure is the sum of blob sizes `git ls-tree -r -l` reports at that commit over
+    `<docs_dir>/cycles/<id>/`. Bytes the finish itself writes are not yet committed and are not counted."""
+    relative = (cfg.docs_root / 'cycles' / doc['id']).relative_to(cfg.repo_root).as_posix() + '/'
+    code, out = run_git(cfg, 'ls-tree', '-r', '-l', '--full-tree', commit, '--', relative)
+    total = files = 0
+    if code == 0:
+        for line in out.splitlines():
+            meta, _, _path = line.partition('\t')
+            fields = meta.split()
+            if len(fields) == 4 and fields[1] == 'blob' and fields[3].isdigit():
+                total += int(fields[3])
+                files += 1
+    return {'bytes': total, 'files': files, 'measure': EVIDENCE_SIZE_MEASURE.format(path=relative)}
 
 
 # ───────────────────────────── advance and evidence reuse ─────────────────────────────
@@ -2255,6 +2458,39 @@ def summarize(found):
     return out
 
 
+def execution_return_offers(cfg, doc):
+    """The counted return inspect offers after a range refusal journaled at delivery; it runs no proof.
+
+    Offered only while no assignment of the cycle is reserved or running, for a pending or blocked
+    task of the current phase whose latest assignment was reserved in the current pass and whose
+    deliver event journaled an execution_observation with one of the two range codes. The writer's
+    own probe decides at the return.
+    """
+    if listed(doc) or doc['phase'] not in ('build', *CHECK_PHASES, 'review'):
+        return []
+    if any(e['state'] in OPEN for e in doc.get('assignments', [])):
+        return []
+    offers = []
+    for task in doc['plan']['tasks']:
+        if task['phase'] != doc['phase'] or task['status'] not in ('pending', 'blocked'):
+            continue
+        entries = [e for e in doc.get('assignments', []) if e['task'] == task['id']]
+        if not entries or entries[-1]['state'] != 'finished':
+            continue
+        entry = entries[-1]
+        if not any(r['assignment'] == entry['id'] and r['attempt'] == entry['attempt'] for r in reservations(doc, task['id'])):
+            continue  # a previous pass's delivery draws no offer
+        observed = [((item.get('result') or {}).get('execution_observation') or {}).get('code')
+                    for item in doc.get('operations', []) if item.get('op') == 'deliver'
+                    and (item.get('result') or {}).get('assignment') == entry['id']
+                    and (item.get('result') or {}).get('attempt') == entry['attempt']]
+        if any(code in cycle_execution.RANGE_CODES for code in observed):
+            offers.append(lowlevel(cfg, ['return', doc['id'], '--execution-task', task['id']],
+                                   f"return to a new pass over the execution refusal task {task['id']} met; " + NEW_PASS_ROUTE,
+                                   RETURN_FILLS))
+    return offers
+
+
 def blocked_pauses(cfg, doc):
     """The pause, offered beside any classified route, for each blocked task whose blocked delivery named no stop.
 
@@ -2296,16 +2532,20 @@ def handoff_view(cfg, doc, assignment, attempt):
         if summary['omissions'] or summary['unresolved']:
             summary['route'] = 'agent-assessment'
         return summary
+    role = redispatch_role(doc, task, entry['role'])
+    if role is None:
+        summary['route'] = 'agent-assessment'
+        return summary
     candidate = deepcopy(doc)
     pending = task_entry(candidate, task['id'])
     try:
         if pending['status'] == 'done':
             pending.update(updated_task(cfg, candidate, pending, {'state': 'pending'}))
-        dispatch_validation(cfg, candidate, {'task_id': task['id'], 'host': entry['host']}, entry['role'])
+        dispatch_validation(cfg, candidate, {'task_id': task['id'], 'host': entry['host']}, role)
     except (Refused, CycleError):
         summary['route'] = 'agent-assessment'
         return summary
-    summary['recovery'] = conflict_recovery(cfg, doc, entry)
+    summary['recovery'] = conflict_recovery(cfg, doc, entry, role)
     if task['status'] == 'done':
         summary['recovery'][0]['argv'].extend(['--expect-revision', str(doc['revision'])])
     return summary
@@ -2334,8 +2574,10 @@ def failure_actions(cfg, doc, offers):
             view = handoff_view(cfg, doc, entry['id'], entry['attempt'])
             if view['recovery']:
                 resolved = {**view['recovery'][0], 'recovery': view['recovery']}
-        elif route in ('owning-developer', 'environment-investigation') and task is not None and task['phase'] == 'build':
-            role = 'developer' if route == 'owning-developer' else 'dev-lead'
+        elif (route in ('owning-developer', 'environment-investigation') and task is not None and task['phase'] == 'build'
+              and redispatch_role(doc, task, 'dev-lead') is not None):
+            # The commander redispatches an editing task as a dev-lead; a unit task stays an agent offer for its coordinator.
+            role = 'dev-lead'
             host = (entry or {}).get('host')
             request = {'op': 'prepare-dispatch', 'task_id': task['id'], 'role': role, 'host': host,
                        'assignment_text': f'Handle {route} within this task. Read the retained report at '
@@ -2379,6 +2621,10 @@ def inspect(repo_root, cycle_id, request):
     out['record'] = cycle_commit.pending_record(repo_root, cycle_id)
     if out['record']['pending']:
         out['actions'] = [*out.get('actions', []), action({'op': 'commit-record'}, [], 'commit the cycle record, which has uncommitted changes')]
+    elif (out.get('status') == 'completed' and not out['record'].get('forge_log_open_attempts')
+          and any(row['state'] in ('committable', 'missing') for row in out['record'].get('forge_logs', []))):
+        # The record commit of a completed cycle writes and commits rederivable forge-log entries.
+        out['actions'] = [*out.get('actions', []), action({'op': 'commit-record'}, [], 'commit the forge-log used entries this completed cycle rederives')]
     if cycle_advisory.advisory_unavailable():
         out['advisory_unavailable'] = 'deadline-exhausted'
     return out
@@ -2391,6 +2637,9 @@ def inspect_state(repo_root, cycle_id, request):
     out = {'revision': doc.get('revision'), 'schema_version': version, 'status': doc['status'], 'phase': doc['phase'],
            'pass': doc['pass'], 'pass_limit': doc['pass_limit'], 'head': git_head(cfg),
            'classifier': cycle_classify.classifier_state(repo_root), 'classifications': cycle_questions.rows(doc)}
+    superseded = [{'task': t['id'], 'superseded_by': t['superseded_by']} for t in doc['plan']['tasks'] if t['status'] == 'superseded']
+    if superseded:
+        out['superseded'] = superseded
     from cycle_context_read import reference_view
     out['context_read'] = reference_view(cfg, doc)
     current_lost = [e for e in doc.get('assignments', []) if e['state'] == 'lost' and e.get('host')
@@ -2453,12 +2702,16 @@ def inspect_state(repo_root, cycle_id, request):
         for task in doc['plan']['tasks']:
             if task['phase'] != doc['phase']:
                 continue
-            # The offer applies prepare-dispatch's own eligibility, attempt limit included, for every role that reserved this task.
-            refusals = dispatch_failures(cfg, doc, task, sorted({e['role'] for e in reservations(doc, task['id'])}))
+            # The offer applies prepare-dispatch's own eligibility, attempt limit included. A Build or fix task is offered
+            # to its reader, the commander, as a dev-lead dispatch only (IDR one-editor-per-checkout approach 3); any
+            # other task is evaluated for every role that reserved it.
+            editing = editing_task(task)
+            roles = ['dev-lead'] if editing else sorted({e['role'] for e in reservations(doc, task['id'])})
+            refusals = dispatch_failures(cfg, doc, task, roles)
             if refusals and all(e['code'] == 'attempt-limit' for e in refusals) and task['status'] in ('pending', 'blocked'):
                 actions.extend(refusals[0]['recovery'])
             elif not refusals:
-                request_doc = {'op': 'prepare-dispatch', 'task_id': task['id']}
+                request_doc = {'op': 'prepare-dispatch', 'task_id': task['id'], **({'role': 'dev-lead'} if editing else {})}
                 fills = []
                 if host in cycle_hosts.ADAPTERS:
                     request_doc['host'] = host
@@ -2469,6 +2722,7 @@ def inspect_state(repo_root, cycle_id, request):
                     cycle_classify.name_specialists(found, review)
                 actions.append(found)
         actions += blocked_pauses(cfg, doc)
+        actions += execution_return_offers(cfg, doc)
         reusable = reusable_receipts(cfg, doc)
         out['reusable_evidence'] = [reusable[check] for check in missing_checks(cfg, doc) if check in reusable]
         if listed(doc):

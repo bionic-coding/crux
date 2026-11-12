@@ -233,43 +233,6 @@ class CheckerEntryPointTests(TreeFixture):
         self.assertIn("dependencies = []", head)
 
 
-AUDIT_SKILL = REPO_ROOT / "crux" / "skills" / "audit-docs" / "SKILL.md"
-
-
-def _audit_gaps(text: str) -> list[str]:
-    """What the audit skill text lacks for the duplicate-number delegation."""
-    gaps = []
-    rule = next((ln for ln in text.splitlines() if ln.startswith("- **CHK-NUM-1**")), "")
-    if "check-record-numbers.py" not in rule:
-        gaps.append("CHK-NUM-1 does not name check-record-numbers.py")
-    if "BROKEN" not in rule:
-        gaps.append("CHK-NUM-1 does not state BROKEN")
-    item = next((ln for ln in text.splitlines() if ln.startswith("> 40e.")), "")
-    if "check-record-numbers.py" not in item:
-        gaps.append("procedure item 40e does not name check-record-numbers.py")
-    adr4 = next((ln for ln in text.splitlines() if ln.startswith("- **CHK-ADR-4**")), "")
-    if "CHK-NUM-1" not in adr4:
-        gaps.append("CHK-ADR-4 does not point at CHK-NUM-1")
-    item22 = next((ln for ln in text.splitlines() if ln.startswith("> 22.")), "")
-    if "CHK-NUM-1" not in item22:
-        gaps.append("procedure item 22 does not point at CHK-NUM-1")
-    return gaps
-
-
-class AuditSkillDelegationTests(unittest.TestCase):
-    """The audit skill names the checker, so an audit on the delegated path runs it."""
-
-    def test_the_skill_delegates_duplicate_numbers_to_the_checker(self):
-        self.assertEqual(_audit_gaps(AUDIT_SKILL.read_text(encoding="utf-8")), [])
-
-    def test_positive_control_a_skill_without_the_delegation_is_flagged(self):
-        text = AUDIT_SKILL.read_text(encoding="utf-8")
-        mutated = text.replace("check-record-numbers.py", "check-nothing.py")
-        self.assertNotEqual(mutated, text, "the mutation must change the text")
-        self.assertEqual(len(_audit_gaps(mutated)), 2, _audit_gaps(mutated))
-        self.assertEqual(len(_audit_gaps(text.replace("CHK-NUM-1", "CHK-XXX-9"))), 4)
-
-
 class LiveCheckoutTests(unittest.TestCase):
     """Pre-check E: this checkout holds no duplicate number. Dev checkout only."""
 

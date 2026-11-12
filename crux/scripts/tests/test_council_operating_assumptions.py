@@ -45,6 +45,15 @@ class ConstantTests(unittest.TestCase):
             self.assertIn(needle, text)
         self.assertLess(len(text.split()), 160)
 
+    def test_states_the_local_threat_model(self):
+        text = _text()
+        for needle in ("Crux runs locally with a trusted caller, environment and interpreter",
+                       "Denial of service from hostile input is never a blocker",
+                       "accidental malformed or oversized input that hangs or crashes Crux is a plausible mistake"):
+            self.assertIn(needle, text)
+        # The threat model precedes the blocker test it bounds.
+        self.assertLess(text.index("Denial of service"), text.index("Blocker test"))
+
     def test_states_the_complexity_test_once(self):
         text = _text()
         for needle in ("adds complexity", "more code, tests, instructions, execution, configuration or concepts",

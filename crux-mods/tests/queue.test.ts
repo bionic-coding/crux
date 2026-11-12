@@ -153,3 +153,12 @@ test('a queue write refreshes the dashboard', () => {
   expect(touchesRunFile({tool: 'Read', file_path: '/project/bionic/queue/cycles.yaml'})).toBe(false)
   expect(touchesRunFile({tool: 'Write', file_path: '/project/queued.ts'})).toBe(false)
 })
+
+test('a queue item whose cycle closed by shortcut parses and is listed among the finished items', () => {
+  const items = [qItem(1, 'started', {cycle: 'CYC-0001', cycle_status: 'shortcut'}), qItem(2, 'pending')]
+  const d = doc([cycleRow(1, 'shortcut')], {ok: true, items, authorization: null})
+  expect(parse(d).ok).toBe(true)
+  expect(text(d)).toContain('queue Q-0001 shortcut CYC-0001')
+  // Positive control: an unknown cycle status is still refused.
+  expect(parse(doc([cycleRow(1)], {ok: true, items: [qItem(1, 'started', {cycle: 'CYC-0001', cycle_status: 'shortcutted'})], authorization: null})).ok).toBe(false)
+})

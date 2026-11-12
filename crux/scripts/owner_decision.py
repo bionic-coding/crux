@@ -10,8 +10,8 @@ import json
 from pathlib import Path
 import re
 
-from cycle_workflow import (CycleError, atomic, contained, digest, encoded, event,
-                            load, locked, now, save, withdrawn_names)
+from cycle_workflow import (PHASES, CycleError, atomic, contained, digest, encoded, event,
+                            load, locked, now, plan_file_of, revise_plan, save, withdrawn_names)
 from secret_scan import scan_fields, scan_text
 
 PRESENTATION = 'crux.owner-decision-presentation.v1'
@@ -20,6 +20,8 @@ APPLICATION = 'crux.owner-decision-application.v1'
 BINDING = ('purpose', 'cycle_id', 'subject', 'subject_sha256')
 REF_KEYS = {'path', 'sha256'}
 MAX_BYTES = 1024 * 1024
+PURPOSES = ('idr', 'adr-acceptance', 'acceptance-change')
+PROPOSAL_KEYS = {'cycle_id', 'plan_revision', 'remove', 'move', 'add'}
 
 
 class OwnerDecisionError(CycleError):
@@ -57,7 +59,7 @@ def _scan(value):
 
 
 def _binding(value):
-    if value.get('purpose') not in ('idr', 'adr-acceptance'):
+    if value.get('purpose') not in PURPOSES:
         fail('invalid-purpose')
     if not _plain(value.get('subject')):
         fail('invalid-subject')
@@ -67,6 +69,8 @@ def _binding(value):
         fail('invalid-cycle')
     if value['purpose'] == 'idr' and not value.get('cycle_id'):
         fail('idr-requires-cycle')
+    if value['purpose'] == 'acceptance-change' and not value.get('cycle_id'):
+        fail('acceptance-change-requires-cycle')
     return {key: value[key] for key in BINDING}
 
 
@@ -110,6 +114,19 @@ def _subject(cfg, value):
             fail('subject-owner-mismatch')
         if path.stat().st_size > MAX_BYTES or digest(path.read_bytes()) != target['sha256']:
             fail('retained-subject-changed')
+    elif value['purpose'] == 'acceptance-change':
+        directory = contained(cfg.docs_root, f"cycles/{value['cycle_id']}/acceptance")
+        if (path.parent != directory or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*\.json', path.name)
+                or value['subject'] != f"cycles/{value['cycle_id']}/acceptance/{path.name}"):
+            fail('subject-owner-mismatch')
+        if path.stat().st_size > MAX_BYTES:
+            fail('subject-too-large')
+        try:
+            proposal = json.loads(path.read_bytes())
+        except ValueError:
+            fail('invalid-acceptance-proposal')
+        if not isinstance(proposal, dict) or proposal.get('cycle_id') != value['cycle_id']:
+            fail('subject-owner-mismatch')
     else:
         if (path.parent != cfg.docs_root / 'adrs'
                 or not re.fullmatch(r'(?:[A-Z][A-Z0-9]*-)?ADR-\d{4,}-.+\.md', path.name)):
@@ -272,8 +289,9 @@ def _current(cfg, capture, ref):
 def acknowledgment(cfg, capture):
     head, value = _lineage(cfg, capture)
     return {'current_capture': head, 'current_disposition': value['disposition'], 'lifecycle_changed': False,
-            'lifecycle_route': ('transition-adr under separate lifecycle authorization' if capture['purpose'] == 'adr-acceptance'
-                                else 'revise the IDR or withdraw-decision in Plan under its existing requirements')}
+            'lifecycle_route': {'adr-acceptance': 'transition-adr under separate lifecycle authorization',
+                                'acceptance-change': 'a later acceptance-change capture, or a plan revision in Plan or Build'}.get(
+                                    capture['purpose'], 'revise the IDR or withdraw-decision in Plan under its existing requirements')}
 
 
 def resolve_capture(cfg, request):
@@ -375,6 +393,99 @@ def _apply_idr(cfg, request):
     return {'applied': True, 'already_applied': False, 'application': application, **acknowledgment(cfg, capture)}
 
 
+def _proposal(raw):
+    """The acceptance-change proposal shape: exact current criteria to remove or move, and new ones to add."""
+    try:
+        value = json.loads(raw)
+    except ValueError:
+        fail('invalid-acceptance-proposal')
+    def texts(items):
+        return isinstance(items, list) and all(isinstance(i, str) and i.strip() for i in items)
+    if (not isinstance(value, dict) or set(value) != PROPOSAL_KEYS or type(value['plan_revision']) is not int
+            or not texts(value['remove']) or not texts(value['add']) or not isinstance(value['move'], list)
+            or not all(isinstance(m, dict) and set(m) == {'criterion', 'queue_item'} and isinstance(m['criterion'], str)
+                       and m['criterion'].strip() and isinstance(m['queue_item'], str) for m in value['move'])
+            or not (value['remove'] or value['move'] or value['add'])):
+        fail('invalid-acceptance-proposal')
+    return value
+
+
+def _changed_acceptance(cfg, doc, proposal):
+    """The new acceptance list, or a refusal code naming the failed check."""
+    if 'plan' not in PHASES[doc['type']] or doc['phase'] not in ('plan', 'build'):
+        fail('acceptance-change-phase')
+    if proposal['plan_revision'] != doc['plan']['revision']:
+        fail('acceptance-change-stale-plan')
+    current = doc['plan']['acceptance']
+    removed = list(proposal['remove'])
+    moved = [m['criterion'] for m in proposal['move']]
+    named = removed + moved
+    if len(set(named)) != len(named):
+        fail('acceptance-change-criterion-conflict')
+    for criterion in named:
+        if current.count(criterion) != 1:
+            fail('acceptance-change-criterion-not-unique')
+    kept = [c for c in current if c not in named]
+    added = list(proposal['add'])
+    if len(set(added)) != len(added) or any(a in kept for a in added):
+        fail('acceptance-change-duplicate-add')
+    if proposal['move']:
+        import cycle_queue
+        try:
+            queue = cycle_queue.read_queue(cfg)
+        except CycleError:
+            fail('acceptance-change-queue-unreadable')
+        for row in proposal['move']:
+            try:
+                item = cycle_queue.resolve_item(cfg, queue, row['queue_item'])
+            except CycleError:
+                fail('acceptance-change-destination-missing')
+            if item['state'] not in ('pending', 'held'):
+                fail('acceptance-change-destination-started')
+            if row['criterion'] not in item['acceptance']:
+                fail('acceptance-change-destination-lacks-criterion')
+    if named:
+        lowest = min(current.index(c) for c in named)
+        for task in doc['plan']['tasks']:
+            criterion = task.get('fix', {}).get('criterion')
+            if isinstance(criterion, dict) and criterion.get('index', -1) >= lowest:
+                fail('acceptance-change-criterion-fix-shift')
+    return kept + added
+
+
+def _apply_acceptance(cfg, request):
+    capture = resolve_capture(cfg, request)
+    if capture['disposition'] != 'approve':
+        fail('owner-capture-not-approved')
+    doc = load(cfg.repo_root, capture['cycle_id'])
+    ref = request['capture']
+    # A replay acknowledges the plan revision written in the same save, before any check that it changed.
+    previous = next((e for e in doc['history'] if e['action'] == 'plan-revised'
+                     and ref['path'] in str(e.get('reason', '')) and ref['sha256'] in str(e.get('reason', ''))), None)
+    if previous is not None:
+        application = _application_record(cfg, ref, capture, previous['at'])
+        return {'applied': True, 'already_applied': True, 'application': application, **acknowledgment(cfg, capture)}
+    _active(cfg, capture)
+    _current(cfg, capture, ref)
+    path = _subject(cfg, capture)
+    raw = path.read_bytes()
+    if digest(raw) != capture['subject_sha256']:
+        fail('stale-presented-subject')
+    acceptance = _changed_acceptance(cfg, doc, _proposal(raw))
+    plan = plan_file_of(doc)
+    plan['acceptance'] = acceptance
+    reason = (f"owner acceptance-change capture {ref['path']} sha256 {ref['sha256']} "
+              f"applied to {capture['subject']}")
+    revise_plan(cfg, doc, plan, reason)
+    event(doc, 'plan', reason=reason)
+    event(doc, 'owner-decision-applied', capture=ref, subject=capture['subject'])
+    save(cfg, doc)
+    # The application time is the plan-revised event's, so a replay writes the identical application record.
+    revised = next(e for e in reversed(doc['history']) if e['action'] == 'plan-revised' and e.get('reason') == reason)
+    application = _application_record(cfg, ref, capture, revised['at'])
+    return {'applied': True, 'already_applied': False, 'application': application, **acknowledgment(cfg, capture)}
+
+
 def validate_applied_idr(cfg, path, *, purpose, subject, subject_sha256, cycle_id):
     ref = _ref(cfg, path)
     capture = validate_capture_evidence(_reader(cfg), ref)
@@ -396,6 +507,9 @@ def apply(repo, request):
     if request.get('purpose') == 'idr':
         with locked(repo) as (cfg, _):
             return _apply_idr(cfg, request)
+    if request.get('purpose') == 'acceptance-change':
+        with locked(repo) as (cfg, _):
+            return _apply_acceptance(cfg, request)
     _request(request, {'capture', 'approval'})
     owner_request = {k: v for k, v in request.items() if k != 'approval'}
     from decision_policy import accept

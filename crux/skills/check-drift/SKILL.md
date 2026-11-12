@@ -80,10 +80,13 @@ Run each command below from the repo root — **both tables**: the roster gates 
 | `<tree>/AGENTS.md` §10 routing-table region | plugin-authoring | `generate-routing-table.py --dry-run` | `generate-routing-table.py` |
 | `<docs_dir>/adrs/reviews/index.md` | project | `generate-reviews-index.py --dry-run` | `generate-reviews-index.py` |
 | `<docs_dir>/journal/index.md` | project | `generate-journal-index.py --dry-run` | `generate-journal-index.py` |
+| `<docs_dir>/log/summary.md` | project | `generate-log-summary.py --dry-run` | `generate-log-summary.py` (skill `cleanup-campsite`) |
 | `crux/catalog/rules.json` (the rules the plugin ships) | plugin-authoring | `generate-rules-catalog.py --dry-run` | `generate-rules-catalog.py` |
 | `USER_GUIDE.md` crux-mods reach-table region | plugin-authoring | `generate-mods-reach-tables.py --dry-run` | `generate-mods-reach-tables.py` |
 
 > **This row's gate answers two questions, and only one of them is drift.** Beside the byte comparison it checks PUBLICATION ELIGIBILITY: every slug cited on a shipped surface must resolve to a source record whose decision has been accepted.[^pubelig] A refusal exits 1 with a `validation_errors` list rather than a `drift` key, and each row names the citing path, the citation, the source record, its raw status and the reason. **File such a row BROKEN, never DRIFT, and do not name the regenerator as its remedy** — re-running it refuses again. The remedy depends on the row's reason: accept a Proposed decision; for a Deprecated or Superseded one, migrate the citation to the rule that displaced it or remove it; an observation-backed rule needs an owner decision before it can ship. A status change moves no byte of the catalog, so a row reported clean by byte comparison alone would be a false green here.
+
+> **The operations-log summary gate passes with pending work.** `generate-log-summary.py --dry-run` lists each settled month that has a detail file and no section under `pending_months`, and exits 0 when they are its only finding, because a month settles by date alone. Report the pending months beside the clean verdict and name `cleanup-campsite` as the remedy, which runs the catch-up. Each failure in its JSON carries a `kind`: a `region` failure is fixed by running `generate-log-summary.py`; a `structure` failure (a section for a month that is not settled, a second section, a section without a detail file, a marker error, or an incomplete split) is not, and its remedy is a hand edit of `summary.md` or `operation-log.py repair`.
 
 Invoke each via `uv run "${CRUX_PLUGIN_ROOT}/scripts/<name>" ...` from the repo root. This roster is the source of truth for what a derived artifact owes; if the repo-root `AGENTS.md` roster grows a row, add its gate here.
 
@@ -142,7 +145,7 @@ Shared exit-code semantics (the same contract `verify-code-docs`, CHK-CODE-4, CH
 - **DRIFT** — exit 1 with a JSON drift payload (`{"drift": true, "paths": [...]}`, non-empty `added/changed/removed`, or a section diff). Capture the drifted paths. The fix is the regenerator in the table's third column.
 - **BROKEN** — the JSON carries a non-empty `validation_errors` key (a malformed `governs` entry, a malformed reconciliation ledger, a schema error). Regenerating does NOT fix a validation error; the named input must be repaired first. Report the problems.
 - **CRASH** — non-zero exit with empty or unparseable stdout (a missing dependency, an unhandled exception). Surface stderr; this is an environment problem, never a document finding.
-- **N/A** — exit 0 with `"surface_absent": true` on the JSON. The verdict keys on that payload key, not on which gate printed it. **Every `plugin-authoring` gate emits it outside the plugin's own source checkout**, carrying a `reason` that names why the row does not apply; report the reason, and recommend no regenerator, because there is no output in this project for one to write. Three project gates emit it too: `generate-reviews-index.py` when the tree carries no `<docs_dir>/adrs/reviews/`, which is every project that has not yet run a decision review; `generate-journal-index.py` when the tree carries no `<docs_dir>/journal/` at all; and `extract-code-docs.py` when `code.extractors` is empty, which is every project that has configured no extractor. That third one used to exit 0 with EMPTY stdout and one line on stderr, so a reader aggregating exit codes counted it as a clean gate and a tree that had scanned nothing reported its code docs verified. There is no derived artifact, so nothing can have drifted, and nothing was measured either. **Report it as N/A, never as clean** — a gate that scanned an absent surface has verified nothing, and recording it green is the vacuous-green shape this skill exists to prevent. **The fix is never the regenerator, and it differs by surface:** consider `migrate-adrs` when historical decisions need assessment, `init-docs` when the journal surface was never created, and configure `code.extractors` in `<docs_dir>/manifest.yml` when no extractor is declared.
+- **N/A** — exit 0 with `"surface_absent": true` on the JSON. The verdict keys on that payload key, not on which gate printed it. **Every `plugin-authoring` gate emits it outside the plugin's own source checkout**, carrying a `reason` that names why the row does not apply; report the reason, and recommend no regenerator, because there is no output in this project for one to write. Four project gates emit it too: `generate-reviews-index.py` when the tree carries no `<docs_dir>/adrs/reviews/`, which is every project that has not yet run a decision review; `generate-journal-index.py` when the tree carries no `<docs_dir>/journal/` at all; `generate-log-summary.py` when the tree carries no `<docs_dir>/log/`, which is every tree whose operations log is not yet split; and `extract-code-docs.py` when `code.extractors` is empty, which is every project that has configured no extractor. That last one used to exit 0 with EMPTY stdout and one line on stderr, so a reader aggregating exit codes counted it as a clean gate and a tree that had scanned nothing reported its code docs verified. There is no derived artifact, so nothing can have drifted, and nothing was measured either. **Report it as N/A, never as clean** — a gate that scanned an absent surface has verified nothing, and recording it green is the vacuous-green shape this skill exists to prevent. **The fix is never the regenerator, and it differs by surface:** consider `migrate-adrs` when historical decisions need assessment, `init-docs` when the journal surface was never created, `cleanup-campsite` when the operations log is not yet split, and configure `code.extractors` in `<docs_dir>/manifest.yml` when no extractor is declared.
 
 **Warnings ride alongside, never change the verdict.** Read any top-level `warnings` key (`validate-catalog.py` emits one — the `models.yml` `verified:` staleness clock; `check-doctrine-reconciliation.py`'s S1 warn lane is similar). Surface it as WARNING beside the gate's verdict. A gate at exit 0 with a non-empty `warnings` list is a **clean pass worth reporting with its warning**, not a failure.
 
@@ -180,9 +183,16 @@ Never write "all gates clean" while `skipped/inapplicable` or `no evidence` is a
 
 For DRIFT rows, the recommended fix is the third-column regenerator. For BROKEN rows, the fix is repairing the named input, then re-running its regenerator — except a validation-check row, whose fix is editing the authored text the finding names, with no regenerator involved. For CRASH rows, the fix is the environment. For a REFUSAL row, the fix is the named upstream input's regenerator, then a re-derive.
 
-### 5. Append to `<docs_dir>/log.md`
+### 5. Record the `lint` operation
 
-One `lint` op entry (the same op `verify-code-docs` uses — a targeted check, distinct from `audit`'s full walk). Newest entry at the top:
+One `lint` op entry (the same op `verify-code-docs` uses — a targeted check, distinct from `audit`'s full walk). Write the entry through the log writer (`<docs_dir>/AGENTS.md` §6).[^log-writer] Write the body below to a file outside the tree, then run:
+
+```
+uv run "${CRUX_PLUGIN_ROOT}/scripts/operation-log.py" append --repo-root <repo-root> \
+  --op lint --subject 'check-drift (C clean / D drift / B broken / X crash)' --date YYYY-MM-DD --body-file <path>
+```
+
+The entry it writes at the top of the current month's detail file `<docs_dir>/log/YYYY-MM.md`:
 
 ```
 ## [YYYY-MM-DD] lint | check-drift (C clean / D drift / B broken / X crash)
@@ -193,6 +203,8 @@ Body, 1–3 lines: the summary line, and for any non-clean gate its name plus th
 ```
 ## [YYYY-MM-DD] lint | check-drift (all N gates clean)
 ```
+
+A refused append adds no entry: fix the cause it names, then rerun the append alone (§6). Then run the commit step of §6 over the result's `commit_paths` and `restore_paths`.
 
 ### 6. Hand-off
 
@@ -212,3 +224,5 @@ Body, 1–3 lines: the summary line, and for any non-clean gate its name plus th
 [^retired]: `rule:retired-cite-fails-lint` — a retired slug fails the lint, and the failure names the rule that displaced it.
 
 [^pubelig]: rule:shipped-citation-requires-an-accepted-decision, rule:an-ineligible-citation-refuses-the-projection
+
+[^log-writer]: rule:log-entries-go-through-the-log-writer, rule:no-writer-writes-the-legacy-log-file

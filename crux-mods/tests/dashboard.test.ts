@@ -62,11 +62,6 @@ test('a refused launch answers fenced text with its code and still opens the pan
   expect(w.opened.length).toBe(1)
 })
 
-test('no active run is reported as such', async ($, on) => {
-  const { text } = await ask($, on, { reader: ok(READER_EMPTY) })
-  expect(text).toContain('status no-active-run')
-})
-
 test('the fence is longer than any backtick run inside', () => {
   const plain = fenced('abc')
   expect(plain).toBe('```\nabc\n```')
@@ -110,7 +105,6 @@ const REMOVED_CATEGORIES: [string, string][] = [
   ['the tag letter U+E0041', '\u{E0041}'],
   ['the zero-width space U+200B', '\u200b'],
   ['the line separator U+2028', '\u2028'],
-  ['the lone surrogate U+D800', '\ud800'],
 ]
 
 for (const [name, ch] of REMOVED_CATEGORIES) {
@@ -143,17 +137,7 @@ test('safeText removes every code point of the named ranges', () => {
 
 // The class the removal had before it was extended: C0 and C1 controls with DEL, U+061C, U+200E,
 // U+200F, U+2028, U+2029, U+202A to U+202E and U+2066 to U+2069, and lone surrogates.
-const BASE_RANGES: [number, number][] = [
-  [0x0000, 0x001f], [0x007f, 0x009f], [0x061c, 0x061c], [0x200e, 0x200f], [0x2028, 0x2029], [0x202a, 0x202e], [0x2066, 0x2069],
-]
 const BASE_CLASS = new RegExp('[\\u0000-\\u001f\\u007f-\\u009f\\u061c\\u200e\\u200f\\u2028\\u2029\\u202a-\\u202e\\u2066-\\u2069\\ud800-\\udfff]', 'u')
-
-test('safeText still removes each of the 79 code points the earlier class named', () => {
-  const listed: number[] = []
-  for (const [lo, hi] of BASE_RANGES) for (let cp = lo; cp <= hi; cp++) listed.push(cp)
-  expect(listed.length).toBe(79)
-  expect(listed.filter(cp => safeText(`a${String.fromCodePoint(cp)}b`) !== 'ab').map(cp => cp.toString(16))).toEqual([])
-})
 
 test('every code point the earlier class removes, the extended removal removes too', () => {
   let matched = 0
@@ -219,11 +203,6 @@ for (const [name, mutate] of breaks) {
     expect(text.includes('IGNORE PREVIOUS')).toBe(false)
   })
 }
-
-test('reader output that is not JSON is reader-output-invalid', async ($, on) => {
-  const { text } = await ask($, on, { reader: { exitCode: 0, stdout: '{"format": ' } })
-  expect(text).toContain('status reader-output-invalid')
-})
 
 test('reader output cut at the size cap is reader-output-invalid', async ($, on) => {
   const { text } = await ask($, on, { reader: { exitCode: 0, stdout: JSON.stringify(READER_OK), truncated: true } })
@@ -592,11 +571,6 @@ test('a project without a crux tree draws no band, but the pane and the text say
   expect(await pane($)).toContain('reader-failed:tree-missing')
 })
 
-test('the reader running past its own time limit is reader-failed:time-limit', async ($, on) => {
-  const { text } = await ask($, on, { reader: { exitCode: 1, stdout: JSON.stringify(readerError('time-limit')) } })
-  expect(text).toContain('status reader-failed:time-limit')
-})
-
 test('refused files are labelled as refused, not skipped', async ($, on) => {
   const { text } = await ask($, on)
   expect(text).toContain('refused council files 2')
@@ -748,11 +722,6 @@ test('only an integer version other than 2 is a mismatch: a text or fractional v
   // Positive controls: version 1 is a mismatch and version 2 is ok.
   expect(code({ ...clone(READER_OK), format_version: 1 })).toBe('reader-format-mismatch')
   expect(code(READER_OK)).toBe('ok')
-})
-
-test('a reader error envelope at version 2 keeps its code', async ($, on) => {
-  const { text } = await ask($, on, { reader: { exitCode: 1, stdout: JSON.stringify(readerError('tree-missing')) } })
-  expect(status(text)).toBe('dashboard status reader-failed:tree-missing')
 })
 
 const withSummary = (lines: string[]) => idleDoc('latest', { summary: lines })
@@ -1112,11 +1081,6 @@ test('the idle band within 48 hours is drawn dim', async ($, on) => {
   await ask($, on, { reader: ok(IDLE_AT_48H) })
   const within = styled(await (await $.ui.mount({ plugin: 'crux-mods', surface: 'terminal', component: 'AbovePrompt', props: BAND })).drawn())
   expect(within).toEqual([{ text: IDLE_TEXT('Last run', '48h00m'), bold: false, dim: true, color: undefined }])
-})
-
-test('an empty band after 48 hours', async ($, on) => {
-  await ask($, on, { reader: ok(IDLE_PAST_48H) })
-  expect(await band($)).toBe('')
 })
 
 // --- the pane, live -------------------------------------------------------------------

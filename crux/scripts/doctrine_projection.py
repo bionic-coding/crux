@@ -1097,8 +1097,12 @@ def _doctrine_source_models(data: dict) -> None:
             "doctrine alias model invalid")
     sp._projection_require(isinstance(data["archived_handles"], list) and all(isinstance(h, str)
         and sp._HANDLE_ANCHOR_RE.fullmatch(h) for h in data["archived_handles"]), "doctrine archived handles invalid")
+    persisted = data.get("persisted_edges")
+    sp._projection_require(persisted is None or sp._persisted_edges_shape(persisted),
+                          "doctrine persisted retirement edges invalid")
     signed = {row["handle"] for row in data["reconciliations"] if row["signed"] is not None}
-    problems = sp.retirement_problems(rows, data["removed"], signed, set(data["archived_handles"]))
+    problems = sp.retirement_problems(rows, data["removed"], signed, set(data["archived_handles"]),
+                                      persisted_edges=persisted)
     if problems: raise sp.GovernsValidationError(problems)
 
 
@@ -1182,6 +1186,10 @@ def _plan_doctrine_outputs(loaded_inputs: dict, migration_facts: dict,
     has_provenance = isinstance(loaded_inputs, dict) and "provenance" in loaded_inputs
     if has_provenance:
         expected = expected | {"provenance"}
+    # Route one of the retirement handoff (rule:retirement-persists-after-its-host-leaves-accepted);
+    # the loader always supplies it, and an input without it takes route two.
+    if isinstance(loaded_inputs, dict) and "persisted_edges" in loaded_inputs:
+        expected = expected | {"persisted_edges"}
     sp._projection_require(isinstance(loaded_inputs, dict) and set(loaded_inputs) == expected,
                           "doctrine loaded shape invalid")
     data = {k: v for k, v in loaded_inputs.items() if k not in ("tree", "paths")}
@@ -1203,7 +1211,8 @@ def _plan_doctrine_outputs(loaded_inputs: dict, migration_facts: dict,
             for h in migration_facts["retired_handles"] + migration_facts["retained_handles"])
         and all(isinstance(s, str) for s in migration_facts["reserved_slugs"]), "doctrine migration fields invalid")
     overlay = sp._summary_authority_records(data["records"], migration_facts, data["removed"], data["aliases"],
-        _prepared=pending_publication is not None and pending_publication['close_identity'].get('format')=='crux.adr-migration-publication.v1')
+        _prepared=pending_publication is not None and pending_publication['close_identity'].get('format')=='crux.adr-migration-publication.v1',
+        persisted_edges=data.get("persisted_edges"))
     signed = {row["handle"] for row in data["reconciliations"] if row["signed"] is not None}
     sp._projection_require(not signed.intersection(edge["target_handle"] for edge in migration_facts["historical_displacements"]),
                           "doctrine displacement would orphan a signed pairing")
@@ -1293,7 +1302,9 @@ def _load_doctrine_inputs(root: Path, manifest: dict, *, _prepared=None) -> tupl
     records = sp.collect_records(adrs, governs_from=gf, observations=observations)
     reviews = sp.read_reviews(adrs); removed = sp.removed_handles(reviews)
     aliases = sp.collect_observation_alias_rows(observations, records)
-    overlay = sp._summary_authority_records(records, view, removed, aliases, _prepared=_prepared is not None)
+    persisted = sp.persisted_retirement_edges(adrs)
+    overlay = sp._summary_authority_records(records, view, removed, aliases, _prepared=_prepared is not None,
+                                            persisted_edges=persisted)
     invariants = read_invariants(root)
     ledger_path = reconciliations_path(root)
     ledger_text = ledger_path.read_bytes().decode("utf-8") if ledger_path.is_file() else None
@@ -1314,7 +1325,7 @@ def _load_doctrine_inputs(root: Path, manifest: dict, *, _prepared=None) -> tupl
         reconciliations=reconciliations, bindings=bindings, governs_from=gf, tree_name=sp.tree_name(root),
         evidence_facts=evidence, exempt_entries=sp.governs_exempt_entries(manifest), digests=digests,
         aliases=aliases, removed=removed, ledger=dict(path=ledger_path.relative_to(root).as_posix(), text=ledger_text),
-        archived_handles=sorted(sp.archived_handles(adrs)),
+        archived_handles=sorted(sp.archived_handles(adrs)), persisted_edges=persisted,
         publication_history=[{k: row[k] for k in ("path", "sha256", "publication_commit")}
             for row in view["publications"][:-1]])
     if provenance:      # optional member: no record, no key, no bytes changed

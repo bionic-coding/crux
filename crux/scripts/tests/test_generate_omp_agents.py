@@ -78,7 +78,7 @@ EXPECTED_TOOLS = {
 }
 EXPECTED_SPAWNS = {
     "commander": [
-        "architect", "brainstormer", "dev-lead", "developer", "historian",
+        "architect", "brainstormer", "dev-lead", "historian",
         "librarian", "night-gardener", "reviewer", "scout", "wayfinder",
     ],
     "dev-lead": ["developer", "historian", "reviewer", "scout", "wayfinder"],
@@ -166,11 +166,11 @@ class RenderTests(unittest.TestCase):
                 else:
                     self.assertNotIn("read-summarize", fields)
 
-    def test_commander_spawns_developer_and_reviewer_and_operations_roles_hold_bash(self):
+    def test_commander_spawns_reviewer_not_developer_and_operations_roles_hold_bash(self):
         generated = agents.generate()
         fields, _ = self._parse(generated["commander.md"])
         spawns = _bracket_list(fields["spawns"])
-        self.assertIn("developer", spawns)
+        self.assertNotIn("developer", spawns)
         self.assertIn("reviewer", spawns)
         for role in ("commander", "dev-lead", "architect", "historian"):
             with self.subTest(role=role):

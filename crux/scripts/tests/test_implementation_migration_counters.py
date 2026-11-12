@@ -135,6 +135,9 @@ class PublishedSurveyCounters(unittest.TestCase):
         shutil.copytree(self.template, self.root)
         self.tree = self.root / "docs"
         (self.tree / "log.md").write_text("# Log\n")
+        # The operations log reads the op enum from the tree's own section 6.
+        (self.tree / "AGENTS.md").write_bytes(
+            (Path(__file__).resolve().parents[2] / "templates" / "AGENTS.md.tmpl").read_bytes())
         (self.root / "factual.py").write_text("x = 1\n")
         from crux.arch.recover import StateFile, candidate_id
         state = StateFile(self.tree / "arch/_recovered/state.yml")

@@ -368,7 +368,6 @@ class ParseIndexRowTests(unittest.TestCase):
         self.assertIsNone(parse_index_row(HEADER.format(last_updated=DASH), MONTH))
 
 
-
 class CategoryEnumTests(unittest.TestCase):
     """The category token is matched against a closed nine-member enum.
 
@@ -1504,78 +1503,21 @@ class SymlinkedJournalDirectoryTests(JournalCliTestCase):
 class SurfaceAbsentVerdictProseTests(JournalCliTestCase):
     """`check-drift`'s N/A verdict, bound to the payload this script emits.
 
-    The verdict was written when `generate-reviews-index.py` was the only gate
-    emitting `surface_absent`, and it was defined by naming that script. This
-    script emits the identical key, so the journal case fell through to the
-    "clean" definition above it — which its payload satisfies exactly. A
-    vacuous green, and the remedy on offer (`review-decisions`) was the wrong
-    act for a tree whose journal surface was never created.
-
-    Each lane pairs the prose with the live payload, so the verdict cannot
-    describe a key nothing emits and the key cannot lose its documented
-    reading.
+    The drift-gates runner parses `check-drift`'s gate table, so this gate's row
+    there is what runs it; the script's payload carries the key the verdict
+    reads.
     """
 
-    def setUp(self) -> None:
-        super().setUp()
-        self.verdict = next(
-            line for line in
-            CHECK_DRIFT_SKILL.read_text(encoding="utf-8").splitlines()
-            if line.startswith("- **N/A**"))
-
-    def test_the_verdict_keys_on_the_payload_key_not_on_one_script(self):
-        self.assertIn('exit 0 with `"surface_absent": true` on the JSON',
-                      self.verdict)
-        self.assertIn("The verdict keys on that payload key, not on which gate "
-                      "printed it", self.verdict)
-
-    def test_the_verdict_names_both_gates_that_emit_the_key(self):
-        self.assertIn("generate-reviews-index.py", self.verdict)
-        self.assertIn("generate-journal-index.py", self.verdict)
-
-    def test_the_verdict_gives_a_remedy_per_surface_and_never_the_regenerator(self):
-        self.assertIn("The fix is never the regenerator, and it differs by "
-                      "surface", self.verdict)
-        self.assertIn("consider `migrate-adrs` when historical decisions need assessment", self.verdict)
-        self.assertIn("`init-docs` when the journal surface was never created",
-                      self.verdict)
-
-    def test_the_verdict_still_forbids_recording_it_clean(self):
-        # PAIRED POSITIVE CONTROL for the three lanes above: the rule the
-        # generalisation was meant to preserve is still in the same bullet.
-        self.assertIn("Report it as N/A, never as clean", self.verdict)
-
-    def test_the_clean_definition_excludes_the_key_rather_than_correcting_it_later(self):
-        """The discriminator has to sit IN the clean bullet, four bullets up.
-
-        `Report it as N/A, never as clean` is an override, and an override
-        only reaches a reader who got that far. A reader matching the verdict
-        bullets top-down hits `clean` first, and a `surface_absent` payload
-        satisfies every clause that bullet used to state.
-        """
-        clean = next(line for line in
-                     CHECK_DRIFT_SKILL.read_text(encoding="utf-8").splitlines()
-                     if line.startswith("- **clean**"))
-        self.assertIn("no `surface_absent` key", clean)
-        # PAIRED POSITIVE CONTROL: the exclusion is an ADDITION to the clean
-        # definition, not a replacement for it — the conditions a real clean
-        # pass is graded on are still stated in the same bullet.
-        self.assertIn('`{"drift": false}`', clean)
-        self.assertIn("no `validation_errors`", clean)
-
     def test_this_script_really_emits_the_key_the_verdict_describes(self):
-        """The binding half: the prose above is not about a dead key."""
+        """The script emits the key the verdict reads."""
         self.journal.rmdir()
         result = self.run_cli("--dry-run")
         self.assertEqual(result.returncode, 0, self.err(result))
         payload = self.payload(result)
         self.assertIn("surface_absent", payload, payload)
         self.assertIs(payload["surface_absent"], True)
-        # The payload matches every OTHER clause of the "clean" definition
-        # above it — `{"drift": false}`, no `validation_errors`. That overlap
-        # is why the clean bullet has to exclude the key by name, which
-        # `test_the_clean_definition_excludes_the_key_rather_than_correcting_it_later`
-        # pins.
+        # The payload matches every OTHER clause of the "clean" definition:
+        # `{"drift": false}`, no `validation_errors`.
         self.assertIs(payload["drift"], False)
         self.assertNotIn("validation_errors", payload)
 
@@ -1730,7 +1672,6 @@ class UnknownCategoryRefusalTests(JournalCliTestCase):
         self.assertEqual(len(errors), 2, errors)
         self.assertIn("shipped", errors[0]["error"])
         self.assertIn("chore", errors[1]["error"])
-
 
 
 if __name__ == "__main__":

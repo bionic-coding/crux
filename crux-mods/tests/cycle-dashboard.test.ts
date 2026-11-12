@@ -527,3 +527,16 @@ test('a release cycle takes only the listed or the legacy phase sequence, and ot
   dev.cycles[0].phases = ['release']
   expect(parseReader(JSON.stringify(dev)).ok).toBe(false)
 })
+
+test('cycle band and pane draw a shortcut cycle as closed work: the done glyph and word in the warning key', () => {
+  const l = bandLine({...active, status: 'shortcut', phase: 'reflect'}, 100)
+  const i = l.findIndex(s => s.text === 'shortcut')
+  expect([l[i - 2]!.text, styleOf(l[i - 2]!), styleOf(l[i]!)]).toEqual(['\u2713', ['warning', true, false], ['warning', true, false]])
+  const meta = find(paneLines({...active, status: 'shortcut', phase: 'reflect'}, 100), 'loop 1')!
+  expect([meta.some(s => s.text === '\u2713' && s.color === 'warning'), meta.some(s => s.text === 'shortcut' && s.color === 'warning')]).toEqual([true, true])
+  // The parser admits the status, and the text answer names it.
+  const doc = structuredClone(cycle) as any
+  doc.cycles[0].status = 'shortcut'
+  expect(parseReader(JSON.stringify(doc)).ok).toBe(true)
+  expect(answer(parseReader(JSON.stringify(doc)))).toContain('shortcut')
+})

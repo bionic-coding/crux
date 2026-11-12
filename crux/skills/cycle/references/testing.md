@@ -7,7 +7,13 @@ the reason. A failure remains visible; retry unchanged inputs only with a stated
 reason, such as infrastructure recovery or investigation of flakiness.
 
 One coordinator per cycle owns lookup and execution. Other agents request checks
-through it. Matching executions already running across cycles are awaited, not
+through it. The test coordinator is the dev-lead dispatched for the task that runs
+the full checks, and with one dev-lead it is that dev-lead. Full suites, the staged
+dry run and per-minor runs run only in the test coordinator, one at a time. A
+dev-lead dispatched for any other task, developers and reviewers run focused checks
+only: the tests that exercise their change or their finding. A task that runs the
+full checks depends on every implementing Build task, so its suites never run beside
+an editing dev-lead. Matching executions already running across cycles are awaited, not
 duplicated. Use the repository evidence runner and its supported check declaration
 format; consult its help rather than inventing records or claiming reused checks ran.
 
@@ -97,8 +103,11 @@ that imports, invokes, reads, globs or enumerates a changed path. When a test
 enumerates a directory that holds a changed path, select the suite that contains that
 test. A test that builds a path from parts, such as `parent / "skills"`, reads every
 file below it. In the Crux development repository that means the two registered
-checkout suites. The cycle's one test coordinator runs them once after the streams
-integrate, and is the only writer of `checks --phase build`. It records the complete
+checkout suites. A developer unit in its own worktree runs focused checks only:
+there `parallel_suite.py` refuses a whole suite root with the code `focused-check-rule`
+unless `--allow-linked-worktree` is passed. The
+cycle's one test coordinator runs the suites once after the dev-lead integrates the
+done units on main, and is the only writer of `checks --phase build`. It records the complete
 union, because each call replaces the set. Verify reuses those receipts while their
 inputs are unchanged. A known failure found at Build stops the cycle in Build; do not
 carry it to Verify.
@@ -314,9 +323,13 @@ whose existing entries its writers never change. A gate whose verdict depends on
 entry of such a record does not run in a check that excludes the record.
 
 `suite_evidence.runtime_exclusions` produces the one shared list. It holds these
-docs-relative names: `cycles`, `journal`, `log.md`, `inbox`, `garden`, `whats_next.md`
-and `queue`. It adds the repository files listed under `evidence.bookkeeping_paths` in
-`.bionic.yml`. Each entry is a repository-relative regular file outside the docs
+docs-relative names: `cycles`, `journal`, `log.md`, `log` (the operations-log directory),
+`inbox`, `garden`, `whats_next.md` and `queue`. Every receipt excludes the whole `log`
+directory except the `drift-gates` preset. That preset runs the summary gate, which reads the
+settled detail files, `summary.md` and the split's completion, transaction and kept files, so
+it keeps them as inputs. It fingerprints the names of the staged files and excludes the current
+month's detail file by the recording host's local date. The list adds the repository files
+listed under `evidence.bookkeeping_paths` in `.bionic.yml`. Each entry is a repository-relative regular file outside the docs
 directory, with no glob, no `..` and no symlink; a missing file is allowed. Before an
 entry joins the setting or a name joins the list, record a live-read audit showing that
 every preset command and registered suite reads it not at all, or only under the
@@ -348,6 +361,20 @@ A busy check lock whose holder left no usable record is identified with `lsof`. 
 at `/usr/sbin/lsof`; on Linux it must be installed. Without it, the exit names the lock path
 and says the holder cannot be identified.
 
+## Evidence in the cycle record
+
+Outside a listed release cycle, the cycle record refers to a full check log only by its
+digest.[^small] An `evidence` attachment stores the check id, the receipt id, the pass,
+the use and the declaration digest; the log stays in the evidence store. An identical
+repeated attachment writes nothing and returns `changed: false`. Only a listed release
+cycle's record step copies the ledger, receipts and logs into the cycle.
+
+The reflection of a cycle other than a listed release cycle reports the committed size of
+its evidence.[^size] `finish` reports it as `evidence_size: {bytes, files, measure}`. The
+measure is the sum of the blob sizes that `git ls-tree -r -l` reports at the completion
+HEAD over `<docs_dir>/cycles/<id>/`; `files` counts those blobs. Bytes the finish itself
+writes are not yet committed, so they are not counted.
+
 ## Release-neutral evidence
 
 This section describes the Crux development repository.
@@ -376,6 +403,11 @@ a release-only change from invalidating their receipts.
   `CHANGELOG.md` stays a whole-file input of the checkout suites. The kind is the one
   selecting kind of the closed set, `changelog-citations:<tokens>`, and it is the only
   kind on its path.
+- **Forge logs are projected in the checkout suites.** The checkout suites fingerprint
+  each local skill root's `forge-log.md` through its preamble, the text before the first
+  line that begins `## [`. A `used` entry the engine commits lands below the preamble,
+  so it leaves both checkout receipts reusable. An edit to the preamble, or non-UTF-8
+  bytes, re-executes them. The kind is `forge-log-preamble`.
 - **What reuses.** A release-only change keeps the other receipts. An authored edit to
   `README.md`, `USER_GUIDE.md` or any other source during release prep is a real change,
   and the release verify step executes the suites that read it again.
@@ -454,3 +486,5 @@ test run on other source does not satisfy it.
 [^merge]: rule:merge-requires-every-test-on-the-head
 [^verify]: rule:tier-check-is-required-at-verify
 [^flagged]: rule:staged-per-minor-tests-are-release-tier
+[^small]: rule:cycle-record-keeps-evidence-small
+[^size]: rule:reflection-reports-evidence-size

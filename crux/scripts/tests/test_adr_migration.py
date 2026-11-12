@@ -335,7 +335,10 @@ class EarlySourceAndInstalledSupportTests(MigrationFixture):
         vote['review_bundle_sha256']=digest(encoded(m.review_bundle(self.root,self.package_path)));self.seal(vote)
         owner=dict(self.owner,presented=self.bind(self.package_path))
         m.validate_evidence(self.root,self.package_path,vote,readiness=support,initial=False,policy='council-only',owner=None)
-        invalid=copy.deepcopy(support);invalid['sources'][0]['sha256']='0'*64
+        invalid=copy.deepcopy(support);invalid['sha256']='0'*64
+        with self.assertRaises(CycleError):m.validate_readiness(self.root,invalid,initial=False)
+        # A historical byte pin keeps its own reader.
+        invalid=legacy_v1_support();invalid['sources'][0]['sha256']='0'*64
         with self.assertRaises(CycleError):m.validate_readiness(self.root,invalid,initial=False)
 
     def test_council_proof_binding_detects_changed_receipt_with_same_owner_package(self):
@@ -481,3 +484,239 @@ class InvocationReuseTests(MigrationFixture):
         with patch.object(m,'validate_package',wraps=m.validate_package) as validate:
             self.evidence();self.evidence()
         self.assertEqual(validate.call_count,2)
+
+
+def legacy_v1_support():
+    """The installed-support v1 basis as the v5.3.0 writer built it: a byte pin."""
+    plugin=Path(m.__file__).resolve().parent.parent
+    return {'format':m.INSTALLED_SUPPORT_V1,'sources':[
+        {'path':name.removeprefix('crux/'),'sha256':digest((plugin/name.removeprefix('crux/')).read_bytes())}
+        for name in m.INSTALLED_INVENTORY]}
+
+
+class IssuedInstalledSupportTests(MigrationFixture):
+    def drifted(self):
+        # A recorded v1 basis whose first inventory file has since changed.
+        basis=legacy_v1_support();basis['sources'][0]['sha256']='0'*64
+        return basis
+
+    def test_listed_v1_basis_is_accepted_through_the_issued_route_after_bytes_change(self):
+        basis=self.drifted()
+        with self.assertRaisesRegex(CycleError,'installed support source changed'):
+            m.validate_readiness(self.root,basis,initial=False)
+        with patch.object(m,'ISSUED_INSTALLED_SUPPORT',frozenset({digest(encoded(basis))})):
+            self.assertEqual(m.validate_readiness(self.root,basis,initial=False,with_route=True),(basis,'issued'))
+            # The default return value is unchanged: the readiness object alone.
+            self.assertEqual(m.validate_readiness(self.root,basis,initial=False),basis)
+            with self.assertRaisesRegex(CycleError,'initial bootstrap'):
+                m.validate_readiness(self.root,basis,initial=True)
+            extra=dict(basis,profile='1')
+            with self.assertRaisesRegex(CycleError,'invalid installed support basis'):
+                m.validate_readiness(self.root,extra,initial=False)
+
+    def test_unlisted_byte_equal_v1_basis_keeps_the_byte_route(self):
+        basis=legacy_v1_support()
+        self.assertNotIn(digest(encoded(basis)),m.ISSUED_INSTALLED_SUPPORT)
+        self.assertEqual(m.validate_readiness(self.root,basis,initial=False,with_route=True),(basis,'byte'))
+        self.assertEqual(m.validate_readiness(self.root,self.readiness,with_route=True),(self.readiness,'committed'))
+
+    def test_issued_list_equals_the_v1_bases_of_committed_approvals(self):
+        from _dev_surface import REPO_ROOT, TREE, require_dev_surface
+        approvals=REPO_ROOT/TREE/'adrs/migrations/approvals'
+        require_dev_surface(self,approvals,f'{TREE}/adrs/migrations/approvals')
+        bases={}
+        for path in sorted(approvals.glob('*.json')):
+            readiness=json.loads(path.read_text())['readiness']
+            if readiness.get('format')==m.INSTALLED_SUPPORT_V1:
+                bases[path.name]=readiness
+        self.assertEqual(m.ISSUED_INSTALLED_SUPPORT,{digest(encoded(r)) for r in bases.values()})
+        self.assertEqual(list(bases),['authority-reset-2026-11.json'])
+        readiness=bases['authority-reset-2026-11.json']
+        self.assertEqual(m.validate_readiness(REPO_ROOT,readiness,initial=False,with_route=True)[1],'issued')
+
+
+def _cli():
+    spec=importlib.util.spec_from_file_location('adr_migration_cli_profile',Path(__file__).resolve().parents[1]/'adr-migration.py')
+    cli=importlib.util.module_from_spec(spec);spec.loader.exec_module(cli)
+    return cli
+
+
+def schema_levels(schema):
+    """Every object level of a migration schema, as an approval profile declares it."""
+    levels={}
+    def visit(node,key):
+        types=node.get('type');types=[types] if isinstance(types,str) else list(types or [])
+        if 'object' in types and 'properties' in node:
+            levels[key]={'fields':sorted(node['properties']),'required':sorted(node.get('required',[])),
+                         'nullable':'null' in types}
+            for name,sub in node['properties'].items():
+                # The approval's readiness is a leaf; its if/then/else lies inside it.
+                if key=='' and name=='readiness':continue
+                visit(sub,f'{key}.{name}' if key else name)
+        elif 'array' in types and 'items' in node:
+            visit(node['items'],key+'[]')
+    visit(schema,'')
+    return levels
+
+
+class ApprovalProfileTests(MigrationFixture):
+    COUNCIL='bionic/adrs/councils/later.json'
+    APPROVAL='bionic/adrs/migrations/approvals/later.json'
+
+    @contextlib.contextmanager
+    def patched_schema(self,kind,change):
+        """Admit a record shape in the schema so the profile leg, not the schema, refuses."""
+        vp=m._validator();original=vp.load_schema
+        def load(path):
+            schema=original(path)
+            if Path(path).name==f'adr-migration-{kind}.schema.json':
+                schema=copy.deepcopy(schema);change(schema)
+            return schema
+        with patch.object(vp,'load_schema',side_effect=load):yield
+
+    def later(self,change=None,readiness=None):
+        """A later, non-initial package and its committed council on an installed basis."""
+        self.write('later-record.txt','A later independent record.\n')
+        self.package['record']=self.bind('later-record.txt');self.package['initial']=False
+        if change:change(self.package)
+        self.write(self.package_path,self.package)
+        self.owner['presented']=self.bind(self.package_path)
+        readiness=readiness or m.installed_support()
+        vote=self.council(self.package_path.removeprefix('bionic/'),self.bind(self.package_path)['sha256']);vote['readiness']=readiness
+        vote['review_bundle_sha256']=digest(encoded(m.review_bundle(self.root,self.package_path)));self.seal(vote)
+        self.write(self.COUNCIL,vote);self.commit('Later council on installed support')
+        return readiness
+
+    def approve(self,readiness,owner=None):
+        """Run the adr-migration.py approve entry point; return its exit code and JSON."""
+        self.write('readiness.json',readiness);self.write('owner.json',owner or self.owner)
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            code=_cli().main(['approve','--repo-root',str(self.root),'--id','later','--package',self.package_path,
+                '--council',self.COUNCIL,'--readiness',str(self.root/'readiness.json'),'--owner',str(self.root/'owner.json')])
+        return code,json.loads(out.getvalue())
+
+    def test_profile_one_names_every_object_level_of_both_schemas_at_the_cycle_base(self):
+        from _dev_surface import REPO_ROOT, TREE, require_dev_surface
+        require_dev_surface(self,REPO_ROOT/TREE/'adrs/migrations/approvals',f'{TREE}/adrs/migrations/approvals')
+        for kind in ('package','approval'):
+            raw=subprocess.run(['git','-C',str(REPO_ROOT),'show',f'fb675e557:crux/schemas/adr-migration-{kind}.schema.json'],
+                capture_output=True)
+            self.assertEqual(raw.returncode,0,raw.stderr.decode())
+            with self.subTest(kind=kind):
+                self.assertEqual(m.APPROVAL_PROFILES['1'][kind],schema_levels(json.loads(raw.stdout)))
+        top=m.APPROVAL_PROFILES['1']['approval']['']
+        self.assertIn('readiness',top['fields']);self.assertIn('readiness',top['required'])
+        self.assertFalse(any(level.startswith('readiness') for level in m.APPROVAL_PROFILES['1']['approval']))
+
+    def test_profile_digest_is_pinned_and_an_edited_profile_refuses(self):
+        self.assertEqual(m.APPROVAL_PROFILE_DIGESTS,{'1':'8143c7f20a1428d52911afaf8a7f2429b4ab1fe1713dfb5b722f1c6b388fc4a2'})
+        self.assertEqual(m.CURRENT_APPROVAL_PROFILE,'1')
+        edited=copy.deepcopy(m.APPROVAL_PROFILES['1']);edited['package']['record']['fields'].append('note')
+        with patch.dict(m.APPROVAL_PROFILES,{'1':edited}):
+            with self.assertRaisesRegex(CycleError,r'approval profile 1 changed; issue a new profile'):
+                m.validate_readiness(self.root,{'format':m.INSTALLED_SUPPORT_V2,'profile':'1','sha256':m.APPROVAL_PROFILE_DIGESTS['1']},initial=False)
+            with self.assertRaisesRegex(CycleError,'approval profile 1 changed'):m.installed_support()
+
+    def test_v2_basis_is_accepted_only_through_its_pinned_digest(self):
+        support=m.installed_support()
+        self.assertEqual(support,{'format':m.INSTALLED_SUPPORT_V2,'profile':'1','sha256':m.APPROVAL_PROFILE_DIGESTS['1']})
+        self.assertEqual(m.validate_readiness(self.root,support,initial=False,with_route=True),(support,'profile'))
+        for label,value,message in (('unknown profile',dict(support,profile='2'),'unsupported approval profile'),
+                ('other digest',dict(support,sha256='0'*64),'profile digest'),
+                ('extra key',dict(support,sources=[]),'invalid installed support basis')):
+            with self.subTest(label),self.assertRaisesRegex(CycleError,message):
+                m.validate_readiness(self.root,value,initial=False)
+        with self.assertRaisesRegex(CycleError,'initial bootstrap'):m.validate_readiness(self.root,support,initial=True)
+        m.validate_schema({'format':m.FORMATS['approval'],'id':'x','package':self.bind(self.package_path),'council':self.bind(self.council_path),
+            'readiness':support,'policy':'council-only','policy_basis':self.head(),'owner':None,'at':'2026-11-07T00:00:00Z',
+            'review_bundle_sha256':'0'*64},'approval')
+
+    def test_conforming_package_is_approved_on_a_v2_basis(self):
+        readiness=self.later()
+        code,result=self.approve(readiness)
+        self.assertEqual(code,0,result);self.assertEqual(result['readiness'],readiness)
+        self.commit('Approval on installed support v2')
+        self.assertEqual(m.validate_approval(self.root,self.APPROVAL)['readiness'],readiness)
+        # A null owner is a nullable level the profile skips.
+        self.assertIs(m.check_profile('approval',dict(result,owner=None),'1')['owner'],None)
+
+    def test_conforming_package_still_approves_when_the_schema_adds_an_unused_optional_field(self):
+        def optional(schema):schema['properties']['items']['items']['properties']['note']={'type':'string'}
+        with self.patched_schema('package',optional):
+            readiness=self.later()
+            code,result=self.approve(readiness)
+        self.assertEqual(code,0,result)
+
+    def test_package_field_the_profile_does_not_name_refuses_with_its_path_and_profile(self):
+        def optional(schema):schema['properties']['items']['items']['properties']['note']={'type':'string'}
+        def carry(package):package['items'][0]['note']='A field a later schema admits.'
+        with self.patched_schema('package',optional):
+            readiness=self.later(carry)
+            code,result=self.approve(readiness)
+        self.assertEqual(code,1)
+        self.assertEqual(result['error'],'approval profile 1 does not name package field items[0].note')
+        self.assertFalse((self.root/self.APPROVAL).exists())
+
+    def test_package_missing_a_profile_required_nested_field_refuses(self):
+        def relax(schema):schema['properties']['items']['items']['required'].remove('original_rationale')
+        def drop(package):del package['items'][0]['original_rationale']
+        with self.patched_schema('package',relax):
+            readiness=self.later(drop)
+            with self.assertRaisesRegex(CycleError,r'^approval profile 1 requires package field items\[0\]\.original_rationale$'):
+                m.record_approval(self.root,'later',self.package_path,self.COUNCIL,readiness,owner=self.owner)
+        self.assertFalse((self.root/self.APPROVAL).exists())
+
+    def test_approval_nested_field_the_profile_does_not_name_refuses(self):
+        def admit(schema):schema['properties']['owner']['properties']['presented']['properties']['note']={'type':'string'}
+        readiness=self.later()
+        owner=copy.deepcopy(self.owner);owner['presented']['note']='An extra presented field.'
+        with self.patched_schema('approval',admit):
+            code,result=self.approve(readiness,owner=owner)
+        self.assertEqual(code,1)
+        self.assertEqual(result['error'],'approval profile 1 does not name approval field owner.presented.note')
+        self.assertFalse((self.root/self.APPROVAL).exists())
+
+    def test_basis_named_profile_refuses_a_field_only_a_later_current_profile_names(self):
+        readiness=self.later()
+        second=copy.deepcopy(m.APPROVAL_PROFILES['1']);second['package']['items[]']['fields']=sorted([*second['package']['items[]']['fields'],'note'])
+        pins=dict(m.APPROVAL_PROFILE_DIGESTS,**{'2':digest(encoded(second))})
+        def optional(schema):schema['properties']['items']['items']['properties']['note']={'type':'string'}
+        def carry(package):package['items'][0]['note']='A field only profile 2 names.'
+        with self.patched_schema('package',optional):
+            readiness=self.later(carry,readiness=readiness)
+            with patch.dict(m.APPROVAL_PROFILES,{'2':second}),patch.object(m,'APPROVAL_PROFILE_DIGESTS',pins),\
+                    patch.object(m,'CURRENT_APPROVAL_PROFILE','2'):
+                code,result=self.approve(readiness)
+        self.assertEqual(readiness['profile'],'1')
+        self.assertEqual(code,1)
+        self.assertEqual(result['error'],'approval profile 1 does not name package field items[0].note')
+        self.assertFalse((self.root/self.APPROVAL).exists())
+
+    def test_new_approval_refuses_an_installed_support_v1_basis_including_an_issued_one(self):
+        legacy=legacy_v1_support()
+        readiness=self.later(readiness=legacy)
+        for label,issued in (('byte-equal',frozenset()),('issued',frozenset({digest(encoded(legacy))}))):
+            with self.subTest(label),patch.object(m,'ISSUED_INSTALLED_SUPPORT',issued):
+                code,result=self.approve(readiness)
+                self.assertEqual((code,result['error']),(1,'new approvals bind installed support v2'))
+        self.assertFalse((self.root/self.APPROVAL).exists())
+
+    def test_rerunning_approve_for_a_recorded_v1_approval_returns_it_unchanged(self):
+        legacy=legacy_v1_support()
+        readiness=self.later(readiness=legacy)
+        # Record the approval as the v5.3.0 writer did, before v1 refusal existed.
+        with patch.object(m,'_new_approval_basis'):
+            recorded=m.record_approval(self.root,'later',self.package_path,self.COUNCIL,readiness,owner=self.owner)
+        self.commit('Approval recorded on installed support v1')
+        before=(self.root/self.APPROVAL).read_bytes()
+        code,result=self.approve(readiness)
+        self.assertEqual((code,result),(0,recorded))
+        self.assertEqual(before,(self.root/self.APPROVAL).read_bytes())
+
+    def test_readiness_command_output_is_unchanged(self):
+        for readiness,initial in ((self.readiness,True),(m.installed_support(),False)):
+            self.write('readiness.json',readiness)
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                code=_cli().main(['readiness','--repo-root',str(self.root),'--readiness',str(self.root/'readiness.json')])
+            if initial:self.assertEqual((code,json.loads(out.getvalue())),(0,self.readiness))
+            else:self.assertEqual((code,json.loads(out.getvalue())['error']),(1,'initial bootstrap requires committed U1 readiness'))

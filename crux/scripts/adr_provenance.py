@@ -32,7 +32,7 @@ rule present there is binding at its `base` entry. When any governs field but `p
 differs between `entry` and `base`, that edit is in-run text, which is guidance. A rule present
 at `base_commit` that the run deleted is listed in `removed_in_run`; it stays binding at its
 `base` entry until the owner promotes the deletion. A promotion, recorded from the owner's own
-instruction (rule:owner-promotes-guidance), makes a rule binding at its `entry`, or makes a
+instruction (rule:historical-records-keep-their-interpretation), makes a rule binding at its `entry`, or makes a
 deletion take effect. Standing is not liveness: a guidance rule stays live and resolves wherever
 a binding rule resolves (rule:guidance-rules-keep-resolving), so nothing here removes a rule.
 

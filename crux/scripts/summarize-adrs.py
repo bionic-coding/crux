@@ -275,6 +275,7 @@ def _load_summary_inputs(root: Path, manifest: dict, *, _prepared=None) -> tuple
     loaded = dict(tree=tree, paths=paths, records=records, reviews=reviews, aliases=aliases,
         governs_from=gf, implementation_map=sp.build_implementation_map(adrs, sp.runs_dir(root), repo_root=root),
         metadata=metadata, archived_handles=sorted(sp.archived_handles(adrs)),
+        persisted_edges=sp.persisted_retirement_edges(adrs),
         signed_handles=sorted(sp.signed_reconciliation_handles(adrs)), historical_clauses=clauses,
         publication_history=[{k: row[k] for k in ("path", "sha256", "publication_commit")}
                              for row in view["publications"][:-1]])

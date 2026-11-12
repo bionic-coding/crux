@@ -376,6 +376,67 @@ def history(cfg,purpose,subject,logical_id,cycle_id=None,allow_open=False):
     return sorted(rows,key=lambda row:(row.get('started_at',''),row.get('id','')))
 
 
+LOGICAL_PURPOSES=('adr','disposition')
+
+
+def _flock_held(attempt_path):
+    """Whether another process holds the attempt's flock; a missing lock file counts as not held. Creates nothing."""
+    try:fd=os.open(attempt_path.with_suffix('.lock'),os.O_RDWR|os.O_NOFOLLOW)
+    except FileNotFoundError:return False
+    except OSError:return True
+    try:
+        try:fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        except OSError:return True
+        fcntl.flock(fd,fcntl.LOCK_UN);return False
+    finally:os.close(fd)
+
+
+def _other_scopes(cfg,cycle_id):
+    """(directory, cycle_id or None, active) for every council scope other than the one being convened."""
+    out=[]
+    if cycle_id:out.append((contained(cfg.docs_root,'adrs/councils'),None,True))
+    cycles=cfg.docs_root/'cycles'
+    if cycles.is_dir() and not cycles.is_symlink():
+        from cycle_workflow import ID
+        for folder in sorted(cycles.iterdir()):
+            if folder.name==cycle_id or not ID.fullmatch(folder.name) or folder.is_symlink() or not folder.is_dir():continue
+            try:
+                directory=contained(cfg.docs_root,f'cycles/{folder.name}/councils')
+                status=json.loads(contained(cfg.docs_root,f'cycles/{folder.name}/cycle.json').read_text()).get('status')
+            except (CycleError,OSError,ValueError,AttributeError):continue
+            out.append((directory,folder.name,status=='active'))
+    return out
+
+
+def logical_history(cfg,purpose,subject,logical_id,cycle_id=None,allow_open=False):
+    """Every attempt of one logical adr or disposition decision, across the standalone and every cycle scope.
+
+    The scope being convened keeps `history`'s matching and unresolved refusal. In another scope a row counts when
+    its purpose matches and its logical id (or a legacy row's readable subject) yields this logical id; an unreadable,
+    unknown-format or unmatched row is skipped. An unresolved row in another active scope refuses; in a cycle that is not
+    active it counts and blocks only while its attempt flock is held. Rows merge by started_at, then attempt id."""
+    if purpose not in LOGICAL_PURPOSES:raise CycleError('logical history spans scopes for adr and disposition only')
+    from council_policy import ATTEMPT,read_json
+    rows=list(history(cfg,purpose,subject,logical_id,cycle_id,allow_open))
+    for base,scope,active in _other_scopes(cfg,cycle_id):
+        if not base.is_dir() or base.is_symlink():continue
+        for path in sorted(base.rglob('attempt-*.json')):
+            try:
+                row=read_json(cfg.repo_root,path.relative_to(cfg.repo_root).as_posix())
+                if not isinstance(row,dict) or row.get('purpose')!=purpose:continue
+                if row.get('format')==ATTEMPT:matches=row.get('logical_id')==logical_id
+                elif row.get('format')=='crux.cycle-council-attempt':
+                    matches=logical_identity(cfg,purpose,row['subject'],row.get('cycle_id'))==logical_id
+                else:continue
+            except (CycleError,OSError,ValueError,KeyError,TypeError):continue
+            if not matches:continue
+            if row.get('status') not in {'finished','failed','interrupted'} and not allow_open:
+                if active:raise CycleError('unresolved council attempt; recover original result before another request')
+                if _flock_held(path):raise CycleError('council attempt is still running: its flock is held')
+            rows.append(row)
+    return sorted(rows,key=lambda row:(row.get('started_at',''),row.get('id','')))
+
+
 def idr_history(cfg,doc,name,allow_open=False):
     """Every council attempt that counts against an IDR name: its own, then those of each withdrawn record it replaces.
 
@@ -513,6 +574,9 @@ def begin_mode(repo,purpose,subject,question,*,cycle_id=None,identity=None,progr
     if purpose=='idr' and cycle_id:
         from cycle_workflow import load
         prior=idr_history(cfg,load(repo,cycle_id),idr_name(cfg,subject))
+    elif purpose in LOGICAL_PURPOSES:
+        # One count across scopes; the progress check compares with the newest merged row.
+        prior=logical_history(cfg,purpose,subject,logical,cycle_id);own=prior
     else:prior=own
     frozen=prior[-1].get('policy') if prior else None
     if prior and frozen is None:
@@ -711,6 +775,7 @@ def convene(repo,purpose,subject,question,*,cycle_id=None,progress=None,human_ap
     if purpose=='idr' and cycle_id:
         from cycle_workflow import load as load_cycle
         previous=idr_history(cfg,load_cycle(repo,cycle_id),idr_name(cfg,subject))
+    elif purpose in LOGICAL_PURPOSES:previous=logical_history(cfg,purpose,subject,logical,cycle_id)
     else:previous=history(cfg,purpose,subject,logical,cycle_id)
     frozen=previous[-1].get('policy') if previous else None
     if previous and frozen is None:frozen={'mode':'strict','settings':policy.normalized({}),'legacy_limit':3}

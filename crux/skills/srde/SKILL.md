@@ -201,4 +201,4 @@ class MyDomainResolver(ContextResolver):
 - **CANNOT_RESOLVE** — escalate or synthesize probe
 - **NEEDS_SANDBOX** / **NEEDS_HUMAN** — explicit escalation paths
 
-[^srde]: rule:de-wire-srde-from-adr-path, rule:blocking-finding-classification
+[^srde]: rule:de-wire-srde-from-adr-path, rule:blocking-finding-names-a-plausible-failure

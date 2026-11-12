@@ -132,12 +132,13 @@ def streams(doc):
 
 
 def permitted_roles(doc, task):
-    if task['phase'] == 'build':
-        independent = [stream for stream in streams(doc) if stream.get('independent') is True]
-        units = task.get('integrates', [])
-        roles = ['developer']
-        if len(independent) >= 2 or len(units) >= 2:
-            roles.append('dev-lead')
+    """The roles an omitted `role` may select for a task.
+
+    Build tasks and fix tasks, in any phase, go to the dev-lead: it implements bounded work on the
+    main checkout or dispatches developers and integrates them (IDR dev-lead-owned-build approach 1).
+    A developer attempt needs an explicit role, which the dev-lead passes for the child units it adds."""
+    if task['phase'] == 'build' or task.get('fix'):
+        roles = ['dev-lead']
     else:
         roles = {'plan': ['architect'], 'verify': ['dev-lead'], 'test': ['dev-lead'],
                  'review': ['reviewer'], 'reflect': ['historian'], 'release': ['dev-lead']}.get(task['phase'], [])
@@ -155,6 +156,21 @@ def role_skills(role):
     return [name.strip().strip('\"\'') for name in match.group(1).split(',') if SKILL_ID.fullmatch(name.strip().strip('\"\''))] if match else []
 
 
+EXPLICIT_MENTION = re.compile(r'(?<![a-z0-9-])([a-z][a-z0-9]+(?:-[a-z0-9]+)+)(?![a-z0-9-])')
+
+
+def mentioned_ids(text):
+    """Skill ids a lowercased task description names explicitly."""
+    return set(EXPLICIT_MENTION.findall(text))
+
+
+def eligible(ident, text, terms, explicit=None):
+    """The shared domain filter: an explicit id mention or a domain term in the lowercased description.
+
+    Plugin and project-local candidates both use it, so the two cannot diverge."""
+    return ident in (mentioned_ids(text) if explicit is None else explicit) or any(term in text for term in terms)
+
+
 def candidates(doc, task, role):
     return memo(('skills', doc['id'], doc['revision'], task['id'], role), lambda: _candidates(doc, task, role))
 
@@ -166,7 +182,7 @@ def _candidates(doc, task, role):
     # Repository scope names explain ownership, not the work's domain. In particular
     # "bionic/adrs" must not preload backfill or migration skills into a UI task.
     text = task['description'].lower()
-    explicit = set(re.findall(r'(?<![a-z0-9-])([a-z][a-z0-9]+(?:-[a-z0-9]+)+)(?![a-z0-9-])', text))
+    explicit = mentioned_ids(text)
     domains = {
         'call-llm': ('external model', 'model gateway', 'openrouter', 'classifier', 'decisions api'),
         'council': ('council',),
@@ -183,7 +199,7 @@ def _candidates(doc, task, role):
         ident = item.get('id', '')
         if not SKILL_ID.fullmatch(ident):
             continue
-        if ident in declared or ident == 'cycle' or ident in explicit or any(term in text for term in domains.get(ident, ())):
+        if ident in declared or ident == 'cycle' or eligible(ident, text, domains.get(ident, ()), explicit):
             relevant.append({'id': ident, 'description': item.get('description', '')})
     relevant.sort(key=lambda item: (item['id'] != 'cycle', item['id'] not in declared, item['id']))
     return relevant[:MAX_CANDIDATES]
@@ -422,18 +438,6 @@ def plan_new(cfg, doc, job, repo_root=None):
     import cycle_classify as c
     if doc['status'] != 'active':
         return None
-    if job.kind == 'execution-arrangement':
-        task = c.task_entry(doc, job.subject)
-        if task is None or task['phase'] != doc['phase']:
-            return None
-        roles = permitted_roles(doc, task)
-        if len(roles) < 2:
-            return None
-        source = {'task': {'id': task['id'], 'description': task['description'], 'depends_on': task['depends_on']},
-                  'phase': doc['phase'], 'cycle_type': doc['type'], 'streams': streams(doc),
-                  'integrates': task.get('integrates', []), 'permitted_roles': roles}
-        state = {**source, 'task': {**source['task'], 'description': c.bounded(task['description'], c.MAX_TASK_CHARS)}}
-        return c.sourced(c.Plan(state, roles, c.digest({'phase': doc['phase'], 'task_status': task['status']})), source)
     if job.kind == 'context-selection':
         match = re.fullmatch(r'(.+):skill-([0-9]+)', job.subject)
         role = (job.trigger or '').removeprefix('role:')

@@ -30,13 +30,23 @@ import sys
 import time
 import tomllib
 
-from test_evidence import EvidenceError, execute, lookup, normalize, read_receipts, storage
+from test_evidence import EvidenceError, execute, forge_log_preamble, lookup, normalize, read_receipts, storage
 
 DEFAULT_PATTERN = "test*.py"
 INPUTS = ["crux", "crux-mods", "tools", "opencode", "bionic", "public", "*.md",
           "*.sh", "pyproject.toml", "uv.lock", ".bionic.yml", ".claude-plugin",
           ".agents/plugins", ".codex-plugin", ".github", ".claude/skills",
-          ".agents/skills", ".opencode/skills", ".opencode/skill", ".generated"]
+          ".agents/skills", ".opencode/skills", ".opencode/skill", ".omp/skills", ".generated"]
+# Each local root's forge-log.md is projected in the registered checkout declarations with the selecting
+# kind `forge-log-preamble`: only the bytes before the first line that begins `## [` are fingerprinted, so
+# an engine-written `used` entry, which lands after the preamble, leaves the checkout receipts reusable.
+# The live-read audit (bionic/cycles/CYC-0120/evidence/build/forge-log-live-read-audit.md) found one
+# reader past the preamble, tools/tests/test_canonical_instruction_file.py; it now reads only the
+# preamble of every root's forge log (CYC-0127). A second copy of cycle_local_skills.ALL_ROOTS, because
+# this module must not import the cycle engine; a test holds the two equal.
+LOCAL_SKILL_ROOTS = (".claude/skills", ".agents/skills", ".opencode/skills", ".opencode/skill", ".omp/skills")
+FORGE_LOGS = tuple(f"{root}/forge-log.md" for root in LOCAL_SKILL_ROOTS)
+FORGE_LOG_PROJECTIONS = {path: ["forge-log-preamble"] for path in FORGE_LOGS}
 # `uv.lock` and `pyproject.toml` stay inputs on purpose. The requirement's lock digest (the export,
 # with the project left out) is separate from the files a test reads, and tests read both files and
 # stage or scan the whole checkout. Narrowing INPUTS to exclude the version-bump files needs an
@@ -50,8 +60,17 @@ INPUTS = ["crux", "crux-mods", "tools", "opencode", "bionic", "public", "*.md",
 # (crux/scripts/tests/_live_copy.py). Schemas, templates, instruction files, decisions,
 # observations, invariants, arch, research and briefs stay inputs. The audit and the coverage
 # comparison for each removed duplicate are in bionic/cycles/CYC-0016/evidence/build/b1-* and, for
-# `queue`, in bionic/cycles/CYC-0036/evidence/build/live-read-audit.md.
-DOCS_EXCLUSIONS = ("cycles", "journal", "log.md", "inbox", "garden", "whats_next.md", "queue")
+# `queue`, in bionic/cycles/CYC-0036/evidence/build/live-read-audit.md. `log` is the operations log's
+# monthly directory, which the log writer creates beside or in place of `log.md`; at its addition no
+# tracked file lay under `bionic/log/`, so no suite test read one (CYC-0134 build-slice-v2).
+# Live-read audit of the log exclusion (CYC-0134 build-readers-v2, br-paths): a search of both test roots
+# for reads of the live tree's `log.md` or `log/` found none. `git ls-files bionic/log` is empty; the
+# tests that open a log (the writer, the repair, the summary, the migration, the cycle and release
+# record tests) build a temporary tree; the live copy keeps a committed fixture of `log.md`
+# (crux/scripts/tests/_live_copy.py); `_dev_surface.TREE_LOG_MD` has no reader. So no test needs an
+# excluded path and nothing was narrowed. The `drift-gates` preset alone runs the summary gate, so
+# `drift_gates_exclusions` adds the settled log files back to its inputs.
+DOCS_EXCLUSIONS = ("cycles", "journal", "log.md", "log", "inbox", "garden", "whats_next.md", "queue")
 # Docs-relative decision records. The registered CHECKOUT declarations leave them out of their inputs, so
 # a commit that changes only decisions reuses the main run's receipt (IDR one-main-test-run, revision 4).
 # A separate tuple, not part of DOCS_EXCLUSIONS, because DOCS_EXCLUSIONS also feeds every preset and the
@@ -188,6 +207,33 @@ def runtime_exclusions(root, names=None):
     return [docs + "/" + name for name in (DOCS_EXCLUSIONS if names is None else names)] + bookkeeping_paths(root)
 
 
+def drift_gates_exclusions(root, today=None):
+    """The `drift-gates` preset's exclusions: the shared list, with the log directory narrowed.
+
+    The preset's command runs the summary gate, which reads the settled detail files and
+    `log/summary.md`, so those stay inputs together with the completion record, the transaction file
+    and the kept files. What it excludes of `log/` is the legacy `log.md` (already in the shared list),
+    the current month's detail file by the recording host's local date, and the staged legacy files and
+    staged strays that exist. Each excluded path sits in the declaration by name, so the fingerprint
+    covers the names and never the bytes: a month change, or any incomplete split state, lapses a
+    receipt, which only costs a rerun. ``today`` (YYYY-MM-DD) replaces the host's local date for tests.
+    """
+    import operation_log
+    today = operation_log.resolve_today(today, write=False)
+    docs = _docs_relative(root)
+    log = f"{docs}/{operation_log.LOG_DIR}"
+    kept = tuple(name for name in DOCS_EXCLUSIONS if name != operation_log.LOG_DIR)
+    found = [f"{log}/{today[:7]}.md"]
+    directory = Path(root) / log
+    try:
+        listed = sorted(os.listdir(directory)) if stat.S_ISDIR(os.lstat(directory).st_mode) else []
+    except OSError:
+        listed = []
+    found += [f"{log}/{name}" for name in listed
+              if operation_log.STAGED_LEGACY_NAME.fullmatch(name) or operation_log.STAGED_STRAY_NAME.fullmatch(name)]
+    return [*runtime_exclusions(root, names=kept), *found]
+
+
 def dev_minor(root):
     """The development default minor from ``.python-version``, else the running interpreter's."""
     version = Path(root) / ".python-version"
@@ -303,6 +349,7 @@ def _declaration(scope, start, pattern, top, root, minor, requirement, *, regist
         declaration["exclude_inputs"] = [*declaration["exclude_inputs"], *records, *RELEASE_EXCLUSIONS[scope]]
         declaration["input_projections"] = {path: list(kinds) for path, kinds in RELEASE_PROJECTIONS[scope].items()}
         if scope == "checkout":
+            declaration["input_projections"].update({path: list(kinds) for path, kinds in FORGE_LOG_PROJECTIONS.items()})
             # A caller building several declarations passes the projection it computed once.
             declaration["input_projections"].update(_changelog_projection(root) if changelog is None else changelog)
     if requirement is not None:
@@ -521,12 +568,14 @@ def _tier_preset_command(root, roots):
     return tier_check_command(roots, (), checker)
 
 
-def preset_declaration(root, preset, check_id, *, command=None, requirement=None):
+def preset_declaration(root, preset, check_id, *, command=None, requirement=None, today=None):
     """The concrete declaration for ``preset``, validated by the engine's own normalizer.
 
     Only ``whole-tree`` takes the caller's command, and it needs one; every other preset fixes its
     own. A caller requirement replaces the preset's default. A preset whose script is absent from
-    ``root`` refuses as not applicable, because the check cannot run there.
+    ``root`` refuses as not applicable, because the check cannot run there. ``today`` (YYYY-MM-DD)
+    replaces the host's local date, which only the ``drift-gates`` preset reads (see
+    ``drift_gates_exclusions``).
     """
     root = Path(root).resolve()
     if preset not in PRESETS:
@@ -565,7 +614,8 @@ def preset_declaration(root, preset, check_id, *, command=None, requirement=None
                        "git_tracked": False, "exclude_inputs": runtime_exclusions(root)}
     else:
         declaration = {"check_id": check_id, "command": chosen, "inputs": list(INPUTS), "environment": [],
-                       "git_tracked": True, "exclude_inputs": runtime_exclusions(root)}
+                       "git_tracked": True,
+                       "exclude_inputs": drift_gates_exclusions(root, today) if preset == "drift-gates" else runtime_exclusions(root)}
     if requirement is not None:
         declaration["requirement"] = requirement
     elif spec["tools"] is not None:

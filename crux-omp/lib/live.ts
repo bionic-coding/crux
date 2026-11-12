@@ -190,6 +190,7 @@ const CYCLE_BADGE: Readonly<Record<string, { glyph: string; label: string; color
   paused: { glyph: STATE_GLYPHS.skipped ?? '\u{2298}', label: 'PAUSED', color: 'warning' },
   completed: { glyph: STATE_GLYPHS.done ?? '\u{2713}', label: 'COMPLETED', color: 'success' },
   abandoned: { glyph: STATE_GLYPHS.blocked ?? '\u{2717}', label: 'ABANDONED', color: 'error' },
+  shortcut: { glyph: STATE_GLYPHS.done ?? '\u{2713}', label: 'SHORTCUT', color: 'warning' },
 }
 
 function phaseTrackLine(c: CycleView, width: number): Line {
@@ -487,7 +488,7 @@ function buildCycleQueueCard(queue: CycleQueueView, cycles: readonly CycleView[]
   for (const item of queue.items.slice(0, 6)) {
     const st = item.state === 'started' && item.cycle ? (statusByCycle.get(item.cycle) ?? 'started') : item.state
     const glyph =
-      st === 'completed'
+      st === 'completed' || st === 'shortcut'
         ? (STATE_GLYPHS.done ?? '\u{2713}')
         : st === 'active' || st === 'starting'
           ? (STATE_GLYPHS.running ?? '\u{25B8}')
@@ -495,7 +496,7 @@ function buildCycleQueueCard(queue: CycleQueueView, cycles: readonly CycleView[]
             ? (STATE_GLYPHS.skipped ?? '\u{2298}')
             : (STATE_GLYPHS.pending ?? '\u{25CC}')
     const color: Span['color'] =
-      st === 'completed' ? 'success' : st === 'active' || st === 'starting' ? 'claude' : st === 'held' ? 'warning' : 'subtle'
+      st === 'completed' ? 'success' : st === 'shortcut' ? 'warning' : st === 'active' || st === 'starting' ? 'claude' : st === 'held' ? 'warning' : 'subtle'
     const deps =
       item.dependsOn.length > 0
         ? ` after ${item.dependsOn
@@ -547,11 +548,11 @@ export function buildOmpCyclesPane(cycles: readonly CycleView[], nowS: number | 
     blocks.push(boxOf(buildLiveActivitySection(live, innerWidth), 'claude'))
   }
 
-  // 2. Partition cycles into Current (active), Paused (paused/waiting), and Previous (completed/abandoned)
+  // 2. Partition cycles into Current (active), Paused (paused/waiting), and Previous (completed/abandoned/shortcut)
   const activeCycles = cycles.filter(c => c.status === 'active')
   const pausedCycles = cycles.filter(c => c.status === 'paused' || (c.status === 'active' && (c.blocker !== null || c.waits.length > 0)))
   const pureActive = activeCycles.filter(c => !pausedCycles.includes(c))
-  const previousCycles = cycles.filter(c => c.status === 'completed' || c.status === 'abandoned')
+  const previousCycles = cycles.filter(c => c.status === 'completed' || c.status === 'abandoned' || c.status === 'shortcut')
 
   if (pureActive.length > 0) {
     for (const c of pureActive.slice(0, 2)) {

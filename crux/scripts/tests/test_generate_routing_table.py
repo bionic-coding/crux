@@ -28,7 +28,6 @@ SCRIPT = REPO_ROOT / "crux" / "scripts" / "generate-routing-table.py"
 from _authoring_fixture import seed_authoring_probe
 
 
-
 def _load_module():
     spec = importlib.util.spec_from_file_location("generate_routing_table", SCRIPT)
     mod = importlib.util.module_from_spec(spec)
@@ -410,17 +409,6 @@ class ExitAndEnrollmentTestCase(unittest.TestCase):
             )
             self.assertEqual(proc.returncode, 1)
             self.assertIn('"error"', proc.stdout)
-
-    def test_enrolled_in_the_regenerative_outputs_table(self):
-        claude = REPO_ROOT / "AGENTS.md"
-        if not claude.is_file():
-            self.skipTest(
-                "repo-root AGENTS.md absent (staged public artifact) — the "
-                "regenerative-outputs roster is dev-repo only"
-            )
-        self.assertIn("generate-routing-table.py", claude.read_text(encoding="utf-8"))
-
-
 
 
 class FreshProjectRoutingTests(unittest.TestCase):

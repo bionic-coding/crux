@@ -315,6 +315,11 @@ def load_catalog_yaml(text: str) -> dict:
             data = _normalize(yaml.safe_load(text))
         except yaml.YAMLError as exc:
             raise CatalogYamlError(f"invalid YAML: {str(exc).splitlines()[0]!r}") from exc
+        except ValueError as exc:
+            # safe_load resolves a plain scalar shaped like a timestamp to a
+            # date and raises ValueError, not YAMLError, when the date does not
+            # exist (`2026-02-30`). That is a document verdict, not a crash.
+            raise CatalogYamlError(f"invalid YAML: {str(exc).splitlines()[0]!r}") from exc
     if not isinstance(data, dict):
         raise CatalogYamlError(
             f"catalog document root must be a mapping, got {type(data).__name__} — "

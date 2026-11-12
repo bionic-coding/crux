@@ -64,7 +64,8 @@
         "active",
         "paused",
         "completed",
-        "abandoned"
+        "abandoned",
+        "shortcut"
       ]
     },
     "phase": {
@@ -212,13 +213,29 @@
                 "description": "Build task IDs this Build unit integrates; each must also be a dependency.",
                 "items": {"type": "string", "minLength": 1}
               },
+              "stream": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+                "description": "The id of a declared independent plan stream; execution proof then tests this task's own edited paths and own commits against that stream's paths."
+              },
+              "adr_dependencies": {
+                "type": "array",
+                "description": "Names of ADR decisions recorded in this cycle that this task depends on; an unaccepted or unrecorded name blocks the task.",
+                "items": {"type": "string", "minLength": 1}
+              },
               "status": {
                 "enum": [
                   "pending",
                   "active",
                   "done",
-                  "blocked"
+                  "blocked",
+                  "superseded"
                 ]
+              },
+              "superseded_by": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The id of the plan task that replaces this task; present exactly when status is superseded. A dependency on this task is satisfied once the superseder is done."
               },
               "expected_evidence": {
                 "type": "array",
@@ -576,7 +593,8 @@
               "active",
               "paused",
               "completed",
-              "abandoned"
+              "abandoned",
+              "shortcut"
             ]
           },
           "revision": {

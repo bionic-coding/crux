@@ -113,6 +113,15 @@ Findings fold into the skill body. If a source is institutionally valuable (a st
 
 Write `${CRUX_LOCAL_SKILLS_DIR}/<name>/` — one directory, one `SKILL.md` per the Agent Skills spec (same frontmatter shape as any crux skill), plus optional PEP 723 self-describing helper scripts.
 
+**Optional `metadata.domain_terms`:** a cycle offers a project-local skill to a task when the task description names the skill's id, or when it contains one of the skill's domain terms. Declare the terms as one frontmatter string of the form `term | term`, with 1 to 8 terms, each 4 to 60 characters of `[a-z0-9 -]`:
+
+```yaml
+metadata:
+  domain_terms: "release notes | changelog entry"
+```
+
+An invalid value gives the skill no terms; the cycle lists it as refused with reason `invalid-domain-terms` and still offers it when the task names its id. An id names the skill only when it starts with a letter, its first segment has at least two characters and it holds at least one hyphen. A skill such as `deploy` is offered only through its domain terms. A cycle never offers a local skill whose frontmatter declares `allowed-tools` or `tools`, or whose name shadows a plugin skill.
+
 **Name-collision check (required before writing):**
 - Skill names MUST match `^[a-z0-9][a-z0-9-]*$` (lowercase kebab slug). Reject any name containing `/`, `\`, `.`, `..`, whitespace, `|`, `[`, or a leading dot or hyphen. A name containing `/` or `..` escapes `${CRUX_LOCAL_SKILLS_DIR}/` — reject, never sanitize-and-proceed. The validated slug is what appears in the directory path AND the forge-log header.
 - Run `ls ${CRUX_LOCAL_SKILLS_DIR}/` to see existing forged skills.
@@ -169,7 +178,7 @@ These disciplines moved here from the prior RSI orchestrator. They apply through
 
 **Path:** `${CRUX_LOCAL_SKILLS_DIR}/forge-log.md` — a single file at the root of the `${CRUX_LOCAL_SKILLS_DIR}/` directory, beside the skill subdirectories. Not a skill dir itself. Created on first write — so the log exists even in docs-less projects.
 
-**Ordering:** existing entries are never mutated or deleted. New entries are inserted newest-first, directly beneath the preamble — the same convention as `docs/log.md`.
+**Ordering:** existing entries are never mutated or deleted. New entries are inserted newest-first, directly beneath the preamble — the same convention as the detail files of the operations log.
 
 **Preamble (written once on first write):**
 
@@ -187,6 +196,8 @@ _Written by forge-skill. Entries newest-first. Events: authored | revised | used
 
 `<skill-name>` is the validated slug from Phase 4 — a `^[a-z0-9][a-z0-9-]*$` string; it cannot contain `|` or `[`.
 
+The header time of a new entry is UTC. Existing entries keep their bytes, so an older entry may carry local time.
+
 Followed by 1–3 body lines. Body lines MUST be single-line (no embedded newlines) and MUST NOT begin with `## [` (the header prefix is reserved — any content that would start with `## [` is rewritten or dropped). Content flowing from research or problem text into body lines is summarized in the agent's own words, never pasted raw.
 
 **Event enum (exhaustive):**
@@ -197,8 +208,8 @@ Followed by 1–3 body lines. Body lines MUST be single-line (no embedded newlin
 |-------|------|-----------------|
 | `authored` | A new skill was successfully written | Gap one-liner + self-test outcome + one "what I learned" line |
 | `revised` | An existing forged skill was updated | What changed + self-test outcome |
-| `used` | A forged skill was invoked and completed a task | Task one-liner + `ok` or `partial` (append `(same-session)` when the skill was forged in the same session: `ok (same-session)` / `partial (same-session)`) |
-| `evaluated` | A session that authored or used this skill is ending | Two single-line bullets — write exactly as shown in the EXEMPLAR below; `evaluated` is forge-log-only — no `docs/log.md` op (same noise rule as `used`). A `fell-short` verdict routes to the existing revise entry condition; a `prune` recommendation routes to the existing Pruning procedure. |
+| `used` | A forged skill was invoked and completed a task | Task one-liner + `ok` or `partial` (append `(same-session)` when the skill was forged in the same session: `ok (same-session)` / `partial (same-session)`). Inside a cycle the role writes no `used` entry; the cycle writes it when the cycle completes (see Inside a cycle). |
+| `evaluated` | A session that authored or used this skill is ending | Inside a cycle no role writes an `evaluated` entry (see Inside a cycle). Outside a cycle: two single-line bullets — write exactly as shown in the EXEMPLAR below; `evaluated` is forge-log-only — no operations-log entry (same noise rule as `used`). A `fell-short` verdict routes to the existing revise entry condition; a `prune` recommendation routes to the existing Pruning procedure. |
 | `fallback` | A gate table fired and the loop was not entered | Which gate row fired |
 | `escalated` | The loop was entered but resulted in escalation to the user | Where it was escalated and why |
 | `pruned` | A skill was removed after a hygiene review | Why it was pruned |
@@ -217,10 +228,10 @@ Choose one token per field. Token enums (write the chosen token only — do not 
 - recommend: one of keep, revise, prune
 
 **Invariants:**
-- The file MUST never contain secret values (API keys, tokens, passwords). This applies to all recording surfaces — forge log, journal entry, log.md op body, and self-test evidence: evidence is summarized, never raw command output that could embed tokens.
+- The file MUST never contain secret values (API keys, tokens, passwords). This applies to all recording surfaces — forge log, journal entry, operations-log entry body, and self-test evidence: evidence is summarized, never raw command output that could embed tokens.
 - Body lines MUST be single-line and MUST NOT begin with `## [` (the header prefix is reserved). Content from research or problem text is summarized in the agent's own words, never pasted raw.
 - forge-skill is the sole writer of the **lifecycle** events (authored, revised, pruned) and owns the locked format for all seven events; the **usage** events (used, evaluated, fallback, escalated) are written by the session that used the forged skill, in this locked format. Enforced by convention, tamper-evident via git history.
-- `used` events are recorded here only (not in `docs/log.md`) to avoid log noise.
+- `used` events are recorded here only (not in the operations log) to avoid log noise.
 - Growth is accepted and unrotated — same model as the project's operations log.
 
 ---
@@ -236,21 +247,40 @@ Run `python3 "${CRUX_PLUGIN_ROOT}/scripts/crux-config.py"` (in this dev repo: `p
 For `authored`, `revised`, and `pruned` events:
 
 1. Write the forge-log entry (newest-first, as above).
-2. Write a `skill` op directly to `docs/log.md` (the same way `propose-adr` writes an `adr` op directly — not via `log-work`):
+2. Record a `skill` op directly through the log writer (`docs/AGENTS.md` §6), the same way `propose-adr` records an `adr` op — not via `log-work`.[^log-writer] Write the body (1–3 lines: gap one-liner, path, self-test outcome, pointer to the forge-log entry) to a file outside the tree, then run:
 
    ```
-   ## [YYYY-MM-DD] skill | <authored|revised|pruned> ${CRUX_LOCAL_SKILLS_DIR}/<name>/
+   uv run "${CRUX_PLUGIN_ROOT}/scripts/operation-log.py" append --repo-root <repo-root> \
+     --op skill --subject '<authored|revised|pruned> ${CRUX_LOCAL_SKILLS_DIR}/<name>/' --date <YYYY-MM-DD> --body-file <path>
    ```
 
-   Body (1–3 lines): gap one-liner, path, self-test outcome, pointer to the forge-log entry.
+   The entry it writes at the top of the current month's detail file `docs/log/YYYY-MM.md` is headed `## [YYYY-MM-DD] skill | <authored|revised|pruned> ${CRUX_LOCAL_SKILLS_DIR}/<name>/`. A refused append keeps the forge-log entry and adds no operations-log entry: fix the cause it names, then rerun the append alone (§6). Then run the commit step of §6 over the result's `commit_paths` and `restore_paths`.
 
-   The `skill` op is the act's **sole** `docs/log.md` entry — do not also call `log-work` with a `skill` op (that would be a double-write).
+   The `skill` op is the act's **sole** `skill` entry in the operations log — do not also call `log-work` with a `skill` op (that would be a double-write).
 
-3. Call `log-work --silent --journal` to write a journal entry with: the diagnosis, the rationale from the micro-whiteboard, the self-test evidence, and the breadcrumbs ("what I learned" lines). This call writes log-work's own standard `journal |` op to `docs/log.md` recording the journal append — exactly as every journaled act in the tree does. It does NOT write a second `skill` op; the direct write in step 2 is the act's sole `skill` op.
+3. Call `log-work --silent --journal` to write a journal entry with: the diagnosis, the rationale from the micro-whiteboard, the self-test evidence, and the breadcrumbs ("what I learned" lines). This call writes log-work's own standard `journal |` entry to the operations log recording the journal append — exactly as every journaled act in the tree does. It does NOT write a second `skill` op; the direct write in step 2 is the act's sole `skill` op.
 
-For `used` events: forge-log only. No `docs/log.md` entry.
+For `used` events: forge-log only. No operations-log entry.
 
-Note on writer identity: the `authored`, `revised`, and `pruned` entries above are written by forge-skill itself. The `used`, `evaluated`, `fallback`, and `escalated` entries are written by the session that used the forged skill — which may not have forge-skill's SKILL.md loaded. The §10.B always-in-context seat carries the obligation to write those entries in forge-skill's locked format.
+Note on writer identity: the `authored`, `revised`, and `pruned` entries above are written by forge-skill itself. Outside a cycle, the `used`, `evaluated`, `fallback`, and `escalated` entries are written by the session that used the forged skill — which may not have forge-skill's SKILL.md loaded. The §10.B always-in-context seat carries the obligation to write those entries in forge-skill's locked format. Inside a cycle, the cycle writes the `used` entries, as the next section states.
+
+### Inside a cycle
+
+Inside a cycle, a role writes no `used` or `evaluated` entry. When it uses a project-local skill, it adds one line to its report before the `Result-End` line: `Local-Skill-Used: <id> ok`, or `Local-Skill-Used: <id> partial`. The cycle reads only lines that match `^Local-Skill-Used: ([a-z0-9][a-z0-9-]*) (ok|partial)[ \t]*$`, at most 16 per report, so prose that names a skill records nothing. The record commit of a completed cycle writes one `used` entry per reported use into the forge log of the root that holds the skill. It writes nothing while an active or paused cycle has an open attempt, while a cycle record it cannot read could hold one (the deferral names it under `unreadable_records`), or while the record commit is deferred; the next record commit of a completed cycle writes the missing entries. Each entry has this form:
+
+```
+## [YYYY-MM-DD HH:MM] used | <id>
+<cycle> <assignment>/<attempt> <role> report; <ok|partial>
+```
+
+The header time is the attempt's end time in UTC. No report text enters the log. `evaluated` entries are not written inside a cycle until a follow-up adds them.
+
+Any other forge-log entry a role writes inside a cycle belongs in that role's own committed work: a lifecycle entry from forge-skill, or a `fallback` or `escalated` entry. Left uncommitted, it makes the log foreign: the cycle stages no forge log whose difference from HEAD it cannot rederive, and the main session resolves it.
+
+Known limits:
+
+- A line-ending conversion of the forge log, such as CRLF on checkout, changes its bytes, so the cycle reads the log as foreign.
+- When the cycle fails to restore a forge log it wrote but did not commit, the rederivable entries stay in the working tree. `inspect` reports that log as `committable`, and `commit-record` on a completed cycle commits it.
 
 ### In a docs-less project
 
@@ -264,8 +294,8 @@ Do not auto-run `init-docs` — that is an architectural-valve action the user m
 1. Confirm with the user (or confirm the gates permit autonomous pruning).
 2. Delete the skill directory.
 3. Write the forge-log `pruned` event.
-4. In a crux-managed tree, write the `skill | pruned` op directly to `docs/log.md`.
-5. In a crux-managed tree, call `log-work --silent --journal` to write a journal entry recording the prune rationale. This writes log-work's standard `journal |` op for the journal append.
+4. In a crux-managed tree, record the `skill | pruned` op directly through the log writer, as Recording Rules step 2 shows (`operation-log.py append`), then run the commit step of `docs/AGENTS.md` §6.
+5. In a crux-managed tree, call `log-work --silent --journal` to write a journal entry recording the prune rationale. This writes log-work's standard `journal |` entry for the journal append.
 
 ### Reader tolerance
 
@@ -291,7 +321,7 @@ reliable fallback when the new skill does not appear.
 
 **(b) Inline execution (lightweight prose-only skills):** read `${CRUX_LOCAL_SKILLS_DIR}/<name>/SKILL.md` and follow it directly, treating the skill body as the procedure.
 
-Either path **writes a `used` forge-log entry** whose outcome token carries the `(same-session)` suffix: `ok (same-session)` or `partial (same-session)`.
+Either path **writes a `used` forge-log entry** whose outcome token carries the `(same-session)` suffix: `ok (same-session)` or `partial (same-session)`. Inside a cycle, the role adds the `Local-Skill-Used` report line instead, as Inside a cycle states.
 
 Skill-tool routing — the normal invocation path — is the next-session upgrade, not the availability condition. The injection control for same-session direct execution is upstream: the SKILL.md was authored under forge's own gates (slug validation, quote fencing, content-is-data); direct execution adds no surface those gates did not already cover, and the dispatch framing above restates the boundary at the point of use.
 
@@ -350,9 +380,9 @@ The promotion path is dev-repo-only. The public repo accepts no pull requests (a
 - [ ] The self-test was run on the live problem (or a minimal reproduction), not just inspected.
 - [ ] The confidence threshold was applied and the outcome was recorded honestly.
 - [ ] The forge-log entry was written (newest-first under the preamble).
-- [ ] In a crux-managed tree: the `skill` op was written to `docs/log.md` and a journal entry was written via `log-work --silent --journal`.
+- [ ] In a crux-managed tree: the `skill` op was written to the current month's detail file `docs/log/YYYY-MM.md` by `operation-log.py append`, and a journal entry was written via `log-work --silent --journal`.
 - [ ] In a docs-less project: the one-line `init-docs` suggestion was included in the response.
-- [ ] If the skill was forged or used in this session: an `evaluated` forge-log entry has been written before the session ends (verdict, gap, recommend, evidence).
+- [ ] If the skill was forged or used in this session outside a cycle: an `evaluated` forge-log entry has been written before the session ends (verdict, gap, recommend, evidence).
 - [ ] If the skill was invoked in the same session it was forged: the `used` entry carries the `(same-session)` suffix and the subagent/inline path was used (not the Skill tool).
 - [ ] If graduation was performed: the local copy was pruned (prune ordered last in the dev loop), registration was completed first, and no both-copies state was committed.
 
@@ -367,9 +397,9 @@ The promotion path is dev-repo-only. The public repo accepts no pull requests (a
 - **About to shadow an existing skill name.** Check for collisions before writing. An existing `${CRUX_LOCAL_SKILLS_DIR}/<name>/` or a plugin skill named `<name>` is a collision; choose a more specific name.
 - **About to skip the self-test because "it's obvious the skill works."** The self-test is the only proof. A skill that hasn't been tested hasn't been forged — it's been drafted.
 - **About to enter the loop when an architectural-valve condition fired.** Stop and route to propose-brief or propose-adr. The loop is not the path for structural changes.
-- **About to write secret values into any recording surface** (forge log, journal entry, log.md op body, self-test evidence, or a forged skill). All recording surfaces must never contain secrets. Forged skills should invoke `crux_env`/`crux-env` for secrets, not embed them. Evidence is summarized in your own words — never raw command output that could embed tokens.
-- **About to double-write the `docs/log.md` entry** (both a direct `skill` op and a `log-work --log-op skill`). The direct write is the sole log entry; the `log-work` call is journal-only (`--silent --journal`).
-- **About to end the session without evaluating a forged skill you authored or used.** Every session that authors or uses a forged skill must write an `evaluated` entry for that skill before it ends. The `evaluated` event is forge-log-only; it takes two lines and is non-negotiable evidence for the promotion floor.
+- **About to write secret values into any recording surface** (forge log, journal entry, operations-log entry body, self-test evidence, or a forged skill). All recording surfaces must never contain secrets. Forged skills should invoke `crux_env`/`crux-env` for secrets, not embed them. Evidence is summarized in your own words — never raw command output that could embed tokens.
+- **About to double-write the operations-log `skill` entry** (both a direct `skill` op and a `log-work --log-op skill`). The direct write is the sole log entry; the `log-work` call is journal-only (`--silent --journal`).
+- **About to end the session without evaluating a forged skill you authored or used.** Outside a cycle, every session that authors or uses a forged skill must write an `evaluated` entry for that skill before it ends. The `evaluated` event is forge-log-only; it takes two lines and is non-negotiable evidence for the promotion floor.
 - **About to write an `evaluated` entry for a use this session did not perform — retroactive evaluations are fabricated evidence; evaluate on next use.** A session without the use context cannot produce honest evaluation evidence. If a skill was used in a past session but never evaluated, the `evaluated` entry belongs in the next session that actually uses the skill — not now.
 - **About to tell the user a freshly forged skill is unavailable until the next session, or about to invoke it via the Skill tool mid-session.** The Skill tool can't see it yet; use the Same-session invocation path (direct-read-and-execute).
 
@@ -388,3 +418,5 @@ excuse→reality mapping and the recurring-mistake catalog, read
 - `cleanup-campsite` — the hygiene scan that proposes prunes (CLN-FG-1); it never writes the forge log itself.
 - `propose-brief` — the route when an architectural-valve condition fires.
 - `propose-adr` — the route when the "skill" would change project structure or contracts.
+
+[^log-writer]: rule:log-entries-go-through-the-log-writer, rule:no-writer-writes-the-legacy-log-file

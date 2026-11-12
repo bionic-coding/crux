@@ -126,6 +126,7 @@ class Document(dict):
     queue_lines=None
     run_lines=None
     council_rounds={}
+    superseded_tasks={}
     activity_of={}
 
 
@@ -224,7 +225,7 @@ def _view(sio, identity=None, now=None, activity=False):
     if len(paths)>200:raise CycleError('too many cycles for dashboard; use an explicit cycle')
     now_s=int(time.time() if now is None else now)
     moment=datetime.fromtimestamp(now_s,timezone.utc)
-    cycles=[];rounds={}
+    cycles=[];rounds={};superseded={}
     docs=[]
     for path in paths:
         contained(cfg.docs_root,path.relative_to(cfg.docs_root))
@@ -232,10 +233,14 @@ def _view(sio, identity=None, now=None, activity=False):
         docs.append(doc)
         if not ID.fullmatch(doc['id']) or doc['id']!=path.parent.name or doc['type'] not in PHASES or doc['phase'] not in phases_of(doc):raise CycleError('invalid cycle')
         if type(doc['pass']) is not int or type(doc['pass_limit']) is not int or not 1<=doc['pass']<=doc['pass_limit']<=1_000_000:raise CycleError('invalid cycle pass')
-        if doc['status'] not in {'active','paused','completed','abandoned'}:raise CycleError('invalid cycle status')
+        if doc['status'] not in {'active','paused','completed','abandoned','shortcut'}:raise CycleError('invalid cycle status')
         tasks=[]
         for task in doc['plan']['tasks'][:500]:
-            if task['status'] not in {'pending','active','done','blocked'} or task['phase'] not in phases_of(doc):raise CycleError('invalid task')
+            if task['status'] not in {'pending','active','done','blocked','superseded'} or task['phase'] not in phases_of(doc):raise CycleError('invalid task')
+            if task['status']=='superseded':
+                # The dashboards accept a closed status set, so a superseded task rides beside the cycle object for `render`.
+                superseded.setdefault(doc['id'],[]).append({'id':clean(task['id']),'phase':task['phase'],'description':clean(task['description']),'superseded_by':clean(str(task.get('superseded_by')))})
+                continue
             tasks.append({'id':clean(task['id']),'phase':task['phase'],'description':clean(task['description']),'status':task['status']})
         history=[{'pass':e['pass'],'phase':e['phase'],'reason':clean(e['assessment']['unresolved'])} for e in doc['history'] if e['action']=='return-requested'][-20:]
         waits=current_waits(doc['decisions'],withdrawn_names(doc))
@@ -257,6 +262,7 @@ def _view(sio, identity=None, now=None, activity=False):
         except (ValueError,KeyError,TypeError,OSError):return []
     document.run_lines={d['id']:(lambda d=d:runs_of(d)) for d in docs}
     document.council_rounds=rounds
+    document.superseded_tasks=superseded
     # Text status derives activity on demand, only for the open cycles it draws.
     document.activity_of={d['id']:(lambda d=d:cycle_activity.activity(root,d,now_s)) for d in docs}
     return document
@@ -323,6 +329,7 @@ def render(document):
         runs=(getattr(document,'run_lines',None) or {}).get(c['id'])
         if runs:lines.extend(runs())
         lines.extend(_task_lines(c,live))
+        lines.extend(f"  superseded {t['phase']:7} {t['description']} (superseded by {t['superseded_by']})" for t in (getattr(document,'superseded_tasks',None) or {}).get(c['id'],[]))
         lines.extend(f"  Return after pass {r['pass']} ({r['phase']}): {r['reason']}" for r in c['returns'])
         if c.get('classification_count'):lines.append(f"  Classifications: {c['classification_count']}")
         councils=getattr(document,'council_rounds',{}).get(c['id'],{})

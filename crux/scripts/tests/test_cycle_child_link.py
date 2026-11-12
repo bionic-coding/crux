@@ -27,8 +27,9 @@ class ChildLinkTests(HookBase):
                           'host': 'codex', 'role': 'dev-lead'})
         self.ok({'op': 'attach-execution', 'op_id': 'link-parent-attach', 'assignment': parent['assignment'],
                  'attempt': 1, 'handle': 'lead-native'})
+        # The child runs as a developer in its own worktree beside its open dev-lead.
         child = self.ok({'op': 'prepare-dispatch', 'op_id': 'link-child-prepare', 'task_id': 'child-unit',
-                         'host': 'codex', 'role': 'developer'})
+                         'host': 'claude-code', 'role': 'developer', 'integration_owner': 'dev-lead'})
         if deliver:
             (self.repo / 'src/child.py').write_text('answer = 3\n')
             self.git('add', 'src/child.py')
@@ -64,3 +65,22 @@ class ChildLinkTests(HookBase):
         self.edit(lambda doc: next(t for t in doc['plan']['tasks'] if t['id'] == 'child-unit').update(depends_on=['build-it']))
         self.refused({'op': 'child-link', 'op_id': 'link-recursive-child', 'assignment': parent['assignment'],
                       'attempt': 1, 'child_task': 'child-unit'}, 'dependency-cycle')
+
+    def test_a_first_child_joins_as_a_dependency_and_the_second_declares_the_integration(self):
+        # A lead whose task has no completed Build prerequisite links its first child as a
+        # dependency only; a declared integration still names at least two completed units.
+        parent = self.setup_children()
+        self.edit(lambda doc: doc['plan']['tasks'][0].update(depends_on=[]))
+        self.ok({'op': 'child-link', 'op_id': 'link-first-child', 'assignment': parent['assignment'],
+                 'attempt': 1, 'child_task': 'child-unit'})
+        task = load(self.repo, self.cid)['plan']['tasks'][0]
+        self.assertEqual((task['depends_on'], task.get('integrates')), (['child-unit'], None))
+        mutate(self.repo, self.cid, 'task-add', task={'id': 'child-two', 'phase': 'build',
+               'description': 'Second child', 'status': 'done', 'depends_on': [], 'expected_evidence': ['commit'],
+               'commits': [self.git('rev-parse', 'HEAD')]})
+        self.edit(lambda doc: doc.setdefault('assignments', []).append(
+            {**deepcopy(next(a for a in doc['assignments'] if a['task'] == 'child-unit')), 'id': 'child-two', 'task': 'child-two'}))
+        self.ok({'op': 'child-link', 'op_id': 'link-second-child', 'assignment': parent['assignment'],
+                 'attempt': 1, 'child_task': 'child-two'})
+        task = load(self.repo, self.cid)['plan']['tasks'][0]
+        self.assertEqual(task['integrates'], ['child-unit', 'child-two'])

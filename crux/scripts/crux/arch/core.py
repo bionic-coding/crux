@@ -1954,6 +1954,24 @@ def _decision_history(root: Path, docs_dir: str) -> tuple[list[dict], dict, dict
     return clauses, sources, view
 
 
+def _replacement_resolutions(root: Path, view: dict, clauses: list[dict]) -> dict:
+    """The live Accepted handles each recorded clause replacement resolves to, read
+    over the same overlay the governs-reference lint builds. Called only when a
+    published migration left historical clauses, whose summaries already validate."""
+    import summaries_projection as sp
+    adrs = sp.adrs_dir(root)
+    manifest = sp.read_manifest(root)
+    observations = sp.observations_source(root, manifest)
+    reviews = sp.read_reviews(adrs)
+    records = sp.collect_records(adrs, governs_from=sp.governs_from(manifest), observations=observations)
+    aliases = sp.collect_observation_alias_rows(observations, records)
+    persisted = sp.persisted_retirement_edges(adrs)
+    overlay = sp._summary_authority_records(records, view, sp.removed_handles(reviews), aliases,
+                                            persisted_edges=persisted)
+    return sp.resolve_replacements([h for clause in clauses for h in clause["replacements"]],
+                                   overlay["records"], persisted_edges=persisted)
+
+
 def _architectural_frontmatter(text: str) -> dict:
     front = _frontmatter(text)
     if "record_type" in front:
@@ -1979,6 +1997,7 @@ def extract_decision_index(root: Path, docs_dir: str, mode: str = "complete") ->
     # This gate stays outside _adr_index_projection's optional-input catches.
     # A failed publication proof is never permission to restore old authority.
     clauses, sources, authority = _decision_history(root, docs_dir)
+    resolution = _replacement_resolutions(root, authority, clauses) if clauses else {}
     # Every ADR read below goes through `_safe_read_bytes`, and it has to: this is
     # the UNIVERSAL probe, bound for every pack, so an unbounded read here is an
     # unbounded read in every repository crux touches. `_rel` cannot stand in for
@@ -2093,6 +2112,7 @@ def extract_decision_index(root: Path, docs_dir: str, mode: str = "complete") ->
         foots.append(f"[^d{i}]: ADR-{num}")
     out += [""] + foots + [""]
     if clauses:
+        import summaries_projection as sp
         out += ["## Historical implementation clauses", "",
                 "_These source clauses retain evidence and establish no current architectural requirement._", "",
                 "| evidence | clause digest | disposition |", "|---|---|---|"]
@@ -2100,8 +2120,9 @@ def extract_decision_index(root: Path, docs_dir: str, mode: str = "complete") ->
         for i, clause in enumerate(clauses, start=1):
             ref = clause["source_ref"]
             out.append(f"| [^h{i}] | {_cell(ref['clause_sha256'])} | historical implementation |")
+            text = sp.resolved_replacement_text(clause["replacements"], resolution)
             historical_foots.append(f"[^h{i}]: {_cell(ref['path'])}; architectural replacements: "
-                                    f"{_cell(', '.join(clause['replacements'])) or 'none'}")
+                                    f"{_cell(text) or 'none'}")
         out += [""] + historical_foots + [""]
     if authority["state"] == "published":
         import implementation_migration as migration

@@ -194,7 +194,8 @@ class EndToEndTests(SliceBase):
         seen = self.ok({'op': 'inspect', 'host': 'claude-code'})
         self.assertEqual((seen['revision'], seen['phase'], seen['head']), (1, 'build', self.base))
         dispatch = [a for a in seen['actions'] if a.get('request', {}).get('op') == 'prepare-dispatch']
-        self.assertEqual(dispatch[0]['request'], {'op': 'prepare-dispatch', 'task_id': 'build-it', 'host': 'claude-code'})
+        # inspect offers a Build task to the commander as a dev-lead dispatch (IDR one-editor-per-checkout approach 3).
+        self.assertEqual(dispatch[0]['request'], {'op': 'prepare-dispatch', 'task_id': 'build-it', 'role': 'dev-lead', 'host': 'claude-code'})
         self.assertEqual(dispatch[0]['caller_fills'], ['op_id'])
 
         prepared = self.prepare(mode='background')

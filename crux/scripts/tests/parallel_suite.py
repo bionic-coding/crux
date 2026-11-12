@@ -17,6 +17,12 @@ Usage:
 no valid manifest, when a discovered test has no label, or when the selection keeps no test. It
 cannot combine with `--flagged`, `--shared-evidence` or `--write-timings`.
 
+The focused-check rule. A run with no `--select`, `--failed-from`, `--tier`, `--flagged` or non-default
+`-p` pattern executes the whole START root. When START lies inside a linked git worktree (`git rev-parse --git-dir` differs from
+`--git-common-dir`), the driver exits 2 with the code `focused-check-rule` before discovery, because only
+the test coordinator runs a whole root, on the main checkout. `--allow-linked-worktree` lifts the refusal.
+A START outside any git repository is never refused.
+
 The driver runs the tests that `python -m unittest discover -s START` runs,
 through the same loader call, and prints the same summary lines. The literal
 `unittest discover` command stays the serial reference. CI uses this driver.
@@ -1712,6 +1718,9 @@ def _parse(argv):
     evidence_mode = parser.add_mutually_exclusive_group()
     evidence_mode.add_argument("--plan-test-evidence", action="store_true", help="report evidence lookup only; never execute tests")
     evidence_mode.add_argument("--reuse-test-evidence-only", action="store_true", help="refuse missing or invalid evidence without executing tests")
+    parser.add_argument("--allow-linked-worktree", dest="allow_linked_worktree", action="store_true",
+                        help="run a whole suite root inside a linked git worktree; without it the driver "
+                             "refuses with %s" % FOCUSED_CHECK_CODE)
     args = parser.parse_args(argv)
     if (args.plan_test_evidence or args.reuse_test_evidence_only) and not args.shared_evidence:
         parser.error("evidence planning/reuse-only requires --shared-evidence")
@@ -1975,8 +1984,50 @@ def _registered_checkout_run(args):
     return registered
 
 
+FOCUSED_CHECK_CODE = "focused-check-rule"
+
+
+def _is_whole_suite_run(args):
+    """True when `args` discover the whole start directory and execute what they keep.
+
+    A non-default pattern still discovers a whole root, and `--tier` alone keeps every test of a
+    tier across it, so neither is a focused check; `--tier` is focused only beside `--select`.
+    """
+    return not (args.select or args.failed_from or args.flagged
+                or args.write_timings is not None or args.plan_test_evidence
+                or args.reuse_test_evidence_only or args.staged_check)
+
+
+def _linked_worktree_refusal(args):
+    """The refusal text for a whole suite root inside a linked git worktree, else None.
+
+    A linked worktree is a start directory whose `git rev-parse --git-dir` differs from its
+    `--git-common-dir`. A start directory outside any git repository, or git being unavailable,
+    never refuses. `--allow-linked-worktree` lifts the refusal.
+    """
+    if args.allow_linked_worktree or not _is_whole_suite_run(args) or not os.path.isdir(args.start):
+        return None
+    try:
+        done = subprocess.run(["git", "-C", args.start, "rev-parse", "--path-format=absolute",
+                               "--git-dir", "--git-common-dir"], capture_output=True, text=True)
+    except OSError:
+        return None
+    lines = done.stdout.split("\n")
+    if done.returncode != 0 or len(lines) < 2 or not lines[0] or not lines[1]:
+        return None
+    if os.path.realpath(lines[0]) == os.path.realpath(lines[1]):
+        return None
+    return ("%s: %s is inside a linked git worktree, and a whole suite root runs only on the main "
+            "checkout. A developer runs focused checks only (--select, --failed-from, or --tier with --select); "
+            "pass --allow-linked-worktree to run the whole root here" % (FOCUSED_CHECK_CODE, args.start))
+
+
 def _run(argv=None):
     args = _parse(argv)
+    refusal = _linked_worktree_refusal(args)
+    if refusal:
+        sys.stderr.write("%s FAILED CLOSED: %s\n" % (_PREFIX, refusal))
+        return 2
     if args.write_timings is not None:
         return _write_timings_main(args)
     if args.failed_from:

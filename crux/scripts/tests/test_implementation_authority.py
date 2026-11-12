@@ -98,7 +98,7 @@ class _PublicationFixture(unittest.TestCase):
         self.root = self.f.root
         adrs = self.root / "docs/adrs"
         (adrs / "ADR-0110-source.md").write_text("---\n" + yaml.safe_dump({
-            "id": "ADR-0110", "status": "Accepted", "governs": [quoted_rule()]}) +
+            "id": "ADR-0110", "status": "Accepted", "accepted_date": "2026-01-02", "governs": [quoted_rule()]}) +
             "---\nThis reader refuses inconsistent reports.\n")
         ledger = adrs / "doctrine/reconciliations.yml"; ledger.parent.mkdir()
         ledger.write_text('config_version: "1"\nreconciliations: []\n')
@@ -401,7 +401,7 @@ class AuthorityView(_PublicationFixture):
         self.close(); self.publish(); original = migration._validated_inputs
         def moved(*args):
             result = original(*args)
-            migration.cr.git(self.root, "commit", "--allow-empty", "-m", "synthetic movement after proof")
+            sup.git(self.root, "commit", "--allow-empty", "-m", "synthetic movement after proof")
             return result
         with mock.patch.object(migration, "_validated_inputs", side_effect=moved):
             with self.assertRaisesRegex(migration.Refused, "history-head-changed"): self.view()
@@ -492,12 +492,13 @@ class HistoricalDisplacements(_PublicationFixture):
     view = AuthorityView.view
 
     def test_exact_duplicate_edge_is_benign_but_conflicting_provenance_refuses(self):
+        # One ADR naming a handle twice is idempotent (ADR-0097 part 6): one displacement.
         batch = migration.load_batch(self.root, self.f.path)
         entry = batch["entries"][0]; rule = entry["affected_governs"][0]
         rule["retires"] *= 2
         entry["source_identity"] = migration.source_identity(entry)
         source = self.root / "docs/adrs/ADR-0110-source.md"
-        source.write_text("---\n" + yaml.safe_dump({"id": "ADR-0110", "status": "Accepted",
+        source.write_text("---\n" + yaml.safe_dump({"id": "ADR-0110", "status": "Accepted", "accepted_date": "2026-01-02",
             "governs": [rule]}) + "---\n" + entry["clause"]["text"])
         self.f.path.write_text(yaml.safe_dump(batch, sort_keys=False)); self.refresh_reviewed_batch()
         self.close(); self.publish()
@@ -577,7 +578,7 @@ class ReceiptAuthority(_PublicationFixture):
         self.old["anchor"] = "Synthetic span"
         self.entry["source_identity"] = migration.source_identity(self.entry)
         source = self.root / "docs/adrs/ADR-0110-source.md"
-        source.write_text("---\n" + yaml.safe_dump({"id": "ADR-0110", "status": "Accepted",
+        source.write_text("---\n" + yaml.safe_dump({"id": "ADR-0110", "status": "Accepted", "accepted_date": "2026-01-02",
             "governs": [self.old]}) + "---\n" + self.entry["clause"]["text"] + "Synthetic span\n")
         host = self.root / "docs/adrs/ADR-0146-authorizer.md"
         fm = yaml.safe_load(host.read_text().split("---")[1])
@@ -665,6 +666,56 @@ class ReceiptAuthority(_PublicationFixture):
         for path in (self.log, self.journal): path.write_text(path.read_text() + "\nUnrelated append.\n")
         sup.commit_all(self.root, "synthetic corroboration growth after publication")
         self.assertEqual(self.view(), published)
+
+    def move_log_to_split(self, *extra_months):
+        """Turn the fixture's log.md into monthly detail files, and return their tree-relative names.
+
+        The corroborating entry goes into the detail file of a month after its heading (2026-11);
+        each month in `extra_months` gets a file of one unrelated entry. A completion record
+        makes the tree a completed split.
+        """
+        import operation_log as ol
+        docs = self.root / "docs"
+        entry = self.log.read_text()
+        self.log.unlink()
+        (docs / "log").mkdir()
+        months = {"2026-11": entry, **{m: f"## [{m}-05] adr | unrelated work\n\nDetails.\n" for m in extra_months}}
+        for month, text in months.items():
+            (docs / "log" / f"{month}.md").write_text(ol.detail_header(month) + text)
+        (docs / "log" / ol.COMPLETION_NAME).write_bytes(ol.completion_bytes(None, {m: 1 for m in months}))
+        self.log = docs / "log" / "2026-11.md"
+        return [f"docs/log/{month}.md" for month in sorted(months)]
+
+    def test_a_split_log_binds_each_file_in_path_order_before_publication_only(self):
+        names = self.move_log_to_split("2026-12", "2026-10")
+        self.assertFalse((self.root / "docs/log.md").exists())  # positive control: no legacy file
+        self.produce(); self.close()
+        candidate = migration._validated_inputs(self.root, self.proof)
+        bound = [r["path"] for r in candidate["dependency_fingerprints"]]
+        self.assertEqual([path for path in bound if path.startswith("docs/log")], names)
+        self.assertNotIn("docs/log.md", bound)
+        digests = {r["path"]: r["sha256"] for r in candidate["dependency_fingerprints"]}
+        for name in names:
+            self.assertEqual(digests[name], migration._digest((self.root / name).read_bytes()))
+        self.assertIn("docs/journal/2026-10.md", bound)  # the journal month stays bound as before
+        self.publish(); published = self.view()
+        self.assertEqual(published["state"], "published")
+        # A published record keeps its recorded interpretation: no digest of any log file.
+        self.assertFalse({p for p in (r["path"] for r in published["dependency_fingerprints"])
+                          if p.startswith("docs/log")})
+        for path in (self.log, self.journal): path.write_text(path.read_text() + "\nUnrelated append.\n")
+        sup.commit_all(self.root, "synthetic corroboration growth in a split log after publication")
+        self.assertEqual(self.view(), published)
+
+    def test_a_split_log_with_the_entry_in_a_later_month_still_corroborates(self):
+        self.move_log_to_split()
+        self.produce(); self.close()
+        self.assertEqual(self.view()["state"], "original")
+        migration._validated_inputs(self.root, self.proof)  # positive control: the entry corroborates
+        # NEGATIVE CONTROL: renaming the batch in the only file that holds the entry stops it.
+        self.log.write_text(self.log.read_text().replace("synthetic-admission", "other-batch"))
+        with self.assertRaisesRegex(migration.Refused, "backfill-corroboration-refused"):
+            migration._validated_inputs(self.root, self.proof)
 
     def test_receipt_semantic_mismatch_refuses_despite_exact_new_reference(self):
         for key, value in (("batch_id", "implementation-pilot-001-recovery-" + "0" * 64),
@@ -850,7 +901,7 @@ class ObservationReceipt(ReceiptRecovery):
         self.invariant = "OBS-0001/assessments"
         self.old["scope"] = "src/"
         source = self.root / "docs/adrs/ADR-0110-source.md"
-        source.write_text("---\n" + yaml.safe_dump({"id": "ADR-0110", "status": "Accepted",
+        source.write_text("---\n" + yaml.safe_dump({"id": "ADR-0110", "status": "Accepted", "accepted_date": "2026-01-02",
             "governs": [self.old]}) + "---\n" + self.entry["clause"]["text"] + "Synthetic span\n")
         host = self.root / "docs/adrs/ADR-0146-authorizer.md"
         fm = yaml.safe_load(host.read_text().split("---")[1])
@@ -955,7 +1006,7 @@ class PublicationDiscovery(unittest.TestCase):
 
     def test_immutable_configuration_metadata_is_batched_and_memoized_per_call(self):
         for n in range(8):
-            migration.cr.git(self.root, "commit", "--allow-empty", "-m", "synthetic same config " + str(n))
+            sup.git(self.root, "commit", "--allow-empty", "-m", "synthetic same config " + str(n))
         commits = int(migration.cr.git(self.root, "rev-list", "--count", "HEAD").stdout)
         original = subprocess.run; calls = []; loader = migration.bionic_config.load_config
         def counted(args, **kwargs):
@@ -1045,7 +1096,7 @@ class PublicationDiscovery(unittest.TestCase):
             result = original(repo, *args, **kwargs)
             if args[0] == "rev-list" and not changed:
                 changed = True
-                original(repo, "commit", "--allow-empty", "-m", "synthetic concurrent head movement")
+                sup.git(repo, "commit", "--allow-empty", "-m", "synthetic concurrent head movement")
             return result
         with mock.patch.object(migration.cr, "git", side_effect=moved):
             with self.assertRaisesRegex(migration.Refused, "history-head-changed"): self.discover()

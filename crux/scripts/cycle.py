@@ -12,11 +12,12 @@ import re
 import sys
 import threading
 import time
-from cycle_workflow import CLOSED, OPEN, CycleError, PHASES, DELIVERY_FIELDS, create, load, locked, contained, atomic_bytes, mutate_tracked, tree, read_retained, query_decisions, result_file
+from cycle_workflow import CLOSED, OPEN, CycleError, shortcut_present, PHASES, DELIVERY_FIELDS, create, load, locked, contained, atomic_bytes, mutate_tracked, tree, read_retained, query_decisions, result_file
 from bionic_config import BionicConfigError
 import cycle_classify
 import cycle_commit
 import cycle_context
+import cycle_prereqs
 
 
 def queue_parser(sub):
@@ -56,7 +57,7 @@ def queue_parser(sub):
 
 
 # The commands that take one JSON document, and the argument name each hands to the mutation.
-FILE_COMMANDS={'plan':'plan','review':'report','decision':'contents','reflect':'reflection','task-add':'task','coverage':'coverage','plan-details':'details','owner-complete':'owner','reduction':'reduction'}
+FILE_COMMANDS={'plan':'plan','review':'report','decision':'contents','reflect':'reflection','task-add':'task','coverage':'coverage','plan-details':'details','owner-complete':'owner','shortcut':'request','reduction':'reduction'}
 
 
 def cycle_arguments(c, help='cycle id, such as CYC-0001; or give it as --cycle'):
@@ -104,7 +105,7 @@ def parser():
     c.add_argument('--list', dest='release_list', choices=['beta','official'], help='the fixed task list of a release cycle; required with --type release')
     for name in ('scope','acceptance'):
         c.add_argument('--'+name, action='append', required=True)
-    for name in ('owner-approval','show','validate','advance','pause','resume','plan','task','checks','coverage','completion','evidence','scrutiny','review','decision','approve-decision','return','change-type','extend','reflect','abandon','query-decisions','task-add','plan-details','owner-complete','handoff','reconcile','reduction','assignment','defer','withdraw-decision','friction'):
+    for name in ('owner-approval','show','validate','advance','pause','resume','plan','task','checks','coverage','completion','evidence','scrutiny','review','decision','approve-decision','return','change-type','extend','reflect','abandon','query-decisions','task-add','plan-details','owner-complete','shortcut','handoff','reconcile','reduction','assignment','defer','withdraw-decision','friction'):
         c=sub.add_parser(name); cycle_arguments(c)
         if name in ('show','validate'): c.add_argument('--full', action='store_true', help='print the whole record instead of the bounded summary')
         c.add_argument('--compact', action='store_true', default=argparse.SUPPRESS, help=argparse.SUPPRESS)
@@ -115,6 +116,8 @@ def parser():
             form=c.add_mutually_exclusive_group(required=True)
             form.add_argument('--file', type=Path, metavar='PATH', help='a file holding the JSON document')
             form.add_argument('--json', dest='json_text', metavar='JSON', help="the JSON document inline as one argument; '-' reads standard input; '@PATH' reads a file inside the repository")
+        if name=='shortcut':
+            form.add_argument('--present', action='store_true', help='print what the closure would record, with the reflection sha256 to quote; writes and commits nothing')
         if name=='friction':
             form=c.add_mutually_exclusive_group(required=True)
             form.add_argument('--json', dest='json_text', metavar='JSON', help="{who, what, cost, category, fix} as inline JSON, '-' for standard input or '@PATH' for a file inside the repository; appends one row to the cycle's friction log and commits the record")
@@ -127,7 +130,8 @@ def parser():
             c.add_argument('--name',required=True,help='the IDR name to withdraw')
             c.add_argument('--task',dest='tasks',action='append',default=[],help='a plan task id that depends on the IDR; repeatable. The task is removed from the plan in the same write')
         if name=='task':
-            c.add_argument('--task-id', required=True); c.add_argument('--state', choices=['pending','active','done','blocked'])
+            c.add_argument('--task-id', required=True); c.add_argument('--state', choices=['pending','active','done','blocked','superseded'])
+            c.add_argument('--superseded-by', dest='superseded_by', metavar='TASK-ID', help='with --state superseded: the plan task that replaces this one, in the same phase; a dependency on this task is then satisfied once that task is done. Requires --note')
             c.add_argument('--expect-revision', type=int, help='optional version-three guard: refuse without mutation when the cycle revision changed; inspect before retrying')
             c.add_argument('--assignee'); c.add_argument('--result-path', help='absolute, or relative to the repository root or the docs root (the docs-relative form is converted)'); c.add_argument('--note')
             c.add_argument('--commit', dest='commits', action='append', help='commit that resolves in this repository; repeatable, merged as a set')
@@ -170,6 +174,7 @@ def parser():
         if name=='return':
             for field in ('improved','unresolved','next-change','justification'): c.add_argument('--'+field,required=True)
             c.add_argument('--progress',choices=['yes','no'],required=True)
+            c.add_argument('--execution-task',help='in Build, required: the pending or blocked task whose execution proof refuses execution-foreign-source or execution-source-outside-scope; the writer re-runs the proof')
         if name=='change-type':
             c.add_argument('--type',choices=PHASES,required=True); c.add_argument('--human-approval')
         if name=='extend':
@@ -370,10 +375,13 @@ def create_command(a):
     if a.type=='auto':
         if a.sizing_receipt is not None: raise CycleError('--sizing-receipt belongs to an explicit --type')
         if a.release_list is not None: raise CycleError('--list belongs to release cycles; type auto never sizes to release')
+        # Prerequisites refuse before the sizing request and before the cycles lock; nothing is written.
+        cycle_prereqs.require(tree(a.repo_root).repo_root,a.scope)
         return cycle_classify.size_work(a.repo_root,lambda kind,classification: create(a.repo_root,kind,*common,classification=classification),a.title,a.goal,a.scope,a.acceptance)
     classification=None
     if a.sizing_receipt is not None:
         classification=cycle_classify.receipt_classification(cycle_classify.validate_sizing_receipt(json.loads(a.sizing_receipt)))
+    cycle_prereqs.require(tree(a.repo_root).repo_root,a.scope)
     return create(a.repo_root,a.type,*common,release_list=a.release_list,classification=classification)
 
 
@@ -514,11 +522,13 @@ def main(argv=None):
             if not a.approve:
                 print(json.dumps({'ok':True,'approval':path},indent=2)); return 0
             result,changed=mutate_tracked(a.repo_root,a.cycle,'approve-decision',subject=a.subject,approval=path)
+        elif a.command=='shortcut' and a.present:
+            print(json.dumps({'ok':True,'present':shortcut_present(a.repo_root,a.cycle)},**({'separators':(',',':')} if a.compact else {'indent':2}))); return 0
         elif a.command=='query-decisions':
             result=query_decisions(a.repo_root,a.cycle)
         else:
             args=vars(a).copy()
-            for k in ('repo_root','command','cycle','compact'): args.pop(k,None)
+            for k in ('repo_root','command','cycle','compact','present'): args.pop(k,None)
             task_id=args.get('task_id')
             if 'file' in args:
                 path,text=args.pop('file'),args.pop('json_text')
@@ -544,6 +554,8 @@ def main(argv=None):
             if 'revision' in extra: result=load(a.repo_root,a.cycle)
         if a.compact: print(json.dumps({**compact_line(result,changed,task_id),**extra},separators=(',',':'))); return 0
         print(json.dumps({'ok':True,'cycle':result,**extra},indent=2)); return 0
+    except cycle_prereqs.EnvironmentPrerequisite as exc:
+        print(json.dumps(exc.payload(),**({'separators':(',',':')} if getattr(a,'compact',False) else {}))); return 1
     except cycle_classify.SizingFallback as exc:
         print(json.dumps({'ok':False,'error':str(exc),'sizing_receipt':exc.receipt,'question':exc.question,'evidence':exc.evidence},**({'separators':(',',':')} if getattr(a,'compact',False) else {}))); return 1
     except (CycleError,BionicConfigError,ValueError,OSError,KeyError) as exc:

@@ -747,7 +747,7 @@ if __name__ == "__main__":
     unittest.main()
 
 
-# ─────────────────── models.yml rules V0-V9 (ADR-0072 AC-8) ───────────────
+# ─────────────────── models.yml rules V0-V10 (ADR-0072 AC-8) ──────────────
 #
 # One positive fixture plus a NAMED negative per rule, so no implementer reads
 # the list as partial. Every fixture is a text transform of the SHIPPED catalog
@@ -1088,8 +1088,77 @@ class ModelsCatalogNegativeTests(unittest.TestCase):
     def test_v5_pending_placeholder(self):
         self._assert_rule("V5", lambda t: t.replace(_PARKED_ALIAS_ROW, "glm-flash: PENDING"))
 
+    # The flagship Codex cell as shipped: its model and the source that records
+    # the Codex catalog listing it. Named once so the provenance tests below
+    # mutate one known cell and fail loudly when the anchor goes stale.
+    FLAGSHIP_CODEX = (
+        "      model: gpt-6.1-sol\n"
+        "      reasoning_effort: high\n"
+        '      verified: "2026-09-29"\n'
+        '      source: "OpenAI GPT-6.1 Sol model documentation + Codex 0.159.0 '
+        'models_cache.json fetched 2026-09-29, which lists `gpt-6.1-sol`"'
+    )
+
+    def _flagship_codex(self, text: str, replacement: str) -> str:
+        self.assertIn(self.FLAGSHIP_CODEX, text,
+                      "flagship Codex cell fixture is inert: the anchored rows are absent")
+        return text.replace(self.FLAGSHIP_CODEX, replacement, 1)
+
+    def _v5_errors(self, transform) -> list[str]:
+        original = SHIPPED_MODELS.read_text(encoding="utf-8")
+        mutated = transform(original)
+        self.assertTrue(mutated != original, "fixture is inert: the transform changed nothing")
+        with tempfile.TemporaryDirectory() as td:
+            findings = _rules(_plugin_fixture(Path(td), mutated))
+        return [f["error"] for f in findings
+                if f["field"] == "V5" and f.get("severity") != "warning"]
+
     def test_v5_codex_model_absent_from_the_router_registry(self):
-        self._assert_rule("V5", lambda t: t.replace("model: gpt-6.1-sol", "model: gpt-5.6"))
+        # The registry no longer decides: a slug the router does not list passes
+        # V5 when its source records the Codex catalog listing it.
+        self.assertEqual(
+            self._v5_errors(lambda t: self._flagship_codex(
+                t, self.FLAGSHIP_CODEX.replace("gpt-6.1-sol", "gpt-7-nova"))),
+            [],
+        )
+
+    def test_v5_codex_slug_mismatching_its_source_fails(self):
+        # The model changed but the source still names the old slug (a stale
+        # source), and a mistyped model beside a correct source.
+        for model in ("gpt-7-nova", "gpt-6.1-sool"):
+            with self.subTest(model=model):
+                errors = self._v5_errors(lambda t: self._flagship_codex(
+                    t, self.FLAGSHIP_CODEX.replace("model: gpt-6.1-sol", f"model: {model}")))
+                self.assertEqual(len(errors), 1, errors)
+                self.assertIn(f"levels.flagship.codex.source does not name the slug `{model}`", errors[0])
+
+    def test_v5_codex_source_omitting_the_slug_fails(self):
+        errors = self._v5_errors(lambda t: self._flagship_codex(
+            t, self.FLAGSHIP_CODEX.replace(", which lists `gpt-6.1-sol`", "")))
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("does not name the slug `gpt-6.1-sol`", errors[0])
+
+    def test_v5_codex_source_with_unquoted_slug_fails(self):
+        errors = self._v5_errors(lambda t: self._flagship_codex(
+            t, self.FLAGSHIP_CODEX.replace("`gpt-6.1-sol`", "gpt-6.1-sol")))
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("does not name the slug `gpt-6.1-sol`", errors[0])
+
+    def test_v5_codex_source_without_a_codex_catalog_citation_fails(self):
+        errors = self._v5_errors(lambda t: self._flagship_codex(
+            t, self.FLAGSHIP_CODEX.replace("Codex 0.159.0 models_cache.json", "the Codex catalog")))
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("cites no Codex catalog read", errors[0])
+
+    def test_v5_malformed_codex_slug_fails(self):
+        for model in ("GPT-6.1-sol", "-gpt", "gpt_6", "openai/gpt-6.1-sol"):
+            with self.subTest(model=model):
+                errors = self._v5_errors(lambda t: self._flagship_codex(
+                    t, self.FLAGSHIP_CODEX.replace("gpt-6.1-sol", model)))
+                self.assertTrue(any("is not a Codex slug" in e for e in errors), errors)
+
+    def test_v5_shipped_codex_cells_carry_their_provenance(self):
+        self.assertEqual(self._v5_errors(lambda t: t + "\n"), [])
 
     def _classifier_rules(self, edit):
         with tempfile.TemporaryDirectory() as td:
@@ -1163,7 +1232,10 @@ class ModelsCatalogNegativeTests(unittest.TestCase):
             _set_agent_model(plugin, "night-gardener", "inherit")
             after = _rules(plugin)
         self.assertIn("V6", _fields(before), before)
-        self.assertEqual([f for f in after if f.get("severity") != "warning"], [], after)
+        # The fixture override records no authority and `inherit` is a value no
+        # level names, so V10 refuses it; only V6 is under test here.
+        after_errors = [f for f in after if f.get("severity") != "warning"]
+        self.assertEqual({f["field"] for f in after_errors}, {"V10"}, after)
 
     # ── V7 ─────────────────────────────────────────────────────────────────
     def test_v7_alias_name_containing_a_slash(self):
@@ -1245,7 +1317,7 @@ class AgentCodexOverrideValidationTests(unittest.TestCase):
         "      model: gpt-6.1-sol\n"
         "      reasoning_effort: xhigh\n"
         '      verified: "2026-09-29"\n'
-        '      source: "OpenAI GPT-6.1 Sol model documentation and Codex 0.159.0 models_cache.json checked 2026-09-29"'
+        '      source: "OpenAI GPT-6.1 Sol model documentation and Codex 0.159.0 models_cache.json checked 2026-09-29, which lists `gpt-6.1-sol`"'
     )
 
     def _findings(self, transform) -> list[dict]:
@@ -1281,7 +1353,7 @@ class AgentCodexOverrideValidationTests(unittest.TestCase):
             lambda t: self._replace_override(
                 t,
                 self.REVIEWER_CODEX.replace(
-                    'source: "OpenAI GPT-6.1 Sol model documentation and Codex 0.159.0 models_cache.json checked 2026-09-29"',
+                    'source: "OpenAI GPT-6.1 Sol model documentation and Codex 0.159.0 models_cache.json checked 2026-09-29, which lists `gpt-6.1-sol`"',
                     'source: ""',
                 ),
             )
@@ -1316,12 +1388,43 @@ class AgentCodexOverrideValidationTests(unittest.TestCase):
         self.assertEqual(errors, [], findings)
 
     def test_v5_rejects_agent_override_model_absent_from_router_registry(self):
-        findings = self._findings(
+        # Renamed in meaning, kept in name: the override's slug must match the
+        # slug its source records. A model edit that leaves the source naming
+        # the old slug fails V5; the same slug transcribed into the source passes.
+        stale = self._findings(
             lambda t: self._replace_override(
                 t, self.REVIEWER_CODEX.replace("model: gpt-6.1-sol", "model: gpt-5.6")
             )
         )
-        self.assertIn("V5", _fields(findings), findings)
+        v5 = [f["error"] for f in stale if f["field"] == "V5"]
+        self.assertEqual(len(v5), 1, stale)
+        self.assertIn("agents.reviewer.codex.source does not name the slug `gpt-5.6`", v5[0])
+        recorded = self._findings(
+            lambda t: self._replace_override(t, self.REVIEWER_CODEX.replace("gpt-6.1-sol", "gpt-5.6"))
+        )
+        self.assertNotIn("V5", _fields(recorded), recorded)
+
+    def test_v0_rejects_partial_agent_codex_overrides(self):
+        # A partial override is validated alone and refused, never merged with
+        # the level's cell, which stays valid.
+        partials = {
+            "missing reasoning_effort": self.REVIEWER_CODEX.replace("      reasoning_effort: xhigh\n", ""),
+            "model and reasoning_effort only": (
+                "  reviewer:\n"
+                "    level: apex\n"
+                "    opencode: kimi-latest\n"
+                "    codex:\n"
+                "      model: gpt-6.1-sol\n"
+                "      reasoning_effort: xhigh"
+            ),
+        }
+        for label, replacement in partials.items():
+            with self.subTest(label):
+                findings = self._findings(lambda t: self._replace_override(t, replacement))
+                v0 = [f["error"] for f in findings if f["field"] == "V0"]
+                self.assertTrue(
+                    any("agents.'reviewer'.codex key set must be exactly" in e for e in v0), findings
+                )
 
 
 class RosterKeyConfinementTests(unittest.TestCase):
@@ -1653,3 +1756,348 @@ class BundlesYmlParityTests(unittest.TestCase):
             with self.subTest(path=label):
                 for bundle in parsed.values():
                     self.assertIsInstance(bundle["default_provision"], bool)
+
+
+# ─────────────────── V10: override authority and tier ─────────────────────
+#
+# Every fixture is the shipped catalog with the brainstormer row (a flagship
+# agent that inherits every column) turned into a mapping carrying one Claude
+# override. The flagship Claude cell is `claude-opus-5-5`, which the apex cell
+# also names, so that value is same-tier for a flagship agent; the standard
+# cell's `claude-sonnet-5-5` is cross-tier; `haiku`, a Table 5 member no level
+# names, is of undeterminable tier.
+
+_BRAINSTORMER_ROW = "  brainstormer: flagship\n"
+_ACCEPTED = "ADR-0001/fixture-accepted-rule"
+_PROPOSED = "ADR-0002/fixture-proposed-rule"
+_NO_STATUS = "ADR-0003/fixture-unstatused-rule"
+
+
+def _brainstormer_override(text: str, value: str, *, date: str = '"2026-10-01"',
+                           decision: str | None = None, extra: str = "") -> str:
+    if text.count(_BRAINSTORMER_ROW) != 1:
+        raise AssertionError("fixture inert: the brainstormer row is not a bare level name")
+    row = (
+        "  brainstormer:\n"
+        "    level: flagship\n"
+        f"    claude: {value}\n"
+        "    authority:\n"
+        "      claude:\n"
+        '        instruction: "fixture owner instruction"\n'
+        f"        date: {date}\n"
+    )
+    if decision is not None:
+        row += f'        decision: "{decision}"\n'
+    return text.replace(_BRAINSTORMER_ROW, row + extra, 1)
+
+
+def _write_resolver(root: Path, *, config: str | None = "config_version: \"1\"\ndocs_dir: tree\n",
+                    resolver: str | None = None) -> None:
+    if config is not None:
+        (root / ".bionic.yml").write_text(config, encoding="utf-8")
+    if resolver is None:
+        resolver = json.dumps({
+            _ACCEPTED: {"source_adr": "ADR-0001", "source_status": "Accepted"},
+            _PROPOSED: {"source_adr": "ADR-0002", "source_status": "Proposed"},
+            _NO_STATUS: {"source_adr": "ADR-0003"},
+            "ADR-0170/cross-tier-model-moves-need-an-adr":
+                {"source_adr": "ADR-0170", "source_status": "Accepted"},
+        })
+    summaries = root / "tree" / "adrs" / "summaries"
+    summaries.mkdir(parents=True, exist_ok=True)
+    (summaries / "resolver.json").write_text(resolver, encoding="utf-8")
+
+
+def _v10(findings: list[dict], *, warnings: bool = False) -> list[str]:
+    return [
+        f["error"] for f in findings
+        if f["field"] == "V10" and (f.get("severity") == "warning") == warnings
+    ]
+
+
+class OverrideAuthorityTierTests(unittest.TestCase):
+    """Rule V10: authority bijection, inferred tier, decisions and the pre-rule set."""
+
+    def _run(self, text: str, setup=None) -> list[dict]:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            plugin = _plugin_fixture(root, text)
+            if setup is not None:
+                setup(root)
+            return _rules(plugin)
+
+    def _shipped(self) -> str:
+        return SHIPPED_MODELS.read_text(encoding="utf-8")
+
+    def test_same_tier_override_passes(self):
+        findings = self._run(_brainstormer_override(self._shipped(), "claude-opus-5-5"))
+        self.assertEqual([f for f in findings if f.get("severity") != "warning"], [], findings)
+
+    def test_cross_tier_override_without_decision_fails(self):
+        errors = _v10(self._run(_brainstormer_override(self._shipped(), "claude-sonnet-5-5")))
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("agents.brainstormer.claude is cross-tier", errors[0])
+        self.assertIn("['standard']", errors[0])
+
+    def test_old_dated_cross_tier_override_outside_the_set_fails(self):
+        text = _brainstormer_override(self._shipped(), "claude-sonnet-5-5", date='"2020-01-01"')
+        errors = _v10(self._run(text))
+        self.assertTrue(any("cross-tier" in e for e in errors), errors)
+
+    def test_untiered_override_without_decision_fails(self):
+        errors = _v10(self._run(_brainstormer_override(self._shipped(), "haiku")))
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("of undeterminable tier", errors[0])
+
+    def test_cross_tier_override_with_an_accepted_decision_passes(self):
+        text = _brainstormer_override(self._shipped(), "claude-sonnet-5-5", decision=_ACCEPTED)
+        self.assertEqual(_v10(self._run(text, _write_resolver)), [])
+
+    def test_untiered_override_with_an_accepted_decision_passes(self):
+        text = _brainstormer_override(self._shipped(), "haiku", decision=_ACCEPTED)
+        self.assertEqual(_v10(self._run(text, _write_resolver)), [])
+
+    def test_proposed_decision_fails(self):
+        text = _brainstormer_override(self._shipped(), "claude-sonnet-5-5", decision=_PROPOSED)
+        errors = _v10(self._run(text, _write_resolver))
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("source_status 'Proposed'", errors[0])
+
+    def test_resolver_source_adr_must_equal_the_handle_prefix(self):
+        # Positive control: the same handle with a matching source_adr passes.
+        text = _brainstormer_override(self._shipped(), "claude-sonnet-5-5", decision=_ACCEPTED)
+        self.assertEqual(_v10(self._run(text, _write_resolver)), [])
+        mismatched = json.dumps({_ACCEPTED: {"source_adr": "ADR-0009", "source_status": "Accepted"}})
+        errors = _v10(self._run(
+            text, lambda r: _write_resolver(r, resolver=mismatched)))
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("source_adr 'ADR-0009'", errors[0])
+        self.assertIn("ADR-0001", errors[0])
+
+    def test_unlisted_decision_fails(self):
+        text = _brainstormer_override(
+            self._shipped(), "claude-sonnet-5-5", decision="ADR-0009/not-in-the-resolver")
+        errors = _v10(self._run(text, _write_resolver))
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("is not listed in", errors[0])
+
+    def test_malformed_decision_handles_fail(self):
+        for handle in ("ADR-170/short-number", "ADR-0001/Upper-Case", "ADR-0001/trailing-",
+                       "ADR-0001/a--b", "adr-0001/lower", "ADR-0001", "ADR-0001/x/y"):
+            with self.subTest(handle=handle):
+                text = _brainstormer_override(self._shipped(), "claude-sonnet-5-5", decision=handle)
+                errors = _v10(self._run(text, _write_resolver))
+                self.assertEqual(len(errors), 1, errors)
+                self.assertIn("is not a handle of the form ADR-NNNN/<slug>", errors[0])
+
+    def test_decision_naming_adr_0170_fails_with_and_without_a_resolver(self):
+        handle = "ADR-0170/cross-tier-model-moves-need-an-adr"
+        text = _brainstormer_override(self._shipped(), "claude-sonnet-5-5", decision=handle)
+        for label, setup in (("with resolver", _write_resolver), ("without resolver", None)):
+            with self.subTest(label):
+                errors = _v10(self._run(text, setup))
+                self.assertEqual(len(errors), 1, errors)
+                self.assertIn("names ADR-0170", errors[0])
+        self.assertEqual(validator.RULE_DEMANDING_A_DECISION, "ADR-0170")
+
+    def test_accepted_shaped_decision_without_a_resolver_fails_as_a_finding(self):
+        text = _brainstormer_override(self._shipped(), "claude-sonnet-5-5", decision=_ACCEPTED)
+        cases = {
+            "no .bionic.yml": (None, ".bionic.yml is absent"),
+            "no docs_dir": (lambda r: (r / ".bionic.yml").write_text(
+                'config_version: "1"\n', encoding="utf-8"), "names no docs_dir"),
+            "malformed .bionic.yml": (lambda r: (r / ".bionic.yml").write_text(
+                "docs_dir: [unclosed\n", encoding="utf-8"), "unreadable or malformed"),
+            "escaping docs_dir": (lambda r: (r / ".bionic.yml").write_text(
+                'config_version: "1"\ndocs_dir: ../elsewhere\n', encoding="utf-8"),
+                "unreadable or malformed"),
+            "resolver absent": (lambda r: (r / ".bionic.yml").write_text(
+                'config_version: "1"\ndocs_dir: tree\n', encoding="utf-8"), "resolver.json is absent"),
+            "resolver unreadable": (lambda r: _write_resolver(r, resolver="{not json"),
+                                    "resolver.json is unreadable"),
+            "resolver not a mapping": (lambda r: _write_resolver(r, resolver="[]"),
+                                       "is not a mapping"),
+        }
+        for label, (setup, cause) in cases.items():
+            with self.subTest(label):
+                errors = _v10(self._run(text, setup))
+                self.assertEqual(len(errors), 1, errors)
+                self.assertIn("cannot be confirmed Accepted", errors[0])
+                self.assertIn(cause, errors[0])
+
+    def test_resolver_entry_lacking_source_status_fails_as_a_finding(self):
+        text = _brainstormer_override(self._shipped(), "claude-sonnet-5-5", decision=_NO_STATUS)
+        errors = _v10(self._run(text, _write_resolver))
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("lacks source_adr or source_status", errors[0])
+
+    def test_catalog_naming_no_decision_reports_no_resolver_message(self):
+        findings = self._run(self._shipped())
+        self.assertEqual([f for f in findings if f.get("severity") != "warning"], [], findings)
+        self.assertFalse(
+            [f for f in findings if "resolver" in f["error"] or ".bionic.yml" in f["error"]],
+            findings,
+        )
+
+    def test_tier_key_in_an_authority_entry_fails_v0(self):
+        text = _brainstormer_override(
+            self._shipped(), "claude-opus-5-5", extra="")
+        text = text.replace('        instruction: "fixture owner instruction"\n',
+                            '        instruction: "fixture owner instruction"\n        tier: flagship\n', 1)
+        findings = self._run(text)
+        self.assertIn("V0", _fields(findings), findings)
+        self.assertTrue(any("tier" in f["error"] for f in findings if f["field"] == "V0"), findings)
+
+    def test_missing_authority_entry_fails(self):
+        text = self._shipped().replace(_BRAINSTORMER_ROW,
+                                       "  brainstormer:\n    level: flagship\n    claude: claude-opus-5-5\n", 1)
+        errors = _v10(self._run(text))
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("with no authority.claude entry", errors[0])
+
+    def test_extra_authority_entry_fails(self):
+        text = _brainstormer_override(self._shipped(), "claude-opus-5-5")
+        text = text.replace('        date: "2026-10-01"\n',
+                            '        date: "2026-10-01"\n      opencode:\n'
+                            '        instruction: "fixture"\n        date: "2026-10-01"\n', 1)
+        errors = _v10(self._run(text))
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("a column the row does not override", errors[0])
+
+    def test_bad_dates_fail_v0_as_findings_and_the_loader_refuses_them(self):
+        for date in ("20261001", '"2026-99-99"', '"2026/10/01"', '"20261001"', '""'):
+            with self.subTest(date=date):
+                text = _brainstormer_override(self._shipped(), "claude-opus-5-5", date=date)
+                findings = self._run(text)
+                v0 = [f["error"] for f in findings if f["field"] == "V0"]
+                self.assertTrue(any("authority.claude.date" in e for e in v0), findings)
+                with tempfile.TemporaryDirectory() as td:
+                    plugin = _plugin_fixture(Path(td), text)
+                    with self.assertRaises(validator.models_catalog.SpecViolation):
+                        validator.models_catalog.load(
+                            plugin / "catalog" / "models.yml", plugin / "agents")
+
+    def test_check_shape_refuses_a_date_object(self):
+        # PyYAML without the shared loader's normalization reads an unquoted
+        # date as datetime.date; the shape reader refuses a non-string value.
+        import datetime as _dt
+        raw = validator.models_catalog.load_raw(SHIPPED_MODELS)
+        raw["agents"]["architect"]["authority"]["opencode"]["date"] = _dt.date(2026, 10, 9)
+        findings = validator.models_catalog.check_shape(raw)
+        self.assertTrue(any("must be a quoted string" in f for f in findings), findings)
+
+    def test_future_date_fails_v10_and_still_loads(self):
+        from unittest import mock
+        text = _brainstormer_override(self._shipped(), "claude-opus-5-5", date='"2026-11-07"')
+        with mock.patch.object(validator, "_utc_today", return_value=__import__("datetime").date(2026, 11, 6)):
+            errors = _v10(self._run(text))
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("later than the run's UTC date 2026-11-06", errors[0])
+        with mock.patch.object(validator, "_utc_today", return_value=__import__("datetime").date(2026, 11, 7)):
+            self.assertEqual(_v10(self._run(text)), [])
+        with tempfile.TemporaryDirectory() as td:
+            far = _brainstormer_override(self._shipped(), "claude-opus-5-5", date='"2999-01-01"')
+            plugin = _plugin_fixture(Path(td), far)
+            catalog = validator.models_catalog.load(plugin / "catalog" / "models.yml", plugin / "agents")
+        self.assertEqual(catalog.resolve("brainstormer").claude, "claude-opus-5-5")
+
+    def test_shipped_catalog_warns_once_per_exempt_tuple(self):
+        warnings = _v10(self._run(self._shipped()), warnings=True)
+        self.assertEqual(len(warnings), 6, warnings)
+        for agent, column in (("architect", "opencode"), ("dev-lead", "opencode"),
+                              ("reviewer", "codex"), ("commander", "opencode"),
+                              ("reviewer", "opencode"), ("developer", "opencode")):
+            with self.subTest(agent=agent, column=column):
+                hits = [w for w in warnings if w.startswith(f"agents.{agent}.{column} is ")]
+                self.assertEqual(len(hits), 1, warnings)
+                self.assertIn("tier set in the", hits[0])
+                self.assertIn("the agent's level is", hits[0])
+                self.assertIn("deferred owner follow-up", hits[0])
+
+    def test_changed_exempt_value_fails(self):
+        cases = {
+            "architect opencode to another tier's alias": lambda t: re.sub(
+                r"^(  architect:\n    level: flagship\n    opencode: )opus-latest$",
+                r"\1glm-latest", t, flags=re.M),
+            "reviewer codex effort lowered": lambda t: t.replace(
+                "      model: gpt-6.1-sol\n      reasoning_effort: xhigh\n",
+                "      model: gpt-6.1-sol\n      reasoning_effort: high\n", 1),
+            "dev-lead level changed": lambda t: re.sub(
+                r"^(  dev-lead:\n    level: )flagship$", r"\1apex", t, flags=re.M),
+        }
+        for label, transform in cases.items():
+            with self.subTest(label):
+                mutated = transform(self._shipped())
+                self.assertNotEqual(mutated, self._shipped(), f"fixture inert: {label}")
+                errors = _v10(self._run(mutated))
+                self.assertEqual(len(errors), 1, errors)
+                self.assertIn("needs authority.", errors[0])
+
+    def test_exemption_constant_is_pinned_to_the_six_tuples_and_the_shipped_catalog(self):
+        six = {
+            ("architect", "flagship", "opencode", "opus-latest"),
+            ("dev-lead", "flagship", "opencode", "glm-latest"),
+            ("reviewer", "apex", "codex", ("gpt-6.1-sol", "xhigh")),
+            ("commander", "apex", "opencode", "kimi-latest"),
+            ("reviewer", "apex", "opencode", "kimi-latest"),
+            ("developer", "standard", "opencode", "deepseek-flash"),
+        }
+        self.assertEqual(set(validator.PRE_RULE_OVERRIDE_EXEMPTIONS), six)
+        raw = validator.models_catalog.load_raw(SHIPPED_MODELS)
+        shipped = {key for key, _tiers in validator.unsettled_override_tuples(raw["agents"], raw["levels"])}
+        self.assertEqual(set(validator.PRE_RULE_OVERRIDE_EXEMPTIONS), shipped)
+
+    def test_pin_set_excludes_an_override_that_names_a_decision(self):
+        raw = validator.models_catalog.load_raw(SHIPPED_MODELS)
+        agents = json.loads(json.dumps(raw["agents"]))
+        before = {k for k, _ in validator.unsettled_override_tuples(agents, raw["levels"])}
+        self.assertIn(("architect", "flagship", "opencode", "opus-latest"), before)
+        agents["architect"]["authority"]["opencode"]["decision"] = _ACCEPTED
+        after = {k for k, _ in validator.unsettled_override_tuples(agents, raw["levels"])}
+        self.assertEqual(before - after, {("architect", "flagship", "opencode", "opus-latest")})
+        # The tier inference itself still lists it: only the pin set narrows.
+        self.assertIn(
+            ("architect", "flagship", "opencode", "opus-latest"),
+            {k for k, _ in validator.override_tier_tuples(agents, raw["levels"])},
+        )
+
+    def test_tier_inference_never_matches_across_columns(self):
+        raw = validator.models_catalog.load_raw(SHIPPED_MODELS)
+        levels = raw["levels"]
+        self.assertEqual(validator._tier_set(levels, "opencode", "opus-latest"), {"apex"})
+        self.assertEqual(validator._tier_set(levels, "claude", "claude-opus-5-5"), {"apex", "flagship"})
+        self.assertEqual(validator._tier_set(levels, "codex", "gpt-6.1-sol"), {"flagship"})
+        self.assertEqual(validator._tier_set(levels, "opencode", "claude-opus-5-5"), set())
+
+
+class ModelsTable3HeaderTests(unittest.TestCase):
+    """The Table 3 header states the authority and tier rules V10 checks."""
+
+    def _header(self) -> str:
+        text = SHIPPED_MODELS.read_text(encoding="utf-8")
+        start = text.index("# Table 3")
+        end = text.index("\nagents:\n", start)
+        return " ".join(line.lstrip("# ").strip() for line in text[start:end].splitlines())
+
+    def test_header_states_the_rules_and_limits(self):
+        header = self._header()
+        for phrase in (
+            "A dated owner instruction recorded beside an override authorizes it.",
+            "A role's tier is its level.",
+            "A move within the agent's tier is configuration",
+            "A move to a model of another tier needs an Accepted ADR, named in `decision`.",
+            "Review checks that the cited decision authorizes this move.",
+            "the set of levels whose cell in the SAME column names the same value",
+            "A model is never matched across columns",
+            "A move made by editing a level cell is invisible to a static check",
+            "A move made by editing what an alias resolves to in Table 2 is not checked.",
+            "A change of reasoning effort is runtime, not tier.",
+            "An unquoted ISO date is normalised to the same text on both parse paths",
+            "V10 compares `date` with the run's UTC date",
+            "a partial override is refused (rule V0), never merged with the level's cell.",
+            "A Codex slug, in a level cell or an override, validates against its recorded "
+            "Codex-catalog provenance, not the router registry (rule V5).",
+            "Its `source` cites `Codex <x.y.z> models_cache.json` and names the slug backtick-quoted",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, header)

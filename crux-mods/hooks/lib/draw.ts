@@ -722,6 +722,7 @@ const CYCLE_STATUS: Readonly<Record<string, { glyph: string; color: ThemeKey }>>
   completed: { glyph: STATE_GLYPHS.done!, color: 'success' },
   paused: { glyph: STATE_GLYPHS.skipped!, color: 'warning' },
   abandoned: { glyph: STATE_GLYPHS.blocked!, color: 'error' },
+  shortcut: { glyph: STATE_GLYPHS.done!, color: 'warning' },
 }
 const statusOf = (status: string) => own(CYCLE_STATUS, status) ?? { glyph: UNKNOWN, color: 'warning' as ThemeKey }
 // A task's state glyph: the cycle's `active` is the run's running glyph.
@@ -916,9 +917,10 @@ function queueRow(i: QueueItemView, n: number): Line {
 
 function finishedRow(i: QueueItemView): Line {
   const bad = i.cycle_status === 'abandoned'
+  const color: ThemeKey = bad ? 'error' : i.cycle_status === 'shortcut' ? 'warning' : 'success'
   return [
-    span(bad ? STATE_GLYPHS.blocked! : STATE_GLYPHS.done!, { color: bad ? 'error' : 'success' }), span(' '), span(i.id, { bold: true }),
-    span(` ${drawn(i.cycle ?? '')} `), span(i.cycle_status ?? '', { color: bad ? 'error' : 'success' }),
+    span(bad ? STATE_GLYPHS.blocked! : STATE_GLYPHS.done!, { color }), span(' '), span(i.id, { bold: true }),
+    span(` ${drawn(i.cycle ?? '')} `), span(i.cycle_status ?? '', { color }),
   ]
 }
 
@@ -926,7 +928,7 @@ function finishedRow(i: QueueItemView): Line {
 // separate limit. queueBlock adds the owned action after these rows. An empty queue has no card.
 function queueLines(q: QueueView & { ok: true }, n: number, expanded: boolean): Line[] | null {
   const upcoming = q.items.filter(i => UPCOMING_STATES.includes(i.state))
-  const finished = q.items.filter(i => i.state === 'started' && (i.cycle_status === 'completed' || i.cycle_status === 'abandoned'))
+  const finished = q.items.filter(i => i.state === 'started' && (i.cycle_status === 'completed' || i.cycle_status === 'abandoned' || i.cycle_status === 'shortcut'))
   if (upcoming.length === 0 && finished.length === 0) return null
   const a = q.authorization
   const auth = a === null ? 'not authorized' : `authorized: ${a.kind}, remaining ${a.remaining.length === 0 ? 'none' : a.remaining.join(' ')}`

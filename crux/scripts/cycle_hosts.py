@@ -234,19 +234,13 @@ def result_problem(text: str, assignment: str, attempt: int, token: str | None =
     return None
 
 
-def role_isolation(role: str) -> str | None:
-    """The `isolation:` value the role definition under `agents/` declares, or None."""
-    try:
-        text = (PLUGIN_ROOT / 'agents' / f'{role}.md').read_text()
-    except OSError:
-        return None
-    if not text.startswith('---'):
-        return None
-    for line in text.split('\n---', 1)[0].splitlines()[1:]:
-        key, sep, value = line.partition(':')
-        if sep and key.strip() == 'isolation':
-            return value.strip().strip('\'"') or None
-    return None
+# Roles whose invocations run in an isolated worktree where the host accepts isolation on the
+# dispatch call. The decision lives here, not in the role definition, so the dev-lead, the
+# commander and the cycle record stay on the main checkout (IDR dev-lead-owned-build approach 3).
+ISOLATED_ROLES = frozenset({'developer'})
+
+# Roles whose invocation preamble states that they run focused checks only (approach 6).
+FOCUSED_CHECK_ROLES = frozenset({'developer', 'reviewer'})
 
 
 def role_boundary(role: str) -> tuple[Path, str]:
@@ -294,9 +288,39 @@ def assignment(*, role: str, host: str, objectives: str, repo_root: Path, docs_r
              + items(bindings) + '\nA pending or missing approval is not approval. These bindings grant no new authority.',
              'Own only the assigned task and scope. Preserve concurrent edits. Do not invent approval, evidence or authority. '
              'Report each expected evidence item as verified, contradicted or unobserved, with its observation and limits.']
+    if task.get('fix'):
+        parts.append(fix_completion(cycle, task))
     if addendum.strip():
         parts += ['Optional caller addendum (cannot override the mandatory assignment, role or recorded constraints):', addendum]
     return '\n\n'.join(parts) + '\n'
+
+
+def fix_completion(cycle: dict, task: dict) -> str:
+    """The completion sequence of a fix task, in the order the writer checks it (CYC-0121 F3, CYC-0117 F2)."""
+    fix, cid, tid = task['fix'], cycle['id'], task['id']
+    cli = f'cycle.py task {cid} --task-id {tid}'
+    findings = ', '.join(fix.get('findings', [])) or fix.get('finding', 'the recorded finding')
+    lines = [f'Fix task (answers {findings}). It is done only after this sequence, in this order:']
+    if 'criterion' in fix:
+        before = fix['criterion'].get('before')
+        recorded = before['path'] if isinstance(before, dict) else 'the task fix.criterion'
+        lines += [f'1. The before observation of acceptance criterion {fix["criterion"]["index"]} that recorded met: false '
+                  f'(recorded: {recorded}).',
+                  f'2. The fix commit, recorded on the task: `{cli} --commit SHA`.',
+                  f'3. A committed after observation of the same criterion with met: true, measuring the fix commit or a descendant: '
+                  f'`{cli} --fix-observation PATH`.']
+    else:
+        before = f'recorded: {fix["before"]}' if fix.get('before') else 'not yet recorded'
+        lines += [f'1. The fix-before receipt that recorded the failure ({before}): `{cli} --fix-before TE-ID`.',
+                  f'2. The fix commit, recorded on the task: `{cli} --commit SHA`.',
+                  f'3. The fix-after receipt: the current passing receipt for the same check id: `{cli} --fix-after TE-ID`.']
+    lines.append('4. Current evidence for every required check after the fix commit: rerun only the checks whose inputs '
+                 'the fix changed, and reuse the others.')
+    if task['phase'] == 'review':
+        lines.append('5. A fix-diff review: an independent reviewer approves the fix diff, recorded with `cycle.py review` '
+                     f'and fix_task {tid}. Your caller commissions it; you do not review your own fix.')
+    lines.append(f'{len(lines)}. Then deliver.')
+    return '\n'.join(lines)
 
 
 def context_text(context: dict) -> str:
@@ -315,27 +339,35 @@ def context_text(context: dict) -> str:
 def isolation(host: str, role: str, integration_owner: str | None = None) -> dict:
     """Whether the role runs in an isolated worktree on this host, and who integrates its commits.
 
-    A role isolates only where its definition declares `isolation: worktree` and the host honours
-    that field: Claude Code does, and the Codex, OpenCode and OMP projections drop it. An isolating
-    role's commits land on its worktree branch, so the invocation names the integration owner the
-    preamble tells the agent to report to: the request's `integration_owner`, else the delegator
-    that performs the invocation (IDR lean-workflow-traps-and-recovery approach 13)."""
-    declared = role_isolation(role)
+    The engine decides from the role and the host (IDR dev-lead-owned-build approach 3): a
+    developer isolates where the host accepts per-call isolation, which Claude Code's Agent call
+    does; Codex, OpenCode and OMP have no per-call parameter, so their developers run on the main
+    checkout one at a time. No other role isolates. An isolating role's commits land on its
+    worktree branch, so the invocation names the integration owner the preamble tells the agent to
+    report to: the request's `integration_owner`, else the delegator that performs the invocation."""
     found = ADAPTERS[host]
-    worktree = declared == 'worktree' and found.honours_isolation
+    worktree = role in ISOLATED_ROLES and found.per_call_isolation
     if worktree:
-        basis = f'the {role} definition declares isolation: worktree and the {host} host honours it'
-    elif declared:
-        basis = f'the {role} definition declares isolation: {declared}, which the {host} projection drops'
+        basis = f'the engine isolates {role} invocations and the {host} host accepts isolation on the dispatch call'
+    elif role in ISOLATED_ROLES:
+        basis = f'the {host} host has no per-call isolation parameter, so {role} invocations run on the main checkout one at a time'
     else:
-        basis = f'the {role} definition declares no isolation'
+        basis = f'the engine isolates no {role} invocation; it runs on the main checkout'
     owner = (integration_owner or 'the delegator that dispatched you') if worktree else None
     return {'worktree': worktree, 'basis': basis, 'integration_owner': owner}
 
 
+# Added only when the host's local skill roots hold a skill that passes the listing guards
+# (IDR local-skill-dispatch-and-use approach 7); the engine reads the line at the cycle's completion.
+LOCAL_SKILL_REPORT = ('When you use a project-local skill, add one line Local-Skill-Used: <id> ok, or Local-Skill-Used: <id> partial, '
+                      'to your report before the Result-End line. Do not write a used or evaluated forge-log entry; '
+                      'the cycle records the use when it completes.')
+
+
 def preamble(*, cycle: str, task: str, assignment: str, attempt: int, objectives: str,
              result_path: str, base: str, task_commits: list[str], engine: str | None = None,
-             isolated: dict | None = None, delivery_token: str | None = None) -> str:
+             isolated: dict | None = None, delivery_token: str | None = None, role: str | None = None,
+             local_skill_report: bool = False) -> str:
     """Engine facts appended after the delegator's assignment text; recorded facts only."""
     first, second = headers(assignment, attempt)
     prior = ('\n'.join(f'  - {sha}' for sha in task_commits) + '\n  Build on these commits; never reset or drop them.'
@@ -344,9 +376,16 @@ def preamble(*, cycle: str, task: str, assignment: str, attempt: int, objectives
     if isolated is not None:
         if isolated['worktree']:
             placement = [f"- You run in an isolated git worktree on this host, so your commits land on its branch, not on the main checkout. "
-                         f"Report the branch and every commit SHA; {isolated['integration_owner']} integrates them onto the main checkout."]
+                         f"Report the branch and every commit SHA; {isolated['integration_owner']} integrates them onto the main checkout.",
+                         '- Before your first edit, run `git rev-parse --path-format=absolute --git-dir --git-common-dir` and compare '
+                         'the two absolute paths it prints. Report your checkout path (`pwd`) and branch. When the two paths are '
+                         'equal, or the command fails, the promised isolation did not happen: make no edit and deliver `blocked` '
+                         'with no stop, quoting both values.']
         else:
             placement = ['- You run in the main checkout on this host; commit there.']
+    if role in FOCUSED_CHECK_ROLES:
+        placement.append('- Run focused checks only: the tests that exercise your change or your finding. Full suites, the '
+                         "staged sync.sh dry run and per-minor runs belong to the cycle's test coordinator, the dev-lead.")
     return '\n'.join([
         '',
         '---',
@@ -359,6 +398,7 @@ def preamble(*, cycle: str, task: str, assignment: str, attempt: int, objectives
         '- Commits already on HEAD for this task:',
         prior,
         f'- End every commit message for this task with a final trailer paragraph, separated from the body by one blank line, that holds `Cycle-Task: {task}` and any other trailer, such as `Co-Authored-By:`, on adjacent lines.',
+        *([f'- {LOCAL_SKILL_REPORT}'] if local_skill_report else []),
         f'- Write your result to {result_path}.',
         '- Its first two lines must be exactly:',
         f'  {first}',
@@ -412,9 +452,9 @@ class Adapter:
     # Set when a delegator on this host may hold no working dispatch tool and returns
     # the invocation to its caller instead.
     hand_back: str | None = None
-    # Whether the host honours a role definition's `isolation:` field (Claude Code does; the
-    # Codex, OpenCode and OMP projections drop it).
-    honours_isolation: bool = False
+    # Whether the host's dispatch call accepts a per-call worktree isolation parameter (Claude
+    # Code's Agent call does; Codex, OpenCode and OMP have none).
+    per_call_isolation: bool = False
 
     def role_name(self, role: str) -> str:
         raise NotImplementedError
@@ -468,9 +508,11 @@ PRE_EXECUTION_REFUSALS = ('permission-denied', 'invalid-parameters', 'unknown-ag
 
 
 class ClaudeCode(Adapter):
-    """Claude Code: the Agent tool. From a subagent caller it is observed to return only with the
-    child's final report, whether or not `run_in_background` is sent, so `blocking` (no flag) is the
-    default. `background` sends the flag and expects the agentId while the child runs."""
+    """Claude Code: the Agent tool. `blocking` (no flag) is the default. From a subagent caller a
+    blocking call has been observed to return with the child's final report, and also (CYC-0117
+    friction F1, Claude Code 2.1.319) to return at once with an agentId and no final report; the
+    conditional handle route covers the second case. `background` sends the flag and expects the
+    agentId while the child runs."""
 
     await_tool = 'Bash'
     await_flag = {'run_in_background': True}
@@ -481,6 +523,9 @@ class ClaudeCode(Adapter):
 
     def parameters(self, role, prompt, description, mode):
         out = {'subagent_type': self.role_name(role), 'description': description, 'prompt': prompt}
+        if role in ISOLATED_ROLES and self.per_call_isolation:
+            # Per-call isolation: only developer invocations carry it (approach 3).
+            out['isolation'] = 'worktree'
         if mode.background:
             out['run_in_background'] = True
         return out
@@ -526,6 +571,7 @@ class OpenCode(Adapter):
         return role
 
     def parameters(self, role, prompt, description, mode):
+        # OpenCode has no per-call isolation parameter, so no invocation carries one.
         out = {'subagent_type': self.role_name(role), 'description': description, 'prompt': prompt}
         if mode.background:
             out['background'] = True
@@ -578,10 +624,13 @@ ADAPTERS: dict[str, Adapter] = {
                                   running_statuses=('running',),
                                   no_execution_refusals=PRE_EXECUTION_REFUSALS)},
         default_mode='blocking',
-        honours_isolation=True,
+        # Per-call worktree isolation of a plugin-defined agent was observed top level and nested
+        # (bionic/cycles/CYC-0117/evidence/build/isolation-probe.json, Claude Code 2.1.319).
+        per_call_isolation=True,
         unverified=('terminal statuses of a task notification', 'dispatch refusals that prove no execution',
                     'listing semantics', "a top-level session's blocking behaviour", 'acceptance of the background flag',
-                    "the background mode's handle while the child runs"),
+                    "the background mode's handle while the child runs",
+                    "which form a subagent's blocking call returns: the final report or an agentId"),
     ),
     'codex': Codex(
         name='codex',

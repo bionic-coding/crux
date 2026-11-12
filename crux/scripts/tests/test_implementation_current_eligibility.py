@@ -32,7 +32,7 @@ class CurrentConstraints(unittest.TestCase):
 
     def nonretiring_source(self):
         batch = migration.load_batch(self.root, self.fixture.f.path)
-        entry = batch["entries"][0]; entry["affected_governs"][0]["retires"] = []
+        entry = batch["entries"][0]; entry["affected_governs"][0].pop("retires", None)
         entry["source_identity"] = migration.source_identity(entry)
         source = self.root / "docs/adrs/ADR-0110-source.md"
         source.write_text("---\n" + yaml.safe_dump({"id": "ADR-0110", "status": "Accepted",

@@ -274,7 +274,7 @@ AGENT_VERDICTS = {
     },
     "commander": {
         "allowed": {"read", "grep", "glob", "list", "skill", "todowrite"},
-        "subagent_roles": frozenset({"architect", "brainstormer", "developer", "dev-lead",
+        "subagent_roles": frozenset({"architect", "brainstormer", "dev-lead",
                                      "historian", "librarian", "night-gardener",
                                      "reviewer", "wayfinder"}),
     },
@@ -960,7 +960,7 @@ class EffectiveVerdictTests(unittest.TestCase):
     def test_the_commander_verdicts_named_in_the_plan(self):
         rules = _generated_rules("commander")
         self.assertEqual(_effective(rules, "subagent", "architect"), "allow")
-        self.assertEqual(_effective(rules, "subagent", "developer"), "allow")
+        self.assertEqual(_effective(rules, "subagent", "developer"), "deny")
         self.assertEqual(_effective(rules, "subagent", "reviewer"), "allow")
         self.assertEqual(_effective(rules, "shell", "x"), "deny")
 
@@ -976,13 +976,13 @@ class OperationsRoleProjectionTests(unittest.TestCase):
             with self.subTest(role=role):
                 self.assertEqual(_effective(_generated_rules(role), "shell", self.CYCLE_OP), "allow")
 
-    def test_commander_source_and_projection_carry_both_dispatch_grants(self):
+    def test_commander_source_and_projection_carry_the_reviewer_grant_and_no_developer_grant(self):
         source = (Path(__file__).resolve().parents[2] / "agents/commander.md").read_text()
         tools = source.split("tools:", 1)[1].split("\n", 1)[0]
-        self.assertIn("Agent(developer)", tools)
+        self.assertNotIn("Agent(developer)", tools)
         self.assertIn("Agent(reviewer)", tools)
         rules = _generated_rules("commander")
-        self.assertEqual(_effective(rules, "subagent", "developer"), "allow")
+        self.assertEqual(_effective(rules, "subagent", "developer"), "deny")
         self.assertEqual(_effective(rules, "subagent", "reviewer"), "allow")
 
 

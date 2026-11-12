@@ -48,7 +48,7 @@ The gardener's last completed note carries a four-field **high-water mark**:
 high_water:
   commit: <HEAD SHA at note time>
   dirty: <fingerprint — see below; "" when clean>
-  log_head: "<verbatim newest docs/log.md heading line at note time — her own garden op>"
+  log_head: "<verbatim top heading line of the current month's detail file docs/log/YYYY-MM.md at note time — her own garden op>"
   journal_head: "<verbatim newest journal entry heading>"
 ```
 
@@ -59,7 +59,7 @@ every untracked file, its path and a hash of its contents** (sorted; a path
 list alone would miss edits to existing untracked files). Untracked enumeration
 uses `git ls-files --others --exclude-standard` — `.gitignore`d trees are
 excluded by construction. **Before hashing, strip from `git diff HEAD` any
-hunk that touches only `garden |` op lines in `docs/log.md`** — her own
+hunk that touches only `garden |` op lines in the detail files `docs/log/YYYY-MM.md`** — her own
 ledger lines are not an owner move. **Exclude from the fingerprint:**
 `docs/garden/**`, `gardener-*` inbox drops, and `garden/*` branch worktrees.
 Two named benign asymmetries: a dirty→clean revert reads as a turn (false-turn
@@ -104,7 +104,7 @@ regeneration her own step-3 run produces.
 ### Marker validity
 
 A candidate high-water marker is **valid only when corroborated** by a
-same-day `garden |` op in `docs/log.md` — specifically, an op headed
+same-day `garden |` op in the operations log (any detail file `docs/log/YYYY-MM.md`) — specifically, an op headed
 `## [YYYY-MM-DD] garden | morning note <date>` whose date matches the
 note's `date` field AND no other note claims the same op (claimed-once).
 An uncorroborated or future-dated marker is surfaced and skipped, **falling
@@ -266,8 +266,8 @@ The high-water mark advances ONLY in a completed note. **Ordering (pinned):**
    surface the owner reads first, so it is reviewed before it lands, not
    after. Findings are advisory — a `fix` you decline is a choice you can
    state, not an oversight.
-3. Write the `garden` log op to `docs/log.md` (see Garden log op below).
-4. Re-read `docs/log.md` head (it is now her own op).
+3. Record the `garden` log op through the log writer (see Garden log op below).
+4. Re-read the top heading of the current month's detail file `docs/log/YYYY-MM.md` (write order puts her own op at the top of that file).
 5. Write the note with `log_head` set to that op.
 
 This ordering means the next night's log-delta is exactly the headings
@@ -401,11 +401,20 @@ mechanisms are never conflated.
 
 ## The garden log op
 
-`docs/log.md` gains a `garden` op. The exact heading form:
+The operations log gains a `garden` op, written through the log writer (`docs/AGENTS.md` §6).[^log-writer] Write the body (one line, the note path `docs/garden/<date>.md`) to a file outside the tree, then run:
+
+```
+uv run "${CRUX_PLUGIN_ROOT}/scripts/operation-log.py" append --repo-root <repo-root> \
+  --op garden --subject 'morning note <date> (<N> headlines, <M> artifacts)' --date YYYY-MM-DD --body-file <path>
+```
+
+The entry it writes at the top of the current month's detail file `docs/log/YYYY-MM.md` has this exact heading form:
 
 ```
 ## [YYYY-MM-DD] garden | morning note <date> (<N> headlines, <M> artifacts)
 ```
+
+A refused append adds no entry: fix the cause it names, then rerun the append alone (§6). Then run the commit step of §6 over the result's `commit_paths` and `restore_paths`; a commit she makes there carries the trailer `Gardened-by: night-gardener`, so the next delta excludes it.
 
 Where `<date>` is the note's date, `<N>` is the Headlines count (≤3), and
 `<M>` is the Artifacts count. This op doubles as the note's corroboration
@@ -684,3 +693,4 @@ corruption language.
 
 [^scope]: rule:out-of-scope-is-surface-absent
 [^defer]: rule:only-a-preflight-refusal-is-retried
+[^log-writer]: rule:log-entries-go-through-the-log-writer, rule:no-writer-writes-the-legacy-log-file

@@ -33,7 +33,7 @@ from pathlib import Path
 import re
 import subprocess
 
-from cycle_workflow import contained, load, locked, tree
+from cycle_workflow import CLOSED, contained, load, locked, tree
 
 SUITE_LOCK = ('crux', 'full-suite.lock')
 IN_PROGRESS = (('MERGE_HEAD', 'merge'), ('CHERRY_PICK_HEAD', 'cherry-pick'), ('REVERT_HEAD', 'revert'),
@@ -48,7 +48,7 @@ ATTEMPT_ACTIONS = ('prepare-dispatch', 'attach-execution', 'deliver', 'mark-lost
 # Files a pending report lists before it says it is cut.
 PENDING_SHOWN = 20
 # Low-level commands whose success is followed by a record commit.
-LOW_LEVEL_COMMITTING = ('advance', 'pause', 'owner-complete', 'abandon')
+LOW_LEVEL_COMMITTING = ('advance', 'pause', 'owner-complete', 'shortcut', 'abandon')
 
 
 def git(root, *argv):
@@ -173,13 +173,29 @@ def commit_paths(cfg, paths, message):
 
 
 def commit_record(repo_root, cycle_id, label=None, include_queue=False):
-    """Commit the cycle record now, under the cycle lock. Returns the result described in the module docstring."""
+    """Commit the cycle record now, under the cycle lock. Returns the result described in the module docstring.
+
+    The record commit of a completed cycle also flushes forge-log `used` entries first and commits each
+    log that passes the commit rule with the record (IDR local-skill-dispatch-and-use approaches 8 and 9);
+    its result then carries `forge_log`. A flush error never fails the record commit."""
     with locked(repo_root) as (cfg, _):
         doc = load(repo_root, cycle_id)
         revision = doc.get('revision')
         paths = record_paths(cfg, cycle_id) + (queue_paths(cfg) if include_queue else [])
-        return commit_paths(cfg, paths,
-                            lambda: f"{cycle_id} record: {label or label_of(doc)}" + (f' (rev {revision})' if revision is not None else ''))
+        message = lambda: f"{cycle_id} record: {label or label_of(doc)}" + (f' (rev {revision})' if revision is not None else '')
+        if doc.get('status') != 'completed':
+            return commit_paths(cfg, paths, message)
+        import cycle_local_skills
+        flush = cycle_local_skills.Flush(cfg)
+        found = deferral(cfg)
+        flush.prepare(found[0] if found else None)
+        try:
+            result = commit_paths(cfg, paths + flush.paths, message)
+        except BaseException:
+            flush.restore()
+            raise
+        result['forge_log'] = flush.finish(result)
+        return result
 
 
 def commit_queue(cfg, label):
@@ -200,7 +216,7 @@ def after_write(repo_root, cycle_id, label=None, include_queue=False):
         result = commit_record(repo_root, cycle_id, label, include_queue=include_queue)
         # Never take the queue lock while the cycle lock is held. A joint start already
         # holds the queue lock, so only an ordinary terminal cycle triggers a sweep.
-        if not include_queue and result.get('deferred') is None and load(repo_root, cycle_id)['status'] in ('completed', 'abandoned'):
+        if not include_queue and result.get('deferred') is None and load(repo_root, cycle_id)['status'] in CLOSED:
             import cycle_queue
             try:
                 cfg = tree(repo_root)
@@ -229,4 +245,15 @@ def pending_record(repo_root, cycle_id):
     if len(files) > PENDING_SHOWN:
         # A cut list says so and gives the count (approach 8).
         out.update(files_total=len(files), files_cut=True)
+    try:
+        import cycle_local_skills
+        logs = cycle_local_skills.pending(cfg)
+    except Exception as exc:  # inspect reads; an unreadable forge log never fails it
+        logs = {'forge_logs': [{'path': None, 'state': 'error', 'cycles': [], 'detail': f'{type(exc).__name__}: {exc}'[:300]}],
+                'open_attempts': []}
+    if logs['forge_logs']:
+        out['forge_logs'] = logs['forge_logs']
+        out['forge_log_open_attempts'] = logs['open_attempts']
+        if logs.get('unreadable_records'):
+            out['forge_log_unreadable_records'] = logs['unreadable_records']
     return out

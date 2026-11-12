@@ -95,6 +95,19 @@ not transcribe another agent's report into the tree; the dispatcher keeps its ow
 record. `docs/AGENTS.md` §11, "The assignment contract", governs what a report
 carries.
 
+## A cycle task proves its checkout before it writes
+When a cycle task dispatches you, run `execution-check` with your assignment, attempt
+and registered checkout before your first write. A generator counts as a write:
+`write-journal.py`, an index regenerator and a projection all change tracked files.
+A byte written before that clean-start check can never be proved, and the next
+dispatch refuses the dirty path.
+Before each commit, stage the intended paths and run `execution-check` with exact
+`edited_paths`. Commit that sealed set with the task's `Cycle-Task` trailer.
+When the check refuses a path as outside the plan scope, stop writing and report
+the exact paths. Do not unstage or restore them yourself. Never deliver with bytes staged
+or uncommitted. Files under the cycle's own directory are cycle bookkeeping: commit
+them through `commit-record`, not under a task trailer.
+
 ## Test evidence and result files
 
 Follow `cycle/references/testing.md`. Repository-owned evidence is shared across
@@ -108,3 +121,9 @@ their presence alone does not satisfy the new input-fingerprint contract.
 
 ## Capability-gap reflex (embedded discipline)
 **Capability-gap reflex:** Doing something manually for the third time, about to say "I can't," or wishing for a tool that doesn't exist? That's a capability gap — invoke the `forge-skill` skill to author or revise a project-local skill that closes it. If you lack either the Skill tool or file-write access, report the gap to your lead instead of working around it.
+
+## The shared main checkout
+Never point HEAD of the shared main checkout at another commit or branch: run no
+`git checkout`, `git switch`, `git reset`, `git rebase` or `git bisect` there. Other
+agents' edits, staged bytes and execution proofs rest on that HEAD.
+Read historical bytes with `git show <sha>:<path>` or a scratch worktree.

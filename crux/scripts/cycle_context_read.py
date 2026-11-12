@@ -20,6 +20,10 @@ from secret_scan import check_secret_location, scan_text
 
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 MAX_OBJECT_BYTES = 1024 * 1024
+# The live operation log is the one family of objects read under a larger bound: a legacy
+# or stray <docs_dir>/log.md, a staged stray under <docs_dir>/log/ and each monthly detail
+# file there. Every other object keeps MAX_OBJECT_BYTES. Paging and scans are unchanged.
+LOG_OBJECT_BYTES = 8 * 1024 * 1024
 MAX_PAGE_BYTES = 16 * 1024
 MIN_PAGE_BYTES = 4  # One UTF-8 scalar always fits.
 TEXT_SUFFIXES = frozenset({'.md', '.json', '.yaml', '.yml', '.txt', '.tmpl'})
@@ -171,7 +175,8 @@ def _reference_view(cfg, doc):
         rows.append({'ref': name, 'source_path': str(ref.path),
                      'argv': ['uv', 'run', str(PLUGIN_ROOT / 'scripts/cycle.py'), '--repo-root', str(cfg.repo_root),
                               'context-read', doc['id'], '--ref', name]})
-    return {'max_object_bytes': MAX_OBJECT_BYTES, 'max_page_bytes': MAX_PAGE_BYTES,
+    return {'max_object_bytes': MAX_OBJECT_BYTES, 'max_log_object_bytes': LOG_OBJECT_BYTES,
+            'max_page_bytes': MAX_PAGE_BYTES,
             'pagination': 'Use next_offset with the first page sha256; offset and limit count UTF-8 bytes.',
             'references': rows}
 
@@ -195,11 +200,12 @@ def _identity(info):
     return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
 
 
-def _bounded_bytes(ref: Reference) -> bytes:
+def _bounded_bytes(ref: Reference, *, limit: int = MAX_OBJECT_BYTES) -> bytes:
     """Open every component relative to a no-follow directory descriptor.
 
     Compare descriptor and path identities before/after reading. Nonblocking open
-    and fstat refuse a raced special file without waiting on its writer.
+    and fstat refuse a raced special file without waiting on its writer. `limit`
+    defaults to the context bound; identity-only callers may pass a larger one.
     """
     path, root = ref.path, ref.root
     if not path.is_absolute() or '..' in path.parts or not path.is_relative_to(root):
@@ -228,12 +234,12 @@ def _bounded_bytes(ref: Reference) -> bytes:
         before = os.fstat(descriptor)
         if not stat.S_ISREG(before.st_mode) or _identity(before) != _identity(before_path):
             raise ReadRefused('object-changed')
-        if before.st_size > MAX_OBJECT_BYTES:
+        if before.st_size > limit:
             raise ReadRefused('object-too-large', size_bytes=before.st_size, sha256=None)
         chunks = []
         size = 0
-        while size <= MAX_OBJECT_BYTES:
-            data = os.read(descriptor, min(65536, MAX_OBJECT_BYTES + 1 - size))
+        while size <= limit:
+            data = os.read(descriptor, min(65536, limit + 1 - size))
             if not data:
                 break
             chunks.append(data)
@@ -244,7 +250,7 @@ def _bounded_bytes(ref: Reference) -> bytes:
         if (_identity(before) != _identity(after) or _identity(before) != _identity(after_path)
                 or size != before.st_size):
             raise ReadRefused('object-changed')
-        if size > MAX_OBJECT_BYTES:
+        if size > limit:
             raise ReadRefused('object-too-large', size_bytes=size, sha256=None)
         # All components remain the directories we opened, even if renamed.
         current = Path(path.anchor)
@@ -264,6 +270,24 @@ def _bounded_bytes(ref: Reference) -> bytes:
     finally:
         for descriptor in reversed(descriptors):
             os.close(descriptor)
+
+
+def _object_limit(cfg, path: Path) -> int:
+    """Return LOG_OBJECT_BYTES for a legacy or stray log.md, a detail file and a staged legacy or stray file."""
+    from cycle_workflow import CycleError, contained
+    import operation_log as ol
+    try:
+        log = contained(cfg.docs_root, ol.LEGACY_NAME)
+        log_dir = contained(cfg.docs_root, ol.LOG_DIR)
+    except CycleError:
+        return MAX_OBJECT_BYTES
+    if path == log:
+        return LOG_OBJECT_BYTES
+    if path.parent == log_dir and (ol.DETAIL_NAME.match(path.name)
+                                   or ol.STAGED_LEGACY_NAME.match(path.name)
+                                   or ol.STAGED_STRAY_NAME.match(path.name)):
+        return LOG_OBJECT_BYTES
+    return MAX_OBJECT_BYTES
 
 
 def read_context(cfg, doc, reference, *, offset=0, limit=MAX_PAGE_BYTES, sha256=None):
@@ -287,7 +311,7 @@ def read_context(cfg, doc, reference, *, offset=0, limit=MAX_PAGE_BYTES, sha256=
             raise ReadRefused('invalid-digest')
         if offset and sha256 is None:
             raise ReadRefused('digest-required')
-        data = _bounded_bytes(selected)
+        data = _bounded_bytes(selected, limit=_object_limit(cfg, selected.path))
         digest = hashlib.sha256(data).hexdigest()
         metadata.update(size_bytes=len(data), sha256=digest)
         if selected.sha256 is not None and selected.sha256 != digest:

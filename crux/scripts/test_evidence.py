@@ -111,9 +111,13 @@ def file_digest(path):
 # with that prefix and hold the placeholder (masking) or the canonical rows JSON (selecting).
 PROJECTION_PLACEHOLDER = "@@projected@@"
 PROJECTION_KINDS = ("json-string:<top-level key>", "toml-project-version", "uv-lock-package-version:<name>",
-                    "readme-footer-version", "generated-fingerprint-line",
+                    "readme-footer-version", "generated-fingerprint-line", "forge-log-preamble",
                     "changelog-citations:<sorted space-separated tokens>")
-_PROJECTION_STATIC = ("toml-project-version", "readme-footer-version", "generated-fingerprint-line")
+_PROJECTION_STATIC = ("toml-project-version", "readme-footer-version", "generated-fingerprint-line", "forge-log-preamble")
+# ``forge-log-preamble`` masks everything from the first line that begins ``## [`` to the end of the file,
+# so a forge log's digest covers its preamble alone and an inserted entry leaves it unchanged. A log with
+# no entry masks an empty span at its end, so it digests like the same preamble followed by entries.
+_FORGE_LOG_ENTRY = re.compile(r"^## \[", re.MULTILINE)
 _CITATIONS_PREFIX = "changelog-citations:"
 # The token grammar of lint-governs-references.py (HANDLE_RE, RULE_RE): a second copy, because
 # validating a declaration must not import the migration module. A test holds the two equal.
@@ -378,7 +382,18 @@ def _locate(text, kind):
     if kind.startswith("uv-lock-package-version:"):
         return _locate_uv_lock_version(text, kind[len("uv-lock-package-version:"):])
     return {"toml-project-version": _locate_toml_project_version, "readme-footer-version": _locate_readme_footer,
-            "generated-fingerprint-line": _locate_fingerprint_line}.get(kind, lambda _text: None)(text)
+            "generated-fingerprint-line": _locate_fingerprint_line,
+            "forge-log-preamble": _locate_forge_log_entries}.get(kind, lambda _text: None)(text)
+
+
+def forge_log_preamble(text):
+    """A forge log's preamble: the text before the first line that begins ``## [``."""
+    return text[:_locate_forge_log_entries(text)[0]]
+
+
+def _locate_forge_log_entries(text):
+    match = _FORGE_LOG_ENTRY.search(text)
+    return (len(text), len(text)) if match is None else (match.start(), len(text))
 
 
 def projected_digest(data, kinds):

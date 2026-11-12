@@ -4,6 +4,18 @@
       "domain": "council-gates",
       "rule": "A responding seat in a counted round that returns any decision other than APPROVE or APPROVE_WITH_NITS and records no blocking finding holds the gate: its round buys no further round, no refutation record covers it, and the gate stops at the escalation-loop stop; an errored seat never holds."
     },
+    "absence-is-confirmed-by-enoent-or-enotdir": {
+      "domain": "regenerator-input",
+      "rule": "An enrolled regenerator treats an input directory, a declared catalogue member or a file the declared criteria name by path as absent only when a stat or open of its path fails with ENOENT or ENOTDIR, or when its name is missing from a successful listing of the directory that holds it, never because a language predicate returned false."
+    },
+    "absent-catalogue-member-is-a-document-finding": {
+      "domain": "regenerator-input",
+      "rule": "Each run reports every declared catalogue member whose absence is confirmed, the absent-member case, as a document-lane finding naming the member and its absence, with the same exit code in every mode that reads the declared input set; a member whose existence cannot be determined is in the unreadable-file case or is a process-level read failure, by the cause of the failed stat or open."
+    },
+    "acceptance-makes-rules-binding": {
+      "domain": "decision-authority",
+      "rule": "An ADR accepted under the configured acceptance policy makes its rules binding at acceptance, with no separate promotion step."
+    },
     "accepting-cycle-requests-promotion": {
       "domain": "decision-authority",
       "rule": "A dev-cycle that accepts an ADR ends its final prompt with a promotion request that quotes each guidance rule exactly, with its origin, a recommendation and a safety-adjacent flag. The request is never a promotion and never pauses or holds the run."
@@ -20,9 +32,9 @@
       "domain": "test-tiers",
       "rule": "A project adopts test tiers only when it has at least two test units."
     },
-    "allowlist-enforces-duties-for-roles-without-a-shell": {
-      "domain": "agent-separation-of-duties",
-      "rule": "For every role without Bash, the tool allowlist is the sole enforcement of separation of duties in Claude Code and OpenCode; in Codex the read-only sandbox is the default write boundary of every role without Edit, and under a broader parent-session override its contract holds it to no write above its shell_scope, and to none where it declares no shell_scope; every other bound on a role rests on its contract."
+    "allowlist-enforces-duties-without-a-shell": {
+      "domain": "harness-roles",
+      "rule": "In Claude Code, OpenCode and OMP the tool allowlist is the only enforcement of separation of duties for a role without a shell."
     },
     "an-ineligible-citation-refuses-the-projection": {
       "domain": "rule-citation",
@@ -56,13 +68,17 @@
       "domain": "council-gates",
       "rule": "A gate prompt never advances as skipped and advances as blocked only with its gate's evidence attached; the gate check, never the conductor, decides whether a blocked council gate is routed to its address-findings prompt or stopped, and a stopped gate starts no further prompt."
     },
-    "blocking-finding-classification": {
-      "domain": "council-round-routing",
-      "rule": "A council finding is blocking only when a named check against a named artifact fails, or when such a check was not run."
+    "blocking-finding-names-a-plausible-failure": {
+      "domain": "review-and-council",
+      "rule": "A review or council finding blocks only when it names a plausible failure within the stated operating assumptions, its consequence and the smallest necessary fix."
     },
     "caller-supplies-needs-a-declared-reduced-need": {
       "domain": "agent-skill-pairing",
       "rule": "A caller-supplies lane passes only where the skill declares supplied_access and the role's envelope in that harness covers it."
+    },
+    "catch-up-writes-every-pending-month": {
+      "domain": "operations-log",
+      "rule": "The log summary catch-up writes a section for every month that is settled on its host's local date, has a detail file and has no section."
     },
     "citation-resolves-by-its-citing-surface": {
       "domain": "rule-citation",
@@ -71,6 +87,18 @@
     "claude-family-wins-a-dual-family-scope": {
       "domain": "repository-instructions",
       "rule": "In a scope migration touches and does not refuse, holding a CLAUDE.md-family winner and an AGENTS.md-family loser, the scope's one AGENTS.md holds the winner's bytes with each import line (clause 3) replaced by the loser's bytes, and migration merges nothing else."
+    },
+    "cleanup-campsite-merges-a-stray-log": {
+      "domain": "cleanup-hygiene",
+      "rule": "cleanup-campsite merges a stray log.md when one exists."
+    },
+    "cleanup-campsite-runs-the-first-split": {
+      "domain": "cleanup-hygiene",
+      "rule": "cleanup-campsite completes the first split of a tree whose first split has not recorded completion."
+    },
+    "cleanup-campsite-runs-the-log-summary-catch-up": {
+      "domain": "cleanup-hygiene",
+      "rule": "cleanup-campsite runs the log summary catch-up when a month is pending."
     },
     "code-doc-callers-invoke-through-uv": {
       "domain": "code-docs-dispatcher",
@@ -148,6 +176,14 @@
       "domain": "council-gates",
       "rule": "Under the current council policy, a council gate orders its in-scope council and refutation records by the commits that introduced them into the run's reachable history, never by a wall-clock stamp. Records that history cannot order are a tie and stop the gate; a stamp order that contradicts the committed order stops it at the contradicted-premise stop. The gate check, round counting and recovery read that one order."
     },
+    "crux-trusts-its-local-environment": {
+      "domain": "review-and-council",
+      "rule": "Where Crux runs locally with a trusted caller, environment and interpreter, denial of service from hostile input is never a blocking finding."
+    },
+    "cycle-record-keeps-evidence-small": {
+      "domain": "test-evidence",
+      "rule": "The record of a cycle other than a listed release cycle refers to a full check log only by its digest."
+    },
     "de-wire-srde-from-adr-path": {
       "domain": "council-srde",
       "rule": "No ADR-path council-routing surface invokes or names SRDE as a step."
@@ -164,6 +200,10 @@
       "domain": "skill-trigger-declaration",
       "rule": "A description is prose for a human reader and for model-driven selection, and is not a trigger list. It states what the skill does and what distinguishes it from its neighbours, and its length is bounded by what a discovery surface renders without truncating. Restoring triggers by lengthening a description past that bound is forbidden."
     },
+    "detail-file-puts-the-latest-write-first": {
+      "domain": "operations-log",
+      "rule": "Each operations-log detail file holds its most recently written entry at the top."
+    },
     "developer-reports-gaps-outside-its-unit": {
       "domain": "capability-forging",
       "rule": "A developer reports a capability gap to its lead instead of invoking forge-skill, unless the unit it was assigned is to build that capability."
@@ -179,6 +219,10 @@
     "eligibility-is-declared-and-refuses-the-unnamed": {
       "domain": "rule-citation",
       "rule": "The eligibility verdict comes from a declared table keyed on the source record's kind and its raw lifecycle status, and nothing is admitted by default. The table names every pair it admits and every pair it refuses; a pair it names neither way is refused, so a new record kind, a new lifecycle status, and a record carrying no status at all are each refused rather than admitted. The status is compared as the source record wrote it, because the value is copied rather than derived and normalising it would merge states that differ. The verdict is computed from the source records themselves at check time, never from a committed derived artifact, so a stale projection cannot supply a status the records no longer carry."
+    },
+    "environment-failure-takes-precedence": {
+      "domain": "regenerator-input",
+      "rule": "A run that meets an environment-lane failure takes the environment lane over every document-lane rule of this decision, and its stderr message names each document-lane finding the same run met."
     },
     "ephemeral-labels-carry-a-reason": {
       "domain": "test-tiers",
@@ -216,6 +260,14 @@
       "domain": "code-docs-dispatcher",
       "rule": "A --lang write or a --dry-run --lang against ownerless metadata refuses before any mutation, naming each unconfigured owner key with its affected row count and one full run as the remedy, and never escalates itself into a full run; metadata is ownerless when any row's owner is absent, empty, or names a language key not present in the manifest the invocation reads."
     },
+    "first-split-records-completion-last": {
+      "domain": "operations-log",
+      "rule": "The first split records completion only after every legacy entry is placed."
+    },
+    "first-split-routes-by-heading-month": {
+      "domain": "operations-log",
+      "rule": "The first split of a legacy log.md routes each entry to the detail file of its heading date's month."
+    },
     "footnote-definition-names-the-rule": {
       "domain": "writing-rules",
       "rule": "Human-facing prose cites a decision by a footnote whose definition names the rule and carries no ADR number."
@@ -236,17 +288,33 @@
       "domain": "code-docs-python",
       "rule": "The code-doc dispatcher's inline script metadata declares griffelib at one exact version with no extras and requires Python 3.13 or later, and the dispatcher never re-executes itself to obtain griffe or an interpreter."
     },
-    "guidance-changes-without-a-decision": {
+    "guidance-edits-need-no-adr": {
       "domain": "decision-authority",
-      "rule": "A fix-directly change or a patch may change what guidance describes, citing the guidance rule, with no ADR, provided every binding rule still holds. Guidance text is no contract for fix-directly's sizing test."
+      "rule": "A change to guidance or instruction text needs no ADR while every binding rule still holds."
+    },
+    "guidance-is-no-sizing-contract": {
+      "domain": "decision-authority",
+      "rule": "Guidance text is no contract for the sizing test that decides whether a change may be fixed directly."
     },
     "guidance-rules-keep-resolving": {
       "domain": "decision-authority",
       "rule": "A guidance rule is never deleted and stays live, resolving as a rule citation wherever a binding rule resolves, with its guidance standing shown in the summaries and the doctrine."
     },
+    "historical-records-keep-their-interpretation": {
+      "domain": "decision-authority",
+      "rule": "Historical records, receipts, formats and approval profiles keep their original interpretation and readers."
+    },
     "historical-review-reports-stay-readable": {
       "domain": "decision-migration",
       "rule": "From activation of the review displacement record, decision-review reports stay unmodified, and their index regenerates under each report's declared grammar, refusing rather than defaulting a report it cannot read."
+    },
+    "init-docs-records-the-split-complete": {
+      "domain": "operations-log",
+      "rule": "init-docs records a new tree's operations-log split as complete."
+    },
+    "init-docs-starts-the-log-in-a-detail-file": {
+      "domain": "operations-log",
+      "rule": "init-docs writes a new tree's init entry to the current month's operations-log detail file."
     },
     "introducing-commit-is-unique-and-read-in-isolation": {
       "domain": "council-gates",
@@ -268,6 +336,42 @@
       "domain": "agent-skill-pairing",
       "rule": "Every lane has a route instruction the model reads in the role body, naming what is handed over, to whom, and who performs the act; a delegates lane's route also names who supplies each read the delegator's envelope does not cover, and a caller-supplies lane also has one in the skill body naming what the caller runs; a lane without one, or contradicted by one, does not ship."
     },
+    "log-entries-go-through-the-log-writer": {
+      "domain": "operations-log",
+      "rule": "Every operations-log entry, including one an agent adds by following a skill, is written through the one vendored log writer."
+    },
+    "log-readers-read-every-log-file": {
+      "domain": "operations-log",
+      "rule": "A reader of the operations log reads every detail file, and also any legacy log.md, staged legacy file or stray log.md that exists."
+    },
+    "log-split-keeps-every-byte": {
+      "domain": "operations-log",
+      "rule": "Every split and stray merge keeps each moved entry's bytes, the relative order of the entries it moves, and the source file's bytes outside entries."
+    },
+    "log-split-keeps-tree-schema-5": {
+      "domain": "operations-log",
+      "rule": "The operations-log split changes no schema_version."
+    },
+    "log-summary-narrative-is-optional": {
+      "domain": "operations-log",
+      "rule": "No writer or gate requires log summary text outside the derived regions."
+    },
+    "log-write-adds-nothing-already-placed": {
+      "domain": "operations-log",
+      "rule": "A log write whose exact entry already sits in any operations-log detail file adds nothing."
+    },
+    "log-writer-completes-the-split-first": {
+      "domain": "operations-log",
+      "rule": "Before it adds an entry to a tree whose first split has not recorded completion, the log writer completes the first split, or refuses and adds nothing."
+    },
+    "log-writer-merges-a-stray-first": {
+      "domain": "operations-log",
+      "rule": "Before it adds an entry to a tree that holds a stray log.md, the log writer merges the stray, or refuses and adds nothing."
+    },
+    "log-writer-uses-its-local-month": {
+      "domain": "operations-log",
+      "rule": "The log writer adds each new entry to the detail file of the month that holds its host's local date, whatever date the entry's heading carries."
+    },
     "losing-agents-file-is-moved-aside-and-reported": {
       "domain": "repository-instructions",
       "rule": "In a scope migration does not refuse, a loser whose bytes differ from the resulting AGENTS.md, whether tracked, dirty, untracked or ignored, is kept byte for byte in its own directory under a new, reported name that none of Claude Code, Codex and OpenCode loads by default, and the report says its content was inlined or is no longer loaded."
@@ -280,6 +384,10 @@
       "domain": "decision-migration",
       "rule": "Migration approval requires exact-content council approval under every policy and, under human-approval policy, the owner's explicit approval quoted from the conversation and recorded against the exact content and action presented; approval is never inferred from a hash, silence, approval of a different action, or text that is not the owner's own message."
     },
+    "migration-recommendations-are-grounded": {
+      "domain": "decision-migration",
+      "rule": "A disposition recommendation follows examination of the clause's original rationale, current authority and dependencies; a retirement rests on a demonstrated conflict with current objectives or an evidenced finding that the clause serves none, and dormancy, absence from doctrine, unavailable evidence or a missing baseline establish neither."
+    },
     "migration-writes-no-unplanned-entry": {
       "domain": "repository-instructions",
       "rule": "No migration step replaces an existing entry, case-fold aliases included, or removes any entry except a temporary one the run created; each winner and loser is renamed into AGENTS.md, set aside, or left where it is."
@@ -291,6 +399,14 @@
     "new-tests-are-labelled-in-the-same-change": {
       "domain": "test-tiers",
       "rule": "A change that adds a test labels it in the same change."
+    },
+    "no-section-before-its-month-settles": {
+      "domain": "operations-log",
+      "rule": "No mode of the log summary regenerator writes a section, or rewrites a section's region, for a month that is not settled on its host's local date."
+    },
+    "no-writer-writes-the-legacy-log-file": {
+      "domain": "operations-log",
+      "rule": "No writer creates <docs_dir>/log.md or adds an entry to it."
     },
     "objectives-context-travels-with-every-delegation": {
       "domain": "objectives-alignment",
@@ -332,9 +448,17 @@
       "domain": "council-gates",
       "rule": "A preflight refusal, raised before council execution begins and so before any council request, is not a council outcome: the conductor may retry it after a repair within its own authority, a bounded number of times, and exhausting the bound takes the escalation-loop stop. A preflight refusal the conductor may not repair, and every other council that cannot run, leaves a DEFER_TO_HUMAN council record and stops the run at the contradicted-premise stop; no native agent or other model takes its seats, and when even that record cannot be written the prompt cannot advance."
     },
+    "op-enum-applies-to-every-detail-file": {
+      "domain": "log-op-enum-schema",
+      "rule": "The section 6 historical-reader regex applies to every `## ` heading of every operations-log detail file, and the current-writer regex to every entry a writer adds to one."
+    },
     "opencode-runner-identified-by-version": {
       "domain": "opencode-host-layout",
       "rule": "The OpenCode installer identifies a compatible runner by the version that runner reports rather than by its executable name, admitting only a major version this decision's evidence covers; when no probed candidate reports a compatible major it refuses to write, unconditionally where any probed candidate reports an older major and otherwise unless a human asserts the compatibility of a named resolved candidate through a recorded flag; and it keeps the plural `.opencode/agents/` target with its legacy-shadow and collision refusals."
+    },
+    "operations-log-is-monthly-detail-files": {
+      "domain": "operations-log",
+      "rule": "The operations log of a crux tree is the set of files <docs_dir>/log/YYYY-MM.md, one detail file per month."
     },
     "opt-in-above-the-envelope-is-routed": {
       "domain": "skill-access-need",
@@ -348,13 +472,21 @@
       "domain": "regenerator-scope",
       "rule": "A gate that does not apply says so and exits 0 with a surface-absent verdict carrying its reason, having written nothing. A plugin-authoring regenerator running outside the plugin's authoring checkout takes that lane, and so does a projection regenerator whose marked target region exists nowhere in the tree. Exiting non-zero misreports an inapplicable check as a failure, and exiting 0 with a clean verdict misreports it as verified."
     },
-    "owner-promotes-guidance": {
-      "domain": "decision-authority",
-      "rule": "Guidance becomes binding only when the owner promotes it, recorded in its ADR's provenance record from the owner's own instruction. Promotion is never a gate and never pauses a run."
-    },
     "parity-counts-match-on-both-sides": {
       "domain": "template-parity",
       "rule": "A template-parity clause matches every top-level alternation of its pattern the same number of times in the canonical section and in the twin section. A count that differs between the sides is a finding of that clause, and the finding names the alternation, both counts, and the side that holds fewer. Equal counts of zero are not a pass: an alternation matching neither section names text the manifest guards and neither file carries, and it is stale at the lower severity. This subsumes the weaker question of whether an alternation resolves at all, and it sits beside the value comparison the clause already performs, which alone catches a value reworded behind an open-ended pattern tail."
+    },
+    "path-attributable-read-failure-is-a-document-finding": {
+      "domain": "regenerator-input",
+      "rule": "Each run reports every recognizable file the process cannot stat, open, read or decode for a cause attributable to its path, the unreadable-file case, as a document-lane finding naming the file and the reason, with the same exit code in every mode that reads the declared input set; the attributable causes are exactly a permission refusal (EACCES, EPERM), an overlong name (ENAMETOOLONG), ENOENT or ENOTDIR at the stat or open of a file that was listed, the confirmed absence of a file the declared criteria name by path as required, a directory in place of the file (EISDIR), a symbolic-link loop (ELOOP), and content invalid in the declared encoding."
+    },
+    "pending-month-is-not-drift": {
+      "domain": "operations-log",
+      "rule": "The log summary gate lists a settled month that has a detail file and no section as pending, and does not fail on it."
+    },
+    "placement-changes-no-entry-byte": {
+      "domain": "operations-log",
+      "rule": "The log writer's choice of detail file changes no byte of the entry it adds."
     },
     "pr-ci-runs-every-runnable-test": {
       "domain": "test-tiers",
@@ -363,6 +495,10 @@
     "pr-ci-runs-the-tier-check": {
       "domain": "test-tiers",
       "rule": "Pull-request CI runs the tier check."
+    },
+    "process-level-read-failure-is-an-environment-failure": {
+      "domain": "regenerator-input",
+      "rule": "A failure to stat, open, read or decode a recognizable file whose cause is outside the unreadable-file case's closed list, including descriptor or memory exhaustion (EMFILE, ENFILE, ENOMEM, or a MemoryError while reading or decoding) and a device I/O error (EIO), is a process-level read failure and takes the environment lane in every mode that reads the declared input set, naming the file and the error; neither the confirmed absence of a declared catalogue member nor that of an optional file is such a failure."
     },
     "profile-three-order-is-audited-never-refused": {
       "domain": "implementation-decisions",
@@ -416,6 +552,14 @@
       "domain": "council-gates",
       "rule": "Recovery from a persistence failure makes no council request and widens no authorization: it commits or recognises only the original council record, proven identical to the bytes the council runner computed, and leaves any attempt it cannot so resolve open for the owner at the contradicted-premise stop; a persistence failure is never a reason to convene another round."
     },
+    "reflection-reports-evidence-size": {
+      "domain": "test-evidence",
+      "rule": "The reflection of a cycle other than a listed release cycle reports the committed size of its evidence."
+    },
+    "refused-log-repair-is-a-cleanup-finding": {
+      "domain": "cleanup-hygiene",
+      "rule": "cleanup-campsite reports a refused or failed first split, log summary catch-up or stray merge as a finding."
+    },
     "regenerator-declares-its-scope": {
       "domain": "regenerator-scope",
       "rule": "Every enrolled regenerator has exactly one declared scope. It is project when the output lives in the consuming project's documentation tree, and plugin-authoring when the output lives in the plugin's own source checkout. The enrollment roster records that scope beside the row, and a row carrying none is incomplete rather than defaulted, because a gate that cannot say whose tree it inspects cannot say what its verdict covers."
@@ -444,9 +588,25 @@
       "domain": "rule-citation",
       "rule": "A rule: citation naming a retired slug fails the lint, and the failure names the rule that displaced it."
     },
+    "retired-historical-replacement-resolves-to-displacers": {
+      "domain": "decision-migration",
+      "rule": "A published historical replacement that a later retirement displaced, including one that persists after its host leaves Accepted, resolves to the live Accepted rules that displaced it, directly or through later retirements, unless a signed doctrine pairing binds it; the published record is not changed."
+    },
+    "retirement-needs-an-accepted-host": {
+      "domain": "decision-authority",
+      "rule": "A governs entry's retires list takes effect only once its host ADR is Accepted."
+    },
+    "retirement-persists-after-its-host-leaves-accepted": {
+      "domain": "decision-authority",
+      "rule": "A retirement made by an Accepted ADR's retires entry persists when that ADR is later deprecated or superseded."
+    },
     "returns-to-caller-passes-on-its-route": {
       "domain": "agent-skill-pairing",
       "rule": "A returns-to-caller lane passes in every harness on its route instruction alone, and the gate checks no envelope for it."
+    },
+    "review-covers-the-declared-scope": {
+      "domain": "review-and-council",
+      "rule": "A review report's scope is complete when it covers every path in the plan scope, whatever further paths it names."
     },
     "review-gate-needs-a-reviewer-report": {
       "domain": "council-gates",
@@ -480,6 +640,10 @@
       "domain": "council-seat-provenance",
       "rule": "Every council-eligible registry entry declares an accepted served-provider set, and on every attempt, a retry included, a seat's gateway-reported provider matches only when it exactly equals a member of that set. An absent or outside-the-set provider on a reply that would otherwise yield a vote errors the seat with the served-provider-mismatch fault label, which is never retried. Nothing replaces the seat. No vote is ever taken from a mismatched reply."
     },
+    "shell-without-edit-needs-a-recorded-bound": {
+      "domain": "harness-roles",
+      "rule": "A role without Edit and Write runs a shell only under a recorded per-role exception that names its permitted commands."
+    },
     "shipped-catalog-is-derived-and-names-no-decision-record": {
       "domain": "rule-citation",
       "rule": "The shipped catalog is a derived projection of this project's own governs blocks, carrying a regenerator and a drift gate and enrolled in the regenerative-outputs roster, so hand-edits are blown away and no release step generates it. It carries each rule's slug, its text and its domain, and carries no decision-record identifier. Its input domain is the distinct slugs cited on shipped surfaces, excluding test fixtures and the catalog's own output. A citation naming a slug the catalog does not yet carry drifts it until the regenerator runs; a citation naming a slug already carried drifts nothing, and removing the last citation of a slug drifts it again, because the domain is the set of slugs cited rather than a count of occurrences."
@@ -512,6 +676,22 @@
       "domain": "repository-instructions",
       "rule": "Migration stages nothing in a scope whose result carries bytes read from an untracked or ignored entry, where the exact path AGENTS.md is untracked and git ignores it, or where an instruction-family index entry holds a blob that neither HEAD nor any working-tree entry holds."
     },
+    "standing-reads-status-and-acceptance-record": {
+      "domain": "decision-authority",
+      "rule": "For an ADR accepted under the configured policy, projections read a rule's standing from its ADR's status and acceptance record, never from git history. Other ADRs keep their historical readers."
+    },
+    "stray-log-merges-into-the-local-month": {
+      "domain": "operations-log",
+      "rule": "A stray merge moves the stray's entries as one block, in their order, to the top of the detail file of the month that holds the host's local date."
+    },
+    "stray-merge-removes-the-stray": {
+      "domain": "operations-log",
+      "rule": "A stray merge that has moved or skipped every entry of the stray removes the stray log.md."
+    },
+    "summary-gate-fails-on-a-changed-region": {
+      "domain": "operations-log",
+      "rule": "The log summary gate fails on any difference between a present derived region and its regeneration."
+    },
     "supplied-access-is-below-required-access": {
       "domain": "skill-access-need",
       "rule": "A skill declares metadata.supplied_access only where its body names the output a caller supplies, and its value is one ladder token strictly below the skill's requires_access; any other value fails catalog validation."
@@ -539,6 +719,10 @@
     "triggers-separator-fits-the-value-type": {
       "domain": "skill-trigger-declaration",
       "rule": "The trigger field is pipe-separated rather than comma-separated, because a trigger is a natural-language phrase and a comma occurs inside one. A value whose token carries the separator is refused at validation rather than split, because the encoding cannot represent it. The separator is chosen by what the value type admits, never by what a neighbouring field happens to use."
+    },
+    "unlistable-input-directory-is-an-environment-failure": {
+      "domain": "regenerator-input",
+      "rule": "A directory an enrolled regenerator must list to apply its declared criteria, which exists and cannot be listed or whose existence cannot be determined, the unlistable-directory case, takes the environment lane in every mode that reads the declared input set, naming the directory, and is never read as empty."
     },
     "unrunnable-ci-tests-need-recorded-evidence": {
       "domain": "test-tiers",

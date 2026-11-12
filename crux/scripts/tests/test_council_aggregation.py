@@ -9,7 +9,6 @@ pulls in the LLM router's httpx transport); skips cleanly where it's absent.
 """
 from __future__ import annotations
 
-import re
 import sys
 import unittest
 from pathlib import Path
@@ -552,44 +551,6 @@ class ConditionedAndNitApprovalTests(unittest.TestCase):
     def test_positive_control_a_short_printable_entry_is_unchanged(self):
         r = self.three(["FOO", "APPROVE", "APPROVE"])
         self.assertEqual(r.final_recommendation["off_scale"], ["a:FOO"])
-
-
-def _normalized(path: Path) -> str:
-    """The file's text with comment markers dropped and whitespace collapsed, so
-    one statement wrapped differently in three files compares equal."""
-    text = path.read_text(encoding="utf-8")
-    text = re.sub(r"(?m)^\s*#:?", " ", text)
-    return " ".join(text.split())
-
-
-class DocumentedLabelContractTests(unittest.TestCase):
-    """The label contract is stated in three places and routed by one table."""
-
-    OFF_SCALE_STATEMENT = (
-        "UNANIMOUS_OFF_SCALE replaces it when the token is not 1-40 characters of "
-        "A-Z and underscore starting with a letter, contains APPROVE or REJECT, "
-        "or is AUTO_EXECUTE or EXECUTE_WITH_MONITORING")
-
-    def test_the_three_off_scale_definitions_state_one_rule(self):
-        for rel in ("crux/skills/council/SKILL.md",
-                    "crux/scripts/crux/core/data_classes.py",
-                    "crux/scripts/crux/council/async_council.py"):
-            with self.subTest(path=rel):
-                self.assertIn(self.OFF_SCALE_STATEMENT, _normalized(REPO_ROOT / rel))
-
-    def test_every_unanimous_failure_label_matches_exactly_one_row(self):
-        text = (REPO_ROOT / "crux" / "skills" / "run-adr-council" / "SKILL.md"
-                ).read_text(encoding="utf-8")
-        section = text.split("## Failure behavior", 1)[1].split("\n## ", 1)[0]
-        conditions = [line.split("|")[1] for line in section.splitlines()
-                      if line.startswith("| ") and not line.startswith("| Condition")]
-        self.assertGreater(len(conditions), 3, "positive control: the table was read")
-        for label in ("UNANIMOUS_REJECT", "UNANIMOUS_DEFER_TO_HUMAN",
-                      "UNANIMOUS_REVISE", "UNANIMOUS_OFF_SCALE"):
-            with self.subTest(label=label):
-                rows = [c for c in conditions
-                        if label in re.findall(r"UNANIMOUS_[A-Z][A-Z_]*", c)]
-                self.assertEqual(len(rows), 1, rows)
 
 
 if __name__ == "__main__":

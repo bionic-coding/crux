@@ -36,6 +36,38 @@ the configured documentation root. Schemas live in `crux/schemas/adr-migration-*
    refuses, and writes nothing, on any refusal or when a receipt with other bytes exists.
    Activation never writes the receipt, and `publication-stage` refuses a receipt path.
 
+## Installed-support basis
+
+A later consuming project binds installed support v2. `installed-support` prints the
+current approval profile id and its pinned sha256. The profile names, for the package
+and the approval record, the fields an approval reads at each object level and which
+are required. `approve` refuses a record whose fields differ from the current profile,
+naming the field path and the profile id. Reading an approval repeats the check against
+the profile its basis names. A changed field set needs a new profile id, and a profile
+that has bound an approval is never edited.
+
+A v2 basis is a constant derived from the profile id. It attests nothing about the
+installed bytes, and no reader treats it as evidence of the installed support version.
+The consuming-project replay runs the current installed reader for a v2 basis, with no
+per-file reader comparison.
+
+Profile digests and issued digests are sha256 over the canonical encoding
+`cycle_workflow.encoded`. A change to that encoding changes every computed profile
+digest and issued digest, and the tests that pin literal digests fail on it.
+
+`approve` refuses a new approval on an installed-support v1 basis. A recorded v1 basis
+keeps its readers. The byte route accepts it while the 15 installed files still equal its
+recorded values, and the replay then compares the installed reader's bytes. The issued
+route accepts a basis whose canonical digest is in the reviewed issued list. The list
+holds one entry, the v5.3.0 installed-support basis.
+
+Historical records keep their interpretation, with one stated limit. A consuming
+project's approval recorded on the v5.3.0 installed support takes the issued route. Its
+replay runs the current installed reader without the per-file reader comparison, and its
+verdict stability is tested only for the Crux development repository's authority-reset
+approval. An approval recorded on v5.0 to v5.2 installed support binds other bytes. It
+keeps only the byte route and is refused after an upgrade.
+
 ## Replay receipts
 
 A receipt replaces one step of every authority read: running the parent commit's own
@@ -60,9 +92,9 @@ A receipt is not approval evidence. It records no approval, owner instruction or
 verdict and cannot create or alter one. A read that trusts a receipt does not observe an
 environment-only failure of the prior reader, such as an interpreter or library that no
 longer runs the old code. That failure now surfaces when a receipt is written or verified.
-For an installed-support receipt, the installed reader's imports outside the pinned
-installed inventory, including the receipt reader itself, are unbound in the same way as
-the environment. Installed-support records do not pin the receipt reader.
+For an installed-support receipt, the installed reader's imports, including the receipt
+reader itself, are unbound in the same way as the environment, except the files a v1
+byte-route basis pins. Installed-support records do not pin the receipt reader.
 
 Verify receipts with `migration-receipt.py verify --repo-root . (--since COMMIT | --all)`.
 Each receipt in scope is replayed against its publication with every receipt ignored. With

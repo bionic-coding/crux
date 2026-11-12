@@ -33,7 +33,7 @@ Output is `docs/adrs/lineage.md`, a regenerated artifact governed by the contrac
 
 ### The derive-only / byte-stable contract (canonical statement)
 
-> **Derive, don't decide; regenerate byte-stably.** A derive-only renderer reads an upstream source of truth and emits a view of it — it **never mutates** the source (no proposing, transitioning, advancing, or "fixing" the upstream while rendering). Its output is a **regenerated artifact** on the same model as `docs/code/` and `catalog/skills.json`: the body is wholly rewritten on every run; hand-edits are blown away. The body carries **no timestamps and no per-run-varying values**, so the artifact is **byte-identical across runs** given the same input (deterministic ordering throughout); "when it ran" lives only in the `docs/log.md` entry, never in the body.
+> **Derive, don't decide; regenerate byte-stably.** A derive-only renderer reads an upstream source of truth and emits a view of it — it **never mutates** the source (no proposing, transitioning, advancing, or "fixing" the upstream while rendering). Its output is a **regenerated artifact** on the same model as `docs/code/` and `catalog/skills.json`: the body is wholly rewritten on every run; hand-edits are blown away. The body carries **no timestamps and no per-run-varying values**, so the artifact is **byte-identical across runs** given the same input (deterministic ordering throughout); "when it ran" lives only in the operations log entry, never in the body.
 
 For `link-adr-graph`, the upstream source is ADR frontmatter (read-only), and the regenerated artifact is `docs/adrs/lineage.md`. Promptbook progress uses the same derive-only principle through `run-promptbook` status and its retained renderer.
 
@@ -92,7 +92,14 @@ Then a short **topic-cluster** view: group ADRs by shared `tags` (e.g. all `sche
 
 ### 5. Log under the `adr` op
 
-Prepend to `docs/log.md` (**reuse the existing `adr` op** — do NOT introduce a new op; the §6 enum is closed):
+Write the entry through the log writer (`docs/AGENTS.md` §6).[^log-writer] **Reuse the existing `adr` op** — do NOT introduce a new op; the §6 enum is closed. Write the body below to a file outside the tree, then run:
+
+```
+uv run "${CRUX_PLUGIN_ROOT}/scripts/operation-log.py" append --repo-root <repo-root> \
+  --op adr --subject 'regenerated lineage' --date YYYY-MM-DD --body-file <path>
+```
+
+The entry it writes at the top of the current month's detail file `docs/log/YYYY-MM.md`:
 
 ```
 ## [YYYY-MM-DD] adr | regenerated lineage
@@ -100,9 +107,11 @@ Prepend to `docs/log.md` (**reuse the existing `adr` op** — do NOT introduce a
 
 Body, 1 line: node count, edge counts (supersedes / amends).
 
+A refused append keeps this skill's other writes and adds no entry: fix the cause it names, then rerun the append alone (§6). Then run the commit step of §6 over the result's `commit_paths` and `restore_paths`.
+
 ### 6. Bump `docs/adrs/index.md` `_Last updated:` to today.
 
-**A lineage regen does NOT touch `docs/index.md`** (the master rollup). The ADR *count* in `docs/index.md` is unchanged by regenerating the lineage view (no ADR is created, transitioned, or removed — `lineage.md` is a derived artifact), so this skill updates only the concern-local `docs/adrs/index.md` `_Last updated:` line and the `docs/log.md` entry. Leave `docs/index.md` alone; bumping it here would author spurious drift.
+**A lineage regen does NOT touch `docs/index.md`** (the master rollup). The ADR *count* in `docs/index.md` is unchanged by regenerating the lineage view (no ADR is created, transitioned, or removed — `lineage.md` is a derived artifact), so this skill updates only the concern-local `docs/adrs/index.md` `_Last updated:` line and the operations log entry. Leave `docs/index.md` alone; bumping it here would author spurious drift.
 
 ## Verification checklist
 
@@ -112,7 +121,7 @@ Body, 1 line: node count, edge counts (supersedes / amends).
 - [ ] No timestamps in the body — re-running the skill produces a byte-identical `lineage.md`.
 - [ ] No ADR file was modified (read-only).
 - [ ] `docs/index.md` (the master rollup) was NOT modified — only the concern-local `docs/adrs/index.md` `_Last updated:` line was bumped.
-- [ ] `docs/log.md` has a new `## [YYYY-MM-DD] adr | regenerated lineage` entry (the `adr` op, NOT a new op).
+- [ ] The current month's detail file `docs/log/YYYY-MM.md` has a new `## [YYYY-MM-DD] adr | regenerated lineage` entry at the top, written by `operation-log.py append` (the `adr` op, NOT a new op).
 
 ## Red flags — STOP and reconsider
 
@@ -146,3 +155,5 @@ Body, 1 line: node count, edge counts (supersedes / amends).
 - `propose-adr` / `transition-adr` — create and transition the ADRs this skill renders.
 - `audit-docs` — checks the graph's integrity (the complement to this skill's rendering).
 - `docs/AGENTS.md` §4 (adrs), §11 (cross-concern bidirectional consistency rules).
+
+[^log-writer]: rule:log-entries-go-through-the-log-writer, rule:no-writer-writes-the-legacy-log-file

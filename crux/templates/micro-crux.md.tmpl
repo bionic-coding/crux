@@ -306,7 +306,12 @@ are `decision | implementation | bug | learning | blocker | refactor | meeting
 code fences. An optional single `Friction:` line states an actual difficulty
 and counts toward the body budget. Preserve earlier entries.
 
-The operation log is `D/log.md`, newest entries first, with headings:
+The operation log is one detail file per month, `D/log/YYYY-MM.md`. Add each
+entry at the top of the file for the current local month, whatever date its
+heading carries; create a missing file with the header `# Operations log:
+YYYY-MM`, a blank line, and `_Append-only. Latest write first._`. Where the
+crux plugin is installed, its `operation-log.py append` writes the entry. Do
+not write `D/log.md`; crux splits an older one by month. Entry headings:
 
 ```text
 ## [YYYY-MM-DD] <op> | <subject>

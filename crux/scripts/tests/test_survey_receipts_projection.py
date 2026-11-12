@@ -71,6 +71,9 @@ class SurveyReceiptProjectionTests(unittest.TestCase):
         (self.root / ".bionic.yml").write_text("docs_dir: bionic\n", encoding="utf-8")
         (self.tree / "manifest.yml").write_text(MANIFEST, encoding="utf-8")
         (self.tree / "log.md").write_text("# Log\n", encoding="utf-8")
+        # The operations log reads the op enum from the tree's own section 6.
+        (self.tree / "AGENTS.md").write_bytes(
+            (Path(__file__).resolve().parents[2] / "templates" / "AGENTS.md.tmpl").read_bytes())
         (self.root / "src").mkdir()
         (self.root / "src" / "a.py").write_text("x = 1\n", encoding="utf-8")
         self.state = StateFile(self.tree / "arch" / "_recovered" / "state.yml")

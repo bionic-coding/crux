@@ -34,7 +34,7 @@ class AdrIndexTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        (self.root / ".bionic.yml").write_text("docs_dir: bionic\n")
+        (self.root / ".bionic.yml").write_text('config_version: "1"\ndocs_dir: bionic\n')
         self.adrs = self.root / "bionic" / "adrs"
         self.archive = self.adrs / "archive"
         self.archive.mkdir(parents=True)

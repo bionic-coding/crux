@@ -413,17 +413,7 @@ def _states_the_stale_claim(text: str) -> bool:
 
 
 class AuditMissingFileWordingTests(unittest.TestCase):
-    """CHK-INSTR-5 states the missing-file cause as the script's reason does."""
-
-    def test_the_audit_names_the_and_mode_claude_md_and_a_root_agents_md(self):
-        text = (REPO_ROOT / "crux" / "skills" / "audit-docs" / "SKILL.md"
-                ).read_text(encoding="utf-8")
-        chk = " ".join(text.split("**CHK-INSTR-5**", 1)[1].split("- **CHK-", 1)[0].split())
-        self.assertIn("no `AGENTS.md` on the chain from the root to the working "
-                      "directory (and, under `claude-md-and-agents-md`, no `CLAUDE.md`)", chk)
-        self.assertIn(NEW_REMEDY_CHK, chk)
-        self.assertFalse(_states_the_stale_claim(chk), chk)
-        self.assertNotIn(RERUN_REMEDY, chk.replace("`", ""))
+    """Positive controls for the absence checks over the missing-file reason."""
 
     def test_the_stale_claim_detector_flags_the_old_sentence(self):
         """Positive control: the detector is not vacuous. It flags the sentence

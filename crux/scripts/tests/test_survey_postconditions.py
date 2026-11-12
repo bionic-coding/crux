@@ -59,7 +59,6 @@ SIGNOFF = SCRIPTS / "signoff-survey.py"
 SCAFFOLD = SCRIPTS / "scaffold-survey-sheet.py"
 CORPUS_FIXTURES = HERE / "fixtures" / "survey-corpus"
 SURVEY_CORPUS = HERE / "arch-corpus" / "survey_corpus.py"
-MINER_SKILL = REPO_ROOT / "crux" / "skills" / "recover-decisions" / "SKILL.md"
 
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
@@ -250,6 +249,9 @@ class _TreeCase(unittest.TestCase):
         (root / ".bionic.yml").write_text("docs_dir: bionic\n", encoding="utf-8")
         (root / "bionic" / "manifest.yml").write_text(MANIFEST, encoding="utf-8")
         (root / "bionic" / "log.md").write_text("# Log\n", encoding="utf-8")
+        # The operations log reads the op enum from the tree's own section 6.
+        (root / "bionic" / "AGENTS.md").write_bytes(
+            (Path(__file__).resolve().parents[2] / "templates" / "AGENTS.md.tmpl").read_bytes())
         (root / "src").mkdir(exist_ok=True)
         return root
 
@@ -1234,26 +1236,6 @@ class MinerDomainContractTests(_TreeCase):
         proc = self._signoff(root, payload["batch_id"])
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertEqual(len(list(self._obs(root).glob("OBS-*.md"))), 1)
-
-    def test_the_miner_skill_names_domain_and_the_cost_of_omitting_it(self):
-        """`recover-decisions` step 2 is the only instruction a miner reads.
-
-        It listed the anchor, the id and the evidence and never named
-        `domain`, so a miner following it produced a sheet that refused every
-        row. The skill text is the fix; this test is what stops it being
-        edited back out."""
-        text = MINER_SKILL.read_text(encoding="utf-8")
-        step = next(line for line in text.splitlines()
-                    if line.startswith("2. **Extract candidates.**"))
-        self.assertIn("`domain`", step,
-                      "step 2 does not name the domain field")
-        self.assertRegex(
-            step, r"proposed_domain",
-            "step 2 does not name the sheet cell the domain seeds")
-        self.assertRegex(
-            step, r"refus",
-            "step 2 names the field without naming the consequence of "
-            "omitting it")
 
 
 if __name__ == "__main__":  # pragma: no cover

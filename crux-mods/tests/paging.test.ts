@@ -404,3 +404,25 @@ test('a harness that cannot turn pages draws the first page and a +N more line, 
   expect(one.length).toBe(1 + OLDER_PAGE_SIZE)
   expect(one.some(l => l.includes('more'))).toBe(false)
 })
+
+test('a shortcut cycle is closed work: it draws as the closed panel and as a compact closed row', () => {
+  const b = draw(doc([cycleRow(5, 'shortcut'), cycleRow(4, 'shortcut')]))
+  // No slot block: the latest closed cycle is the one panel, then the `cycles:` heading and one compact row.
+  expect(top(b).map(c => c.kind)).toEqual(['box', 'line', 'line'])
+  expect(rows(b)[0]).toContain('CYC-0005')
+  expect(rows(b).slice(0, 3).join('\n')).toContain('shortcut')
+  expect(rows(b).some(r => r.includes('CYC-0004') && r.includes('shortcut'))).toBe(true)
+  // Positive control: an active cycle draws in the slot, so the missing slot above is the status's doing.
+  expect(top(draw(doc([cycleRow(5, 'active'), cycleRow(4, 'shortcut')])))[0]!.kind).toBe('box')
+})
+
+test('a queue item whose cycle closed by shortcut is a finished row in the warning colour', () => {
+  const items = [qItem(1, 'started', {cycle: 'CYC-0001', cycle_status: 'shortcut'}), qItem(2, 'started', {cycle: 'CYC-0002', cycle_status: 'completed'})]
+  const b = draw(doc([cycleRow(1, 'shortcut')], {ok: true, items, authorization: null}))
+  const r = queueRows(b)
+  expect(r.some(x => x.includes('Q-0001') && x.includes('CYC-0001') && x.includes('shortcut'))).toBe(true)
+  const card = top(b).find(c => c.kind === 'box' && blockText(c)[0]!.startsWith('Queue'))!
+  const colourOf = (id: string) => flat(card).find(l => plain(l).includes(id))!.find(s => s.text === (id === 'Q-0001' ? 'shortcut' : 'completed'))!.color
+  expect(colourOf('Q-0001')).toBe('warning')
+  expect(colourOf('Q-0002')).toBe('success')
+})

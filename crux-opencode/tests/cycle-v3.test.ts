@@ -75,3 +75,15 @@ test('25 classifications draw as one count line and no detail', () => {
   expect(counted[0]).toContain('Classifications: 25')
   for (const detail of ['work-sizing', 'fell back', 'cost', 'provider']) expect(lines.join('\n').includes(detail)).toBe(false)
 })
+
+test('a shortcut cycle reads and draws as closed work, with its queue item as finished', () => {
+  const queue = {
+    ok: true, authorization: null,
+    items: [{ id: 'Q-0001', title: 'Short item', state: 'started', suggested_type: 'iterate', cycle: 'CYC-0007', cycle_status: 'shortcut' }],
+  }
+  const text = linesOf(doc([v3Row('shortcut', { phase: 'reflect' })], queue)).join('\n')
+  expect(text).toContain('\u2713 shortcut')
+  expect(text).toContain('\u2713 Q-0001 CYC-0007 shortcut')
+  // Positive control: the same row as an active cycle draws no closed row.
+  expect(linesOf(doc([v3Row('active')])).join('\n').includes('shortcut')).toBe(false)
+})

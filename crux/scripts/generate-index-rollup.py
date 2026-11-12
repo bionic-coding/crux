@@ -40,6 +40,24 @@ fail on every day after the last regeneration, for no drift. That is ADR-0056's
 "regenerated-but-time-varying" trap. Keeping the timestamp out of this script's
 scope is what lets the gate be a hard tier. Bumping `_Last updated:` stays an
 authoring/audit-docs concern. Do not "fix" this.
+
+INPUT LANES. docs/index.md is a required input named by path, because the
+regenerated region sits inside hand-authored bytes. Its confirmed absence, a
+failure to read it for a cause at its path, and a missing `## ADRs (N)`
+section are each a `validation_errors` finding naming it (exit 1).[^file] A
+read failure for a cause in the process or host is the environment lane
+(exit 2, nothing on stdout).[^process] The adrs directory is absent only when
+its `stat` fails with ENOENT or ENOTDIR;[^absence] that keeps exit 2 "not
+found". A path there that exists and cannot be listed is the environment
+lane.[^unlistable] Every input is tried before the run exits, and a run that
+takes exit 2 names every finding it met on stderr.[^precedence] Every refusal
+leaves every output byte-unchanged and creates none.
+
+[^file]: rule:path-attributable-read-failure-is-a-document-finding
+[^process]: rule:process-level-read-failure-is-an-environment-failure
+[^absence]: rule:absence-is-confirmed-by-enoent-or-enotdir
+[^unlistable]: rule:unlistable-input-directory-is-an-environment-failure
+[^precedence]: rule:environment-failure-takes-precedence
 """
 from __future__ import annotations
 
@@ -54,6 +72,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import adr_frontmatter  # noqa: E402
+import input_lanes  # noqa: E402
 
 try:
     import yaml
@@ -66,6 +85,10 @@ except ImportError:
 # The section this script owns. Matched on the heading; terminated by the next
 # top-level heading (or EOF).
 SECTION_RE = re.compile(r"^## ADRs \(\d+\)\n.*?(?=^## |\Z)", re.M | re.S)
+
+#: The finding for a host file that carries no section for the rollup to own.
+MISSING_SECTION = ("has no '## ADRs (N)' section — add the heading, for example "
+                   "'## ADRs (0)', where the rollup belongs")
 
 
 def _tree_name(root) -> str:
@@ -88,20 +111,19 @@ def load_adrs(adrs_dir: Path, rel=None) -> list[dict]:
     target (docs/AGENTS.md §9 cites ADRs by page name, not by id alone)."""
     recs: list[dict] = []
     # REFUSAL BEFORE WRITING: every file matching the glob, in both tiers, is
-    # validated before a single record is built. `rel` renders the reported
-    # path; it defaults to `str` so existing callers keep their signature.
-    adr_frontmatter.validated_adr_paths(adrs_dir, rel or str)
-    # Walk BOTH tiers (active + cold archive), per ADR-0063: an archived ADR stays
-    # in the master rollup and lineage; only the active-index reading path shrinks.
-    both = adr_frontmatter.adr_paths(adrs_dir)
-    for p in sorted(both):
-        path = Path(p)
-        # The fence is read through the ONE shared reader. `validated_adr_paths`
+    # read once and validated before a single record is built. `rel` renders
+    # the reported path; it defaults to `str` so existing callers keep their
+    # signature. Walk BOTH tiers (active + cold archive), per ADR-0063: an
+    # archived ADR stays in the master rollup and lineage; only the
+    # active-index reading path shrinks.
+    texts = adr_frontmatter.validated_adr_texts(adrs_dir, rel or str)
+    for path in sorted(texts):
+        # The fence is read through the ONE shared reader. `validated_adr_texts`
         # already refused this run if any input failed it, so `None` here is
         # unreachable — and it raises rather than skipping, because a second
         # copy of the fence test with a bare `continue` is the paired construct
         # this change exists to remove.
-        block = adr_frontmatter.frontmatter_block(path.read_text(encoding="utf-8"))
+        block = adr_frontmatter.frontmatter_block(texts[path])
         if block is None:
             raise adr_frontmatter.FenceValidationError(
                 [{"file": str(path), "error": adr_frontmatter.FENCE_ERROR}])
@@ -127,6 +149,49 @@ def render_section(recs: list[dict]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _read_index(index: Path, rel_of, findings: list[dict], failures: list[str]):
+    """Read the host file `<docs_dir>/index.md`, a required input named by path.
+
+    Returns `(text, section_match)`, or `(None, None)` after appending the
+    run's finding or failure. The regenerated `## ADRs` region sits inside
+    hand-authored bytes, so the rollup cannot produce its output without
+    them, and every failure to read them is repaired at that path.[^file]
+    A cause in the process or host takes the environment lane.[^process]
+    """
+    try:
+        state = input_lanes.path_state(index)
+        if state is None:
+            findings.append({"file": rel_of(index), "error": input_lanes.absent_reason("file")})
+            return None, None
+        current = index.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError, MemoryError) as exc:
+        if input_lanes.is_path_attributable(exc):
+            findings.append({"file": rel_of(index), "error": input_lanes.document_reason(exc)})
+        else:
+            failures.append(input_lanes.environment_reason(rel_of(index), exc))
+        return None, None
+    m = SECTION_RE.search(current)
+    if not m:
+        findings.append({"file": rel_of(index), "error": MISSING_SECTION})
+        return current, None
+    return current, m
+
+
+def _adrs_present(adrs_dir: Path, rel_of, failures: list[str]) -> bool:
+    """Whether the adrs directory is present, by the operating system's answer.
+
+    False only on a confirmed absence.[^absence] A path that exists and is not
+    a directory, or whose existence cannot be determined, appends an
+    environment-lane failure naming the directory and returns True, so that
+    the run does not also report it as not found.[^unlistable]
+    """
+    try:
+        return input_lanes.directory_exists(adrs_dir)
+    except OSError as exc:
+        failures.append(input_lanes.environment_reason(rel_of(adrs_dir), exc))
+        return True
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(
         description="Regenerate the ## ADRs rollup section of docs/index.md from ADR frontmatter."
@@ -140,33 +205,51 @@ def main(argv: list[str]) -> int:
     args = ap.parse_args(argv)
 
     root = Path(args.repo_root)
-    index = root / _tree_name(root) / "index.md"
-    adrs_dir = root / _tree_name(root) / "adrs"
-    if not index.is_file():
-        sys.stderr.write(f"generate-index-rollup.py: {index} not found\n")
-        return 2
-    if not adrs_dir.is_dir():
-        sys.stderr.write(f"generate-index-rollup.py: {adrs_dir} not found\n")
-        return 2
+    tree = _tree_name(root)
+    index = root / tree / "index.md"
+    adrs_dir = root / tree / "adrs"
+    rel_of = adr_frontmatter.repo_relative(root)
 
-    current = index.read_text(encoding="utf-8")
-    m = SECTION_RE.search(current)
-    if not m:
-        sys.stderr.write("generate-index-rollup.py: no '## ADRs (N)' section found in docs/index.md\n")
-        return 2
+    # Every declared input is tried before the run decides its lane, so one
+    # run reports every finding it met.[^precedence]
+    findings: list[dict] = []
+    failures: list[str] = []
+    current, m = _read_index(index, rel_of, findings, failures)
+    met = len(failures)
+    adrs_present = _adrs_present(adrs_dir, rel_of, failures)
+    adrs_listable = adrs_present and len(failures) == met
 
-    try:
-        want = render_section(load_adrs(adrs_dir, adr_frontmatter.repo_relative(root)))
-    except adr_frontmatter.FenceValidationError as exc:
+    want = None
+    if adrs_listable:
+        try:
+            want = render_section(load_adrs(adrs_dir, rel_of))
+        except adr_frontmatter.FenceValidationError as exc:
+            findings.extend(exc.errors)
+        except input_lanes.EnvironmentLaneError as exc:
+            # A read that failed for a cause in the process or host (EMFILE,
+            # EIO, a MemoryError). A file unreadable for a cause at its path
+            # (EACCES, a dangling link, a non-UTF-8 byte) is a finding above.
+            failures.extend(exc.failures)
+            findings.extend(exc.findings)
+        except OSError as exc:
+            # A tier directory that exists and cannot be listed: the
+            # environment lane, never an empty tier.[^unlistable]
+            failures.append(input_lanes.environment_reason(
+                rel_of(exc.filename) if exc.filename else rel_of(adrs_dir), exc))
+
+    if not adrs_present or failures:
+        # A confirmed-absent adrs directory keeps its exit 2 and ranks with an
+        # environment-lane failure: nothing on stdout, every finding on stderr.
+        if not adrs_present:
+            sys.stderr.write(f"generate-index-rollup.py: {adrs_dir} not found\n")
+        if failures or findings:
+            input_lanes.emit_environment_failure(
+                input_lanes.EnvironmentLaneError(failures, findings),
+                "generate-index-rollup", sys.stderr)
+        return 2
+    if findings:
         return adr_frontmatter.print_validation_errors(
-            exc.errors, "generate-index-rollup", sys.stdout, sys.stderr)
-    except (OSError, UnicodeDecodeError) as exc:
-        # A file the process cannot open or decode is a fact about the
-        # checkout, not a document defect: the environment lane, matching
-        # `generate-reviews-index.py`. Exit 1 would tell `check-drift` to
-        # repair an input, which is advice nobody can follow for an EACCES.
-        sys.stderr.write(f"generate-index-rollup: {type(exc).__name__}: {exc}\n")
-        return 2
+            findings, "generate-index-rollup", sys.stdout, sys.stderr)
     have = m.group(0)
 
     # JSON on every lane. `check-drift` and `audit-docs` both parse each gate's

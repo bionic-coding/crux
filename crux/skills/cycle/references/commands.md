@@ -11,7 +11,7 @@ uv run /abs/plugin-root/scripts/cycle.py --repo-root . --compact create \
   --type iterate --title 'Correct parser handling' --goal 'Accept valid inputs' \
   --scope 'src/parser.py' --scope 'tests/test_parser.py' \
   --acceptance 'Valid empty input is accepted' \
-  --implementer developer-1 --coordinator tester-1
+  --implementer dev-lead --coordinator dev-lead
 uv run /abs/plugin-root/scripts/cycle.py --repo-root . --compact show CYC-0001
 ```
 
@@ -21,6 +21,21 @@ summary: identity, phase, pass and limit, blocker, one line per task with 12-cha
 commits, required checks, evidence count, latest review verdict, and the last five
 history actions. `--full` prints the whole record. `--compact` prints the one-line
 status.
+
+Before it sizes or allocates anything, `create` checks the environment and exits 1 with
+`{ok: false, code: "environment-prerequisite", error, missing}` when a prerequisite is
+absent. Each `missing` entry has `code`, `observed` and `fix`. The codes are
+`git-missing`, `git-author-identity`, `git-committer-identity` (from `git var` in the
+repository), `uv-missing`, `python-minor` (each minor in `pyproject.toml`
+`[tool.crux] python-versions`, through `uv python find`) and `node-missing` (a scope
+entry equals, contains or lies inside the parent directory of a git-tracked test-tiers
+root whose manifest pattern names TypeScript files). An undeclared minor list checks no
+minor. A repository that is not a git work tree checks no node and adds a `notes` entry.
+Each probe times out after 10 seconds, and a timeout counts as missing. Root discovery
+for the node probe runs `git ls-files`, bounded at 60 seconds. `queue start-next` runs
+these checks under the queue lock, so with two declared minors it can hold that lock
+for about 110 seconds: two identity probes, two minors and node at 10 seconds each,
+plus root discovery.
 
 Every command that takes a cycle accepts it positionally, as above, or as `--cycle
 CYC`; naming both with different values is refused. `task` and `assignment` accept an
@@ -69,7 +84,7 @@ that path must be a regular file.
 |---|---|
 | `inspect` | `host` and `summary` (both optional) |
 | `dispatch-invocation` | `assignment`, `attempt`; read-only, no `op_id` |
-| `execution-check` | `assignment`, `attempt`; optional `checkout`, `edited_paths`; mutating, requires `op_id` |
+| `execution-check` | `assignment`, `attempt`; optional `checkout`, `edited_paths`, `record_commit` (`"defer"`); mutating, requires `op_id` |
 | `prepare-dispatch` | `task_id`, `host`; optional `role`, `assignment_text`, `assignment`, `result_path`, `mode`, `integration_owner`, `capabilities`, `release_continuation: {version}` |
 | `advice-refresh` | Optional `kinds`, `task_id`, `role`, `assignment`, `evidence_id`; requires `op_id` |
 | `child-link` | `assignment`, `attempt`, `child_task`; requires `op_id` |
@@ -90,9 +105,11 @@ returns `changed: false`. Phase-changing `advance`, `finish`, `owner-exception`,
 dispatch, attach, delivery, loss, execution-check, child-link and release-continue operations return
 the same object as `record_commit`. The message is `<cycle> record: <event> (rev N)` with
 no `Cycle-Task` trailer. `inspect` returns `record: {git, pending, files, deferred}` and
-offers `commit-record` when `pending`.
+offers `commit-record` when `pending`. A completed cycle's record commit also flushes
+reported project-local skill uses into the forge log (see Project-local skills).
 A replay commits a record an interrupted operation left pending without repeating
 its mutation. `queue start-next` commits the queue and new record together.
+An `execution-check` with `record_commit` `"defer"` commits nothing; see Execution proof admissions.
 
 `withdraw-decision` runs in Plan only. One record write marks `name` withdrawn
 (`withdrawals` in the record) and removes `tasks` from the plan, recording a
@@ -143,7 +160,14 @@ names are filled; the engine inserts no placeholder.
   subordinate addendum. The generated
   preamble names the engine path, isolation, the attempt's result path, the task base, the
   task's trailer-tagged commits since that base and the required header lines and last
-  line. The caller performs the invocation with its own dispatch tool, never through
+  line. An omitted `role` selects the dev-lead for a Build task and for a fix task in
+  any phase; a developer attempt needs an explicit `role: "developer"`, which a dev-lead
+  passes for the child units it adds. An explicit configured role stays accepted. On
+  Claude Code every developer invocation, and no other role's, carries
+  `isolation: "worktree"` in its parameters; Codex, OpenCode and OMP invocations carry
+  none. `integration_owner` names the integrating role; a dev-lead passes
+  `integration_owner: "dev-lead"`. Without it the
+  preamble names the delegator that dispatched the worker. The caller performs the invocation with its own dispatch tool, never through
   the cycle writer. `handle.source` says where the host returns the execution handle;
   `null` means the mode returns none and `attach-execution` is skipped. The Claude Code
   `blocking` invocation carries a conditional `attach` for an agentId that arrives without
@@ -196,6 +220,11 @@ names are filled; the engine inserts no placeholder.
   does not carry the field. An active or paused cycle's open attempt protects a
   worktree through its task trailer or a result path within it. Unknown ownership
   keeps the worktree and reports the owner record; cleanup never guesses from age.
+  On a cycle other than a listed release cycle the response also carries
+  `evidence_size: {bytes, files, measure}`, the committed size of the cycle's evidence.
+  The measure is the sum of the blob sizes `git ls-tree -r -l` reports at the completion
+  HEAD over `<docs_dir>/cycles/<id>/`, and `files` counts those blobs
+  ([testing.md](testing.md) states the rule). The reflection reports this size.
 - `owner-exception` records `quote` and `conversation` verbatim, the unmet completion
   requirements unchanged and every open attempt, in an `owner-exception` history event
   whose `owner` field has the shape `owner-complete` writes. It records an owner's actual
@@ -238,6 +267,18 @@ The read response includes path, size, full `sha256`, UTF-8 `text`, byte `offset
 split characters. For every later page pass `--offset NEXT --sha256 FIRST_DIGEST`;
 changed bytes refuse. Total objects are bounded to 1048576 bytes. Oversized objects
 refuse without content and report `sha256:null`; they were not read or hashed.
+
+The operations log is the one exception. A reference whose path equals a legacy or stray
+`<docs_dir>/log.md`, a detail file `<docs_dir>/log/YYYY-MM.md`, or a staged legacy file
+or staged stray under `<docs_dir>/log/` is bounded to 8388608 bytes
+(`max_log_object_bytes` in inspect).
+Those files are the live operations log that the log writer edits, not a historical record.
+The larger bound adds no reference: a cycle reads the log only where a listed
+reference, such as its goal's References block, already names it. Paging, the digest,
+the path checks and the whole-object secret scans are unchanged. One secret-like line
+refuses the whole file; an owned edit of that line is the remedy. The latest write
+comes first in each detail file, so the first pages hold it. Above 8388608 bytes the read refuses
+`object-too-large`.
 Invalid UTF-8, unsafe content and unavailable scanners refuse without text. Paths
 must satisfy the code-owned roster, canonical containment and no-follow regular-file
 checks. Credential locations, symlinks and special files grant no read. No output-file,
@@ -273,7 +314,7 @@ initial source require normal isolation/integration. No reset or inferred loss f
 Before a source commit, stage intended edits and checkpoint exact `edited_paths`.
 The clean-start token and checkpoint seal exact index/working-file object identities.
 Each task-trailered source commit may contain a nonempty sealed subset;
-changed bytes, unsealed paths and skipped source commits refuse. The verified child merge below is the only admitted merge form. A later
+changed bytes, unsealed paths and skipped source commits refuse. The verified child merge below and `cycle-task-merge` are the only admitted merge forms. A later
 check retains remaining sealed edits. Recheck unexpected HEAD changes. Optional
 attach/delivery proof failure preserves actual handles/results with unavailable
 metadata; explicit worker proof remains strict. Plan scope grants no edit ownership.
@@ -296,6 +337,178 @@ commits with retained marked reports and checkpoints. It also admits an exact tw
 merge whose tree equals conflict-free built-in `git merge-tree` output. Unknown children,
 extra edits, manual resolutions and custom merge drivers refuse. Retain registered child
 checkouts until parent proof and delivery finish.
+
+### Execution proof admissions
+
+**Adjacent checkpoint.** A writer whose rule needs its source commit directly on the
+checkpointed HEAD, such as a migration receipt or an approval on a policy basis, runs the
+before-commit `execution-check` with `record_commit` `"defer"`. The proof and record are
+written but not committed; the response carries `record_commit: {deferred:
+"requested-adjacent-commit", pending, request}`, and a replay of the same `op_id` keeps the
+deferral. Make the source commit with `git commit --only` naming exactly the checkpoint's
+edited paths, after `git add` of any new file at exactly those paths, then run
+`commit-record`. The `git add` comes first because `git commit --only` refuses a path git
+does not yet know. The commit's parent then equals the checkpoint's
+`execution_head`, and the next check admits it as `same-attempt-commit`. `git commit
+--only` records the working-tree bytes at the named paths whoever wrote them, so this step
+relies on the one-editor guard: no other editor holds the checkout while the attempt is
+open. When another role's record commit lands between the deferral and the source commit,
+the proof still admits the commit, but the writer's adjacency rule refuses. The recovery is
+to run `execution-check` with `record_commit` `"defer"` again and regenerate the writer
+artefact against the new HEAD. Without the field, behaviour is unchanged.
+
+**Delivered cycle-task source.** Two kinds follow `current-delivery` and precede the
+foreign-source refusal. A commit that today's proof admits keeps its kind, and none is newly
+refused; a record whose tasks carry no `stream` proves as before, and a streamed task adds
+only `execution-edited-path-outside-stream`.
+
+- `cycle-task-source` admits a commit with one parent or none through another task T of
+  this cycle. T is done, a finished assignment of T delivered `done` with its deliver event,
+  and its retained delivery report matches its digest and marker. One ground also holds.
+  Ground (a): a retained proof of that assignment, read from `execution` and each
+  `execution_history` item and checked against the digest in its path, lists the commit as
+  `same-attempt-commit`, `same-task-resume`, `integrated-task-source` or
+  `cycle-task-source`; a missing or mismatched proof grounds nothing and is skipped. Ground
+  (b): the commit carries T's trailer, lies inside that assignment's delivered commits and
+  lies above its base. When T names a stream, every non-bookkeeping path of the commit lies
+  in that stream. A commit with two or more parents is never `cycle-task-source`.
+- `cycle-task-merge` admits a two-parent merge any role made, such as a coordinating
+  dev-lead's merge of a delivered sibling while its own task is active. Its first parent
+  descends from the attempt's base; its second parent, after the evidence-only walk, is
+  `cycle-task-source` through T; every commit T delivered is an ancestor of the second
+  parent; no custom merge driver is configured; and its tree equals the conflict-free
+  built-in `git merge-tree` output. Its author, subject and trailer confer nothing.
+- The evidence-only walk: when a merge's second parent touches only bookkeeping paths,
+  proof follows its first parents through at most 32 bookkeeping commits. The first source
+  commit must be admitted, by `integrated-task-source` for `integrated-task-merge` or by
+  `cycle-task-source` for `cycle-task-merge`. A longer walk or an unadmitted commit refuses.
+
+An undeclared child that is a done delivered task is therefore admitted through these
+kinds, while `integrated-task-source` and `integrated-task-merge` keep their declared-child
+rules.
+
+`execution-foreign-source` names one route: a return to a new pass, whose task base is HEAD
+at the task's first reservation in that pass, so the commit then lies below the base. A
+return keeps delivered work, needs no replacement task, and counts against the pass limit;
+at an exhausted limit the cycle pauses for the existing resume route.
+`execution-source-outside-scope` names the same route. Both recoveries carry the `return`
+argv with `--execution-task` filled from the refused request: the `task_id` of a
+`prepare-dispatch`, or the assignment's task for an `execution-check`. Its consequence is
+stated: the commit lies below every new task base, so no execution proof accounts for it,
+and its task's next done delivery covers only commits above that task's new base. When a
+grounding task's delivery report is damaged, the refusal names it under `damaged_reports`:
+restore the bytes that match its recorded digest from the commit that retained it, and
+check again; otherwise take the new-pass route. The refusal may add one checked fact under
+`fact`: delivering task T done in this pass admits a one-parent commit carrying only T's
+trailer. It is a fact, never a route, and appears only when T is not done, T has a
+reservation in this pass whose base the commit lies above, and, for a streamed T, the
+commit's paths lie in T's stream. The commander may use it to deliver T first and then
+re-dispatch this task.
+
+**Streams.** A plan task may name `stream`, the id of a declared independent plan stream;
+the plan writer refuses an undeclared or dependent stream on every save. The attempt's
+proof then records the stream's paths as `owned_paths`. Its own work, the non-bookkeeping
+`edited_paths` and the paths of its `same-task-resume` and `same-attempt-commit` commits,
+must lie in the stream, or it refuses `execution-edited-path-outside-stream` with `paths`.
+Another task's admitted work is never tested against the stream. The recovery is a plan
+revision of the task's stream: add the paths when the stream stays disjoint from every
+other independent stream, otherwise remove the task's `stream` field. Adding the paths to
+the plan scope cannot clear it. Before delivering `blocked`, the refused attempt removes its
+own uncommitted bytes at exactly the refused paths, puts a diff of the removed bytes in its
+blocked report so the re-dispatch can reapply them, and lists its commits in the blocked
+delivery. After the revision the re-dispatch proves those commits as `same-task-resume`.
+In Build the route is that plan revision of the task's stream, removing the `stream` field
+when the stream cannot stay disjoint; a return is not the route there, because the return
+writer accepts only the two range codes. When the plan owner cannot revise the task in
+Verify or Review, the route is a return to a new pass. The dirty-path check keeps the whole
+plan scope, so another stream's uncommitted bytes still refuse
+`execution-dirty-owned-paths`.
+
+**Out-of-scope edits.** `execution-edited-path-outside-scope` carries `paths`, the refused
+edited paths: this attempt cannot commit them. The worker removes uncommitted bytes at
+exactly those paths only when its own edit in this attempt wrote them and `git status`
+showed the path clean before that edit; otherwise it removes nothing. Either way it delivers
+`blocked` naming the paths, and the plan owner adds them to scope or another task
+regenerates them. Bytes of unknown authorship are removed before any scope widening,
+because a widened scope over them makes every `prepare-dispatch` refuse
+`execution-dirty-owned-paths`. The commander, as integration owner, inspects them while no
+editing attempt is open on the checkout, copies them, untracked and binary files included,
+under the cycle's evidence directory, runs `commit-record` before removing them, then
+removes them and records the removal and the copy's path in the plan revision reason. When
+the content is wanted, the task whose scope is widened regenerates it or reapplies the copy
+after dispatch. The plan scope names every derived output a scoped change forces, checked
+against the regenerator roster in the project's instruction file: for example
+`crux/catalog/rules.json` for a new rule citation on a shipped surface.
+
+**Return from Build.** `return` takes `--execution-task TASK`. In Build the writer accepts a
+return only with it; in Verify and Review it stays optional and, when given, is checked the
+same way. The writer accepts the named task only when it is a pending or blocked task of
+the current phase, no assignment of the cycle is reserved or running, and its own probe of
+the task's next attempt refuses. The probe proves the entry the task's next
+`prepare-dispatch` would prove, on the main checkout with no edited paths, and reserves
+nothing. It classifies the whole range: each commit no admission accepts becomes a refused
+row with its code, and the walk continues to HEAD. The default proof is unchanged and still
+refuses at the first unadmitted commit. The return is accepted only when at least one row
+refuses `execution-foreign-source` or `execution-source-outside-scope` and no row refuses
+with another code. A probe with no refused row names a re-dispatch of the task; a row with
+another code names that code; `execution-dirty-owned-paths` names the work-in-progress
+exception below. The writer observes the refusal itself, so a return never rests on a
+caller's statement. The accepted return keeps every existing rule: the four assessment
+fields, the pass limit, the `pass-limit` and `progress-stalled` pauses, and the
+human-approved `extend` and `resume`. A blocked task whose delivery holds stays blocked, and
+its first reservation in the new pass takes HEAD as its base. An unfinished fix task leaves
+the plan at the return, as it does today.
+
+The writer also probes, for the record only, every other task that is not done and had an
+assignment reserved in the current pass, because the new pass gives each such task a new
+base. A probe that fails records its whole-range code, or `execution-proof-unavailable`,
+and never fails the return. A done task is not probed: the return moves no done task's
+base, its range was observed at its delivery, and any refusal is journaled in that deliver
+event's `execution_observation`. The `return-requested` event retains `execution_refusal`:
+the named task and HEAD, and one range per probed task with its base and every row. Each
+row names its sha, its paths, its `Cycle-Task` trailers, and either its kind or its
+refusal code; an other-cycle-record row adds `basis` and `cycles`. That event is the record
+of the commits the new pass places below every new task base.
+
+`inspect` offers the return while no assignment of the cycle is reserved or running, for a
+pending or blocked task of the current phase whose latest assignment was reserved in the
+current pass and whose deliver event journaled an `execution_observation` with either
+code. A previous pass's delivery draws no offer. `inspect` runs no proof; the writer's probe
+decides at the return. It keeps offering `prepare-dispatch` of that task, because
+delivering another task first can admit the refused commit. A `prepare-dispatch` refusal
+records no observation, so `inspect` offers no return for it: the commander runs the
+refusal's recovery argv instead of repeating `inspect`'s `prepare-dispatch` offer.
+
+Assess progress for a return whose cause is another commit rather than a finding. Report
+progress when the pass delivered work that holds or the refused task committed its own
+work, and name the refused commits as the unresolved item. Report no progress when neither
+holds. The pass limit bounds repeated interference returns.
+
+**Work-in-progress exception.** A work-in-progress commit normally follows a passing
+`execution-check` on the staged bytes. When an `execution-check` refuses
+`execution-foreign-source` or `execution-source-outside-scope`, that same call has proved
+the attempt's edited paths owned and in scope and stream; only the range refused. The
+worker then commits its owned work in progress with `git commit --only` naming exactly the
+edited paths of that refused check, after `git add` of any new file at exactly those paths,
+under its own task's `Cycle-Task` trailer and with no passing checkpoint, and lists that
+commit in its blocked delivery. This step relies on the one-editor guard. At the same base
+the commit proves as `same-task-resume`, so the return's probe records it as an admitted
+row. Bytes of unknown authorship keep the out-of-scope removal rule above.
+
+**Another cycle's record commits.** A record commit of another open cycle is bookkeeping
+with `basis: other-cycle-record` and `cycles`, the other cycle ids. The whole commit is
+judged: it has at most one parent; every path lies in this cycle's own boundary or under
+`<docs_dir>/cycles/<ID>/` for another valid cycle id, and at least one does; its tree holds
+each such `cycle.json`; no path lies in this cycle's plan scope; and each such `cycle.json`
+at its first parent is absent or parses with a status that is not closed. The closing
+commit of another cycle is admitted, because its parent status is still active. A change
+to a cycle that was closed or unreadable at the parent, a commit that mixes another cycle's
+record paths with any other path, a directory without `cycle.json`, a name the cycle-id
+pattern rejects and a two-parent commit keep `execution-source-outside-scope`, with the
+return route above. The path-level boundary is unchanged, so `edited_paths`, the dirty
+check and the stream tests keep their meaning. A checkpoint admits such a commit between
+it and its source commit, but the writer adjacency rule of an adjacent checkpoint still
+refuses it.
 
 ### Route classification
 
@@ -335,14 +548,18 @@ Use `cycle.py defer` for follow-up findings. A sizing fallback prints a receipt 
 their original interpretation. Status and dashboards show `Classifications: N`; full
 inspect retains question, answer, fallback, model, provider and reported cost.
 
-The `advice-refresh.kinds` values are `execution-arrangement`, `context-selection`,
-`focused-test-ranking`, `review-routing`, `finding-disposition`,
-`review-finding-grouping`, `handoff-completeness` and `failure-routing`.
+The `advice-refresh.kinds` values are `context-selection`, `focused-test-ranking`,
+`review-routing`, `finding-disposition`, `review-finding-grouping`,
+`handoff-completeness` and `failure-routing`. The former `execution-arrangement` kind is removed:
+every phase permits one role, so no question of that kind was ever asked, and a refresh
+that names it is refused. Historical classifications of that kind stay readable.
 Task, role, assignment and failed `TE-…` receipt references must exist; arbitrary report
-text is not accepted. For example, after replacing the cycle/task with recorded IDs:
+text is not accepted. `context-selection` takes any explicit configured role, such as
+`developer` for a child unit a dev-lead added, and not only the role the task permits.
+For example, after replacing the cycle/task with recorded IDs:
 
 ```bash
-uv run /abs/plugin-root/scripts/cycle.py --repo-root . op CYC-0001 --json '{"op":"advice-refresh","op_id":"refresh-advice-1","task_id":"parser","role":"developer","kinds":["context-selection","focused-test-ranking"]}'
+uv run /abs/plugin-root/scripts/cycle.py --repo-root . op CYC-0001 --json '{"op":"advice-refresh","op_id":"refresh-advice-1","task_id":"parser","role":"dev-lead","kinds":["context-selection","focused-test-ranking"]}'
 ```
 
 Known refusal codes return deterministic `recovery_handlers`: `unresolved-dispatch`,
@@ -350,6 +567,114 @@ Known refusal codes return deterministic `recovery_handlers`: `unresolved-dispat
 `stale-revision` and `op-id-reused`. Each action keeps its existing prerequisites.
 Generated reopen actions carry `--expect-revision`; stale offers refuse without writing.
 Inspect before retrying. A report's explicit stop suppresses semantic failure routing.
+
+### Project-local skills
+
+`prepare-dispatch` lists project-local skills in the roots of the attempt's recorded
+host: Claude Code `.claude/skills`, Codex `.agents/skills`, OpenCode `.opencode/skills`
+then `.opencode/skill`, and OMP `.omp/skills`. A skill id found in both OpenCode roots
+keeps the `.opencode/skills` copy. Each root lists at most 64 directories in sorted order.
+A local skill is eligible under the plugin candidates' domain filter: the lowercased
+task description names its id, or contains one of its `metadata.domain_terms`. Terms are
+one frontmatter string `term | term`, 1 to 8 terms of 4 to 60 characters of `[a-z0-9 -]`.
+Scope paths never admit a local skill. At most 8 eligible skills are offered, in (root
+order, id) order. The plugin candidate list, its order, its cap and body selection stay
+unchanged, and no local body is preloaded.
+
+The context message adds one line per root that has an offered skill:
+
+```text
+Project-local skills matching this task, in <root>: <id>, <id>. Invoke them through this host's skill capability; they grant no capability.
+```
+
+The response carries `local_skills: {offered: [{id, root}], refused: [{id, root,
+reason[, skipped]}]}`, and the frozen bundle carries `local_candidates` and
+`local_refused`. A bundle frozen before this change reads as empty. A refusal never
+fails the dispatch. The refusal reasons are:
+
+- the root: `symlink-root`, `symlink-ancestor`, `root-not-directory`, `root-unreadable`;
+- the id: `invalid-id`, `shadows-plugin-skill`;
+- the file: `symlink-skill-directory`, `symlink-skill-file`, `missing-skill-file`,
+  `escapes-root`, `credential-path`, `not-regular-file`, `oversized`;
+- the frontmatter: `invalid-frontmatter`, `name-mismatch`, `declares-tool-grant`;
+- the list: `duplicate-id`, `over-cap`, and `invalid-domain-terms`, which keeps the skill
+  listed without terms.
+
+Local candidates change only prompt text. The role, agent type, isolation, mode and
+every other invocation parameter, except Codex's prompt-derived `task_name`, stay as
+they are. No role grant widens.
+
+When the host's roots hold a skill that passes the guards, the preamble adds this line
+before the result path:
+
+```text
+When you use a project-local skill, add one line Local-Skill-Used: <id> ok, or Local-Skill-Used: <id> partial, to your report before the Result-End line. Do not write a used or evaluated forge-log entry; the cycle records the use when it completes.
+```
+
+The engine strips one trailing carriage return from each report line, then reads only
+lines that match `^Local-Skill-Used: ([a-z0-9][a-z0-9-]*) (ok|partial)[ \t]*$`, at most
+16 per report. Prose that names a skill records nothing. The report's first two
+non-blank lines are `Assignment: <id>` and `Attempt: <n>`.
+
+The record commit of a completed cycle flushes the reported uses before it commits.
+`finish`, `commit-record` and every other commit of a completed cycle's record run it.
+An active or abandoned cycle's commit runs none. The flush writes nothing when the
+commit would be deferred, or while an active or paused cycle has an open attempt. A
+cycle record that exists but cannot be read, or that lacks a string `status` or a list
+of assignment objects, also defers the flush, because it may hold an open attempt.
+The engine reads every cycle record with no size cap, as its own loader does. A cycle
+directory with no `cycle.json` defers nothing. It
+scans every retained report under `cycles/*/results/`, keeps each use whose cycle is
+completed and whose attempt was delivered with that report at its recorded sha256, and
+writes each kept use once into `<root>/forge-log.md` of the root that holds the skill:
+
+```text
+## [YYYY-MM-DD HH:MM] used | <id>
+<cycle> <assignment>/<attempt> <role> report; <ok|partial>
+```
+
+The header time is the attempt's `ended_at` in UTC; one empty line follows the body. No
+report text enters the log. The new entries form one newest-first block inserted
+before the first line that begins `## [`. A root with no forge log in the working tree
+or HEAD gets forge-skill's locked preamble first. A forge log joins the commit only when
+its difference from HEAD is one block of `used` entries the engine rederives from
+completed cycles; any other difference is foreign and stays uncommitted.
+The commit rule accepts an entry only in the forge log of the root that holds its
+skill, so the same uncommitted bytes in another root's log are foreign. Presence reads
+every root's committed log, so an entry already committed in another root suppresses
+the write. A written log that a commit does not land is restored.
+
+The record commit result, and so the `finish` response's `record_commit`, carries
+`forge_log: {appended: [{path, id, cycle, assignment, attempt}], present: N, ignored:
+[{report, id, reason[, skipped]}], committed: [path], uncommitted: [{path, reason}],
+deferred: REASON|null, error: [{root, problem, recovery}]|null}`. An `open-attempts`
+deferral also carries `open_attempts` and `recovery`, and `unreadable_records` when an
+unreadable record caused it; both lists name cycle ids. The ignored reasons are
+`plugin-skill`, `unknown-local-skill`, `no-host`, `no-time`, `over-cap`,
+`report-changed`, `cycle-not-completed`, `no-report-header` and `report-oversized`, which
+marks a report over the 1 MiB reader cap. The uncommitted reasons
+are `foreign`, `absent-working-log`, `forge-log-not-regular`, the root refusal reasons,
+a commit deferral reason and `not-landed`.
+
+`inspect` adds `record.forge_logs: [{path, state, cycles[, reason, resolver]}]` and
+`record.forge_log_open_attempts`, each only when a row exists, and
+`record.forge_log_unreadable_records` when an unreadable record defers the flush. State `committable` marks
+a forge log that differs from HEAD and passes the commit rule; `foreign` marks one that
+fails it and names the main session as resolver; `missing` marks a rederivable use whose
+entry is absent; `stale-temporary` marks a leftover `.forge-log-*.tmp` file. Inspect of a
+completed cycle offers `commit-record` for a `committable` or `missing` row when no
+active or paused cycle has an open attempt.
+
+Known limits:
+
+- A line-ending conversion of a forge log, such as CRLF on checkout, changes its bytes,
+  so the engine reads the log as foreign.
+- When a restore fails, the rederivable bytes the flush wrote stay in the working tree.
+  `inspect` reports that log as `committable`, and `commit-record` on a completed cycle
+  commits it.
+- Entries are newest-first within each inserted block and in flush order across blocks.
+- A role that writes the forge log between the engine's check and the commit is
+  detected after the commit as `committed-bytes-differ`, not prevented.
 
 ## Low-level commands
 
@@ -402,9 +727,16 @@ are unique; independent scopes cannot overlap by path or directory prefix.
 Absolute paths, traversal and glob scopes refuse. A Build task may name
 `integrates: [TASK-A, TASK-B]`; each is a distinct existing Build task also listed
 in `depends_on`. Missing historical fields mean no declared facts.
+A task may name `adr_dependencies`: distinct, non-empty names of ADR decisions recorded in
+this cycle. A named ADR whose latest revision is not accepted refuses the task's dispatch
+and its phase exit with `adr-dependency-awaiting-acceptance`, whose message names the
+ADR's recorded status. A name with no recorded ADR decision refuses
+`adr-dependency-unrecorded`; the writer accepts the name at plan time, because a plan may
+name an ADR before its creation is recorded. A task that names no unaccepted ADR proceeds,
+and the field is bookkeeping, not review basis.
 
 Use `task-add CYC-ID --file task.json` for a task and
-`task CYC-ID --task-id ID --state pending|active|done|blocked` for its state.
+`task CYC-ID --task-id ID --state pending|active|done|blocked|superseded` for its state.
 Quick-fix has no Plan transition. It accepts `task-add` for its current phase or any
 later phase, so it can record expected evidence for Verify, Review, and Reflect up
 front. Other types add tasks for the current phase, or any phase while in Plan.
@@ -422,6 +754,20 @@ needs a commit, both receipts and, for a Review fix, an approving fix-diff revie
 delivery field, so plan files refuse it. A done fix stays done on a new pass; an
 unfinished one leaves the plan. `handoff` lists fixes. A fix changes no pass, phase or
 plan revision.
+
+A fix task completes in this order, and `prepare-dispatch` renders the same sequence
+into the fix task's mandatory assignment:
+
+1. Record the fix-before receipt, the receipt that recorded the failure:
+   `cycle.py task CYC --task-id ID --fix-before TE-ID`.
+2. Commit the fix and record the commit on the task:
+   `cycle.py task CYC --task-id ID --commit SHA`.
+3. Record the fix-after receipt, the current passing receipt for the same check id:
+   `cycle.py task CYC --task-id ID --fix-after TE-ID`.
+4. Hold current evidence for every required check after the fix commit. Rerun only the
+   checks whose inputs the fix changed.
+5. For a Review fix, record the approving fix-diff review (`review` with `fix_task`).
+6. Deliver.
 
 A failed acceptance criterion also qualifies for the same one fix allowance.
 Supply `fix.criterion: {index: N, observation: PATH}` with the zero-based acceptance
@@ -491,6 +837,41 @@ NEW is an ancestor of HEAD. `reconcile` does not propose a replaced commit again
 Tested and reviewed are not stages: the evidence, coverage and review gates alone
 establish them.
 
+Mark a replaced task superseded instead of rewiring its dependents:
+
+```bash
+uv run /abs/plugin-root/scripts/cycle.py --repo-root . --compact task CYC-0001 --task-id build-parser --state superseded --superseded-by build-parser-v2 --note 'parser-v2 replaces the parser unit'
+```
+
+`--superseded-by` names another plan task, and `--note` gives the reason. A dependency
+on the superseded task is satisfied once its superseder is done, and through that one
+hop only. Every dependency check reads that one rule: the task done check, the plan
+writer's done mark, reconcile, `prepare-dispatch`, `dispatch-invocation` and the
+re-dispatch route. A phase closes over a superseded task, because it never runs. A
+superseded task is never delivered work: completion, child integration and
+integration proof keep reading done tasks.
+
+The command refuses when:
+
+- the task is done, already superseded or a fix task;
+- the superseder is the task itself, is missing, is superseded or carries `fix`;
+- an attempt of the task is reserved or running;
+- the task records commits, or one of its finished attempts delivered commits;
+- the task already supersedes another task;
+- the cycle is a listed release cycle.
+
+Every save holds four invariants. A superseded task's superseder exists, is not
+superseded and has the same phase. No `integrates` list names a superseded task. A
+listed release cycle holds none. The effective dependency graph has no cycle: there a
+superseded task's only edge leads to its superseder, and its own `depends_on` is not
+followed. So a plan revision that drops the superseder, moves either task to another
+phase, or makes the superseder depend on the superseded task refuses. A plan file
+cannot set `superseded` or `superseded_by`. A superseded task accepts no later state
+change; a new pass and a plan revision keep its status and `superseded_by` together,
+even when the revision changes its description. `inspect` lists superseded tasks
+under `superseded`, `handoff` lists them with their superseder, and `cycle status`
+shows each one beside the Tasks list. The dashboards' task list omits it.
+
 Every developer commit message ends with one final paragraph of trailers, with no blank
 line between them, because git reads trailers only from the last
 paragraph. A host-added `Co-Authored-By:` line joins that paragraph; after a blank line it
@@ -511,6 +892,25 @@ hand-back, and read it before any resume or dispatch.
 
 ## Assignments
 
+**Checkout guard.** An editing attempt is an attempt of role `developer` or `dev-lead` on
+a Build-phase task or a fix task; a release step is none. It targets the main checkout
+unless the host isolates the call, which Claude Code does for a developer only. While
+another editing attempt targeting the main checkout is open (state `reserved` or
+`running`), `prepare-dispatch` refuses a new one `checkout-has-open-editing-attempt`.
+`observed` lists each open attempt as `{assignment, attempt, task, role}`, and the
+recovery names `inspect`, then `deliver` and `mark-lost` for each open attempt, with
+`mark-lost` only on affirmative host evidence. The alternatives are to wait for the open
+attempt or to use an invocation that isolates in its own worktree. A refused dev-lead
+also gets a `note`, with no request body, that only the open dev-lead may dispatch the
+unit as a developer, and only on a host with per-call isolation. An invocation that
+isolates is never refused, and the legacy `assignment --state running` path applies the
+same check on a version-3 record. `prepare-dispatch` refuses a dev-lead on a task that
+holds a developer reservation in the current pass `unit-task-needs-coordinator`, and
+`inspect` offers neither that task nor any dispatch the guard refuses; it offers the
+dev-lead for a Build or fix task, never a developer. `inspect` shows the outcome of a
+finished attempt as `delivery.outcome` in the full `assignments` list; the `summary` form
+lists open attempts only.
+
 On a version-1 or version-2 record an assignment records that an agent is running a
 piece of the cycle. Its id is a task id, a stream id such as `stream-a`, or a singleton
 role name. Version-3 records take assignments through `prepare-dispatch`; these
@@ -527,7 +927,7 @@ uv run /abs/plugin-root/scripts/cycle.py --repo-root . --compact assignment CYC-
 uv run /abs/plugin-root/scripts/cycle.py --repo-root . --compact assignment CYC-0001 --id build-parser --state lost --note 'host lists no live handle HOST-HANDLE'
 ```
 
-A completed or abandoned cycle refuses every mutation except one: `assignment --state finished`
+A completed, abandoned or shortcut cycle refuses every mutation except one: `assignment --state finished`
 on a running entry. A final hand-back that arrives after closure is still recorded.
 
 `--state running` refuses while the same id is running, even as an identical replay,
@@ -578,6 +978,10 @@ uv run /abs/plugin-root/scripts/cycle.py --repo-root . --compact evidence CYC-00
   --check-id parser --evidence-id TE-ID --use reused
 ```
 
+The attachment stores the check id, the receipt id, the pass, the use and the
+declaration digest, never the log. An identical repeated attachment writes nothing and
+returns `changed: false`.
+
 For new version-two records, also use `coverage CYC-ID --file coverage.json`:
 
 ```json
@@ -609,6 +1013,12 @@ Verify by the same evidence id, with no new execution while its inputs are uncha
 Build checks stay outside the review basis. [testing.md](testing.md) gives the
 selection rule.
 Changing coverage does not itself execute checks.
+
+The cycle writer attaches no staged receipt. Every registered staged check names the
+dev root's lock (`crux/scripts/suite_evidence.py:278-286`), and no writer path passes
+`source_root`, so validation refuses the receipt (`crux/scripts/test_evidence.py:646-648`).
+Staged per-minor checks stay Verify observations and test runs. Release verification
+judges staged receipts against a fresh stage.
 
 A passing review binds to a basis: the plan's scope, constraints, acceptance,
 verification, preserved behavior and improvement, the plan tasks up to the
@@ -666,6 +1076,10 @@ when needed. `review CYC-ID --file report.json` takes exactly these fields:
 
 Use the actual scope declared in the plan, evidence, and independent reviewer. A
 report that omits `scope` records the plan scope, so the reviewer need not copy it.
+A report `scope` that is not a non-empty list of non-empty strings is refused first. The
+review binds when every plan scope path has a report scope entry that covers it, a
+parent directory included; further report paths are allowed. A report that leaves a plan
+path uncovered is refused `review-scope-incomplete:` followed by the uncovered paths.
 A blocking finding includes `path`, `consequence`, and `evidence`. The alternative
 verdict is `changes-required`. The writer binds the report to current inputs and
 adds effective scrutiny; it cannot perform the review on the agent's behalf.
@@ -673,7 +1087,7 @@ adds effective scrutiny; it cannot perform the review on the agent's behalf.
 A fix-diff review is this same `review` command with the optional key `fix_task`
 naming that pass's Review fix task. The fix task needs a recorded commit. The
 reviewer must differ from the fix assignee and the implementers, and the scope still
-equals the plan scope. One fix-diff review is allowed; a blocking one needs a counted
+covers the plan scope. One fix-diff review is allowed; a blocking one needs a counted
 return. The writer stores the ref in `fix.review`.
 
 ## Simplify cycles
@@ -784,9 +1198,10 @@ standalone subcommands, not values of the typed operation's `op` field. The same
 literal cycle.py shell lane supports them. The record schema is
 `crux/schemas/owner-decision.schema.json`; inspect each subcommand's help for input.
 
-Every request carries `purpose` (`idr` or `adr-acceptance`), `cycle_id` (exact owning
-cycle, or null for a standalone ADR), canonical docs-relative `subject`, and exact
-presented `subject_sha256`. No actual owner evidence is supplied by these examples.
+Every request carries `purpose` (`idr`, `adr-acceptance` or `acceptance-change`),
+`cycle_id` (exact owning cycle, or null for a standalone ADR), canonical docs-relative
+`subject`, and exact presented `subject_sha256`. No actual owner evidence is supplied
+by these examples.
 
 - `owner-decision present` also takes `op_id` and the concrete `question`. It
   binds the current subject digest and returns a `presentation` path/digest.
@@ -817,6 +1232,42 @@ Receipt-before-lifecycle recovery preserves prior receipt bytes and records the
 current descendant approval through the writer's sealed binding. Never repair these
 files manually. Legacy approvals and acceptances retain their original interpretation.
 
+Purpose `acceptance-change` records an owner's change to a cycle's acceptance
+criteria. It requires `cycle_id`. Its subject is a JSON proposal at
+`cycles/<cycle_id>/acceptance/<name>.json` that holds exactly:
+
+- `cycle_id`;
+- `plan_revision`, the plan revision it was written against;
+- `remove`, exact current criteria to remove;
+- `move`, a list of `{criterion, queue_item}`: an exact current criterion and the queue
+  item it goes to;
+- `add`, new criteria, appended after the kept ones.
+
+`apply` of an approve capture first looks for the `plan-revised` event whose reason
+names this capture's path and digest; a replay acknowledges it. Otherwise each check
+must hold, and a refusal names the failed check:
+
+- the capture is current and the subject keeps its captured digest;
+- `plan_revision` equals the current revision (`acceptance-change-stale-plan`);
+- each removed and moved criterion occurs exactly once
+  (`acceptance-change-criterion-not-unique`), and no criterion is both removed and
+  moved (`acceptance-change-criterion-conflict`);
+- no added criterion equals a kept one or another added one
+  (`acceptance-change-duplicate-add`);
+- each moved criterion's queue item exists, is pending or held, and holds that
+  criterion verbatim (`acceptance-change-destination-missing`,
+  `acceptance-change-destination-started`,
+  `acceptance-change-destination-lacks-criterion`);
+- no criterion fix binds an index at or above the lowest removed or moved index
+  (`acceptance-change-criterion-fix-shift`);
+- the cycle is in Plan or Build, in a type with a Plan phase (`acceptance-change-phase`).
+
+`apply` then writes the plan revision through the plan writer's own steps, with only
+`acceptance` changed. The same save writes the `plan-revised` event, whose reason
+names the capture, and the `owner-decision-applied` event. A removed criterion's
+record is the owner capture, with the owner's verbatim words. Quick-fix, and a cycle
+in Verify, Review or Reflect, cannot change acceptance through this route.
+
 This evidence interface grants no pass extension, owner exception or outward action.
 The commander may record real owner evidence through cycle.py; council execution and
 judgment-bearing document authorship retain their existing role lanes.
@@ -837,6 +1288,19 @@ The proposal contains `title`, `body`, and `governs`. Each rule needs `domain`,
 Council must separately approve the resulting ADR with purpose `adr`.
 Use `decision-policy.py accept --subject PATH --approval PATH`, plus
 `--human-approval TEXT` containing the owner's actual instruction when required.
+
+A legacy Proposed ADR that `propose` never wrote has no proposal metadata, so
+`accept` refuses it. `decision-policy.py adopt --subject PATH` writes that metadata,
+with origin `legacy-adoption` and the file's `adopted_sha256`, and changes no ADR
+byte. It admits an active ADR file whose status is Proposed, whose frontmatter carries
+`acceptance_format: crux.adr-acceptance.v1` and a non-empty `governs` list, and whose
+bytes equal its bytes at HEAD. It refuses an ADR with metadata, provenance or an
+acceptance receipt, and reports a missing `acceptance_format` or `governs` instead of
+fixing it. Each refusal carries a `code`. Regenerate the summaries after `adopt`, as
+after `propose`. `accept` then needs council approval of the exact bytes. Under
+`council-and-human` it also needs an owner capture of purpose `adr-acceptance`
+(`owner-decision apply` with `approval`), and it refuses `--human-approval` text for
+this origin.
 Regenerate standard ADR indexes/projections after writes, respecting their commit
 preconditions. Never retrofit new acceptance onto historical provenance.
 
@@ -844,7 +1308,10 @@ preconditions. Never retrofit new acceptance onto historical provenance.
 
 `advance CYC-ID` advances only when the phase requirements hold.
 `return CYC-ID --progress yes|no --improved TEXT --unresolved TEXT
---next-change TEXT --justification TEXT` records the assessment and return.
+--next-change TEXT --justification TEXT [--execution-task TASK]` records the assessment and
+return. A return from Verify or Review answers a finding; a return from Build needs
+`--execution-task` and is legal only after every attempt is delivered, over an execution
+refusal the writer observes itself (see Execution proof admissions).
 No progress or an exhausted limit pauses instead. `pause` takes `--reason`.
 `resume` takes `--reason` and, after stalled progress, `--new-evidence`.
 
@@ -882,6 +1349,14 @@ never invent or infer the owner's instruction. `change-type` takes `--type` and
 `--reason`, plus human approval when required to avoid bypassing an exhausted limit.
 Changing type out of simplify always needs `--human-approval`.
 
+A type change keeps each done Build task whose delivery still holds, with its commits
+and evidence. It drops every other task, including done Plan, Verify, Review and
+Reflect tasks, and a done task that integrates a dropped task. A kept task's
+`depends_on` loses the ids of dropped tasks. In a type with a Plan phase the cycle
+restarts in Plan with the pending `plan` task, so the remaining work is planned again;
+a plan revision keeps only the tasks its file lists. In quick-fix the kept tasks are
+the whole list. The `type-changed` event keeps the previous plan.
+
 `reflect CYC-ID --file reflection.json` records `outcome` (a string) and `lessons` and `remaining` (each a non-empty list of
 non-empty strings; use `["none"]` when there is nothing).
 Use `advance` to complete or `abandon` after recording an abandonment reflection.
@@ -896,6 +1371,39 @@ with the quote and each authority file's sha256. It rewrites no blocker, evidenc
 review, release, or reflection. Never use it without an actual owner instruction. It
 is not a routine close path: Reflect bookkeeping needs no evidence refresh and no
 review re-record (see [testing.md](testing.md)).
+
+To close a stopped cycle whose delivered work has gaps, record the reflection with
+`reflect` and run `shortcut CYC-ID --present`, then `shortcut CYC-ID --file request.json`.
+Only the owner's quoted closure request sets the status `shortcut`. `inspect` never offers
+`shortcut`, and a typed operation does not exist for it. `--present` runs every
+precondition below except the owner block and the reflection digest, refuses with the same
+codes, writes nothing and commits nothing. On success it prints the cycle id, status and
+phase, the recorded reflection with its sha256 over the writer's canonical encoding, the
+qualifying review's reference, verdict and blocking-finding count, and the open attempts.
+Show that output to the owner and quote the owner's reply. The `--file` request is a JSON
+object with exactly two keys: `owner`, the owner-complete block (`origin`, `quote`, `date`,
+`conversation`, `authority`), and `reflection_sha256`, 64 lowercase hex digits. It refuses
+in this order, each with its code as the message prefix:
+
+1. `shortcut-owner-quote-required`: the `owner` key is missing or its block is invalid.
+2. `shortcut-request-invalid`: the file is not such an object, carries another key, or
+   `reflection_sha256` is not 64 lowercase hex digits.
+3. `shortcut-release-cycle`: a release cycle, listed or legacy.
+4. `shortcut-cycle-not-stopped`: the cycle is neither paused nor in Reflect.
+5. `shortcut-reflection-required`: no reflection is recorded, its outcome is empty, or its
+   remaining list is `["none"]`.
+6. `shortcut-reflection-changed`: `reflection_sha256` differs from the recorded reflection's.
+7. `shortcut-review-required`: no qualifying review exists. The qualifying review is the
+   latest review of the current pass whose input fingerprint binds the current source,
+   whose basis binds the current review basis and whose reviewer is not among the
+   implementers. Its verdict is `approve` or `changes-required`; either qualifies.
+
+On success the writer sets the status `shortcut` and appends a `shortcut` history event
+with the owner block, each authority file's sha256, the `reflection_sha256`, the
+qualifying review and the open attempts. It marks no requirement satisfied, changes no
+attempt and runs no worktree cleanup. A shortcut cycle never restarts: `resume`, `task`
+and `advance` refuse it. Its queue item moves to history like a completed one and raises
+no `previous-abandoned` stop. Never use `owner-complete` for a closure with gaps.
 
 Before completing a version-two record, commit the intended changes, then record:
 
@@ -1120,11 +1628,29 @@ that council evidence. An explicitly combined owner instruction uses action
 provenance in separate acceptance and disposition actions.
 
 For later migrations in consuming projects, `installed-support` emits
-`crux.adr-migration-installed-support.v1` with the installed plugin's exact
-module, CLI and schema bindings. It requires no vendored Crux source or upstream
-commit ancestry. The initial bootstrap always refuses this alternative and
-requires committed independent verification. Both council and approval bind the
-applicable support basis.
+`crux.adr-migration-installed-support.v2`: the current approval profile id and its
+pinned sha256. An approval profile names, for the package and the approval record,
+the fields an approval reads at each object level and which of them are required.
+`approve` validates both records against their schemas first. It then refuses a
+record that carries a field the current profile does not name, or lacks a field it
+requires, and the refusal names the field path and the profile id. Reading a recorded
+approval repeats the check against the profile its v2 basis names. A changed field set
+needs a new profile id: a profile that has bound an approval is never edited, and a
+declaration that differs from its pinned digest refuses. A schema edit that no record
+exercises, such as description text, changes no profile. A v2 basis records no
+installed bytes, so a support-source edit that keeps the profile leaves every v2
+approval readable. It requires no vendored Crux source or upstream commit ancestry.
+The initial bootstrap always refuses this alternative and requires committed
+independent verification. Both council and approval bind the applicable support basis.
+
+`approve` refuses a new approval on an installed-support v1 basis
+(`crux.adr-migration-installed-support.v1`, a byte pin of 15 installed files). A
+council convened on a v1 basis yields no new approval; it reconvenes on v2. A recorded
+v1 basis keeps its readers. The unchanged byte route accepts it while the installed
+bytes still equal its recorded values. The issued route accepts a v1 basis whose
+canonical digest is in the reviewed issued list, which holds one entry: the v5.3.0
+installed-support basis. Re-running `approve` for a recorded approval returns it
+unchanged.
 
 `queue-stop --path PATH --input stop.json` records an explicit stop.
 `queue-clear-stop --path PATH --id STOP --owner instruction.json` records its
@@ -1225,7 +1751,7 @@ It captures ids, not content. An item added later is outside the scope.
 (an interrupted start was completed; it reports the cycle and its status) or
 `in-progress` (a started item's cycle is active or paused; nothing was allocated).
 Act on an outcome by its cycle status: active, drive the cycle to completion; paused,
-stop at its pause and report; completed or abandoned, run `queue start-next` again.
+stop at its pause and report; completed, abandoned or shortcut, run `queue start-next` again.
 
 It exits 1 with `{ok: false, stop: {reason, item, detail}}` and one reason, checked in
 this order: `cycle-missing` (a started item's cycle record is absent or unreadable;
@@ -1233,8 +1759,12 @@ restore it), `queue-empty`, `not-authorized`, `previous-abandoned` (checked befo
 `authorization-exhausted`; the owner re-authorizes to continue),
 `authorization-exhausted`, `outside-authorization`, `held` (the head is never skipped),
 `blocked` or `dependency-abandoned` (a dependency is satisfied only when started and
-completed; an abandoned one needs an owner decision), and `type-unsupported` (the type
-is not a cycle type). Exit 1 also reports a refusal as `{ok: false, error}`, including an
+completed; an abandoned one needs an owner decision, and a shortcut one stops `blocked`
+with text that names the shortcut closure until the owner edits the dependent item's
+`depends_on` or removes the item), `type-unsupported` (the type
+is not a cycle type), and `environment-prerequisite` (checked for the head item before
+the sizing request, the archive and the starting intent; the stop adds `missing`, each
+entry with `code`, `observed` and `fix`, and the item stays pending). Exit 1 also reports a refusal as `{ok: false, error}`, including an
 invalid queue file with its path, the failing location and the repair. Exit 2 reports an
 environment problem as `{ok: false, error}`: unresolved configuration, a missing tree, an
 unreadable or unlockable queue path, or PyYAML unavailable.
@@ -1287,6 +1817,21 @@ Missing legacy mode remains Strict. Setup records an explicit Standard/Lite choi
 - `--policy-action extend-council-limit --extension <limit> --identity <logical id>`:
   record an extension the owner gave on their own initiative, rather than resetting the
   decision count. No agent requests one; at the limit the architect withdraws or narrows.
+
+For purposes `adr` and `disposition`, one logical decision has one attempt count
+across scopes. The count reads the standalone `adrs/councils` directory and the
+`councils` directory of every cycle, whatever the cycle's status. In another scope a
+row counts when its purpose matches and its logical id, or a legacy row's readable
+subject, names the same decision; an unreadable, unknown-format or unmatched row is
+skipped. An unresolved attempt in another active cycle refuses, as it does in the
+scope being convened. An unresolved attempt in a cycle that is not active counts and
+does not block, unless its attempt flock is held. Rows merge by `started_at`, then
+attempt id. The newest merged row supplies the frozen policy and the progress
+comparison. For a history that today's per-scope count already split, with different
+`max_attempts` in each scope, the newest row's policy governs: convening in the scope
+with the tighter limit inherits the other scope's limit, and the merged count still
+never shrinks. The new attempt is written in its own scope. IDR, `consultation` and
+`adr-creation` counts keep their own scope.
 
 `--initialize-council standard|lite|strict --selection <explicit choice>` is for
 first Crux enrollment. It preserves unrelated configuration and records provenance.

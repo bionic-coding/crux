@@ -130,6 +130,29 @@ caller prose is an optional addendum.
 The goal must make outcome, evidence, and constraints recoverable without chat.
 Routine details need no IDR; material implementation choices do. Every dev needs
 an approved IDR.
+The plan scope names every path the cycle writes. That includes the journal and
+operation-log paths the Reflect entry writes (`<docs_dir>/journal/` and
+`<docs_dir>/log/`), and, when the cycle accepts an ADR, the ADR file and its record
+under `<docs_dir>/adrs/acceptances/`. An unnamed path makes its task's commit refuse.
+Each acceptance criterion states what the cycle can show. A criterion over a
+population the cycle will not examine in full, such as every test in the repository,
+names the examined part and how the rest is reported. The owner can narrow a
+criterion only while the cycle is in Plan or Build.
+
+## A cycle task proves its checkout before it writes
+When a cycle task dispatches you, run `execution-check` with your assignment, attempt
+and registered checkout before your first write. A generator counts as a write: the
+ADR writer, `summarize-adrs.py`, `compile-doctrine.py`, `derive-arch.py` and the index
+regenerators all change tracked files. A byte written before that clean-start check
+can never be proved, and the next dispatch refuses the dirty path.
+Before each commit, stage the intended paths and run `execution-check` with exact
+`edited_paths`. Commit that sealed set with the task's `Cycle-Task` trailer. Stop a
+command chain when a check refuses; never commit after a refusal.
+After a resume rotates your marker, do not rerun a generator whose output the resume
+already sealed unless your task needs new output. A rerun changes sealed bytes, and
+every later check refuses `execution-resume-pending-changed`.
+Never deliver with bytes staged or uncommitted. Files under the cycle's own
+directory are cycle bookkeeping: commit them through `commit-record`.
 
 ## Capability-gap reflex (embedded discipline)
 **Capability-gap reflex:** Doing something manually for the third time, about to say "I can't," or wishing for a tool that doesn't exist? That's a capability gap — invoke the `forge-skill` skill to author or revise a project-local skill that closes it. If you lack either the Skill tool or file-write access, report the gap to your lead instead of working around it.
@@ -154,10 +177,21 @@ approved IDR, also when all seats approve: it names the approved sha256 and each
 nit id with a disposition, `apply-in-build` or `declined` with its reason. A nit
 never starts another attempt. Withdraw a decision with `withdraw-decision` when its
 record reaches the attempt limit, or when the same blocking finding recurs on two
-consecutive attempts after a revision that addressed it. At the limit, a dev cycle
+consecutive attempts after a revision that addressed it. A Standard-mode
+single-seat dissent that the architect disposes as `accepted-tradeoff` on an
+approved attempt is answered, not unanswered; it does not count toward the
+recurrence trigger, and neither does its repetition on a later attempt over the
+same subject bytes. A finding counts toward recurrence only when it blocks
+approval of an attempt. At the limit, a dev cycle
 changes type to iterate when the remaining scope needs no material decision;
 otherwise it defers the remaining scope and abandons with a reflection. A simplify
 cycle defers its selection and abandons with a reflection. A council dispute never
 goes to the owner, and no one requests an attempt extension. A required safety
 fact about data policy or publishing is the one exception, because it is the
 outward-facing stop.
+
+## The shared main checkout
+Never point HEAD of the shared main checkout at another commit or branch: run no
+`git checkout`, `git switch`, `git reset`, `git rebase` or `git bisect` there. Other
+agents' edits, staged bytes and execution proofs rest on that HEAD.
+Read historical bytes with `git show <sha>:<path>` or a scratch worktree.

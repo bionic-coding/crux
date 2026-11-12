@@ -247,7 +247,7 @@ class ShippedCatalogTests(unittest.TestCase):
             model="gpt-6.1-sol",
             reasoning_effort="xhigh",
             verified="2026-09-29",
-            source="OpenAI GPT-6.1 Sol model documentation and Codex 0.159.0 models_cache.json checked 2026-09-29",
+            source="OpenAI GPT-6.1 Sol model documentation and Codex 0.159.0 models_cache.json checked 2026-09-29, which lists `gpt-6.1-sol`",
         )
         self.assertEqual(catalog.agents["reviewer"].codex, expected)
         self.assertEqual(catalog.resolve("reviewer").codex, expected)
@@ -475,7 +475,7 @@ class FailClosedTests(unittest.TestCase):
                     "      model: gpt-6.1-sol\n"
                     "      reasoning_effort: xhigh\n"
                     '      verified: "2026-09-29"\n'
-                    '      source: "OpenAI GPT-6.1 Sol model documentation and Codex 0.159.0 models_cache.json checked 2026-09-29"',
+                    '      source: "OpenAI GPT-6.1 Sol model documentation and Codex 0.159.0 models_cache.json checked 2026-09-29, which lists `gpt-6.1-sol`"',
                     "    codex: gpt-6.1-sol",
                     1,
                 ),
@@ -497,6 +497,28 @@ class FailClosedTests(unittest.TestCase):
             "agents.'reviewer'.codex.'reasoning_effort' must be a string",
             str(ctx.exception),
         )
+
+    def test_load_refuses_partial_reviewer_codex_overrides(self):
+        # A partial override is refused before any level resolution, never
+        # merged with the apex cell; the error names the keys it holds.
+        verified_and_source = (
+            '      verified: "2026-09-29"\n'
+            '      source: "OpenAI GPT-6.1 Sol model documentation and Codex 0.159.0 '
+            'models_cache.json checked 2026-09-29, which lists `gpt-6.1-sol`"\n'
+        )
+        partials = {
+            "missing reasoning_effort": ("      reasoning_effort: xhigh\n", ""),
+            "model and reasoning_effort only": (verified_and_source, ""),
+        }
+        for label, (anchor, replacement) in partials.items():
+            with self.subTest(label), tempfile.TemporaryDirectory() as td:
+                tmp = Path(td)
+                original = MC.CATALOG_PATH.read_text(encoding="utf-8")
+                self.assertEqual(original.count(anchor), 1, f"{label}: anchor must be unique")
+                path = _catalog_copy(tmp, lambda text: text.replace(anchor, replacement, 1))
+                with self.assertRaises(MC.SpecViolation) as ctx:
+                    MC.load(catalog_path=path, agents_dir=_agents_fixture(tmp))
+                self.assertIn("agents.'reviewer'.codex key set must be exactly", str(ctx.exception))
 
     def test_missing_file_raises_spec_violation(self):
         with tempfile.TemporaryDirectory() as td:
@@ -602,7 +624,7 @@ class RuleFindingTests(unittest.TestCase):
             "model": "gpt-6.1-sol",
             "reasoning_effort": "xhigh",
             "verified": "2026-09-29",
-            "source": "OpenAI GPT-6.1 Sol model documentation and Codex 0.159.0 models_cache.json checked 2026-09-29",
+            "source": "OpenAI GPT-6.1 Sol model documentation and Codex 0.159.0 models_cache.json checked 2026-09-29, which lists `gpt-6.1-sol`",
             "unexpected": "value",
         }
         findings = MC.check_shape(raw)

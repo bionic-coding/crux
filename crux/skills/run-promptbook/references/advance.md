@@ -72,7 +72,7 @@ If no `pending` prompts remain (i.e. **all prompts are terminal** — `status: c
 
 ### 5. Stop — the advance is finished
 
-Those two surfaces are the whole ordinary advance write. A formal format-two close also retains immutable gate context before atomic run publication; staged context alone has no authority. Do not regenerate `docs/promptbooks/index.md`, do not bump `docs/index.md`, do not call `log-work`, and do not append to `docs/log.md`. The indexes regenerate at run start and at archive; the log records the start and the archive and nothing between.
+Those two surfaces are the whole ordinary advance write. A formal format-two close also retains immutable gate context before atomic run publication; staged context alone has no authority. Do not regenerate `docs/promptbooks/index.md`, do not bump `docs/index.md`, do not call `log-work`, and do not run `operation-log.py append`. The indexes regenerate at run start and at archive; the operations log records the start and the archive and nothing between.
 
 ### 6. Verification
 
@@ -80,4 +80,4 @@ Those two surfaces are the whole ordinary advance write. A formal format-two clo
 - [ ] The snapshot's `current_prompt` matches the active book's `current_prompt`.
 - [ ] If run completed: `status: completed`, `completed_at:` set, `current_prompt: null`, active book's `current_run` UNCHANGED — still names this run. (`status: abandoned` is NOT set by advance.)
 - [ ] For a `.yaml` run: the snapshot still validates against `run.schema.json` (`validate-promptbook --kind run`) — `n` contiguous from 1, no stray keys.
-- [ ] For ordinary advances exactly two surfaces changed; formal format-two close additionally retained evaluated gate context (at a gate prompt, `gates.md` states the exceptions): the run snapshot and the book's pointer. `docs/promptbooks/index.md`, `docs/index.md` and `docs/log.md` are untouched by this advance.
+- [ ] For ordinary advances exactly two surfaces changed; formal format-two close additionally retained evaluated gate context (at a gate prompt, `gates.md` states the exceptions): the run snapshot and the book's pointer. `docs/promptbooks/index.md`, `docs/index.md` and the operations log (every file under `docs/log/`) are untouched by this advance.

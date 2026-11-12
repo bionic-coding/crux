@@ -267,16 +267,16 @@ class BoundaryTests(AdrFenceTestCase):
 
 
 class UnreadableInputLaneTests(AdrFenceTestCase):
-    """A file the process cannot read is the ENVIRONMENT lane, not a finding.
+    """A file unreadable for a cause at its path is a DOCUMENT finding.
 
-    The distinction matters downstream: `check-drift` reads an exit-1
-    `validation_errors` payload as "the named input must be repaired first",
-    which is advice nobody can follow for a permission error. The sibling
-    `generate-reviews-index.py` routes the same case to exit 2, and so does
-    this one.
+    A permission refusal or a byte sequence that is not UTF-8 is repaired at
+    the named path, so it takes the same lane as an unparseable fence: exit 1
+    with a `validation_errors` entry naming the file. A failure for a cause in
+    the process or host takes the environment lane; that lane, and each case
+    per generator, is driven in `test_regenerator_input_lanes.py`.
     """
 
-    def test_a_non_utf8_adr_is_an_environment_error_not_a_finding(self):
+    def test_a_non_utf8_adr_is_a_document_finding(self):
         self.seed_outputs()
         p = next(self.adrs.glob("ADR-0001-*.md"))
         p.write_bytes(b"---\nid: \xff\xfe\n---\n\nbody\n")
@@ -284,35 +284,31 @@ class UnreadableInputLaneTests(AdrFenceTestCase):
             for mode, args in (("write", ()), ("dry-run", ("--dry-run",))):
                 with self.subTest(script=script, mode=mode):
                     r = self.run_gen(script, *args)
-                    self.assertEqual(r.returncode, 2,
+                    self.assertEqual(r.returncode, 1,
                                      f"{script} {mode}: {r.stdout!r} {r.stderr!r}")
-                    self.assertNotIn(b"validation_errors", r.stdout)
-                    self.assertIn(b"UnicodeDecodeError", r.stderr)
+                    errors = self.payload(r)["validation_errors"]
+                    self.assertEqual([e["file"] for e in errors], [self.rel(p)])
+                    self.assertIn("not valid UTF-8", errors[0]["error"])
 
-    def test_an_unreadable_adr_is_an_environment_error_not_a_finding(self):
+    def test_one_run_names_an_unreadable_adr_and_a_fence_break_together(self):
         import os
+        self.seed_outputs()
+        bad = self.break_fence(2)
+        # POSITIVE CONTROL: the fence break alone is one finding.
+        r = self.run_gen("generate-adr-index.py")
+        self.assertEqual([e["file"] for e in self.payload(r)["validation_errors"]],
+                         [self.rel(bad)])
         if os.geteuid() == 0:
             self.skipTest("running as root: a 0o000 file is still readable")
-        self.seed_outputs()
         p = next(self.adrs.glob("ADR-0001-*.md"))
         p.chmod(0o000)
         self.addCleanup(p.chmod, 0o644)
         for script in GENERATORS:
             with self.subTest(script=script):
                 r = self.run_gen(script)
-                self.assertEqual(r.returncode, 2, f"{script}: {r.stdout!r} {r.stderr!r}")
-                self.assertNotIn(b"validation_errors", r.stdout)
-
-    def test_the_two_lanes_stay_distinguishable(self):
-        # PAIRED CONTROL: the same corpus, one fence break instead of an
-        # unreadable file, takes the document lane. If both landed on the same
-        # exit code the distinction above would be untestable.
-        self.seed_outputs()
-        bad = self.break_fence(1)
-        r = self.run_gen("generate-adr-index.py")
-        self.assertEqual(r.returncode, 1)
-        self.assertEqual([e["file"] for e in self.payload(r)["validation_errors"]],
-                         [self.rel(bad)])
+                self.assertEqual(r.returncode, 1, f"{script}: {r.stdout!r} {r.stderr!r}")
+                got = sorted(e["file"] for e in self.payload(r)["validation_errors"])
+                self.assertEqual(got, sorted([self.rel(p), self.rel(bad)]))
 
 
 class SharedReaderTests(AdrFenceTestCase):
@@ -322,13 +318,6 @@ class SharedReaderTests(AdrFenceTestCase):
     that produced the defect. This pins that the loaders read through the
     shared helper, so editing `FENCE_RE` alone cannot resurrect a silent skip.
     """
-
-    def test_no_generator_carries_its_own_fence_regex(self):
-        for script in GENERATORS:
-            with self.subTest(script=script):
-                src = (SCRIPTS / script).read_text(encoding="utf-8")
-                self.assertNotIn(r'"^---\n(.*?)\n---\n"', src,
-                                 f"{script} still carries a private copy of the fence regex")
 
     def test_the_helper_is_the_only_definition(self):
         import adr_frontmatter

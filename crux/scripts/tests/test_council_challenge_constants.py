@@ -23,7 +23,7 @@ ONE_ROUND_LITERAL = 'Report every finding now. A later round reviews only the re
 
 # sha256 of the historical gate text, taken before the one-round sentence existed.
 HISTORICAL = {
-    'SYSTEM_PROMPT': '1ab84a0762e19d4d856225a9f718c6c0b988c8dcbd795d1b088facf5ac1b057d',
+    'SYSTEM_PROMPT': '75f2a4ca5651ac5dbc12ff5c3541b46458787b66891a7184c28c988496ccbcc1',  # with the local threat-model sentences
     'adr': ('b16cf5d3522c6d4962d9ec5e1c648d2952cf404f728f9172e397037a79591919',
             '88cef9a0667be04704c72c589dc8d125b8ca6ca1f65089391db6e7e97df0711e'),
     'implementation': ('ab498b0783c12ae54f124b90c0da7a2f01d1c484ac72974b0cf094a5b280a612',

@@ -199,24 +199,6 @@ class CouncilRecordBudgetTests(unittest.TestCase):
         assert_record_budgets(self,record,models,seen,calls)
 
 
-class CouncilPerSeatBudgetTests(CouncilTests):
-    def test_omitted_budget_is_per_seat_and_recorded_as_null(self):
-        output=self.run_council()
-        attempt=json.loads((self.cfg.docs_root/output['attempt']).read_text())
-        self.assertIsNone(attempt['max_tokens'])
-
-    def test_explicit_budget_is_recorded_as_the_integer(self):
-        output=self.run_council(max_tokens=40000)
-        attempt=json.loads((self.cfg.docs_root/output['attempt']).read_text())
-        self.assertEqual(attempt['max_tokens'],40000)
-
-    def test_explicit_budget_above_smallest_limit_is_still_refused(self):
-        with patch('crux.council.async_council.validate_gate_assignment',return_value={'openai_top':'one','anthropic_top':'two','google_top':'three'}),patch('crux.core.llm_caller.get_model_config',side_effect=lambda model:SimpleNamespace(max_output_tokens={'one':128000,'two':128000,'three':65536}[model])),patch('crux.council.async_council.AsyncCouncil') as council:
-            with self.assertRaisesRegex(CycleError,'max_tokens.*65536'):
-                convene(self.root,'idr',self.subject,'review',cycle_id=self.doc['id'],max_tokens=65537)
-            council.assert_not_called()
-
-
 class CouncilCliBudgetTests(unittest.TestCase):
     def test_default_and_explicit_output_budget_forwarded(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -269,6 +251,41 @@ class DispositionCouncilTests(MigrationFixture):
         with self.assertRaises(CycleError):validate_approval(self.root,output['record'],purpose='disposition',subject=self.package_path.removeprefix('bionic/'))
         self.commit('Commit disposition council')
         validate_approval(self.root,output['record'],purpose='disposition',subject=self.package_path.removeprefix('bionic/'))
+
+    def test_council_convened_on_installed_support_v2_yields_an_approval(self):
+        import contextlib as _ctx
+        import httpx
+        import importlib.util as _ilu
+        import adr_migration as migration
+        from crux.council.async_council import validate_gate_assignment
+        from crux.core.llm_caller import get_model_config
+        from cycle_workflow import digest
+        models={cfg.api_string:cfg for cfg in (get_model_config(model) for model in validate_gate_assignment().values())}
+        def reply(request):
+            cfg=models[json.loads(request.content)['model']]
+            vote={'decision':'APPROVE','confidence':.9,'reasoning':'Exact reviewed package.','findings':[]}
+            return httpx.Response(200,json={'model':cfg.api_string,'provider':next(iter(cfg.accepted_served_providers)),
+                'choices':[{'finish_reason':'stop','message':{'content':json.dumps(vote)}}]})
+        self.write('later-record.txt','A later independent record.\n')
+        self.package.update(initial=False,record=self.bind('later-record.txt'));self.write(self.package_path,self.package)
+        self.commit('Later package')
+        support=migration.installed_support()
+        self.assertEqual(support['format'],migration.INSTALLED_SUPPORT_V2)
+        with patch('crux_env.get',return_value='test-gateway-credential'),patch('crux.council.async_council.get',return_value='test-gateway-credential'),patch.dict('os.environ',{'OPENROUTER_API_KEY':'test-gateway-credential'}):
+            output=convene(self.root,'disposition',self.package_path.removeprefix('bionic/'),'Review every disposition.',readiness=support,transport=httpx.MockTransport(reply))
+        self.assertEqual(output['outcome'],'approved')
+        council='bionic/'+output['record'];self.commit('Commit disposition council on installed support v2')
+        self.assertEqual(json.loads((self.root/council).read_text())['readiness'],support)
+        owner=dict(self.owner,presented=self.bind(self.package_path))
+        self.write('readiness.json',support);self.write('owner.json',owner)
+        spec=_ilu.spec_from_file_location('adr_migration_cli_v2',Path(migration.__file__).with_name('adr-migration.py'))
+        tool=_ilu.module_from_spec(spec);spec.loader.exec_module(tool)
+        with _ctx.redirect_stdout(io.StringIO()) as out:
+            code=tool.main(['approve','--repo-root',str(self.root),'--id','later','--package',self.package_path,'--council',council,
+                '--readiness',str(self.root/'readiness.json'),'--owner',str(self.root/'owner.json')])
+        self.assertEqual(code,0,out.getvalue())
+        self.assertEqual(json.loads(out.getvalue())['readiness'],support)
+        self.assertEqual(digest((self.root/council).read_bytes()),json.loads(out.getvalue())['council']['sha256'])
 
     def test_disposition_requires_committed_verified_readiness_before_attempt(self):
         for readiness in (None,dict(self.readiness,commit='0'*40),dict(self.readiness,tests=[])):

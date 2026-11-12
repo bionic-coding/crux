@@ -38,6 +38,7 @@ from pathlib import Path
 import _council_gate_support as support
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import operation_log  # noqa: E402
 import suite_evidence  # noqa: E402
 
 # The live bookkeeping documents under the docs directory: the shared list, less the cycle records,
@@ -45,6 +46,8 @@ import suite_evidence  # noqa: E402
 # `queue` is omitted too: the copy's lint no longer sees bionic/queue/cycles.yaml (accepted loss, OBJ-2).
 BOOKKEEPING = frozenset(suite_evidence.DOCS_EXCLUSIONS) - {"cycles"}
 CORROBORATION_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "live_docs" / "corroboration"
+# The month of the one detail file the copy carries: the month the fixture's entries are dated in.
+CORROBORATION_MONTH = "2026-08"
 
 # What a scratch copy leaves behind: caches and venvs that cost time and no derive reads, and the
 # two scratch directories other runners create and remove at the repository root.
@@ -96,13 +99,22 @@ def _ignore_for(repo: Path):
 def seed_corroboration(repo: Path, scratch: Path) -> None:
     """Give a bookkeeping-free copy the log and journal entries the authority view corroborates.
 
-    A tree with no operations log (the staged artifact) has nothing to corroborate and gets nothing.
+    The copy looks like a split tree: one detail file and its completion record under
+    `bionic/log/`, cut from the corroboration fixture's entries, and no `log.md`. A tree with
+    no operations log (the staged artifact) has nothing to corroborate and gets nothing.
     """
     docs = scratch / "bionic"
-    if not (repo / "bionic" / "log.md").is_file() or not docs.is_dir():
+    live_log = repo / "bionic" / operation_log.LOG_DIR
+    if not (live_log.is_dir() or (repo / "bionic" / operation_log.LEGACY_NAME).is_file()) or not docs.is_dir():
         return
     (docs / "journal").mkdir(exist_ok=True)
-    shutil.copyfile(CORROBORATION_FIXTURE / "log.md", docs / "log.md")
+    entries = operation_log.cut(
+        (CORROBORATION_FIXTURE / "log.md").read_text(encoding="utf-8")).entries
+    (docs / operation_log.LOG_DIR).mkdir(exist_ok=True)
+    (docs / operation_log.LOG_DIR / f"{CORROBORATION_MONTH}.md").write_text(
+        operation_log.detail_header(CORROBORATION_MONTH) + "".join(entries), encoding="utf-8")
+    (docs / operation_log.LOG_DIR / operation_log.COMPLETION_NAME).write_bytes(
+        operation_log.completion_bytes(None, {CORROBORATION_MONTH: len(entries)}))
     shutil.copyfile(CORROBORATION_FIXTURE / "journal" / "2026-08.md", docs / "journal" / "2026-08.md")
 
 

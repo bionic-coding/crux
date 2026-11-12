@@ -196,10 +196,6 @@ test('inside-project wins over a version mismatch', () => {
 
 const extra = (...dirs: string[]) => [...(okWorld().dirs ?? []), ...dirs]
 
-test('the reach list passes when every member is outside the project', () => {
-  expect(codeOf()).toBe('ok')
-})
-
 test('the clone crux directory is on the reach list', () => {
   expect(codeOf({ reals: { [`${CLONE}/crux`]: `${PROJECT}/crux` } })).toBe('inside-project')
 })

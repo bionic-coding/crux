@@ -35,6 +35,10 @@ def handoff(repo, identity):
         'delivered': [{'id': t['id'], **{k: t[k] for k in ('stage', 'commits') if k in t}} for t in tasks if t.get('stage') or t.get('commits')],
         'pending': [{'id': t['id'], 'phase': t['phase'], 'status': t['status']} for t in pending],
     }
+    superseded = [{'id': t['id'], 'phase': t['phase'], 'superseded_by': t['superseded_by']}
+                  for t in tasks if t['status'] == 'superseded']
+    if superseded:
+        out['superseded'] = superseded
     if doc['status'] in CLOSED:
         out['next_action'] = f"Cycle {doc['status']}; nothing remains to do"
     elif doc['status'] == 'paused':
@@ -175,10 +179,13 @@ def reconcile(repo, identity, apply=False):
             unresolve(tid, 'state left as blocked; linked commits exist')
         changes[tid] = change
     done = {t['id'] for t in doc['plan']['tasks'] if t['status'] == 'done'}
+    superseded = {t['id']: t['superseded_by'] for t in doc['plan']['tasks'] if t['status'] == 'superseded'}
     order: list[str] = []
     settled = False
     while not settled:
         settled = True
+        # dependency_satisfied over the fixpoint: a superseded id joins once its superseder does.
+        done.update(tid for tid, other in superseded.items() if other in done)
         for tid in sorted(candidates):
             if all(d in done for d in by_id[tid]['depends_on']):
                 changes[tid]['state'] = 'done'

@@ -26,9 +26,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-CLOSED = {'completed', 'abandoned'}
+CLOSED = {'completed', 'abandoned', 'shortcut'}
 KNOWN = {'active', 'paused'} | CLOSED
-_SELF = {'pause': 'paused', 'resume': 'active', 'owner-complete': 'completed', 'abandon': 'abandoned'}
+_SELF = {'pause': 'paused', 'resume': 'active', 'owner-complete': 'completed', 'abandon': 'abandoned', 'shortcut': 'shortcut'}
 
 
 def _parse(value):

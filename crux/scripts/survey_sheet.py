@@ -893,7 +893,7 @@ def _tree_relative_record(value, concern_dir: str | None = None) -> tuple[str, s
     the one declaration of "repo-relative" this codebase has, which already
     refuses an absolute path, a `~` prefix, a `..` component and a Windows
     drive letter — widened here with a control-character and backslash refusal,
-    because these values reach `log.md`, a filename and a file copy, and a
+    because these values reach the operations log, a filename and a file copy, and a
     newline in one of them forges a document rather than naming a path. The
     STRUCTURAL leg is exactly two components whose second is a record
     filename: `_cell_6_stage` joins the value onto the tree and
@@ -1517,13 +1517,50 @@ def _source_text(path, source_io):
     return path.read_text(encoding="utf-8") if source_io is None else source_io.read_text(path)
 
 
+def operation_log_text(tree_dir: Path, *, _source_io=None) -> str | None:
+    """The operations log of a tree as one text, or None when the tree holds no log.
+
+    A reader on disk goes through `operation_log.read_text`: a legacy log.md or the monthly
+    detail files under log/, newest write first, each entry once. A reader over a retained
+    snapshot (`_source_io`) reads the same names through the snapshot, which `read_text`
+    cannot do: the detail files from the newest month to the oldest, the staged files of an
+    incomplete split, then a legacy log.md.
+    Every caller asks whether an entry exists, so neither order matters to it.
+    An unreadable log raises `SurveySheetError`.
+    """
+    ol = _sp._operation_log_module()
+    tree_dir = Path(tree_dir)
+    legacy, log_dir = tree_dir / ol.LEGACY_NAME, tree_dir / ol.LOG_DIR
+    if _source_io is None:
+        if not (legacy.exists() or legacy.is_symlink() or log_dir.exists() or log_dir.is_symlink()):
+            return None
+        try:
+            return ol.read_text(tree_dir.resolve())
+        except (ol.Refusal, OSError) as exc:
+            raise SurveySheetError(f"the operations log is unreadable: {redact(str(exc))}") from None
+    texts: list[str] = []
+    if _source_io.kind(log_dir) == "directory":
+        # Detail files newest first, then the staged legacy files and staged strays of an
+        # incomplete split: an existence question counts a repeated entry once as well as twice.
+        pages = _source_io.glob(log_dir, "*.md")
+        names = [page for page in pages if ol.DETAIL_NAME.match(page.name)]
+        staged = [page for page in pages
+                  if ol.STAGED_LEGACY_NAME.match(page.name) or ol.STAGED_STRAY_NAME.match(page.name)]
+        texts += [_source_io.read_text(page) for page in sorted(names, reverse=True) + sorted(staged)]
+    if _source_io.kind(legacy) == "file":
+        texts.append(_source_io.read_text(legacy))
+    if _source_io.kind(log_dir) is None and not texts:
+        return None
+    return "".join(text if text.endswith("\n") or not text else text + "\n" for text in texts)
+
+
 def _log_has_batch(tree_dir: Path, batch_id: str, *, _source_io=None) -> bool:
-    log_path = Path(tree_dir) / "log.md"
-    if not _source_file(log_path, _source_io):
+    text = operation_log_text(tree_dir, _source_io=_source_io)
+    if text is None:
         return False
     subject = f"survey batch {batch_id}"
     return any(e["op"] == "observation" and e["subject"] == subject
-               for e in _sp._log_entries(_source_text(log_path, _source_io)))
+               for e in _sp._log_entries(text))
 
 
 def _journal_has_batch(tree_dir: Path, batch_id: str, signed: str, *, _source_io=None) -> bool:

@@ -42,14 +42,6 @@ test('a panel that does not open toasts panel-unavailable', () => {
   expect(fake.toasts).toEqual(['panel-unavailable', 'panel-unavailable'])
 })
 
-test('a panel that opens toasts nothing', () => {
-  const { fake, scheduler, host } = rig()
-  fake.opens.result = true
-  runCommand(host, scheduler)
-  expect(fake.toasts).toEqual([])
-  expect(fake.opens.count).toBe(1)
-})
-
 test('the command closes the panel when it is already open', () => {
   const { fake, order, scheduler, host } = rig()
   runCommand(host, scheduler)

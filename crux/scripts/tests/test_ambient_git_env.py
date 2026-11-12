@@ -164,7 +164,7 @@ class CouncilRunnerTests(_AmbientBase):
 
     def cli(self, env: dict[str, str]) -> subprocess.CompletedProcess:
         env = {k: v for k, v in env.items() if k != "OPENROUTER_API_KEY"}
-        env.update(CRUX_HOME=str(self.home), HOME=str(self.home))
+        env.update(CRUX_HOME=str(self.home), HOME=str(self.home), **sup.GIT_IDENTITY)
         return subprocess.run([sys.executable, *self.argv()], capture_output=True, text=True,
                               cwd=str(self.env.root), env=env)
 

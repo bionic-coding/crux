@@ -11,7 +11,7 @@
     "properties":{
       "format":{"const":"crux.owner-decision-presentation.v1"},
       "op_id":{"type":"string","pattern":"^[A-Za-z0-9._-]{8,64}$"},
-      "purpose":{"enum":["idr","adr-acceptance"]},"cycle_id":{"type":["string","null"]},
+      "purpose":{"enum":["idr","adr-acceptance","acceptance-change"]},"cycle_id":{"type":["string","null"]},
       "subject":{"type":"string","minLength":1},"subject_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},
       "question":{"type":"string","minLength":1},"at":{"type":"string","minLength":1},
       "record_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"}
@@ -25,7 +25,7 @@
       "properties":{
         "format":{"const":"crux.owner-decision-capture.v1"},
         "op_id":{"type":"string","pattern":"^[A-Za-z0-9._-]{8,64}$"},
-        "purpose":{"enum":["idr","adr-acceptance"]},"cycle_id":{"type":["string","null"]},
+        "purpose":{"enum":["idr","adr-acceptance","acceptance-change"]},"cycle_id":{"type":["string","null"]},
         "subject":{"type":"string","minLength":1},"subject_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},
         "presentation":{"type":"object","additionalProperties":false,"required":["path","sha256"],"properties":{"path":{"type":"string","minLength":1},"sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"}}},
         "disposition":{"enum":["approve","reject","pending"]},"quote":{"type":"string","minLength":1},
@@ -40,7 +40,7 @@
       "required":["format","purpose","cycle_id","subject","subject_sha256","capture","applied_at","record_sha256"],
       "properties":{
         "format":{"const":"crux.owner-decision-application.v1"},
-        "purpose":{"enum":["idr","adr-acceptance"]},"cycle_id":{"type":["string","null"]},
+        "purpose":{"enum":["idr","adr-acceptance","acceptance-change"]},"cycle_id":{"type":["string","null"]},
         "subject":{"type":"string","minLength":1},"subject_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},
         "capture":{"type":"object","additionalProperties":false,"required":["path","sha256"],"properties":{"path":{"type":"string","minLength":1},"sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"}}},
         "applied_at":{"type":"string","minLength":1},"record_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"}

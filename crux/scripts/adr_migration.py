@@ -29,7 +29,107 @@ READINESS_INVENTORY = ('crux/scripts/adr_migration.py','crux/scripts/adr-migrati
 INSTALLED_INVENTORY = READINESS_INVENTORY + tuple('crux/scripts/'+name for name in (
     'adr_migration_publication.py','implementation_migration.py','implementation_approval.py',
     'summaries_projection.py','doctrine_projection.py'))
-SLUG = re.compile(r'^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$')
+INSTALLED_SUPPORT_V1 = 'crux.adr-migration-installed-support.v1'
+# Reviewed installed-support v1 bases that keep standing after the installed bytes
+# change, keyed by sha256 of the canonical encoding (cycle_workflow.encoded) of the
+# readiness object. One entry: the basis of the approval
+# bionic/adrs/migrations/approvals/authority-reset-2026-11.json, whose 15 sha256
+# values equal the installed files of the v5.3.0 release (release-prep commit
+# 5b2453cbd). Approve refuses a new v1 basis, so this list gives standing only to
+# approvals already recorded. Every other v1 basis keeps only the byte route.
+ISSUED_INSTALLED_SUPPORT = frozenset({
+    'cbcb6be68c71b975a6d57e0f77cf949202d099628e3910397dcfbdc86ee48ffb',
+})
+INSTALLED_SUPPORT_V2 = 'crux.adr-migration-installed-support.v2'
+
+
+def _profile_level(fields, *, optional=(), nullable=False):
+    return {'fields':sorted(fields),'required':sorted(set(fields)-set(optional)),'nullable':nullable}
+
+
+_BINDING = ('path','sha256')
+_OWNER = ('origin','quote','action','at','conversation','presented')
+# An approval profile names, for each record an approval binds, the field tree it
+# reads: at each object level the field names, the required names and whether the
+# level admits null. A level key joins field names with '.' and marks an array's
+# elements with '[]'; a field with no level of its own is a leaf. The approval's
+# readiness is a leaf: validate_readiness alone owns its shapes. Profile '1'
+# transcribes both schema files at commit fb675e557. It is data, never derived
+# from a schema at run time. A profile that has bound an approval is never edited:
+# a changed field set needs a new id, and old ids stay with their readers.
+APPROVAL_PROFILES = {'1': {
+    'package': {
+        '': _profile_level(('format','id','initial','record','governing_adr','dependencies','items','owner_stops')),
+        'dependencies[]': _profile_level(('path','sha256','kind')),
+        'governing_adr': _profile_level(('source','receipt')),
+        'governing_adr.source': _profile_level(_BINDING),
+        'items[]': _profile_level(('id','source','handle','clause_sha256','disposition','rationale',
+            'original_rationale','continuing','ceasing','successors','depends_on')),
+        'items[].source': _profile_level(_BINDING),
+        'items[].successors[]': _profile_level(('source','handle','clause_sha256')),
+        'items[].successors[].source': _profile_level(_BINDING),
+        'owner_stops[]': _profile_level(('id','items','instruction','resolution')),
+        'owner_stops[].instruction': _profile_level(_OWNER),
+        'owner_stops[].instruction.presented': _profile_level(_BINDING),
+        'owner_stops[].resolution': _profile_level(_OWNER,nullable=True),
+        'owner_stops[].resolution.presented': _profile_level(_BINDING),
+        'record': _profile_level(_BINDING),
+    },
+    'approval': {
+        '': _profile_level(('format','id','package','council','readiness','policy','policy_basis','owner','at',
+            'review_bundle_sha256','owner_exception'),optional=('owner_exception',)),
+        'package': _profile_level(_BINDING),
+        'council': _profile_level(_BINDING),
+        'owner': _profile_level((*_OWNER,'owner_exception'),optional=('owner_exception',),nullable=True),
+        'owner.presented': _profile_level(_BINDING),
+        'owner.owner_exception': _profile_level(_BINDING),
+        'owner_exception': _profile_level(_BINDING),
+    },
+}}
+CURRENT_APPROVAL_PROFILE = '1'
+# sha256 of encoded(declaration) for each profile. Computed digests depend on
+# cycle_workflow.encoded; a change to that encoding changes every pin.
+APPROVAL_PROFILE_DIGESTS = {
+    '1': '8143c7f20a1428d52911afaf8a7f2429b4ab1fe1713dfb5b722f1c6b388fc4a2',
+}
+
+
+def approval_profile(identity):
+    """Return a profile declaration after checking it against its pinned digest."""
+    if not isinstance(identity,str) or identity not in APPROVAL_PROFILES or identity not in APPROVAL_PROFILE_DIGESTS:
+        raise CycleError('installed support names an unsupported approval profile')
+    declaration=APPROVAL_PROFILES[identity]
+    if digest(encoded(declaration))!=APPROVAL_PROFILE_DIGESTS[identity]:
+        raise CycleError(f'approval profile {identity} changed; issue a new profile')
+    return declaration
+
+
+def check_profile(kind, record, identity):
+    """Refuse a record carrying a field the profile does not name, or lacking one it requires."""
+    levels=approval_profile(identity)[kind]
+    def join(where,key):return f'{where}.{key}' if where else key
+    def walk(level,node,where):
+        spec=levels[level]
+        if node is None and spec['nullable']:return
+        if not isinstance(node,dict):
+            raise CycleError(f'approval profile {identity}: {kind} field {where or "(record)"} is not an object')
+        for key in sorted(node):
+            if key not in spec['fields']:
+                raise CycleError(f'approval profile {identity} does not name {kind} field {join(where,key)}')
+        for key in spec['required']:
+            if key not in node:
+                raise CycleError(f'approval profile {identity} requires {kind} field {join(where,key)}')
+        for key in sorted(node):
+            child=join(level,key)
+            if child+'[]' in levels and isinstance(node[key],list):
+                for index,item in enumerate(node[key]):walk(child+'[]',item,f'{join(where,key)}[{index}]')
+            elif child in levels:
+                walk(child,node[key],join(where,key))
+    walk('',record,'')
+    return record
+
+
+SLUG =re.compile(r'^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$')
 COMMIT = re.compile(r'^(?:[0-9a-f]{40}|[0-9a-f]{64})$')
 # ADR Decision 9 has one explicit named record. Narrow extraction establishes
 # identity only, never interprets the record's prose as an owner instruction.
@@ -208,35 +308,110 @@ def introduction(repo, path):
 
     Immutable approval/council bytes must still match their introducing commit.
     This also refuses an uncommitted or subsequently edited receipt.
+
+    One later commit is admitted, and only for a mode-aware council record: the
+    council writer's own architect-agreement commit for the same attempt (see
+    `architect_agreement_edit`). Every other later edit, and any later edit of
+    any other record, refuses. The introducing commit is still the one returned.
     """
     contained(Path(repo).resolve(), path)
     commits = _git(repo, 'log', '--first-parent', '--format=%H', '--diff-filter=A', 'HEAD', '--', path).decode().splitlines()
     if not commits:
         raise CycleError('migration evidence must be committed before use')
     commit = commits[0]
-    if blob(repo, commit, path) != read(repo, path):
-        raise CycleError('committed migration evidence was edited after introduction')
-    return commit
+    current = read(repo, path)
+    if blob(repo, commit, path) == current:
+        return commit
+    touched = _git(repo, 'log', '--first-parent', '--format=%H', 'HEAD', '--', path).decode().splitlines()
+    later = touched[:touched.index(commit)] if commit in touched else []
+    if (len(later) == 1 and blob(repo, later[0], path) == current
+            and architect_agreement_edit(repo, commit, later[0], path)):
+        return commit
+    raise CycleError('committed migration evidence was edited after introduction')
 
 
-def validate_readiness(repo, readiness, *, action_commit=None, initial=True):
+# The only top-level fields the council writer's architect disposition rewrites.
+ARCHITECT_AGREEMENT_FIELDS = frozenset({'architect', 'outcome', 'record_sha256'})
+
+
+def architect_agreement_edit(repo, introduced, edited, path):
+    """True only when `edited` is the council writer's architect-agreement commit
+    for the record `introduced` added: a single-parent commit touching this path
+    alone, from a sealed mode-aware record with no architect to a sealed record of
+    the same attempt whose only changes are the architect agreement on the bound
+    revision, the outcome the policy derives from it, and the new seal.
+    """
+    import council_policy
+    parents = _git(repo, 'rev-list', '--parents', '-n', '1', edited).decode().split()
+    if len(parents) != 2:
+        return False
+    if _git(repo, 'diff', '--name-only', parents[1], edited).decode().splitlines() != [path]:
+        return False
+    try:
+        before = json.loads(blob(repo, introduced, path))
+        after = json.loads(blob(repo, edited, path))
+        council_policy.verify_seal(before)
+        council_policy.verify_seal(after)
+    except (ValueError, CycleError):
+        return False
+    if not isinstance(before, dict) or not isinstance(after, dict):
+        return False
+    if before.get('format') != council_policy.RECORD or after.get('format') != council_policy.RECORD:
+        return False
+    if before.get('architect') is not None or set(before) != set(after):
+        return False
+    if any(before[k] != after[k] for k in before if k not in ARCHITECT_AGREEMENT_FIELDS):
+        return False
+    architect = after.get('architect')
+    if not isinstance(architect, dict) or architect.get('agrees') is not True:
+        return False
+    if architect.get('subject_sha256') != after.get('subject_sha256'):
+        return False
+    try:
+        return after.get('outcome') == council_policy.evaluate(after)
+    except CycleError:
+        return False
+
+
+def validate_readiness(repo, readiness, *, action_commit=None, initial=True, with_route=False):
     """Inspect committed source plus recorded check and independent review bytes.
 
     Shared .git test receipts alone are insufficient. Committed summaries bind the
     actual commands, passing results and tested source hashes at this checkpoint.
+    With `with_route`, return `(readiness, route)`, where route names how the basis
+    was accepted: `committed` (U1), `byte` (installed v1 bytes still equal),
+    `issued` (a reviewed v1 basis in ISSUED_INSTALLED_SUPPORT) or `profile` (v2).
     """
-    if isinstance(readiness,dict) and readiness.get('format')=='crux.adr-migration-installed-support.v1':
+    route=_readiness_route(repo,readiness,action_commit=action_commit,initial=initial)
+    return (readiness,route) if with_route else readiness
+
+
+def _readiness_route(repo, readiness, *, action_commit, initial):
+    if isinstance(readiness,dict) and readiness.get('format')==INSTALLED_SUPPORT_V2:
+        # A v2 basis is a constant derived from the profile id. It records and
+        # checks no installed bytes and attests nothing about the installed version.
+        if initial:raise CycleError('initial bootstrap requires committed U1 readiness')
+        if set(readiness)!={'format','profile','sha256'}:raise CycleError('invalid installed support basis')
+        approval_profile(readiness['profile'])
+        if readiness['sha256']!=APPROVAL_PROFILE_DIGESTS[readiness['profile']]:
+            raise CycleError('installed support basis does not bind its approval profile digest')
+        return 'profile'
+    if isinstance(readiness,dict) and readiness.get('format')==INSTALLED_SUPPORT_V1:
         if initial:raise CycleError('initial bootstrap requires committed U1 readiness')
         if set(readiness)!={'format','sources'}:raise CycleError('invalid installed support basis')
         plugin=Path(__file__).resolve().parent.parent
-        expected={p.removeprefix('crux/') for p in INSTALLED_INVENTORY}
-        if {r.get('path') for r in readiness['sources']}!=expected:raise CycleError('installed implementation inventory is incomplete')
-        for ref in readiness['sources']:
-            raw=contained(plugin,ref['path']).read_bytes()
-            if digest(raw)!=ref['sha256']:raise CycleError('installed support source changed')
+        if digest(encoded(readiness)) in ISSUED_INSTALLED_SUPPORT:
+            route='issued'
+        else:
+            route='byte'
+            expected={p.removeprefix('crux/') for p in INSTALLED_INVENTORY}
+            if {r.get('path') for r in readiness['sources']}!=expected:raise CycleError('installed implementation inventory is incomplete')
+            for ref in readiness['sources']:
+                raw=contained(plugin,ref['path']).read_bytes()
+                if digest(raw)!=ref['sha256']:raise CycleError('installed support source changed')
         for kind in FORMATS:
             _validator().load_schema(plugin/f'schemas/adr-migration-{kind}.schema.json')
-        return readiness
+        return route
     if not isinstance(readiness, dict) or set(readiness) != {'commit', 'sources', 'tests', 'review'}:
         raise CycleError('committed U1 readiness source/test/review evidence required')
     basis = full_commit(repo, readiness['commit'])
@@ -271,7 +446,7 @@ def validate_readiness(repo, readiness, *, action_commit=None, initial=True):
     if not {(s['path'], s['sha256']) for s in sources}.issubset(reviewed):
         raise CycleError('readiness review does not bind the verified sources')
     for source in review['inputs']: committed(source)
-    return readiness
+    return 'committed'
 
 
 def _governing(repo, package):
@@ -606,10 +781,10 @@ def validate_package_acceptance(repo, package_path, *, committed=True):
 
 
 def installed_support():
-    plugin=Path(__file__).resolve().parent.parent
-    return {'format':'crux.adr-migration-installed-support.v1','sources':[
-        {'path':name.removeprefix('crux/'),'sha256':digest((plugin/name.removeprefix('crux/')).read_bytes())}
-        for name in INSTALLED_INVENTORY]}
+    """The installed-support basis a new approval binds: the current profile and its pin."""
+    approval_profile(CURRENT_APPROVAL_PROFILE)
+    return {'format':INSTALLED_SUPPORT_V2,'profile':CURRENT_APPROVAL_PROFILE,
+            'sha256':APPROVAL_PROFILE_DIGESTS[CURRENT_APPROVAL_PROFILE]}
 
 
 def policy_at(repo, commit):
@@ -701,6 +876,11 @@ def _validate_approval_data(repo, approval, *, action_commit=None, _inputs=None)
     if policy != approval['policy']: raise CycleError('approval names a policy not in force before its action')
     if _inputs is None:_inputs=_package_bundle_inputs(repo,approval['package']['path'])
     package,bundle = _inputs()
+    readiness=approval['readiness']
+    if isinstance(readiness,dict) and readiness.get('format')==INSTALLED_SUPPORT_V2:
+        # The profile the basis names, not the current one, judges the bound records.
+        check_profile('package',package,readiness.get('profile'))
+        check_profile('approval',approval,readiness.get('profile'))
     selected=_selected_exception(repo,approval['package']['path'])
     if selected is not None and approval.get('owner_exception')!=selected[0]:
         raise CycleError('approval must explicitly bind its owner exception')
@@ -729,6 +909,13 @@ def validate_approval(repo, path, *, committed=True):
     return validate_approval_data(repo,approval,action_commit=introduction(repo,path) if committed else None)
 
 
+def _new_approval_basis(readiness):
+    """A new approval binds installed support v2. A recorded v1 basis keeps its readers,
+    and a council convened on one yields no new approval: it reconvenes on v2."""
+    if isinstance(readiness,dict) and readiness.get('format')==INSTALLED_SUPPORT_V1:
+        raise CycleError('new approvals bind installed support v2')
+
+
 def record_approval(repo, identity, package_path, council_path, readiness, *, owner=None):
     slug(identity)
     path = _record_path(repo,'approvals',identity)
@@ -742,11 +929,17 @@ def record_approval(repo, identity, package_path, council_path, readiness, *, ow
         tracked=git(repo,'ls-files','--error-unmatch','--',relative).returncode==0
         validate_approval(repo,relative,committed=tracked)
         return previous
-    parent = _git(repo,'rev-parse','HEAD').decode().strip()
+    # A recorded approval returns above unchanged; only a new approval is checked here.
+    _new_approval_basis(readiness)
+    parent =_git(repo,'rev-parse','HEAD').decode().strip()
     inputs=_package_bundle_inputs(repo,package_path)
     approval = {'format':FORMATS['approval'],'id':identity,'package':binding(repo,package_path),'council':binding(repo,council_path),
         'readiness':readiness,'review_bundle_sha256':digest(encoded(inputs()[1])),'policy':policy_at(repo,parent),'policy_basis':parent,'owner':owner,'at':now()}
     if _selected_exception(repo,package_path):approval['owner_exception']=_OWNER_EXCEPTION.get()[0]
+    # Schema validation runs first; the current profile then judges both records.
+    validate_schema(approval,'approval')
+    check_profile('package',inputs()[0],CURRENT_APPROVAL_PROFILE)
+    check_profile('approval',approval,CURRENT_APPROVAL_PROFILE)
     with owner_exception_scope(repo,approval.get('owner_exception')):
         _validate_approval_data(repo,approval,_inputs=inputs)
     atomic(path,approval)

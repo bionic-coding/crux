@@ -4,6 +4,7 @@ Every test runs in a temporary repository whose docs_dir is `notes`.
 """
 import io
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -18,6 +19,8 @@ import cycle_queue
 from cycle_workflow import CycleError, LIMITS, PHASES, create, digest, encoded, load, mutate, retained, review_basis_digest, tree, validate
 
 DATE = '2026-10-19'
+IDENTITY = {'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@example.invalid',
+            'GIT_COMMITTER_NAME': 't', 'GIT_COMMITTER_EMAIL': 't@example.invalid'}
 AREAS = ('production', 'tests', 'instructions', 'execution')
 # Digests of a fixed non-simplify record, computed with the unmodified function before simplify existed.
 PINNED = {1: 'deaf1c82c7df731da70db13c16bff54df272c55a2ab728ac1c177f95c0076e3e',
@@ -53,6 +56,11 @@ class Base(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.repo = Path(self.temp.name)
+        # The root is no git repository, so the fixture's identity comes from the environment:
+        # `create` and `queue start-next` refuse without one, and CI configures none.
+        identity = patch.dict(os.environ, IDENTITY)
+        identity.start()
+        self.addCleanup(identity.stop)
         (self.repo / '.bionic.yml').write_text('config_version: "1"\ndocs_dir: notes\n')
         (self.repo / 'notes').mkdir()
         (self.repo / 'notes/manifest.yml').write_text('schema_version: "5"\nconcerns_enabled: [adrs]\nadr:\n  next_number: 1\n')

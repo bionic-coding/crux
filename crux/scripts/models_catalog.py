@@ -31,7 +31,8 @@ enforced ONLY by CI          V3 Claude alias legality; V4 the Codex pair and its
                              provider allowlist and the alias slug pattern; V6
                              the agent-frontmatter cross-check; V7 the alias
                              namespace; V8 level distinctness; V9 value
-                             placement and roster-key confinement
+                             placement and roster-key confinement; V10 override
+                             authority and tier
 ===========================  ====================================================
 
 So ``resolve()`` returns whatever string the file contains. A model id that
@@ -53,6 +54,7 @@ job is to report a readable finding rather than a stack trace.
 
 from __future__ import annotations
 
+import datetime
 import importlib.util
 from dataclasses import dataclass
 from pathlib import Path
@@ -137,7 +139,12 @@ CODEX_KEYS = frozenset({"model", "reasoning_effort", "verified", "source"})
 REASONING_EFFORTS = frozenset({"low", "medium", "high", "xhigh"})
 
 AGENT_ROW_REQUIRED = frozenset({"level"})
-AGENT_ROW_OPTIONAL = frozenset({"opencode", "codex", "claude"})
+AGENT_ROW_OPTIONAL = frozenset({"opencode", "codex", "claude", "authority"})
+# The columns an agent row may override. `authority` is keyed by exactly these
+# names; rule V10 checks that its key set equals the row's overridden set.
+OVERRIDE_COLUMNS = ("claude", "opencode", "codex")
+AUTHORITY_ENTRY_REQUIRED = frozenset({"instruction", "date"})
+AUTHORITY_ENTRY_OPTIONAL = frozenset({"decision"})
 LEVEL_ROW_REQUIRED = frozenset({"claude", "codex"})
 LEVEL_ROW_OPTIONAL = frozenset({"opencode"})
 
@@ -270,6 +277,76 @@ def _is_str_seq(value: Any) -> bool:
     return isinstance(value, list) and all(isinstance(v, str) for v in value)
 
 
+def _is_iso_date_text(value: str) -> bool:
+    """True for a real calendar date written exactly ``YYYY-MM-DD``.
+
+    The shape is checked before ``fromisoformat`` because that parser also
+    accepts ``YYYYMMDD`` and ISO week dates, which an authority date never uses.
+    No clock is read: a date in the future is a V10 question, not a shape one.
+    """
+    if len(value) != 10 or value[4] != "-" or value[7] != "-":
+        return False
+    if not (value[:4] + value[5:7] + value[8:]).isdigit():
+        return False
+    try:
+        datetime.date.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _authority_shape_findings(name: str, authority: Any) -> list[str]:
+    """V0 for an agent row's ``authority`` mapping: keys, types and date form.
+
+    Each key names an override column and holds one entry: a non-empty
+    ``instruction`` string, a quoted ISO ``date`` string and an optional
+    ``decision`` string. There is no ``tier`` key; a tier is only ever inferred
+    from the level table (rule V10). Whether the key set matches the row's
+    overridden columns is V10's question, not a shape one.
+    """
+    if not isinstance(authority, dict):
+        return [f"agents.{name!r}.authority must be a mapping keyed by override column"]
+    findings: list[str] = []
+    for column, entry in sorted(authority.items(), key=lambda kv: repr(kv[0])):
+        if column not in OVERRIDE_COLUMNS:
+            findings.append(
+                f"agents.{name!r}.authority: key {column!r} is not an override column "
+                f"{list(OVERRIDE_COLUMNS)}"
+            )
+            continue
+        path = f"agents.{name!r}.authority.{column}"
+        if not isinstance(entry, dict):
+            findings.append(f"{path} must be a mapping")
+            continue
+        unknown = sorted(
+            set(entry) - AUTHORITY_ENTRY_REQUIRED - AUTHORITY_ENTRY_OPTIONAL, key=repr
+        )
+        if unknown:
+            findings.append(
+                f"{path}: unknown key(s) {unknown} — an authority entry carries "
+                f"{sorted(AUTHORITY_ENTRY_REQUIRED | AUTHORITY_ENTRY_OPTIONAL)} and no tier"
+            )
+        for key in sorted(AUTHORITY_ENTRY_REQUIRED - set(entry)):
+            findings.append(f"{path}: missing required key {key!r}")
+        instruction = entry.get("instruction")
+        if "instruction" in entry and (
+            not isinstance(instruction, str) or not instruction.strip()
+        ):
+            findings.append(f"{path}.instruction must be a non-empty string")
+        if "date" in entry:
+            date = entry["date"]
+            if not isinstance(date, str):
+                findings.append(
+                    f"{path}.date must be a quoted string, got {type(date).__name__} — "
+                    'write date: "YYYY-MM-DD"'
+                )
+            elif not _is_iso_date_text(date):
+                findings.append(f"{path}.date={date!r} is not a real ISO date (YYYY-MM-DD)")
+        if "decision" in entry and not isinstance(entry["decision"], str):
+            findings.append(f"{path}.decision must be a string")
+    return findings
+
+
 def check_shape(raw: dict) -> list[str]:
     """Rule V0 — schema and shape. Which keys exist and what type each value has.
 
@@ -348,6 +425,8 @@ def check_shape(raw: dict) -> list[str]:
             for key in ("level", "opencode", "claude"):
                 if key in keys and not isinstance(value[key], str):
                     findings.append(f"agents.{name!r}.{key} must be a string")
+            if "authority" in keys:
+                findings += _authority_shape_findings(name, value["authority"])
             codex = value.get("codex")
             if "codex" in keys:
                 if not isinstance(codex, dict):

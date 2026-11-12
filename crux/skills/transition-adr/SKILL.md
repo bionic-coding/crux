@@ -56,10 +56,39 @@ The cycle commands reference describes required request fields and recovery.
 Acceptance under this policy makes rules binding without a separate promotion.
 Do not use the historical in-run guidance path for a new-policy acceptance.
 Existing provenance and previously accepted records retain their interpretation.
-Regenerate standard indexes/projections and log the operation after the writer,
+Regenerate standard indexes/projections and record the operation through
+`operation-log.py append` (`docs/AGENTS.md` §6, with its commit step) after the writer,
 respecting their commit preconditions.
 The remaining transition/index/log instructions still apply; historical promotion
 instructions below apply only to records that actually retain guidance standing.
+
+### Legacy Proposed ADRs
+
+A Proposed ADR that `decision-policy.py propose` never wrote has no proposal metadata,
+so `accept` refuses it. Adopt it first:
+
+```bash
+uv run "${CRUX_PLUGIN_ROOT}/scripts/decision-policy.py" --repo-root . adopt --subject adrs/ADR-NNNN-slug.md
+```
+
+`adopt` writes `adrs/proposals/<ADR>.json` with origin `legacy-adoption` and the
+file's sha256. It changes no ADR byte and grants no approval. It admits an active ADR
+file that is Proposed, carries `acceptance_format: crux.adr-acceptance.v1` and a
+non-empty `governs` list, and is tracked at HEAD with equal bytes. It refuses an ADR
+with metadata, provenance or an acceptance receipt. A missing `acceptance_format` or
+`governs` is reported, not fixed: edit the frontmatter while the ADR is Proposed,
+commit it, then adopt. Regenerate the summaries after `adopt`.
+
+Acceptance then needs council approval of the exact bytes. Under `council-and-human`
+it also needs an owner capture of purpose `adr-acceptance`, applied through
+`owner-decision apply` with the council `approval`; `accept --human-approval` text is
+refused for this origin. Under `council-only` the council approval suffices.
+
+Know the limit. `adopt` admits any HEAD-tracked Proposed ADR without metadata,
+provenance or a receipt, including one written by hand and committed. It does not
+check the creation approval that `propose` enforces for a cycle-originated ADR. For
+such a file, acceptance rests on council approval of the exact bytes and, under
+`council-and-human`, on the owner capture.
 
 
 
@@ -184,9 +213,16 @@ uv run "${CRUX_PLUGIN_ROOT}/scripts/generate-adr-index.py" --repo-root <repo-roo
 
 The generator rewrites the target ADR's row (status, date, `superseded_by`) and, for `supersede`, the replacement's `supersedes` column.
 
-### 7. Append to `docs/log.md`
+### 7. Record the `adr` operation
 
-Newest-first, one entry per operation:
+Write the entry through the log writer (`docs/AGENTS.md` §6),[^log-writer] one entry per operation. Write the body below to a file outside the tree, then run:
+
+```
+uv run "${CRUX_PLUGIN_ROOT}/scripts/operation-log.py" append --repo-root <repo-root> \
+  --op adr --subject '${target}: ${op}${suffix}' --date ${TODAY} --body-file <path>
+```
+
+The entry it writes at the top of the current month's detail file `docs/log/YYYY-MM.md`:
 
 ```markdown
 ## [${TODAY}] adr | ${target}: ${op}${suffix}
@@ -194,12 +230,14 @@ Newest-first, one entry per operation:
 ${target_title}. ${op_specifics}.
 ```
 
+A refused append keeps this skill's other writes and adds no entry: fix the cause it names, then rerun the append alone (§6). Step 9 runs the commit step of §6 over each append result's `commit_paths` and `restore_paths`.
+
 Where `${suffix}` is:
 - ` (accepted)` for accept.
 - ` (deprecated)` for deprecate.
 - ` (superseded by ${replacement})` for supersede.
 
-For `Proposed → Deprecated`, write a SECOND entry, immediately above the `adr` entry:
+For `Proposed → Deprecated`, write a SECOND entry, immediately above the `adr` entry. The latest write is at the top, so append the `adr` entry first and this `lint` entry second, with `--op lint --subject '${target}: deprecated while still Proposed'`:
 
 ```markdown
 ## [${TODAY}] lint | ${target}: deprecated while still Proposed
@@ -209,7 +247,7 @@ ADR was abandoned before acceptance. No replacement.
 
 The `lint` entry surfaces the unusual transition for future audits — proposed-then-deprecated is allowed but worth flagging.
 
-For `--repair` runs (called by `audit-docs`), write a single `lint` entry instead of the `adr` entry:
+For `--repair` runs (called by `audit-docs`), append a single `lint` entry instead of the `adr` entry, with `--op lint --subject '${target}: supersession asymmetry repaired'`:
 
 ```markdown
 ## [${TODAY}] lint | ${target}: supersession asymmetry repaired
@@ -225,7 +263,7 @@ Restored ${target}.superseded_by ↔ ${replacement}.supersedes consistency.
 
 While a tester's window is open, commit nothing and run no regenerator. The window runs from the tester's dispatch until the tester returns; outside a run there is none.
 
-Commit this skill's own writes first: the ADR file or files, including the move into `adrs/archive/` for a supersede or deprecate, `adrs/index.md`, `log.md` and `docs/index.md`. Stage only these paths (`git add -- <paths>`) and commit only them (`git commit -- <paths>`), so no change already staged is included. If a regenerator still exits 2 with `migration-input-not-committed`, another uncommitted input is in the tree: stop and name it; never commit a file this skill did not write. The commit comes first because, in a tree whose projections declare migration inputs, a regenerator refuses an uncommitted ADR input with exit 2 (`migration-input-not-committed`).
+Commit this skill's own writes first: the ADR file or files, including the move into `adrs/archive/` for a supersede or deprecate, `adrs/index.md` and `docs/index.md`, plus each append result's `commit_paths`, after `git restore --staged --quiet` on its `restore_paths` when that list is not empty (the commit step of §6). Run that step whatever the append's status, because a refused append can still have repaired the operations log. Stage only these paths (`git add -- <paths>`) and commit only them (`git commit -- <paths>`), so no change already staged is included. If a regenerator still exits 2 with `migration-input-not-committed`, another uncommitted input is in the tree: stop and name it; never commit a file this skill did not write. The commit comes first because, in a tree whose projections declare migration inputs, a regenerator refuses an uncommitted ADR input with exit 2 (`migration-input-not-committed`).
 
 For `accept` with `--run`, write the provenance record now, after that commit and before any regenerator:
 
@@ -273,7 +311,7 @@ Confirm `--dry-run` of each regenerator exits 0, then commit the regenerated pro
 
 ## Promote guidance (owner instruction)
 
-Text added to an ADR during the run that accepts it is guidance. The owner promotes guidance to binding with a message such as "promote ADR-NNNN: rules N". This is not a state transition: it writes a promotion into the ADR's provenance record and leaves the ADR file unchanged.[^promote]
+An ADR accepted under the configured acceptance policy binds its rules at acceptance and needs no promotion. A historical provenance record keeps its original reading: text added to an ADR during the historical run that accepted it is guidance until promoted. The owner promotes such guidance to binding with a message such as "promote ADR-NNNN: rules N". This is not a state transition: it writes a promotion into the ADR's provenance record and leaves the ADR file unchanged.[^promote]
 
 1. The instruction must be the owner's own message. An agent report, a run note or a council verdict is never that instruction. Quote the owner's own words, and use the date of the owner's message.
 2. Run the command. Numbers follow `open`'s numbering; `all` selects every unpromoted in-run change:
@@ -301,7 +339,7 @@ Text added to an ADR during the run that accepts it is guidance. The owner promo
 - [ ] For supersede: replacement ADR's body bytes are unchanged.
 - [ ] `docs/adrs/index.md` row(s) for the affected ADR(s) reflect the new status, date, and supersede fields.
 - [ ] `generate-adr-index.py --dry-run` exits 0.
-- [ ] `docs/log.md` has the appropriate `adr` entry (and `lint` entry for Proposed→Deprecated or `--repair`).
+- [ ] The current month's detail file `docs/log/YYYY-MM.md` has the appropriate `adr` entry at the top (and the `lint` entry above it for Proposed→Deprecated, or alone for `--repair`), written by `operation-log.py append`.
 - [ ] `docs/index.md` `_Last updated:_` is `${TODAY}`.
 - [ ] The ADR writes, the index, the log entry and the docs-index update are committed before any regenerator runs.
 - [ ] For `accept` with `--run`: `adrs/provenance/${target}.yaml` exists and is committed with the regenerated projections; without `--run` none was written.
@@ -351,4 +389,18 @@ Text added to an ADR during the run that accepts it is guidance. The owner promo
 
 On a transition to **Superseded** or **Deprecated**, additionally move the ADR file into `<docs_dir>/adrs/archive/`: **preflight the destination** (refuse fail-closed on a basename collision, before any mutation), then **write the frontmatter, then git-move** the file (basename preserved; not a body edit — immutability is by content). The two file steps are not atomic; a crash between them leaves a terminal-status ADR in the active dir that `audit-docs` `CHK-ADR-ARCHIVE` auto-repairs by completing the move. Accepted/Proposed ADRs stay in `adrs/`. Do **not** hand-edit `adrs/index.md` — its active table + `## Archived` roster are regenerated by `scripts/generate-adr-index.py` (both tiers). Wiki-links to ADRs resolve across both tiers (via the lifecycle-agnostic resolver).
 
-[^promote]: rule:owner-promotes-guidance
+### Retirements persist after the move
+
+`deprecate` and `supersede` change lifecycle fields only. The archived ADR keeps its `governs` block, so its `retires` lists keep every retirement in force.[^retirement-persists] The summaries projection reads the frontmatter of archived ADRs that carry `retires` or are policy hosts, and only a host that was once Accepted gives edges. A host that was never Accepted gives its `retires` list no effect, and deprecating it retires nothing.
+
+When the projection refuses an archived host, repair by the cause:
+
+- **Lost acceptance record.** Restore `adrs/acceptances/ADR-NNNN.json` at its path from the commit that wrote it.
+- **A file `retires` list or `accepted_date` that disagrees with the record's `accepted_text`.** The owning writer restores the accepted content from `accepted_text`. That is a restoration, not a rewrite, and it never edits the ADR body.
+
+Never edit an archived ADR by hand to clear a refusal.
+
+[^promote]: rule:acceptance-makes-rules-binding, rule:historical-records-keep-their-interpretation
+[^retirement-persists]: rule:retirement-persists-after-its-host-leaves-accepted
+
+[^log-writer]: rule:log-entries-go-through-the-log-writer, rule:no-writer-writes-the-legacy-log-file

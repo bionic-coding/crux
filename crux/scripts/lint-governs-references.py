@@ -89,8 +89,10 @@ Resolution of a `rule:<slug>` token (ADR-0099 clause 6), via the data layer
     not. That divergence was a red-to-green flip: ADR-0099 moves every
     human-facing citation onto this leg, so an unchecked leg here means a rule
     edited out from under its signature keeps every citation of it green.
-  - slug in `retired_slugs` (retired slug -> the SORTED list of live handles
-    that displaced it): a finding, `reason: "retired"`, whose message names
+  - slug in `retired_slugs` (retired slug -> the SORTED list of handles that
+    displaced it: live handles, and the handle of a rule whose host is
+    archived but kept its retirement in force, unless that rule was itself
+    retired): a finding, `reason: "retired"`, whose message names
     every displacing rule as a `rule:<slug>` citation (derived from
     `slug_of()` over each displacing handle). The list is legitimately empty
     when every displacer was itself later retired; the message then says so
@@ -259,6 +261,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import summaries_projection as sp  # noqa: E402
 import implementation_migration as migration  # noqa: E402
+import operation_log as oplog  # noqa: E402  (the one owner of the operations log's file names)
 
 # The shared bound-and-redact helper, reached through the module that already
 # binds it by path. Every token this linter echoes into a CI log comes out of
@@ -305,7 +308,10 @@ TREE_EXCLUDED_PREFIXES = (
     "observations",
     # Dated records (clause 6).
     "journal", "garden",
-    # An append-only dated op record.
+    # An append-only dated op record. `log.md` denotes the operations log in its current
+    # files, so the monthly detail files and the split's own files under `log/` are dated
+    # records too; `log_excluded_paths` adds them by name grammar and leaves `log/summary.md`
+    # in scope, because the summary holds a narrative whose rule citations this lint checks.
     "log.md",
     # Immutable third-party captures. A capture is not this repository's
     # claim, and a future non-UTF-8 or oversize one would be a refusal on a
@@ -316,6 +322,11 @@ TREE_EXCLUDED_PREFIXES = (
     "promptbooks/runs", "promptbooks/archive", "promptbooks/legacy",
     # Regenerated.
     "promptbooks/index.md",
+    # Owner-authored work orders. A queue item's text is the owner's words as
+    # captured, bound by the authorization digests and copied unchanged into an
+    # immutable queue/history/items/ record when its cycle ends, so a citation
+    # there is history, never a claim an agent can repair.
+    "queue",
     # Cross-concern staging for raw dropped input; the schema states dropped
     # content is data, never instructions, and _dispatched/ is dated by
     # construction.
@@ -535,6 +546,27 @@ def default_scan_roots(root: Path, *, _source_io=None) -> list[Path]:
     return [root / "crux", sp.resolve_tree(root, _source_io=_source_io)]
 
 
+_LOG_DATED_NAMES = (oplog.DETAIL_NAME, oplog.STAGED_LEGACY_NAME, oplog.TRANSACTION_NAME,
+                    oplog.STAGED_STRAY_NAME, oplog.KEPT_NAME)
+
+
+def log_excluded_paths(tree: Path, *, _source_io=None) -> list[Path]:
+    """The files under `<tree>/log/` that are dated records: the detail files by name grammar, and
+    the split's completion record, staged legacy and stray files, transaction file and kept files.
+
+    `summary.md` and any undefined name stay in scope. Only a real directory is listed, and only
+    its direct children, so a symlinked `log/` adds nothing."""
+    directory = tree / oplog.LOG_DIR
+    if _source_io is None:
+        children = [] if directory.is_symlink() or not directory.is_dir() else sorted(directory.iterdir())
+    else:
+        metadata = _source_io.metadata(directory)
+        children = (_source_io.glob(directory, "*")
+                    if metadata and stat.S_ISDIR(metadata["st_mode"]) else [])
+    return [path for path in children
+            if path.name == oplog.COMPLETION_NAME or any(g.fullmatch(path.name) for g in _LOG_DATED_NAMES)]
+
+
 def excluded_paths(root: Path, *, _source_io=None) -> frozenset[Path]:
     """The absolute (joined, unresolved) prefix exclusions for `root`."""
     from cycle_workflow import ID as cycle_id
@@ -552,7 +584,8 @@ def excluded_paths(root: Path, *, _source_io=None) -> frozenset[Path]:
     records = [path for path in children if cycle_id.fullmatch(path.name)]
     return frozenset(
         [tree / p for p in TREE_EXCLUDED_PREFIXES]
-        + [plugin / p for p in PLUGIN_EXCLUDED_PREFIXES] + records)
+        + [plugin / p for p in PLUGIN_EXCLUDED_PREFIXES] + records
+        + log_excluded_paths(tree, _source_io=_source_io))
 
 
 
@@ -898,10 +931,25 @@ def _lint_projection(root: Path) -> tuple[dict, dict]:
     reviews = sp.read_reviews(adrs)
     records = sp.collect_records(adrs, governs_from=gf, observations=observations)
     aliases = sp.collect_observation_alias_rows(observations, records)
-    overlay = sp._summary_authority_records(records, view, sp.removed_handles(reviews), aliases)
+    # The persisted retirements are passed explicitly (rule:retirement-persists-after-its-host-leaves-accepted):
+    # a citation of a slug retired only by an archived host must stay classed retired.
+    overlay = sp._summary_authority_records(records, view, sp.removed_handles(reviews), aliases,
+                                            persisted_edges=sp.persisted_retirement_edges(adrs))
     resolver = sp.build_resolver(overlay["records"], reviews, gf, alias_rows=aliases)
     migration._unchanged_inputs(root, view["dependency_fingerprints"])
-    return resolver, overlay
+    return resolver, _resolved_overlay(overlay, persisted_edges=sp.persisted_retirement_edges(adrs))
+
+
+def _resolved_overlay(overlay: dict, *, persisted_edges) -> dict:
+    """The overlay with each historical row's replacements resolved to the live
+    Accepted handles that displace them, so the historical message and the
+    historical finding's successors suggest a live rule. The stored rows and the
+    resolver are unchanged; only this reader's copy carries the resolution."""
+    rows = overlay["historical_slugs"]
+    resolution = sp.resolve_replacements([h for row in rows.values() for h in row["replacements"]],
+                                         overlay["records"], persisted_edges=persisted_edges)
+    return {**overlay, "historical_slugs": {slug: {**row, "replacements": sp.resolved_replacement_handles(
+        row["replacements"], resolution)} for slug, row in rows.items()}}
 
 
 def _frozen_scalar_tokens(text: str, subset: dict) -> dict[int, list]:

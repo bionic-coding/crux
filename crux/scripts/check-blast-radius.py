@@ -121,12 +121,23 @@ compute_book_hash = _vp.compute_book_hash
 # two ends disagree about what the snapshot's committed record is.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import base_commit_pin as _pin  # noqa: E402  (sys.path insert before import)
+import operation_log as _oplog  # noqa: E402  (the one owner of the log's file names)
 
 _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
 # Directory prefixes and exact files the run machinery writes for ANY book.
 _EXCLUDED_DIRS = ("journal", "arch")
 _EXCLUDED_FILES = ("log.md", "index.md", "manifest.yml", "whats_next.md")
+# `log.md` above denotes the operations log in its current files: the monthly detail files
+# `<docs_dir>/log/YYYY-MM.md` and the split's own files (the completion record, the staged legacy
+# and stray files, the transaction file and the kept files) are machinery writes too. The summary
+# `log/summary.md` is deliberately absent: a patch that rewrites it reaches containment.
+_LOG_BOOKKEEPING_NAMES = (_oplog.DETAIL_NAME, _oplog.STAGED_LEGACY_NAME, _oplog.TRANSACTION_NAME,
+                          _oplog.STAGED_STRAY_NAME, _oplog.KEPT_NAME)
+
+
+def _is_log_bookkeeping(name: str) -> bool:
+    return name == _oplog.COMPLETION_NAME or any(grammar.fullmatch(name) for grammar in _LOG_BOOKKEEPING_NAMES)
 # Under `<docs_dir>/promptbooks/` the exclusion is BOOK-SCOPED, not blanket. The
 # machinery writes this book's own run snapshot, this book's own plan pointer, and the
 # shared index; it does not write any other book. A blanket exclusion also covered
@@ -182,6 +193,8 @@ def is_bookkeeping(changed: str, docs_dir: str, book_stem: str) -> bool:
                 and Path(inner[1]).stem == book_stem):
             return True
         return False
+    if len(rest) == 2 and rest[0] == _oplog.LOG_DIR:
+        return _is_log_bookkeeping(rest[1])
     return len(rest) == 1 and rest[0] in _EXCLUDED_FILES
 
 

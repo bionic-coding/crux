@@ -89,3 +89,18 @@ test('25 classifications draw as one count line and no detail', () => {
   assert.match(text, /Classifications: 25/)
   for (const detail of [/work-sizing/, /fell back/, /cost/, /provider/]) assert.doesNotMatch(text, detail)
 })
+
+test('a shortcut cycle reads and draws as closed work: listed with the closed cycles, and its queue item as finished', () => {
+  const queue = {
+    ok: true, authorization: null,
+    items: [{ id: 'Q-0001', title: 'Short item', state: 'started', suggested_type: 'iterate', cycle: 'CYC-0007', cycle_status: 'shortcut' }],
+  }
+  const text = textOf(doc([row('shortcut', { phase: 'reflect' })], { queue }))
+  assert.match(text, /last completed: CYC-0007/)
+  assert.match(text, /\u2713 CYC-0007 dev shortcut 1\/1/)
+  assert.match(text, /\u2713 Q-0001 CYC-0007 shortcut/)
+  assert.doesNotMatch(text, /CURRENT CYCLE: CYC-0007/)
+  assert.doesNotMatch(text, /PAUSED/)
+  // Positive control: an active cycle draws as the current cycle, so the absence above is the status's doing.
+  assert.match(textOf(doc([row('active')])), /CURRENT CYCLE/)
+})

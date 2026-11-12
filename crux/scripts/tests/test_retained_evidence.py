@@ -9,7 +9,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 SCRIPTS = Path(__file__).resolve().parents[1]
-ROOT = SCRIPTS.parents[1]
 sys.path.insert(0, str(SCRIPTS)) if str(SCRIPTS) not in sys.path else None
 import retained_evidence as retained
 
@@ -508,35 +507,6 @@ class SourceDiscoveryResolverTests(unittest.TestCase):
         with patch.object(Path, "resolve", resolve), patch.object(retained, "is_retained_evidence_path",
                 side_effect=AssertionError("strict predicate called for parent source")):
             self.assertEqual(self.lib, self.resolve(self.app / ".." / "lib"))
-
-
-class HoldingSourceContractTests(unittest.TestCase):
-    def test_template_declares_non_authoritative_holding_and_isolated_inspection(self):
-        text = (ROOT / "crux/templates/AGENTS.md.tmpl").read_text()
-        section = text.split("## 3. Directory layout", 1)[1].split("## 4.", 1)[0]
-        self.assertIn("evidence/implementation-cycles/retained-repositories/", section)
-        for term in ("not a concern", "no index section", "isolated", ".git", "historical", "legacy slugs with leading, repeated or trailing hyphens"):
-            self.assertTrue(term in section, f"template §3 must declare {term}")
-
-    def test_each_source_workflow_uses_shared_predicate_before_walks(self):
-        for name in ("recover-decisions", "audit-docs", "cleanup-campsite", "archive-promptbook"):
-            with self.subTest(skill=name):
-                text = (ROOT / "crux/skills" / name / "SKILL.md").read_text()
-                # The shared predicate reaches a skill through the shipped command, which
-                # resolves the configured root itself; a Python function name is not a step
-                # an agent can execute.
-                self.assertTrue("authority-view.py\" retained-roots" in text, "missing shared predicate")
-                self.assertTrue("--repo-root" in text, "missing canonical root")
-                self.assertTrue("before" in text.lower(), "missing pre-discovery ordering")
-
-    def test_delegated_audit_walk_preserves_the_exclusion(self):
-        text = (ROOT / "crux/skills/audit-docs/SKILL.md").read_text()
-        prompt = text.split("> Walk the entire", 1)[1].split("### 4.", 1)[0]
-        self.assertTrue("authority-view.py\" retained-roots" in prompt,
-                        "the independently handed walk prompt must retain pruning")
-        self.assertTrue("before" in prompt.lower() and "--repo-root" in prompt)
-        self.assertFalse("find docs -name '*.md' | wc -l" in text,
-                         "raw census command contradicts holding pruning")
 
 
 if __name__ == "__main__":

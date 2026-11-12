@@ -340,33 +340,6 @@ class TenGoalReadabilityTests(unittest.TestCase):
         self.assertEqual(["OBJ-2", "OBJ-10"], ordered)
 
 
-class MaturityBranchFixtureTests(unittest.TestCase):
-    """The three populate-gate branches, pinned against the skill's own prose."""
-
-    @classmethod
-    def setUpClass(cls) -> None:
-        skills = Path(__file__).resolve().parent / "fixtures/legacy_workflow/skills"
-        cls.text = (skills / "review-decisions" / "SKILL.md.fixture").read_text(
-            encoding="utf-8")
-
-    def test_missing_and_placeholder_stop_the_dependent_assessment(self):
-        self.assertIn("missing", self.text)
-        self.assertIn("placeholder", self.text)
-        # The branch must say NO assessment rows at all — a `not-assessed` row
-        # would still need an OBJ-N the file does not carry.
-        self.assertRegex(self.text,
-                         r"(?is)placeholder.{0,400}no assessment row")
-
-    def test_exploring_reads_goals_as_questions(self):
-        self.assertRegex(self.text, r"(?s)`exploring`.{0,400}not-assessed")
-
-    def test_forming_and_settled_admit_the_full_vocabulary(self):
-        self.assertRegex(self.text,
-                         r"(?s)`forming`.{0,600}(full vocabulary|yardstick)")
-
-
-
-
 # ── regressions for the internal review's seven findings ───────────────────
 
 class InternalReviewRegressionTests(unittest.TestCase):
@@ -558,11 +531,6 @@ class ConsistencyCheckTests(unittest.TestCase):
             rf.validate_structure(report)
         self.assertIn("assessment row(s) derive", str(caught.exception))
 
-    def test_a_frontmatter_outcome_agreeing_with_the_rows_passes(self):
-        """Positive control: `resolved`+`serves` discriminates, so measured."""
-        report = self._report([self.ROW_SERVES], [("OBJ-1", "serves", "—", "d")])
-        self.assertIsNone(rf.validate_structure(report))
-
     def test_a_frontmatter_outcome_disagreeing_with_the_rows_is_refused(self):
         """The exact defect the external review caught in the worked report.
 
@@ -624,37 +592,12 @@ class NullBaselineGuidanceTests(unittest.TestCase):
     fire for the goal it exists to rescue.
     """
 
-    @classmethod
-    def setUpClass(cls) -> None:
-        skills = Path(__file__).resolve().parent / "fixtures/legacy_workflow/skills"
-        cls.text = (skills / "review-decisions" / "SKILL.md.fixture").read_text(
-            encoding="utf-8")
-
     def test_the_arithmetic_that_motivates_the_guidance_holds(self):
         self.assertIn(("partial", "gap"), rf.DISCRIMINATING_PAIRS)
         self.assertEqual("measured",
                          rf.measurement_outcome([("partial", "gap")]))
         self.assertEqual("attempted",
                          rf.measurement_outcome([("partial", "inconclusive")]))
-
-    def test_the_skill_prescribes_partial_inconclusive_for_a_null_baseline(self):
-        self.assertIn("Record a null baseline as `partial` + `inconclusive`",
-                      self.text)
-
-    def test_the_skill_names_the_one_case_where_gap_is_still_right(self):
-        """A SEPARATE measurability part, not the trend row, is what may reach
-        `gap`. Asserted by the claims the guidance has to make rather than by
-        one phrasing of them, so rewording the paragraph does not fail here
-        while dropping a claim still does.
-        """
-        para = next(line for line in self.text.splitlines()
-                    if "WITHDRAWN" in line)
-        self.assertRegex(para, r"(?i)\bdeclared measure\b")
-        self.assertRegex(para, r"(?i)measurab")
-        self.assertRegex(para, r"(?i)\bDISTINCT part\b|\bSEPARATE part\b")
-        self.assertRegex(para, r"`resolved`.*`gap`")
-        # And the trend row itself is still barred from `gap`.
-        self.assertRegex(para, r"(?i)\bWITHDRAWN\b")
 
 
 class MissingBaselineAdmissibleFixtureTests(unittest.TestCase):

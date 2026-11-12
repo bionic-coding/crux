@@ -53,6 +53,7 @@ class PrefixIntegrationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'acceptance receipt missing'):sp.collect_records(self.docs/'adrs')
     def test_archived_prefixed_handles_and_identity_remain_retrievable(self):
         path=self.accepted();archive=self.docs/'adrs/archive';archive.mkdir();path.rename(archive/path.name)
+        archived=archive/path.name;archived.write_text(archived.read_text().replace('status: Accepted','status: Deprecated',1))
         self.assertEqual(set(),set(r['handle'] for r in sp.collect_records(self.docs/'adrs')))
         self.assertIn('DEMO-ADR-0001/keep-evidence',sp.archived_handles(self.docs/'adrs'))
         self.assertIn('DEMO-ADR-0001',sp._adr_ids_including_archive(self.docs/'adrs'))

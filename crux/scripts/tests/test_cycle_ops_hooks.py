@@ -64,7 +64,7 @@ class HookBase(SliceBase):
             if choice is None:
                 choice = ('omit' if kind in ('context-selection', 'focused-test-ranking') else
                           next((option for option in question.options if option.startswith('answered:')), 'unresolved')
-                          if kind == 'handoff-completeness' else 'developer' if kind == 'execution-arrangement' else 'agent-assessment')
+                          if kind == 'handoff-completeness' else 'agent-assessment')
             result[ident] = decisions.Outcome(status=decisions.ANSWERED, choice=choice,
                                              request_id='fixture-hook', served_model=decisions.EXPECTED_SERVED_MODEL,
                                              attempts=1, confidence=.95)
@@ -73,8 +73,8 @@ class HookBase(SliceBase):
     def dispatch(self, **extra):
         return self.ok({'op': 'prepare-dispatch', 'op_id': 'hooks-prep-1', 'task_id': 'build-it', 'host': 'codex', **extra})
 
-    def complete(self, outcome='done', **extra):
-        prepared = self.dispatch(role='developer')
+    def complete(self, outcome='done', role='developer', **extra):
+        prepared = self.dispatch(role=role)
         sha = self.work(prepared)
         path = Path(prepared['result_path'])
         text = path.read_text(); path.write_text(text.replace('Outcome:', f'Evidence: commit {sha}\n\nOutcome:', 1))
@@ -124,7 +124,7 @@ class DispatchHookTests(HookBase):
     def test_bounded_role_is_automatic_and_replay_preserves_original_request(self):
         request = {'op': 'prepare-dispatch', 'op_id': 'hooks-prep-1', 'task_id': 'build-it', 'host': 'codex'}
         result = self.ok(request)
-        self.assertEqual(load(self.repo, self.cid)['assignments'][0]['role'], 'developer')
+        self.assertEqual(load(self.repo, self.cid)['assignments'][0]['role'], 'dev-lead')
         self.assertNotIn('execution-arrangement', [call['kind'] for call in self.calls])
         stored = next(op for op in load(self.repo, self.cid)['operations'] if op['op_id'] == request['op_id'])
         self.assertEqual(stored['request_sha256'], cycle_ops.request_digest(request))
@@ -176,14 +176,15 @@ class DispatchHookTests(HookBase):
         self.assertEqual(response['errors'][0]['code'], 'dispatch-context-changed')
         self.assertEqual(load(self.repo, self.cid).get('assignments', []), [])
 
-    def test_invalid_role_recommendation_grants_nothing(self):
+    def test_streams_select_the_dev_lead_and_a_recommendation_is_never_asked(self):
+        # Build selects only the dev-lead, and no role question exists (IDR dev-lead-owned-build approach 1;
+        # the execution-arrangement kind was removed in CYC-0127), so a stray reply can grant nothing.
         self.edit(lambda doc: doc['plan'].update(streams=[{'id': 'a', 'paths': ['src/a.py'], 'independent': True},
                                                         {'id': 'b', 'paths': ['src/b.py'], 'independent': True}]))
         self.replies['execution-arrangement'] = 'commander'
-        code, result = self.op({'op': 'prepare-dispatch', 'op_id': 'hooks-prep-1', 'task_id': 'build-it', 'host': 'codex'})
-        self.assertEqual(code, 1, result)
-        self.assertEqual(result['errors'][0]['code'], 'role-selection-required')
-        self.assertEqual(load(self.repo, self.cid).get('assignments', []), [])
+        self.ok({'op': 'prepare-dispatch', 'op_id': 'hooks-prep-1', 'task_id': 'build-it', 'host': 'codex'})
+        self.assertEqual(load(self.repo, self.cid)['assignments'][0]['role'], 'dev-lead')
+        self.assertNotIn('execution-arrangement', [call['kind'] for call in self.calls])
 
 
 class DeliveryHookTests(HookBase):
@@ -295,18 +296,38 @@ class DeliveryHookTests(HookBase):
         self.assertTrue(any(action.get('agent') for action in seen['actions']))
         self.assertNotIn({}, seen['actions'])
 
-    def test_report_owning_developer_handler_is_a_legal_bounded_dispatch(self):
+    def test_report_owning_developer_handler_on_a_unit_task_materializes_no_request(self):
+        # A developer-reserved Build task is a unit: only its coordinating dev-lead redispatches it.
         self.replies['failure-routing'] = 'owning-developer'
         _, _, result = self.complete(outcome='failed')
         offer = next(offer for offer in result['failure_recovery'] if offer.get('handler') == 'owning-developer')
-        self.assertEqual(offer['request']['role'], 'developer')
-        again = self.ok({**offer['request'], 'op_id': 'hooks-repair-1'})
-        self.assertEqual(load(self.repo, self.cid)['assignments'][-1]['role'], 'developer')
+        self.assertTrue(offer.get('agent'))
+        self.assertNotIn('request', offer)
+        offered = [a for a in self.ok({'op': 'inspect'})['actions'] if a.get('request', {}).get('op') == 'prepare-dispatch']
+        self.assertEqual([a for a in offered if a['request'].get('task_id') == 'build-it'], [])
+
+    def test_failed_dev_lead_build_with_owning_developer_advice_offers_only_a_dev_lead(self):
+        self.replies['failure-routing'] = 'owning-developer'
+        prepared = self.dispatch(role='dev-lead'); sha = self.work(prepared)
+        result = self.ok({'op': 'deliver', 'op_id': 'hooks-deliver-1', 'assignment': prepared['assignment'],
+                          'attempt': 1, 'outcome': 'failed', 'commits': [sha]})
+        actions = self.ok({'op': 'inspect'})['actions']
+        handler = [a for a in actions if a.get('handler') == 'owning-developer']
+        # Positive control: the handler fires and materializes a bounded redispatch of the same task.
+        self.assertEqual(len(handler), 1)
+        self.assertEqual(handler[0]['request']['role'], 'dev-lead')
+        self.assertEqual(handler[0]['request']['task_id'], 'build-it')
+        dispatches = [a['request'] for a in actions if a.get('request', {}).get('op') == 'prepare-dispatch']
+        self.assertTrue(dispatches)
+        self.assertNotIn('developer', [request.get('role') for request in dispatches])
+        again = self.ok({**handler[0]['request'], 'op_id': 'hooks-repair-1'})
+        self.assertEqual(load(self.repo, self.cid)['assignments'][-1]['role'], 'dev-lead')
         self.assertNotEqual(again['assignment'], result['assignment'])
 
     def test_report_environment_handler_uses_configured_lead_with_same_allowance_checks(self):
         self.replies['failure-routing'] = 'environment-investigation'
-        prepared = self.dispatch(role='developer'); sha = self.work(prepared)
+        # A dev-lead attempt: a developer-reserved Build task is a unit, which only its coordinating dev-lead redispatches.
+        prepared = self.dispatch(role='dev-lead'); sha = self.work(prepared)
         path = Path(prepared['result_path']); path.write_text(path.read_text().replace('Outcome:', 'ModuleNotFoundError: dependency missing\nOutcome:'))
         result = self.ok({'op': 'deliver', 'op_id': 'hooks-deliver-1', 'assignment': prepared['assignment'],
                           'attempt': 1, 'outcome': 'failed', 'commits': [sha]})
@@ -324,10 +345,11 @@ class DeliveryHookTests(HookBase):
 
     def test_missing_evidence_returns_executable_reopen_then_dispatch(self):
         self.replies['handoff-completeness'] = 'absent'
-        prepared, _, result = self.complete()
+        prepared, _, result = self.complete(role='dev-lead')
         original = load(self.repo, self.cid)['assignments'][0]['delivery']
         routes = result['handoff']['recovery']
         self.assertEqual(routes[1]['request']['op'], 'prepare-dispatch')
+        self.assertEqual(routes[1]['request']['role'], 'dev-lead')
         self.assertEqual(load(self.repo, self.cid)['plan']['tasks'][0]['status'], 'done')
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
@@ -338,7 +360,7 @@ class DeliveryHookTests(HookBase):
 
     def test_retained_reopen_command_refuses_after_phase_advancement(self):
         self.replies['handoff-completeness'] = 'absent'
-        _, _, result = self.complete()
+        _, _, result = self.complete(role='dev-lead')
         old = result['handoff']['recovery'][0]['argv'][3:]
         self.ok({'op': 'advance', 'op_id': 'hooks-advance-1', 'expect_revision': load(self.repo, self.cid)['revision']})
         before = self.record_path().read_bytes()
@@ -347,17 +369,39 @@ class DeliveryHookTests(HookBase):
         self.assertEqual(code, 1)
         self.assertEqual(self.record_path().read_bytes(), before)
 
-    def test_omissions_cannot_extend_exhausted_attempt_allowance(self):
+    def test_missing_evidence_on_a_unit_task_materializes_no_request(self):
         self.replies['handoff-completeness'] = 'absent'
-        self.complete()
+        _, _, result = self.complete()
+        self.assertEqual(result['handoff']['route'], 'agent-assessment')
+        self.assertEqual(result['handoff']['recovery'], [])
+        # Positive control: the same fixture on a dev-lead attempt yields the reopen-then-dispatch recovery
+        # (test_missing_evidence_returns_executable_reopen_then_dispatch).
+
+    def test_omissions_cannot_extend_exhausted_attempt_allowance(self):
+        # A dev-lead attempt, so the unit branch cannot produce the assessment; only the exhausted allowance does.
+        # Positive control: test_missing_evidence_returns_executable_reopen_then_dispatch, the same attempt unexhausted.
+        self.replies['handoff-completeness'] = 'absent'
+        self.complete(role='dev-lead')
         def exhaust(doc):
             for number in (2, 3):
-                event(doc, 'prepare-dispatch', task='build-it', assignment=f'old-{number}', attempt=1, role='developer')
+                event(doc, 'prepare-dispatch', task='build-it', assignment=f'old-{number}', attempt=1, role='dev-lead')
         self.edit(exhaust)
         seen = self.ok({'op': 'inspect'})
         summary = seen['assignments'][0]['handoff']
         self.assertEqual(summary['route'], 'agent-assessment')
         self.assertEqual(summary['recovery'], [])
+
+    def test_redispatch_role_never_offers_a_developer(self):
+        """CYC-0121 r2 A8: a developer-reserved task of any phase gets no developer offer."""
+        doc = {'pass': 1, 'history': []}
+        review = {'id': 'review-it', 'phase': 'review'}
+        self.assertIsNone(cycle_ops.redispatch_role(doc, review, 'developer'))
+        self.assertIsNone(cycle_ops.redispatch_role(doc, {'id': 'check', 'phase': 'verify'}, 'developer'))
+        # Positive controls: another role on a non-editing task keeps its role, and an editing task names the dev-lead.
+        self.assertEqual(cycle_ops.redispatch_role(doc, review, 'reviewer'), 'reviewer')
+        self.assertEqual(cycle_ops.redispatch_role(doc, {'id': 'build-it', 'phase': 'build'}, 'developer'), 'dev-lead')
+        unit = {'pass': 1, 'history': [{'action': 'prepare-dispatch', 'pass': 1, 'task': 'build-it', 'role': 'developer'}]}
+        self.assertIsNone(cycle_ops.redispatch_role(unit, {'id': 'build-it', 'phase': 'build'}, 'dev-lead'))
 
     def test_legacy_task_without_guard_keeps_its_existing_behavior(self):
         self.complete()

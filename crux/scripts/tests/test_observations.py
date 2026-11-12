@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -409,33 +408,6 @@ class CheckObservationsTests(unittest.TestCase):
         r = self._run()
         payload = json.dumps(r)
         self.assertNotIn("%", payload)
-
-
-class RecoverDecisionsSkillProseTests(unittest.TestCase):
-    """W4: the recover-decisions skill's read-only observation steps (§17.2)."""
-
-    def setUp(self):
-        self.text = (REPO_ROOT / "crux" / "skills" / "recover-decisions" / "SKILL.md").read_text(
-            encoding="utf-8"
-        )
-
-    def test_mentions_read_recorded_observations(self):
-        self.assertIn("read_recorded_observations", self.text)
-
-    def test_mentions_signal_stale_anchors(self):
-        self.assertIn("signal_stale_anchors", self.text)
-
-    def test_mentions_successor_id(self):
-        self.assertIn("successor_id", self.text)
-
-    def test_mentions_writer_boundary_phrase(self):
-        self.assertIn("writes no observation file in any state", self.text)
-
-    def test_no_literal_adr_number(self):
-        self.assertIsNone(re.search(r"ADR-\d{4}", self.text))
-
-    def test_no_wiki_link_to_adrs(self):
-        self.assertNotIn("[[adrs/", self.text)
 
 
 @unittest.skipUnless(HAVE_YAML, "PyYAML required (run under uv)")

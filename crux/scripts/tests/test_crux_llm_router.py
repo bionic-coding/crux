@@ -782,13 +782,8 @@ class UnreadRoleDeletionTests(unittest.TestCase):
             with self.subTest(key=key):
                 self.assertNotIn(key, referenced)
 
-    # (d) weights: the table loses anthropic_council and no member moves
-    def test_model_weights_hold_exactly_the_three_top_roles(self):
-        from crux.council.council import MODEL_WEIGHTS
-        self.assertEqual(MODEL_WEIGHTS, {
-            'anthropic_top': 1.5, 'google_top': 1.3, 'openai_top': 1.4,
-        })
-
+    # (d) weights: no member moves (the table itself is pinned by
+    # test_council_registry_validation.ShippedRegistryTests).
     def test_every_default_council_member_keeps_its_weight(self):
         from crux.council.async_council import AsyncCouncilConfig
         from crux.council.council import _get_model_weight

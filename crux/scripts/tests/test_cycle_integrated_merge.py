@@ -67,8 +67,12 @@ class IntegratedMergeTests(fixtures.SliceBase):
         cfg, doc, parent, _ = self.merged_fixture()
         unknown = deepcopy(doc)
         next(task for task in unknown['plan']['tasks'] if task['id'] == 'integrator')['integrates'] = ['other']
+        # An undeclared child is no integrated-task-merge; a done delivered task's merge is cycle-task-merge.
+        self.assertEqual(cycle_execution.prove(cfg, unknown, parent)['commits'][-1]['kind'], 'cycle-task-merge')
+        failed = deepcopy(unknown)
+        failed['assignments'][0]['delivery']['outcome'] = 'failed'
         with self.assertRaisesRegex(cycle_execution.ExecutionError, 'execution-foreign-source'):
-            cycle_execution.prove(cfg, unknown, parent)
+            cycle_execution.prove(cfg, failed, parent)
         (self.repo / 'src/extra.py').write_text('not_a_merge = True\n')
         self.git('add', 'src/extra.py'); self.git('commit', '--amend', '-q', '--no-edit')
         with self.assertRaisesRegex(cycle_execution.ExecutionError, 'execution-foreign-source'):

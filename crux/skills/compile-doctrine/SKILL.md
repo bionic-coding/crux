@@ -109,9 +109,16 @@ uv run "${CRUX_PLUGIN_ROOT}/scripts/compile-doctrine.py" --dry-run --repo-root <
 - Exit 0 (`{"drift": false}`) — converged. Continue to step 5.
 - Still dirty (exit 1) — **non-convergence. Report it and STOP. Do NOT loop.** A regenerator that does not converge in one write is a bug in the inputs or the script; surface the residual `paths` and any stderr, and hand it to the user. Re-running the compile a second time is not the fix.
 
-### 5. Append to `<docs_dir>/log.md`
+### 5. Record the `adr` operation
 
-Doctrine is an `adrs/` projection, so it rides the `adr` log op (there is no dedicated doctrine op in the enum). Newest entry at the top:
+Doctrine is an `adrs/` projection, so it rides the `adr` log op (there is no dedicated doctrine op in the enum). Write the entry through the log writer (`<docs_dir>/AGENTS.md` §6).[^log-writer] Write the body below to a file outside the tree, then run:
+
+```
+uv run "${CRUX_PLUGIN_ROOT}/scripts/operation-log.py" append --repo-root <repo-root> \
+  --op adr --subject 'compiled <docs_dir>/adrs/doctrine/ (N files)' --date YYYY-MM-DD --body-file <path>
+```
+
+The entry it writes at the top of the current month's detail file `<docs_dir>/log/YYYY-MM.md`:
 
 ```
 ## [YYYY-MM-DD] adr | compiled <docs_dir>/adrs/doctrine/ (N files)
@@ -119,11 +126,13 @@ Doctrine is an `adrs/` projection, so it rides the `adr` log op (there is no ded
 
 Body, 1–3 lines: which files changed (or "no change — already current"), and the trigger (manual, source change, or `--dry-run` drift). Doctrine carries no timestamps in its own tree — the log entry plus git are the provenance record.
 
+A refused append keeps this skill's other writes and adds no entry: fix the cause it names, then rerun the append alone (§6). Then run the commit step of §6 over the result's `commit_paths` and `restore_paths`.
+
 ### 6. Verification
 
 - [ ] `<docs_dir>/adrs/doctrine/` contains `index.md` and `_meta.json`.
 - [ ] `compile-doctrine.py --dry-run` now exits `0`.
-- [ ] `<docs_dir>/log.md` has a new top-of-file `adr |` entry.
+- [ ] The current month's detail file `<docs_dir>/log/YYYY-MM.md` has a new `adr |` entry at the top, written by `operation-log.py append`.
 - [ ] If any domain rendered BROKEN, the user was told to run `reconcile-signoff` — compile records the state, it does not resolve it.
 
 ## Red flags — STOP and reconsider
@@ -151,7 +160,7 @@ Body, 1–3 lines: which files changed (or "no change — already current"), and
 - **Confusing compile with sign-off.** This skill regenerates the projection. Recording a reconciliation verdict is `reconcile-signoff`; the two are different acts with different write sets.
 - **Compiling without checking summaries first.** A stale summaries projection silently makes doctrine stale. Step 1 is not optional.
 - **Treating a `validation_errors` payload as drift.** Drift is fixed by re-compiling; a validation error is fixed by repairing the named input.
-- **Forgetting doctrine has no timestamps.** Provenance is the input digests in `_meta.json` plus git plus the `log.md` entry, not an in-tree date.
+- **Forgetting doctrine has no timestamps.** Provenance is the input digests in `_meta.json` plus git plus the operations log entry, not an in-tree date.
 - **Looping on non-convergence.** One compile, one confirming dry-run. A still-dirty result is surfaced, never retried.
 
 ## See also
@@ -161,3 +170,5 @@ Body, 1–3 lines: which files changed (or "no change — already current"), and
 - `check-drift` — runs every enrolled drift gate, including `compile-doctrine.py --dry-run`, in one read-only pass.
 - `derive-arch` — the sibling regenerative surface (the arch spine) and its dry-run drift check; doctrine is a standalone output, not a fifth arch spine file.
 - `query-docs` / the `librarian` — read the current belief from `adrs/doctrine/index.md`; this skill builds it, they answer from it.
+
+[^log-writer]: rule:log-entries-go-through-the-log-writer, rule:no-writer-writes-the-legacy-log-file

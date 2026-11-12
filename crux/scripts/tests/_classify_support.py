@@ -25,7 +25,7 @@ from test_evidence import execute
 
 MODEL = decisions.EXPECTED_SERVED_MODEL
 LEGACY_KINDS = ('work-sizing', 'review-routing', 'finding-disposition', 'failure-routing')
-AUTO_HOOK_KINDS = ('execution-arrangement', 'context-selection', 'handoff-completeness', 'focused-test-ranking')
+AUTO_HOOK_KINDS = ('context-selection', 'handoff-completeness', 'focused-test-ranking')
 BLOCKING = {'path': 'src/a.py', 'consequence': 'LEAK-ZQ-consequence wrong answer', 'evidence': 'LEAK-ZQ-evidence the unit check'}
 
 
@@ -137,8 +137,6 @@ class ClassifyBase(AdvanceBase):
             return reply(state, question) if callable(reply) else reply
         if _kind == 'handoff-completeness':
             route = next((route for route in question.options if route.startswith('answered:')), 'unresolved')
-        elif _kind == 'execution-arrangement':
-            route = 'developer' if 'developer' in question.options else decisions.INSUFFICIENT_INFORMATION
         else:
             route = 'omit'
         return answered(route, request_id='fixture-auto-hook')

@@ -334,7 +334,7 @@ class PlanFileTests(InvalidationBase):
         values = {'assignee': 'dev', 'result_path': 'r.md', 'commits': ['a' * 40], 'evidence': ['ev.md'], 'stage': 'implemented', 'note': 'n',
                   'replaced_commits': [{'from': 'a' * 40, 'to': 'b' * 40, 'at': 't', 'note': 'n'}],
                   'adopted_commits': [{'sha': 'a' * 40, 'source_task': 'earlier', 'pass': 1, 'attempt': None}],
-                  'fix': {'finding': 'f', 'eligibility': 'e', 'pass': 1}}
+                  'fix': {'finding': 'f', 'eligibility': 'e', 'pass': 1}, 'superseded_by': 'B'}
         self.assertEqual(set(values), set(DELIVERY_FIELDS))
         for field, value in values.items():
             with self.subTest(field=field):

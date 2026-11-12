@@ -124,7 +124,7 @@ export type CycleView = {
 // the started cycle is not among the reader's cycles.
 export type QueueItemView = {
   id: string; title: string; state: 'pending' | 'held' | 'starting' | 'started'; suggested_type: string
-  cycle: string | null; cycle_status: 'active' | 'paused' | 'completed' | 'abandoned' | 'missing' | null
+  cycle: string | null; cycle_status: 'active' | 'paused' | 'completed' | 'abandoned' | 'shortcut' | 'missing' | null
 }
 export type QueueView =
   | {ok: true; items: QueueItemView[]; authorization: {kind: 'next' | 'next-n' | 'queue'; remaining: string[]} | null}
@@ -434,7 +434,7 @@ function parseQueue(value: unknown): QueueView | null {
     return {
       id:str(i.id,QUEUE_ID),title:free(i.title),state,suggested_type:str(i.suggested_type,/^[a-z][a-z-]{1,30}$/),
       cycle:started?str(i.cycle,CYCLE_ID):i.cycle===null?null:bad(),
-      cycle_status:started?oneOf(i.cycle_status,['active','paused','completed','abandoned','missing'] as const):i.cycle_status===null?null:bad(),
+      cycle_status:started?oneOf(i.cycle_status,['active','paused','completed','abandoned','shortcut','missing'] as const):i.cycle_status===null?null:bad(),
     }
   })
   const authorization=orNull(q.authorization,v=>{
@@ -479,7 +479,7 @@ function parseCycles(doc: unknown): Parsed {
       assignments:arr(c.assignments,CYCLE_MAX_ASSIGNMENTS).map(assignment),classification_count:int(c.classification_count),
       exception:orNull(c.exception,v=>{const s=free(v);return countPoints(s)>CYCLE_MAX_EXCEPTION?bad():s}),
       title:free(c.title),type:kind,
-      status:oneOf(c.status,['active','paused','completed','abandoned']),phase:oneOf(c.phase,phases),
+      status:oneOf(c.status,['active','paused','completed','abandoned','shortcut']),phase:oneOf(c.phase,phases),
       pass,pass_limit:limit,phases,
       tasks:arr(c.tasks,500).map(v=>{const t=cycleObject(v,['id','phase','description','status']);return {id:free(t.id),phase:oneOf(t.phase,phases),description:free(t.description),status:oneOf(t.status,['pending','active','done','blocked'])}}),
       returns:arr(c.returns,20).map(v=>{const r=cycleObject(v,['pass','phase','reason']);return {pass:int(r.pass),phase:oneOf(r.phase,['plan','build','test','verify','review','release','reflect']),reason:free(r.reason)}}),
@@ -574,7 +574,7 @@ const SAFE_TASK_ID = /^[A-Za-z0-9._-]{1,60}$/
 function queueLines(q: QueueView): string[] {
   if (!q.ok) return ['queue unavailable']
   const upcoming = q.items.filter(i => i.state !== 'started')
-  const finished = q.items.filter(i => i.state === 'started' && (i.cycle_status === 'completed' || i.cycle_status === 'abandoned'))
+  const finished = q.items.filter(i => i.state === 'started' && (i.cycle_status === 'completed' || i.cycle_status === 'abandoned' || i.cycle_status === 'shortcut'))
   const shownFinished = finished.slice(-MAX_ANSWER_FINISHED)
   const a = q.authorization
   const lines = [`queue queued ${upcoming.length} authorization ${a === null ? 'none' : a.kind} remaining ${a === null || a.remaining.length === 0 ? 'none' : a.remaining.join(',')}`]

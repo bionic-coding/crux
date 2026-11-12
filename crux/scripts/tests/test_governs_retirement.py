@@ -380,8 +380,9 @@ class RetirementValidityTests(unittest.TestCase):
             t = _Tree(Path(td))
             archive = t.adrs / "archive"
             archive.mkdir()
+            # An archived ADR is Deprecated or Superseded; an archived Accepted file refuses.
             (archive / "ADR-0001-decision.md").write_text(
-                _adr_text(1, [_entry(1, "alpha")]), encoding="utf-8")
+                _adr_text(1, [_entry(1, "alpha")], status="Deprecated"), encoding="utf-8")
             t.adr(2, [_entry(2, "beta", retires=["ADR-0001/alpha"])])
             self.assertNotIn("ADR-0001/alpha",
                              {r["handle"] for r in t.records()},
@@ -404,7 +405,7 @@ class RetirementValidityTests(unittest.TestCase):
             archive = t.adrs / "archive"
             archive.mkdir()
             (archive / "ADR-0001-decision.md").write_text(
-                _adr_text(1, [_entry(1, "alpha")]), encoding="utf-8")
+                _adr_text(1, [_entry(1, "alpha")], status="Deprecated"), encoding="utf-8")
             t.adr(2, [_entry(2, "beta", retires=["ADR-0001/alhpa"])])
             with self.assertRaises(SP.GovernsValidationError) as cm:
                 t.records()
@@ -738,6 +739,142 @@ class ReconciliationReaderAgreementTests(unittest.TestCase):
             t.reconciliation("INV-0001", "ADR-0001/alpha", signed="2026-08-01")
             self.assertEqual(SP.signed_reconciliation_handles(t.adrs),
                              {"ADR-0001/alpha"})
+
+
+@unittest.skipUnless(HAVE_YAML, "PyYAML required (run under `uv run`)")
+class RetirementReaderHostGateTests(unittest.TestCase):
+    """Every reader that gives a `retires` list effect gets that effect only
+    from a host that is Accepted (or, in the migration lane, not Proposed).
+    One test per effect-giving reader; each pairs the gated leg with a positive
+    control built from the same fixture with the host Accepted. The per-reader
+    table is `bionic/cycles/CYC-0121/evidence/build/retires-readers.md`."""
+
+    def _tree(self, td: str, status: str) -> _Tree:
+        t = _Tree(Path(td))
+        t.adr(1, [_entry(1, "alpha", domain="shared")])
+        t.adr(2, [_entry(2, "beta", domain="shared", retires=["ADR-0001/alpha"])],
+              status=status)
+        return t
+
+    # summaries_projection: rule table, resolver, retired-slug map
+
+    def test_rule_table_and_resolver_keep_the_target_live_under_a_proposed_host(self):
+        with tempfile.TemporaryDirectory() as td:
+            records = self._tree(td, "Proposed").records()
+            self.assertIn("ADR-0001/alpha", SP.build_resolver(records))
+            self.assertIn("ADR-0001/alpha", SP.build_rule_table(records).split("## Retired handles")[0])
+        with tempfile.TemporaryDirectory() as td:  # positive control
+            table = SP.build_rule_table(self._tree(td, "Accepted").records())
+            self.assertNotIn("ADR-0001/alpha", table.split("## Retired handles")[0])
+
+    def test_retired_slug_map_ignores_a_proposed_displacer(self):
+        with tempfile.TemporaryDirectory() as td:
+            _, retired = SP.live_and_retired_slugs(self._tree(td, "Proposed").records())
+            self.assertEqual(retired, {})
+        with tempfile.TemporaryDirectory() as td:  # positive control
+            _, retired = SP.live_and_retired_slugs(self._tree(td, "Accepted").records())
+            self.assertEqual(retired, {"alpha": ["ADR-0002/beta"]})
+
+    # doctrine_projection: domain entries and the pairing seed read live records
+
+    def test_doctrine_entries_and_pairing_seed_keep_the_target_under_a_proposed_host(self):
+        with tempfile.TemporaryDirectory() as td:
+            t = self._tree(td, "Proposed")
+            entries = DP.build_domain_entries(t.records(), [], [], {}, None, repo_root=t.root)
+            shared = next(e for e in entries if e["domain"] == "shared")
+            self.assertEqual([r["handle"] for r in shared["rules"]], ["ADR-0001/alpha"])
+            invariants = [{"id": "INV-0001", "ratification": "ratified",
+                           "related_adrs": ["ADR-0001", "ADR-0002"],
+                           "invariant_text": "the invariant text"}]
+            self.assertEqual([p["handle"] for p in DP.candidate_pairings(t.records(), invariants)],
+                             ["ADR-0001/alpha"])
+
+    # Pinned current behaviour: a deprecated host gives no effect (the target regains standing)
+
+    def test_a_deprecated_host_no_longer_retires_its_target(self):
+        for status in ("Deprecated", "Superseded"):
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as td:
+                records = self._tree(td, status).records()
+                self.assertEqual(SP.retired_records(records), [])
+                self.assertIn("ADR-0001/alpha", [r["handle"] for r in SP.live_records(records)])
+        # Owner question, settled by no test: whether a retirement should persist once
+        # its host is deprecated (ADR-0166 body, Consequences). This pins today's reading.
+
+    # implementation_approval: raw and current constraint readers
+
+    def _git_tree(self, td: str, status: str):
+        import yaml
+        tests_dir = str(Path(__file__).resolve().parent)
+        if tests_dir not in sys.path:
+            sys.path.insert(0, tests_dir)
+        import _council_gate_support as sup
+        root = sup.init_repo(Path(td) / "repo")
+        (root / ".bionic.yml").write_text('config_version: "1"\ndocs_dir: docs\n')
+        adrs = root / "docs/adrs"; adrs.mkdir(parents=True)
+        for num, slug, extra, st in ((1, "alpha", {}, "Accepted"),
+                                     (2, "beta", {"retires": ["ADR-0001/alpha"]}, status)):
+            rule = {"handle": f"ADR-{num:04d}/{slug}", "domain": "d", "rule": f"the {slug} rule",
+                    "scope": "crux/scripts", "provenance": "authored", **extra}
+            (adrs / f"ADR-{num:04d}-decision.md").write_text(
+                "---\n" + yaml.safe_dump({"id": f"ADR-{num:04d}", "status": st, "governs": [rule]}) + "---\n")
+        sup.commit_all(root, "synthetic retirement fixture")
+        return root
+
+    def test_approval_readers_ignore_a_proposed_hosts_retirement(self):
+        import implementation_approval as approval
+        view = {"historical_handles": {}, "retired_handles": [], "amendments": {}}
+        with tempfile.TemporaryDirectory() as td:
+            root = self._git_tree(td, "Proposed")
+            approval._raw_live_constraints(root, ["ADR-0001/alpha"])  # raises when retired
+            found = approval.undeclared_governing_constraints(root, ["crux/scripts"], [], view)
+            self.assertIn("ADR-0001/alpha", found["overlapping"])
+        with tempfile.TemporaryDirectory() as td:  # positive control: Accepted host retires
+            root = self._git_tree(td, "Accepted")
+            with self.assertRaises(approval.Refused) as cm:
+                approval._raw_live_constraints(root, ["ADR-0001/alpha"])
+            self.assertIn("constraint-not-live-accepted", str(cm.exception))
+            found = approval.undeclared_governing_constraints(root, ["crux/scripts"], [], view)
+            self.assertNotIn("ADR-0001/alpha", found["overlapping"])
+            self.assertIn("ADR-0002/beta", found["overlapping"])
+
+    # implementation_migration: the activation facts builder
+
+    def _migration_facts(self, status: str) -> dict:
+        tests_dir = str(Path(__file__).resolve().parent)
+        if tests_dir not in sys.path:
+            sys.path.insert(0, tests_dir)
+        import test_implementation_authority as fixtures
+        import implementation_migration as migration
+        import _council_gate_support as sup
+        fixture = fixtures.PublicationProof(); fixture.setUp(); self.addCleanup(fixture.doCleanups)
+        fixture.close()
+        source = fixture.root / "docs/adrs/ADR-0110-source.md"
+        source.write_text(source.read_text().replace("status: Accepted", f"status: {status}"))
+        sup.commit_all(fixture.root, f"synthetic {status} selected source host")
+        return migration._validated_inputs(fixture.root, fixture.proof)
+
+    def test_migration_facts_keep_a_proposed_hosts_edge_today(self):
+        # A selected source whose host ADR is Proposed retires nothing, as the approval
+        # readers above hold: its retires yield no retired handle and no historical
+        # displacement fact. The positive control below keeps both for an Accepted host.
+        facts = self._migration_facts("Proposed")
+        self.assertEqual(facts["retired_handles"], [])
+        self.assertEqual(facts["historical_displacements"], [])
+
+    def test_migration_facts_positive_control_accepted_host_retires(self):
+        facts = self._migration_facts("Accepted")
+        self.assertEqual(facts["retired_handles"], ["ADR-0109/old-rotation"])
+        self.assertEqual([f["target_handle"] for f in facts["historical_displacements"]],
+                         ["ADR-0109/old-rotation"])
+
+    def test_migration_facts_keep_a_deprecated_hosts_edge_today(self):
+        # A once-Accepted host keeps its retirement edge after it is Deprecated or
+        # Superseded, in the activation lane as in the summaries lane
+        # (rule:retirement-persists-after-its-host-leaves-accepted).
+        for status in ("Deprecated", "Superseded"):
+            with self.subTest(status=status):
+                self.assertEqual(self._migration_facts(status)["retired_handles"],
+                                 ["ADR-0109/old-rotation"])
 
 
 if __name__ == "__main__":  # pragma: no cover

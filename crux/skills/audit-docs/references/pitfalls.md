@@ -21,7 +21,7 @@ mistake catalog.
 
 ## Common mistakes
 
-- **Conflating `docs/log.md` (operations) with `docs/journal/YYYY-MM.md` (work narrative)**: Different files, different rules, different headings. The audit checks both — don't apply log-format rules to journal entries or vice versa.
+- **Conflating the operations log `docs/log/YYYY-MM.md` (operations) with `docs/journal/YYYY-MM.md` (work narrative)**: Different files, different rules, different headings. The audit checks both — don't apply log-format rules to journal entries or vice versa.
 - **Counting hidden files**: `find docs -name '*.md'` is fine; `find docs -type f` picks up `.DS_Store` and other junk. Use `*.md`.
 - **Treating `previous_captures:` entries as raw orphans**: they're referenced. The audit must check both `raw_path` and `previous_captures`.
 - **Forgetting that `Proposed → Deprecated` is a legal but log-worthy transition**: an ADR with status=Deprecated and accepted_date=null is the "abandoned proposal" case, NOT a broken state. CHK-ADR-5 must allow this.

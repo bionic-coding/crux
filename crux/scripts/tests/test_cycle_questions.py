@@ -18,7 +18,6 @@ PINNED = {
     'review-routing': ('2', '6f8ead535b4e2fc9813d86d54461192121b939e0e37552af6a92946ba9ca440e'),
     'finding-disposition': ('2', 'be339d86ec3da1ad3321972c98fc6be8ca62fdd07c84d368712c92314bd4f2e6'),
     'failure-routing': ('2', '93a6ea10592ccdabdba247e8e10fd8f8cf5b633655b6845200fce669701c5bd5'),
-    'execution-arrangement': ('1', '8c0d191a9077d85308008c451bfe7fb68ee063b7527746b615ff895bfc7aee9c'),
     'context-selection': ('1', '7461353c5808de6a19866cd3d5056022fb41e26d11cac70c4012aed39a95f788'),
     'handoff-completeness': ('1', 'a2363f83cee8b4cdebdaedf556bdd85f6bf133352a5bc1642771812b26453079'),
     'review-finding-grouping': ('1', 'b862b3663a5b884f58cc21ed5aa5709d817d5a80337b5b49e7f29aef2808ba42'),

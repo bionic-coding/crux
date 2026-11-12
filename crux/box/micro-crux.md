@@ -306,7 +306,12 @@ are `decision | implementation | bug | learning | blocker | refactor | meeting
 code fences. An optional single `Friction:` line states an actual difficulty
 and counts toward the body budget. Preserve earlier entries.
 
-The operation log is `D/log.md`, newest entries first, with headings:
+The operation log is one detail file per month, `D/log/YYYY-MM.md`. Add each
+entry at the top of the file for the current local month, whatever date its
+heading carries; create a missing file with the header `# Operations log:
+YYYY-MM`, a blank line, and `_Append-only. Latest write first._`. Where the
+crux plugin is installed, its `operation-log.py append` writes the entry. Do
+not write `D/log.md`; crux splits an older one by month. Entry headings:
 
 ```text
 ## [YYYY-MM-DD] <op> | <subject>
@@ -1086,19 +1091,61 @@ Apply the populate gate above when objectives are unavailable. The gardener's tu
 
 Source extract: `crux/templates/AGENTS.md.tmpl`, section `6`.
 
-Append-only, newest entries at the **top**. Each entry uses the exact prefix:
+The operations log is the set of monthly detail files `docs/log/YYYY-MM.md`, one file per month.[^oplog-files] Each detail file starts with this header and then holds its entries, the latest write at the top:[^oplog-latest-first]
+
+```
+# Operations log: YYYY-MM
+
+_Append-only. Latest write first._
+```
+
+Each entry starts with the exact heading prefix:
 
 ```
 ## [YYYY-MM-DD] <op> | <subject>
 ```
 
+**Routing by write time.** The writer adds each entry to the detail file of the month that holds its host's local date, whatever date the heading carries. The choice of file changes no byte of the entry.[^oplog-local-month] A release entry headed with its publication date in another zone, or an entry recorded late, therefore sits in the month it was written. Heading dates inside one file need not be in order, and no check orders them.
+
+**Writing an entry.** Every entry goes through the one log writer, and no writer creates `docs/log.md` or adds an entry to it.[^oplog-writer] A skill writes its own records first, writes the entry's body lines to a file outside the tree, and then runs:
+
+```
+uv run "${CRUX_PLUGIN_ROOT}/scripts/operation-log.py" append --repo-root <repo-root> \
+  --op <op> --subject '<subject>' --date <YYYY-MM-DD> --body-file <path>
+```
+
+`--body-stdin` reads the body from standard input instead. The command validates the entry against the current-writer regex below. It completes the first split and merges any stray before it adds the entry, and it adds no entry that a detail file already holds.[^oplog-repair-first] It prints one JSON result: `status` (`written`, `recorded` or `refused`), `file`, `changed_paths`, `commit_paths`, `restore_paths` and `left_strays`. It exits 0 on `written` or `recorded`, 1 on `refused`, and 2 on an environment fault.
+
+**A refused append.** An append that refuses leaves the skill's own writes in place and adds no entry. It refuses for one of three causes:
+
+- The skill's own body or heading fails validation: an unfenced `## ` body line, a fence left open, a subject that holds a pipe or a newline, an op outside the enum, or a heading date that is not a real calendar date. Fix the body or the heading.
+- A tree fault that names its own fix, such as a malformed stray heading or a destination whose bytes outside its entries leave a fence open. Apply the named fix.
+- Another writer changed a planned file or the destination during the write. No fix is needed.
+
+Then rerun the append step alone. It writes the entry once, and a further rerun reports `recorded`.
+
+**The commit step.** Run it after every append, whatever the status, because a refused append can still have repaired the log:
+
+1. When `restore_paths` is not empty, run `git restore --staged --quiet -- <restore_paths>`. It resets each path's index entry to HEAD and changes no work-tree file.
+2. Combine the skill's own paths with `commit_paths`. The skill's own paths are those its own rule commits; a skill that commits nothing of its own, and any skill after a refused append, adds none. When the combined list is not empty, run `git add -- <paths>` and then `git commit --only -- <paths>`. When it is empty, the step ends after the restore.
+
+Known limit: the commit step commits every log path that `git status` lists. That includes a file that `operation-log.py check` reports as undefined and a half-finished hand edit of a detail file, as the whole-file commit of `docs/log.md` did.
+
+**The legacy file and strays.** A tree written before this layout holds one `docs/log.md`. The first log write, or `operation-log.py repair`, splits it into detail files by heading month, changes no entry's bytes, and records completion last, in `docs/log/.split-complete.json`.[^oplog-split] An older plugin keeps writing `docs/log.md` after the split. That file is a stray: the next log write or repair moves its new entries, as one block, to the top of the current month's detail file and removes it.[^oplog-stray] Resolve a git modify/delete conflict on `docs/log.md` by keeping the branch's whole file, which the stray merge places, and never by taking the deletion. `operation-log.py repair --dry-run` prints the plan and the split's proof and writes nothing.
+
+**Names under `docs/log/`.** These names are defined, and no other. Three stay: the detail files `YYYY-MM.md`, the summary `summary.md` and the completion record `.split-complete.json`. A fourth stays too: the kept file `.kept-<sha256>.txt` holds, once, the bytes that came before the first entry of the legacy log or a stray, such as its old header. The split and the stray merge write it only when those bytes are not empty. Four names are transient, and a log write or repair creates and removes each one: the staged legacy file `.legacy-<sha256>.md`, the staged stray `.stray-<sha256>.md`, the split transaction file `.split-<sha256>.json` and the writer temporary `.write-journal-<hex>`. In the kept, staged legacy and staged stray names, `<sha256>` is the digest of the file's own bytes; in a transaction file's name it is the digest of the staged legacy file. A staged or transaction file that remains marks an interrupted split or merge, which the next log write or `operation-log.py repair` completes. A remaining writer temporary is reported as a warning.
+
+**The summary.** `docs/log/summary.md` holds one section per settled month, newest first. A month M settles on the third day of month M+1 by the generating host's local date, and no section is written before its month settles.[^oplog-summary] Each section is a `## YYYY-MM` heading and a GENERATED region: the detail file's path and sha256, the entry count, the first and last heading dates, the count of each op, and the ADR ids that `adr` entries name. A rollup region above the sections tabulates them. `generate-log-summary.py` writes the regions, and its `--dry-run` is the summary gate. A settled month with no section is pending, not drift; `cleanup-campsite` runs the catch-up. Text after a month's region and before the next month heading is that month's narrative, which the historian writes on request and the regenerator keeps byte for byte.
+
+**Checks.** `uv run "${CRUX_PLUGIN_ROOT}/scripts/operation-log.py" check --repo-root <repo-root>` runs the audit checks CHK-LOG-1 to CHK-LOG-7, which `audit-docs` reports.
+
 Op enum (exhaustive): `init | extract | arch | ingest | refresh | audit | cleanup-campsite | lint | adr | brief | journal | promptbook | invariant | observation | recover | query | schema | skill | origin | garden | adr-review | backfill | release`. (Long-lived trees may carry the legacy `cleanup` op spelling — what `cleanup-campsite` was formerly called — in historical log entries; `audit-docs` CHK-LOG-1 accepts both forms for backward compatibility on append-only history.)
 
 #### Op-enum regex (canonical — single source of truth)
 
-This block is the **single source of truth** for the `docs/log.md` op-enum regex. `audit-docs` (CHK-LOG-1, both the inline and Explore-agent paths) MUST reference this block by name rather than restating the pattern.
+This block is the **single source of truth** for the operations-log op-enum regex. `audit-docs` (CHK-LOG-1, both the inline and Explore-agent paths) MUST reference this block by name rather than restating the pattern.
 
-**A log op and a journal category are two enums.** `docs/log.md` records a skill *operation*, enumerated above. `docs/journal/YYYY-MM.md` records a work *category*, enumerated in §4. The two lists are independent, and one name can sit in both — `release` does. Adding a name to one enum leaves the other unchanged.
+**A log op and a journal category are two enums.** The operations log records a skill *operation*, enumerated above. `docs/journal/YYYY-MM.md` records a work *category*, enumerated in §4. The two lists are independent, and one name can sit in both — `release` does. Adding a name to one enum leaves the other unchanged.
 
 - **Current-writer regex** — what every skill MUST emit going forward. `cleanup-campsite` only; the legacy `cleanup` form is NOT permitted in new entries:
 
@@ -1138,9 +1185,9 @@ This block is the **single source of truth** for the `docs/log.md` op-enum regex
 - `backfill` — a governs backfill batch sign-off ran, initial or correction. Body: the batch id and the affected ADR ids, carried as `ADRs: <sorted ids>` so the receipts↔log↔journal cross-validation joins all three surfaces by batch id and date. One entry per batch; written only by the backfill sign-off skill. Heading: `## [<signed-date>] backfill | <batch-id>` — the subject IS the batch id. Body carries `ADRs: <sorted ids>`. The paired journal hook is category `review`, subject `backfill sign-off <batch-id>`, in the signed month.
 - `release` — a version was published to a release target. Body: the publication time carrying an explicit timezone, the version, the target repo, and the published revision. The heading date is the publication date in that same timezone, so the heading and the instant below it never name different days. A release published at 05:08 UTC therefore reads as the previous day in Mountain time, which is the day the person who ran it experienced. Name the zone rather than an offset, so a winter release reads MST and a summer one MDT. One entry per target, so a version that reaches the private beta and then the public repo carries two entries. The beta entry is written first, because a version that fails beta never reaches the public repo. A record written after the fact also names when it was recorded, so a reader can tell the act from the note of it. Written by whoever runs the release.
 
-Body under the heading: 1–5 lines. List specific paths touched. Keep terse — `log.md` is for grep, not reading.
+Body under the heading: 1–5 lines. List specific paths touched. Keep terse — the operations log is for grep, not reading.
 
-`grep "^## \[" docs/log.md` returns the chronology. `grep -oE "^## \[[^]]+\] \w+" docs/log.md | sort | uniq -c` returns per-op counts.
+`grep -h "^## \[" docs/log/[0-9]*.md` lists every entry heading, each month's entries in write order. `grep -ohE "^## \[[^]]+\] \w+" docs/log/[0-9]*.md | sort | uniq -c` returns per-op counts.
 
 ### Journal contract
 
@@ -1153,7 +1200,7 @@ Source extract: `crux/templates/AGENTS.md.tmpl`, section `journal (`.
 - **Body lines never begin with `## [`** — that prefix is reserved for entry headings. Any content that would start a body line with `## [` must be rewritten or dropped; otherwise it is indistinguishable from a real heading and can poison the retrospective window anchor.
 - **A composed body never leaves a fence open** — judged by the shared fence subset in `crux/scripts/md_fences.py` over the composed body alone, not the body concatenated with existing file content. A fence line counts toward the 1–10 body budget, the same treatment the `Friction:` line already gets.
 - **A body line may optionally begin `Friction:`, naming a specific friction in that unit of work** — one line, at most one per entry, sitting before the `Refs:` line when both are present, and counting as a body line toward the 1–10 budget; a line whose remainder is empty, including a bare `Friction: none`, is a contract violation, and the remedy is to omit the line entirely. See `rule:journal-friction-line`.
-- Distinct from `docs/log.md`: the journal is *narrative work performed*; `log.md` is *skill operations*.
+- Distinct from the operations log under `docs/log/`: the journal is *narrative work performed*; the operations log is *skill operations*.
 
 ### Brief lifecycle and authorship
 
@@ -1256,14 +1303,14 @@ cleanup:                           # OPTIONAL block. Cleanup falls back to defau
   stuck_promptbook_days: 14        # Used by CLN-PB-1 — flag promptbooks whose current_run snapshot mtime hasn't moved.
   audit_stale_days: 14             # Cleanup emits a P1 "run audit-docs" suggestion if audit hasn't run within this window.
   forged_skill_stale_days: 30      # no authored/revised/used/evaluated event within this window (timestamp comparison). Used by CLN-FG-1 and CLN-FG-2.
-  retro_due_runs: 5                # Used by CLN-RETRO-1 — flag when ≥ this many books archived since the last 'Retrospective:' journal entry.
+  retro_due_runs: 5                # Used by CLN-RETRO-1 — flag when ≥ this many cycles closed (completed, abandoned or shortcut) since the last 'Retrospective:' journal entry.
   adr_review_due_days: 7           # CLN-ADR-5 may suggest migrate-adrs when historical reviews are older than this; no pass is required. Absent falls back to 7.
 ```
 <!-- END EXAMPLE: manifest-contract -->
 
 `journal.friction_line_from` is prospective and per-tree, on the same cohort model `adr.spec_rule_from` already establishes. Absent or `null` leaves every friction reader `unmeasurable` — there is no boundary before which a zero count could mean anything. Set to an ISO date, it marks the boundary at or after which a `Friction:` line is expected wherever `log-work` is the writer; a reader counts only entries dated at or after it, and its `basis` says the window was truncated when the asked-about window starts earlier. The recorded date is not earlier than the date the conforming writer was in use in that tree — an earlier date reintroduces the ambiguity the boundary exists to remove. A tree `init-docs` creates records the initialization date here rather than `null`, so a fresh tree measures friction from its first conforming entry; a `--force` re-bootstrap carries the existing tree's recorded date forward rather than resetting it forward.
 
-`schema_version` here governs the **`docs/` tree layout only** — it does NOT cover the plugin's SKILL.md frontmatter contract. That contract has its own `schema_version` under `plugin.json` (see §7.A). The two namespaces are intentionally separate: `docs/manifest.yml` schema bumps when this directory tree's layout changes; `plugin.json` schema bumps when SKILL.md frontmatter conventions change. A **third** version axis, the per-file **`format_version`** on promptbook/run documents (see §3), is distinct from both: it governs the intra-file structure of one promptbook/run YAML document (not a directory-tree layout and not the SKILL.md contract), so changing a promptbook/run file format bumps `format_version`, **never** this `schema_version`.
+`schema_version` here governs the **`docs/` tree layout only** — it does NOT cover the plugin's SKILL.md frontmatter contract. That contract has its own `schema_version` under `plugin.json` (see §7.A). The two namespaces are intentionally separate: `docs/manifest.yml` schema bumps when this directory tree's layout changes, with the one exception the version history names; `plugin.json` schema bumps when SKILL.md frontmatter conventions change. A **third** version axis, the per-file **`format_version`** on promptbook/run documents (see §3), is distinct from both: it governs the intra-file structure of one promptbook/run YAML document (not a directory-tree layout and not the SKILL.md contract), so changing a promptbook/run file format bumps `format_version`, **never** this `schema_version`.
 
 The installed plugin refuses to operate on a `docs/` tree whose `schema_version` is outside its supported range.
 
@@ -1273,6 +1320,8 @@ The installed plugin refuses to operate on a `docs/` tree whose `schema_version`
 - `"3"` — **BREAKING — the first non-additive layout bump; it ends the additive-only precedent the `"1"`/`"2"` rows established** (do not read the rows above as asserting all bumps are additive). Retires the research-local `docs/research/new/` drop folder in favor of the cross-concern top-level `docs/inbox/` staging area processed by `process-inbox`. A v2 tree has `docs/research/new/` and no `docs/inbox/`; recognized now only as a needs-migration state. **Historical upgrade path on pinned public `v3.23.2`:** its `audit-docs --migrate` creates `docs/inbox/`, relocates any in-flight `docs/research/new/*` (incl. a pending `urls.md`) into it, removes the emptied `docs/research/new/`, and rewrites `schema_version` to `"3"`.
 - `"4"` — BREAKING. Adds the seventh concern, **invariants** (§15): a ledger under `docs/invariants/` + a peer executable check suite at `<tree>/invariants/checks/` reconciled via the `.bionic.yml`-rooted manifest. Breaking because the peer suite lives *outside* the docs tree and an older plugin cannot gracefully degrade (ignoring an unreconciled suite risks treating durable checks as disposable). Superseded by `"5"`; recognized now only as a needs-migration state (rung 4→5). **Historical upgrade path on pinned public `v3.23.2`:** its `audit-docs --migrate` (rung 3→4) bumps to `"4"`, **opt-in-enables** `invariants` (only when the `bionic/` layout is present or you confirm — an existing repo with no `bionic/` degrades gracefully), and creates the empty ledger + suite + reconciliation surfaces (idempotent, fail-closed).
 - `"5"` — **current. BREAKING.** Unifies the whole tree under `bionic/` and retires `docs/` as a layout name. Concerns sit directly under `bionic/`. The invariants concern becomes one folder — `<docs_dir>/invariants/`, with `checks/` and `reconciliation.yml` inside. The default `docs_dir` becomes `bionic`, and `init-docs` writes an explicit `.bionic.yml` for every tree it creates. A tree at a custom `docs_dir` is still a valid `"5"` tree. The upgraded plugin operates only on `"5"` (the supported-range predicate is the single-value check `schema_version == "5"`) and recognizes `"4"`/`"3"`/`"2"` solely as needs-migration states. **Historical upgrade path on pinned public `v3.23.2`:** its `audit-docs --migrate` (rung 4→5, implemented there by `crux/scripts/migrate-tree.py`) folds the check suite into `invariants/checks/`, merges the tree entry-by-entry into `bionic/` with `manifest.yml` moved last, merges (never overwrites) the config, and sets `schema_version: "5"` (idempotent, fail-closed, resumable). Existing `docs/` trees keep resolving via bare-directory discovery with zero config and no migration.
+
+**The operations-log split keeps `"5"`.** Moving the operations log from `docs/log.md` to the monthly detail files under `docs/log/` (§6) changes the tree layout, and it is the one layout change that bumps no `schema_version`.[^oplog-schema] The log writer splits a legacy `log.md` on its first write and every reader reads both forms, so no tree needs a migration step. A bump would add a manifest write, and so a crash point, to that split, and it would make an older `audit-docs` report a split tree as broken.
 
 The plugin's SKILL.md frontmatter contract (see §7.A) was revised separately, bumping `plugin.json` `schema_version` from `"1"` to `"2"` — `docs/manifest.yml` `schema_version` did not move because no `docs/` layout changed. Likewise the `cleanup-campsite` additions (the log op, the regenerated `docs/whats_next.md`, the optional `cleanup:` block above) were **additive** — older readers gracefully degrade (the new op shows as a `CHK-LOG-*` warning at worst; absent `whats_next.md` is the v1 default; absent `cleanup:` block falls back to defaults) — and did not bump this `schema_version`. The promptbook/run Markdown→YAML format change is a `format_version` change, NOT a tree-layout bump: the files still live at `promptbooks/active/`, `promptbooks/runs/<id>-<slug>/`, `promptbooks/archive/` — only their extension and intra-file shape changed, and legacy `.md` files coexist with new `.yaml` ones.
 
@@ -1320,7 +1369,7 @@ The `handle` value above is illustrative shape only — a live handle is `ADR-NN
 
 `anchor` is a verbatim span — a string, or a list of strings — quoted from the ADR body and verified by **space-folded containment**: collapse each whitespace run to a single space and strip the ends, on both the anchor and the body, before comparison; a list anchor requires every element to contain independently (AND, never OR), and a repeated span contains by membership. `anchor` is **required** on entries whose ADR number is below the tree's governs cohort boundary (the backfill cohort — the extraction binds a span of a body frozen before the contract existed) and **expected absent** on prospective entries, whose mutable body offers no verification target. An empty anchor is a validation error in every shape: an empty or whitespace-only string, an empty list, or an empty or whitespace-only list element.
 
-`retires` is an OPTIONAL list of rule handles this entry displaces. A retired handle leaves the rule table's live rows, leaves the resolver, and leaves the doctrine index, and appears instead in the rule table's `## Retired handles` roster with its rule text intact — the record survives the retirement. Retirement is one-way and clause-scoped: it never mutates the retired entry's own ADR, whose frontmatter and body stay untouched. It is a state rather than an event, so two ADRs retiring one handle, and one ADR naming a handle twice, are both idempotent. Five refusals are fail-closed, because a silent one would make the retirement unauditable. An entry may not retire a handle from its own ADR's `governs` block. It may not retire a handle that any signed record in `docs/adrs/doctrine/reconciliations.yml` names, so a retirement cannot orphan a human signature. A `retires` target that has never been a live handle fails the projection as a typo. That resolution checks the live handles, the retired roster, the archived ADR tier, and the removed roster. The archived tier is in that history so a settled retirement survives its target's ADR being archived. A handle appearing in both the removed lane and the retired lane fails. A sub-field outside the seven named above fails, so a mistyped `retires` is refused rather than dropped. The lane boundary: `removed` is a human withdrawing an admission through the receipts manifest and presupposes the handle has left its ADR's frontmatter, while `retired` is a later decision displacing a rule that stays on the record. `retires` sits deliberately OUTSIDE the six-field `content_digest` — a retirement is a relation between handles, not the content of the rule beside it — so every signed receipt and every signed reconciliation stays valid across one.
+`retires` is an OPTIONAL list of rule handles this entry displaces. A retired handle leaves the rule table's live rows, leaves the resolver, and leaves the doctrine index, and appears instead in the rule table's `## Retired handles` roster with its rule text intact — the record survives the retirement. Retirement is one-way and clause-scoped: it never mutates the retired entry's own ADR, whose frontmatter and body stay untouched. It is a state rather than an event, so two ADRs retiring one handle, and one ADR naming a handle twice, are both idempotent. Five refusals are fail-closed, because a silent one would make the retirement unauditable. An entry may not retire a handle from its own ADR's `governs` block. It may not retire a handle that any signed record in `docs/adrs/doctrine/reconciliations.yml` names, so a retirement cannot orphan a human signature. A `retires` target that has never been a live handle fails the projection as a typo. That resolution checks the live handles, the retired roster, the archived ADR tier, and the removed roster. The archived tier is in that history so a settled retirement survives its target's ADR being archived. A handle appearing in both the removed lane and the retired lane fails. A sub-field outside the seven named above fails, so a mistyped `retires` is refused rather than dropped. The lane boundary: `removed` is a human withdrawing an admission through the receipts manifest and presupposes the handle has left its ADR's frontmatter, while `retired` is a later decision displacing a rule that stays on the record. `retires` sits deliberately OUTSIDE the six-field `content_digest` — a retirement is a relation between handles, not the content of the rule beside it — so every signed receipt and every signed reconciliation stays valid across one. A retirement persists after its host ADR is deprecated or superseded: `deprecate` and `supersede` change lifecycle fields only, and the archived host's `retires` list keeps the retirement in force.[^retirement-persists] A host that was never Accepted gives its `retires` list no effect. Two repairs apply when the projection refuses an archived host. A lost acceptance record (`adrs/acceptances/ADR-NNNN.json`) is restored at its path from the commit that wrote it. A `retires` list or `accepted_date` in the file that disagrees with the record's `accepted_text` is settled by the owning writer, which restores the accepted content from `accepted_text`. That is a restoration, not a rewrite. A published historical replacement that a later retirement displaced keeps its recorded text, and every reader resolves it to the live Accepted rules that displaced it, directly or through later retirements.[^replacement-read-through]
 
 `provenance` reuses the invariants concern's enum unchanged (§15.2: `authored | recovered | reconstructed`) — this table mints no second enum. The decided-vs-observed authority a `governs` entry carries is derived from `provenance` (`authored` → decided; `recovered` or `reconstructed` → observed), never a separate stored field.
 
@@ -1492,7 +1541,7 @@ Cross-field and lifecycle requirements in the guide apply in addition to schemas
 ### Crux single-undertaking cycle
 
 Source: `crux/schemas/cycle.schema.json`  
-Source SHA-256: `f8839a569481bc650484d021b3fe542652f15b7c42722f2d4b1913f3c0e70bc5`
+Source SHA-256: `ad409e38a518a7da02a174549056aedfd359fa79479102f8d0182164f50612ab`
 
 <!-- BEGIN EXAMPLE: cycle.schema.json -->
 ```json
@@ -1562,7 +1611,8 @@ Source SHA-256: `f8839a569481bc650484d021b3fe542652f15b7c42722f2d4b1913f3c0e70bc
         "active",
         "paused",
         "completed",
-        "abandoned"
+        "abandoned",
+        "shortcut"
       ]
     },
     "phase": {
@@ -1729,13 +1779,32 @@ Source SHA-256: `f8839a569481bc650484d021b3fe542652f15b7c42722f2d4b1913f3c0e70bc
                   "minLength": 1
                 }
               },
+              "stream": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+                "description": "The id of a declared independent plan stream; execution proof then tests this task's own edited paths and own commits against that stream's paths."
+              },
+              "adr_dependencies": {
+                "type": "array",
+                "description": "Names of ADR decisions recorded in this cycle that this task depends on; an unaccepted or unrecorded name blocks the task.",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
               "status": {
                 "enum": [
                   "pending",
                   "active",
                   "done",
-                  "blocked"
+                  "blocked",
+                  "superseded"
                 ]
+              },
+              "superseded_by": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The id of the plan task that replaces this task; present exactly when status is superseded. A dependency on this task is satisfied once the superseder is done."
               },
               "expected_evidence": {
                 "type": "array",
@@ -2139,7 +2208,8 @@ Source SHA-256: `f8839a569481bc650484d021b3fe542652f15b7c42722f2d4b1913f3c0e70bc
               "active",
               "paused",
               "completed",
-              "abandoned"
+              "abandoned",
+              "shortcut"
             ]
           },
           "revision": {
@@ -4843,28 +4913,28 @@ No timestamp, machine path, or uncommitted-history claim enters the guide.
     "crux/schemas/cycle-council-attempt.schema.json": "0975ab5ecd770ddaba56fec39f16ca4a23f134c62d2d837a3ecd60860fed9529",
     "crux/schemas/cycle-council.schema.json": "d33e937145fc9a81ec9fcd12fa568ed26e9a58eaa779ba2d7804d527babf4536",
     "crux/schemas/cycle-queue.schema.json": "4bf616bedf1cd3b58071cbb8b3ca55f7de2ae774c2a67d6c029fdd8de3cb35eb",
-    "crux/schemas/cycle.schema.json": "f8839a569481bc650484d021b3fe542652f15b7c42722f2d4b1913f3c0e70bc5",
+    "crux/schemas/cycle.schema.json": "ad409e38a518a7da02a174549056aedfd359fa79479102f8d0182164f50612ab",
     "crux/schemas/test-evidence.schema.json": "0820d002a5ed0676186d3fb534e2c47bdb281b36e798c1446f4d59b243d31e3b",
-    "crux/scripts/adr_provenance.py": "6e9e9b1f7ca1188b57ee19110bdc51fb1d7f8758d2a001315b2a56fa5fcc829f",
+    "crux/scripts/adr_provenance.py": "5febb88dc5ce1f1c23295a0596acda2a3897bc266e11e64a57b9ef25348e27cb",
     "crux/scripts/authoring_scope.py": "2970ad31854348b156c82c88804fd7055c93a172b4281dd2e5663a24f52261e2",
     "crux/scripts/bionic_config.py": "561f120be08ab97b129bf0c89684f6fd95e7d0d9731b45fe65301004d9fa679f",
     "crux/scripts/council_policy.py": "c630dc4c968b76e505f757ba9427552aef699cd7068524d0012a25130561efbd",
-    "crux/scripts/cycle_council.py": "7f1ecec2680759bf5f7b88f3441e47dc0b68118596036f4381638a090e54731e",
-    "crux/scripts/cycle_queue.py": "994450eaca769f9b6338b115082a703a1a49b400f78814bf8651de69685ceb5f",
-    "crux/scripts/cycle_workflow.py": "c4a4540c565c8b94127928857cd3098e0757e10385a2d9609f4becaff87b85d0",
-    "crux/scripts/decision_policy.py": "7a42894ff3c5129a72fb2208017d93e546d5b990acbb90d89bc53332687e0cc0",
+    "crux/scripts/cycle_council.py": "923b538df47adb0a29fa14ec6654deada2bc77d7ff4e85ab6cbb2a1b632a261d",
+    "crux/scripts/cycle_queue.py": "9eb83bbcc256c35b8f8bc1d9fab8ac5bcab3e47da3f7dae5127f6218426252e2",
+    "crux/scripts/cycle_workflow.py": "16f59f6cd63dc1a7fb676746d9b81d97c8c99f20cc7d61212a7da80786b82e0c",
+    "crux/scripts/decision_policy.py": "c19cede90012bfde4d07fde79e68337e3ab5121501666176c6116c57272a4fd2",
     "crux/scripts/generate-micro-crux.py": "e412bbb790192035c83b44f39059ce41a3e9632d7f18565c70bb1696d4fdb7e5",
-    "crux/scripts/test_evidence.py": "f89b329670012558b972ef1cc0abcbf49b567bac39560f48759b69d6b7f0263e",
-    "crux/skills/cycle/references/review.md": "c80e861ca64b15a92d341a8aa28568b50178a4f2a5c6ea8b9697a197d36499e6",
-    "crux/skills/cycle/references/testing.md": "2e629de23cdae676c6dad25c856d86727c6999138313753f623fc1426c579d64",
-    "crux/skills/ingest-research/SKILL.md": "a280b046f5db82c66b822beebda0db2485888a93871cf7370059a223620a0b75",
-    "crux/skills/refresh-research-sources/SKILL.md": "eb729469a4a4b425c671424540aa598e5ee4f4a5e8ea4afb38c1939651a595dc",
-    "crux/skills/transition-brief/SKILL.md": "779a142c98c957c7ccdfeb341561c8c400358d88773bcf18d644ed3883551002",
+    "crux/scripts/test_evidence.py": "c00c9c6e5c4e55da2b451a6cfa9e1f958b6dce531317b6dbe599a2de21b4f941",
+    "crux/skills/cycle/references/review.md": "2811f884887711f871f0ec6ca1e9cf209e1f9ad249114c26212ef6ed8bbbce53",
+    "crux/skills/cycle/references/testing.md": "718ab02a75e0cb416925d48ab984785707df8b7b7b43d0198fd2c2ed91a1ccf3",
+    "crux/skills/ingest-research/SKILL.md": "44f440403eba4d298f396d1a9523fbac6d420272c22ff44120b141d51949c5ed",
+    "crux/skills/refresh-research-sources/SKILL.md": "778f3dc8df5fd5c30a0c67388c8cfabf6c3f33742c4d0306ea7cc00c04529e8c",
+    "crux/skills/transition-brief/SKILL.md": "8fb48887ae3118e9226fad3ee61bde00757a7d27460d8f5dea6325311c645594",
     "crux/templates/ADR-template.md": "2ed32d5ec415cdd4e63f7d92f5c041196a712ff310e4eef4a66cc969b95747c5",
-    "crux/templates/AGENTS.md.tmpl": "e9c5a71ed7a2f683ff15a11c8a6f15cf0f60e32b08dc94b8c4de1845f97ab636",
+    "crux/templates/AGENTS.md.tmpl": "3a52a6debcf93ffee15b10cdca07541f1c37f74a10087efce506f28a81808e36",
     "crux/templates/BRIEF-template.md": "25b0ddcfbeeaedac93f6fd7eaeee13a2cd6aa6485b4d76b7c9a689571bd5cbe3",
     "crux/templates/manifest.yml.tmpl": "6144ab96dbec0d319bc4d3608abe909f37ac8139c0211bf7e0cdef7acc98ae4e",
-    "crux/templates/micro-crux.md.tmpl": "803add3840e7302c2b813f41508e464b017feee4fa3a07a22aff9b844856346c",
+    "crux/templates/micro-crux.md.tmpl": "268d06781de11073d852dc9dc574ca91788e1e0dd45abcf6a69e12132e6b896b",
     "crux/templates/objectives.md.tmpl": "68465558af5fdc117ad5b18bed32006f04956d7f33aafabe40b9e9b06cc778b7"
   },
   "tree_schema_version": "5"

@@ -48,6 +48,16 @@ Usage:
 Exit: 0 published / completed / no-op · 1 findings (JSON on stdout) ·
 2 environment (stderr). `--dry-run` renders every planned record id, path and
 derived retirement and writes nothing.
+
+**The operations log.** The `observation` op goes to the detail file of the month
+holding the host's local date, through `operation_log` in one order: validate the
+entry and plan the repair (preflight) and repair before the first cell writes, then the
+cells, then `insert_entry` at cell 12. A run refuses in the preflight, with every cell
+unwritten, when a stray's heading is malformed or the destination's outside bytes leave a
+fence open. When `insert_entry` refuses after the cells ran, a rerun adds only the entry.
+A stray that appears after the repair is left and named in `left_strays`. The payload
+reports `changed_paths`, `commit_paths`, `restore_paths` and `left_strays` for the
+caller's commit step.
 """
 
 from __future__ import annotations
@@ -66,6 +76,7 @@ import doctrine_projection as dp         # noqa: E402
 import observation_evidence as oe        # noqa: E402
 import summaries_projection as sp        # noqa: E402
 import survey_sheet as ss                # noqa: E402
+import operation_log as ol               # noqa: E402
 from untrusted import MESSAGE_LIMIT, redact  # noqa: E402
 from bionic_config import (              # noqa: E402
     BionicConfigError,
@@ -656,8 +667,58 @@ def _journal_date(receipt: dict) -> str:
     return str(receipt["signed"])
 
 
+def _log_today(ctx: dict) -> str:
+    """The one local date of this run, read once."""
+    if "_log_today" not in ctx:
+        ctx["_log_today"] = ol.resolve_today(None, write=True)
+    return ctx["_log_today"]
+
+
+def _log_entry(ctx: dict, receipt: dict | None) -> "ol.LogEntry":
+    """The validated `observation` entry. Before the commit point the record ids are not
+    allocated, so the entry the preflight checks carries none; its heading, op and fences
+    are the ones the real entry has."""
+    completed = receipt is not None and receipt.get("completed") is not None
+    ids = list(receipt["records"]) if completed else []
+    stamp = _log_date(receipt) if completed else str(
+        (receipt or {}).get("signed") or ctx["date"])
+    body = (f"Batch sign-off published {len(ids)} record(s).\n"
+            f"Records: {' '.join(ids) if ids else '(none)'}")
+    return ol.validate_entry(ctx["tree"], stamp, "observation",
+                             _log_subject(ctx["batch_id"]), body)
+
+
+def log_phase(ctx: dict, receipt: dict | None) -> dict:
+    """Validate the entry, plan the repair and repair, once per run, before a cell writes.
+
+    A refusal here writes no cell. The result holds the paths the repair changed."""
+    held = ctx.get("_oplog")
+    if held is not None:
+        return held
+    try:
+        today = _log_today(ctx)
+        plan = ol.preflight(ctx["tree"], today, _log_entry(ctx, receipt))
+        changed = ol.repair(ctx["tree"], plan, ctx["root"])
+    except ol.Refusal as exc:
+        raise ss.SurveySheetError([
+            "the operations log refuses this sign-off, and no cell was written: "
+            f"{redact(exc, quoted=False)}"]) from exc
+    held = {"today": today, "repaired": list(changed), "changed": list(changed), "strays": []}
+    ctx["_oplog"] = held
+    return held
+
+
+def _log_holds(ctx: dict) -> list[dict]:
+    """The parsed entries of the operations log, whichever file holds them."""
+    try:
+        return sp._log_entries(ol.read_text(ctx["tree"]))
+    except ol.Refusal as exc:
+        raise ss.SurveySheetError([
+            f"the operations log is unreadable: {redact(exc, quoted=False)}"]) from exc
+
+
 def write_log_entry(ctx: dict, receipt: dict) -> str:
-    """Prepend the `observation` log op under the §6 subject grammar
+    """Add the `observation` log op under the §6 subject grammar
     `survey batch <batch-id>`, with the sorted record ids in the body.
 
     Reimplemented rather than imported: `signoff-backfill._write_log_entry` is
@@ -665,36 +726,48 @@ def write_log_entry(ctx: dict, receipt: dict) -> str:
     writer and the journal writer below, ~50 lines together) is recorded as an
     `iterate` candidate; hoisting a signed write path shared with another
     sign-off is a refactor outside ADR-0098's scope."""
-    log_path = ctx["tree"] / "log.md"
-    text = _io(ctx).read_text(log_path) if _file(ctx, log_path) else ""
     subject = _log_subject(ctx["batch_id"])
     ids = list(receipt["records"])
     stamp = _log_date(receipt)
-    for entry in sp._log_entries(text):
+    for entry in _log_holds(ctx):
         if entry["op"] != "observation" or entry["subject"] != subject:
             continue
         if entry["date"] == stamp and all(i in entry["body"] for i in ids):
             return "present"
         raise Contradiction([
-            f"log.md already carries an `observation | {subject}` entry that "
+            f"the operations log already carries an `observation | {subject}` entry that "
             "does not match this batch's date and record set — the log op is "
             "written by the sign-off, never by hand"])
-    body = (f"## [{stamp}] observation | {subject}\n\n"
-            f"Batch sign-off published {len(ids)} record(s).\n"
-            f"Records: {' '.join(ids) if ids else '(none)'}\n\n")
-    lines = text.splitlines(keepends=True)
-    first = next((i for i, line in enumerate(lines) if line.startswith("## [")),
-                 None)
-    if first is None:
-        head = text if (text.endswith("\n") or not text) else text + "\n"
-        sep = "" if head.endswith("\n\n") or not head else "\n"
-        ss.atomic_write_text(log_path, head + sep + body,
-                             contained_under=ctx["tree"])
-    else:
-        ss.atomic_write_text(
-            log_path, "".join(lines[:first]) + body + "".join(lines[first:]),
-            contained_under=ctx["tree"])
-    return "written"
+    held = log_phase(ctx, receipt)  # a no-op when the run's first step already ran it
+    try:
+        placed = ol.insert_entry(ctx["tree"], _log_entry(ctx, receipt), held["today"], ctx["root"])
+    except ol.Refusal as exc:
+        raise ss.SurveySheetError([
+            "the operations log refused the entry after the cells were written: "
+            f"{redact(exc, quoted=False)}. A rerun completes and adds only the entry"]) from exc
+    held["changed"] += placed["changed"]
+    held["strays"] = placed["left_strays"]
+    return "written" if placed["status"] == "written" else "present"
+
+
+def _repo_paths(ctx: dict, rels: list[str]) -> list[str]:
+    prefix = ctx["tree"].relative_to(ctx["root"]).as_posix()
+    return [f"{prefix}/{rel}" for rel in rels]
+
+
+def log_report(ctx: dict) -> dict:
+    """What the caller's commit step takes, or `{}` when this run reached no log write."""
+    held = ctx.get("_oplog")
+    if held is None:
+        return {}
+    report = {"changed_paths": _repo_paths(ctx, list(dict.fromkeys(held["changed"]))),
+              "left_strays": _repo_paths(ctx, held["strays"]),
+              "commit_paths": [], "restore_paths": []}
+    try:
+        report.update(ol.log_commit_paths(ctx["root"], ctx["tree"]))
+    except (ol.Refusal, OSError) as exc:
+        report["error_commit_paths"] = str(exc)
+    return report
 
 
 def write_journal_hook(ctx: dict, receipt: dict) -> str:
@@ -948,15 +1021,13 @@ def check_surfaces(ctx: dict) -> None:
     if receipt.get("completed") is None:
         return
     ids = list(receipt["records"])
-    log_path = ctx["tree"] / "log.md"
     subject = _log_subject(ctx["batch_id"])
-    text = _io(ctx).read_text(log_path) if _file(ctx, log_path) else ""
-    for entry in sp._log_entries(text):
+    for entry in _log_holds(ctx):
         if entry["op"] == "observation" and entry["subject"] == subject:
             if (entry["date"] != _log_date(receipt)
                     or not all(i in entry["body"] for i in ids)):
                 raise Contradiction([
-                    f"log.md carries an `observation | {subject}` entry that "
+                    f"the operations log carries an `observation | {subject}` entry that "
                     "contradicts the receipt's date or record set — a "
                     "sign-off refuses rather than overwriting it"])
     hook_subject = f"survey sign-off {ctx['batch_id']}"
@@ -985,10 +1056,14 @@ CELL_SURFACE = {
     "S3": "the receipt's `completed` field (the commit point)",
     "S4": "the promoted record files under the observations concern",
     "S5": "the concern index.md and the removal of staged/",
-    "S6": "the `observation | survey batch <id>` op in log.md",
+    "S6": "the `observation | survey batch <id>` op in the operations log",
     "S7": "the `review | survey sign-off <id>` hook in journal/YYYY-MM.md",
     "S8": "the candidate state file's dispositions",
 }
+
+
+#: The states before the log op lands: the op is written at cell 12, the S6 step.
+LOG_PENDING_STATES = ("S0", "S1", "S2", "S3", "S4", "S5", "S6")
 
 
 def advance(ctx: dict) -> tuple[str, list[str]]:
@@ -1021,6 +1096,10 @@ def _advance(ctx: dict) -> tuple[str, list[str]]:
         admission._revalidate(ctx["_admission_context"])
     except (ValueError, OSError, RuntimeError) as exc:
         raise ss.SurveySheetError(["admission-input-changed"]) from exc
+    if state in LOG_PENDING_STATES:
+        # The checks above refused nothing: validate the log entry, plan the repair and repair
+        # before the first cell writes. A refusal here leaves every cell unwritten.
+        log_phase(ctx, _receipt(ctx) if _file(ctx, paths["receipt"]) else None)
     if state == "S0":
         return "S1", _cell_1_bind(ctx, sheet, plan)
     if state == "S1":
@@ -1091,9 +1170,14 @@ def _run(ctx: dict, *, dry_run: bool) -> tuple[int, dict]:
             f"batch {redact(ctx['batch_id'], quoted=False)} did not converge to S9 — the state "
             f"machine advanced through {' -> '.join(seen)} without settling"])
     receipt = _receipt(ctx)
-    return 0, {"batch_id": ctx["batch_id"], "state": "S9",
-               "rendering": rendering(ctx, plan, receipt), "writes": writes,
-               "records": receipt["records"], "dry_run": False}
+    held = ctx.get("_oplog")
+    if held is not None:
+        writes[:0] = [f"log repair: {path}" for path in _repo_paths(ctx, held["repaired"])]
+    result = {"batch_id": ctx["batch_id"], "state": "S9",
+              "rendering": rendering(ctx, plan, receipt), "writes": writes,
+              "records": receipt["records"], "dry_run": False}
+    result.update(log_report(ctx))
+    return 0, result
 
 
 def main(argv=None) -> int:

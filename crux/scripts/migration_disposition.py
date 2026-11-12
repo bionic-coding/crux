@@ -59,12 +59,25 @@ def parse_receipt(text: str) -> dict:
     return doc
 
 
+def retired_handles(records: list[dict]) -> set[str]:
+    """The handles retired by an in-force edge of some host, read from `_raw_records`.
+
+    The one retired set of the disposition checks. It reads only `retired_targets`, the targets
+    of the edges the shared predicate returned, and never a rule's raw `retires` list
+    (rule:retirement-persists-after-its-host-leaves-accepted)."""
+    return {h for r in records if r["retires_in_force"] for h in r["retired_targets"]}
+
+
 def _raw_records(repo: Path, config) -> tuple[list[dict], list[dict]]:
-    """Load raw texts for deterministic seed checks; never collect a projected view."""
+    """Load raw texts for deterministic seed checks; never collect a projected view.
+
+    Each ADR rule record carries `retires_in_force` and `retired_targets`, derived from the
+    in-force retirement edges of its host in both tiers. `active` and `status` keep their
+    meaning for live-rule enumeration. Neither new field reaches a publication output."""
     import adr_frontmatter as af
     import implementation_migration as im
     import summaries_projection as sp
-    records = []; identities = set(); handles = set(); invariants = []
+    records = []; identities = set(); handles = set(); invariants = []; hosts = []; staged = []
     adrs = config.docs_root / "adrs"
     for path in af.adr_paths(adrs):
         text, _ = im._read(repo, path); front = af.frontmatter_block(text)
@@ -75,11 +88,16 @@ def _raw_records(repo: Path, config) -> tuple[list[dict], list[dict]]:
         identities.add(fm["id"]); rules = fm.get("governs", [])
         ap.require(isinstance(rules, list) and not sp._governs_shape_problems([(fm["id"], rules)]),
                    "migration-disposition-source-refused")
+        hosts.append((path, fm)); staged.append((path, fm, rules))
+    edges, _ = im._retirement_edges(repo, config, hosts, "migration-disposition-source-refused")
+    for path, fm, rules in staged:
         for rule in rules:
             ap.require(rule["handle"] not in handles, "migration-disposition-source-refused")
             handles.add(rule["handle"])
+            targets = im._edge_targets(edges[path], rule["handle"])
             records.append({**rule, "source_adr": fm["id"], "source_kind": "adr",
-                "active": path.parent == adrs, "status": fm.get("status")})
+                "active": path.parent == adrs, "status": fm.get("status"),
+                "retired_targets": targets, "retires_in_force": bool(targets)})
     for path in sorted((config.docs_root / "invariants").glob("*.md")):
         text, _ = im._read(repo, path); front = af.frontmatter_block(text)
         if front is None: continue
@@ -113,14 +131,14 @@ def _raw_records(repo: Path, config) -> tuple[list[dict], list[dict]]:
             ap.require(rule["handle"] not in handles, "migration-disposition-member-refused")
             handles.add(rule["handle"])
             records.append({**rule, "source_adr": oid, "source_kind": "observation", "evidence": evidence,
-                "active": True, "status": "ratified"})
+                "active": True, "status": "ratified", "retired_targets": [], "retires_in_force": False})
     return records, invariants
 
 
 def _doctrine_subject(repo: Path, config, entry: dict, args, text: str) -> tuple[dict, list, dict]:
     rows = dp.parse_reconciliations(text)
     records, invariants = _raw_records(repo, config)
-    retired = {h for r in records if r["active"] and r["status"] == "Accepted" for h in r.get("retires", [])}
+    retired = retired_handles(records)
     live = [r for r in records if r["active"] and r["handle"] not in retired]
     historical = live + [r for r in records if not r["active"] and r["handle"] == args.handle]
     def current(handle):
@@ -219,7 +237,7 @@ def _read_backfill_corroboration(repo: Path, config, entry: dict, text: str) -> 
     reviews = sp.parse_reviews(text)
     manifest = im._yaml(im._read(repo, config.docs_root / "manifest.yml")[0])
     ap.require(isinstance(manifest, dict), "migration-disposition-backfill-admission-refused")
-    log = im._read(repo, config.docs_root / "log.md")[0]
+    log = im._operation_log(repo, config.docs_root, bound=False)[0]
     months = {b["signed"][:7] for b in reviews["batches"].values() if b["signed"] is not None}
     journals = {month: im._read(repo, config.docs_root / "journal" / (month + ".md"))[0] for month in months}
     validate_backfill_corroboration(reviews, manifest, log, journals)

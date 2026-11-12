@@ -7,7 +7,7 @@ metadata:
   risk_level: "low"
   requires_access: "read-local"
   triggers: "review this prose | prose review | tighten this writing | check the writing rules | edit this text"
-  routing_note: "Checks text against the project's seven writing rules and returns a rewrite for every finding (`fix` | `confirm`); a finding without replacement text is not a finding. Mandatory at three points: `release-preflight` over `README.md` + `CHANGELOG.md` (advisory until the waiver path is vendored), the `dev-cycle`/`iterate` prep prompt, and `tend-garden` before the morning note."
+  routing_note: "Checks text against the project's seven writing rules and returns a rewrite for every finding (`fix` | `confirm`); a finding without replacement text is not a finding. It runs in `tend-garden` before the morning note and may run during any cycle; no release step requires a record of it."
 ---
 
 # Prose review
@@ -292,13 +292,13 @@ Rewrite, assuming both `confirm` items resolve as expected:
 
 Twenty-nine words become sixteen, and the sentence now states what actually happens.
 
-## Recording findings when a release depends on them
+## Recording findings on request
 
-When this skill runs as a release gate, the disposition of each finding is recorded, not recalled. Write one line
-per finding to the release artifact: the rule, the severity, the location, and whether the author accepted or
+When a caller asks for the disposition of each finding to be recorded, record it instead of recalling it. Write one line
+per finding to the artifact the caller names: the rule, the severity, the location, and whether the author accepted or
 rejected the rewrite. The record exists because the acceptance evidence for these rules is self-graded — the same
 author who adopted them decides which findings to accept — so the disposition has to be auditable rather than
-remembered.
+remembered. No release step asks for this record.
 
 A role that holds no file-write tool records nothing and returns the disposition lines to its caller to record.
 

@@ -291,7 +291,14 @@ After the user reports the install succeeded, verify the selected Crux `SKILL.md
 
 ### 6. Log the operation
 
-If an upgrade actually happened in this session (the user ran the slash commands and the selected loaded root or host load trace confirmed the new version), and the target repo has an existing tree (`.bionic.yml`, a `bionic/` tree, or a legacy `docs/` tree — same detection as step 5) whose `log.md` already exists (i.e., this was an upgrade of an already-bootstrapped project), append a `schema` op entry to that tree's `log.md`:
+If an upgrade actually happened in this session (the user ran the slash commands and the selected loaded root or host load trace confirmed the new version), and the target repo has an existing tree (`.bionic.yml`, a `bionic/` tree, or a legacy `docs/` tree — same detection as step 5) whose operations log already exists (a `log/` directory of detail files, or a legacy `log.md`; i.e., this was an upgrade of an already-bootstrapped project), record a `schema` op entry through the log writer (`docs/AGENTS.md` §6):[^log-writer] write the body to a file outside the tree, then run:
+
+```
+uv run "${CRUX_PLUGIN_ROOT}/scripts/operation-log.py" append --repo-root <target-repo-root> \
+  --op schema --subject 'install-docs-skills (<install | upgrade>) v<X.Y.Z> schema_version <N>' --date YYYY-MM-DD --body-file <path>
+```
+
+The entry it writes at the top of the current month's detail file `docs/log/YYYY-MM.md`:
 
 ```
 ## [YYYY-MM-DD] schema | install-docs-skills (<install | upgrade>) v<X.Y.Z> schema_version <N>
@@ -301,7 +308,9 @@ Body, 1–2 lines:
 - Before-version and after-version.
 - Whether tagged tree recovery or current instruction-file migration is needed.
 
-If no tree exists yet (fresh project), there's no `log.md` to write to — skip the log entry. The next `init-docs` run will start the log.
+A refused append adds no entry: fix the cause it names, then rerun the append alone (§6). Then run the commit step of §6 over the result's `commit_paths` and `restore_paths`.
+
+If no tree exists yet (fresh project), there is no operations log to write to — skip the log entry. The next `init-docs` run starts it.
 
 ## Verification checklist
 
@@ -314,7 +323,7 @@ If no tree exists yet (fresh project), there's no `log.md` to write to — skip 
 - [ ] Existing-tree detection checked for `.bionic.yml`, a `bionic/` tree, and a legacy `docs/` tree — never literal `docs/` absence alone.
 - [ ] If the target repo has an existing tree, its `manifest.yml` was compared to the identified copy's template; a cache-only comparison was not reported as current-session compatibility.
 - [ ] The hand-off ("next: say 'init docs'") was printed after a fresh install only — not after an upgrade of an already-bootstrapped project.
-- [ ] If an upgrade was confirmed AND the existing tree's `log.md` exists, one `schema` op entry was appended.
+- [ ] If an upgrade was confirmed AND the existing tree's operations log exists, one `schema` op entry was recorded by `operation-log.py append`.
 
 ## Red flags — STOP and reconsider
 
@@ -342,7 +351,7 @@ If no tree exists yet (fresh project), there's no `log.md` to write to — skip 
 | "`schema_version` mismatch is fine — `init-docs` will sort it." | `init-docs` does not migrate. Schemas 2–4 use the pinned v3.23.2 ladder on a copy. Other values need investigation. |
 | "I'll edit the plugin cache or settings myself to register the plugin." | That's the marketplace flow's job. Don't reimplement it. |
 | "The user said 'set me up' — that covers everything including bootstrap." | "Set me up" is ambiguous. Report install state first, then ask about bootstrap. Two operations, two confirmations. |
-| "I'll skip the log entry since the install isn't a docs op." | Plugin upgrades affect the docs schema; that's a `schema` op when the existing tree's `log.md` exists. |
+| "I'll skip the log entry since the install isn't a docs op." | Plugin upgrades affect the docs schema; that's a `schema` op when the existing tree's operations log exists. |
 | "There must be a curl/clone fallback for users without marketplace access." | There isn't. Marketplace-only distribution is the architecture. Don't invent one. |
 
 ## Common mistakes
@@ -352,9 +361,11 @@ If no tree exists yet (fresh project), there's no `log.md` to write to — skip 
 - **Using a valid cached manifest as active-session identity.** Derive the selected loaded skill root or inspect the host load trace first.
 - **Auto-bootstrapping the tree after install.** Install and bootstrap are separate.
 - **Forgetting the marketplace-add step** when guiding a fresh environment. `/plugin install crux@crux` fails if the `crux` marketplace was never added.
-- **Writing to a tree's `log.md` for a fresh install** (where no tree, and so no `log.md`, exists yet). Skip the log entry on fresh installs; the next `init-docs` starts the log.
+- **Writing to a tree's operations log for a fresh install** (where no tree, and so no operations log, exists yet). Skip the log entry on fresh installs; the next `init-docs` starts the log.
 - **Using a non-`schema` op for the install/upgrade log entry.** The op enum is fixed; `schema` is the right op for plugin/schema-version changes.
 - **Reporting the skill list from a directory listing** instead of `plugin.json`. The manifest is the truth; a stale or partial directory listing is not.
 - **Treating a different-name plugin at the same path as crux.** If `plugin.json` says it's something else, surface that and stop.
 - **Skipping the schema comparison** when the target repo has an existing tree (`.bionic.yml`, `bionic/`, or legacy `docs/`). Compare the identified copy's template with the tree; label a cache-only comparison candidate-only until active identity is proved.
 - **Telling the user to run "init docs" after an upgrade of an already-bootstrapped project.** That is a fresh-install instruction. Check compatibility, use tagged recovery for schemas 2–4, and audit the resulting schema-5 tree.
+
+[^log-writer]: rule:log-entries-go-through-the-log-writer, rule:no-writer-writes-the-legacy-log-file

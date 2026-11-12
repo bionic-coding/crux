@@ -55,39 +55,85 @@ aliases:
   glm-flash: openrouter/z-ai/glm-5.3-flash
 
 # Table 3 — roster: agent role -> level. A value is either a level name or a
-# mapping {level, claude, opencode, codex}. `claude` overrides the Claude Code
-# column and must be a Table 5 member; the agent file's `model:` then equals it
-# (rule V6). `opencode` overrides the OpenCode column. `codex` atomically
-# replaces the complete Codex runtime from the level. Each override leaves the
+# mapping {level, claude, opencode, codex, authority}. `claude` overrides the
+# Claude Code column and must be a Table 5 member; the agent file's `model:`
+# then equals it (rule V6). `opencode` overrides the OpenCode column. `codex`
+# replaces the level's Codex runtime as a whole: an override carries model,
+# reasoning_effort, verified and source, and a partial override is refused
+# (rule V0), never merged with the level's cell. Each override leaves the
 # other columns resolving from the level. The KEY SET is in bijection with the
 # stems of crux/agents/*.md.
 #
-# A `claude` override is a per-agent exception that an Accepted decision must
-# authorize. Each one records its basis beside it, as the reviewer's Codex
-# override does in the Table 4 header. Re-pointing an authorized override to a
-# successor model is a catalog edit that records its own basis.
+# CODEX PROVENANCE (ADR-0170). A Codex slug, in a level cell or an override,
+# validates against its recorded Codex-catalog provenance, not the router
+# registry (rule V5). Its `source` cites `Codex <x.y.z> models_cache.json` and
+# names the slug backtick-quoted, as the cited catalog listed it.
+#
+# AUTHORITY (ADR-0170). A dated owner instruction recorded beside an override
+# authorizes it. `authority` holds one entry per overridden column, exactly
+# the overridden set (rule V10). An entry carries `instruction` (the owner's
+# words, or an owner commit's subject verbatim with its hash), `date` (a
+# quoted "YYYY-MM-DD", the date of the source that set the current value) and
+# an optional `decision` (an ADR-NNNN/<slug> handle). An unquoted ISO date
+# is normalised to the same text on both parse paths, so quoting is
+# convention; an unquoted date that names no real day is refused. A role's
+# tier is its level. A move within the agent's tier is configuration and needs only the
+# instruction. A move to a model of another tier needs an Accepted ADR, named
+# in `decision`. V10 refuses a decision that names ADR-0170 itself, and one
+# this repository's resolver does not list as Accepted. Review checks that
+# the cited decision authorizes this move.
+#
+# TIER. The tier set of an override is the set of levels whose cell in the
+# SAME column names the same value: the Claude value for `claude`, the alias
+# for `opencode`, `codex.model` for `codex`. A model is never matched across
+# columns, so `opus-latest` in the OpenCode column is apex only. An override
+# is same-tier when the agent's level is in its tier set. It is cross-tier
+# when the set is non-empty and lacks that level, and of undeterminable tier
+# when no level names the value. Editing an agent's `level:` re-runs the
+# inference. Six overrides predate the rule: validate-catalog.py lists each
+# as an exact (agent, level, column, value) tuple and warns on it until the
+# owner settles it with an ADR, a same-tier value or a revert.
+#
+# LIMITS. V10 does not check three kinds of move. A move made by editing a
+# level cell is invisible to a static check; review covers it. A move made by
+# editing what an alias resolves to in Table 2 is not checked. A change of
+# reasoning effort is runtime, not tier. V10 compares `date` with the run's
+# UTC date, so an owner whose local date is ahead of UTC may be refused for
+# some hours.
 agents:
   architect:
     level: flagship
     opencode: opus-latest
+    authority:
+      opencode:
+        instruction: "Owner commit 1ca140cc9: 'Pin flagship to Opus 5.5 and re-point OpenCode models'"
+        date: "2026-10-09"
   brainstormer: flagship
-  # commander: Claude Code override to Opus 5.5, from the 2026-09-22 trial.
-  # Opus met every acceptance criterion for the commander at 55% lower cost
-  # per call. The record is the PB-0116 trial report in the crux development
-  # repository (2026-09-22). OpenCode overrides to Kimi K3.1 Pro by owner
-  # instruction, 2026-11-05, replacing Gemini 4 Argon, which errored.
   commander:
     level: apex
     claude: claude-opus-5-5
     opencode: kimi-latest
-  # dev-lead: OpenCode overrides to GLM 5.3 by owner instruction, 2026-10-28,
-  # for a faster model.
+    authority:
+      claude:
+        instruction: "Claude Code override to Opus 5.5, from the 2026-09-22 trial. Opus met every acceptance criterion for the commander at 55% lower cost per call. The record is the PB-0116 trial report in the crux development repository (2026-09-22). Owner commit d653cdd66."
+        date: "2026-09-22"
+      opencode:
+        instruction: "OpenCode overrides to Kimi K3.1 Pro by owner instruction, 2026-11-05, replacing Gemini 4 Argon, which errored. Owner commit 9339b4081."
+        date: "2026-11-05"
   dev-lead:
     level: flagship
     opencode: glm-latest
+    authority:
+      opencode:
+        instruction: "OpenCode overrides to GLM 5.3 by owner instruction, 2026-10-28, for a faster model. Owner commit afe43365f."
+        date: "2026-10-28"
   developer:
     level: standard
     opencode: deepseek-flash
+    authority:
+      opencode:
+        instruction: "Owner commit 47c1e4c6e: 'Point the developer agent at deepseek-flash and re-anchor two fixtures'"
+        date: "2026-09-18"
   historian: standard
   librarian: standard
   # night-gardener: runs at apex by owner instruction, 2026-09-22, so it
@@ -95,10 +141,7 @@ agents:
   # trial above had no night-gardener arm.
   night-gardener:
     level: apex
-  # reviewer: Claude inherits the apex cell, pinned to Opus 5.5. Codex
-  # overrides to GPT-6.1 Sol by owner instruction; effort stays xhigh.
-  # OpenCode overrides to Kimi K3.1 Pro by owner instruction, 2026-11-05,
-  # replacing Gemini 4 Argon, which errored.
+  # reviewer: Claude inherits the apex cell, pinned to Opus 5.5.
   reviewer:
     level: apex
     opencode: kimi-latest
@@ -106,7 +149,14 @@ agents:
       model: gpt-6.1-sol
       reasoning_effort: xhigh
       verified: "2026-09-29"
-      source: "OpenAI GPT-6.1 Sol model documentation and Codex 0.159.0 models_cache.json checked 2026-09-29"
+      source: "OpenAI GPT-6.1 Sol model documentation and Codex 0.159.0 models_cache.json checked 2026-09-29, which lists `gpt-6.1-sol`"
+    authority:
+      opencode:
+        instruction: "OpenCode overrides to Kimi K3.1 Pro by owner instruction, 2026-11-05, replacing Gemini 4 Argon, which errored. Owner commit 9339b4081."
+        date: "2026-11-05"
+      codex:
+        instruction: "Codex override re-pointed from GPT-5.6 Sol to its successor, GPT-6 Sol, by owner instruction, 2026-09-22. Effort stays xhigh. (7dcb4c1a5^:crux/catalog/models.yml:89-90.) Re-pointed to GPT-6.1 Sol by owner commit ca16b8921: 'Move every GPT-6 Sol assignment to GPT-6.1 Sol'"
+        date: "2026-09-29"
   wayfinder: standard
 
 # Table 4 — level -> per-harness resolution. `opencode` is optional; a level
@@ -157,7 +207,7 @@ levels:
       model: gpt-6-astra
       reasoning_effort: high
       verified: "2026-09-22"
-      source: "Codex 0.155.1 models_cache.json fetched 2026-09-22"
+      source: "Codex 0.155.1 models_cache.json fetched 2026-09-22, which lists `gpt-6-astra`"
   flagship:
     claude: claude-opus-5-5
     opencode: sol-latest
@@ -165,7 +215,7 @@ levels:
       model: gpt-6.1-sol
       reasoning_effort: high
       verified: "2026-09-29"
-      source: "OpenAI GPT-6.1 Sol model documentation + Codex 0.159.0 models_cache.json fetched 2026-09-29"
+      source: "OpenAI GPT-6.1 Sol model documentation + Codex 0.159.0 models_cache.json fetched 2026-09-29, which lists `gpt-6.1-sol`"
   standard:
     claude: claude-sonnet-5-5
     opencode: glm-latest
@@ -173,7 +223,7 @@ levels:
       model: gpt-6.1-terra
       reasoning_effort: high
       verified: "2026-10-26"
-      source: "OpenAI GPT-6.1 Terra model documentation + Codex 0.164.0 models_cache.json fetched 2026-10-26"
+      source: "OpenAI GPT-6.1 Terra model documentation + Codex 0.164.0 models_cache.json fetched 2026-10-26, which lists `gpt-6.1-terra`"
 
 # Table 5 — legal values for the `model:` key in crux/agents/*.md frontmatter,
 # and for every Claude cell above: a level's `claude` and an agent's `claude`

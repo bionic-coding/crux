@@ -135,7 +135,7 @@ class ProjectionsInertToGovernsTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        (self.root / ".bionic.yml").write_text("docs_dir: bionic\n", encoding="utf-8")
+        (self.root / ".bionic.yml").write_text('config_version: "1"\ndocs_dir: bionic\n', encoding="utf-8")
         self.adrs_dir = self.root / "bionic" / "adrs"
         self.adrs_dir.mkdir(parents=True)
 

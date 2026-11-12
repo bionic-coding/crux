@@ -270,7 +270,25 @@ class Producers(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertEqual(self.snapshot(), before)
 
+    def move_log_to_split(self):
+        """Turn the fixture's log.md into one detail file of a later month beside its completion record."""
+        import operation_log as ol
+        entry = self.log.read_text(); self.log.unlink()
+        directory = self.root / "knowledge/log"; directory.mkdir()
+        self.log = directory / "2026-11.md"
+        self.log.write_text(ol.detail_header("2026-11") + entry)
+        (directory / ol.COMPLETION_NAME).write_bytes(ol.completion_bytes(None, {"2026-11": 1}))
+
     def test_backfill_requires_existing_corroboration_and_preserves_unrelated_appends(self):
+        self.check_corroboration_faults()
+
+    def test_backfill_corroboration_reads_a_split_log_with_the_entry_in_a_later_months_file(self):
+        self.move_log_to_split()
+        self.assertEqual(sorted(path.name for path in (self.root / "knowledge").iterdir()
+                                if path.name.startswith("log")), ["log"])  # the layout is split
+        self.check_corroboration_faults()
+
+    def check_corroboration_faults(self):
         for fault in ("log-absent", "log-date", "log-ids", "journal-absent", "journal-ids", "admission"):
             originals = {p: p.read_bytes() for p in (self.log, self.journal, self.manifest)}
             if fault == "log-absent": self.log.unlink()
@@ -289,6 +307,24 @@ class Producers(unittest.TestCase):
         before = self.snapshot(); result = self.command("backfill")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.snapshot(), before)
+
+    def test_doctrine_subject_drops_a_replacement_only_under_an_accepted_retirer(self):
+        import argparse
+        import bionic_config
+        md = importlib.import_module("migration_disposition")
+        retirer = self.adrs / "ADR-0150-synthetic.md"
+        args = argparse.Namespace(handle=self.old["handle"], invariant="INV-0001")
+        def subject(status):
+            retirer.write_text("---\n" + yaml.safe_dump({"id": "ADR-0150", "status": status, "governs": [
+                {**self.new, "handle": "ADR-0150/retirer", "retires": [self.new["handle"]]}]}) + "---\n")
+            return md._doctrine_subject(self.root, bionic_config.load_config(self.root), self.entry, args,
+                                        self.ledger.read_text())
+        found, replacements, _ = subject("Proposed")
+        self.assertEqual(found["handle"], self.old["handle"])
+        self.assertEqual([r["handle"] for r in replacements], [self.new["handle"]])
+        # Positive control: the same retirer, once Accepted, removes the replacement's seed.
+        with self.assertRaisesRegex(md.Refused, "migration-disposition-pairing-unseeded"):
+            subject("Accepted")
 
     def test_duplicate_member_frontmatter_refuses(self):
         self.inv.write_text(self.inv.read_text().replace("id: INV-0001\n", "id: INV-0002\nid: INV-0001\n"))

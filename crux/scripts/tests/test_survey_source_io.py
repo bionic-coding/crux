@@ -5,6 +5,7 @@ import unittest
 from unittest import mock
 
 import yaml
+import operation_log
 from admission_source_io import SourceIO, SourceIORefusal
 import test_survey_sheet as fixtures
 
@@ -12,7 +13,7 @@ SS = fixtures.SS
 
 
 class GuardedSurveyTests(unittest.TestCase):
-    def fixture(self, state):
+    def fixture(self, state, *, split=False):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name).resolve()
@@ -33,7 +34,16 @@ class GuardedSurveyTests(unittest.TestCase):
         if int(state[1:]) >= 5:
             (obs / "OBS-0001-fact.md").write_text("Promoted source.\n")
         if int(state[1:]) >= 7:
-            (tree / "log.md").write_text("## [2026-08-30] observation | survey batch SVY-0001\n")
+            entry = "## [2026-08-30] observation | survey batch SVY-0001\n"
+            if split:
+                # One detail file of a later month than the entry's heading, beside its completion record.
+                (tree / "log").mkdir()
+                (tree / "log/2026-09.md").write_text(
+                    "# Operations log: 2026-09\n\n_Append-only. Latest write first._\n\n" + entry)
+                (tree / "log/.split-complete.json").write_bytes(
+                    operation_log.completion_bytes(None, {"2026-09": 1}))
+            else:
+                (tree / "log.md").write_text(entry)
         if int(state[1:]) >= 8:
             (tree / "journal").mkdir()
             (tree / "journal/2026-08.md").write_text("## [2026-08-30 12:00] review | survey sign-off SVY-0001\n")
@@ -46,9 +56,9 @@ class GuardedSurveyTests(unittest.TestCase):
         return root, obs, paths
 
     def test_all_canonical_states_match_without_default_filesystem_reads(self):
-        for state in SS.STATES:
-            with self.subTest(state=state):
-                root, obs, paths = self.fixture(state)
+        for state, split in [(state, split) for split in (False, True) for state in SS.STATES]:
+            with self.subTest(state=state, split=split):
+                root, obs, paths = self.fixture(state, split=split)
                 self.assertEqual(SS.batch_state(paths["receipt"], obs), state)
                 source_io = SourceIO(root)
                 self.addCleanup(source_io.close)

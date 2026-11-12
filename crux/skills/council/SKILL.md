@@ -66,7 +66,11 @@ attempt limit defaults to seven for new mode-aware decisions. Stop on stalled
 progress. A council dispute never goes to the owner. At the limit, or when the
 same blocking finding recurs on two consecutive attempts after a revision that
 answered it, the architect withdraws the decision with `withdraw-decision`;
-no agent requests an extension. A narrowed replacement names the record it
+no agent requests an extension. A Standard-mode single-seat dissent that the
+architect disposes as `accepted-tradeoff` on an approved attempt is answered,
+not unanswered; it does not count toward the recurrence trigger, and neither
+does its repetition on a later attempt over the same subject bytes. A finding
+counts toward recurrence only when it blocks approval of an attempt. A narrowed replacement names the record it
 replaces, and its attempts continue that record's count. An extension or mode
 change the owner records on their own initiative keeps its provenance, findings
 and total count. Historical reviews keep their original policy and limit.
@@ -403,7 +407,7 @@ API keys are read via `crux_env.require(...)` from `~/.crux/env` (managed by `cr
 - ALWAYS read `final_recommendation["conditioned"]` and `["nits"]`: a conditioned approval can read `UNANIMOUS_APPROVE` or `MAJORITY_APPROVE` but never routes to `AUTO_EXECUTE`
 - ALWAYS run an ad-hoc council driver in the background (inside a cycle run, the council gate uses `run-council.py`): the worst case per seat is about 40 minutes
 - ALWAYS provide rich context — models deliberate better with specifics
-- Every seat prompt states the operating assumptions: a trusted owner, cooperating agents, a trusted local checkout and one release coordinator. Plausible mistakes and crashes are in scope; deliberate local tampering and identity authentication are outside. A blocker states a plausible failure within those assumptions, its consequence and the smallest necessary fix. Everything else is an advisory or a documented limit, and "safety-related" alone does not justify a block. Every builder appends the shared text from `council_assumptions.py`. Cycle councils' vote instruction applies the same blocker test; historical promptbook gate councils keep their original instruction. Approval thresholds are unchanged
+- Every seat prompt states the operating assumptions: a trusted owner, cooperating agents, a trusted local checkout and one release coordinator. Plausible mistakes and crashes are in scope; deliberate local tampering and identity authentication are outside. Crux runs locally with a trusted caller, environment and interpreter, so denial of service from hostile input is never a blocker,[^trust] while an accidental malformed or oversized input that hangs or crashes Crux is a plausible mistake. A blocker states a plausible failure within those assumptions, its consequence and the smallest necessary fix. Everything else is an advisory or a documented limit, and "safety-related" alone does not justify a block. Every builder appends the shared text from `council_assumptions.py`. Cycle councils' vote instruction applies the same blocker test; historical promptbook gate councils keep their original instruction. Approval thresholds are unchanged[^blocker]
 - A recommendation that adds complexity (code, tests, instructions, execution, configuration or concepts) names the concrete failure it prevents, why a simpler fix is insufficient, and its maintenance and testing cost; otherwise it is an advisory
 - On a simplify cycle, every configured mode evaluates only the proposals within the agreed scope: no new features, speculative hardening or unrelated requirements. An addition the council believes necessary is reported as different work, not made a condition of approval. The council may still block or drop a proposal whose retained behavior or verification is inadequate; only remedies that add complexity are out of scope. Voting modes, thresholds, seats and attempt limits are unchanged
 - Treat srde output as evidence: it never settles a gate and never runs on the ADR path (see srde skill)[^srde]
@@ -417,4 +421,6 @@ API keys are read via `crux_env.require(...)` from `~/.crux/env` (managed by `cr
 [^attempt]: rule:an-open-council-attempt-stops-the-gate
 [^match]: rule:council-evidence-matches-its-attempt
 [^recover]: rule:recovery-never-deliberates-again
-[^srde]: rule:de-wire-srde-from-adr-path, rule:blocking-finding-classification
+[^srde]: rule:de-wire-srde-from-adr-path, rule:blocking-finding-names-a-plausible-failure
+[^blocker]: rule:blocking-finding-names-a-plausible-failure
+[^trust]: rule:crux-trusts-its-local-environment

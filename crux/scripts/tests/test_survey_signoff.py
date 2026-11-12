@@ -47,6 +47,7 @@ def _load(name: str, filename: str | None = None):
 
 
 SS = _load("survey_sheet")
+import operation_log as OL  # noqa: E402
 SO = _load("signoff_survey", "signoff-survey.py")
 import summaries_projection as sp_module  # noqa: E402
 from crux.arch.recover import (  # noqa: E402
@@ -102,6 +103,10 @@ def _snapshot(root: Path, normalize_time: bool = False) -> dict:
 
 class _SignoffCase(unittest.TestCase):
 
+    def _log_text(self) -> str:
+        """The operations log of the fixture tree, whichever file holds each entry."""
+        return OL.read_text(self.tree.resolve())
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -112,6 +117,9 @@ class _SignoffCase(unittest.TestCase):
         (self.root / ".bionic.yml").write_text("docs_dir: bionic\n", encoding="utf-8")
         (self.tree / "manifest.yml").write_text(MANIFEST, encoding="utf-8")
         (self.tree / "log.md").write_text("# Log\n", encoding="utf-8")
+        # The operations log reads the op enum from the tree's own section 6.
+        (self.tree / "AGENTS.md").write_bytes(
+            (Path(__file__).resolve().parents[2] / "templates" / "AGENTS.md.tmpl").read_bytes())
         (self.root / "src").mkdir()
         (self.root / "src" / "a.py").write_text("x = 1\n", encoding="utf-8")
         (self.root / "src" / "b.py").write_text("y = 2\n", encoding="utf-8")
@@ -370,7 +378,7 @@ class CellsNineToSeventeenTests(_SignoffCase):
         self._advance_to(bid, "S6")
         SO.advance(self._ctx(bid))
         self.assertEqual(self._state(bid), "S7")
-        text = (self.tree / "log.md").read_text(encoding="utf-8")
+        text = self._log_text()
         self.assertEqual(text.count(f"observation | survey batch {bid}"), 1)
         self.assertIn("OBS-0001", text)
 
@@ -414,24 +422,25 @@ class CellsNineToSeventeenTests(_SignoffCase):
         self.assertEqual(_snapshot(self.root), before,
                          "an idempotent re-run wrote something")
         # Control: the FIRST run wrote exactly one log op and one hook.
-        log = (self.tree / "log.md").read_text(encoding="utf-8")
+        log = self._log_text()
         self.assertEqual(log.count(f"survey batch {bid}"), 1)
 
     def test_cell_16_a_contradicting_surface_refuses_and_never_overwrites(self):
         bid = self._prepare()
         self._advance_to(bid, "S6")
-        # A log op for this batch that the sign-off did not write.
+        # A log op for this batch that the sign-off did not write. The first cells split the legacy
+        # `log.md`, so a file of that name now is a stray, which every reader still reads.
         log = self.tree / "log.md"
+        self.assertFalse(log.exists(), "positive control: the split removed the legacy log")
         log.write_text(f"## [2020-01-01] observation | survey batch {bid}\n\n"
-                       "Records: OBS-9999\n\n"
-                       + log.read_text(encoding="utf-8"), encoding="utf-8")
+                       "Records: OBS-9999\n\n", encoding="utf-8")
         before = _snapshot(self.root)
         proc = self._run("--batch", bid)
         self.assertEqual(proc.returncode, 1, proc.stdout)
         self.assertIn("contradict", json.dumps(self._payload(proc)))
         self.assertEqual(_snapshot(self.root), before)
         # Control: with the hand-written op removed, the same tree reaches S9.
-        log.write_text("# Log\n", encoding="utf-8")
+        log.unlink()
         self.assertEqual(self._run("--batch", bid).returncode, 0)
         self.assertEqual(self._state(bid), "S9")
 
@@ -853,7 +862,7 @@ class RefusalFamilyTests(_SignoffCase):
         self.assertIn("next_number: 3",
                       (self.tree / "manifest.yml").read_text(encoding="utf-8"))
         self.assertEqual(
-            (self.tree / "log.md").read_text(encoding="utf-8").count(
+            self._log_text().count(
                 f"survey batch {bid}"), 1)
 
     def test_dry_run_writes_nothing_and_renders_every_planned_record(self):
@@ -1064,7 +1073,7 @@ class ConvergenceRegressionTests(_SignoffCase):
         # Positive control: cell 16 still refuses. A log entry whose record set
         # no longer matches the receipt is caught on that same later day, so
         # the fix relaxed the DATE comparison and nothing else.
-        log = self.tree / "log.md"
+        log = next((self.tree / "log").glob("[0-9][0-9][0-9][0-9]-[0-9][0-9].md"))
         log.write_text(
             log.read_text(encoding="utf-8").replace("OBS-0001", "OBS-9999"),
             encoding="utf-8")
@@ -2214,7 +2223,7 @@ class TamperedReceiptTests(_SignoffCase):
         proc = self._run("--batch", bid)
         self.assertEqual(proc.returncode, 1, proc.stdout)
         self.assertIn("record_id", json.dumps(self._payload(proc)))
-        log = (self.tree / "log.md").read_text(encoding="utf-8")
+        log = self._log_text()
         self.assertNotIn("forged decision", log)
         self.assertEqual([e["op"] for e in sp_module._log_entries(log)], [])
         # Control: the untampered receipt publishes and writes exactly one
@@ -2222,7 +2231,7 @@ class TamperedReceiptTests(_SignoffCase):
         doc["rows"][0]["record_id"] = "OBS-0001"
         self._write_receipt_raw(bid, doc)
         self.assertEqual(self._run("--batch", bid).returncode, 0)
-        log = (self.tree / "log.md").read_text(encoding="utf-8")
+        log = self._log_text()
         self.assertEqual([(e["op"], e["subject"])
                           for e in sp_module._log_entries(log)],
                          [("observation", f"survey batch {bid}")])

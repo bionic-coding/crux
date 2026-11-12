@@ -33,34 +33,97 @@ Read [commands.md](references/commands.md) when creating plans or recording evid
 ## Route through the lead
 
 The main session dispatches cycle execution to commander. Commander owns the
-cycle. For bounded work it dispatches a developer and an independent reviewer. It
-dispatches a dev-lead when the plan has parallel streams, integration across units, or
-complexity the plan names; the dev-lead assigns developer units and integrates them.
-Direct developer dispatches on the main checkout run one at a time. Other entry
-points use their designated lead: tend-garden uses night-gardener, architectural
-planning uses architect, and documentation filing uses historian. If the required
-role cannot be invoked, report the gap rather than silently assuming its identity.
-A refusal that names a missing grant or role is a contradicted premise: pause the
-cycle and report it. Small tasks keep small plans and reviews while retaining lead
-accountability.
+cycle, coordinates it and runs the cycle tools; it does no implementation.
+The commander dispatches a dev-lead for every Build task and every fix task, and
+never a developer. The dev-lead implements bounded work itself on the main checkout,
+or fans independent units out to developers and integrates them on main. Developers
+work in their own worktrees on a host that isolates each call, as Claude Code does;
+on a host without per-call isolation the dev-lead implements units itself. The
+commander keeps at most one Build or fix dev-lead attempt open at a time, whether
+that dev-lead implements or fans out. The test coordinator is the
+dev-lead dispatched for the task that runs the full checks, and with one dev-lead it
+is that dev-lead. Full suites, the staged dry run and per-minor runs run only in the
+test coordinator, one at a time; developers and reviewers run focused checks only.
+In a linked worktree, `parallel_suite.py` refuses a whole suite root with the code
+`focused-check-rule` unless `--allow-linked-worktree` is passed.
 
-A developer dispatched without a dev-lead takes the dev-lead's duties for its one
-unit. It starts from the task base and any trailer-tagged commits the invocation
-lists, builds on them without resetting, and commits on the main checkout with a
-`Cycle-Task:` trailer. It acts as the cycle's test coordinator without calling any
-other cycle operation beyond execution-check: it runs the unit's related checks and the declared Build checks
-through the test evidence tool and reports their receipt ids. Commander commissions
-the independent reviewer on the whole range from the task base, records the receipts
-through `advance` and verifies them through `inspect`. The dev-lead's changed-path
-check has no equivalent on this path; with one bounded unit that is a stated limit.
+`prepare-dispatch` selects the dev-lead for a Build or fix task that names no role. A
+dev-lead adds each developer unit with `task-add`, dispatches it with
+`prepare-dispatch`, `role: "developer"` and `integration_owner: "dev-lead"`, and
+integrates it with `child-link`. On Claude Code the engine
+adds per-call worktree isolation to every developer invocation and to no other role's.
+A developer whose promised isolation did not happen makes no edit and delivers
+`blocked`; its dev-lead implements the unit itself or redispatches it. An explicit developer dispatch outside a dev-lead stays accepted for replay of
+older records; its dispatcher integrates it. Other entry points use their designated
+lead: tend-garden uses night-gardener, architectural planning uses architect, and
+documentation filing uses historian. If the required role cannot be invoked, report
+the gap rather than silently assuming its identity. Small tasks keep small plans and
+reviews while retaining lead accountability.
 
-Commander may run several dev-leads at once, one per independent stream with
-disjoint owned paths recorded in the plan. Each dev-lead integrates its own units
-one at a time; commander stays accountable for the cycle. A dev-lead that needs a
+An operational blocker stops the next legal action, needs no owner decision, and no
+role the commander may dispatch can clear it within its grants: an unresolvable git
+identity, a missing interpreter or tool, an integration the dev-lead reports it cannot
+complete, an `index.lock` whose owner is unknown, or a refusal that names a missing
+grant or role. An operational blocker returns to the main session without a pause. The
+commander runs `inspect`, records a friction row with `cycle.py friction`, and returns
+to its caller with the blocker, the quoted error, the inspect summary, the open
+attempts and the next action after the fix. It runs no `pause`; the cycle stays
+active. A dev-lead that meets one delivers `blocked` with no stop. The caller fixes the
+cause and re-invokes the commander, which resumes from `inspect` and redispatches the
+blocked task. When the caller cannot clear the blocker, it runs `pause --reason` with
+a reason that names the blocker as an owner decision, or as a contradicted premise for
+a missing grant or role. Owner decisions and the named stops still pause.
+
+Parallel streams go to developers in worktrees under one dev-lead. No two agents edit
+or stage source in the main checkout at the same time; the cycle writer's bookkeeping
+commits are not source edits. The commander redispatches the coordinating task and
+never a unit, and only a coordinating dev-lead redispatches a unit. `inspect` offers no
+task that holds a developer reservation in the current pass. A dev-lead that needs a
 change in another stream's path records a hand-over before editing: a `task-add`
 Build task, assigned to itself, whose description starts `Hand-over:` and names the
 path, the owning stream and the reason. It names the hand-over in its report to commander, who relays it; the owning
 stream leaves that path alone until the hand-over task is done.
+
+The coordinating dev-lead commits its own source, with `execution-check` on the staged
+bytes, before it reserves any unit, and adds each unit with `task-add` immediately
+before it dispatches that unit. From its first unit reservation until every unit task
+is done or can take no next attempt in the pass, it makes no source edit and no source
+commit on the main checkout. It then integrates the done units with `child-link` and a
+two-parent merge whose message carries its own `Cycle-Task` trailer, and reports any
+other unit in a blocked delivery.
+
+When the latest attempt in the pass of a Build or fix task that is not done ended
+blocked, failed or lost, the commander dispatches that task's next attempt before any
+other Build or fix task, because another task's source commit makes that next attempt
+refuse `execution-foreign-source`. This covers a coordinating task whose attempt was
+lost while units are open. The commander reads the latest attempt in the `assignments`
+of the full `inspect` output: its `state` is `lost`, or `finished` with
+`delivery.outcome` set to `blocked` or `failed`. A task that can take no next attempt
+in the pass, such as one at its attempt limit, follows the existing return or pause
+route. A blocked delivery that names another Build task as its prerequisite goes to a
+replan or a return, not a retry.
+
+Before an editing attempt delivers blocked or failed, its worker runs `execution-check`
+on the staged bytes, commits its owned work in progress under its own task's
+`Cycle-Task` trailer and lists that commit in the delivery. The next attempt of the same
+task admits the commit as same-task-resume. Bytes left uncommitted refuse
+`execution-dirty-owned-paths` at the next reservation, and a commit with no matching
+checkpoint, left by a crashed attempt, refuses `execution-foreign-source` after
+`mark-lost`; a return to a new pass recovers both. Work-in-progress exception: after an
+`execution-check` that refused `execution-foreign-source` or
+`execution-source-outside-scope`, the worker commits with `git commit --only` naming
+exactly that refused check's edited paths, under its own task's trailer and with no
+passing checkpoint, because that check proved the paths owned. A developer in a worktree
+commits on its worktree branch, and its next attempt reapplies the earlier delivered diff
+in a fresh worktree as uncommitted edits and commits them itself. A checkout held by an
+attempt that no agent can deliver and no host evidence can mark lost is an operational
+blocker that returns to the main session, with no pause and no new stop reason.
+
+Committed work in progress is unreviewed until Review, which covers the range from its
+review base. A task first reserved after that commit carries it in its base, and its
+worker re-verifies the inherited work with focused checks. A shortcut or abandoned
+cycle, or a return to a new pass whose later review base follows the commit, can leave
+such commits outside every Review range; the reflection lists them.
 
 ## Select the type
 
@@ -191,7 +254,7 @@ tasks done in the plan file, so no separate task call follows the plan.
 Use `show` to inspect it. A status request reports state without advancing it.
 For a readable progress view, run `cycle.py status`, as the `cycle-status` skill does.
 Use `resume` for the same paused undertaking; never create another run of it.
-Completed and abandoned cycles stay closed. Follow-up work gets a new cycle.
+Completed, abandoned and shortcut cycles stay closed. Follow-up work gets a new cycle.
 
 The schema and writer own record shape. Mutate through `cycle.py`; do not edit
 phase, pass, history, evidence, or approval fields by hand. The `plan` and `task`
@@ -327,7 +390,8 @@ form `cycle.py await --marker` returns when that line is present. Arrival proves
 result is whole, not that it is right: read the report, then `deliver`, which retains
 it once. The adapters name these default modes: Claude Code (`Agent`, role `crux:<role>`,
 `blocking` by default: the call carries no background flag and, from a subagent,
-returns with the child's final report (a top-level session is unverified), with a `background` mode that sends the flag and expects the
+returns with the child's final report or, as observed on Claude Code 2.1.319, with an
+agentId and no report (a top-level session is unverified), with a `background` mode that sends the flag and expects the
 agentId while the child runs); Codex (`spawn_agent`, role `crux_<role>`, agent id handle, with the
 hand-back route below at default depth); OpenCode (`subagent`, foreground and handle-less
 by default, with a `background` mode that returns a session id); OMP (`task`, blocking
@@ -379,7 +443,8 @@ its own task or changing its marker/base. Integration proof admits exact deliver
 commits with retained marked reports and checkpoints. It also admits an exact two-parent
 merge whose tree equals conflict-free built-in `git merge-tree` output. Unknown children,
 extra edits, manual resolutions and custom merge drivers refuse. Retain registered child
-checkouts until parent proof and delivery finish.
+checkouts until parent proof and delivery finish. An undeclared child that is a done,
+delivered task of this cycle is admitted as `cycle-task-source` or `cycle-task-merge`.
 
 Workers keep the immutable task base as the original review base. Before edits,
 use `execution-check` with a fresh op_id, current assignment/attempt and registered
@@ -467,6 +532,16 @@ unmet completion requirements unchanged and every open attempt, in a history eve
 actual owner instruction; references are optional and never invented. No agent or
 council grants it.
 
+`shortcut` closes a stopped cycle whose delivered work has gaps. Only the owner's quoted
+request sets the status `shortcut`; `inspect` never offers it, and no agent, council or
+classifier runs it. When the owner asks to close a cycle as a shortcut, record the
+reflection with `reflect` (its outcome names the delivered work and where it lies, and
+its remaining list names the gaps), run `shortcut CYC --present`, show its output to the
+owner, and quote the owner's reply into `shortcut CYC --file`. Never use
+`owner-complete` for a closure with gaps. Any other caller is refused with a named code,
+a shortcut cycle never restarts, and a release cycle never closes as a shortcut. The
+commands reference lists the refusal codes in order.
+
 ### Route classification
 
 Routine cycle operations use only current, locally validated cached advice and make
@@ -492,11 +567,25 @@ workflows remain. Compare the invocation's required capabilities with actual kno
 evidence before dispatch. Unknown support stays unknown; report known gaps before work.
 Never route a read to a role whose contract forbids the only available reader.
 
+Project-local skills pass the same domain filter. An invocation offers at most 8 of
+them, from the roots of the attempt's recorded host, after the plugin candidates. A
+local skill is eligible when the task description names its id or contains one of its
+`metadata.domain_terms`. Scope paths never admit one. The listing refuses a symlinked
+or escaping path, an id that shadows a plugin skill and a frontmatter that declares a
+tool grant. A refusal never fails the dispatch. Local candidates change only prompt
+text and widen no grant. When a host root holds a usable local skill, the preamble asks
+for one `Local-Skill-Used: <id> ok` or `Local-Skill-Used: <id> partial` report line
+per use. The role then writes no `used` or `evaluated` forge-log entry. The record
+commit of a completed cycle writes each reported use as a `used` entry in the forge
+log. The commands reference gives the fields and the known limits.
+
 `inspect` exposes recorded classifications and current cached suggestions. Suggestions
 select only permitted routes and establish no correctness, authorization or test pass.
 Compare their premises with retained evidence before acting. Missing or contradicted
 advice leaves deterministic legal actions available. Keep the recorded review floor.
-Use `cycle.py defer` for follow-up findings. A sizing fallback prints a receipt for
+Use `cycle.py defer` for follow-up findings. A finding is deferred in Review, where its
+report was recorded: `cycle.py defer` refuses a finding in any other phase, so Reflect
+cannot defer one. A sizing fallback prints a receipt for
 `create --sizing-receipt` after the responsible agent chooses the type.
 Finding disposition offers `return` only for a blocking finding. Advisory and cosmetic
 findings never spend a pass.
@@ -544,7 +633,13 @@ cycle created under the beta has no version-2 form. The previous release cannot 
   Compare observed behavior with acceptance criteria. A known acceptance failure
   returns immediately to Build (or takes the fix step), even if automated checks pass.
   Do not send a known blocking defect to Review merely to obtain the same finding.
-- Review: commission independent review under [review.md](references/review.md).
+- Review: commission independent review under [review.md](references/review.md). A
+  review binds when its report scope covers every plan scope path, a parent directory
+  entry included; a report that omits a plan path is refused `review-scope-incomplete`
+  and names the uncovered paths. Review covers the range from its review base, so it
+  misses committed work in progress left by a shortcut cycle, an abandoned cycle or a
+  return to a new pass; the reflection lists those commits. A demonstrated defect
+  blocks only as a plausible failure within the operating assumptions.
 - Release: run the fixed step list the cycle carries, one task per step. Agents run
   every step, including the bare `release.py beta` and `release.py official` commands;
   the owner runs a publish command only after the host denies it. Publish
@@ -570,7 +665,8 @@ proof that an agent performed the described work.
 
 ## Decisions
 
-For explicit conversational IDR approval or new-policy ADR acceptance, use
+For explicit conversational IDR approval, new-policy ADR acceptance, or an owner's
+change to the cycle's acceptance criteria (purpose `acceptance-change`), use
 `owner-decision present/capture/apply` through cycle.py. Present the exact subject
 and digest before the answer. A trusted owner-facing caller transcribes only an
 actual explicit answer with verbatim words, real conversation/message or tool-question
@@ -582,6 +678,22 @@ is an immutable superseding capture in that revision's lineage. Already-applied
 replay acknowledges the existing receipt and later disposition without reapplying
 or revoking historical standing. No owner terminal command is required. This grants
 no pass extension, owner exception or outward authorization. See the commands reference.
+
+For an ADR acceptance, `apply` writes the ADR's lifecycle bytes and its record under
+`adrs/acceptances/`, and commits neither. Run `apply` inside the accept task: after the
+task's clean-start `execution-check`, the task runs `apply`, checkpoints both paths as
+`edited_paths` and commits them under its `Cycle-Task` trailer. An `apply` run outside
+a task leaves dirty owned paths, and the next dispatch refuses them.
+
+An acceptance criterion changes only in Plan or Build (`acceptance-change-phase`).
+Compare each criterion with what Build produced before advancing out of Build, and
+raise a needed narrowing there. From Verify or Review, a narrowing needs a return to
+Build, which spends a pass; at the pass limit it also needs an owner-approved `extend`.
+
+Every role that a cycle task dispatches runs `execution-check` before its first write,
+generators included, and delivers with nothing staged or uncommitted. The plan scope
+names the journal and log paths the Reflect entry writes, and the ADR and
+acceptance-record paths of an accept task.
 
 Gateway cycle councils convene detached by default. Initial success reports a
 running attempt and its `await_command`; it establishes no approval. Use that command
@@ -631,8 +743,12 @@ A council dispute never goes to the owner. When a council cannot approve an IDR 
 its attempt limit, or the same blocking finding recurs on two consecutive attempts after
 a revision that addressed it, the architect withdraws the record in Plan: run `inspect`,
 then `withdraw-decision` with the IDR name, a reason and the ids of the plan tasks that
-depend on it. One write marks the name withdrawn and removes those tasks from the plan;
-the `plan-revised` event keeps them. Record the follow-up with `cycle.py defer CYC
+depend on it. A Standard-mode single-seat dissent that the architect disposes as
+`accepted-tradeoff` on an approved attempt is answered, not unanswered; it does not
+count toward the recurrence trigger, and neither does its repetition on a later
+attempt over the same subject bytes. A finding counts toward recurrence only when it
+blocks approval of an attempt. One write marks the name withdrawn and removes those
+tasks from the plan; the `plan-revised` event keeps them. Record the follow-up with `cycle.py defer CYC
 --decision NAME --note TEXT`; the entry keeps the reason and the attempt history. A
 withdrawn name accepts no revision, approval or council attempt. A narrowed replacement
 carries a new name and `replaces: <withdrawn name>`; its attempts continue the withdrawn
@@ -674,6 +790,11 @@ approval by default; `.bionic.yml` may set `adr.acceptance: council-only`.
 An absent value means `council-and-human`. New-policy acceptance makes the rules
 binding without promotion. Do not reinterpret historical provenance. After the
 accepted architectural decision, revise the plan and reassess affected IDRs.
+A task that depends on a pending cycle ADR names it in its optional `adr_dependencies`
+list. Tasks that do not name it proceed and the Plan phase can end; a named ADR that is
+not accepted refuses the dependent task's dispatch and its phase exit with
+`adr-dependency-awaiting-acceptance`, and a name with no recorded ADR decision refuses
+with `adr-dependency-unrecorded`. Acceptance releases both.
 Use `cycle-council.py` and `decision-policy.py` help for approval and acceptance
 operations, and attach their evidence through the cycle decision command.
 
@@ -685,7 +806,8 @@ record what improved, what remains unresolved, what will change, and why another
 is justified. A pass can end early; it does not need to reach Review first.
 A new pass keeps delivered Plan and Build tasks that still revalidate and resets the
 rest. Revise the plan in Build when a finding needs it; the commands reference covers
-reopening and recovery.
+reopening and recovery. Mark a replaced task with `task --state superseded
+--superseded-by` instead of rewiring its dependents.
 
 ### Fix step
 
@@ -698,9 +820,9 @@ fix stays small: a few files, about 50 changed lines. One fix per phase per pass
 commander records why it qualifies.
 
 Add the task with `task-add`, carrying `fix: {finding, eligibility}`; a Review fix may
-add `findings`, the blocking finding ids it answers. A developer
-writes the fix; the commander's shell stays the cycle writer and read-only git. The
-task finishes with a commit, a failed check that now passes, and a rerun of only the
+add `findings`, the blocking finding ids it answers. A dev-lead writes the fix itself,
+with no developer unit; the commander's shell stays the cycle writer and read-only git.
+The task finishes with a commit, a failed check that now passes, and a rerun of only the
 checks whose inputs changed. After a Review finding, a reviewer checks only the fix
 diff against the finding. After a Verify finding, the normal Review covers it.
 
@@ -777,8 +899,9 @@ and applies only what the evidence establishes.
 Commander owns the cycle through completion. Delegation transfers work, not
 accountability. An interim notification, waiting child, failed child, or missing
 delivery does not justify handing the cycle back; recover within authorized scope and
-cycle limits, and pause for an unresolved blocker, owner decision, or explicit pause
-under the stops above. A denied commit is blocked, not running work. Recorded
+cycle limits, and pause for an owner decision or explicit pause under the stops above.
+An operational blocker returns to the main session instead, as Route through the lead
+states. A denied commit is blocked, not running work. Recorded
 assignments are not observed agent activity. Instructions cannot override host
 termination: when a host forcibly ends a run, leave `inspect` output, execution
 handles, observed outcomes, result locations, blockers and next actions through an
@@ -812,8 +935,8 @@ Pass free-text values single-quoted, with an embedded single quote written as `'
   version to its target (see Release cycles). Each started cycle keeps its own type,
   pass limit and stops.
 - A release queue item starts a beta-list cycle. Name its prep paths and
-  `<docs_dir>/log.md` as scope. An item added with `queue add --release-list official`
-  starts an official-list cycle; its instruction, given after the version's beta tag,
+  `<docs_dir>/log`, the operations-log directory, as scope. An item added with
+  `queue add --release-list official` starts an official-list cycle; its instruction, given after the version's beta tag,
   is the owner's go-ahead. Queue no official item before that tag. Add it titled with the
   version at the head of the queue (`--position 1`), run `queue authorize next`, and
   confirm the scope names that item alone. An official cycle not started from the queue
@@ -825,13 +948,24 @@ Pass free-text values single-quoted, with an embedded single quote written as `'
 
 `queue start-next` returns one outcome. `started`, or `adopted` or `in-progress` with an
 active cycle: drive that cycle to completion. `in-progress` or `adopted` with a paused
-cycle: stop at its pause and report. `adopted` with a completed or abandoned cycle: run
+cycle: stop at its pause and report. `adopted` with a completed, abandoned or shortcut cycle: run
 `queue start-next` again. After each queued cycle completes, run it again.
 
 A stop ends the run with a report naming the reason, the item and the next step. The
 reasons are `queue-empty`, `not-authorized`, `previous-abandoned` (checked before
 `authorization-exhausted`), `authorization-exhausted`, `outside-authorization`, `held`,
-`blocked`, `dependency-abandoned`, `type-unsupported` and `cycle-missing`.
+`blocked`, `dependency-abandoned`, `type-unsupported`, `cycle-missing` and
+`environment-prerequisite`. A dependency on an item whose cycle closed as a shortcut
+stops `blocked` with text that names the shortcut closure; the owner edits the dependent
+item's `depends_on` or removes the item.
+
+`cycle.py create` and `queue start-next` check the environment before any write: a
+resolvable git author and committer identity, each Python minor the repository's
+`pyproject.toml` declares under `[tool.crux] python-versions`, and `node` when the scope
+reaches a TypeScript test root. `create` refuses with code `environment-prerequisite` and
+lists every missing prerequisite with its fix. `queue start-next` stops with the reason
+`environment-prerequisite` and leaves the item pending. Either is an operational blocker:
+the caller fixes the environment and runs the command again.
 
 On resume, run `queue list` and continue within the remaining allowance. After
 completing any cycle, and on resume without an authorization, inspect and report the

@@ -80,7 +80,7 @@ class SummariesSourceIOTests(unittest.TestCase):
         (self.root / ".bionic.yml").write_text("docs_dir: nested/knowledge\nartifact_prefix: DEMO\n")
         (self.tree / "manifest.yml").write_text("concerns_enabled: [adrs, observations]\n")
         (self.adrs / "ADR-0001-rule.md").write_text(record("ADR-0001"))
-        (self.adrs / "archive" / "ADR-0002-rule.md").write_text(record("ADR-0002"))
+        (self.adrs / "archive" / "ADR-0002-rule.md").write_text(record("ADR-0002", "Deprecated"))
         (self.obs / "OBS-0001-rule.md").write_text(record("OBS-0001", "ratified"))
         (self.obs / "OBS-0002-rule.md").write_text(record("OBS-0002", "decided", "ADR-0001"))
         (self.obs / "index.md").write_text("Not a source record.")

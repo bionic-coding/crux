@@ -39,6 +39,11 @@ PyYAML reads the changelog citation projection. Every action exits 2 without it 
 batch (``adrs/migrations/*.yaml`` under the docs root) exists, or when the ``--check`` declaration
 carries a ``changelog-citations:`` projection. Otherwise no fingerprint reads YAML and PyYAML is not
 needed.
+
+Runs in the subject project's environment. The check's default requirement names the subject's locked
+environment, so a skill invokes this script as `uv run python3 PATH` without `--no-project`, because
+`--no-project` drops that environment. A skill also passes no `-p`, because `-p` in project mode makes uv
+replace a project environment whose interpreter does not satisfy the request.
 """
 import argparse
 import json

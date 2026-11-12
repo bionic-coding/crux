@@ -104,7 +104,7 @@ class RegistryTests(unittest.TestCase):
         # bionic/cycles/CYC-0036/evidence/build/live-read-audit.md) shows each test that opened
         # one now reads a fixture or a committed copy that omits them. Schemas, templates,
         # instruction files, decisions, observations, invariants, arch, research and briefs stay inputs.
-        expected = ("cycles", "journal", "log.md", "inbox", "garden", "whats_next.md", "queue")
+        expected = ("cycles", "journal", "log.md", "log", "inbox", "garden", "whats_next.md", "queue")
         self.assertEqual(suite_evidence.DOCS_EXCLUSIONS, expected)
         self.assertEqual(suite_evidence.runtime_exclusions(self.root), ["docs/" + name for name in expected])
         declared = suite_evidence.registered_declarations(self.root, dev_root=self.root)
@@ -141,6 +141,9 @@ AUDIT_PROJECTIONS = {
         "uv.lock": (["uv-lock-package-version:crux"], "P3"),
         "tools/bionic-catalog/crux-learning-catalog-guide.json": (["json-string:reviewed_plugin_version"], "P4"),
         "README.md": (["readme-footer-version"], "P5"),
+        # CYC-0127 (CYC-0120 review A3): each local root's forge log fingerprints its preamble alone.
+        **{f"{root}/forge-log.md": (["forge-log-preamble"], "A3") for root in
+           (".claude/skills", ".agents/skills", ".opencode/skills", ".opencode/skill", ".omp/skills")},
     },
     "staged": {
         "crux/plugin.json": (["json-string:version"], "P1"),
@@ -488,6 +491,66 @@ def _stage(testcase):
     return stage
 
 
+class ForgeLogProjectionTests(unittest.TestCase):
+    """CYC-0120 review A3: an engine-written forge-log entry keeps both checkout suite receipts reusable."""
+
+    ENTRY = b"## [2026-11-08 07:20] used | probe-skill\nCYC-0001 review/1 reviewer report; ok\n\n"
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name).resolve()
+        write_lock_project(self.root)
+        (self.root / ".python-version").write_text("3.13\n")
+
+    def vcs(self, *args):
+        subprocess.run(["git", "-c", "user.name=T", "-c", "user.email=t@example.invalid", *args],
+                       cwd=self.root, capture_output=True, check=True)
+
+    def fingerprints(self):
+        return {check: te.snapshot(self.root, suite_evidence.registered_declaration(self.root, check, dev_root=self.root),
+                                   source_root=self.root)["fingerprint"] for check in (CORE, TOOLS)}
+
+    def test_the_roots_equal_the_engine_roots(self):
+        import cycle_local_skills
+        self.assertEqual(suite_evidence.LOCAL_SKILL_ROOTS, cycle_local_skills.ALL_ROOTS)
+        self.assertEqual(suite_evidence.FORGE_LOGS, tuple(f"{root}/{cycle_local_skills.LOG_NAME}"
+                                                          for root in cycle_local_skills.ALL_ROOTS))
+
+    def test_an_inserted_entry_keeps_both_checkout_fingerprints_and_a_preamble_edit_moves_them(self):
+        import cycle_local_skills
+        for path in suite_evidence.FORGE_LOGS:
+            (self.root / path).parent.mkdir(parents=True, exist_ok=True)
+            (self.root / path).write_bytes(cycle_local_skills.NEW_LOG)
+        self.vcs("init", "-q")
+        self.vcs("add", "-A")
+        self.vcs("commit", "-qm", "base")
+        before = self.fingerprints()
+        for path in suite_evidence.FORGE_LOGS:
+            with self.subTest(path=path):
+                log = self.root / path
+                log.write_bytes(cycle_local_skills.insert(log.read_bytes(), self.ENTRY))
+                self.assertEqual(self.fingerprints(), before, "a worktree entry keeps the fingerprints")
+                self.vcs("add", path)
+                self.vcs("commit", "-qm", "entry")
+                self.assertEqual(self.fingerprints(), before, "a committed entry keeps the fingerprints")
+        # Positive control: a preamble byte is still an input.
+        log = self.root / suite_evidence.FORGE_LOGS[1]
+        log.write_bytes(log.read_bytes().replace(b"# Forge log", b"# Forge Log", 1))
+        self.assertNotEqual(self.fingerprints(), before)
+
+    def test_the_kind_masks_entries_only(self):
+        preamble = b"# Forge log\n\nprose\n\n"
+        digest = te.projected_digest(preamble, ["forge-log-preamble"])
+        self.assertIsNotNone(digest)
+        self.assertEqual(te.projected_digest(preamble + self.ENTRY, ["forge-log-preamble"]), digest)
+        self.assertEqual(te.projected_digest(preamble + self.ENTRY + self.ENTRY, ["forge-log-preamble"]), digest)
+        self.assertNotEqual(te.projected_digest(b"# Forge log\n\nother\n\n" + self.ENTRY, ["forge-log-preamble"]), digest)
+        self.assertNotEqual(digest, te.input_digest(preamble))
+        self.assertIsNone(te.projected_digest(b"\xff" + self.ENTRY, ["forge-log-preamble"]), "non-UTF-8 falls back")
+        self.assertEqual(te.forge_log_preamble((preamble + self.ENTRY).decode()), preamble.decode())
+
+
 class LiveProjectionShapeTests(unittest.TestCase):
     """Each registered projection locates exactly one span in the file as it stands (Nit 4).
 
@@ -509,6 +572,8 @@ class LiveProjectionShapeTests(unittest.TestCase):
     def test_each_checkout_entry_locates_one_span_in_the_live_file(self):
         for path in AUDIT_PROJECTIONS["checkout"]:
             with self.subTest(path=path):
+                if path.endswith("/forge-log.md") and path != ".claude/skills/forge-log.md":
+                    continue  # no other root keeps a forge log in this checkout; ForgeLogProjectionTests covers the kind
                 if path == "README.md" and _dev_surface.IS_STAGED_ARTIFACT:
                     self.skipTest("the staged README.md is the public rendition; the staged-scope test covers it")
                 require_dev_surface(self, REPO_ROOT / path, path)

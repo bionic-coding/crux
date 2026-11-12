@@ -54,6 +54,9 @@
     "test_adr_migration.py": {
       "tier": "dev"
     },
+    "test_adr_migration_architect_agreement.py": {
+      "tier": "dev"
+    },
     "test_adr_migration_publication.py": {
       "tier": "dev",
       "overrides": {
@@ -88,6 +91,9 @@
     "test_adr_signals.py": {
       "tier": "dev"
     },
+    "test_adr_unlistable_tier.py": {
+      "tier": "dev"
+    },
     "test_advance_run.py": {
       "tier": "dev"
     },
@@ -100,11 +106,10 @@
         }
       }
     },
-    "test_agent_craft_disciplines.py": {
-      "tier": "dev"
-    },
     "test_allocation_regeneration_steps.py": {
-      "tier": "dev"
+      "tier": "ephemeral",
+      "reason": "Pins agent-read skill wording (the allocating skills' regeneration steps) that no program parses, so it fails the value rule; it stays only because the root record crux-implementation-evidence.md names this module",
+      "retire_when": "crux-implementation-evidence.md no longer names test_allocation_regeneration_steps"
     },
     "test_ambient_git_env.py": {
       "tier": "dev"
@@ -309,12 +314,6 @@
     "test_codex_agent_health.py": {
       "tier": "release",
       "area": "catalogs-and-projections"
-    },
-    "test_commander_batches_owner_decisions.py": {
-      "tier": "dev"
-    },
-    "test_conductor_guides_commit_rule.py": {
-      "tier": "dev"
     },
     "test_council_aggregation.py": {
       "tier": "dev",
@@ -533,6 +532,9 @@
     "test_cycle_activity.py": {
       "tier": "dev"
     },
+    "test_cycle_adr_dependencies.py": {
+      "tier": "dev"
+    },
     "test_cycle_adr_prefix.py": {
       "tier": "dev"
     },
@@ -667,6 +669,9 @@
       "tier": "release",
       "area": "cycle-engine"
     },
+    "test_cycle_execution_large_owned_path.py": {
+      "tier": "dev"
+    },
     "test_cycle_fast_operations.py": {
       "tier": "release",
       "area": "decisions-classifier"
@@ -700,6 +705,9 @@
       "tier": "dev"
     },
     "test_cycle_legacy_cutover.py": {
+      "tier": "dev"
+    },
+    "test_cycle_local_skills.py": {
       "tier": "dev"
     },
     "test_cycle_ops_activity.py": {
@@ -765,6 +773,10 @@
     "test_cycle_plan_writer.py": {
       "tier": "dev"
     },
+    "test_cycle_prereqs.py": {
+      "tier": "release",
+      "area": "cycle-engine"
+    },
     "test_cycle_progress.py": {
       "tier": "dev"
     },
@@ -775,6 +787,9 @@
       "tier": "dev"
     },
     "test_cycle_progress_task_changes.py": {
+      "tier": "dev"
+    },
+    "test_cycle_proof_admissions.py": {
       "tier": "dev"
     },
     "test_cycle_questions.py": {
@@ -797,6 +812,9 @@
       "tier": "dev"
     },
     "test_cycle_record_persistence.py": {
+      "tier": "dev"
+    },
+    "test_cycle_record_routes.py": {
       "tier": "dev"
     },
     "test_cycle_recovery.py": {
@@ -826,6 +844,9 @@
       "tier": "dev"
     },
     "test_cycle_review_scope_message.py": {
+      "tier": "dev"
+    },
+    "test_cycle_shortcut.py": {
       "tier": "dev"
     },
     "test_cycle_simplify.py": {
@@ -1121,6 +1142,15 @@
         }
       }
     },
+    "test_generate_log_summary.py": {
+      "tier": "dev",
+      "overrides": {
+        "GateTests": {
+          "tier": "release",
+          "area": "docs-tree-maintenance"
+        }
+      }
+    },
     "test_generate_mods_reach_tables.py": {
       "tier": "dev",
       "overrides": {
@@ -1210,10 +1240,6 @@
     "test_generate_writing_rules.py": {
       "tier": "dev",
       "overrides": {
-        "ShippedSurfaceTestCase": {
-          "tier": "release",
-          "area": "catalogs-and-projections"
-        },
         "ExitCodeTestCase": {
           "tier": "release",
           "area": "catalogs-and-projections"
@@ -1266,6 +1292,12 @@
       "tier": "dev"
     },
     "test_historical_migration_retirement.py": {
+      "tier": "dev"
+    },
+    "test_historical_replacement_resolution.py": {
+      "tier": "dev"
+    },
+    "test_implementation_approval_retirement_persistence.py": {
       "tier": "dev"
     },
     "test_implementation_authority.py": {
@@ -1367,12 +1399,14 @@
     "test_implementation_migration_subject_eligibility.py": {
       "tier": "dev"
     },
-    "test_implementation_prose_routing.py": {
-      "tier": "dev"
-    },
     "test_init_docs_defaults.py": {
       "tier": "dev",
       "overrides": {
+        "InstallDocsSkillsProseTests": {
+          "tier": "ephemeral",
+          "reason": "Pins agent-read install-docs-skills wording and guards removed detection text that no program parses, so it fails the value rule; it stays only because the root file CHANGELOG.md names this class",
+          "retire_when": "CHANGELOG.md no longer names InstallDocsSkillsProseTests"
+        },
         "ManifestTemplateTests": {
           "tier": "release",
           "area": "docs-tree-maintenance"
@@ -1384,6 +1418,9 @@
       }
     },
     "test_initial_migration_exception.py": {
+      "tier": "dev"
+    },
+    "test_input_lanes.py": {
       "tier": "dev"
     },
     "test_install_codex_agents_personal.py": {
@@ -1454,7 +1491,13 @@
         }
       }
     },
+    "test_lint_queue_scope.py": {
+      "tier": "dev"
+    },
     "test_live_copy.py": {
+      "tier": "dev"
+    },
+    "test_log_split_readers.py": {
       "tier": "dev"
     },
     "test_log_work_prose.py": {
@@ -1486,6 +1529,12 @@
       "tier": "dev"
     },
     "test_migration_receipts.py": {
+      "tier": "dev"
+    },
+    "test_migration_retirement_persistence.py": {
+      "tier": "dev"
+    },
+    "test_migration_unlistable_tier.py": {
       "tier": "dev"
     },
     "test_models_catalog.py": {
@@ -1563,8 +1612,23 @@
     "test_openrouter_video_probe.py": {
       "tier": "dev"
     },
-    "test_orchestration_agent_contracts.py": {
-      "tier": "dev"
+    "test_operation_log.py": {
+      "tier": "dev",
+      "overrides": {
+        "EndToEndTests": {
+          "tier": "release",
+          "area": "docs-tree-maintenance"
+        }
+      }
+    },
+    "test_operation_log_repair.py": {
+      "tier": "dev",
+      "overrides": {
+        "FirstSplitTests": {
+          "tier": "release",
+          "area": "docs-tree-maintenance"
+        }
+      }
     },
     "test_orchestration_template_contracts.py": {
       "tier": "dev"
@@ -1627,13 +1691,21 @@
       "tier": "release",
       "area": "test-evidence"
     },
+    "test_parallel_suite_worktree_guard.py": {
+      "tier": "dev"
+    },
     "test_pb0150_provenance_postcondition.py": {
       "tier": "ephemeral",
-      "reason": "Verified once that the PB-0150 cycle's rule citations resolve and its promotion path builds; the cycle is closed and the test pins that record",
-      "retire_when": "the ADR-0150 and ADR-0151 rule slugs are retired, or the PB-0150 record is archived",
+      "reason": "Verified once that the PB-0150 cycle's live rule citations resolve and its promotion path builds; the cycle is closed and the test pins that record",
+      "retire_when": "the five live ADR-0150 slugs and ADR-0151's two live slugs, guidance-rules-keep-resolving and accepting-cycle-requests-promotion, have left the resolver's live slugs map, or the PB-0150 record is archived",
       "overrides": {
         "AcceptHookTests": {
           "tier": "dev"
+        },
+        "HistoricalSlugTests": {
+          "tier": "ephemeral",
+          "reason": "Verified once that the authority resets moved four ADR-0151 slugs into the resolver's historical_slugs, each naming its ADR-0166 successors",
+          "retire_when": "the four displaced ADR-0151 slugs leave the resolver's historical_slugs, or an ADR-0166 successor they name leaves the live slugs map"
         }
       }
     },
@@ -1812,6 +1884,11 @@
       "tier": "dev"
     },
     "test_reflex_blocks.py": {
+      "tier": "ephemeral",
+      "reason": "Duplicates the role-skill pairing test, which fails when the commander preloads forge-skill without the write-tree grants; it stays only because the root file CHANGELOG.md names this module",
+      "retire_when": "CHANGELOG.md no longer names test_reflex_blocks"
+    },
+    "test_regenerator_input_lanes.py": {
       "tier": "dev"
     },
     "test_regenerator_scope.py": {
@@ -1844,8 +1921,9 @@
       }
     },
     "test_release_content_gate_contract.py": {
-      "tier": "release",
-      "area": "release-and-staging"
+      "tier": "ephemeral",
+      "reason": "Pins the gate prose of the legacy promptbook templates, which agents read and no program parses, so it fails the value rule; it stays only because the root file CHANGELOG.md names this module",
+      "retire_when": "CHANGELOG.md no longer names test_release_content_gate_contract.py"
     },
     "test_release_prep_projection.py": {
       "tier": "release",
@@ -1854,10 +1932,6 @@
     "test_retained_evidence.py": {
       "tier": "dev",
       "overrides": {
-        "HoldingSourceContractTests": {
-          "tier": "release",
-          "area": "test-evidence"
-        },
         "SourceDiscoveryResolverTests": {
           "tier": "release",
           "area": "test-evidence"
@@ -1865,6 +1939,9 @@
       }
     },
     "test_retained_operator_interfaces.py": {
+      "tier": "dev"
+    },
+    "test_retirement_edges_in_force.py": {
       "tier": "dev"
     },
     "test_retro_marker.py": {
@@ -1896,7 +1973,9 @@
       "tier": "dev"
     },
     "test_role_contract_limits.py": {
-      "tier": "dev"
+      "tier": "ephemeral",
+      "reason": "Pins agent-read role-contract sentences that no program parses, so it fails the value rule; it stays only because the root record crux-implementation-evidence.md names this module",
+      "retire_when": "crux-implementation-evidence.md no longer names test_role_contract_limits"
     },
     "test_role_skill_pairing.py": {
       "tier": "dev",
@@ -2018,7 +2097,7 @@
       "tier": "release",
       "area": "adr-lifecycle"
     },
-    "test_shipped_council_surfaces.py": {
+    "test_signoff_log_split.py": {
       "tier": "dev"
     },
     "test_skill_prose_safety.py": {
@@ -2077,6 +2156,9 @@
       }
     },
     "test_summaries_required_reads.py": {
+      "tier": "dev"
+    },
+    "test_summaries_retirement_persistence.py": {
       "tier": "dev"
     },
     "test_summaries_source_io.py": {
@@ -2195,9 +2277,6 @@
       "tier": "dev"
     },
     "test_swift_xcode_products.py": {
-      "tier": "dev"
-    },
-    "test_template_splices.py": {
       "tier": "dev"
     },
     "test_test_evidence.py": {

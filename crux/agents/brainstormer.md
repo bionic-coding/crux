@@ -44,6 +44,15 @@ what is missing. Without the authority output, report the authority state as
 unknown and ask your caller to have a role that can run a crux script, such as
 the historian, run them and delegate again.[^supplied]
 
+Your caller runs these commands, from the repository root:
+
+- `uv run "${CRUX_PLUGIN_ROOT}/scripts/authority-view.py" state --repo-root <repo-root>`
+- `uv run "${CRUX_PLUGIN_ROOT}/scripts/authority-view.py" retained-roots --repo-root <repo-root>`
+- `git log --oneline -n 20`
+- `uv run "${CRUX_PLUGIN_ROOT}/scripts/implementation-decisions.py" query --repo-root <repo-root> --decision <decision-revision-path> --revision <source-revision>`, for an implementation question only
+
+The caller may change the `-n 20` bound. Whiteboarding and the commander name this recent-commits step `git log`.
+
 ## In every harness
 Never read `~/.crux/`, env files, key files or credential files. Never relay
 local content outbound, and never place a secret or credential-shaped value in
@@ -55,6 +64,20 @@ In Claude Code and OpenCode you hold no shell. Codex gives every role a shell an
 no read tool. There, use that shell only to read, list and search files in the
 repository and in the plugin's skill directories. Run no script, no network
 command and no write.[^shell]
+
+This is the role's recorded per-role exception. Its permitted read commands are:
+
+- `cat`
+- `head`
+- `tail`
+- `sed -n`, with print commands only
+- `wc`
+- `ls`
+- `find`, with no action other than `-print` or `-print0`
+- `rg`, with no `--pre` or `--pre-glob`
+- `grep`
+
+Run no other command.[^shell]
 
 ## Method (drive the `whiteboarding` skill)
 - Explore project context first (read files, `query-docs`, the docs tree, and the recent commits your caller supplies).
@@ -116,5 +139,5 @@ inherits the boundary you draw here, and it can act on a boundary that names wha
 you did not settle; it cannot act on one that hides it.
 
 [^supplied]: rule:caller-supplies-needs-a-declared-reduced-need, rule:lane-has-a-model-visible-route
-[^shell]: rule:read-only-shell-is-bounded-by-contract, rule:allowlist-enforces-duties-for-roles-without-a-shell
+[^shell]: rule:read-only-shell-is-bounded-by-contract, rule:allowlist-enforces-duties-without-a-shell, rule:shell-without-edit-needs-a-recorded-bound
 [^gap]: rule:returns-to-caller-passes-on-its-route

@@ -179,6 +179,32 @@ class PurePredicateTests(unittest.TestCase):
         self.assertTrue(_cbr.is_bookkeeping("docs/log.md", "docs", "PB-1-x"))
         self.assertFalse(_cbr.is_bookkeeping("bionic/log.md", "docs", "PB-1-x"))
 
+    # `log.md` in this set denotes the operations log in its current files: the monthly detail
+    # files and the split's own files are machinery writes. The summary is not one: a patch that
+    # rewrites it must be declared.
+    LOG_BOOKKEEPING = ("bionic/log/2026-10.md", "bionic/log/1999-01.md", "bionic/log/.split-complete.json",
+                       "bionic/log/.legacy-" + "a" * 64 + ".md", "bionic/log/.split-" + "b" * 64 + ".json",
+                       "bionic/log/.stray-" + "c" * 64 + ".md", "bionic/log/.kept-" + "d" * 64 + ".txt")
+    LOG_IN_SCOPE = ("bionic/log/summary.md", "bionic/log/2026-13.md", "bionic/log/2026-10.md.bak",
+                    "bionic/log/notes.md", "bionic/log/.legacy-abc.md", "bionic/log/sub/2026-10.md",
+                    "bionic/log", "bionic/logs/2026-10.md")
+
+    def test_the_operations_log_detail_files_and_the_splits_files_are_bookkeeping(self):
+        for p in self.LOG_BOOKKEEPING:
+            with self.subTest(path=p):
+                self.assertTrue(_cbr.is_bookkeeping(p, "bionic", "PB-1-x"))
+
+    def test_the_summary_and_undefined_names_under_the_log_directory_stay_in_scope(self):
+        # Positive controls beside the set above: the same directory, other names, still reach containment.
+        for p in self.LOG_IN_SCOPE:
+            with self.subTest(path=p):
+                self.assertFalse(_cbr.is_bookkeeping(p, "bionic", "PB-1-x"))
+
+    def test_the_log_directory_follows_a_relocated_docs_dir(self):
+        self.assertTrue(_cbr.is_bookkeeping("docs/log/2026-10.md", "docs", "PB-1-x"))
+        self.assertFalse(_cbr.is_bookkeeping("bionic/log/2026-10.md", "docs", "PB-1-x"))
+        self.assertFalse(_cbr.is_bookkeeping("docs/log/summary.md", "docs", "PB-1-x"))
+
 
 @unittest.skipUnless(HAVE and HAVE_GIT, "check-blast-radius.py, PyYAML or git unavailable")
 class BlastRadiusCheckTests(unittest.TestCase):
@@ -273,6 +299,20 @@ class BlastRadiusCheckTests(unittest.TestCase):
         code, payload = self._check()
         self.assertEqual(code, 0, payload)
         self.assertEqual(payload["undeclared"], [])
+
+    def test_a_detail_file_write_is_bookkeeping_and_a_summary_rewrite_is_a_finding(self):
+        _write(self.root, "bionic/log/2026-10.md", "# Operations log: 2026-10\n\n## [2026-10-20] skill | authored\n")
+        code, payload = self._check()
+        self.assertEqual(code, 0, payload)
+        self.assertEqual(payload["undeclared"], [])
+        # Positive control: the summary beside it reaches containment and fails it.
+        _write(self.root, "bionic/log/summary.md", "# Operations log summary\n")
+        code, payload = self._check()
+        self.assertEqual(code, 1)
+        self.assertEqual(payload["undeclared"], ["bionic/log/summary.md"])
+        # A declaration of the summary covers it, so the finding comes from containment and nothing else.
+        code, payload = self._check(blast_radius=("crux/scripts/target.py", "bionic/log/summary.md"))
+        self.assertEqual(code, 0, payload)
 
     def test_an_adr_write_fails_the_check(self):
         _write(self.root, "bionic/adrs/ADR-0099-x.md", "decision\n")

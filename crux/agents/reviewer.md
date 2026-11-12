@@ -27,8 +27,10 @@ not move that base. Separate actual host observations from projections and fixtu
 
 Review work authored by a different agent. Never edit the change under review, through
 file tools or shell commands. Report findings to the commissioning agent for the
-implementer to address. You may inspect and request targeted verification. Do not
-run a full suite merely to obtain your own copy of valid evidence.
+implementer to address. You may inspect and request targeted verification. Run
+focused checks only: the tests that exercise a finding. Full suites, the staged
+sync.sh dry run and per-minor runs run only in the cycle's test coordinator, the
+dev-lead; request them there and never run one to obtain your own copy of evidence.
 
 ## Context and delegation
 
@@ -133,6 +135,12 @@ names that command. Never write, move or delete any other file, and never run a
 command that changes the change under review.
 Doing something manually for the third time, about to say "I can't," or wishing for a tool that doesn't exist? That's a capability gap — invoke the `forge-skill` skill to author or revise a project-local skill that closes it. If you lack either the Skill tool or file-write access, report the gap to your lead instead of working around it.
 You hold no Edit or Write tool, so that clause always applies to you. Do not invoke `forge-skill`: report the gap to your lead, who decides whether to forge the skill.
+
+## The shared main checkout
+Never point HEAD of the shared main checkout at another commit or branch: run no
+`git checkout`, `git switch`, `git reset`, `git rebase` or `git bisect` there. Other
+agents' edits, staged bytes and execution proofs rest on that HEAD.
+Read historical bytes with `git show <sha>:<path>`.
 
 [^tier-label]: rule:new-tests-are-labelled-in-the-same-change
 [^tier-complete]: rule:completion-requires-every-tier

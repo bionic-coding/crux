@@ -1,11 +1,13 @@
 """PB-0150 postcondition: the rule citations this cycle touches resolve, the promotion path builds.
 
-rule:guidance-rules-keep-resolving, rule:provenance-is-recorded-at-acceptance,
+rule:guidance-rules-keep-resolving, rule:historical-records-keep-their-interpretation,
 rule:accepting-cycle-requests-promotion.
 
-  - LiveCitationTests: the twelve rule slugs of ADR-0150's in-run rules and ADR-0151's rules resolve in
+  - LiveCitationTests: the live rule slugs of ADR-0150's in-run rules and ADR-0151's rules resolve in
     the live resolver and appear in the live doctrine index; each row's standing matches the live
-    provenance record (branching on the record, so the test holds after the owner promotes).
+    provenance record (branching on the record, so the test holds after the owner promotes). The four
+    ADR-0151 slugs the authority resets displaced stand in `historical_slugs`, naming their ADR-0166
+    successors, and no longer in the live `slugs` map.
   - PromotionPathTests: ADR-0150's record, from the CLI dry-run, is added IN PROCESS to the loaded
     projection inputs (nothing is written to the live tree) and both plans build with the expected
     standing. Controls: the same plan without the record carries no ADR-0150 standing; a record whose
@@ -52,7 +54,27 @@ SIX_0151 = ["in-run-adr-text-is-guidance", "guidance-rules-keep-resolving",
 # doctrine; RetiredSlugTests holds that it went where a retirement sends it.
 RETIRED_0150 = ["launch-values-have-fixed-sources"]
 LIVE_0150 = [s for s in SIX_0150 if s not in RETIRED_0150]
-SLUGS = LIVE_0150 + SIX_0151
+# The published authority resets displaced four of ADR-0151's rules into the historical lane; each names
+# the ADR-0166 handles that replace it. HistoricalSlugTests holds that they went there.
+HISTORICAL_0151 = {
+    "in-run-adr-text-is-guidance": ["ADR-0166/acceptance-makes-rules-binding",
+                                    "ADR-0166/historical-records-keep-their-interpretation"],
+    "provenance-is-recorded-at-acceptance": ["ADR-0166/acceptance-record-names-policy-and-evidence",
+                                             "ADR-0166/standing-is-read-from-the-acceptance-record"],
+    # Package authority-reset-2026-11-adr-0151 displaced two more.
+    "guidance-changes-without-a-decision": ["ADR-0166/guidance-edits-need-no-adr",
+                                            "ADR-0166/guidance-is-no-sizing-contract"],
+    "owner-promotes-guidance": ["ADR-0166/acceptance-makes-rules-binding",
+                                "ADR-0166/historical-records-keep-their-interpretation"],
+}
+# A recorded replacement stays as published even after a later Accepted ADR retires it. ADR-0179
+# retired one and restated it; the replacement now resolves to that live displacer.
+RESOLVED_0151 = {
+    "ADR-0166/standing-is-read-from-the-acceptance-record":
+        ["ADR-0179/standing-reads-status-and-acceptance-record"],
+}
+LIVE_0151 = [s for s in SIX_0151 if s not in HISTORICAL_0151]
+SLUGS = LIVE_0150 + LIVE_0151
 
 
 def _load(name: str, filename: str):
@@ -102,7 +124,7 @@ class LiveCitationTests(unittest.TestCase):
 
     def test_live_slugs_resolve_and_appear_in_the_doctrine(self):
         rows = _slug_rows(self.resolver, SLUGS)
-        self.assertEqual(len(rows), 11)
+        self.assertEqual(len(rows), 7)
         for slug in SLUGS:
             handle = self.resolver["slugs"][slug]
             self.assertTrue(handle.endswith("/" + slug), handle)
@@ -121,43 +143,89 @@ class LiveCitationTests(unittest.TestCase):
     def test_adr_0151_rows_follow_its_live_record(self):
         record = _live_record("ADR-0151")
         self.assertIsNotNone(record, "ADR-0151 must carry a provenance record")
-        _check_standing(self, _slug_rows(self.resolver, SIX_0151), "ADR-0151", SIX_0151, record)
+        _check_standing(self, _slug_rows(self.resolver, LIVE_0151), "ADR-0151", LIVE_0151, record)
 
     def test_adr_0150_rows_follow_its_live_record_or_carry_no_standing(self):
         _check_standing(self, _slug_rows(self.resolver, LIVE_0150), "ADR-0150", LIVE_0150,
                         _live_record("ADR-0150"))
 
     def test_standing_check_rejects_a_wrong_row(self):
-        rows = _slug_rows(self.resolver, SIX_0151)
+        rows = _slug_rows(self.resolver, LIVE_0151)
         record = _live_record("ADR-0151")
         wrong = copy.deepcopy(rows)
-        wrong[SIX_0151[0]]["standing"] = "binding"
-        if f"ADR-0151/{SIX_0151[0]}" not in _promoted(record):
+        wrong[LIVE_0151[0]]["standing"] = "binding"
+        if f"ADR-0151/{LIVE_0151[0]}" not in _promoted(record):
             with self.assertRaises(AssertionError):
-                _check_standing(self, wrong, "ADR-0151", SIX_0151, record)
+                _check_standing(self, wrong, "ADR-0151", LIVE_0151, record)
         # control: a record-less reading of rows that carry standing must fail too
         with self.assertRaises(AssertionError):
-            _check_standing(self, rows, "ADR-0151", SIX_0151, None)
+            _check_standing(self, rows, "ADR-0151", LIVE_0151, None)
 
 
     def test_standing_check_runs_its_promoted_branch(self):
         record = _live_record("ADR-0151")
         if record is None:
             self.skipTest("no ADR-0151 provenance record on this surface")
-        handle = f"ADR-0151/{SIX_0151[0]}"
+        handle = f"ADR-0151/{LIVE_0151[0]}"
         promoted = copy.deepcopy(record)
         promoted["promotions"].append({"date": "2026-09-01", "instruction": "Promote it.",
                                        "handles": [handle], "body": False})
         self.assertIn(handle, _promoted(promoted))
-        rows = copy.deepcopy(_slug_rows(self.resolver, SIX_0151))
-        rows[SIX_0151[0]].update({"standing": "binding", "binding_rule": rows[SIX_0151[0]]["rule"]})
-        _check_standing(self, rows, "ADR-0151", SIX_0151, promoted)     # passes through the branch
+        rows = copy.deepcopy(_slug_rows(self.resolver, LIVE_0151))
+        rows[LIVE_0151[0]].update({"standing": "binding", "binding_rule": rows[LIVE_0151[0]]["rule"]})
+        _check_standing(self, rows, "ADR-0151", LIVE_0151, promoted)     # passes through the branch
         # control: the record says promoted while the row still reads guidance (built here, because
         # the live row reads binding once the owner has promoted the rule)
         unpromoted = copy.deepcopy(rows)
-        unpromoted[SIX_0151[0]].update({"standing": "guidance", "binding_rule": None})
+        unpromoted[LIVE_0151[0]].update({"standing": "guidance", "binding_rule": None})
         with self.assertRaises(AssertionError):
-            _check_standing(self, unpromoted, "ADR-0151", SIX_0151, promoted)
+            _check_standing(self, unpromoted, "ADR-0151", LIVE_0151, promoted)
+
+
+def _check_historical(tc: unittest.TestCase, resolver: dict) -> None:
+    for slug, successors in HISTORICAL_0151.items():
+        tc.assertNotIn(slug, resolver["slugs"], slug)
+        entry = resolver["historical_slugs"][slug]
+        tc.assertEqual(entry["source_handle"], f"ADR-0151/{slug}", slug)
+        tc.assertEqual(entry["destination"]["source_adr"], "ADR-0151", slug)
+        tc.assertEqual(sorted(entry["replacements"]), successors, slug)
+        for handle in successors:
+            recorded_slug = handle.split("/", 1)[1]
+            resolved = RESOLVED_0151.get(handle)
+            if resolved is None:
+                tc.assertEqual(resolver["slugs"][recorded_slug], handle, handle)
+                continue
+            tc.assertNotIn(recorded_slug, resolver["slugs"], handle)
+            tc.assertEqual(resolver["retired_slugs"][recorded_slug], resolved, handle)
+            for live in resolved:
+                tc.assertEqual(resolver["slugs"][live.split("/", 1)[1]], live, live)
+
+
+class HistoricalSlugTests(unittest.TestCase):
+    """The four ADR-0151 slugs the authority resets displaced stand in the historical lane."""
+
+    def setUp(self):
+        require_dev_surface(self, RESOLVER, "summaries resolver")
+        self.resolver = json.loads(RESOLVER.read_text(encoding="utf-8"))
+
+    def test_displaced_slugs_are_historical_and_name_their_adr_0166_successors(self):
+        _check_historical(self, self.resolver)
+
+    def test_control_the_check_fails_when_a_displaced_slug_is_live_or_loses_a_successor(self):
+        slug = next(iter(HISTORICAL_0151))
+        live = copy.deepcopy(self.resolver)
+        live["slugs"][slug] = f"ADR-0151/{slug}"
+        with self.assertRaises(AssertionError):
+            _check_historical(self, live)
+        dropped = copy.deepcopy(self.resolver)
+        dropped["historical_slugs"][slug]["replacements"] = HISTORICAL_0151[slug][:1]
+        with self.assertRaises(AssertionError):
+            _check_historical(self, dropped)
+        recorded = next(iter(RESOLVED_0151))
+        unresolved = copy.deepcopy(self.resolver)
+        unresolved["retired_slugs"][recorded.split("/", 1)[1]] = [recorded]
+        with self.assertRaises(AssertionError):
+            _check_historical(self, unresolved)
 
 
 class RetiredSlugTests(unittest.TestCase):

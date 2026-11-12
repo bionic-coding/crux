@@ -234,39 +234,73 @@
         ]
       },
       "then": {
-        "additionalProperties": false,
-        "properties": {
-          "format": {
-            "const": "crux.adr-migration-installed-support.v1"
-          },
-          "sources": {
-            "items": {
-              "additionalProperties": false,
-              "properties": {
-                "path": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "sha256": {
-                  "pattern": "^[0-9a-f]{64}$",
-                  "type": "string"
-                }
-              },
-              "required": [
-                "path",
-                "sha256"
-              ],
-              "type": "object"
+        "else": {
+          "additionalProperties": false,
+          "properties": {
+            "format": {
+              "const": "crux.adr-migration-installed-support.v1"
             },
-            "minItems": 1,
-            "type": "array"
-          }
+            "sources": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "path": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "sha256": {
+                    "pattern": "^[0-9a-f]{64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path",
+                  "sha256"
+                ],
+                "type": "object"
+              },
+              "minItems": 1,
+              "type": "array"
+            }
+          },
+          "required": [
+            "format",
+            "sources"
+          ],
+          "type": "object"
         },
-        "required": [
-          "format",
-          "sources"
-        ],
-        "type": "object"
+        "if": {
+          "properties": {
+            "format": {
+              "const": "crux.adr-migration-installed-support.v2"
+            }
+          },
+          "required": [
+            "format"
+          ]
+        },
+        "then": {
+          "additionalProperties": false,
+          "properties": {
+            "format": {
+              "const": "crux.adr-migration-installed-support.v2"
+            },
+            "profile": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "sha256": {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "format",
+            "profile",
+            "sha256"
+          ],
+          "type": "object"
+        }
       },
       "type": "object"
     },

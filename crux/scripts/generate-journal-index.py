@@ -25,13 +25,22 @@ nothing written. The category refusal is the narrow one: a heading is
 reported only when it would open an entry but for that token, so a fenced
 example and a forged date each stay with the lane that already owns them.
 
+A month file the process cannot stat, open, read or decode for a cause at
+its path — a permission refusal, a listed entry absent at open, a symbolic
+link loop, a byte sequence that is not UTF-8 — is a document defect too, in
+the same lane and the same payload.
+
 Exit 2 stays reserved for a genuine environment failure (a malformed
 `.bionic.yml`, an unresolvable repo root, a containment refusal on a
-directory a checkout controls) — never for a hand-edited journal file, which
-is a document defect a human repairs.
+directory a checkout controls, a `journal` that exists and cannot be listed,
+a month-file read that fails for a cause in the process or host such as EIO
+or descriptor exhaustion) — never for a hand-edited journal file, which is a
+document defect a human repairs. An exit-2 run prints nothing on stdout and
+names on stderr every document defect it met beside the failure.
 
 AN ABSENT JOURNAL SURFACE IS NOT A REFUSAL. A tree with no
-`<docs_dir>/journal/` directory at all carries no derived artifact, so there
+`<docs_dir>/journal/` directory at all — a `stat` of it fails with ENOENT or
+ENOTDIR — carries no derived artifact, so there
 is nothing that can have drifted. Write mode and `--dry-run` each exit 0 and
 set `"surface_absent": true` on the JSON — a positive discriminator, not a
 silent pass, matching `generate-reviews-index.py`'s precedent. `--check-stdin`
@@ -66,9 +75,11 @@ this list against the code rather than trust the prose):
      symlink that resolves INSIDE the tree. A symlinked `journal` directory
      is refused, full stop — this script admits only a real directory at
      that name.
-  4. Every directory entry is refused if `entry.is_symlink()` is true,
-     BEFORE the `is_file()` test and BEFORE the dotfile skip — `is_file()`
-     follows a symlink, and a leading dot must not be a way past this guard.
+  4. Every directory entry is `lstat`-ed once, and refused if it is a
+     symlink, BEFORE the regular-file test and BEFORE the dotfile skip — a
+     following stat would see through a symlink, and a leading dot must not
+     be a way past this guard. An entry the `lstat` fails on is classified
+     by its cause (see the lanes above), never read as "not a symlink".
   5. Every remaining candidate is refused if it is not a regular file.
   6. Every admitted name is matched against the closed month-file grammar
      `^[0-9]{4}-(0[1-9]|1[0-2])\\.md\\Z` under `re.fullmatch` — `[0-9]`,
@@ -86,7 +97,14 @@ this list against the code rather than trust the prose):
      is invisible to the walk (`index.md` is skipped as the output), and a
      preflight that stopped short of this guard would admit a write that
      write mode then refuses. The guard writes nothing, so running it in
-     check mode costs nothing. This guard has NO counterpart in
+     check mode costs nothing. Its three refusals keep their lane and their
+     text. Any OTHER failure to stat, open, read or decode the output is
+     classified by `input_lanes` like an input read: a cause at the path
+     (EACCES, ELOOP, invalid UTF-8) is a `validation_errors` entry naming the
+     index, with `input_lanes.output_reason` as its text, and a cause in the
+     process or host (EIO, a MemoryError) takes the environment lane naming
+     the index. The output is read only after every input was clean, so an
+     output failure never competes with an input finding. This guard has NO counterpart in
      `generate-reviews-index.py`, which reads its own index with a bare
      `is_file()` test and no prior symlink or containment check (see that
      script's line ~417) — that gap is a recorded follow-on, not fixed here
@@ -159,11 +177,13 @@ import argparse
 import json
 import os
 import re
+import stat
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import input_lanes  # noqa: E402
 from bionic_config import BionicConfigError, load_config  # noqa: E402
 from journal_index import (  # noqa: E402
     MONTH_RE,
@@ -261,8 +281,9 @@ def _read_regular_file(path: Path) -> str:
     """`path`'s UTF-8 text, opened `O_RDONLY | O_NOFOLLOW`.
 
     Raises `OSError` (a symlink slipping past an earlier check, ELOOP, a
-    permission failure) or `UnicodeDecodeError` — both are caught by the
-    caller and reported as a `validation_errors` entry.
+    permission failure, EIO) or `UnicodeDecodeError`. The caller classifies
+    each through `input_lanes`: a cause at the path is a `validation_errors`
+    entry, and any other cause is an environment failure.
     """
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
     with os.fdopen(fd, "rb") as handle:
@@ -270,14 +291,26 @@ def _read_regular_file(path: Path) -> str:
     return raw.decode("utf-8")
 
 
+class _Guard7Refusal(OSError):
+    """One of guard 7's own refusals: containment, a symlink, a non-regular file.
+
+    It carries no errno, so the caller recognises it BEFORE it classifies a
+    failure with `input_lanes.is_path_attributable`, and it keeps its own
+    lane and text.
+    """
+
+
 def _validate_output_index(index_path: Path, tree: Path, rel: str) -> str:
     """Guard 7: the output path, validated and read BEFORE any use.
 
     Containment, then refuse a symlink, then refuse an existing non-regular
-    file. A non-existent index is the permitted case: it reads as empty and
-    `main` writes it. Raises `OSError` on any refusal, converted by the
-    caller into a `validation_errors` entry — this is a document-shaped
-    refusal (the index a checkout produced), not an environment failure.
+    file. A non-existent index — its `lstat` fails with ENOENT or ENOTDIR —
+    is the permitted case: it reads as empty and `main` writes it. Raises
+    `_Guard7Refusal` on any refusal, converted by the caller into a
+    `validation_errors` entry — this is a document-shaped refusal (the index
+    a checkout produced), not an environment failure. Every other `OSError`
+    or `UnicodeDecodeError` from the `lstat`, the resolve or the read
+    propagates for the caller to classify by its cause.
 
     Both refusals name `rel`, the tree-relative path, so the `error` string
     agrees with the `file` key beside it and no absolute checkout path leaks
@@ -285,25 +318,49 @@ def _validate_output_index(index_path: Path, tree: Path, rel: str) -> str:
     names both resolved paths, because where the path escaped TO is the whole
     finding.
     """
-    _contained(index_path, tree, "journal index")
-    if index_path.is_symlink():
-        raise OSError(f"{rel} is a symlink — refusing to read or write through it")
-    if index_path.exists() and not index_path.is_file():
-        raise OSError(f"{rel} exists and is not a regular file")
-    if not index_path.exists():
+    try:
+        _contained(index_path, tree, "journal index")
+    except OSError as exc:
+        if exc.errno is None:  # the containment refusal itself, not a failed resolve
+            raise _Guard7Refusal(str(exc)) from exc
+        raise
+    # One `lstat`, not `is_symlink()`/`exists()`/`is_file()`: those predicates
+    # answer False for a path the process cannot stat, which is not absence.
+    st = input_lanes.path_state(index_path, follow=False)
+    if st is None:
         return ""
+    if stat.S_ISLNK(st.st_mode):
+        raise _Guard7Refusal(f"{rel} is a symlink — refusing to read or write through it")
+    if not stat.S_ISREG(st.st_mode):
+        raise _Guard7Refusal(f"{rel} exists and is not a regular file")
     return _read_regular_file(index_path)
 
 
-def _walk_journal_dir(journal_dir: Path, rel_journal: str) -> tuple[dict[str, tuple[str, str]], list[dict]]:
-    """`({month: (text, rel path)}, validation_errors)` for `journal_dir`.
+def _walk_journal_dir(journal_dir: Path, rel_journal: str) -> tuple[dict[str, tuple[str, str]], list[dict], list[str]]:
+    """`({month: (text, rel path)}, validation_errors, environment_failures)`.
 
     Guards 4-6, in order, over every directory entry. A file this function
-    could not read (I/O error, bad encoding) is reported the same way a
-    grammar refusal is — a `validation_errors` entry naming the file.
+    cannot stat, open, read or decode for a cause attributable to its path —
+    a permission refusal, a listed entry absent at open, a directory in its
+    place, a symbolic-link loop, content that is not UTF-8 — is reported the
+    same way a grammar refusal is: a `validation_errors` entry naming the
+    file, because the repair is at that path. A failure for a cause in the
+    process or host — descriptor or memory exhaustion, a device I/O error,
+    any errno outside `input_lanes`' closed list — is an environment failure
+    naming the file; `main` reports it in the environment lane (exit 2), with
+    every finding of the same run named beside it on stderr. Every entry is
+    tried before the walk returns, so one run names every input together.
     """
     month_texts: dict[str, tuple[str, str]] = {}
     errors: list[dict] = []
+    failures: list[str] = []
+
+    def _failed(rel: str, exc: BaseException) -> None:
+        if input_lanes.is_path_attributable(exc):
+            errors.append({"file": rel, "error": input_lanes.document_reason(exc)})
+        else:
+            failures.append(input_lanes.environment_reason(rel, exc))
+
     try:
         entries = sorted(journal_dir.iterdir(), key=lambda p: p.name)
     except OSError as exc:
@@ -312,9 +369,18 @@ def _walk_journal_dir(journal_dir: Path, rel_journal: str) -> tuple[dict[str, tu
     for entry in entries:
         name = entry.name
         rel = str(Path(rel_journal) / name)
-        # Guard 4: symlink refusal, BEFORE is_file() and BEFORE the dotfile
-        # skip — is_file() follows a symlink.
-        if entry.is_symlink():
+        # One `lstat` answers guards 4 and 5, so a failure to stat a listed
+        # entry is classified rather than read as "not a symlink" or "not a
+        # file" by a predicate that swallows the error.
+        try:
+            st = os.lstat(entry)
+        except OSError as exc:
+            _failed(rel, exc)
+            continue
+        # Guard 4: symlink refusal, BEFORE the regular-file test and BEFORE
+        # the dotfile skip. A dangling link is refused here too: its target
+        # is absent, and the refusal names the entry the listing returned.
+        if stat.S_ISLNK(st.st_mode):
             errors.append({"file": rel, "error": "is a symlink — the journal "
                            "grammar admits only regular files, and following "
                            "one would read outside the tree"})
@@ -324,7 +390,7 @@ def _walk_journal_dir(journal_dir: Path, rel_journal: str) -> tuple[dict[str, tu
         if name.startswith("."):
             continue  # editor/filesystem debris, never a month file
         # Guard 5: regular file only.
-        if not entry.is_file():
+        if not stat.S_ISREG(st.st_mode):
             errors.append({"file": rel, "error": "is not a regular file"})
             continue
         # Guard 6: the closed month-file grammar.
@@ -336,14 +402,11 @@ def _walk_journal_dir(journal_dir: Path, rel_journal: str) -> tuple[dict[str, tu
         month = name[:-len(".md")]
         try:
             text = _read_regular_file(entry)
-        except UnicodeDecodeError as exc:
-            errors.append({"file": rel, "error": f"is not valid UTF-8 ({exc})"})
-            continue
-        except OSError as exc:
-            errors.append({"file": rel, "error": f"could not be read ({exc})"})
+        except (OSError, UnicodeDecodeError, MemoryError) as exc:
+            _failed(rel, exc)
             continue
         month_texts[month] = (text, rel)
-    return month_texts, errors
+    return month_texts, errors, failures
 
 
 def _rel_index(rel_journal: str) -> str:
@@ -429,20 +492,28 @@ def main(argv=None) -> int:
     # validate even when no journal directory exists yet (the first entry a
     # brand-new tree ever journals), so it falls through to the walk below
     # over an empty `month_texts` rather than reporting a stale `entries: 0`.
-    if not journal_dir.is_dir():
+    #
+    # Absence is the operating system's answer: `stat` failing with ENOENT or
+    # ENOTDIR. `is_dir()` returns False for a directory under an unsearchable
+    # parent and for a regular file at this path, and either would have read
+    # as an absent surface. A `journal` that exists and is not a directory,
+    # or whose existence cannot be determined, is a directory this script
+    # must list and cannot: the environment lane, never an empty surface.
+    try:
+        journal_present = input_lanes.directory_exists(journal_dir)
+        if journal_present:
+            month_texts, errors, failures = _walk_journal_dir(journal_dir, rel_journal)
+    except OSError as exc:
+        sys.stderr.write(
+            f"generate-journal-index: {redact(exc, quoted=False, limit=MESSAGE_LIMIT)}\n")
+        return 2
+    if not journal_present:
         if not args.check_stdin:
             payload = {"path": rel_index, "surface_absent": True}
             payload |= {"drift": False} if args.dry_run else {"written": None}
             print(json.dumps(payload, sort_keys=True))
             return 0
-        month_texts, errors = {}, []
-    else:
-        try:
-            month_texts, errors = _walk_journal_dir(journal_dir, rel_journal)
-        except OSError as exc:
-            sys.stderr.write(
-                f"generate-journal-index: {redact(exc, quoted=False, limit=MESSAGE_LIMIT)}\n")
-            return 2
+        month_texts, errors, failures = {}, [], []
 
     stdin_decode_error: dict | None = None
     if args.check_stdin:
@@ -490,6 +561,16 @@ def main(argv=None) -> int:
             continue
         rows.append(derive_row(month, text))
 
+    # Precedence: an environment failure takes the environment lane over
+    # every finding, with nothing on stdout, and names each finding of this
+    # run on stderr so none goes unreported.
+    if failures:
+        return input_lanes.emit_environment_failure(
+            input_lanes.EnvironmentLaneError(
+                [redact(f, quoted=False, limit=MESSAGE_LIMIT) for f in failures],
+                _redact_errors(errors)),
+            "generate-journal-index", sys.stderr)
+
     if errors:
         return _emit_validation_errors(errors, rel_index)
 
@@ -497,15 +578,27 @@ def main(argv=None) -> int:
     # `index.md` that is a directory or a FIFO is skipped by the walk (it is
     # the output), so this is the only place any mode sees it — returning
     # before it made `--check-stdin` admit a write that write mode refused.
-    # The guard writes nothing. `UnicodeDecodeError` is caught beside
-    # `OSError` because the read below can raise it on a non-UTF-8 index, and
-    # a traceback would break the exit-1 contract of valid JSON on stdout.
+    # The guard writes nothing. Its own refusals keep their lane and text.
+    # Every other failure on the output is classified like an input read: a
+    # cause at the path is a document finding whose text names the repair
+    # and no absolute path; a cause in the process or host (EIO, a
+    # MemoryError) is the environment lane, naming the index. Every input was
+    # clean to reach this point, so no finding competes with it.
     index_path = tree / "journal" / "index.md"
     try:
         have = _validate_output_index(index_path, tree, rel_index)
-    except (OSError, UnicodeDecodeError) as exc:
+    except _Guard7Refusal as exc:
         return _emit_validation_errors(
             [{"file": rel_index, "error": str(exc)}], rel_index)
+    except (OSError, UnicodeDecodeError, MemoryError) as exc:
+        if input_lanes.is_path_attributable(exc):
+            return _emit_validation_errors(
+                [{"file": rel_index, "error": input_lanes.output_reason(exc)}], rel_index)
+        return input_lanes.emit_environment_failure(
+            input_lanes.EnvironmentLaneError(
+                [redact(input_lanes.environment_reason(rel_index, exc),
+                        quoted=False, limit=MESSAGE_LIMIT)]),
+            "generate-journal-index", sys.stderr)
 
     if args.check_stdin:
         entries = next((r["entries"] for r in rows if r["month"] == args.month), 0)

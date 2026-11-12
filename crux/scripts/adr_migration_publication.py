@@ -85,6 +85,14 @@ def inventory(repo):
         changes=m._git(repo,'log','--first-parent','--format=%H',commit+'..HEAD','--',path).decode().splitlines()
         if changes:raise CycleError('prospective publication history changed')
         rows.append(dict(path=path,sha256=digest(m.read(repo,path)),publication_commit=commit,content=encoded(value)))
+    # Readers take the last row as the current publication, so rows run in
+    # first-parent commit order, oldest first. A path sort put
+    # `<batch>-<suffix>.publication.json` before `<batch>.publication.json`
+    # whatever their commits, and named the older publication current.
+    if len(rows)>1:
+        order=m._git(repo,'log','--first-parent','--format=%H','HEAD').decode().split()[::-1]
+        position={sha:index for index,sha in enumerate(order)}
+        rows.sort(key=lambda row:(position[row['publication_commit']],row['path']))
     return rows
 
 
@@ -125,19 +133,25 @@ def _prior_baseline(repo, approval_path, parent, historical, receipt=None):
         source,support='parent-tree',None
         if not script.is_file():
             # Consuming projects keep the plugin installed, not vendored. The
-            # earlier committed receipt must prove those exact installed bytes;
+            # earlier committed approval's installed-support basis must be accepted;
             # absence of source is never permission to substitute another reader.
             prior=m.load(previous,approval_path,'approval')
             support=prior['readiness']
             source='installed-support'
             package=m.load(previous,prior['package']['path'],'package')
-            if package['initial'] or support.get('format')!='crux.adr-migration-installed-support.v1':
+            if package['initial'] or support.get('format') not in {m.INSTALLED_SUPPORT_V1,m.INSTALLED_SUPPORT_V2}:
                 raise CycleError('parent migration validator is unavailable')
-            m.validate_readiness(previous,support,initial=False)
+            _,route=m.validate_readiness(previous,support,initial=False,with_route=True)
             script=Path(m.__file__).resolve().with_name('adr-migration.py')
-            expected=next((r['sha256'] for r in support['sources'] if r['path']=='scripts/adr-migration.py'),None)
-            if not script.is_file() or digest(script.read_bytes())!=expected:
-                raise CycleError('parent installed validator source changed')
+            # Only a v1 basis accepted by its bytes pins the reader's bytes. A v2 basis
+            # or an issued v1 basis takes its standing from the pinned profile or the
+            # reviewed issued list, so the current installed reader runs (lines 126-146).
+            if route=='byte':
+                expected=next((r['sha256'] for r in support['sources'] if r['path']=='scripts/adr-migration.py'),None)
+                if not script.is_file() or digest(script.read_bytes())!=expected:
+                    raise CycleError('parent installed validator source changed')
+            elif not script.is_file():
+                raise CycleError('parent migration validator is unavailable')
         # Only this subprocess is replaced by a trusted receipt. Every check above and
         # the standing computation below run on every read that reaches this function.
         facts=None

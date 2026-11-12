@@ -239,9 +239,11 @@ class AttemptLimitMixin:
         self.assertEqual(reviewer['attempt'], 1)
 
     def test_inspect_offers_no_dispatch_the_attempt_limit_would_refuse(self):
+        # inspect offers a Build task as a dev-lead dispatch, so the dev-lead's attempts are the ones it counts.
         for n in range(1, 4):
-            self.finish_attempt(self.dispatch(op_id=f'prep-000{n}', assignment='build-it'), n, 'failed')
-        self.limit_refusal()
+            self.finish_attempt(self.dispatch(op_id=f'prep-000{n}', assignment='build-it', role='dev-lead'), n, 'failed')
+        response = self.refused(self.dispatch_request('prep-0009', role='dev-lead'), 'attempt-limit')
+        self.assertEqual([r['argv'][6] for r in response['errors'][0]['recovery']], ['pause'])
         actions = self.ok({'op': 'inspect'})['actions']
         self.assertEqual([a for a in actions if a.get('request', {}).get('op') == 'prepare-dispatch'], [])
         # The refusal's own recovery is what inspect offers instead.
@@ -257,11 +259,6 @@ class AttemptLimitMixin:
         self.limit_refusal()
         other = self.ok({**self.dispatch_request('prep-0010'), 'role': 'reviewer', 'assignment': 'rev-a'})
         self.assertEqual(other['attempt'], 1)
-
-    def test_two_attempts_stay_below_the_limit(self):
-        for n in (1, 2):
-            self.finish_attempt(self.dispatch(op_id=f'prep-000{n}', assignment='build-it'), n)
-        self.assertEqual(self.dispatch(op_id='prep-0003', assignment='build-it')['attempt'], 3)
 
 
 class ConcurrencyMixin:

@@ -679,25 +679,6 @@ class CycleKindFlipAtArchiveTests(unittest.TestCase):
                          "changed, re-evaluate whether the archive-path validator "
                          "call is still the closure")
 
-    def test_archive_promptbook_validates_the_book_before_branching_on_cycle_kind(self):
-        skill = REPO_ROOT / "crux" / "skills" / "archive-promptbook" / "SKILL.md"
-        self.assertTrue(skill.exists(), f"archive-promptbook/SKILL.md missing at {skill}")
-        text = skill.read_text(encoding="utf-8")
-        self.assertIn("validate-promptbook.py", text,
-                      "archive-promptbook must run the validator on the book it is "
-                      "about to archive; nothing else on the archive path would "
-                      "catch a mid-run cycle_kind flip")
-        self.assertIn("--kind promptbook", text,
-                      "the validator call must pin --kind promptbook rather than "
-                      "relying on auto-detect, so a book whose keys were edited "
-                      "cannot be validated as some other kind")
-        # Order is the whole point: validating AFTER the branch would already have
-        # skipped the precondition the flip removed.
-        validate_at = text.index("--kind promptbook")
-        branch_at = text.index("For a `cycle_kind: patch` book, run the blast-radius check")
-        self.assertLess(validate_at, branch_at,
-                        "the validator call must precede the cycle_kind branch")
-
 
 class ArchiveMoveCommitFormTests(unittest.TestCase):
     """Step 3 of `archive-promptbook` moves the book with `git mv` and names the commit

@@ -177,10 +177,46 @@ class ReviewScopeDefaultTests(PlanBase):
         self.assertEqual(saved['scope'], ['src'])
         self.assertEqual(check_review(cfg, doc)['scope'], ['src'])  # the recorded review binds
 
-    def test_an_explicit_scope_is_checked_as_before(self):
+    def test_an_explicit_scope_that_omits_a_plan_path_is_refused_by_code(self):
         self.review_ready()
-        with self.assertRaisesRegex(CycleError, 'review scope must equal the declared scope'):
+        with self.assertRaisesRegex(CycleError, r'^review-scope-incomplete: .*\bsrc\b'):
             self.do('review', report=self.report(scope=['other']))
+        self.assertEqual(self.doc()['reviews'], [])
+
+    def test_a_scope_that_is_the_plan_scope_is_a_positive_control(self):
+        self.review_ready()
+        with patch('cycle_workflow.check_tests'):
+            self.do('review', report=self.report(scope=['src']))
+        self.assertEqual(len(self.doc()['reviews']), 1)
+
+    def test_a_parent_directory_and_an_extra_path_cover_a_narrower_plan_scope(self):
+        self.cid = create(self.repo, self.kind, 'Narrow', 'Goal', ['src/a.py'], ['Works'], 'dev', 'lead')['id']
+        self.review_ready()
+        with patch('cycle_workflow.check_tests'):
+            self.do('review', report=self.report(scope=['src', 'docs/extra.md']))
+        cfg = tree(self.repo)
+        doc = self.doc()
+        self.assertEqual(read_retained(cfg, doc['reviews'][-1])['scope'], ['src', 'docs/extra.md'])
+        self.assertEqual(check_review(cfg, doc)['verdict'], 'approve')  # the recorded review binds
+
+    def test_a_scope_covering_only_part_of_the_plan_names_the_uncovered_path(self):
+        self.cid = create(self.repo, self.kind, 'Two', 'Goal', ['src/a.py', 'lib'], ['Works'], 'dev', 'lead')['id']
+        self.review_ready()
+        with self.assertRaisesRegex(CycleError, r'^review-scope-incomplete: .*\blib\b') as caught:
+            self.do('review', report=self.report(scope=['src']))
+        self.assertNotIn('src/a.py', str(caught.exception))
+
+    def test_a_scope_that_is_not_a_list_of_strings_refuses_before_the_coverage_test(self):
+        self.review_ready()
+        for bad in ('src', ['src', 3], [''], []):
+            with self.subTest(scope=bad):
+                with self.assertRaisesRegex(CycleError, r'^invalid review report: scope must be a non-empty list of non-empty strings'):
+                    self.do('review', report=self.report(scope=bad))
+
+    def test_missing_evidence_keeps_its_own_message_when_the_scope_covers(self):
+        self.review_ready()
+        with self.assertRaisesRegex(CycleError, 'must identify evidence and rationale'):
+            self.do('review', report=self.report(scope=['src'], evidence=[]))
 
 
 class BetaPrepareTextTests(PlanBase):

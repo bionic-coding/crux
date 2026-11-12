@@ -62,10 +62,38 @@ is the common case and fails closed. A target whose ONLY marker pair lives
 inside a fence would be mis-delimited; nothing here prevents that, and what
 prevents it today is that no target is authored that way.
 
+The declared input set has four parts: the canonical file and the skill
+catalog (required files named by path), the `crux/skills` directory (listed),
+and each `<skill>/SKILL.md` (a catalogue member when the catalog names the
+skill, a listed candidate otherwise). Each input takes one lane:
+
+* A required file that is confirmed absent (its `stat` fails with ENOENT or
+  ENOTDIR), or that cannot be opened, read or decoded for a cause at its path,
+  is a document-lane finding naming it.[^file] So is a catalogued skill whose
+  SKILL.md is confirmed absent,[^member] and a listed SKILL.md absent at open.
+* A failure for any other cause (EIO, descriptor or memory exhaustion) takes
+  the environment lane naming the input,[^process] and so does a skills
+  directory that exists and cannot be listed, or whose existence cannot be
+  determined.[^unlistable] A confirmed-absent skills directory is a finding.
+* The run tries every input and every target before it exits. A check that
+  depends on a refused input is skipped, so only that input's own finding is
+  reported: the catalogue checks depend on the catalog, and the region
+  comparison and the planned write depend on the canonical file. A run that
+  met an environment-lane failure takes that lane and names its document
+  findings on stderr.[^precedence] Every refusal writes nothing.
+
 Exit codes (the contract every sibling regenerator follows):
     0  clean — wrote (or, under --dry-run, found no drift)
-    1  drift (--dry-run) or validation error, with JSON on stdout
-    2  capability/environment error, with a message on stderr
+    1  drift (--dry-run, `{"drifted": ...}`) or document-lane refusal
+       (`{"validation_errors": [{"file", "error"}, ...]}`), with JSON on stdout
+    2  environment-lane failure, or a pass-2 write failure: nothing on stdout,
+       a message on stderr
+
+[^file]: rule:path-attributable-read-failure-is-a-document-finding
+[^member]: rule:absent-catalogue-member-is-a-document-finding
+[^process]: rule:process-level-read-failure-is-an-environment-failure
+[^unlistable]: rule:unlistable-input-directory-is-an-environment-failure
+[^precedence]: rule:environment-failure-takes-precedence
 """
 from __future__ import annotations
 
@@ -103,9 +131,51 @@ EXEMPT_SKILLS = frozenset(
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import authoring_scope as _scope  # noqa: E402
+import input_lanes  # noqa: E402
+
+SCRIPT_NAME = "generate-runtime-compat.py"
+#: The file that holds EXEMPT_SKILLS: the repair path for an exemption finding.
+SCRIPT_FILE = f"crux/scripts/{SCRIPT_NAME}"
+
+_ABSENT_DIRECTORY_REASON = (
+    "is the required skills directory and is absent — restore the directory at "
+    "this path")
+
 
 class RegenError(Exception):
-    """A validation failure that belongs on the exit-1 findings lane."""
+    """A document-lane refusal: exit 1 with `validation_errors` on stdout.
+
+    `errors` is the full list of `{"file", "error"}` entries, each naming the
+    repository-relative path whose repair clears it. `str(exc)` joins them.
+    """
+
+    def __init__(self, errors: list[dict]) -> None:
+        self.errors = [dict(e) for e in errors]
+        super().__init__("; ".join(f"{e['file']}: {e['error']}" for e in self.errors))
+
+
+class _Lanes:
+    """The findings and environment failures one run meets, collected before exit."""
+
+    def __init__(self) -> None:
+        self.findings: list[dict] = []
+        self.failures: list[str] = []
+
+    def finding(self, rel: str, error: str) -> None:
+        self.findings.append({"file": rel, "error": error})
+
+    def read_failure(self, rel: str, exc: BaseException) -> None:
+        """Classify a failed stat, open, read or decode of the input `rel`."""
+        if input_lanes.is_path_attributable(exc):
+            self.finding(rel, input_lanes.document_reason(exc))
+        else:
+            self.failures.append(input_lanes.environment_reason(rel, exc))
+
+    def raise_if_refused(self) -> None:
+        if self.failures:
+            raise input_lanes.EnvironmentLaneError(self.failures, self.findings)
+        if self.findings:
+            raise RegenError(self.findings)
 
 
 def _repo_root(explicit: str | None) -> Path:
@@ -169,24 +239,27 @@ def find_region(text: str, begin: str, end: str, label: str) -> tuple[int, int]:
     Fails closed on anything ambiguous: a missing marker, a duplicate marker,
     or END before BEGIN. Never guesses an insertion point.
     """
+    def refuse(error: str) -> RegenError:
+        return RegenError([{"file": label, "error": error}])
+
     b = _marker_line(begin).findall(text)
     e = _marker_line(end).findall(text)
     if len(b) == 0 or len(e) == 0:
         missing = "BEGIN" if len(b) == 0 else "END"
-        raise RegenError(
-            f"{label}: missing marker ({missing} not found as its own line). "
+        raise refuse(
+            f"missing marker ({missing} not found as its own line). "
             f"Expected exactly one line {begin!r} and one line {end!r}."
         )
     if len(b) > 1 or len(e) > 1:
-        raise RegenError(
-            f"{label}: duplicate marker (BEGIN x{len(b)}, END x{len(e)}). "
+        raise refuse(
+            f"duplicate marker (BEGIN x{len(b)}, END x{len(e)}). "
             "Exactly one of each is required; refusing to guess which pair is real."
         )
     mb = _marker_line(begin).search(text)
     me = _marker_line(end).search(text)
     assert mb is not None and me is not None  # counts above guarantee both
     if me.start() < mb.end():
-        raise RegenError(f"{label}: END marker precedes BEGIN marker.")
+        raise refuse("END marker precedes BEGIN marker.")
     return mb.end(), me.start()
 
 
@@ -200,118 +273,235 @@ def replace_region(text: str, begin: str, end: str, body: str, label: str) -> st
     return text[:i] + body + text[j:]
 
 
-def _load_canonical(root: Path) -> str:
+def _read_required(root: Path, rel: str, lanes: _Lanes) -> str | None:
+    """Read the required file `rel`, or record why it cannot be read and return None.
+
+    `path_state` decides its presence: a confirmed absence is a finding. A
+    failed stat, open, read or decode is classified by its cause.
+    """
+    path = root / rel
+    try:
+        if input_lanes.path_state(path) is None:
+            lanes.finding(rel, input_lanes.absent_reason("file"))
+            return None
+        return read_text_verbatim(path)
+    except (OSError, UnicodeDecodeError, MemoryError) as exc:
+        lanes.read_failure(rel, exc)
+        return None
+
+
+def _canonical(root: Path, lanes: _Lanes) -> str | None:
     """The whole canonical file body, normalized to one leading and one trailing newline.
 
     The projected region is the bytes strictly between the two marker LINES, so
     it necessarily opens with the newline that ends the BEGIN line and closes
     with the newline that starts the END line. Normalizing here is what makes
     regeneration idempotent regardless of how many blank lines the canonical
-    file happens to end with.
+    file happens to end with. Returns None when the file is refused.
     """
-    path = root / CANONICAL_FILE
-    if not path.is_file():
-        raise RegenError(f"{CANONICAL_FILE}: not found at {path}")
-    body = read_text_verbatim(path)
+    body = _read_required(root, CANONICAL_FILE, lanes)
+    if body is None:
+        return None
     if not body.strip():
-        raise RegenError(
-            f"{CANONICAL_FILE}: canonical file is empty; refusing to project nothing."
-        )
+        lanes.finding(CANONICAL_FILE, "canonical file is empty; refusing to project nothing.")
+        return None
     for marker in (PROJECTION_BEGIN, PROJECTION_END):
         if marker in body:
-            raise RegenError(
-                f"{CANONICAL_FILE}: the canonical body contains the projection marker "
-                f"{marker!r}. Projecting it would write a second delimiter into every "
-                "target and wedge every later run. Remove it from the canonical file."
+            lanes.finding(
+                CANONICAL_FILE,
+                f"the canonical body contains the projection marker {marker!r}. "
+                "Projecting it would write a second delimiter into every target and "
+                "wedge every later run. Remove it from the canonical file.",
             )
+            return None
     return "\n" + body.strip("\r\n") + "\n"
 
 
-def _catalogued_skills(root: Path) -> list[str]:
-    path = root / CATALOG_FILE
-    if not path.is_file():
-        raise RegenError(f"{CATALOG_FILE}: not found at {path}")
+def _catalog(root: Path, lanes: _Lanes) -> list[str] | None:
+    """The catalogued skill names, sorted, or None when the catalog is refused."""
+    text = _read_required(root, CATALOG_FILE, lanes)
+    if text is None:
+        return None
     try:
-        records = json.loads(path.read_text(encoding="utf-8"))
+        records = json.loads(text)
     except json.JSONDecodeError as exc:
-        raise RegenError(f"{CATALOG_FILE}: not valid JSON ({exc})") from exc
+        lanes.finding(CATALOG_FILE, f"not valid JSON ({exc})")
+        return None
     if not isinstance(records, list) or not records:
-        raise RegenError(f"{CATALOG_FILE}: expected a non-empty list of skill records.")
+        lanes.finding(CATALOG_FILE, "expected a non-empty list of skill records.")
+        return None
     try:
         return sorted(str(record["name"]) for record in records)
     except (TypeError, KeyError) as exc:
-        raise RegenError(f"{CATALOG_FILE}: a record has no `name` key ({exc})") from exc
+        lanes.finding(CATALOG_FILE, f"a record has no `name` key ({exc})")
+        return None
 
 
-def resolve_targets(root: Path) -> list[str]:
-    """Derive the target list from the BEGIN marker, then cross-check the catalog.
+def _load_canonical(root: Path) -> str:
+    """The canonical body; raises RegenError or EnvironmentLaneError when refused."""
+    lanes = _Lanes()
+    canonical = _canonical(root, lanes)
+    lanes.raise_if_refused()
+    assert canonical is not None
+    return canonical
+
+
+def _catalogued_skills(root: Path) -> list[str]:
+    """The catalogued names; raises RegenError or EnvironmentLaneError when refused."""
+    lanes = _Lanes()
+    names = _catalog(root, lanes)
+    lanes.raise_if_refused()
+    assert names is not None
+    return names
+
+
+def _skill_rel(name: str) -> str:
+    return f"{SKILLS_DIR}/{name}/SKILL.md"
+
+
+def _probe_skill(root: Path, name: str, lanes: _Lanes) -> tuple[str, str | None]:
+    """Probe and read one `<name>/SKILL.md`. Returns (state, text).
+
+    state is "absent" (confirmed by an lstat failing with ENOENT or ENOTDIR,
+    so a regular file such as `.gitkeep` is no candidate), "refused" (a finding
+    or an environment failure was recorded) or "read".
+    """
+    rel = _skill_rel(name)
+    path = root / rel
+    try:
+        if input_lanes.path_state(path, follow=False) is None:
+            return "absent", None
+        # It exists, possibly as a symbolic link; ENOENT at this open is the
+        # listed-then-absent case, which document_reason names.
+        return "read", read_text_verbatim(path)
+    except (OSError, UnicodeDecodeError, MemoryError) as exc:
+        lanes.read_failure(rel, exc)
+        return "refused", None
+
+
+def _targets(
+    root: Path, lanes: _Lanes, catalogued: list[str] | None
+) -> tuple[list[str], dict[str, str]]:
+    """Derive the targets from the BEGIN marker, then cross-check the catalog.
 
     Deriving from the marker alone would let a skill that lost its markers drop
     silently out of the projection — the exact failure this gate exists to
     catch. So the marker scan decides the targets, and the catalog decides
-    whether that set is COMPLETE.
+    whether that set is COMPLETE. Returns the target paths and each target's
+    text; every refusal is recorded on `lanes`.
     """
     skills_root = root / SKILLS_DIR
-    if not skills_root.is_dir():
-        raise RegenError(f"{SKILLS_DIR}: not found at {skills_root}")
+    states: dict[str, str] = {}
+    texts: dict[str, str] = {}
+    listed = False
+    try:
+        if input_lanes.directory_exists(skills_root):
+            entries = input_lanes.list_directory(skills_root)
+            listed = True
+        else:
+            lanes.finding(SKILLS_DIR, _ABSENT_DIRECTORY_REASON)
+            entries = []
+            listed = True  # confirmed absent: every member is confirmed absent too
+    except (OSError, MemoryError) as exc:
+        # An existing directory that cannot be listed, or whose existence
+        # cannot be determined, is never read as empty.
+        lanes.failures.append(input_lanes.environment_reason(SKILLS_DIR, exc))
+        entries = []
 
-    marked: set[str] = set()
-    for skill_md in sorted(skills_root.glob("*/SKILL.md")):
-        if has_marker(read_text_verbatim(skill_md)):
-            marked.add(skill_md.parent.name)
+    for name in entries:
+        state, text = _probe_skill(root, name, lanes)
+        states[name] = state
+        if text is not None:
+            texts[name] = text
+    marked = {name for name, text in texts.items() if has_marker(text)}
 
-    catalogued = _catalogued_skills(root)
-    stale_exempt = sorted(EXEMPT_SKILLS - set(catalogued))
-    if stale_exempt:
-        raise RegenError(
-            "EXEMPT_SKILLS entries naming skills the catalog does not carry: "
-            f"{', '.join(stale_exempt)}. An exemption outliving its skill is the one "
-            "way this list rots undetected — the other two legs only look at skills "
-            "that still exist. Delete the entry, or run `validate-catalog.py` if the "
-            "skill is present but uncatalogued."
-        )
-    unmarked = [n for n in catalogued if n not in marked and n not in EXEMPT_SKILLS]
-    if unmarked:
-        raise RegenError(
-            "skills carrying neither the runtime-compat markers nor an exemption: "
-            f"{', '.join(unmarked)}. A skill that loses its markers must fail here "
-            "rather than drop silently out of the projection. Restore the markers, or "
-            "add the skill to EXEMPT_SKILLS if it genuinely carries no block."
-        )
-    exempt_but_marked = sorted(marked & EXEMPT_SKILLS)
-    if exempt_but_marked:
-        raise RegenError(
-            "skills listed in EXEMPT_SKILLS that DO carry the runtime-compat markers: "
-            f"{', '.join(exempt_but_marked)}. Remove them from EXEMPT_SKILLS so the "
-            "projection reaches them."
-        )
-    uncatalogued = sorted(marked - set(catalogued))
-    if uncatalogued:
-        raise RegenError(
-            "marked skills absent from the catalog: "
-            f"{', '.join(uncatalogued)}. Run `validate-catalog.py` first — projecting "
-            "into a skill the catalog does not know would hide a catalog fault."
-        )
-    return [f"{SKILLS_DIR}/{name}/SKILL.md" for name in sorted(marked)]
+    if catalogued is not None:
+        stale_exempt = sorted(EXEMPT_SKILLS - set(catalogued))
+        if stale_exempt:
+            lanes.finding(
+                SCRIPT_FILE,
+                "EXEMPT_SKILLS entries naming skills the catalog does not carry: "
+                f"{', '.join(stale_exempt)}. An exemption outliving its skill is the one "
+                "way this list rots undetected — the other two legs only look at skills "
+                "that still exist. Delete the entry, or run `validate-catalog.py` if the "
+                "skill is present but uncatalogued.",
+            )
+    if catalogued is not None and listed:
+        for name in catalogued:
+            if name not in states:
+                # Not in the listing: probe the member itself.
+                state, text = _probe_skill(root, name, lanes)
+                states[name] = state
+                if text is not None:
+                    texts[name] = text
+                    if has_marker(text):
+                        marked.add(name)
+            state = states[name]
+            if state == "absent":
+                lanes.finding(_skill_rel(name), input_lanes.absent_reason("member"))
+            elif state == "read" and name not in marked and name not in EXEMPT_SKILLS:
+                lanes.finding(
+                    _skill_rel(name),
+                    "carries neither the runtime-compat markers nor an exemption. A "
+                    "skill that loses its markers must fail here rather than drop "
+                    "silently out of the projection. Restore the markers, or add the "
+                    "skill to EXEMPT_SKILLS if it genuinely carries no block.",
+                )
+        exempt_but_marked = sorted(marked & EXEMPT_SKILLS)
+        if exempt_but_marked:
+            lanes.finding(
+                SCRIPT_FILE,
+                "skills listed in EXEMPT_SKILLS that DO carry the runtime-compat markers: "
+                f"{', '.join(exempt_but_marked)}. Remove them from EXEMPT_SKILLS so the "
+                "projection reaches them.",
+            )
+        for name in sorted(marked - set(catalogued)):
+            lanes.finding(
+                _skill_rel(name),
+                "is a marked skill absent from the catalog. Run `validate-catalog.py` "
+                "first — projecting into a skill the catalog does not know would hide "
+                "a catalog fault.",
+            )
+    targets = sorted(marked)
+    return [_skill_rel(n) for n in targets], {_skill_rel(n): texts[n] for n in targets}
+
+
+def resolve_targets(root: Path) -> list[str]:
+    """The target paths; raises RegenError or EnvironmentLaneError when refused."""
+    lanes = _Lanes()
+    catalogued = _catalog(root, lanes)
+    targets, _texts = _targets(root, lanes, catalogued)
+    lanes.raise_if_refused()
+    return targets
 
 
 def run(root: Path, dry_run: bool) -> tuple[int, dict]:
-    canonical = _load_canonical(root)
-    targets = resolve_targets(root)
+    lanes = _Lanes()
+    canonical = _canonical(root, lanes)
+    catalogued = _catalog(root, lanes)
+    targets, texts = _targets(root, lanes, catalogued)
 
     # Pass 1 — validate EVERY target before mutating ANY of them, so a
-    # malformed later target cannot leave earlier ones rewritten.
+    # malformed later target cannot leave earlier ones rewritten. A malformed
+    # region is reported whether or not the canonical file was refused; the
+    # comparison and the planned write need the canonical body.
     planned: list[tuple[str, Path, str]] = []
     drifted: list[str] = []
     for rel in targets:
-        path = root / rel
-        text = read_text_verbatim(path)
-        if extract_region(text, PROJECTION_BEGIN, PROJECTION_END, rel) == canonical:
+        text = texts[rel]
+        try:
+            region = extract_region(text, PROJECTION_BEGIN, PROJECTION_END, rel)
+        except RegenError as exc:
+            lanes.findings.extend(exc.errors)
+            continue
+        if canonical is None or region == canonical:
             continue
         drifted.append(rel)
         planned.append(
-            (rel, path, replace_region(text, PROJECTION_BEGIN, PROJECTION_END, canonical, rel))
+            (rel, root / rel, replace_region(text, PROJECTION_BEGIN, PROJECTION_END, canonical, rel))
         )
+
+    lanes.raise_if_refused()
 
     if dry_run:
         if drifted:
@@ -328,7 +518,8 @@ def run(root: Path, dry_run: bool) -> tuple[int, dict]:
     # write is atomic, but the set is not, so a failure here can leave earlier
     # targets updated and later ones stale. That state is safe and
     # self-correcting — the drift gate reports it and a re-run converges,
-    # because regeneration is idempotent.
+    # because regeneration is idempotent. A write failure is not a refusal; it
+    # keeps exit 2 on stderr.
     for _rel, path, text in planned:
         write_text_atomically(path, text)
     return 0, {"written": drifted, "canonical": CANONICAL_FILE, "targets": len(targets)}
@@ -358,15 +549,15 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         code, payload = run(root, args.dry_run)
+    except input_lanes.EnvironmentLaneError as exc:
+        return input_lanes.emit_environment_failure(exc, SCRIPT_NAME, sys.stderr)
     except RegenError as exc:
-        print(json.dumps({"error": str(exc)}, indent=2))
+        print(json.dumps({"validation_errors": exc.errors}, indent=2))
         return 1
-    except (OSError, UnicodeDecodeError) as exc:
-        # Environment/encoding problem, not a document verdict. A non-UTF-8
-        # byte pasted into any target must not escape as an uncaught traceback
-        # — that would satisfy neither the exit-1 (JSON on stdout) nor the
-        # exit-2 (message on stderr) half of the contract.
-        sys.stderr.write(f"generate-runtime-compat.py: {exc}\n")
+    except OSError as exc:
+        # A pass-2 write failure: not a refusal, so it keeps exit 2 on stderr.
+        # Every read is classified in run(), so none reaches this handler.
+        sys.stderr.write(f"{SCRIPT_NAME}: {exc}\n")
         return 2
 
     print(json.dumps(payload, indent=2))

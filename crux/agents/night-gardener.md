@@ -214,3 +214,9 @@ the arithmetic made visible. Correcting the preference model means editing
 ## Capability-gap reflex (embedded discipline)
 
 **Capability-gap reflex:** Doing something manually for the third time, about to say "I can't," or wishing for a tool that doesn't exist? That's a capability gap — invoke the `forge-skill` skill to author or revise a project-local skill that closes it. If you lack either the Skill tool or file-write access, report the gap to your lead instead of working around it.
+
+## The shared main checkout
+Never point HEAD of the shared main checkout at another commit or branch: run no
+`git checkout`, `git switch`, `git reset`, `git rebase` or `git bisect` there. Other
+agents' edits, staged bytes and execution proofs rest on that HEAD.
+Read historical bytes with `git show <sha>:<path>` or a scratch worktree.

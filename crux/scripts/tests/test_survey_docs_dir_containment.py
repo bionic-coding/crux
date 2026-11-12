@@ -91,6 +91,9 @@ class _DocsDirCase(unittest.TestCase):
         (tree / "observations").mkdir(parents=True)
         (tree / "manifest.yml").write_text(MANIFEST, encoding="utf-8")
         (tree / "log.md").write_text("# Log\n", encoding="utf-8")
+        # The operations log reads the op enum from the tree's own section 6.
+        (tree / "AGENTS.md").write_bytes(
+            (Path(__file__).resolve().parents[2] / "templates" / "AGENTS.md.tmpl").read_bytes())
         state = StateFile(tree / "arch" / "_recovered" / "state.yml")
         for name, rule, evidence in (
                 ("httpx", "The gateway depends on httpx", "src/a.py:1-1"),

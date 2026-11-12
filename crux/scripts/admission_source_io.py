@@ -35,6 +35,17 @@ def _refuse(code="admission-source-io-refused"):
     raise SourceIORefusal(code)
 
 
+def _normalized(parts):
+    """Drop '.' and resolve '..' lexically; a '..' above the root refuses."""
+    normalized = []
+    for part in parts:
+        if part == "..":
+            if not normalized: _refuse()
+            normalized.pop()
+        elif part != ".": normalized.append(part)
+    return normalized
+
+
 def _identity(info):
     return info.st_dev, info.st_ino, info.st_mode
 
@@ -166,7 +177,7 @@ class SourceIO:
         except Exception as problem:
             raise _TraversalFailure(problem) from None
 
-    def _walk(self, path, *, _request, _tail=()):
+    def _walk(self, path, *, _request, _tail=(), _below_file_is_absent=False):
         """Resolve aliases within the anchor and validate every descriptor opened."""
         _, pending = self._given(path)
         # Alias targets must exist. An original suffix below a resolved
@@ -199,14 +210,8 @@ class SourceIO:
                     self._component(self.root.joinpath(*components, component), None)
                     if required_target:
                         identities.append(("dangling-alias", component))
-                    result = components + [component] + pending
-                    normalized = []
-                    for part in result:
-                        if part == "..":
-                            if not normalized: _refuse()
-                            normalized.pop()
-                        elif part != ".": normalized.append(part)
-                    return None, self.root.joinpath(*normalized), tuple(identities)
+                    return None, self.root.joinpath(*_normalized(
+                        components + [component] + pending)), tuple(identities)
                 target = target_text = None
                 if stat.S_ISLNK(info.st_mode):
                     target_text = os.readlink(component, dir_fd=current)
@@ -236,6 +241,11 @@ class SourceIO:
                                      _request, identities)
                     continue
                 directory = stat.S_ISDIR(info.st_mode)
+                if (not directory and pending and _below_file_is_absent
+                        and stat.S_ISREG(info.st_mode)):
+                    # A component below a regular file names nothing, as a missing one does.
+                    return None, self.root.joinpath(*_normalized(
+                        components + [component] + pending)), tuple(identities)
                 if not directory and (pending or not stat.S_ISREG(info.st_mode)):
                     _refuse()
                 flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
@@ -295,7 +305,7 @@ class SourceIO:
         given, parts = self._given(path)
         request = "metadata", given, None
         descriptor, resolved, identities = self._walk(given.parent if parts else given,
-            _request=request, _tail=(given.name,) if parts else ())
+            _request=request, _tail=(given.name,) if parts else (), _below_file_is_absent=True)
         try:
             info, target = None, None
             if descriptor is not None:
@@ -305,7 +315,7 @@ class SourceIO:
                     self._check_path(resolved / given.name, request, identities)
                     try:
                         info = os.stat(given.name, dir_fd=descriptor, follow_symlinks=False)
-                    except FileNotFoundError:
+                    except (FileNotFoundError, NotADirectoryError):
                         pass
                     if info is not None and stat.S_ISLNK(info.st_mode):
                         target = os.readlink(given.name, dir_fd=descriptor)

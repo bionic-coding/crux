@@ -133,11 +133,14 @@ def _toml_basic_string(value: str) -> str:
 # slugs are an external contract owned by OpenAI, not crux. They no longer live
 # in this module. A level row provides the default `codex:` cell. An agent row
 # may provide a complete `codex:` override with `model`, `reasoning_effort`, and
-# dated `verified` and `source` fields. The catalog resolves the override first,
-# then the level fallback. Codex custom-agent `model = …` requires a concrete
+# dated `verified` and `source` fields. The override replaces the level's
+# runtime as a whole; a partial override is refused (rule V0), never merged with
+# the level's cell. The catalog resolves the override first, then the level
+# fallback. Codex custom-agent `model = …` requires a concrete
 # catalog slug — a bare `gpt-5.6` is a crux-router-only alias and would not
-# resolve — and rule V5(a) refuses any slug absent from the router's `models`
-# registry. No live-network validation is ever performed against this contract
+# resolve — and rule V5 validates each slug against its recorded Codex-catalog
+# provenance: the cell's `source` cites `Codex <x.y.z> models_cache.json` and
+# names the slug backtick-quoted. No live-network validation is ever performed against this contract
 # (ADR-0046 clause 6): re-verify by reading the current docs or the `codex`
 # catalog, never by calling the service.
 

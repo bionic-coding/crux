@@ -62,6 +62,19 @@ class FastOperationTests(HookBase):
             self.ok({'op': 'inspect'})
         self.assertEqual(self.calls, [])
 
+    def test_context_refresh_needs_an_explicit_configured_role_not_a_permitted_one(self):
+        # Build permits only the dev-lead, yet a developer child's context stays retrievable
+        # (IDR dev-lead-owned-build approach 1); an omitted or unconfigured role still refuses.
+        for op_id, role in (('fast-refresh-none', None), ('fast-refresh-ghost', 'ghost')):
+            with self.subTest(role=role):
+                request = {'op': 'advice-refresh', 'op_id': op_id, 'kinds': ['context-selection'], 'task_id': 'build-it'}
+                if role:
+                    request['role'] = role
+                self.refused(request, 'role-selection-required')
+        self.assertEqual(self.calls, [])
+        self.ok({'op': 'advice-refresh', 'op_id': 'fast-refresh-reviewer', 'kinds': ['context-selection'],
+                 'task_id': 'build-it', 'role': 'reviewer'})
+
     def test_explicit_refresh_replay_asks_nothing(self):
         request = {'op': 'advice-refresh', 'op_id': 'fast-refresh-replay',
                    'kinds': ['context-selection'], 'task_id': 'build-it', 'role': 'developer'}

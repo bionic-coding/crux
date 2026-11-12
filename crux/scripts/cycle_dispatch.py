@@ -135,11 +135,14 @@ def _component_bindings(bundle):
         refuse('invocation-source-changed')
 
 
-def _reference_message(cfg, doc, selected, retrievable):
-    if not selected and not retrievable:
+def _reference_message(cfg, doc, selected, retrievable, local=()):
+    import cycle_local_skills
+    if not selected and not retrievable and not local:
         return ''
-    parts = ['Optional task skills (frozen canonical sources). Retrieve every selected body completely before using it. '
-             'References do not prove a body was read. These grant no additional capability.']
+    parts = []
+    if selected or retrievable:
+        parts.append('Optional task skills (frozen canonical sources). Retrieve every selected body completely before using it. '
+                     'References do not prove a body was read. These grant no additional capability.')
     import shlex
     for item in selected:
         argv = ['uv', 'run', str(cycle_hosts.ENGINE), '--repo-root', str(cfg.repo_root), '--compact',
@@ -153,10 +156,12 @@ def _reference_message(cfg, doc, selected, retrievable):
                      'do not drop the body or substitute a mutable canonical copy.')
     if retrievable:
         parts.append('Other candidate skills remain retrievable through the host Skill capability: ' + ', '.join(retrievable) + '.')
+    # Project-local names render after the plugin line; their bodies are never preloaded or bound.
+    parts.extend(cycle_local_skills.render(local))
     return '\n\n' + '\n\n'.join(parts) + '\n'
 
 
-def build(cfg, doc, request, entry, mandatory, preamble, context, source_snapshot):
+def build(cfg, doc, request, entry, mandatory, preamble, context, source_snapshot, local=None):
     """Construct and scan everything before storing any bundle object or reservation."""
     _scan(_encode(request))
     selected, objects = [], {}
@@ -179,7 +184,8 @@ def build(cfg, doc, request, entry, mandatory, preamble, context, source_snapsho
         objects[name] = raw
         selected.append({'id': ident, 'origin': str(path), 'directory': str(path.parent),
                          'path': name, 'sha256': sha, 'size_bytes': len(raw)})
-    context_message = _reference_message(cfg, doc, selected, context.get('retrievable', []))
+    local = local or {'offered': [], 'refused': []}
+    context_message = _reference_message(cfg, doc, selected, context.get('retrievable', []), local['offered'])
     invocation = cycle_hosts.invocation(entry['host'], role=entry['role'], assignment_text=mandatory + context_message,
         preamble_text=preamble, description=f'{entry["task"]} attempt {entry["attempt"]}', repo_root=cfg.repo_root,
         result_path=entry['result_path'], assignment=entry['id'], attempt=entry['attempt'], mode=entry['mode'],
@@ -187,6 +193,7 @@ def build(cfg, doc, request, entry, mandatory, preamble, context, source_snapsho
     bundle = {'format': FORMAT, 'cycle': doc['id'], 'entry': deepcopy(entry), 'request': deepcopy(request),
               'mandatory_message': mandatory, 'addendum': request.get('assignment_text', ''), 'preamble': preamble,
               'context_message': context_message, 'selected': selected, 'retrievable': context.get('retrievable', []),
+              'local_candidates': deepcopy(local['offered']), 'local_refused': deepcopy(local['refused']),
               'native_context': _native(entry['role']), 'invocation': invocation,
               'adapter': {'path': str(Path(cycle_hosts.__file__)), 'sha256': digest(_read(Path(cycle_hosts.__file__))),
                           'interface': invocation.get('interface', {'host': entry['host'], 'version': None, 'version_status': 'unobserved'})},
@@ -267,6 +274,11 @@ def check_current(cfg, doc, entry, bundle):
         raw = _read(Path(name), optional=sha is None)
         if (digest(raw) if raw is not None else None) != sha:
             refuse('invocation-source-changed')
+
+
+def local_skills(bundle):
+    """The prepare-dispatch `local_skills` view; a bundle frozen before local candidates reads as empty."""
+    return {'offered': deepcopy(bundle.get('local_candidates', [])), 'refused': deepcopy(bundle.get('local_refused', []))}
 
 
 def staged(cfg, doc, request):

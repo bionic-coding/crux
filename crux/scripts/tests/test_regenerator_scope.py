@@ -79,6 +79,7 @@ PROJECT_SCOPED = (
     "generate-index-rollup.py",
     "generate-reviews-index.py",
     "generate-journal-index.py",
+    "generate-log-summary.py",
 )
 ENROLLED = PLUGIN_AUTHORING + PROJECT_SCOPED
 
@@ -864,7 +865,7 @@ class RosterScopeTests(unittest.TestCase):
             self.assertIn(scope, {"project", "plugin-authoring"}, lines[i][:80])
             rows += 1
             i += 1
-        self.assertEqual(19, rows, "roster row count moved; update the scope map here too")
+        self.assertEqual(20, rows, "roster row count moved; update the scope map here too")
 
     def test_the_check_drift_gate_table_declares_the_same_scopes(self):
         skill = SCRIPTS.parent / "skills" / "check-drift" / "SKILL.md"

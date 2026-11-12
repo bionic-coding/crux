@@ -4462,7 +4462,7 @@ class RefusedSurfaceIsNamedTests(unittest.TestCase):
         (docs / "log.md").write_text(DATED_LOG, encoding="utf-8")
         entries, refused = sig._dated_entries(root, docs)
         self.assertEqual(refused, [])
-        self.assertEqual(entries, [("log.md", "2026-02-10", {"ADR-0001"})])
+        self.assertEqual(entries, [("log", "2026-02-10", {"ADR-0001"})])
         # And the signal built from those entries is a real measurement, so the
         # refused cases' `null` is a narrowing rather than the fixture's own shape.
         rec = sig.signal_dormancy_days({"ADR-0001": {}}, entries, TODAY, "bionic", refused)
@@ -5627,6 +5627,98 @@ class DoctrineVocabularyPinTests(unittest.TestCase):
     def test_the_basis_values_match_the_compiler(self):
         dp = _load_doctrine_projection()
         self.assertEqual(set(sig.BASIS_VALUES), set(dp.BASIS_VALUES))
+
+
+class SplitLogDatedEntriesTests(unittest.TestCase):
+    """`_dated_entries` over the operations log kept as monthly detail files.
+
+    Every log file carries the one label `log`. The same entries read the same from a legacy
+    log.md and from a split tree, and a detail file of a later month than its entry's heading
+    still dates the entry by its heading.
+    """
+
+    LEGACY = ("# log\n\n"
+              "## [2026-02-10] adr | one\n\nThis entry names ADR-0001.\n\n"
+              "## [2026-01-05] adr | two\n\nThis entry names ADR-0002.\n")
+
+    def _docs(self) -> tuple[Path, Path]:
+        tmp = tempfile.TemporaryDirectory(prefix="adr-signals-split-")
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        docs = root / "bionic"
+        docs.mkdir(parents=True)
+        return root, docs
+
+    @staticmethod
+    def _detail(docs: Path, month: str, body: str) -> None:
+        (docs / "log").mkdir(exist_ok=True)
+        header = f"# Operations log: {month}\n\n_Append-only. Latest write first._\n\n"
+        (docs / "log" / f"{month}.md").write_text(header + body, encoding="utf-8")
+
+    def test_a_split_tree_reads_the_same_entries_under_the_one_label(self):
+        root, docs = self._docs()
+        (docs / "log.md").write_text(self.LEGACY, encoding="utf-8")
+        legacy, legacy_refused = sig._dated_entries(root, docs)
+        root2, docs2 = self._docs()
+        self._detail(docs2, "2026-02", "## [2026-02-10] adr | one\n\nThis entry names ADR-0001.\n\n")
+        self._detail(docs2, "2026-01", "## [2026-01-05] adr | two\n\nThis entry names ADR-0002.\n")
+        split, split_refused = sig._dated_entries(root2, docs2)
+        self.assertEqual((legacy_refused, split_refused), ([], []))
+        # POSITIVE CONTROL: the legacy read found both entries, so equality is not two empty lists.
+        self.assertEqual(sorted(legacy), [("log", "2026-01-05", {"ADR-0002"}),
+                                          ("log", "2026-02-10", {"ADR-0001"})])
+        self.assertEqual(sorted(split), sorted(legacy))
+        self.assertEqual({label for label, _, _ in split}, {"log"})
+
+    def test_an_entry_in_a_later_months_file_is_dated_by_its_heading(self):
+        root, docs = self._docs()
+        self._detail(docs, "2026-03", "## [2026-02-10] adr | late write\n\nThis entry names ADR-0001.\n\n")
+        entries, refused = sig._dated_entries(root, docs)
+        self.assertEqual((entries, refused), ([("log", "2026-02-10", {"ADR-0001"})], []))
+        rec = sig.signal_dormancy_days({"ADR-0001": {}}, entries, TODAY, "bionic", refused)
+        self.assertEqual(rec["value"]["ADR-0001"], 10)
+
+    def test_a_fenced_mention_stays_fenced_in_a_detail_file(self):
+        root, docs = self._docs()
+        self._detail(docs, "2026-02", "## [2026-02-10] adr | fenced\n\nNames ADR-0001.\n\n"
+                     "```\nADR-0777\n```\n")
+        entries, _ = sig._dated_entries(root, docs)
+        self.assertEqual(len(entries), 1)
+        self.assertIn("ADR-0001", entries[0][2])  # positive control: the unfenced id is read
+        self.assertNotIn("ADR-0777", entries[0][2])
+
+    def test_an_incomplete_split_reads_each_legacy_entry_once(self):
+        root, docs = self._docs()
+        (docs / "log.md").write_text(self.LEGACY, encoding="utf-8")
+        # The target of the first entry is written, the second is not: nothing counts twice.
+        self._detail(docs, "2026-02", "## [2026-02-10] adr | one\n\nThis entry names ADR-0001.\n\n")
+        (docs / "log" / ".legacy-{}.md".format("0" * 64)).write_text(self.LEGACY, encoding="utf-8")
+        (docs / "log.md").unlink()
+        entries, refused = sig._dated_entries(root, docs)
+        self.assertEqual(refused, [])
+        self.assertEqual(sorted(entries), [("log", "2026-01-05", {"ADR-0002"}),
+                                           ("log", "2026-02-10", {"ADR-0001"})])
+
+    def test_a_symlinked_detail_file_is_refused_and_named_with_a_regular_control(self):
+        root, docs = self._docs()
+        outside = Path(tempfile.mkdtemp(prefix="adr-signals-split-out-"))
+        self.addCleanup(shutil.rmtree, outside, True)
+        planted = outside / "2026-02.md"
+        planted.write_text("## [2026-02-10] adr | planted\n\nNames ADR-0001.\n", encoding="utf-8")
+        (docs / "log").mkdir()
+        (docs / "log" / "2026-02.md").symlink_to(planted)
+        entries, refused = sig._dated_entries(root, docs)
+        self.assertEqual(entries, [])
+        self.assertEqual(refused, ["bionic/log"])
+        # PAIRED POSITIVE CONTROL: the same content as a regular file is read.
+        (docs / "log" / "2026-02.md").unlink()
+        shutil.copyfile(planted, docs / "log" / "2026-02.md")
+        entries2, refused2 = sig._dated_entries(root, docs)
+        self.assertEqual((entries2, refused2), ([("log", "2026-02-10", {"ADR-0001"})], []))
+
+    def test_a_tree_with_no_log_reads_nothing_and_refuses_nothing(self):
+        root, docs = self._docs()
+        self.assertEqual(sig._dated_entries(root, docs), ([], []))
 
 
 if __name__ == "__main__":

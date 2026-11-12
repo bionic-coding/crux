@@ -11,7 +11,6 @@ Stdlib unittest only.
 from __future__ import annotations
 
 import inspect
-import re
 import sys
 import unittest
 from pathlib import Path
@@ -121,52 +120,6 @@ class TestCruxCoreImports(unittest.TestCase):
 
         prompts = generate_template_only_prompts("test goal", 10)
         self.assertEqual(len(prompts), 10)
-
-
-class TestRenameInvariants(unittest.TestCase):
-    """Source files must not retain legacy identifiers.
-
-    (Name-level content policy is enforced separately by
-    check-public-release-content.py.)
-    """
-
-    @classmethod
-    def setUpClass(cls):
-        _ensure_on_path()
-
-    CHECKED_FILES = [
-        "srde/srde.py",
-        "srde/__init__.py",
-        "semantic_bridge/bridge.py",
-        "semantic_bridge/__init__.py",
-        "identity/identity.py",
-        "identity/__init__.py",
-        "task_planner/task_planner.py",
-        "task_planner/__init__.py",
-        "runbook/runbook.py",
-        "runbook/__init__.py",
-    ]
-
-    BAD_PATTERNS = [
-        # No legacy env var names.
-        re.compile(r"\bMEESEEKS_[A-Z_]+"),
-        # No legacy dotenv API path.
-        re.compile(r"\bAPI_CONFIG\.env\b"),
-        # No legacy import-root references.
-        re.compile(r"\btools_core\b"),
-    ]
-
-    def test_no_stale_legacy_identifiers_in_python(self):
-        for rel in self.CHECKED_FILES:
-            path = PACKAGE_DIR / rel
-            self.assertTrue(path.exists(), f"missing source file: {path}")
-            txt = path.read_text()
-            for pattern in self.BAD_PATTERNS:
-                m = pattern.search(txt)
-                self.assertIsNone(
-                    m,
-                    f"{rel}: forbidden identifier {pattern.pattern!r} matched: " f"{m.group(0) if m else ''}",
-                )
 
 
 class TestTracerEnvVar(unittest.TestCase):

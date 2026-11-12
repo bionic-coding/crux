@@ -52,7 +52,7 @@ The user is asking a question. The expected shape of citation depends on the que
 - **"Why did we choose Y?"** → distinguish architectural constraints from a particular implementation's reviewed intent; cite the owning Implementation Decision for that reasoning and cite ADRs (`docs/adrs/ADR-NNNN-<slug>.md`); when the ADR's `related_briefs:` points to one, cite the brief too (`docs/briefs/BRIEF-<slug>.md`).
 - **"What's our plan for Z?"** → cite active promptbooks (`docs/promptbooks/active/<id>-<slug>.yaml`, or a legacy `.md` book) and, when relevant, the latest run snapshot.
 - **"What do we know about W?"** → cite research synthesis pages (`docs/research/<category>/<slug>.md`) and source pages (`docs/research/sources/<slug>.md`).
-- **"What's new since [date]?" / "what's stale?" / "what was decided this month?"** → read `docs/log.md` and `docs/journal/YYYY-MM.md` and `docs/research/updates.md` directly. The indexes aren't the right entry point for these.
+- **"What's new since [date]?" / "what's stale?" / "what was decided this month?"** → read the operations log (every detail file `docs/log/YYYY-MM.md`, newest month first; within a file the latest write is at the top, and heading dates are not in order), `docs/journal/YYYY-MM.md` and `docs/research/updates.md` directly. For settled months, `docs/log/summary.md` holds per-month entry counts and op counts.[^log-readers] The indexes aren't the right entry point for these.
 - **"Compare X and Y."** → two parallel scans, then read both sets, then extract dimensions/agreements/disagreements.
 - **"Find a source that says X."** → use `docs/research/index.md` to locate plausible sources by tag/summary, then read bodies to confirm.
 
@@ -115,7 +115,7 @@ Then dive into the per-concern index for each candidate:
 - `docs/promptbooks/index.md` — for "what's our plan for Z?" / in-flight-work questions.
 - `docs/research/index.md` — for "what do we know about W?" / external-knowledge questions.
 - `docs/journal/index.md` — for "what was figured out recently?" / "what's the timeline of X?" questions. Derived by `generate-journal-index.py`; read it as-is.
-- `docs/log.md` (no index — it IS the index) — for "when did skill X run?" / operational-history questions.
+- `docs/log/YYYY-MM.md` detail files (no index — they ARE the index; `docs/log/summary.md` holds per-month counts for settled months) — for "when did skill X run?" / operational-history questions.
 
 When per-concern indexes are insufficient, search topic keywords only in the pruned containing tree. The shared holding predicate applies before that search.
 
@@ -168,7 +168,14 @@ This is small-stakes integrity work that helps the user calibrate confidence.
 
 **Off by default.** Append a log entry only when the user says "log this query" (or equivalent — "save this question", "add to the audit trail").
 
-When logging, append to `docs/log.md` (newest-first, at top):
+When logging, record the entry through the log writer (`docs/AGENTS.md` §6). Write the body below to a file outside the tree, then run:
+
+```
+uv run "${CRUX_PLUGIN_ROOT}/scripts/operation-log.py" append --repo-root <repo-root> \
+  --op query --subject '<one-line question summary>' --date YYYY-MM-DD --body-file <path>
+```
+
+The entry it writes at the top of the current month's detail file `docs/log/YYYY-MM.md`:
 
 ```
 ## [YYYY-MM-DD] query | <one-line question summary>
@@ -179,7 +186,9 @@ Body, 1–3 lines:
 - The docs paths consulted (comma-separated).
 - Whether a synthesis page was filed (if yes, link the new page; if no, "answer not filed").
 
-A role that holds no file-write tool writes nothing to `docs/log.md` and returns the log line to its caller to file.
+A refused append adds no entry: fix the cause it names, then rerun the append alone (§6). Then run the commit step of §6 over the result's `commit_paths` and `restore_paths`.
+
+A role that holds no file-write tool writes nothing to the operations log and returns the log line to its caller to file.
 
 ### 6. Offer to file substantive answers
 
@@ -226,7 +235,7 @@ A role that holds no file-write tool writes no page and returns the accepted pag
 
 **Default for `type:`**: `ideas`. The `ideas/` category is the natural home for query-generated synthesis. Other categories (`concepts/`, `decisions-context/`, `references/`, `meetings/`) require the user to pick them explicitly.
 
-**Non-existent category — reuse the `ingest-research` category gate, don't fail.** If the user names a file-back category (or proposes a slug under a category directory) that does NOT yet exist under `docs/research/`, do NOT error out and do NOT silently fall back to `ideas/`. Instead apply `ingest-research`'s **Category gate**: STOP and propose the new category to the user with (a) a one-line definition of what would live there, (b) 2–3 example page titles that would belong, and (c) the nearest existing category and why this is distinct. Do not create the directory until the user agrees. When approved: create the empty directory, add a `(0)` section to `docs/research/index.md` in alphabetical order, file the synthesis page into it, and log a separate `## [YYYY-MM-DD] schema | added category <name>` entry in `docs/log.md` (distinct from any `query` log entry). If the user declines the new category, offer `ideas/` (the default) or keeping the answer chat-only. (This mirrors `ingest-research/SKILL.md` "Category gate" so the two skills create categories the same way.)
+**Non-existent category — reuse the `ingest-research` category gate, don't fail.** If the user names a file-back category (or proposes a slug under a category directory) that does NOT yet exist under `docs/research/`, do NOT error out and do NOT silently fall back to `ideas/`. Instead apply `ingest-research`'s **Category gate**: STOP and propose the new category to the user with (a) a one-line definition of what would live there, (b) 2–3 example page titles that would belong, and (c) the nearest existing category and why this is distinct. Do not create the directory until the user agrees. When approved: create the empty directory, add a `(0)` section to `docs/research/index.md` in alphabetical order, file the synthesis page into it, and record a separate `## [YYYY-MM-DD] schema | added category <name>` entry through the log writer (`operation-log.py append --op schema`, then the commit step of §6; distinct from any `query` log entry). If the user declines the new category, offer `ideas/` (the default) or keeping the answer chat-only. (This mirrors `ingest-research/SKILL.md` "Category gate" so the two skills create categories the same way.)
 
 ## Output forms
 
@@ -249,8 +258,8 @@ Ask before producing another form:
 - [ ] ADR citations note status when status is not `Accepted`.
 - [ ] Research synthesis pages with unresolved markers had their staleness mentioned at the relevant moment.
 - [ ] Capture gaps on cited sources were mentioned when relevant.
-- [ ] If `log this query` was requested, an entry was appended to top of `docs/log.md` with op `query`.
-- [ ] If `log this query` was NOT requested, **`docs/log.md` was NOT modified** — query logging is off by default, so a query with no explicit log request must leave `docs/log.md` byte-for-byte unchanged. (The lone exception: filing a synthesis page into a brand-new category writes a separate `schema | added category` entry — that is the category-gate's own log op, not a `query` entry, and only ever happens after explicit user approval of the new category.)
+- [ ] If `log this query` was requested, an entry with op `query` was written at the top of the current month's detail file `docs/log/YYYY-MM.md` by `operation-log.py append`.
+- [ ] If `log this query` was NOT requested, **the operations log was NOT modified** — query logging is off by default, so a query with no explicit log request must leave every file under `docs/log/` byte-for-byte unchanged. (The lone exception: filing a synthesis page into a brand-new category writes a separate `schema | added category` entry — that is the category-gate's own log op, not a `query` entry, and only ever happens after explicit user approval of the new category.)
 - [ ] If the user accepted the file-back offer, `docs/research/ideas/<slug>.md` (or the user-chosen category) exists with valid synthesis frontmatter (per the `ingest-research` synthesis contract) and `docs/research/index.md` was updated.
 - [ ] If a non-existent file-back category was named, the `ingest-research` category gate was applied (proposed + user-approved before the directory was created) rather than failing or silently defaulting to `ideas/`.
 
@@ -279,7 +288,7 @@ Ask before producing another form:
 | "I'll just file it without asking — the user clearly wants it." | Always offer. Auto-filing skips the title/category/tags choices that should be the user's. |
 | "I'll cite `code/auth/session.md` without reading it because the question is about sessions." | Read every page you cite. Code-doc pages are regenerated and can include surprises. |
 | "The user said 'log this query' once at session start, so I'll log all queries from here on." | Each query is opt-in. The flag doesn't persist across questions; ask again or take an explicit "log all queries this session" instruction. |
-| "The answer is in `docs/log.md` — I'll just quote the log entry." | The log is operational, not narrative. Pull the underlying page the log references, then cite that. |
+| "The answer is in the operations log — I'll just quote the log entry." | The log is operational, not narrative. Pull the underlying page the log references, then cite that. |
 | "I'll put `code/auth/session` in `sources:` of the new synthesis page." | `sources:` is research-source slugs only. Code-doc citations live in the body as wiki-links, not in frontmatter. |
 
 ## Common mistakes
@@ -291,7 +300,9 @@ Ask before producing another form:
 - **Forgetting to update `sources:` frontmatter** when filing a new synthesis page that cites research sources.
 - **Filing a synthesis page with `last_reviewed: <yesterday>`** (or any non-today date). Set to today on filing.
 - **Logging a query without including the question text**. Future readers need to know what was asked.
-- **Treating a "what's new since" question as needing per-page content** when the answer is in `docs/log.md`, `docs/research/updates.md`, or `docs/journal/YYYY-MM.md`.
+- **Treating a "what's new since" question as needing per-page content** when the answer is in the operations log, `docs/research/updates.md`, or `docs/journal/YYYY-MM.md`.
 - **Re-deriving a comparison the user has already filed before**. Check `docs/research/ideas/` first; if a page exists, point to it.
 - **Putting wiki-links to `docs/adrs/...` or `docs/code/...` in the synthesis page's `sources:` frontmatter**. Those go in the body. `sources:` is research-source slugs only.
 - **Logging a query proactively when the user didn't ask.** Off by default; opt in only.
+
+[^log-readers]: rule:log-readers-read-every-log-file, rule:operations-log-is-monthly-detail-files, rule:log-entries-go-through-the-log-writer

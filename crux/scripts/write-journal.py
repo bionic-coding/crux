@@ -10,6 +10,15 @@ The writer never runs version control: every file it touches stays modified and
 uncommitted. Each result reports `recorded` (surfaces holding the requested
 content on disk) and `written` (surfaces this run changed). A partial result
 lists the recorded surfaces when a later stage fails.
+
+The log record goes through `operation_log` in its phased order: the whole request
+is validated (the log entry by `validate_entry`) and `preflight` plans the repair
+before any write; then the repair runs, the journal month file and the index are
+written, and `insert_entry` places the entry in the detail file of the month that
+holds the host's local date. The result adds `changed_paths` (the log paths this run
+created, replaced or removed), `commit_paths`, `restore_paths` and `left_strays`;
+log-work commits the log paths by the commit step that `operation_log` describes.
+`--today` replaces the local date only while `CRUX_OPERATION_LOG_TEST=1`.
 """
 
 from __future__ import annotations
@@ -32,16 +41,14 @@ from bionic_config import BionicConfigError, load_config  # noqa: E402
 from journal_index import (CATEGORIES, ENTRY_RE, derive_row, find_unclosed_fence,
                            render_index, unknown_category_headings)  # noqa: E402
 from md_fences import closes_fence, fence_marker, split_lines  # noqa: E402
+import operation_log as ol  # noqa: E402
+from operation_log import Refusal  # noqa: E402
 
 
 GENERATOR = Path(__file__).with_name("generate-journal-index.py")
 HEADER = "# Journal — {month}\n\n_Append-only. Newest entries at the top._\n\n"
 LOG_HEADING = re.compile(r"^## \[[0-9]{4}-[0-9]{2}-[0-9]{2}\] [^\n]+$")
 REF = re.compile(r"(?:\[\[[^\[\]\n]+\]\]|rule:[a-z][a-z0-9-]*)\Z")
-
-
-class Refusal(Exception):
-    """Input or on-disk state is unsafe before mutation."""
 
 
 def _regular_read(path: Path, *, missing_ok: bool = True) -> bytes | None:
@@ -77,24 +84,6 @@ def _timestamp(value: str) -> tuple[str, str, str, str]:
     minute = instant.replace(second=0, microsecond=0)
     return (minute.strftime("%Y-%m-%d %H:%M"), minute.strftime("%Y-%m"),
             minute.strftime("%Y-%m-%d"), minute.isoformat(timespec="minutes"))
-
-
-def _canonical_ops(agents: Path) -> re.Pattern[str]:
-    source = _text(_regular_read(agents, missing_ok=False), "AGENTS.md")
-    section = source.split("#### Op-enum regex (canonical", 1)
-    if len(section) != 2:
-        raise Refusal("AGENTS.md has no canonical log-operation block")
-    current = section[1].split("**Current-writer regex**", 1)
-    if len(current) != 2:
-        raise Refusal("AGENTS.md has no current-writer regex")
-    match = re.search(r"```\s*\n([^`]+)```", current[1])
-    if not match:
-        raise Refusal("AGENTS.md current-writer regex is malformed")
-    try:
-        # The canonical expression ends in a significant space after `|`.
-        return re.compile(match.group(1).splitlines()[0].lstrip(" \t"))
-    except re.error as exc:
-        raise Refusal("AGENTS.md current-writer regex is invalid") from exc
 
 
 def _body(raw: str, mode: str, refs: str | None) -> tuple[str, str]:
@@ -157,39 +146,6 @@ def _entry_ranges(text: str, pattern: re.Pattern[str]) -> list[tuple[str, str]]:
     return found
 
 
-def _log_insertion(text: str) -> tuple[str, str]:
-    """Split a headed log after its preamble, or a headerless log at byte zero."""
-    parts = text.split("\n")
-    lines = [part + "\n" for part in parts[:-1]] + [parts[-1]]
-    offset = 0
-    headers: list[int] = []
-    first_entry: int | None = None
-    fence: tuple[str, int] | None = None
-    for raw_line in lines:
-        line = raw_line.removesuffix("\n").removesuffix("\r")
-        marker = fence_marker(line)
-        if fence is not None:
-            if closes_fence(marker, fence):
-                fence = None
-        elif marker is not None:
-            fence = (marker[0], marker[1])
-        else:
-            if line == "# Operations log":
-                headers.append(offset)
-            if first_entry is None and LOG_HEADING.match(line):
-                first_entry = offset
-        offset += len(raw_line)
-    if not headers:
-        return "", text
-    if headers != [0]:
-        raise Refusal("operations log header is displaced or repeated; restore one header before entries without changing their bytes")
-    split_at = first_entry if first_entry is not None else len(text)
-    preamble = text[:split_at]
-    if not preamble.endswith("\n"):
-        preamble += "\n\n"
-    return preamble, text[split_at:]
-
-
 def _month_insertion(text: str, month: str) -> tuple[str, str]:
     """Keep the existing month preamble above the first journal entry."""
     title = f"# Journal — {month}\n\n"
@@ -248,82 +204,10 @@ def _exact_record(existing: str, heading: str, candidate: str,
     return False
 
 
-def _read_at(directory_fd: int, name: str) -> tuple[bytes | None, int | None]:
-    """Read a regular target without following its final component."""
-    try:
-        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=directory_fd)
-    except FileNotFoundError:
-        return None, None
-    with os.fdopen(fd, "rb") as handle:
-        details = os.fstat(handle.fileno())
-        if not stat.S_ISREG(details.st_mode):
-            raise Refusal(f"{name} is not a regular file")
-        return handle.read(), stat.S_IMODE(details.st_mode)
-
-
-def _atomic_replace(path: Path, want: bytes, have: bytes | None,
-                    tree: Path, root: Path) -> None:
-    """Replace through pinned, no-follow directory handles.
-
-    The pathname is checked again just before the descriptor-relative rename.
-    A swapped symlink can no longer redirect the temporary or final write.
-    """
-    try:
-        tree_parts = tree.relative_to(root).parts
-        parent_parts = path.parent.relative_to(tree).parts
-    except ValueError as exc:
-        raise Refusal(f"{path.name} is outside the repository tree") from exc
-    if not tree_parts or parent_parts not in ((), ("journal",)):
-        raise Refusal(f"{path.name} has an unsafe parent")
-
-    opened: list[int] = []
-    links: list[tuple[int, str, int]] = []
-    temporary: str | None = None
-    try:
-        first = os.open(root.anchor, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-        opened.append(first)
-        parent_fd = first
-        for component in (*root.parts[1:], *tree_parts, *parent_parts):
-            child = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
-                            dir_fd=parent_fd)
-            opened.append(child)
-            links.append((parent_fd, component, child))
-            parent_fd = child
-
-        def check_binding() -> None:
-            for ancestor_fd, component, child_fd in links:
-                name_stat = os.stat(component, dir_fd=ancestor_fd, follow_symlinks=False)
-                fd_stat = os.fstat(child_fd)
-                if (not stat.S_ISDIR(name_stat.st_mode) or
-                        (name_stat.st_dev, name_stat.st_ino) !=
-                        (fd_stat.st_dev, fd_stat.st_ino)):
-                    raise Refusal(f"{component} directory changed during this write")
-
-        check_binding()
-        current, old_mode = _read_at(parent_fd, path.name)
-        if current != have:
-            raise Refusal(f"{path.name} changed during this write")
-        temp_name = ".write-journal-" + secrets.token_hex(12)
-        temp_fd = os.open(temp_name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-                          0o644, dir_fd=parent_fd)
-        temporary = temp_name
-        with os.fdopen(temp_fd, "wb") as handle:
-            handle.write(want)
-            if old_mode is not None:
-                os.fchmod(handle.fileno(), old_mode)
-        check_binding()
-        if _read_at(parent_fd, path.name)[0] != have:
-            raise Refusal(f"{path.name} changed during this write")
-        os.replace(temporary, path.name, src_dir_fd=parent_fd, dst_dir_fd=parent_fd)
-        temporary = None
-    finally:
-        if temporary is not None and opened:
-            try:
-                os.unlink(temporary, dir_fd=opened[-1])
-            except FileNotFoundError:
-                pass
-        for fd in reversed(opened):
-            os.close(fd)
+# The pinned no-follow reader and replacement live in operation_log, which admits the
+# `journal` and `log` parents. The names stay here for the tests that patch them.
+_read_at = ol.read_at
+_atomic_replace = ol.atomic_replace
 
 
 def _preflight(root: Path, month: str, prospective: str) -> None:
@@ -342,9 +226,10 @@ def _render_index(tree: Path, config_docs_dir: str) -> tuple[bytes | None, bytes
     generator = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(generator)
     journal_dir = tree / "journal"
-    month_texts, errors = generator._walk_journal_dir(journal_dir, f"{config_docs_dir}/journal")
-    if errors:
-        raise Refusal(f"journal index input changed: {errors}")
+    month_texts, errors, failures = generator._walk_journal_dir(
+        journal_dir, f"{config_docs_dir}/journal")
+    if errors or failures:
+        raise Refusal(f"journal index input changed: {errors + failures}")
     rows = []
     for month in sorted(month_texts, reverse=True):
         month_text = month_texts[month][0]
@@ -360,11 +245,29 @@ def _render_index(tree: Path, config_docs_dir: str) -> tuple[bytes | None, bytes
 
 
 def _result(status: str, mode: str, timestamp: str | None, warnings: list[str],
-            recorded: list[str], pending: list[str], written: list[str], error: str | None) -> int:
+            recorded: list[str], pending: list[str], written: list[str], error: str | None,
+            log: dict) -> int:
     print(json.dumps({"status": status, "mode": mode, "timestamp": timestamp,
                       "warnings": warnings, "recorded": recorded, "pending": pending,
-                      "written": written, "error": error}, sort_keys=True))
+                      "written": written, "error": error, **log}, sort_keys=True))
     return 0 if status == "complete" else 1
+
+
+def _log_paths(root: Path | None, tree: Path | None, changed: list[str],
+               strays: list[str], code: str | None) -> dict:
+    """The log part of the result: changed, commit and restore paths, and left strays."""
+    found = {"changed_paths": [], "commit_paths": [], "restore_paths": [], "left_strays": [],
+             "code": code}
+    if root is None or tree is None:
+        return found
+    prefix = tree.relative_to(root).as_posix()
+    found["changed_paths"] = [f"{prefix}/{path}" for path in changed]
+    found["left_strays"] = [f"{prefix}/{path}" for path in strays]
+    try:
+        found.update(ol.log_commit_paths(root, tree))
+    except (Refusal, OSError) as exc:
+        found["error_commit_paths"] = str(exc)
+    return found
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -379,14 +282,23 @@ def main(argv: list[str] | None = None) -> int:
     bodies.add_argument("--body-stdin", action="store_true")
     ap.add_argument("--refs")
     ap.add_argument("--log-op")
+    ap.add_argument("--today", help=f"replace the local date (only while {ol.TEST_ENV}=1)")
     args = ap.parse_args(argv)
 
     warnings: list[str] = []
     recorded: list[str] = []
     written: list[str] = []
     timestamp: str | None = None
-    surfaces = ["log.md"] if args.mode == "log-only" else ["journal/{month}.md", "journal/index.md", "log.md"]
+    surfaces = ["log"] if args.mode == "log-only" else ["journal/{month}.md", "journal/index.md", "log"]
+    root: Path | None = None
+    tree: Path | None = None
+    changed: list[str] = []
+    strays: list[str] = []
     try:
+        # One local date, read once before validation, governs preflight, repair and insertion.
+        log_today = ol.resolve_today(args.today, write=True)
+        log_surface = ol.destination_for(log_today)
+        surfaces[-1] = log_surface
         record_minute, month, today, timestamp = _timestamp(args.at)
         surfaces = [path.replace("{month}", month) for path in surfaces]
         category = args.category if args.category in CATEGORIES else "misc"
@@ -402,18 +314,13 @@ def main(argv: list[str] | None = None) -> int:
             if journal_dir.is_symlink() or not journal_dir.is_dir() or journal_dir.resolve() != tree / "journal":
                 raise Refusal("journal directory is missing or unsafe")
         op = "journal" if args.mode == "journal" else args.log_op
-        canonical = _canonical_ops(tree / "AGENTS.md")
-        if not op or not canonical.fullmatch(f"## [{today}] {op} | "):
+        if not op or not ol.op_regexes(tree).current.fullmatch(f"## [{today}] {op} | "):
             raise Refusal("log operation is missing or outside the canonical enum")
         if args.body_stdin:
             raw_body = sys.stdin.read()
         else:
             raw_body = _text(_regular_read(Path(args.body_file), missing_ok=False), "body file")
         body, refs = _body(raw_body, args.mode, args.refs)
-        log_path = tree / "log.md"
-        old_log = _regular_read(log_path)
-        log_text = _text(old_log, "log.md")
-        log_preamble, log_entries = _log_insertion(log_text)
         if args.mode == "journal":
             month_path = journal_dir / f"{month}.md"
             old_month = _regular_read(month_path)
@@ -436,8 +343,11 @@ def main(argv: list[str] | None = None) -> int:
             log_body = f"{body}\nRecorded at {timestamp}."
             if refs:
                 log_body += f" Refs: {refs}"
-        log_entry = f"{log_heading}\n\n{log_body}\n\n"
-        log_done = _exact_record(log_text, log_heading, log_entry, LOG_HEADING,
+        log_record = ol.validate_entry(tree, today, op, log_heading.split(" | ", 1)[1], log_body)
+        plan = ol.preflight(tree, log_today, log_record)
+        log_entries = ol.read_entries(tree)
+        log_text = "".join(held.text for held in log_entries)
+        log_done = _exact_record(log_text, log_heading, log_record.text, LOG_HEADING,
                                  timestamp, args.mode)
         if args.mode == "journal" and month_done:
             recorded.append(surfaces[0])
@@ -446,7 +356,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.mode == "journal":
             _preflight(root, month, prospective)
         if log_done:
-            recorded.append("log.md")
+            held_at = next((held.path for held in log_entries if held.text == log_record.text), log_surface)
+            surfaces[-1] = held_at
+            recorded.append(held_at)
+        changed += ol.repair(tree, plan, root)
         if args.mode == "journal" and not month_done:
             _atomic_replace(month_path, prospective.encode("utf-8"), old_month, tree, root)
             written.append(surfaces[0])
@@ -459,18 +372,23 @@ def main(argv: list[str] | None = None) -> int:
                 _atomic_replace(tree / "journal" / "index.md", wanted_index, old_index, tree, root)
                 written.append(surfaces[1])
                 recorded.append(surfaces[1])
-        if not log_done:
-            _atomic_replace(log_path, (log_preamble + log_entry + log_entries).encode("utf-8"),
-                            old_log, tree, root)
-            written.append("log.md")
-            recorded.append("log.md")
+        placed = ol.insert_entry(tree, log_record, log_today, root)
+        strays = placed["left_strays"]
+        if placed["status"] == "written":
+            changed += placed["changed"]
+            written.append(placed["file"])
+        surfaces[-1] = placed["file"]
+        if placed["file"] not in recorded:
+            recorded.append(placed["file"])
         return _result("complete", args.mode, timestamp, warnings,
-                       surfaces, [], written, None)
+                       surfaces, [], written, None, _log_paths(root, tree, changed, strays, None))
     except (Refusal, BionicConfigError, OSError, UnicodeDecodeError, ValueError) as exc:
+        changed += getattr(exc, "changed", [])
         pending = [surface for surface in surfaces if surface not in recorded]
         status = "partial" if recorded else "refused"
-        return _result(status, args.mode, timestamp, warnings,
-                       recorded, pending, written, str(exc))
+        return _result(status, args.mode, timestamp, warnings, recorded, pending, written,
+                       str(exc), _log_paths(root, tree, changed, strays,
+                                            getattr(exc, "code", None)))
 
 
 if __name__ == "__main__":

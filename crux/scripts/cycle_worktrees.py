@@ -86,7 +86,7 @@ def open_owners(repo_root):
             if path.is_symlink() or not path.resolve().is_relative_to(root):raise ValueError('ownership record is a symlink or outside the tree')
             doc=json.loads(path.read_text())
             if not isinstance(doc,dict):raise ValueError('ownership record is not an object')
-            if doc.get('status') in {'completed','abandoned'}:continue
+            if doc.get('status') in {'completed','abandoned','shortcut'}:continue
             if doc.get('status') not in {'active','paused'} or not isinstance(doc.get('assignments',[]),list):
                 raise ValueError('ownership state is unknown')
             for entry in doc.get('assignments',[]):

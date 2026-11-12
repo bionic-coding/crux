@@ -211,9 +211,59 @@ error still runs and fails. In the Crux development repository,
   protects no behaviour that can still regress: a completed migration, a pinned past
   record, a removed code path. Give it a reason and an end condition.
 - **dev**: every other test.
+- **Before any label**: check a new test against
+  [What makes a test worth keeping](#what-makes-a-test-worth-keeping), and label only a
+  test that passes it.
 
 Declare one area per part of the system a release could break on its own. A single coarse area reduces the
 coverage rule to "at least one release test".
+
+## What makes a test worth keeping
+
+A test is worth keeping when its failure would show that a behaviour a program, a user
+or a release depends on has regressed, and no other kept test or gate would show the
+same regression. A program here is code in the repository or a script the project
+ships. A program parses content when it reads that specific content out of the text.
+An agent is not a program. A program that copies, embeds or pattern-scans a whole file
+parses none of its sentences.
+
+A test fails the rule in any of four shapes:
+
+- **Wording pin**: it asserts that a document people or agents read carries a phrase, a
+  sentence or a heading. Such documents include an `AGENTS.md`, a skill, a role
+  definition, a template and a guide. The test keeps its value in two cases only. In
+  the first, a program parses the asserted content: frontmatter, trigger phrases,
+  generated-region markers, or a table a program reads. In the second, the test checks
+  an identifier the text names against the code that defines it: a command, flag,
+  field, path, exit or refusal code, environment variable or operation name.
+- **Removed-text guard**: it asserts that text already removed stays absent, and no
+  program can write that text back.
+- **Duplicate**: it asserts what another kept test or a drift gate already asserts
+  about the same behaviour.
+- **Host-dependent fixture**: its result depends on machine state the test does not
+  set. That state is a git identity, the hostname, the home directory and the
+  configuration files under it, an environment variable the test does not set, the
+  locale, the time zone, the user id, the network, or a tool or tool version outside
+  the project's declared prerequisites. The declared prerequisites are the project's
+  stated toolchain and its supported interpreter versions. A declared tool is a
+  prerequisite, not host state. A test that checks for state no fixture can set, and
+  skips with a stated reason when that state is absent, does not fail this shape.
+
+Apply one disposition to each test the rule reaches:
+
+- Delete a test that fails the rule. The change names the coverage that remains, or
+  states why none is needed.
+- Label it ephemeral instead, with a reason and an end condition, when an explicit later
+  change should retire it. A test already labelled ephemeral stays until its end
+  condition is met.
+- Keep a test whose only fault is a host-dependent fixture, and make its fixture set
+  that state. When no fixture can set the state, such as the network, the user id or a
+  tool outside the declared prerequisites, the test checks for the state and skips with
+  a stated reason when it is absent.
+- Keep a test that a live rule names as its mechanism.
+
+The tier commands never delete a test; the change that applies the rule does. The
+reviewer of a change applies the rule to every test the change adds.
 
 [^one-tier]: rule:every-test-has-exactly-one-tier
 [^same-change]: rule:new-tests-are-labelled-in-the-same-change

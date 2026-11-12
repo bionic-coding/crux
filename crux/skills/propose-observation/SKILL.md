@@ -64,7 +64,7 @@ Execute in order. Never reorder, never skip. Number allocation must be atomic.
 
 ### 0. Resolve per-repo configuration
 
-Run `python3 "${CRUX_PLUGIN_ROOT}/scripts/bionic-config.py"` (compat: `crux-config.py`) from the repo root, or pass `--repo-root <repo-root>`. Confirm the returned `repo_root` is the repo you are operating in. On exit 1, **STOP** and surface the `{"error": ...}` payload — never fall back to defaults. Use the returned `docs_dir` wherever this skill says `docs/` (per the `docs/AGENTS.md` §14 normative definition clause). When `artifact_prefix` is non-empty, the prefixed string (e.g. `CRX-OBS-NNNN`) **IS** `${ID}` for every subsequent step — the filename, the frontmatter `id:`, the index row, wiki-links, and the `log.md` subject all carry it verbatim (§14.3); only the `NNNN` allocation is prefix-blind.
+Run `python3 "${CRUX_PLUGIN_ROOT}/scripts/bionic-config.py"` (compat: `crux-config.py`) from the repo root, or pass `--repo-root <repo-root>`. Confirm the returned `repo_root` is the repo you are operating in. On exit 1, **STOP** and surface the `{"error": ...}` payload — never fall back to defaults. Use the returned `docs_dir` wherever this skill says `docs/` (per the `docs/AGENTS.md` §14 normative definition clause). When `artifact_prefix` is non-empty, the prefixed string (e.g. `CRX-OBS-NNNN`) **IS** `${ID}` for every subsequent step — the filename, the frontmatter `id:`, the index row, wiki-links, and the operations log subject all carry it verbatim (§14.3); only the `NNNN` allocation is prefix-blind.
 
 ### 1. Read `docs/manifest.yml`
 
@@ -127,9 +127,16 @@ Step 10 commits the counter bump with the record file it allocated, and only the
 - If no `## Observations` section exists yet, create it after the `## Invariants` section when one exists, else after `## Briefs` (see `docs/AGENTS.md` §5).
 - Update the `_Last updated:_` line to `${TODAY}`.
 
-### 9. Append to `docs/log.md`
+### 9. Record the `observation` operation
 
-Prepended (newest first), using the `observation` op from the `docs/AGENTS.md` §6 canonical enum:
+Write the entry through the log writer (`docs/AGENTS.md` §6),[^log-writer] using the `observation` op from the §6 canonical enum. Write the body below to a file outside the tree, then run:
+
+```
+uv run "${CRUX_PLUGIN_ROOT}/scripts/operation-log.py" append --repo-root <repo-root> \
+  --op observation --subject '${ID}: created (observed)' --date ${TODAY} --body-file <path>
+```
+
+The entry it writes at the top of the current month's detail file `docs/log/YYYY-MM.md`:
 
 ```
 ## [${TODAY}] observation | ${ID}: created (observed)
@@ -137,11 +144,13 @@ Prepended (newest first), using the `observation` op from the `docs/AGENTS.md` �
 
 Body, 1–2 lines: the title, the file path, `provenance: reconstructed`, the `anchor_id`. Note the body is human-authored next.
 
+A refused append keeps this skill's other writes and adds no entry: fix the cause it names, then rerun the append alone (§6). Step 10 runs the commit step of §6 over the result's `commit_paths` and `restore_paths`.
+
 ### 10. Commit, then regenerate the projections
 
 While a tester's window is open, commit nothing and run no regenerator. The window runs from the tester's dispatch until the tester returns; outside a run there is none.
 
-Commit this skill's own writes first: the record file, `manifest.yml`, `observations/index.md`, `docs/index.md` and `log.md`. Never commit the counter bump without the file it allocated. Stage only these paths (`git add -- <paths>`) and commit only them (`git commit -- <paths>`), so no change already staged is included. If a regenerator still exits 2 with `migration-input-not-committed`, another uncommitted input is in the tree: stop and name it; never commit a file this skill did not write.
+Commit this skill's own writes first: the record file, `manifest.yml`, `observations/index.md`, and `docs/index.md`, plus the append result's `commit_paths`, after `git restore --staged --quiet` on its `restore_paths` when that list is not empty (the commit step of §6). Run that step whatever the append's status, because a refused append can still have repaired the operations log. Never commit the counter bump without the file it allocated. Stage only these paths (`git add -- <paths>`) and commit only them (`git commit -- <paths>`), so no change already staged is included. If a regenerator still exits 2 with `migration-input-not-committed`, another uncommitted input is in the tree: stop and name it; never commit a file this skill did not write.
 
 Then regenerate the summaries projection, then the doctrine projection, because the new record and the bump change their input hash. The commit comes first because, in a tree whose projections declare migration inputs, a regenerator refuses an uncommitted input with exit 2 (`migration-input-not-committed`).
 
@@ -172,7 +181,7 @@ Confirm `--dry-run` of each exits 0, then commit the regenerated projections so 
 - [ ] `docs/manifest.yml` `observation.next_number` is `${N} + 1`.
 - [ ] `docs/observations/index.md` has the row at the top, visibly marked `observed`.
 - [ ] `docs/index.md` `## Observations (N)` count matches the actual file count; `_Last updated:_` is `${TODAY}`.
-- [ ] `docs/log.md` has a new `## [${TODAY}] observation | ${ID}:` entry at the top.
+- [ ] The current month's detail file `docs/log/YYYY-MM.md` has a new `## [${TODAY}] observation | ${ID}:` entry at the top, written by `operation-log.py append`.
 - [ ] The record, the counter bump and the index, docs-index and log writes are committed before any regenerator runs; `summarize-adrs.py --dry-run` and `compile-doctrine.py --dry-run` exit 0 afterwards, and the regenerated projections are committed.
 - [ ] No ADR was created or modified, and no existing observation was touched.
 
@@ -224,3 +233,5 @@ Confirm `--dry-run` of each exits 0, then commit the regenerated projections so 
 - `docs/AGENTS.md` §17 — the observations-concern contract (§17.1 frontmatter schema, §17.2 lifecycle and writer boundary, §17.3 audit rules).
 - The observation-record decision this implements (see the ADR log).
 - Template: `crux/templates/OBS-template.md`.
+
+[^log-writer]: rule:log-entries-go-through-the-log-writer, rule:no-writer-writes-the-legacy-log-file

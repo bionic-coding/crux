@@ -847,7 +847,7 @@
     ],
     "risk_level": "low",
     "requires_access": "read-local",
-    "routing_note": "Checks text against the project's seven writing rules and returns a rewrite for every finding (`fix` | `confirm`); a finding without replacement text is not a finding. Mandatory at three points: `release-preflight` over `README.md` + `CHANGELOG.md` (advisory until the waiver path is vendored), the `dev-cycle`/`iterate` prep prompt, and `tend-garden` before the morning note.",
+    "routing_note": "Checks text against the project's seven writing rules and returns a rewrite for every finding (`fix` | `confirm`); a finding without replacement text is not a finding. It runs in `tend-garden` before the morning note and may run during any cycle; no release step requires a record of it.",
     "triggers": [
       "review this prose",
       "prose review",

@@ -987,7 +987,7 @@ prompts:
       the phrase the owner replies with, such as `promote ADR-NNNN: rules 1, 3, 5`.
       The request is never a promotion: it never pauses or holds this run, and
       the book archives as usual
-      (rule:accepting-cycle-requests-promotion, rule:owner-promotes-guidance).
+      (rule:accepting-cycle-requests-promotion, rule:historical-records-keep-their-interpretation).
 
       **Forge-log `evaluated` fold (before/at archival).** Read the
       run-snapshot Notes section `Forged skills used`. For **each DISTINCT

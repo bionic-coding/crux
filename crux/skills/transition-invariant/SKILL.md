@@ -90,11 +90,17 @@ Look up `(current_ratification, op)` in the allowed table. If absent → REFUSE 
 - `<docs_dir>/invariants/index.md`: update the pin's row (new ratification). The index **visibly marks** non-`ratified` pins (observed/rejected/retired are not hidden — survey-debt must be legible).
 - `docs/index.md`: the `## Invariants (N)` count is unchanged on a transition (the pin still exists); update `_Last updated:`.
 
-### 6. Append to `docs/log.md`
+### 6. Record the `invariant` operation
+Write the entry through the log writer (`docs/AGENTS.md` §6).[^log-writer] Write the body (pin id, class, the transition, one line) to a file outside the tree, then run:
+```
+uv run "${CRUX_PLUGIN_ROOT}/scripts/operation-log.py" append --repo-root <repo-root> \
+  --op invariant --subject 'INV-NNNN: <old> → <new>' --date YYYY-MM-DD --body-file <path>
+```
+The entry it writes at the top of the current month's detail file `docs/log/YYYY-MM.md`:
 ```
 ## [YYYY-MM-DD] invariant | INV-NNNN: <old> → <new>
 ```
-Body: pin id, class, the transition, one line. The `invariant` op is a first-class member of the `docs/AGENTS.md` §6 op enum (both the current-writer and historical-reader regexes) — emit it directly.
+The `invariant` op is a first-class member of the `docs/AGENTS.md` §6 op enum (both the current-writer and historical-reader regexes) — emit it directly. A refused append keeps this skill's other writes and adds no entry: fix the cause it names, then rerun the append alone (§6). Then run the commit step of §6 over the result's `commit_paths` and `restore_paths`.
 
 ### 7. Hand off
 Confirm the new ratification + file path. Remind: recovery cannot reach `ratified` — this human act is the only path. For `ratify`, note the pin now participates in CHK-INV-DECORATION/FAILING (it must have a resolvable, passing check or it becomes a detectable defect). For `retire`, note the pin is explicitly no longer enforced.
@@ -107,7 +113,7 @@ Confirm the new ratification + file path. Remind: recovery cannot reach `ratifie
 - [ ] Reconciliation and ledger do not disagree after the write.
 - [ ] `<docs_dir>/invariants/index.md` row updated; the pin remains visibly marked if non-`ratified`.
 - [ ] `docs/index.md` `## Invariants (N)` count unchanged; `_Last updated:` bumped.
-- [ ] `docs/log.md` has the transition entry.
+- [ ] The current month's detail file `docs/log/YYYY-MM.md` has the transition entry at the top, written by `operation-log.py append`.
 - [ ] No pin was ratified without an explicit human instruction (no auto/batch ratify).
 
 ## Red flags — STOP and reconsider
@@ -133,3 +139,5 @@ Confirm the new ratification + file path. Remind: recovery cannot reach `ratifie
 - `transition-adr` — the ADR state machine this mirrors (frontmatter-only mutation, clear refusals, audited write).
 - `audit-docs` — the CHK-INV rules (`docs/AGENTS.md` §15.5) that read the ratification this skill sets.
 - `docs/AGENTS.md` §15 — the invariants-concern contract (ledger schema, axes, reconciliation, audit rules).
+
+[^log-writer]: rule:log-entries-go-through-the-log-writer, rule:no-writer-writes-the-legacy-log-file

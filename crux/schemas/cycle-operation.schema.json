@@ -76,7 +76,7 @@
           "op": {"const": "advice-refresh"},
           "op_id": {"type": "string", "pattern": "^[A-Za-z0-9._-]{8,64}$"},
           "kinds": {"type": "array", "minItems": 1,
-            "items": {"enum": ["execution-arrangement", "context-selection", "focused-test-ranking", "review-routing", "finding-disposition", "review-finding-grouping", "handoff-completeness", "failure-routing"]}},
+            "items": {"enum": ["context-selection", "focused-test-ranking", "review-routing", "finding-disposition", "review-finding-grouping", "handoff-completeness", "failure-routing"]}},
           "task_id": {"type": "string", "minLength": 1},
           "role": {"type": "string", "minLength": 1},
           "assignment": {"type": "string", "minLength": 1},
@@ -95,7 +95,8 @@
           "assignment": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"},
           "attempt": {"type": "integer", "minimum": 1},
           "checkout": {"type": "string", "minLength": 1},
-          "edited_paths": {"type": "array", "items": {"type": "string", "minLength": 1}}
+          "edited_paths": {"type": "array", "items": {"type": "string", "minLength": 1}},
+          "record_commit": {"enum": ["defer"], "description": "defer leaves the proof and record uncommitted so the worker's adjacency-bound source commit lands directly on the checkpointed HEAD; the worker then runs commit-record"}
         }
       }
     },

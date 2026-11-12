@@ -191,7 +191,7 @@ class ClassificationTests(LookupBase):
         sandbox = self.root / "bare"
         import venv
         venv.EnvBuilder(with_pip=False, symlinks=True).create(sandbox)
-        decl = {"check_id": "plugin-suite", "command": ["python", str(DRIVER), str(DRIVER.parent), "-p", "test_arch_facts.py"],
+        decl = {"check_id": "plugin-suite", "command": ["python", str(DRIVER), str(DRIVER.parent), "-p", "test_arch_facts.py", "--allow-linked-worktree"],
                 "inputs": ["input.txt"], "environment": []}
         record = execute(self.root, decl, interpreter=sandbox / "bin" / "python")["evidence"]
         self.assertEqual(record["returncode"], 3)

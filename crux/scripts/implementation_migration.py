@@ -152,6 +152,35 @@ def _bounded_read(repo: Path, given, limit: int) -> tuple[str, str]:
     return text, rel
 
 
+def _operation_log(repo: Path, tree: Path, *, bound: bool) -> tuple[str, list[dict]]:
+    """The operations log as one text, plus the digest of each log file it was read from.
+
+    The text comes from `operation_log.read_text`, which reads a legacy log.md or the monthly
+    detail files under log/ (newest write first) and counts each entry once. When `bound`, the
+    result also lists, in path order, the digest of every log file that holds an entry the
+    text carries; a published record passes `bound=False` and gets no digests. A tree whose
+    log holds no entry falls back to the one legacy name, so a missing log still refuses as
+    unreadable, as a missing log.md did.
+    """
+    import summaries_projection as sp
+    ol = sp._operation_log_module()
+    try:
+        entries = ol.read_entries(Path(tree).resolve())
+        text = "".join(entry.text for entry in entries)
+    except (ol.Refusal, OSError, UnicodeError):
+        raise Refused("migration-source-unreadable") from None
+    if not bound:
+        if not entries:
+            _read(repo, tree / ol.LEGACY_NAME)
+        return text, []
+    paths = sorted({entry.path for entry in entries}) or [ol.LEGACY_NAME]
+    fingerprints = []
+    for relative in paths:
+        body, rel = _read(repo, tree / relative)
+        fingerprints.append({"path": rel, "sha256": _digest(body.encode())})
+    return text, fingerprints
+
+
 def _configuration(repo: Path):
     """Capture canonical configuration through one internally owned transport."""
     from admission_source_io import SourceIO, SourceIORefusal
@@ -308,11 +337,79 @@ def resolve_clause_span(repo_root, entry: dict) -> dict:
         "line_end": text[:end - 1].count("\n") + 1}
 
 
-def _architectural_refs(repo: Path, handles: list[str]) -> None:
-    """Read the original architectural sources without consulting any projected view."""
+def _retirement_edges(repo: Path, config, hosts: list, code: str) -> tuple[dict, list[dict]]:
+    """Each ADR file's in-force retirement edges, from the one shared predicate
+    (rule:retirement-persists-after-its-host-leaves-accepted), plus the fingerprints of the
+    acceptance records it read. `hosts` holds (path, frontmatter) pairs of both tiers; the
+    result maps each path to its edges. A refusal of the predicate, or an unreadable record,
+    refuses with `code` and stops the run: no reader restores, guesses or drops an edge."""
+    import summaries_projection as sp
+    from admission_source_io import SourceIO, SourceIORefusal
+    adrs = config.docs_root / "adrs"
+    read: list[str] = []
+    found = {}
+    try:
+        with closing(SourceIO(repo)) as source_io:
+            proof_reader, exists = sp._docs_reader(adrs, source_io)
+
+            def reading(relative: str) -> bytes:
+                content = proof_reader(relative)
+                read.append(relative)
+                return content
+            for path, fm in hosts:
+                found[path] = sp.retirement_edges_in_force(
+                    fm, path.name, "active" if path.parent == adrs else "archive",
+                    proof_reader=reading, exists=exists)
+            source_io.revalidate()
+    except (sp.RetirementPersistenceRefusal, ValueError, SourceIORefusal, OSError):
+        raise Refused(code) from None
+    fingerprints = []
+    for relative in sorted(set(read)):
+        text, rel = _read(repo, adrs.parent / relative)
+        fingerprints.append({"path": rel, "sha256": _digest(text.encode())})
+    return found, fingerprints
+
+
+def _edge_targets(edges, handle: str) -> list[str]:
+    return sorted({edge.target for edge in edges if edge.handle == handle})
+
+
+def _architectural_refs(repo: Path, handles: list[str], *, published_replacements=()) -> None:
+    """Read the original architectural sources without consulting any projected view.
+
+    Each of `handles` must be a live Accepted handle. Each of
+    `published_replacements`, the replacements of an already-published batch whose
+    entry carries no signed doctrine pairing, must resolve through the in-force
+    retirement edges to at least one live Accepted handle. A package's retire and
+    historical lanes are not read here, so such a handle is not followed: the
+    projection readers reach the same verdict because those lanes are no edges there
+    either, and a handle they mark historical or retired is not live (fail closed)."""
+    records, successors, live = _architecture_index(repo)
+    for handle in handles:
+        _architectural_host(records, handle)
+        ap.require(handle in live, "migration-constraint-not-live-accepted")
+    if published_replacements:
+        import summaries_projection as sp
+        resolution = sp.resolve_through(published_replacements, successors, live)
+        ap.require(all(resolution[h] for h in published_replacements),
+                   "migration-constraint-not-live-accepted")
+
+
+def _architectural_host(records, handle: str):
+    hosts = [(active, fm, rules) for active, fm, rules in records if fm.get("id") == handle.split("/")[0]]
+    ap.require(len(hosts) == 1, "migration-architectural-identity-refused")
+    return hosts[0]
+
+
+def _architecture_index(repo: Path) -> tuple[list, dict, set]:
+    """The raw architectural sources: (records, successors, live). `successors` maps a
+    retired handle to the handles that retire it, from `_retirement_edges` (the shared
+    in-force predicate, keyed by edge target). `live` holds each handle whose host is
+    unique, in the active tier and Accepted, with one matching governs entry, that no
+    edge targets."""
     config = _configuration(repo)
     adrs = config.docs_root / "adrs"
-    records = []; retired = set()
+    records = []; hosts = []
     for path in adr_frontmatter.adr_paths(adrs):
         text, _ = _read(repo, path)
         front = adr_frontmatter.frontmatter_block(text)
@@ -323,18 +420,25 @@ def _architectural_refs(repo: Path, handles: list[str]) -> None:
         rules = fm.get("governs", [])
         ap.require(isinstance(rules, list), "migration-source-governs-refused")
         records.append((path.parent == adrs, fm, rules))
+        hosts.append((path, fm))
         if path.parent == adrs and fm.get("status") == "Accepted":
             for rule in rules:
                 ap.require(isinstance(rule, dict), "migration-source-governs-refused")
-                retired.update(rule.get("retires", []))
-    for handle in handles:
-        hosts = [(active, fm, rules) for active, fm, rules in records if fm.get("id") == handle.split("/")[0]]
-        ap.require(len(hosts) == 1, "migration-architectural-identity-refused")
-        active, fm, rules = hosts[0]
-        matches = [rule for rule in rules if isinstance(rule, dict) and rule.get("handle") == handle]
+    edges, _ = _retirement_edges(repo, config, hosts, "migration-source-record-refused")
+    successors: dict[str, set[str]] = {}
+    for host_edges in edges.values():
+        for edge in host_edges:
+            successors.setdefault(edge.target, set()).add(edge.handle)
+    ids = [fm.get("id") for _, fm, _ in records]
+    live = set()
+    for active, fm, rules in records:
+        if not active or fm.get("status") != "Accepted" or ids.count(fm.get("id")) != 1:
+            continue
+        handles = [rule.get("handle") for rule in rules if isinstance(rule, dict)]
         # An entry that carries retires is itself a live rule; only its targets are retired.
-        ap.require(active and fm.get("status") == "Accepted" and handle not in retired and
-                   len(matches) == 1, "migration-constraint-not-live-accepted")
+        live.update(h for h in handles if isinstance(h, str) and handles.count(h) == 1
+                    and h.split("/")[0] == fm.get("id") and h not in successors)
+    return records, successors, live
 
 
 def _signed_inventory(repo: Path, tree: Path) -> tuple[list[dict], list[dict]]:
@@ -1172,9 +1276,13 @@ def _discover_apply_publications(repo: Path, *, pending: dict) -> tuple[list[dic
 
 
 def _raw_architecture(repo: Path) -> tuple[list[dict], list[dict]]:
-    """Read canonical source identities and displacement edges without projections."""
+    """Read canonical source identities and displacement edges without projections.
+
+    `retired_targets` holds only the targets of the host's in-force retirement edges, and
+    `retires_in_force` is True when it is non-empty; neither reads the raw retires list. Neither
+    field reaches a publication output."""
     config = _configuration(repo); adrs = config.docs_root / "adrs"
-    records = []; fingerprints = []; identities = set(); handles = set()
+    records = []; fingerprints = []; identities = set(); handles = set(); hosts = []; staged = []
     for path in adr_frontmatter.adr_paths(adrs):
         text, rel = _read(repo, path); front = adr_frontmatter.frontmatter_block(text)
         ap.require(front is not None, "migration-source-frontmatter-refused")
@@ -1185,17 +1293,21 @@ def _raw_architecture(repo: Path) -> tuple[list[dict], list[dict]]:
         identities.add(fm["id"])
         rules = fm.get("governs", [])
         ap.require(isinstance(rules, list), "migration-source-governs-refused")
+        hosts.append((path, fm)); staged.append((path, fm, rel, rules))
+        fingerprints.append({"path": rel, "sha256": _digest(text.encode())})
+    edges, record_fingerprints = _retirement_edges(repo, config, hosts, "migration-source-record-refused")
+    for path, fm, rel, rules in staged:
         for rule in rules:
             ap.require(isinstance(rule, dict) and isinstance(rule.get("handle"), str) and
                        rule["handle"].startswith(fm["id"] + "/") and rule["handle"] not in handles,
                        "migration-governs-identity-refused")
             handles.add(rule["handle"])
-            targets = rule.get("retires", [])
-            ap.require(isinstance(targets, list) and all(isinstance(h, str) for h in targets),
-                       "migration-source-governs-refused")
-            records.append({"handle": rule["handle"], "retires": targets, "path": rel,
+            targets = _edge_targets(edges[path], rule["handle"])
+            records.append({"handle": rule["handle"], "retired_targets": targets,
+                "retires_in_force": bool(targets), "path": rel,
                 "live_host": path.parent == adrs and fm.get("status") == "Accepted"})
-        fingerprints.append({"path": rel, "sha256": _digest(text.encode())})
+    known = {item["path"] for item in fingerprints}
+    fingerprints += [item for item in record_fingerprints if item["path"] not in known]
     return records, fingerprints
 
 
@@ -1364,8 +1476,12 @@ def _unchanged_inputs(repo: Path, fingerprints: list[dict]) -> None:
 
 
 def _disposition_inputs(repo: Path, batch: dict, historical: dict, signed: list[dict],
-                        published: bool = False) -> list[dict]:
-    """Repeat owning producer checks; a receipt records evidence, never authority."""
+                        published: bool = False, *, pairings: set | None = None) -> list[dict]:
+    """Repeat owning producer checks; a receipt records evidence, never authority.
+
+    `pairings`, when given, receives the source identity of every entry whose
+    referenced receipt carries `replacement_pairings` (a doctrine-pairing subject),
+    read from the subjects already expected for the receipt comparison."""
     import argparse
     import migration_disposition as dispositions
     import summaries_projection as summaries
@@ -1397,7 +1513,7 @@ def _disposition_inputs(repo: Path, batch: dict, historical: dict, signed: list[
         manifest_text, manifest_rel = _read(repo, tree / "manifest.yml")
         fingerprints.append({"path": manifest_rel, "sha256": _digest(manifest_text.encode())})
         records, invariants = dispositions._raw_records(repo, config)
-        retired = {h for r in records if r["active"] and r["status"] == "Accepted" for h in r.get("retires", [])}
+        retired = dispositions.retired_handles(records)
         live = [r for r in records if r["active"] and r["handle"] not in retired]
         for entry in entries:
             handles = {r["handle"] for r in entry["affected_governs"]}
@@ -1424,7 +1540,8 @@ def _disposition_inputs(repo: Path, batch: dict, historical: dict, signed: list[
         ap.require(isinstance(manifest, dict), "migration-disposition-backfill-admission-refused")
         # After publication the log and journal months still corroborate the signed batches,
         # but they grow with unrelated work, so only a read before publication binds their digests.
-        log = read_current(tree / "log.md", bound=not published)
+        log, log_fingerprints = _operation_log(repo, tree, bound=not published)
+        fingerprints += log_fingerprints
         months = {b["signed"][:7] for b in reviews["batches"].values() if b["signed"] is not None}
         journals = {month: read_current(tree / "journal" / (month + ".md"), bound=not published)
                     for month in months}
@@ -1465,6 +1582,8 @@ def _disposition_inputs(repo: Path, batch: dict, historical: dict, signed: list[
         supplied[key] = receipt
         fingerprints.append({"path": rel, "sha256": raw_digest})
     ap.require(set(supplied) == set(expected), "migration-human-disposition-pending")
+    if pairings is not None:
+        pairings.update(key[0] for key in expected if key[1] == "doctrine-pairing")
     return fingerprints
 
 
@@ -1547,7 +1666,9 @@ def _validated_inputs(repo: Path, proof, _publication=None) -> dict:
     ap.require(_digest(content) == proof.binding["batch"]["sha256"], "migration-batch-drift")
     sources = [resolve_clause(repo, entry) for entry in batch["entries"]]
     replacements = [h for e in batch["entries"] for h in e["replacement_handles"]]
-    _architectural_refs(repo, batch["authorizing_refs"] + replacements)
+    # Before publication every replacement must be live. After publication a
+    # replacement is checked once, below, after the receipts that decide its class.
+    _architectural_refs(repo, batch["authorizing_refs"] + (replacements if _publication is None else []))
     tree = _configuration(repo).docs_root
     signed, _ = _signed_inventory(repo, tree)
     capture = None
@@ -1570,11 +1691,17 @@ def _validated_inputs(repo: Path, proof, _publication=None) -> dict:
         return []
     citations = citation_dependencies()
     records, fingerprints = _raw_architecture(repo)
-    historical = {}; retired = {target for rec in records if rec["live_host"] for target in rec["retires"]}
+    historical = {}; retired = {target for rec in records if rec["retires_in_force"]
+                                for target in rec["retired_targets"]}
+    in_force = {rec["handle"]: rec["retired_targets"] for rec in records}
     retained = []; displacements = {}
     for entry, source in zip(batch["entries"], sources):
+        # A host's edges count only while in force: an Accepted host's, and a Deprecated or
+        # Superseded host's that was once Accepted (rule:retirement-persists-after-its-host-leaves-accepted).
+        # A host never Accepted, Proposed or deprecated from Proposed, retires nothing.
         for rule in entry["affected_governs"]:
-            for target in rule.get("retires", []):
+            rule_retires = in_force.get(rule["handle"], [])
+            for target in rule_retires:
                 key = (target, rule["handle"])
                 fact = {"target_handle": target, "source_displacer": rule["handle"],
                     "source_identity": entry["source_identity"],
@@ -1583,7 +1710,7 @@ def _validated_inputs(repo: Path, proof, _publication=None) -> dict:
                            "migration-displacement-conflict")
                 displacements[key] = fact
             # Preserve all selected retirement edges, including retained mixed clauses.
-            retired.update(rule.get("retires", []))
+            retired.update(rule_retires)
             if entry["disposition"] == "architecture-retained":
                 retained.append(rule["handle"]); continue
             handle = rule["handle"]
@@ -1597,7 +1724,17 @@ def _validated_inputs(repo: Path, proof, _publication=None) -> dict:
     ap.require(len(set(slugs)) == len(slugs) and not any(rec["live_host"] and
         rec["handle"] not in historical and rec["handle"] not in retired and
         rec["handle"].split("/", 1)[1] in slugs for rec in records), "migration-slug-conflict")
-    fingerprints += _disposition_inputs(repo, batch, historical, signed, published=_publication is not None)
+    pairings: set = set()
+    fingerprints += _disposition_inputs(repo, batch, historical, signed, published=_publication is not None,
+                                        pairings=pairings)
+    if _publication is not None:
+        # A replacement whose entry carries a signed doctrine pairing binds that
+        # signature to its own text, so it stays strict; every other published
+        # replacement resolves to the live handles that displace it.
+        _architectural_refs(repo,
+            [h for e in batch["entries"] if e["source_identity"] in pairings for h in e["replacement_handles"]],
+            published_replacements=[h for e in batch["entries"] if e["source_identity"] not in pairings
+                                    for h in e["replacement_handles"]])
     fingerprints += signed + citations + [proof.binding["batch"]]
     facts = {"historical_handles": historical, "retired_handles": sorted(retired),
         "historical_displacements": [displacements[key] for key in sorted(displacements)],
@@ -1729,7 +1866,7 @@ def _current_subject_eligibility(repo: Path, run_path, *, slot, batch_path, batc
                           parent_batch=parent, batch=batch)
         ap.require(cr.git(repo, "merge-base", "--is-ancestor", publication["publication_commit"],
                    head.decode().strip()).returncode == 0, "migration-recovery-order-refused")
-        denied = {h for record in records if record["live_host"] for h in record["retires"]}
+        denied = {h for record in records if record["retires_in_force"] for h in record["retired_targets"]}
         for locator, historical_proof, historical_batch in nodes:
             fingerprints += [{k: locator[k] for k in ("path", "sha256")}, historical_proof.binding["batch"]]
             for entry in historical_batch["entries"]:

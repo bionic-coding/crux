@@ -31,7 +31,7 @@ The read-only drift detector for the regenerative `docs/code/` concern. Invokes 
 
 The skill is the verification gate, not the fix. When drift is found, it surfaces the change counts and explicitly offers to print the `extract-code-docs` invocation. The user (or a CI hook) decides whether to regenerate.
 
-**Flag:** `--no-log` (alias `--ci`) suppresses the `lint` log entry (step 5) for high-frequency non-interactive runs (CI gates, pre-push hooks) that would otherwise append one `docs/log.md` entry per push. It changes nothing else — same drift report, same exit semantics. See step 5.
+**Flag:** `--no-log` (alias `--ci`) suppresses the `lint` log entry (step 5) for high-frequency non-interactive runs (CI gates, pre-push hooks) that would otherwise append one operations log entry per push. It changes nothing else — same drift report, same exit semantics. See step 5.
 
 Pairs with: `extract-code-docs` (which actually writes), `audit-docs` (which invokes this skill — i.e. the dispatcher's `--dry-run` mode — as part of the broader audit). Distinct from `refresh-research-sources` (research concern) and `refresh-research-synthesis` (research concern).
 
@@ -166,7 +166,7 @@ Extractors run: <list>
 Pages verified: <total count>
 ```
 
-(No "last extracted" timestamp is reported — `_meta/manifest.json` deliberately omits timestamps so it stays byte-stable across runs; extraction recency lives in `docs/log.md`.)
+(No "last extracted" timestamp is reported — `_meta/manifest.json` deliberately omits timestamps so it stays byte-stable across runs; extraction recency lives in the operations log, under `docs/log/`.)
 
 Done. Skip to step 5 (log).
 
@@ -226,11 +226,18 @@ Either way, regeneration is a separate, explicit user action. This keeps the ver
 
 After the prompt resolves, continue to step 5.
 
-### 5. Append to `docs/log.md`
+### 5. Record the `lint` operation
 
 **First check `--no-log` / `--ci`.** If the invocation passed either, skip this step.
 
-One entry (newest-first):
+Write one entry through the log writer (`docs/AGENTS.md` §6).[^log-writer] Write the body below to a file outside the tree, then run:
+
+```
+uv run "${CRUX_PLUGIN_ROOT}/scripts/operation-log.py" append --repo-root <repo-root> \
+  --op lint --subject 'verify-code-docs (drift: <true|false>; E edited / M missing / U unexpected)' --date YYYY-MM-DD --body-file <path>
+```
+
+The entry it writes at the top of the current month's detail file `docs/log/YYYY-MM.md`:
 
 ```
 ## [YYYY-MM-DD] lint | verify-code-docs (drift: <true|false>; E edited / M missing / U unexpected)
@@ -248,6 +255,8 @@ Even on **zero drift**, log it:
 ```
 
 The `lint` op is distinct from `audit` — `lint` records a targeted check; `audit` records the broader vault walk. Both are first-class ops in the `docs/AGENTS.md` §6 enum.
+
+A refused append keeps this skill's other writes and adds no entry: fix the cause it names, then rerun the append alone (§6). Then run the commit step of §6 over the result's `commit_paths` and `restore_paths`.
 
 ### 6. Hand-off
 
@@ -304,3 +313,4 @@ carries no directive.
 [^lang-drift]: rule:filtered-extraction-writes-only-its-owner
 [^ownerless-refusal]: rule:filtered-write-refuses-an-ownerless-or-deconfigured-tree
 [^owned-root]: rule:code-doc-output-root-pruned-only-when-owned
+[^log-writer]: rule:log-entries-go-through-the-log-writer, rule:no-writer-writes-the-legacy-log-file

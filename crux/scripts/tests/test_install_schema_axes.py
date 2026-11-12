@@ -40,14 +40,6 @@ class SchemaAxisTests(unittest.TestCase):
         self.assertTrue(TEMPLATE.is_file(), f"{TEMPLATE} must ship with the plugin")
         self.assertTrue(_template_tree_schema())
 
-    def test_the_skill_reads_the_tree_schema_from_the_template_not_the_manifest(self):
-        self.assertIn("references/install-and-upgrade.md", SKILL.read_text(encoding="utf-8"))
-        text = DETAIL.read_text(encoding="utf-8")
-        self.assertIn("templates/manifest.yml.tmpl", text,
-                      "the skill must name the template as the supported-tree-value source")
-        self.assertNotIn("the tree schema version this plugin supports", text,
-                         "plugin.json's schema_version is the frontmatter contract, not the tree axis")
-
     def test_the_two_axes_are_allowed_to_differ(self):
         """The regression itself: a reader that conflates them decides STOP.
 

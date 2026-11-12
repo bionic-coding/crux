@@ -214,6 +214,59 @@ def propose(repo, proposal, *, origin, cycle_id=None, creation_approval=None, cr
         return {'adr':identity,'path':path.relative_to(cfg.docs_root).as_posix()}
 
 
+class AdoptRefused(CycleError):
+    def __init__(self, code, detail):
+        self.code = code
+        super().__init__(f'{code}: {detail}')
+
+
+def adopt(repo, subject):
+    """Write proposal metadata (origin legacy-adoption) for a HEAD-tracked legacy Proposed ADR; allocates nothing.
+
+    Changes no ADR byte and grants no approval: acceptance still needs council approval of the exact bytes and,
+    under council-and-human, an owner capture."""
+    import subprocess
+    with locked(repo) as (cfg, directory):
+        try:
+            path = contained(cfg.docs_root, subject)
+        except CycleError as exc:
+            raise AdoptRefused('adopt-not-an-active-adr', str(exc)) from None
+        if (path.parent != cfg.docs_root/'adrs' or not re.fullmatch(r'(?:[A-Z][A-Z0-9]*-)?ADR-\d{4,}-.+\.md', path.name)
+                or not path.is_file()):
+            raise AdoptRefused('adopt-not-an-active-adr', 'adopt names an active decision file under adrs/')
+        data = path.read_bytes()
+        front, _ = frontmatter(data.decode())
+        identity = front.get('id')
+        if not isinstance(identity, str) or not path.name.startswith(identity + '-'):
+            raise AdoptRefused('adopt-identity-mismatch', 'the frontmatter id must name the file')
+        if front.get('status') != 'Proposed':
+            raise AdoptRefused('adopt-not-proposed', f"the ADR is {front.get('status')}, not Proposed")
+        if front.get('acceptance_format') != 'crux.adr-acceptance.v1':
+            raise AdoptRefused('adopt-missing-acceptance-format', 'the frontmatter lacks acceptance_format crux.adr-acceptance.v1; edit it while Proposed, then adopt')
+        if not isinstance(front.get('governs'), list) or not front['governs']:
+            raise AdoptRefused('adopt-missing-governs', 'the frontmatter lacks a non-empty governs list; edit it while Proposed, then adopt')
+        relative = path.relative_to(cfg.repo_root).as_posix()
+        shown = subprocess.run(['git', '-C', str(cfg.repo_root), 'show', f'HEAD:{relative}'], capture_output=True)
+        if shown.returncode != 0:
+            raise AdoptRefused('adopt-not-tracked-at-head', f'{relative} is not tracked at HEAD')
+        if shown.stdout != data:
+            raise AdoptRefused('adopt-differs-from-head', f'{relative} differs from its bytes at HEAD; commit or restore it first')
+        if contained(cfg.docs_root, f'adrs/proposals/{identity}.json').exists():
+            raise AdoptRefused('adopt-metadata-exists', f'adrs/proposals/{identity}.json already exists')
+        if contained(cfg.docs_root, f'adrs/provenance/{identity}.yaml').exists():
+            raise AdoptRefused('adopt-historical-provenance', 'historical provenance cannot be changed by new acceptance')
+        receipts = cfg.docs_root/'adrs'/'acceptances'
+        if (contained(cfg.docs_root, f'adrs/acceptances/{identity}.json').exists()
+                or contained(cfg.docs_root, f'adrs/acceptances/{identity}.current.json').exists()
+                or (receipts/'recoveries'/identity).exists()):
+            raise AdoptRefused('adopt-receipt-exists', 'an acceptance receipt already exists for this ADR')
+        metadata = {'format':'crux.adr-proposal', 'adr':identity, 'subject':subject, 'origin':'legacy-adoption',
+                    'cycle_id':None, 'creation_approval':None, 'creation_subject':None, 'adopted_sha256':digest(data)}
+        atomic(contained(cfg.docs_root, f'adrs/proposals/{identity}.json'), metadata)
+        return {'adr':identity, 'path':subject, 'metadata':f'adrs/proposals/{identity}.json', 'adopted_sha256':digest(data),
+                'next':'regenerate the summaries, obtain council approval of the exact bytes, then accept'}
+
+
 def accept(repo, subject, approval, *, human_approval=None, policy_basis=None, migration_package=None, migration_owner=None,
            owner_decision=None):
     """Accept a prospective proposal; resume a receipt-first interrupted write."""
@@ -289,6 +342,12 @@ def accept(repo, subject, approval, *, human_approval=None, policy_basis=None, m
             if council.get('cycle_id') != metadata.get('cycle_id'):
                 raise CycleError('ADR approval belongs to another cycle')
             policy=package_policy if package_policy is not None else load_workflow_policy(repo)['adr.acceptance']
+            if metadata.get('origin')=='legacy-adoption' and policy=='council-and-human':
+                # A legacy ADR's human approval carries verbatim words, provenance and the presented digest.
+                if human_approval is not None:
+                    raise CycleError('legacy-adoption acceptance refuses a free-text human approval; record an owner capture of purpose adr-acceptance')
+                if owner_decision is None:
+                    raise CycleError('legacy-adoption acceptance requires an owner capture of purpose adr-acceptance under council-and-human')
             if owner_decision is not None:
                 from owner_decision import authorize_adr
                 captured=authorize_adr(cfg, owner_decision, subject, metadata.get('cycle_id'), digest(text.encode()))

@@ -927,6 +927,9 @@ class PublishedAdmission(unittest.TestCase):
         try:
             (self.root / "factual.py").write_text("x = 1\n")
             (tree / "log.md").write_text("# Synthetic log\n")
+            # The operations log reads the op enum from the tree's own section 6.
+            (tree / "AGENTS.md").write_bytes(
+                (Path(__file__).resolve().parents[2] / "templates" / "AGENTS.md.tmpl").read_bytes())
             state.save()
             code, payload = scaffold.scaffold(self.root, None, today="2026-08-30", dry_run=False)
             self.assertEqual(code, 0)

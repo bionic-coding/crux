@@ -191,8 +191,11 @@ class IntegratedChildTests(fixtures.SliceBase):
         unlinked = deepcopy(doc)
         task = next(t for t in unlinked['plan']['tasks'] if t['id'] == 'integrator')
         task['integrates'] = ['other']
-        with self.assertRaisesRegex(cycle_execution.ExecutionError, 'execution-foreign-source'):
-            cycle_execution.prove(tree(self.repo), unlinked, parent)
+        # An undeclared child is no integrated-task-source; its validated done delivery
+        # still admits it as cycle-task-source through its retained proof.
+        row = next(row for row in cycle_execution.prove(tree(self.repo), unlinked, parent)['commits']
+                   if row['sha'] == commit)
+        self.assertEqual((row['kind'], row['provenance']['ground']), ('cycle-task-source', 'retained-proof'))
         failed = deepcopy(doc)
         failed['assignments'][0]['delivery']['outcome'] = 'failed'
         with self.assertRaisesRegex(cycle_execution.ExecutionError, 'execution-foreign-source'):
@@ -213,8 +216,15 @@ class IntegratedChildTests(fixtures.SliceBase):
                  'outcome': 'done', 'commits': [commit]})
         parent = {'id': 'integrator', 'task': 'integrator', 'attempt': 1, 'base': self.base,
                   'delivery_token': 'f' * 32}
+        # No sealed source makes it no integrated-task-source. The done delivery's range and
+        # trailer admit it as cycle-task-source ground (b) instead.
+        row = next(row for row in cycle_execution.prove(tree(self.repo), load(self.repo, self.cid), parent)['commits']
+                   if row['sha'] == commit)
+        self.assertEqual((row['kind'], row['provenance']['ground']), ('cycle-task-source', 'validated-delivery'))
+        doc = load(self.repo, self.cid)
+        doc['assignments'][0]['delivery']['outcome'] = 'failed'
         with self.assertRaisesRegex(cycle_execution.ExecutionError, 'execution-foreign-source'):
-            cycle_execution.prove(tree(self.repo), load(self.repo, self.cid), parent)
+            cycle_execution.prove(tree(self.repo), doc, parent)
 
 
 if __name__ == '__main__':

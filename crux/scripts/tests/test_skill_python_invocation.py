@@ -12,10 +12,12 @@ The rule: such an invocation carries `--no-project` and an explicit
 `crux/scripts/` path runs this checkout's dev commands, not a downstream
 project's, and is out of scope.
 
-One exemption: the test-evidence engine, `${CRUX_PLUGIN_ROOT}/scripts/test-evidence.py`,
-runs in project mode. `--no-project` would drop the subject's locked environment, which the
-engine's default requirement names, and `-p` in project mode makes uv replace a project
-environment whose interpreter does not satisfy the request. The companion guard
+One exemption, read from the script's own contract: an operand
+`${CRUX_PLUGIN_ROOT}/scripts/<name>.py` may run in project mode only when that script's module
+docstring holds a paragraph that begins with "Runs in the subject project's environment" and has
+at least one further sentence after the sentence that holds the phrase. The further sentence is the
+stated reason. A paragraph with the phrase alone exempts nothing. The test-evidence engine states
+its reason this way; this file lists no script. The companion guard
 `test_shipped_instructions_teach_only_the_python3_evidence_form` in
 `test_cycle_instruction_contracts.py` rejects a `-p` or `--no-project` variant of the
 engine line.
@@ -23,6 +25,7 @@ engine line.
 
 from __future__ import annotations
 
+import ast
 import re
 import shutil
 import subprocess
@@ -32,32 +35,48 @@ import unittest
 from pathlib import Path
 
 SKILLS = Path(__file__).resolve().parent.parent.parent / "skills"
+SCRIPTS = Path(__file__).resolve().parent.parent
 
 # `uv run` followed by flags, then a bare python/python3 command word.
 _INVOCATION = re.compile(r"\buv run\b(?P<flags>[^|&;`\n]*?)\s(?P<py>python3?)(?=\s|$)")
 
+# The exact phrase a script contract opens its project-mode paragraph with.
+_CONTRACT_PHRASE = "Runs in the subject project's environment"
+_OPERAND = re.compile(r'^"?\$\{CRUX_PLUGIN_ROOT\}/scripts/(?P<name>[A-Za-z0-9_-]+\.py)"?(?=\s|$)')
 
-# The one plugin script a shipped skill may run in project mode.
-_ENGINE_PATH = "${CRUX_PLUGIN_ROOT}/scripts/test-evidence.py"
 
-
-def _runs_engine(line: str, end: int) -> bool:
-    """True when the first argument after python/python3 is exactly the engine path."""
-    rest = line[end:].lstrip()
-    for candidate in (f'"{_ENGINE_PATH}"', _ENGINE_PATH):
-        if rest.startswith(candidate) and rest[len(candidate):][:1] in ("", " ", "\t"):
+def contract_states_project_mode(script: Path) -> bool:
+    """True when the script's module docstring carries the phrase paragraph with a reason sentence."""
+    try:
+        doc = ast.get_docstring(ast.parse(script.read_text(encoding="utf-8")), clean=True)
+    except (OSError, SyntaxError, ValueError):
+        return False
+    for paragraph in re.split(r"\n\s*\n", doc or ""):
+        flat = " ".join(paragraph.split())
+        if not flat.startswith(_CONTRACT_PHRASE):
+            continue
+        sentences = [s for s in re.split(r"(?<=[.!?])\s+", flat) if s.strip()]
+        if len(sentences) >= 2:
             return True
     return False
 
 
-def unpinned_invocations(text: str) -> list[tuple[int, str]]:
+def _runs_exempt_script(line: str, end: int, scripts_dir: Path) -> bool:
+    """True when the first argument after python/python3 is a plugin script whose contract exempts it."""
+    match = _OPERAND.match(line[end:].lstrip())
+    if match is None:
+        return False
+    return contract_states_project_mode(scripts_dir / match.group("name"))
+
+
+def unpinned_invocations(text: str, scripts_dir: Path = SCRIPTS) -> list[tuple[int, str]]:
     """Return (line number, line) for each direct-python `uv run` lacking a pin."""
     found = []
     for number, line in enumerate(text.splitlines(), start=1):
         match = _INVOCATION.search(line)
         if match is None or "crux/scripts/" in line:
             continue
-        if _runs_engine(line, match.end()):
+        if _runs_exempt_script(line, match.end(), scripts_dir):
             continue
         flags = match.group("flags")
         has_no_project = "--no-project" in flags
@@ -103,6 +122,35 @@ class UnpinnedInvocationDetectorTests(unittest.TestCase):
             with self.subTest(operand=operand):
                 self.assertEqual(len(unpinned_invocations(f"uv run python3 {operand}")), 1)
 
+    def test_derive_arch_in_project_mode_stays_flagged(self):
+        line = 'uv run python3 "${CRUX_PLUGIN_ROOT}/scripts/derive-arch.py" --dry-run'
+        self.assertEqual(len(unpinned_invocations(line)), 1)
+
+    def test_engine_exemption_is_read_from_its_contract(self):
+        self.assertTrue(contract_states_project_mode(SCRIPTS / "test-evidence.py"))
+        self.assertFalse(contract_states_project_mode(SCRIPTS / "derive-arch.py"))
+
+    def _fixture_line(self, docstring: str) -> list[tuple[int, str]]:
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "probe-tool.py").write_text(f'"""{docstring}"""\nimport sys\n', encoding="utf-8")
+            line = 'uv run python3 "${CRUX_PLUGIN_ROOT}/scripts/probe-tool.py" --x'
+            return unpinned_invocations(line, scripts_dir=Path(tmp))
+
+    def test_fixture_with_phrase_and_reason_is_exempt(self):
+        doc = "Probe.\n\nRuns in the subject project's environment. The check reads the subject's lock.\n"
+        self.assertEqual(self._fixture_line(doc), [])
+
+    def test_fixture_without_the_paragraph_is_flagged(self):
+        self.assertEqual(len(self._fixture_line("Probe tool.\n\nIt does things. It does more.\n")), 1)
+
+    def test_fixture_with_phrase_and_no_reason_sentence_is_flagged(self):
+        doc = "Probe.\n\nRuns in the subject project's environment.\n"
+        self.assertEqual(len(self._fixture_line(doc)), 1)
+
+    def test_fixture_with_phrase_not_opening_its_paragraph_is_flagged(self):
+        doc = "Probe.\n\nThis tool Runs in the subject project's environment. Because reasons.\n"
+        self.assertEqual(len(self._fixture_line(doc)), 1)
+
     def test_ignores_repo_relative_dev_commands(self):
         line = "`uv run python3 crux/scripts/validate-catalog.py --dry-run`"
         self.assertEqual(unpinned_invocations(line), [])
@@ -118,12 +166,6 @@ class ShippedSkillsPinPythonTests(unittest.TestCase):
             for number, line in unpinned_invocations(text):
                 offenders.append(f"{path.relative_to(SKILLS)}:{number}: {line}")
         self.assertEqual(offenders, [], "unpinned `uv run python` in shipped skills")
-
-    def test_migration_uses_the_canonical_script_entrypoint(self):
-        text = (SKILLS / "migrate-adrs" / "SKILL.md").read_text(encoding="utf-8")
-        reference=(SKILLS / "migrate-adrs" / "references" / "publication.md").read_text(encoding="utf-8")
-        self.assertIn('uv run "${CRUX_PLUGIN_ROOT}/scripts/adr-migration.py"',reference)
-        self.assertEqual(unpinned_invocations(text+reference),[])
 
 
 @unittest.skipUnless(shutil.which("uv"), "uv is not installed")

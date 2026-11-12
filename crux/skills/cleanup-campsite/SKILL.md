@@ -46,13 +46,14 @@ The output is `docs/whats_next.md` — a regenerated, prioritized action backlog
 
 Cleanup does NOT invoke `audit-docs` internally — different cadence (session-start vs. before-release), different exit semantics (audit's BROKEN findings block; cleanup's are suggestions), different write footprint. Cleanup CHECKS whether audit has run recently and emits a P1 "run audit-docs" suggestion if it hasn't.
 
-Cleanup ships **21 implemented scan rules** (CLN-* IDs) plus **one reserved id** for v0.2 (`CLN-XR-1`) and **two retired ids**, for 24 `CLN-*` ids total. The 21 implemented rules: `CLN-PJ-1a`, `CLN-PJ-1b`, `CLN-PJ-1c`, `CLN-PJ-2` (one rule, four sub-findings — three version-mismatch checks, against the Claude bare manifest, the Codex plugin manifest and the `crux-mods` plugin manifest, since all three joined the same version lock-step, plus the marketplace owner-placeholder check; still counted as a single rule id); `CLN-ADR-2`, `CLN-ADR-4`, `CLN-ADR-5` (decision-migration suggestion); `CLN-ADR-6` (open promotion requests); `CLN-OBJ-1` (objectives unpopulated); `CLN-PB-1`, `CLN-PB-2`, `CLN-PB-3`, `CLN-PB-4`; `CLN-JR-1`, `CLN-JR-2`; `CLN-WN-1`; `CLN-AUD-1` (audit-recency); `CLN-FG-1` (forged-skill staleness); `CLN-FG-2` (used-but-never-evaluated); `CLN-RETRO-1` (retrospective cadence); `CLN-TMPL-1` (dogfood↔template clause parity). (`CLN-AUD-1` was formerly the un-prefixed `cleanup-audit-stale` "not-a-CLN-rule" check; it now carries a standard rule id so the count is exact and the verification checklist needs no special-case exemption.) **Retired rule ids (never reused, never reimplemented):** `CLN-ADR-1`, `CLN-ADR-3`. See their stubs below for why. The count dropped by one for each rather than being backfilled, and `CLN-WN-1`'s stale-dismissal check skips any dismissal keyed to a retired id — those records are history that is being kept on purpose, not dead weight to age out.
+Cleanup ships **20 implemented scan rules** (CLN-* IDs) plus **one reserved id** for v0.2 (`CLN-XR-1`) and **four retired ids**, for 25 `CLN-*` ids total. The 20 implemented rules: `CLN-LOG-1` (operations-log repair and summary catch-up); `CLN-PJ-1a`, `CLN-PJ-1b`, `CLN-PJ-1c`, `CLN-PJ-2` (one rule, four sub-findings — three version-mismatch checks, against the Claude bare manifest, the Codex plugin manifest and the `crux-mods` plugin manifest, since all three joined the same version lock-step, plus the marketplace owner-placeholder check; still counted as a single rule id); `CLN-ADR-2`, `CLN-ADR-4`, `CLN-ADR-5` (decision-migration suggestion); `CLN-ADR-6` (open promotion requests); `CLN-OBJ-1` (objectives unpopulated); `CLN-PB-1`, `CLN-PB-2`, `CLN-PB-4`; `CLN-JR-2`; `CLN-WN-1`; `CLN-AUD-1` (audit-recency); `CLN-FG-1` (forged-skill staleness); `CLN-FG-2` (used-but-never-evaluated); `CLN-RETRO-1` (retrospective cadence, counting closed cycles); `CLN-TMPL-1` (dogfood↔template clause parity). (`CLN-AUD-1` was formerly the un-prefixed `cleanup-audit-stale` "not-a-CLN-rule" check; it now carries a standard rule id so the count is exact and the verification checklist needs no special-case exemption.) **Retired rule ids (never reused, never reimplemented):** `CLN-ADR-1`, `CLN-ADR-3`, `CLN-JR-1`, `CLN-PB-3`. See their stubs below for why. The count dropped by one for each rather than being backfilled, and `CLN-WN-1`'s stale-dismissal check skips any dismissal keyed to a retired id — those records are history that is being kept on purpose, not dead weight to age out.
 
 ### What cleanup writes vs. what it proposes
 
 **Cleanup writes (mechanical, low-risk):**
 - `docs/whats_next.md` — its primary artifact (body fully regenerated on every run; only the `dismissed:` frontmatter list persists across runs).
-- One `cleanup-campsite` op entry in `docs/log.md` per run.
+- One `cleanup-campsite` op entry in the operations log per run, written by `operation-log.py append`.
+- The operations log under `docs/log/`, through two commands only: `operation-log.py repair` (the first split and stray merges) and `generate-log-summary.py` (the catch-up of `docs/log/summary.md`). Both run in `CLN-LOG-1`.
 - A `## What's next (N)` section in `docs/index.md` at the top (before `## Research`), when `suggestions_open > 0`. Removes the section when `N = 0`.
 
 **Cleanup proposes (writes to whats_next.md, not the target file):**
@@ -84,7 +85,7 @@ This skill takes no required arguments. Optional behavior:
   - Accepts a single CLN rule id (e.g. `CLN-TMPL-1`) or a comma-separated CSV list (e.g. `CLN-TMPL-1,CLN-PJ-2`). No spaces around commas.
   - Runs ONLY the named rule(s) over the same shared checker / scan logic as a full run — the rule's setup requirements (threshold resolution, dismissal loading) still execute; no rule-specific setup state is skipped.
   - Output is scoped to the named rules: `docs/whats_next.md` is regenerated for ONLY the named-rule slice. The prior body's findings for other rules are **not clobbered** — only the entries for the named rule(s) are replaced in place. (Implementation: read the prior `docs/whats_next.md` body, remove entries whose `source:` cites a named rule, inject the new findings for those rules in severity/id order, and write back. Findings from unscoped rules are carried forward verbatim.)
-  - The normal `cleanup-campsite` log op is STILL emitted to `docs/log.md` on every `--only` run (the regenerate-and-propose + log contract is not bypassed). The log entry body names the scoped rule(s): `N open (X P1, Y P2, Z P3) [--only CLN-TMPL-1], M closed, K dismissed`.
+  - The normal `cleanup-campsite` log op is STILL written to the operations log on every `--only` run (the regenerate-and-propose + log contract is not bypassed). The log entry body names the scoped rule(s): `N open (X P1, Y P2, Z P3) [--only CLN-TMPL-1], M closed, K dismissed`.
   - **Unknown rule id → loud error (NOT a silent no-op).** If any rule id in the list is not a recognized CLN-* id, cleanup refuses to run and prints: `ERROR: unknown rule id '<ID>'. Known rule ids: CLN-PJ-1a, CLN-PJ-1b, …`. Exit non-zero. This prevents a silent empty-output run from masking a typo.
   - **Rule-harness isolation:** each named rule runs in isolation over the shared checker / scan logic without missing required setup state (thresholds and dismissals are loaded in step 1/2 even under `--only`) and without causing side effects on unscoped rules.
   - `cleanup-campsite --only CLN-TMPL-1` is the documented **on-demand fast-path** for immediate parity feedback right after editing `docs/AGENTS.md` — fast because only one rule runs against two files, no full vault walk.
@@ -94,7 +95,7 @@ This skill takes no required arguments. Optional behavior:
   - `stuck_promptbook_days` — default 14. Used by `CLN-PB-1`.
   - `audit_stale_days` — default 14. Used by the audit-recency check.
   - `forged_skill_stale_days` — default 30. no authored/revised/used/evaluated event within this window (timestamp comparison). Used by CLN-FG-1 and CLN-FG-2.
-  - `retro_due_runs` — default 5. Used by `CLN-RETRO-1`.
+  - `retro_due_runs` — default 5. Used by `CLN-RETRO-1`: flag when >= this many cycles closed (completed, abandoned or shortcut) since the last `Retrospective:` journal entry.
   - `adr_review_due_days` — default 7. Used by `CLN-ADR-5`.
 
   Missing values fall back to the defaults. The `cleanup:` block itself is optional.
@@ -124,6 +125,19 @@ If `docs/whats_next.md` does not exist, treat both as empty.
 Run each rule. For each finding, compute its stable `id` per the rule's spec. If the `id` is in the `dismissed:` list, skip surfacing.
 
 Rules — all are file-scoped; no skill invocations:
+
+#### CLN-LOG-1 — operations-log repair and summary
+
+This rule runs before every other rule, so each later rule reads the repaired log.
+
+- **Runs:** `uv run "${CRUX_PLUGIN_ROOT}/scripts/operation-log.py" repair --repo-root <repo-root>`. It completes the first split of a legacy `docs/log.md` when the tree has not recorded completion, and it merges a stray `docs/log.md` or a staged stray into the current month's detail file.[^log-repair] Either step may refuse: a refusal names the heading, the open fence or the conflict, and the split or merge writes nothing.
+- **Then runs:** `uv run "${CRUX_PLUGIN_ROOT}/scripts/generate-log-summary.py" --repo-root <repo-root> --dry-run`. When its `pending_months` is not empty or it reports a failure of kind `region`, run `generate-log-summary.py --repo-root <repo-root>`, the catch-up, and then the `--dry-run` again.[^log-catch-up] The catch-up writes one section per settled month that lacks one and never a section for the current month.
+- **Looks for:** a refused or failed repair; a first dry-run that reports a failure of kind `structure` or exits 2; a refused catch-up; a second dry-run that exits non-zero.[^log-finding]
+- **Stable id:** `cleanup-CLN-LOG-1-repair` for a repair finding, `cleanup-CLN-LOG-1-summary` for a summary finding.
+- **Category:** `log-repair`. **Severity:** P1. The finding names the months, the heading or the error.
+- **Proposed action:** apply the fix the refusal names (edit the named heading, close the named fence, or resolve the named conflict), then rerun cleanup. For a structure failure, edit `docs/log/summary.md` by hand (remove a premature or second section, or restore a marker), or run `operation-log.py repair` for an incomplete split.
+- **Reports:** a completed repair (its `changed_paths`) or catch-up (the months it added or rewrote) in the console summary and in the body of this run's `cleanup-campsite` log entry.
+- **Commits:** by the commit step of `docs/AGENTS.md` §6, with the `commit_paths` and `restore_paths` of cleanup's last `operation-log.py` run, which is its own `append` in step 8 when that runs. `generate-log-summary.py` reports no commit paths. Name `docs/log/summary.md` among cleanup's own paths only when the catch-up reported `status: written`.
 
 **Existence gate (all CLN-PJ rules):** the CLN-PJ rules inspect plugin/marketplace manifests (`crux/plugin.json`, `crux/.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `crux/.codex-plugin/plugin.json`, `.agents/plugins/marketplace.json`, `crux-mods/.claude-plugin/plugin.json`) that exist only in a repo that IS a plugin/marketplace checkout — a typical consuming project has none of them, and that is normal. Before running each CLN-PJ rule, check that the file(s) it reads exist; if a rule's primary input is absent, the rule **silently skips** (no finding, no warning). The one exception is CLN-PJ-2's missing-file handling below, which fires only when a *sibling* manifest proves the repo is a plugin-marketplace repo.
 
@@ -225,7 +239,7 @@ The id is not reused. This stub exists so a future reader finds the reasoning in
 - **Stable id:** `cleanup-CLN-ADR-6-ADR-<NNNN>`.
 - **Category:** `adr-followon`. **Severity:** P3.
 - **Proposed action:** "Review the accepting run's promotion request and reply `promote ADR-NNNN: rules …`, or dismiss this entry to leave the rules as guidance."
-- **Actor boundary:** proposes only. A "leave" answer closes through the existing `dismissed:` frontmatter mechanism. The rule never refuses, blocks or promotes anything; promotion is the owner's own instruction.[^promotion]
+- **Actor boundary:** proposes only. A "leave" answer closes through the existing `dismissed:` frontmatter mechanism. The rule never refuses, blocks or promotes anything. Promotion applies only to a historical run's guidance and is the owner's own instruction. An ADR accepted under the configured acceptance policy needs no promotion.[^promotion]
 
 #### CLN-OBJ-1 — the objectives file is unpopulated
 
@@ -253,13 +267,11 @@ The id is not reused. This stub exists so a future reader finds the reasoning in
 - **Category:** `promptbook-hygiene`. **Severity:** P1.
 - **Proposed action:** Journal the escalation and its resolution. A YAML run may then resume or be deliberately abandoned. A Markdown run may finish truthfully through pinned public `v3.23.2`; if it cannot, preserve it unresolved and begin separate YAML work. Do not promise Markdown abandonment.
 
-#### CLN-PB-3 — promptbooks eligible for archive
+#### CLN-PB-3 — RETIRED. Do not reimplement.
 
-- **Reads:** every active promptbook's `current_run` snapshot (enumerate active books by globbing **both** `PB-NNNN-*.yaml` and `PB-NNNN-*.md` — format coexistence; the snapshot itself may be `.yaml` or `.md`). `current_run` stays pointed at the terminal run until `archive-promptbook` nulls it, so the completed branch is reachable here.
-- **Looks for:** the run is archive-eligible by one of the two run-level paths — either `status: completed` with every prompt terminal (`prompts[].state` ∈ {`done`, `skipped`, `blocked`}; on a `.md` run, the per-prompt `State:` field), or `status: abandoned` with `abandonment.kind: deliberate`. A run that is `in_progress`, or `abandoned` with `kind: superseded` or with no `abandonment` mapping, is NOT eligible. Eligibility is a run-level property; there is no per-prompt flag. (See `archive-promptbook/SKILL.md` and `docs/AGENTS.md` §11.B for the definition.)
-- **Stable id:** `cleanup-CLN-PB-3-<book-id>`.
-- **Category:** `promptbook-hygiene`. **Severity:** P3 (the user may have a reason to leave it active).
-- **Proposed action:** For a YAML run, invoke `archive-promptbook PB-NNNN` when ready; a `cycle_kind: patch` book also runs the blast-radius check. For an eligible Markdown run, use pinned public `v3.23.2` to archive it on a copy, then convert its book before its run. The current `archive-promptbook` refuses Markdown before mutation.
+`CLN-PB-3` reported an active promptbook whose run was archive-eligible. The id is **retired** and the rule is gone: the approved retirement map retires it, and the cycle record that replaces the promptbook archive closes itself. The historical runs still active keep `CLN-PB-1`, `CLN-PB-2` and `CLN-PB-4`.
+
+The id is not reused. This stub exists so a future reader finds the reasoning instead of the gap, and so nobody re-adds the rule from the dismissal ledger.
 
 #### CLN-PB-4 — duplicate `### Prompt N` headings in run snapshots
 
@@ -270,28 +282,15 @@ The id is not reused. This stub exists so a future reader finds the reasoning in
 - **Category:** `promptbook-hygiene`. **Severity:** P2 (degrades archival; doesn't block other operations).
 - **Proposed action:** Edit the run snapshot to remove duplicates. Convention: keep the block with the most-complete State (`done` > `running` > `pending`); if multiple are non-`pending`, keep the most-recent (latest `Completed:` or `Started:` timestamp).
 
-#### CLN-JR-1 — recent log operations without matching journal entries
+#### CLN-JR-1 — RETIRED. Do not reimplement.
 
-- **Reads:** `docs/log.md` (newest entries), `docs/journal/YYYY-MM.md` for the month(s) covered, and — through the shared checker — `docs/adrs/summaries/resolver.json` where the tree has one.
-- **Looks for:** Within the last 7 days from `${TODAY}`, scan `docs/log.md` for entries matching regex `## \[(\d{4}-\d{2}-\d{2})\] (adr|promptbook|schema) \|.*\b(accept|archived|migration)\b`. For each hit, identify the artifact named in the subject (e.g., `ADR-NNNN`, `PB-NNNN-<slug>`). Then invoke the shared checker once per artifact, for the month the hit's date names:
+`CLN-JR-1` reported a recent `adr`, `promptbook` or `schema` log operation with no journal entry that references its artifact. The id is **retired** and the rule is gone: the approved retirement map retires it. `check-journal-reference.py` has no reader left outside its own tests and the plugin manifest; it stays shipped as a standalone command until a change retires it.
 
-  ```bash
-  uv run "${CRUX_PLUGIN_ROOT}/scripts/check-journal-reference.py" \
-    --artifact <artifact-id> --month YYYY-MM --repo-root <repo-root>
-  ```
-
-  Inspect the JSON payload before interpreting exit code **1**. A payload carrying `authority: none` and `limit` reports a proof/history refusal: surface it and emit NO finding. Otherwise branch on the exit code. **0** — referenced; no finding. **1** with `referenced: false` — not referenced; emit the finding, reading the payload for the wording below. **2** — environment or usage failure; surface it and emit NO finding for that artifact, because a month file that could not be read is not evidence of a missing entry.
-- **Two kinds of evidence, because two contracts govern the citation.** An entry references an artifact when it carries a `[[wiki-link]]` naming it, **or** a `rule:<slug>` the summaries resolver maps to a handle that artifact owns. Writing rule 7 tells the journal to cite `rule:<slug>` where a rule exists, and to name the ADR only where it carries no `governs` block. A wiki-link-only check therefore reports every governs-bearing ADR as unjournaled: three reflections in this repo's own tree were reported missing while sitting in the month file.
-- **Mere slug presence is not evidence.** A slug the resolver does not carry, and a slug another ADR owns, are both REJECTED rather than ignored. The checker returns them under `rejected` with `resolves_to`, so a finding can name the decision the entry actually reflects on. A retired slug counts for the ADR owning its current live successor. Historical evidence destinations and original displacer provenance remain separate from those current replacements; a historical citation can evidence a journal reference without making its reasoning govern.
-- **An absent resolver in an ordinary tree is reported, never fatal.** `init-docs` creates no summaries projection, so a fresh tree has none. The checker then decides on wiki-links alone, sets `resolver_available: false`, and returns every slug token under `unverifiable`. Where a finding carries `resolver_available: false` and a non-empty `unverifiable` list, say so in the finding text: the reflection may exist and cite a rule this tree cannot resolve.
-- **Refusal is not a journal gap.** After the mandatory authority preflight, use the shared journal checker for historical retrieval. Missing or malformed publication proof and malformed historical maps refuse rather than produce an unjournaled finding. Historical references name the source artifact whose reasoning is preserved; they assert no current governing authority. Do not reconstruct the checker's history or collision policy locally.
-- **Stable id:** `cleanup-CLN-JR-1-<artifact-id>`.
-- **Category:** `journal-gap`. **Severity:** P1.
-- **Proposed action:** "Invoke `log-work` with a reflective entry on `<artifact-id>` (per v0.2.0 log-work: name at least one thing that didn't work first, one surprise, one thing to do differently). Cite the decision as `rule:<slug>` where it carries a `governs` block, and as a `[[wiki-link]]` where it does not." Where the checker rejected a citation, add: "`rule:<token>` is already cited here and belongs to `<resolves_to>`."
+The id is not reused. This stub exists so a future reader finds the reasoning instead of the gap, and so nobody re-adds the rule from the dismissal ledger.
 
 #### CLN-JR-2 — thin months
 
-- **Reads:** `docs/journal/index.md` (entry counts) AND `docs/log.md` (op count per closed month). `journal/index.md` is derived — read it as-is; do not recompute the counts yourself. `generate-journal-index.py` regenerates it.
+- **Reads:** `docs/journal/index.md` (entry counts) AND the operations log (op count per closed month): the entries of every detail file under `docs/log/`, counted by heading month, or the per-month counts that `docs/log/summary.md` records for a settled month. `journal/index.md` is derived — read it as-is; do not recompute the counts yourself. `generate-journal-index.py` regenerates it.
 - **Looks for:** closed months (i.e., month earlier than `${TODAY}.month`) where `journal entries < 2` AND `log ops >= 10`. Closed-month means the calendar month is in the past — never flag the current month.
 - **Stable id:** `cleanup-CLN-JR-2-<YYYY-MM>`.
 - **Category:** `journal-gap`. **Severity:** P3.
@@ -317,8 +316,8 @@ The id is not reused. This stub exists so a future reader finds the reasoning in
 - **Looks for:** for each in-scope skill directory, find the newest entry in `forge-log.md` across ALL event types (`authored|revised|used|evaluated`) for that skill name by **parsed timestamp** (the `## [YYYY-MM-DD HH:MM]` prefix). Compare timestamps, never file positions — the comparison spans multiple event types whose entries interleave, so position is meaningless. If that newest timestamp is older than `${TODAY} - forged_skill_stale_days` (manifest `cleanup:` key, default 30), fire a finding. `revised`, `used`, and `evaluated` events all reset the clock — a skill used, evaluated, or revised within the window is not stale even if its `authored` entry is old. An unparseable timestamp or malformed header (not matching `## [YYYY-MM-DD HH:MM] <event> | <skill-name>`) is itself a finding — surface it as part of this rule's output (fail-loud), never a silently-skipped entry.
 - **Stable id:** `cleanup-CLN-FG-1-<skill-name>` (one per stale forged skill; `skill-name` is the directory name under `${CRUX_LOCAL_SKILLS_DIR}/`).
 - **Category:** `forge-hygiene`. **Severity:** P3.
-- **Proposed action:** "Forged skill `<skill-name>` has no `authored|revised|used|evaluated` event within the last `<N>` days (newest event: <date>). Either prune it via `forge-skill` (which records the `pruned` event and a `skill | pruned` op in `docs/log.md`) or add a note in the forge log explaining why it stays."
-- **Actor boundary:** `cleanup-campsite` only *proposes* this finding. It never deletes a skill file, never writes `${CRUX_LOCAL_SKILLS_DIR}/forge-log.md`, and never writes a `skill` op to `docs/log.md`. The prune itself — on user approval or autonomously when gates permit — is performed through `forge-skill`, which is the sole authorized writer of the forge log and of `skill` ops.
+- **Proposed action:** "Forged skill `<skill-name>` has no `authored|revised|used|evaluated` event within the last `<N>` days (newest event: <date>). Either prune it via `forge-skill` (which records the `pruned` event and a `skill | pruned` op in the operations log) or add a note in the forge log explaining why it stays."
+- **Actor boundary:** `cleanup-campsite` only *proposes* this finding. It never deletes a skill file, never writes `${CRUX_LOCAL_SKILLS_DIR}/forge-log.md`, and never writes a `skill` op to the operations log. The prune itself — on user approval or autonomously when gates permit — is performed through `forge-skill`, which is the sole authorized writer of the forge log and of `skill` ops.
 
 #### CLN-FG-2 — used-but-never-evaluated
 
@@ -334,13 +333,13 @@ The id is not reused. This stub exists so a future reader finds the reasoning in
 
 #### CLN-RETRO-1 — retrospective cadence
 
-- **Reads:** `docs/log.md` and `docs/journal/*.md`.
-- **Predicate:** count `docs/log.md` headings whose date is STRICTLY AFTER the newest `docs/journal/*.md` heading matching the regex `^## \[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\] learning \| Retrospective: ` and whose heading itself matches the `promptbook | archived` op form (full pattern: `^## \[\d{4}-\d{2}-\d{2}\] promptbook \| archived `). Fires at P3 when that count ≥ `retro_due_runs` (manifest `cleanup:` key, default 5). Terminology: **books archived** (the op is per book; same-day archive-after-retro may under-count by design — date granularity; acceptable for a P3 nudge).
-- **First-run behavior:** if no heading matching `^## \[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\] learning \| Retrospective: ` appears anywhere in `docs/journal/*.md`, count ALL archived ops in `docs/log.md` and fire the finding with explicit "no retrospective has ever run" wording — the adoption nudge is the point.
-- **Stable id:** `cleanup-CLN-RETRO-1-due` (singleton — the finding represents the cadence state as a whole, not a per-book artifact).
+- **Reads:** `docs/cycles/CYC-*/cycle.json` and `docs/journal/*.md`. The anchor search also reads the operations log (every detail file under `docs/log/`), for the corroboration guard in the Note below.
+- **Predicate:** count the cycle records whose `status` is `completed`, `abandoned` or `shortcut` and whose closing history event is dated STRICTLY AFTER the newest `docs/journal/*.md` heading matching the regex `^## \[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\] learning \| Retrospective: `. The closing history event is the closing status event: the first `history` entry whose `status` field equals the record's closed status, because a later entry, such as a late `assignment --state finished`, can follow closure. An older record whose entries carry no `status` field uses the last `history` entry. The event's `at` field gives the date. Fires at P3 when that count ≥ `retro_due_runs` (manifest `cleanup:` key, default 5; the key name is kept). Terminology: **cycles closed** (the count is per cycle record; a cycle that closes on the day of the retrospective is not counted — date granularity; acceptable for a P3 nudge). A cycle that is active or paused is not counted.
+- **First-run behavior:** if no heading matching `^## \[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\] learning \| Retrospective: ` appears anywhere in `docs/journal/*.md`, count ALL closed cycle records and fire the finding with explicit "no retrospective has ever run" wording — the adoption nudge is the point.
+- **Stable id:** `cleanup-CLN-RETRO-1-due` (singleton — the finding represents the cadence state as a whole, not a per-cycle artifact).
 - **Category:** `retro-cadence`. **Severity:** P3.
-- **Proposed action:** "Run a retrospective — the `retrospective` skill mines recent journal reflections, run notes, and log ops; harvests ≤2 council-gated skill proposals."
-- **Note:** This rule tracks cadence for the `retrospective` skill (scheduled, deliberate reflection that may yield ≤2 skill proposals per run). It is NOT a journal-entry-quality check — the journal-gap rules (`CLN-JR-1`, `CLN-JR-2`) own that concern; the word "retrospective" appearing there refers to a reflective journal *entry style*, not to the `retrospective` skill's cadence. The anchor search applies the same validity guards as Phase 1 of the `retrospective` skill: future-dated candidates and candidates with no same-day `journal | Retrospective:`-prefixed op in `docs/log.md` are ignored.
+- **Proposed action:** "Run a retrospective — the `retrospective` skill mines recent journal reflections, cycle records, and log ops; harvests ≤2 council-gated skill proposals."
+- **Note:** This rule tracks cadence for the `retrospective` skill (scheduled, deliberate reflection that may yield ≤2 skill proposals per run). It is NOT a journal-entry-quality check — the journal-gap rule `CLN-JR-2` owns that concern; the word "retrospective" appearing there refers to a reflective journal *entry style*, not to the `retrospective` skill's cadence. The anchor search applies the same validity guards as Phase 1 of the `retrospective` skill: future-dated candidates and candidates with no same-day `journal | Retrospective:`-prefixed op in any operations-log detail file under `docs/log/` are ignored.
 
 #### CLN-TMPL-1 — dogfood↔template clause parity
 
@@ -375,8 +374,8 @@ These code paths are not exercised by the smoke test and should be exercised in 
 
 #### CLN-AUD-1 — audit-recency
 
-- **Reads:** `docs/log.md`.
-- **Looks for:** the most recent `## [YYYY-MM-DD] audit |` entry. If its date is older than `${TODAY} - audit_stale_days` (default 14), emit a P1 finding.
+- **Reads:** the operations log: every detail file under `docs/log/`.
+- **Looks for:** the `## [YYYY-MM-DD] audit |` entry with the latest heading date in any detail file. Heading dates are not ordered within a file, so compare dates rather than taking the first match. If its date is older than `${TODAY} - audit_stale_days` (default 14), emit a P1 finding.
 - **Stable id:** `cleanup-CLN-AUD-1-recency` (conforms to the standard `cleanup-<rule-id>-<artifact-slug>` shape).
 - **Category:** `whats-next-stale`. **Severity:** P1.
 - **Proposed action:** "Run `audit-docs` — last audit was <N> days ago."
@@ -391,7 +390,7 @@ These code paths are not exercised by the smoke test and should be exercised in 
 
 ### 5. Compute "Recently closed"
 
-`recently_closed = prior_open_ids - current_open_ids`. Cap at 10 entries (older closures live in `docs/log.md`). Format as strikethrough lines:
+`recently_closed = prior_open_ids - current_open_ids`. Cap at 10 entries (older closures live in the operations log). Format as strikethrough lines:
 
 ```markdown
 - ~~<id>~~ — addressed <YYYY-MM-DD> (condition no longer reproduces).
@@ -460,9 +459,23 @@ If the section exists, update N and the breakdown. If `suggestions_open == 0`, r
 
 Update `_Last updated:_` to `${TODAY}`.
 
-### 8. Append to `docs/log.md`
+### 8. Record the `cleanup-campsite` operation
 
-Newest-first prepend:
+Write the entry through the log writer, as `docs/AGENTS.md` §6 states. Write this body to a file outside the tree, adding one line for a repair or catch-up that `CLN-LOG-1` completed:
+
+```markdown
+Top-3 P1 ids: `<id1>`, `<id2>`, `<id3>`. See [[whats_next]].
+```
+
+Then run:
+
+```
+uv run "${CRUX_PLUGIN_ROOT}/scripts/operation-log.py" append --repo-root <repo-root> \
+  --op cleanup-campsite --subject 'N open (X P1, Y P2, Z P3), M closed, K dismissed' \
+  --date ${TODAY} --body-file <path>
+```
+
+The entry it writes at the top of the current month's detail file:
 
 ```markdown
 ## [${TODAY}] cleanup-campsite | N open (X P1, Y P2, Z P3), M closed, K dismissed
@@ -470,7 +483,7 @@ Newest-first prepend:
 Top-3 P1 ids: `<id1>`, `<id2>`, `<id3>`. See [[whats_next]].
 ```
 
-If N is zero on all counts, still write the entry (auditable record that cleanup ran).
+If N is zero on all counts, still write the entry (auditable record that cleanup ran). A refused append keeps cleanup's other writes; fix the cause it names and rerun the append alone (§6). Then run the commit step of §6 over this result's `commit_paths` and `restore_paths`, adding `docs/log/summary.md` when the `CLN-LOG-1` catch-up wrote it.
 
 ### 9. Console summary
 
@@ -493,7 +506,8 @@ Plus the top-3 P1 subjects if any exist, so the user sees the actionable items i
 - [ ] Every body suggestion has all six required fields: `id`, `category`, `severity`, `finding`, `source`, `proposed action`. `refs` may be absent if no refs exist.
 - [ ] Severity caps respected: ≤ 5 P1, ≤ 10 P2 (excess in `## Truncated`).
 - [ ] Stale-dismissal entries sort after fresh P3 findings.
-- [ ] `docs/log.md` has a new `## [${TODAY}] cleanup-campsite |` entry at the top.
+- [ ] The current month's detail file `docs/log/YYYY-MM.md` has a new `## [${TODAY}] cleanup-campsite |` entry at the top, and no `docs/log.md` was written.
+- [ ] `CLN-LOG-1` ran `operation-log.py repair` and the summary gate; any refusal is a P1 finding, and `generate-log-summary.py --dry-run` lists no pending month after a catch-up.
 - [ ] `docs/index.md` has a `## What's next (N)` section iff `N > 0`; section content is consistent with the body.
 - [ ] No edits to README, USER_GUIDE, CHANGELOG, ADR bodies, journal entries, or promptbook files.
 - [ ] `manifest.yml` counters unchanged.
@@ -507,7 +521,7 @@ Plus the top-3 P1 subjects if any exist, so the user sees the actionable items i
 - **About to surface a finding for a dismissed id without re-checking the dismissal.** Dismissals suppress unconditionally; the `dismissed_last_seen` counter tracks staleness but does not gate suppression.
 - **About to invent a stable id format that doesn't follow `cleanup-<rule-id>-<artifact-slug>`.** Determinism depends on every rule emitting ids in the documented shape.
 - **About to write a finding without a `proposed action`.** Cleanup's contract is *forward-looking* — every finding names what to do, even if "ignore" is the action.
-- **About to skip the `docs/log.md` entry on a zero-findings run.** The log is the audit trail of "cleanup ran on this date"; write the entry even if N=0.
+- **About to skip the operations-log entry on a zero-findings run.** The log is the audit trail of "cleanup ran on this date"; write the entry even if N=0.
 - **About to suggest invocation of a skill that doesn't exist.** Each `proposed action` that names a skill MUST reference an existing one (`archive-promptbook`, `transition-adr`, `log-work`, `audit-docs`, `run-promptbook`, `forge-skill`, `retrospective`).
 
 ## Rationalization table and common mistakes
@@ -517,13 +531,15 @@ excuse→reality mapping and the recurring-mistake catalog, read
 [`references/pitfalls.md`](references/pitfalls.md).
 ## See also
 
-- `docs/AGENTS.md` §5.A (the whats_next.md schema) and §11 (the audit-docs boundary); the scan-rule roster is in this file's Overview (21 implemented + 2 retired + 1 reserved, for 24 ids).
+- `docs/AGENTS.md` §5.A (the whats_next.md schema) and §11 (the audit-docs boundary); the scan-rule roster is in this file's Overview (20 implemented + 4 retired + 1 reserved, for 25 ids).
 - `audit-docs/SKILL.md` — the boundary partner. Cleanup CHECKS whether audit ran recently; it does NOT invoke it.
-- `log-work/SKILL.md` (v0.2.0) — establishes the journal-as-reflection contract that cleanup honors (CLN-JR-1 surfaces missing entries as suggestions; never auto-drafts the entry itself).
-- `archive-promptbook/SKILL.md` — what users invoke after a CLN-PB-3 finding.
+- `log-work/SKILL.md` (v0.2.0) — establishes the journal-as-reflection contract that cleanup honors (`CLN-JR-2` surfaces thin months as suggestions; never auto-drafts the entry itself).
 - `transition-adr/SKILL.md` — what users invoke after a CLN-ADR-2 finding (accept / deprecate / supersede).
 - `run-promptbook/SKILL.md` — what users invoke after a CLN-PB-1 or CLN-PB-2 finding.
 - `query-docs/SKILL.md` — cleanup does NOT invoke this; orthogonal capability.
 - `retrospective/SKILL.md` — the skill CLN-RETRO-1 nudges the user to invoke; deliberate reflection that harvests ≤2 skill proposals from finished work.
 
-[^promotion]: rule:owner-promotes-guidance
+[^promotion]: rule:acceptance-makes-rules-binding, rule:historical-records-keep-their-interpretation
+[^log-repair]: rule:cleanup-campsite-runs-the-first-split, rule:cleanup-campsite-merges-a-stray-log
+[^log-catch-up]: rule:cleanup-campsite-runs-the-log-summary-catch-up, rule:catch-up-writes-every-pending-month, rule:no-section-before-its-month-settles
+[^log-finding]: rule:refused-log-repair-is-a-cleanup-finding

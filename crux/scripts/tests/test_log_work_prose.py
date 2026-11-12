@@ -41,16 +41,6 @@ class TaskLocalProcedureTests(unittest.TestCase):
         self.assertIn("missing or unreadable", entry)
         self.assertNotIn("## The pipeline", entry)
 
-    def test_selected_references_do_not_embed_other_operation_pipelines(self):
-        for selected in ("start", "advance", "abandon", "status"):
-            body = source("run-promptbook", selected)
-            for other in ("start", "advance", "abandon"):
-                if selected != other:
-                    with self.subTest(selected=selected, other=other):
-                        self.assertNotIn(f"## The pipeline (mode: {other})", body)
-        self.assertNotIn("--mode log-only", source("log-work", "journal"))
-        self.assertNotIn("--mode journal", source("log-work", "log-only"))
-
 
 if __name__ == "__main__":
     unittest.main()

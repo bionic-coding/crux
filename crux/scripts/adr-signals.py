@@ -1049,15 +1049,32 @@ def _dated_entries(root: Path,
         if text is None:
             refused.append(_rel(path))
             return
+        _split_text(text, label)
+
+    def _split_text(text: str, label: str) -> None:
         for head, lines in _fenced_entries(text):
             m = LOG_HEADING.match(head)
             if m:
                 body = "\n".join([head] + [line for line, fenced in lines if not fenced])
                 entries.append((label, m.group(1), set(ADR_ID.findall(body))))
 
-    log = docs / "log.md"
-    if log.is_symlink() or log.is_file():
-        _split(log, "log.md")
+    log, log_dir = docs / "log.md", docs / "log"
+    if any(item.is_symlink() or item.exists() for item in (log, log_dir)):
+        # One label, `log`, for every log file: a legacy log.md, the detail files under
+        # log/ and any stray. The entries come from `operation_log.read_entries`, newest
+        # write first, and each is split on its own, as a file's text was.
+        import operation_log as ol
+        try:
+            log_entries = ol.read_entries(docs.resolve())
+        except (ol.Refusal, OSError):
+            # Name the surface that failed: log.md when it is a link or not a file, else
+            # log/, which holds the detail file the reader refused.
+            bad_legacy = log.is_symlink() or (log.exists() and not log.is_file())
+            refused.append(_rel(log if bad_legacy or not log_dir.exists() and not log_dir.is_symlink()
+                                else log_dir))
+        else:
+            for log_entry in log_entries:
+                _split_text(log_entry.text, "log")
     journal = docs / "journal"
     if journal.is_symlink():
         refused.append(_rel(journal))
@@ -2437,7 +2454,7 @@ def signal_dormancy_days(active: dict[str, dict], entries, today: dt.date, tree:
                  f"that no dated mention exists: {names}.")
     return _record(
         "dormancy_days", "computed", value,
-        f"dated entries in {tree}/log.md, the monthly files under {tree}/journal/, and the "
+        f"dated entries in the {tree} operations log, the monthly files under {tree}/journal/, and the "
         f"run snapshots under {tree}/promptbooks/runs/, measured against {today.isoformat()}",
         filt,
     )

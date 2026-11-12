@@ -61,7 +61,7 @@ static: false                    # if true, this skill skips the source entirely
 If a source page lacks `last_source_check` (legacy from before this skill existed), treat it as equal to `captured_at`. If `static` is absent, treat it as `false`.
 
 This skill **also maintains** two other root-level files under `docs/research/`:
-- `docs/research/updates.md` — content-change journal. One entry per substantive upstream change. Distinct from `docs/log.md` (operational journal). Created lazily if absent.
+- `docs/research/updates.md` — content-change journal. One entry per substantive upstream change. Distinct from the operations log (operational journal). Created lazily if absent.
 - `docs/research/sources.md` — tabular registry of all ingested sources. In-place column updates on every check (`last_source_check`) and on every persist (`last_update`, `raw_path`). Never appends new rows here (that's `ingest-research`'s job).
 
 ## The pipeline
@@ -176,7 +176,14 @@ Find every page under `docs/research/<category>/*.md` (excluding `docs/research/
 
 - `docs/research/index.md`: refresh affected source rows' date suffix; update `_Last updated:_` to today. Counts don't change (no pages added or removed).
 - `docs/index.md`: bump `_Last updated:_` only; concern counts are unchanged.
-- `docs/log.md` — one entry for the whole batch (newest-first, at top):
+- The operations log — one entry for the whole batch, written through the log writer (`docs/AGENTS.md` §6).[^log-writer] Write the body below to a file outside the tree, then run:
+
+  ```
+  uv run "${CRUX_PLUGIN_ROOT}/scripts/operation-log.py" append --repo-root <repo-root> \
+    --op refresh --subject 'sources batch (N checked, M updated, K failed)' --date YYYY-MM-DD --body-file <path>
+  ```
+
+  The entry it writes at the top of the current month's detail file `docs/log/YYYY-MM.md`:
 
   ```
   ## [YYYY-MM-DD] refresh | sources batch (N checked, M updated, K failed)
@@ -186,6 +193,8 @@ Find every page under `docs/research/<category>/*.md` (excluding `docs/research/
   - **Updated** (M): slug — one-line change summary.
   - **Unchanged** (N − M − K): slugs only.
   - **Failed** (K): slug — failure reason.
+
+  A refused append keeps this skill's other writes and adds no entry: fix the cause it names, then rerun the append alone (§6). Then run the commit step of §6 over the result's `commit_paths` and `restore_paths`.
 
 ### 5. Hand-off
 
@@ -208,7 +217,7 @@ Report to the user, in this order:
 - [ ] No synthesis page's `last_reviewed` was bumped.
 - [ ] Sources with `static: true` were skipped entirely (not checked, not bumped).
 - [ ] Sources with `source_url: null` were skipped entirely.
-- [ ] One batch entry was appended to the top of `docs/log.md` with op `refresh`.
+- [ ] One batch entry with op `refresh` was written at the top of the current month's detail file `docs/log/YYYY-MM.md` by `operation-log.py append`.
 - [ ] `docs/research/index.md` `_Last updated:_` was bumped.
 
 ## Red flags — STOP and reconsider
@@ -234,7 +243,7 @@ Report to the user, in this order:
 | "404 means the source is gone — delete the page." | 404 means we couldn't reach it today. Mark failed, ask user. |
 | "The diff is clear — I'll auto-fix the synthesis claim too." | Even a clear textual diff can shift framing. Flag, don't rewrite. |
 | "This source has 12 synthesis citations — I should refresh all of them in one pass." | Two separate operations. Source refresh = automated and bulk. Synthesis reconciliation = user-gated. |
-| "I'll batch the log entry per source." | One batch entry per run. Per-source entries pollute `docs/log.md`. |
+| "I'll batch the log entry per source." | One batch entry per run. Per-source entries pollute the operations log. |
 | "The user said 'go' — I shouldn't bother them with the stale list." | "Go" applies after they've seen the scope. Show the list, get scope, then go. |
 | "Slug from the new title is cleaner." | Slug is immutable. Renaming breaks every `[[research/sources/<slug>]]` link. |
 | "Source has `static: true` but I just want to double-check." | `static: true` is the user's explicit opt-out. Honor it. If the user wants to recheck, they'll flip the flag. |
@@ -251,3 +260,5 @@ Report to the user, in this order:
 - **Re-saving images that haven't changed.** Compare filenames and sizes; only save changed/new images into the new dated folder.
 - **Bumping `last_source_check` on a `static: true` source because "we checked it anyway".** Static sources are not in scope. Don't touch them.
 - **Skipping the `docs/research/sources.md` row update**. Audit will catch the drift, but the registry is supposed to be live.
+
+[^log-writer]: rule:log-entries-go-through-the-log-writer, rule:no-writer-writes-the-legacy-log-file

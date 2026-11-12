@@ -21,7 +21,7 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from test_adr_migration import MigrationFixture
+from test_adr_migration import MigrationFixture, legacy_v1_support
 import adr_migration as m
 import adr_migration_publication as p
 import decision_policy as dp
@@ -127,7 +127,11 @@ def _forged_template():
 
 
 def _installed_template():
-    """A consuming project: no vendored plugin source, so the installed reader is the parent reader."""
+    """A consuming project: no vendored plugin source, so the installed reader is the parent reader.
+
+    Its approval binds an installed-support v1 byte pin, recorded as the v5.3.0 writer
+    did, so the replay compares the installed reader's bytes (the byte route).
+    """
     builder = _Builder('build_only')
     builder.setUp()
     builder.vendor()
@@ -135,14 +139,15 @@ def _installed_template():
     builder.package.update(initial=False, record=builder.bind('later.txt'))
     builder.write(builder.package_path, builder.package)
     builder.owner['presented'] = builder.bind(builder.package_path)
-    builder.readiness = m.installed_support()
+    builder.readiness = legacy_v1_support()
     builder.council_path = 'bionic/adrs/councils/later.json'
     vote = builder.council(builder.package_path.removeprefix('bionic/'), builder.bind(builder.package_path)['sha256'])
     vote['readiness'] = builder.readiness
     vote['review_bundle_sha256'] = digest(encoded(m.review_bundle(builder.root, builder.package_path)))
     builder.write(builder.council_path, builder.seal(vote))
     builder.commit('Later installed-support council')
-    m.record_approval(builder.root, 'approval-one', builder.package_path, builder.council_path, builder.readiness, owner=builder.owner)
+    with patch.object(m, '_new_approval_basis'):
+        m.record_approval(builder.root, 'approval-one', builder.package_path, builder.council_path, builder.readiness, owner=builder.owner)
     builder.approval = 'bionic/adrs/migrations/approvals/approval-one.json'
     builder.commit('Later approval')
     shutil.rmtree(builder.root / 'crux')
@@ -876,7 +881,10 @@ class InstalledSupportTests(ReceiptCase):
 
 
 class NestedReadTests(ReceiptCase):
-    """The second migration sorts first, so admitting it reads the first one inside its parent clone."""
+    """The second migration sorts first by path; admitting it reads the first one inside its parent clone.
+
+    The inventory runs in commit order, so the earlier publication still lists first.
+    """
     scenario = 'chained'
 
     def receipts_for_both(self):
@@ -892,7 +900,8 @@ class NestedReadTests(ReceiptCase):
         return [Path(call[-1]).name for call in reader.calls]
 
     def test_two_chained_publications_read_with_no_reader_run_when_both_receipts_exist(self):
-        self.assertEqual(list(self.rows()), ['aaa-two', 'publication-one'])
+        self.assertLess('aaa-two', 'publication-one')       # path order puts the later one first
+        self.assertEqual(list(self.rows()), ['publication-one', 'aaa-two'])
         replayed = Reader(stub=0)
         expected = self.admit(replayed)
         # The earlier migration is proved inside the later one's parent clone.

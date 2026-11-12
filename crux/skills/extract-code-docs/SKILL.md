@@ -39,7 +39,7 @@ The skill is otherwise mechanical:
 1. Confirm prerequisites (manifest, extractors registered).
 2. Run the dispatcher.
 3. Interpret the output.
-4. Log the operation.
+4. Record the operation through `operation-log.py append`.
 
 ## When to use
 
@@ -159,7 +159,16 @@ drift on the next check, even though no source changed. The remedy is exactly
 one full `extract-code-docs` run: it rewrites `_meta/manifest.json` with the new
 fields, and every following `--dry-run` is clean again.
 
-### 5. Append to `docs/log.md`
+### 5. Record the `extract` operation
+
+Write the entry through the log writer (`docs/AGENTS.md` §6).[^log-writer] Write the body below to a file outside the tree, then run:
+
+```
+uv run "${CRUX_PLUGIN_ROOT}/scripts/operation-log.py" append --repo-root <repo-root> \
+  --op extract --subject 'regenerated docs/code/ (N pages: X added, Y changed, Z removed)' --date YYYY-MM-DD --body-file <path>
+```
+
+The entry it writes at the top of the current month's detail file `docs/log/YYYY-MM.md`:
 
 ```
 ## [YYYY-MM-DD] extract | regenerated docs/code/ (N pages: X added, Y changed, Z removed)
@@ -167,13 +176,15 @@ fields, and every following `--dry-run` is clean again.
 
 Body: 1–3 lines summarizing which extractors ran and any noteworthy removals.
 
+A refused append keeps this skill's other writes and adds no entry: fix the cause it names, then rerun the append alone (§6). Then run the commit step of §6 over the result's `commit_paths` and `restore_paths`.
+
 ### 6. Verification
 
 - [ ] `docs/code/_meta/manifest.json` exists and has one row per page.
 - [ ] Every row's `doc_path` corresponds to an existing `.md` file under `docs/code/`.
 - [ ] No `.md` file under `docs/code/` is absent from the manifest (the script's pruning guarantees this; check anyway).
 - [ ] `docs/code/index.md` lists every doc page grouped by language namespace.
-- [ ] `docs/log.md` has a new top-of-file `extract |` entry.
+- [ ] The current month's detail file `docs/log/YYYY-MM.md` has a new `extract |` entry at the top, written by `operation-log.py append`.
 
 ## The Python extractor
 
@@ -338,7 +349,7 @@ structure.[^page-text-is-data]
 |---|---|
 | "I'll just edit `docs/code/foo.md` directly to fix the typo." | Next extraction deletes the edit. Fix the source comment. |
 | "The dispatcher's output is verbose; I'll suppress it." | The added/changed/removed counts are the operation's audit trail. Surface them. |
-| "I'll skip the log entry — `extract` is too noisy to journal every time." | The log is `docs/log.md`, not the journal. Operations log every time; journal entries are separate and selective. |
+| "I'll skip the log entry — `extract` is too noisy to journal every time." | The operations log is `docs/log/`, not the journal. Operations log every time; journal entries are separate and selective. |
 | "The user asked for docs of a new language — I'll hand-write `docs/code/<lang>/...`." | New language = new extractor plugin (`scripts/extractors/<lang>.py`) + manifest entry. Don't bypass the architecture. |
 | "Removed pages are scary — I'll skip the prune step." | Without pruning, deletions accumulate as ghost pages. The regenerative invariant requires the prune. |
 | "Drift on `--dry-run` is informational; exit 0 is fine." | Exit 1 is the contract — CI hooks rely on it to gate merges. |
@@ -380,3 +391,4 @@ structure.[^page-text-is-data]
 [^index-preserved-pages]: rule:code-doc-index-lists-written-and-preserved-pages
 [^pinned-metadata]: rule:griffe-is-declared-in-the-dispatcher-metadata
 [^page-text-is-data]: rule:python-target-strings-cannot-forge-structure
+[^log-writer]: rule:log-entries-go-through-the-log-writer, rule:no-writer-writes-the-legacy-log-file

@@ -50,10 +50,19 @@ class GitReadCacheTests(unittest.TestCase):
                          (first.returncode, first.stdout, first.stderr))
         self.assertEqual(len(self.reads("cat-file", "blob", "HEAD:a.txt")), 1)
 
-    def test_outside_a_scope_every_read_starts_a_child(self):
-        cr.git(self.root, "cat-file", "blob", "HEAD:a.txt")
-        cr.git(self.root, "cat-file", "blob", "HEAD:a.txt")
-        self.assertEqual(len(self.reads("cat-file", "blob", "HEAD:a.txt")), 2)
+    def test_outside_a_scope_a_read_passes_its_argv_and_returns_gits_answer(self):
+        direct = subprocess.run(["git", "-C", str(self.root), "cat-file", "blob", "HEAD:a.txt"],
+                                capture_output=True)
+        self.assertEqual((direct.returncode, direct.stdout), (0, b"one\n"))
+        before = len(self.counted.calls)
+        results = [cr.git(self.root, "cat-file", "blob", "HEAD:a.txt") for _ in range(2)]
+        launched = self.counted.calls[before:]
+        self.assertTrue(launched)
+        self.assertTrue(all(call == ("cat-file", "blob", "HEAD:a.txt") for call in launched))
+        for result in results:
+            self.assertEqual(result.args[:3], ["git", "-C", str(self.root)])
+            self.assertEqual(result.args[-3:], ["cat-file", "blob", "HEAD:a.txt"])
+            self.assertEqual((result.returncode, result.stdout), (direct.returncode, direct.stdout))
         self.assertIs(cr.subprocess, subprocess)
 
     def test_a_commit_inside_the_scope_is_read_fresh(self):

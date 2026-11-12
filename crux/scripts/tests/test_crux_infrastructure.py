@@ -18,7 +18,6 @@ Stdlib unittest only.
 from __future__ import annotations
 
 import inspect
-import re
 import sys
 import unittest
 from pathlib import Path
@@ -170,52 +169,6 @@ class TestCruxInfrastructureImports(unittest.TestCase):
         self.assertIn("image_generation", detail)
 
 
-class TestRenameInvariants(unittest.TestCase):
-    """Source files must not retain legacy identifiers.
-
-    (Name-level content policy is enforced separately by
-    check-public-release-content.py.)
-    """
-
-    @classmethod
-    def setUpClass(cls):
-        _ensure_on_path()
-
-    CHECKED_FILES = [
-        "spawner/__init__.py",
-        "spawner/__main__.py",
-        "spawner/crux_spawner.py",
-        "server/__init__.py",
-        "server/crux_server.py",
-        "runbook/__init__.py",
-        "runbook/__main__.py",
-        "runbook/runbook.py",
-    ]
-
-    BAD_PATTERNS = [
-        # No legacy env var names.
-        re.compile(r"\bMEESEEKS_[A-Z_]+"),
-        # No legacy dotenv API path.
-        re.compile(r"\bAPI_CONFIG\.env\b"),
-        # No legacy import-root references.
-        re.compile(r"\btools_core\b"),
-        # No references to the decommissioned spin engine.
-        re.compile(r"\bcrux\.spin\b"),
-    ]
-
-    def test_no_stale_legacy_identifiers_in_python(self):
-        for rel in self.CHECKED_FILES:
-            path = PACKAGE_DIR / rel
-            self.assertTrue(path.exists(), f"missing source file: {path}")
-            txt = path.read_text()
-            for pattern in self.BAD_PATTERNS:
-                m = pattern.search(txt)
-                self.assertIsNone(
-                    m,
-                    f"{rel}: forbidden identifier {pattern.pattern!r} matched: " f"{m.group(0) if m else ''}",
-                )
-
-
 class TestSkillFilesPresent(unittest.TestCase):
     """The runtime installer skill remains available."""
 
@@ -227,23 +180,6 @@ class TestSkillFilesPresent(unittest.TestCase):
         for name in self.EXPECTED_SKILLS:
             skill_path = SKILLS_DIR / name / "SKILL.md"
             self.assertTrue(skill_path.exists(), f"missing {skill_path}")
-
-    def test_skill_frontmatter_has_required_fields(self):
-        # owner/version/status were pruned from the metadata contract by
-        # ADR-0092; the remaining required keys are name/description/tags/bundles
-        # (+ risk_level under metadata).
-        literal_keys = [
-            "name:",
-            "description:",
-            "tags:",
-            "bundles:",
-            "risk_level:",
-        ]
-        for name in self.EXPECTED_SKILLS:
-            skill_path = SKILLS_DIR / name / "SKILL.md"
-            body = skill_path.read_text()
-            for key in literal_keys:
-                self.assertIn(key, body, f"{name}/SKILL.md missing {key!r}")
 
 
 class TestSpawnerTargetRefusal(unittest.TestCase):

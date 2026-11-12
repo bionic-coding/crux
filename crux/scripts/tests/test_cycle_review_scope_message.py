@@ -1,4 +1,4 @@
-"""The review refusal names the exact-match scope rule the check enforces."""
+"""A review scope that covers the plan scope binds; one that omits a path is refused by code."""
 from pathlib import Path
 import sys
 import unittest
@@ -29,15 +29,14 @@ class ReviewScopeMessageTests(basis.CliCycleCase):
         cid = self.in_review(plan_scopes)
         return self.refused('review', cid, '--file', self.write_json('report.json', self.report(review_scope)))
 
-    def assert_exact_rule(self, message):
-        self.assertIn('equal the declared scope exactly', message)
-        self.assertNotIn('cover', message)
+    def test_superset_scope_binds(self):
+        cid = self.in_review(('src',))
+        self.ok('review', cid, '--file', self.write_json('report.json', self.report(['src', 'src2'])))
 
-    def test_superset_scope_is_refused_with_exact_rule(self):
-        self.assert_exact_rule(self.refusal(('src',), ['src', 'src2']))
-
-    def test_subset_scope_is_refused_with_exact_rule(self):
-        self.assert_exact_rule(self.refusal(('src', 'src2'), ['src']))
+    def test_subset_scope_is_refused_with_named_code(self):
+        message = self.refusal(('src', 'src2'), ['src'])
+        self.assertIn('review-scope-incomplete', message)
+        self.assertIn('src2', message)
 
     def test_matching_scope_is_accepted(self):
         cid = self.in_review()

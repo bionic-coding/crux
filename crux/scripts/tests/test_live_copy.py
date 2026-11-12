@@ -17,11 +17,15 @@ from pathlib import Path
 
 import _council_gate_support as support
 import _live_copy
+import operation_log
 import suite_evidence
 
 FILES = {
     "bionic/journal/2026-10.md": "entry\n",
     "bionic/log.md": "log\n",
+    "bionic/log/2026-10.md": "# Operations log: 2026-10\n\n_Append-only. Latest write first._\n\n"
+                             "## [2026-10-02] log | live detail entry\n\nlive\n",
+    "bionic/log/summary.md": "# Operations log summary\n",
     "bionic/inbox/note.md": "note\n",
     "bionic/garden/2026-10-01.md": "idea\n",
     "bionic/whats_next.md": "next\n",
@@ -68,13 +72,26 @@ class CommittedCopyTests(unittest.TestCase):
         copy = _live_copy.committed_copy(repo, self.tmp / "copy")
         listed = _listed(copy)
         # The bookkeeping documents are replaced only by the frozen corroboration entries.
-        for rel in ("bionic/journal/2026-10.md", "bionic/inbox/note.md",
+        for rel in ("bionic/journal/2026-10.md", "bionic/log/2026-10.md", "bionic/log/summary.md",
+                    "bionic/inbox/note.md",
                     "bionic/garden/2026-10-01.md", "bionic/whats_next.md", "bionic/queue/cycles.yaml",
                     "crux-authority-reset.md", "crux-implementation-evidence.md"):
             with self.subTest(omitted=rel):
                 self.assertNotIn(rel, listed)
-        self.assertEqual((copy / "bionic" / "log.md").read_text(encoding="utf-8"),
-                         (_live_copy.CORROBORATION_FIXTURE / "log.md").read_text(encoding="utf-8"))
+        # The copy looks like a split tree: the fixture's entries in one detail file beside a
+        # completion record, and no log.md.
+        self.assertFalse((copy / "bionic" / "log.md").exists())
+        fixture_entries = operation_log.cut(
+            (_live_copy.CORROBORATION_FIXTURE / "log.md").read_text(encoding="utf-8")).entries
+        self.assertEqual(len(fixture_entries), 10)  # positive control: the fixture holds entries
+        self.assertEqual([entry.text for entry in operation_log.read_entries((copy / "bionic").resolve())],
+                         list(fixture_entries))
+        self.assertEqual(
+            sorted(rel for rel in listed if rel.startswith("bionic/log/")),
+            ["bionic/log/.split-complete.json", "bionic/log/2026-08.md"])
+        self.assertEqual(
+            (copy / "bionic" / "log" / ".split-complete.json").read_bytes(),
+            operation_log.completion_bytes(None, {"2026-08": len(fixture_entries)}))
         self.assertEqual(
             (copy / "bionic" / "journal" / "2026-08.md").read_text(encoding="utf-8"),
             (_live_copy.CORROBORATION_FIXTURE / "journal" / "2026-08.md").read_text(encoding="utf-8"))
@@ -99,8 +116,8 @@ class CommittedCopyTests(unittest.TestCase):
         repo = _repo(self.tmp / "repo")
         self.assertEqual(_live_copy.omitted(repo, str(repo), ["crux-authority-reset.md", "crux-unlisted-note.md", "crux"]),
                          {"crux-authority-reset.md"})
-        self.assertEqual(_live_copy.omitted(repo, str(repo / "bionic"), ["queue", "cycles", "adrs", "log.md"]),
-                         {"queue", "log.md"})
+        self.assertEqual(_live_copy.omitted(repo, str(repo / "bionic"), ["queue", "cycles", "adrs", "log.md", "log"]),
+                         {"queue", "log.md", "log"})
         # A configured file is matched by its repository-relative path, not by its name anywhere.
         self.assertEqual(_live_copy.omitted(repo, str(repo / "crux"), ["crux-authority-reset.md"]), set())
 
@@ -125,6 +142,20 @@ class CommittedCopyTests(unittest.TestCase):
         support.git(repo, "commit", "-q", "-m", "base")
         copy = _live_copy.committed_copy(repo, self.tmp / "copy")
         self.assertEqual(_listed(copy), {"crux/source.py"})
+
+    def test_a_repository_with_only_a_split_log_is_given_the_frozen_entries(self):
+        repo = self.tmp / "repo"
+        support.init_repo(repo)
+        (repo / "bionic" / "log").mkdir(parents=True)
+        (repo / "bionic" / "log" / "2026-10.md").write_text(FILES["bionic/log/2026-10.md"], encoding="utf-8")
+        (repo / "bionic" / "manifest.yml").write_text("schema_version: 5\n", encoding="utf-8")
+        support.git(repo, "add", "-A")
+        support.git(repo, "commit", "-q", "-m", "base")
+        copy = _live_copy.committed_copy(repo, self.tmp / "copy")
+        listed = _listed(copy)
+        self.assertIn("bionic/log/2026-08.md", listed)
+        self.assertNotIn("bionic/log/2026-10.md", listed)  # the live detail file stays out
+        self.assertFalse((copy / "bionic" / "log.md").exists())
 
     def test_the_frozen_entries_are_the_nine_signed_batches_and_the_survey_batch(self):
         log = (_live_copy.CORROBORATION_FIXTURE / "log.md").read_text(encoding="utf-8")

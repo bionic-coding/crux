@@ -239,7 +239,7 @@ def _survey_module():
 
 
 def _observation_log_ids(root: Path, docs_dir: str, *, _source_io=None) -> set[str]:
-    """Every observation id an `observation` op entry in `log.md` names, in
+    """Every observation id an `observation` op entry in the operations log names, in
     either §14.3 spelling — CHK-OBS-SURVEY-RECORD's second disjunct.
 
     One scan covers both writers because §6 puts the id in the same place for
@@ -252,13 +252,17 @@ def _observation_log_ids(root: Path, docs_dir: str, *, _source_io=None) -> set[s
     heading grammar is exactly the drift this repo has already paid for three
     times over in the evidence grammar (see `observation_evidence`).
     """
-    path = root / docs_dir / "log.md"
-    if not (path.is_file() if _source_io is None else _source_io.kind(path) == "file"):
-        return set()
     _ensure_scripts_on_path()
+    ss = _survey_module()
+    try:
+        log_text = ss.operation_log_text(root / docs_dir, _source_io=_source_io)
+    except ss.SurveySheetError:
+        return set()  # an unreadable log names no observation, so the record reads uncovered
+    if log_text is None:
+        return set()
     import summaries_projection as _sp
     out: set[str] = set()
-    for entry in _sp._log_entries(path.read_text(encoding="utf-8") if _source_io is None else _source_io.read_text(path)):
+    for entry in _sp._log_entries(log_text):
         if entry["op"] != "observation":
             continue
         text = f"{entry['subject']}\n{entry['body']}"

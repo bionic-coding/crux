@@ -32,6 +32,9 @@ class ListedBase(unittest.TestCase):
         (self.root / 'bionic/log.md').write_text('log\n')
         (self.root / 'src/a.txt').write_text('good')
         self.git('init', '-q')
+        # The fixture's own identity: `cycle.py create` refuses without one, and CI configures none.
+        self.git('config', 'user.name', 'T')
+        self.git('config', 'user.email', 't@example.invalid')
         self.git('add', '-A')
         self.git('commit', '-qm', 'base')
 

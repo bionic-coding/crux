@@ -55,6 +55,7 @@ import re
 import stat
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 
 def _evidence_module():
@@ -809,10 +810,17 @@ def raw_governs_entries(fm: dict) -> list:
 # ── input hash (frontmatter direct; NEVER the index) ───────────────────────
 
 def adr_frontmatter_sha256(adrs: Path, *, _source_io=None) -> str:
-    """SHA-256 over the frontmatter blocks of the active ADRs, in filename order.
+    """SHA-256 over the frontmatter blocks of the active ADRs, in filename order,
+    then of each archived ADR that carries a retirement or is a policy host.
 
     Reads ADR frontmatter DIRECTLY. Deliberately never reads adrs/index.md, so
     the summaries hash cannot drift behind that gated downstream index.
+
+    An archived ADR whose `retires` list is non-empty, or which is a policy host,
+    changes what the projections publish
+    (rule:retirement-persists-after-its-host-leaves-accepted), so its frontmatter
+    joins the hash keyed `archive/<filename>`. Any other archived ADR affects no
+    output and stays out: a tree with none keeps its fingerprint.
     """
     h = hashlib.sha256()
     for path in adr_paths(adrs, _source_io=_source_io):
@@ -823,6 +831,32 @@ def adr_frontmatter_sha256(adrs: Path, *, _source_io=None) -> str:
         h.update(b"\0")
         h.update(block.encode("utf-8"))
         h.update(b"\0")
+    archive = adrs / "archive"
+    if _source_is_dir(archive, _source_io):
+        _, exists = _docs_reader(adrs, _source_io)
+        for path in sorted(_source_glob(archive, "*.md", _source_io)):
+            host = _host_id_from_filename(path.name)
+            if host is None:
+                continue
+            resolved = _source_contained(archive, path.name, _source_io)
+            _projection_require(resolved is not None, "archived ADR escapes the archive directory")
+            if not _source_is_file(resolved, _source_io):
+                continue
+            text = _source_text(resolved, _source_io)
+            block = _frontmatter_block(text)
+            if block is None:
+                continue
+            fm = read_frontmatter(text)
+            if not isinstance(fm, dict):
+                continue
+            carries_retires = any(isinstance(entry, dict) and entry.get("retires")
+                                  for entry in raw_governs_entries(fm))
+            if not (carries_retires or _is_policy_host(fm, host, exists)):
+                continue
+            h.update(f"archive/{path.name}".encode("utf-8"))
+            h.update(b"\0")
+            h.update(block.encode("utf-8"))
+            h.update(b"\0")
     # Prospective authority includes acceptance evidence. Historical trees
     # without these sidecars retain their original fingerprint.
     for directory in ('proposals', 'acceptances'):
@@ -1468,7 +1502,8 @@ def archived_handles(adrs: Path, *, _source_io=None) -> set[str]:
 
 def retirement_problems(records: list[dict], removed: dict[str, dict],
                         signed_handles: set[str],
-                        archived: set[str] | None = None) -> list[dict]:
+                        archived: set[str] | None = None, *,
+                        persisted_edges: tuple | None = None) -> list[dict]:
     """ADR-0097 part 6's four fail-closed validity rules, as ONE pure function
     over the collected records, ADR-0088's removed roster, and the signed
     reconciliation handles — so every lane drives one implementation and no
@@ -1511,6 +1546,13 @@ def retirement_problems(records: list[dict], removed: dict[str, dict],
     withdrawal already removed it from its ADR's frontmatter), so if rule 3
     ran first it would read a removed-and-retired handle as a typo. Checking
     rule 4 first lets that handle report the lane collision it actually is.
+
+    The four rules apply to every PERSISTED edge as to an active one
+    (rule:retirement-persists-after-its-host-leaves-accepted): the retirement
+    a Deprecated or Superseded host keeps in force. `persisted_edges` is the
+    explicit handoff; omitted, the union of the records' own `persisted_edges`
+    field is used. An edge whose retiring entry is also one of `records` is
+    judged once, on the record.
     """
     # `known` is the handle history rule 3 resolves against: every handle a
     # collected record claims. A RETIRED record stays in `records` (retirement
@@ -1519,40 +1561,317 @@ def retirement_problems(records: list[dict], removed: dict[str, dict],
     known = {r["handle"]: r["source_adr"] for r in records}
     history = set(known) | set(archived or ())
     problems: list[dict] = []
-    for r in sorted(records, key=record_sort_key):
-        source = r["source_adr"]
-        for target in r.get("retires") or []:
-            if known.get(target) == source:
-                problems.append({
-                    "source_adr": source, "handle": r["handle"],
-                    "problem": f"{source} retires a handle of its own governs "
-                    f"block ({target}) — a decision does not displace itself"})
-                continue
-            if target in removed:
-                problems.append({
-                    "source_adr": source, "handle": r["handle"],
-                    "problem": f"handle {target} appears in both the removed and "
-                    "the retired lane — a withdrawn admission and a displaced "
-                    "rule are different facts and cannot both hold"})
-                continue
-            if target in signed_handles:
-                problems.append({
-                    "source_adr": source, "handle": r["handle"],
-                    "problem": f"a signed reconciliation record names {target}, "
-                    "so retiring it would orphan a human signature"})
-                continue
-            if target not in history:
-                problems.append({
-                    "source_adr": source, "handle": r["handle"],
-                    "problem": f"`retires` target {target} has never been a live "
-                    "handle — it is in none of the live handles, the retired "
-                    "roster, the archived ADR tier, or the removed roster, so it "
-                    "reads as a typo"})
+    # One (source, handle, target) per declared retirement: the records' own
+    # entries first, then the persisted edges no record already states.
+    declared = [(r["source_adr"], r["handle"], target, False)
+                for r in sorted(records, key=record_sort_key) for target in r.get("retires") or []]
+    stated = {(handle, target) for _, handle, target, _ in declared}
+    # A persisted edge's host may be archived and so absent from `known`; its own
+    # block is then read from the target's ADR id.
+    declared += [(e.source_adr, e.handle, e.target, True)
+                 for e in _edges_in_force(records, persisted_edges)
+                 if (e.handle, e.target) not in stated]
+    for source, handle, target, persisted in declared:
+        if known.get(target) == source or (persisted and target.split("/", 1)[0] == source):
+            problems.append({
+                "source_adr": source, "handle": handle,
+                "problem": f"{source} retires a handle of its own governs "
+                f"block ({target}) — a decision does not displace itself"})
+            continue
+        if target in removed:
+            problems.append({
+                "source_adr": source, "handle": handle,
+                "problem": f"handle {target} appears in both the removed and "
+                "the retired lane — a withdrawn admission and a displaced "
+                "rule are different facts and cannot both hold"})
+            continue
+        if target in signed_handles:
+            problems.append({
+                "source_adr": source, "handle": handle,
+                "problem": f"a signed reconciliation record names {target}, "
+                "so retiring it would orphan a human signature"})
+            continue
+        if target not in history:
+            problems.append({
+                "source_adr": source, "handle": handle,
+                "problem": f"`retires` target {target} has never been a live "
+                "handle — it is in none of the live handles, the retired "
+                "roster, the archived ADR tier, or the removed roster, so it "
+                "reads as a typo"})
     problems.sort(key=lambda p: (str(p["source_adr"]), str(p["handle"]), p["problem"]))
     return problems
 
 
-def _stamp_retirements(records: list[dict]) -> None:
+# ── retirement persistence (rule:retirement-persists-after-its-host-leaves-accepted) ──
+
+class RetirementEdge(NamedTuple):
+    """One in-force retirement: `source_adr`'s governs entry `handle` retires
+    `target`. Frozen, so a tuple of edges shared across records cannot be
+    mutated by any reader."""
+    source_adr: str
+    handle: str
+    target: str
+
+
+class RetirementPersistenceRefusal(GovernsValidationError):
+    """A host's retirement edges cannot be decided: its tier, its retires
+    shape or its once-Accepted proof is inconsistent. A DOCUMENT verdict. The
+    summaries projection surfaces it as a `GovernsValidationError`; each other
+    reader maps it to its own refusal code and stops its run. No reader
+    restores, guesses or drops an edge."""
+
+    def __init__(self, host: str | None, condition: str, repair: str):
+        self.host = host
+        self.condition = condition
+        self.repair = repair
+        super().__init__([{"source_adr": host, "handle": None,
+                           "problem": f"{condition}; repair: {repair}"}])
+
+
+_ADR_FILE_ID_RE = re.compile(r"^((?:[A-Z][A-Z0-9]{1,9}-)?ADR-\d{4})(?:-.+)?\.md$")
+_TERMINAL_STATUSES = ("Deprecated", "Superseded")
+_OWNER_REPAIR = ("the owning writer settles the host file against its acceptance "
+                 "record (transition-adr); no reader restores, guesses or drops an edge")
+_RECORD_REPAIR = ("restore the acceptance record at its path from the commit that "
+                  "wrote it, then read again")
+
+
+def _host_id_from_filename(filename: str) -> str | None:
+    if not _is_adr_filename(filename):
+        return None
+    m = _ADR_FILE_ID_RE.match(filename)
+    return m.group(1) if m else None
+
+
+def _retires_map(governs: object, host: str, *, side: str,
+                 strict_entries: bool) -> dict[str, list[str]]:
+    """The validated map from governs handle to its ordered retires list, over
+    the entries that carry a `retires` key. Refuses every other shape rather
+    than reading it as empty or as characters (the retires leg of
+    `_subfield_problems`, plus distinct handles). A repeated member is
+    idempotent: the list is deduplicated, order kept."""
+    if governs is None:
+        return {}
+    if not isinstance(governs, list):
+        raise RetirementPersistenceRefusal(
+            host, f"{side} `governs` is not a list", _OWNER_REPAIR)
+    out: dict[str, list[str]] = {}
+    seen: set[str] = set()
+    for entry in governs:
+        if not isinstance(entry, dict):
+            if strict_entries:
+                raise RetirementPersistenceRefusal(
+                    host, f"{side} carries a governs entry that is not a mapping",
+                    _OWNER_REPAIR)
+            continue
+        handle = entry.get("handle")
+        if strict_entries and isinstance(handle, str) and handle in seen:
+            raise RetirementPersistenceRefusal(
+                host, f"{side} repeats governs handle {handle}", _OWNER_REPAIR)
+        if isinstance(handle, str):
+            seen.add(handle)
+        if "retires" not in entry:
+            if strict_entries and not isinstance(handle, str):
+                raise RetirementPersistenceRefusal(
+                    host, f"{side} carries a governs entry with no handle", _OWNER_REPAIR)
+            continue
+        m = _HANDLE_ANCHOR_RE.match(handle) if isinstance(handle, str) else None
+        if m is None or handle.split("/", 1)[0] != host:
+            raise RetirementPersistenceRefusal(
+                host, f"{side} carries a retiring governs entry whose handle "
+                f"{redact(handle)} is not anchored to {host}", _OWNER_REPAIR)
+        if handle in out:
+            raise RetirementPersistenceRefusal(
+                host, f"{side} repeats retiring governs handle {handle}", _OWNER_REPAIR)
+        retires = entry["retires"]
+        problems = _subfield_problems({"retires": retires}, host, handle, ("retires",))
+        if problems:
+            raise RetirementPersistenceRefusal(
+                host, f"{side} {problems[0]['problem']}", _OWNER_REPAIR)
+        # One ADR naming a handle twice is idempotent (ADR-0097 part 6): both
+        # sides deduplicate, order kept, so the file and accepted_text compare
+        # under the same normalisation.
+        out[handle] = list(dict.fromkeys(retires))
+    return out
+
+
+def _present(value: object) -> bool:
+    return value is not None and str(value).strip() != ""
+
+
+def _has_acceptance_record(host: str, exists) -> bool:
+    return (exists(f"adrs/acceptances/{host}.json")
+            or exists(f"adrs/acceptances/{host}.current.json")
+            or exists(f"adrs/acceptances/recoveries/{host}"))
+
+
+def _is_policy_host(fm: dict, host: str, exists) -> bool:
+    """A host that carries the policy acceptance format, a proposal record or any
+    acceptance record: its standing is read from records, not from a date."""
+    return (fm.get("acceptance_format") == "crux.adr-acceptance.v1"
+            or exists(f"adrs/proposals/{host}.json") or _has_acceptance_record(host, exists))
+
+
+def _once_accepted(fm: dict, filename: str, host: str,
+                   file_map: dict[str, list[str]], *, proof_reader, exists) -> bool:
+    """Point 2's proof that a Deprecated or Superseded host was once Accepted:
+    True (persist), False (no effect) or a refusal. Reads the host's own
+    acceptance records through the caller's contained reader; never git
+    history (rule:standing-reads-status-and-acceptance-record)."""
+    has_record = _has_acceptance_record(host, exists)
+    policy = _is_policy_host(fm, host, exists)
+    dated = _present(fm.get("accepted_date"))
+    if not policy:
+        return dated
+    if not file_map and not has_record:
+        return False
+    if not dated and not has_record:
+        return False
+    if not dated:
+        raise RetirementPersistenceRefusal(
+            host, "an acceptance record exists but accepted_date is null", _OWNER_REPAIR)
+    try:
+        from decision_policy import frontmatter as _policy_frontmatter
+        from decision_policy import resolve_acceptance
+        _, receipt = resolve_acceptance(host, proof_reader=proof_reader, exists=exists)
+    except Exception as exc:  # noqa: BLE001 — every failure to resolve refuses
+        raise RetirementPersistenceRefusal(
+            host, f"accepted_date is set but the acceptance record does not "
+            f"resolve ({redact(str(exc), quoted=False)})", _RECORD_REPAIR) from None
+    if not isinstance(receipt, dict) or receipt.get("adr") != host:
+        raise RetirementPersistenceRefusal(
+            host, "the acceptance record names another ADR", _OWNER_REPAIR)
+    if str(receipt.get("subject") or "").rsplit("/", 1)[-1] != filename:
+        raise RetirementPersistenceRefusal(
+            host, "the acceptance record names another file", _OWNER_REPAIR)
+    try:
+        accepted_fm, _ = _policy_frontmatter(receipt.get("accepted_text"))
+    except Exception:  # noqa: BLE001
+        raise RetirementPersistenceRefusal(
+            host, "the acceptance record's accepted_text does not parse",
+            _OWNER_REPAIR) from None
+    accepted_map = _retires_map(accepted_fm.get("governs"), host,
+                                side="accepted_text", strict_entries=True)
+    if accepted_map != file_map:
+        raise RetirementPersistenceRefusal(
+            host, "the file's retires lists differ from the acceptance record's "
+            "accepted_text", _OWNER_REPAIR)
+    return True
+
+
+def retirement_edges_in_force(fm: dict, filename: str, tier: str, *,
+                              proof_reader, exists) -> tuple[RetirementEdge, ...]:
+    """The host's validated in-force retirement edges, or a refusal.
+
+    The one predicate every retires reader uses
+    (rule:retirement-persists-after-its-host-leaves-accepted). `proof_reader`
+    and `exists` take docs-relative paths and are the caller's contained
+    reader. Order: identity, tier status, retires shape, status. Accepted
+    gives its edges from status alone. Deprecated or Superseded gives them only
+    when the once-Accepted proof persists. Any other status, in the active
+    tier, gives none (rule:retirement-needs-an-accepted-host). Status and
+    records decide persistence, never the directory.
+    """
+    if tier not in ("active", "archive"):
+        raise ValueError(f"unknown ADR tier {tier!r}")
+    host = _host_id_from_filename(filename)
+    if host is None:
+        raise RetirementPersistenceRefusal(
+            None, f"{redact(filename)} is not an ADR file name", _OWNER_REPAIR)
+    if not isinstance(fm, dict):
+        raise RetirementPersistenceRefusal(host, "frontmatter is not a mapping", _OWNER_REPAIR)
+    status = fm.get("status")
+    if tier == "archive" and status not in _TERMINAL_STATUSES:
+        raise RetirementPersistenceRefusal(
+            host, f"an archived ADR has status {redact(status)}, neither "
+            "Deprecated nor Superseded", _OWNER_REPAIR)
+    file_map = _retires_map(fm.get("governs"), host, side="file", strict_entries=False)
+    if status == "Accepted":
+        in_force = True
+    elif status in _TERMINAL_STATUSES:
+        in_force = _once_accepted(fm, filename, host, file_map,
+                                  proof_reader=proof_reader, exists=exists)
+    else:
+        in_force = False
+    if not in_force:
+        return ()
+    edges = {RetirementEdge(host, handle, target)
+             for handle, targets in file_map.items() for target in targets}
+    return tuple(sorted(edges, key=lambda e: (e.target, e.source_adr, e.handle)))
+
+
+def _docs_reader(adrs: Path, source_io):
+    """A docs-relative contained reader pair over the tree holding `adrs`."""
+    def proof_reader(relative: str) -> bytes:
+        proof = _source_contained(adrs.parent, relative, source_io)
+        if proof is None:
+            raise ValueError("acceptance proof escapes documentation tree")
+        return _source_bytes(proof, source_io)
+
+    def exists(relative: str) -> bool:
+        proof = _source_contained(adrs.parent, relative, source_io)
+        if proof is None:
+            raise ValueError("acceptance path escapes documentation tree")
+        return _source_exists(proof, source_io)
+    return proof_reader, exists
+
+
+def persisted_retirement_edges(adrs: Path, *, _source_io=None) -> tuple[RetirementEdge, ...]:
+    """The sorted, deduplicated in-force edges of every Deprecated or
+    Superseded host, both tiers. Calls `retirement_edges_in_force` on every
+    archive-tier file (so an archived Accepted file refuses) and on every
+    active-tier file whose status is not Accepted. An Accepted host's edges
+    stay on its records' retires lists."""
+    proof_reader, exists = _docs_reader(adrs, _source_io)
+    edges: set[RetirementEdge] = set()
+    for path in adr_paths(adrs, _source_io=_source_io):
+        fm = read_frontmatter(_source_text(path, _source_io))
+        if fm.get("status") == "Accepted":
+            continue
+        edges.update(retirement_edges_in_force(
+            fm, path.name, "active", proof_reader=proof_reader, exists=exists))
+    archive = adrs / "archive"
+    if _source_is_dir(archive, _source_io):
+        for path in sorted(_source_glob(archive, "*.md", _source_io)):
+            if not _is_adr_filename(path.name):
+                continue
+            resolved = _source_contained(archive, path.name, _source_io)
+            if resolved is None:
+                raise ValueError(
+                    f"refusing to read {redact(path.name, quoted=False)}: it does "
+                    "not resolve to a file inside the archive directory")
+            if not _source_is_file(resolved, _source_io):
+                continue
+            fm = read_frontmatter(_source_text(resolved, _source_io))
+            edges.update(retirement_edges_in_force(
+                fm, path.name, "archive", proof_reader=proof_reader, exists=exists))
+    return tuple(sorted(edges, key=lambda e: (e.target, e.source_adr, e.handle)))
+
+
+def _persisted_edges_shape(value: object) -> bool:
+    """True when `value` is a tuple of well-formed `RetirementEdge`: the shape
+    every loader hands the pure readers."""
+    return type(value) is tuple and all(
+        type(edge) is RetirementEdge and all(isinstance(part, str) for part in edge)
+        and _HANDLE_ANCHOR_RE.fullmatch(edge.handle) is not None
+        and _HANDLE_ANCHOR_RE.fullmatch(edge.target) is not None
+        and edge.handle.split("/", 1)[0] == edge.source_adr for edge in value)
+
+
+def _edges_in_force(records: list[dict],
+                    persisted_edges: tuple | None) -> tuple[RetirementEdge, ...]:
+    """The persisted edges a reader judges. Route one: the explicit keyword.
+    Route two, when the keyword is omitted: the union of the field
+    `collect_records` attached to every record it returned."""
+    if persisted_edges is not None:
+        return tuple(persisted_edges)
+    edges: set[RetirementEdge] = set()
+    for record in records:
+        edges.update(record.get("persisted_edges") or ())
+    return tuple(sorted(edges, key=lambda e: (e.target, e.source_adr, e.handle)))
+
+
+def _stamp_retirements(records: list[dict], *, persisted_edges: tuple | None = None) -> None:
     """Stamp each record's `retired_by`: the sorted, deduplicated ids of the
     active source records whose `retires` names its handle ([] when live).
     Retirement is a STATE, so the same declaration made twice contributes one
@@ -1576,6 +1895,12 @@ def _stamp_retirements(records: list[dict]) -> None:
     runs over every record regardless of status — a typo in a Proposed ADR's
     `retires` list must fail at proposal time, loudly, not lie dormant until
     acceptance.
+
+    A host that has left Accepted keeps its retirement in force when it was
+    once Accepted (rule:retirement-persists-after-its-host-leaves-accepted):
+    `persisted_edges`, or the union of the records' own field when omitted,
+    names each such host, and a persisted and an active edge to one target
+    give one roster entry naming both.
     """
     retired_by: dict[str, set[str]] = {}
     for r in records:
@@ -1583,6 +1908,8 @@ def _stamp_retirements(records: list[dict]) -> None:
             continue
         for target in r.get("retires") or []:
             retired_by.setdefault(target, set()).add(r["source_adr"])
+    for edge in _edges_in_force(records, persisted_edges):
+        retired_by.setdefault(edge.target, set()).add(edge.source_adr)
     for r in records:
         r["retired_by"] = sorted(retired_by.get(r["handle"], ()), key=adr_num)
 
@@ -1614,6 +1941,89 @@ def is_proposed(record: dict) -> bool:
 
 def proposed_records(records: list[dict]) -> list[dict]:
     return sorted((r for r in records if is_proposed(r)), key=record_sort_key)
+
+
+def resolve_through(handles, successors, live) -> dict[str, tuple[str, ...]]:
+    """Each recorded handle mapped to the sorted, deduplicated live handles it reaches.
+
+    A handle in `live` resolves to itself and is not followed further. Any other
+    handle is followed through `successors` (a retired handle mapped to the
+    handles that retired it), depth first with an explicit stack and one visited
+    set per recorded handle. A displacer that is itself retired is followed in
+    turn. A handle with no successors outside `live`, such as an archived
+    displacer nothing displaced, ends its path without a result, and so does a
+    revisited handle, so a cycle terminates. Pure: reads no file and no global.
+    """
+    result: dict[str, tuple[str, ...]] = {}
+    for handle in handles:
+        found: set[str] = set(); visited: set[str] = set(); stack = [handle]
+        while stack:
+            current = stack.pop()
+            if current in visited:
+                continue
+            visited.add(current)
+            if current in live:
+                found.add(current)
+                continue
+            stack.extend(sorted(successors.get(current, ()), reverse=True))
+        result[handle] = tuple(sorted(found))
+    return result
+
+
+def replacement_successors(records: list[dict], *, persisted_edges) -> dict[str, set[str]]:
+    """The retirement edges in force, as a retired handle mapped to the handles that
+    retired it: each `retires` entry of a record whose host is Accepted (the
+    predicate `_stamp_retirements` uses) plus each persisted edge
+    (rule:retirement-persists-after-its-host-leaves-accepted). A migration
+    package's retire lane, its historical lane and amending handles are not edges."""
+    successors: dict[str, set[str]] = {}
+    for record in records:
+        if record.get("source_status") != "Accepted":
+            continue
+        for target in record.get("retires") or []:
+            successors.setdefault(target, set()).add(record["handle"])
+    for edge in _edges_in_force(records, persisted_edges):
+        successors.setdefault(edge.target, set()).add(edge.handle)
+    return successors
+
+
+def resolve_replacements(handles, records: list[dict], *,
+                         persisted_edges) -> dict[str, tuple[str, ...]]:
+    """Resolve recorded historical replacements to the live Accepted ADR handles
+    that displace them, through the retirement edges in force.
+
+    `persisted_edges` is required: every caller passes the tuple its overlay was
+    stamped with (`None` selects route two, the records' own field). Called with
+    the rows of `_summary_authority_records`, the live set already excludes the
+    handles the migration facts retired or made historical, and since those lanes
+    are no edges, such a replacement resolves to nothing (fail closed)."""
+    live = {r["handle"] for r in live_records(records)
+            if r.get("source_status") == "Accepted" and r.get("source_kind", "adr") == "adr"}
+    return resolve_through(handles, replacement_successors(records, persisted_edges=persisted_edges), live)
+
+
+def resolved_replacement_handles(replacements, resolution: dict) -> list[str]:
+    """The handles a reader suggests in place of `replacements`: each recorded
+    handle replaced by its resolution, in recorded order, without repeats. A
+    recorded handle with an empty resolution stays as recorded."""
+    out: list[str] = []
+    for handle in replacements:
+        for resolved in resolution.get(handle) or (handle,):
+            if resolved not in out:
+                out.append(resolved)
+    return out
+
+
+def resolved_replacement_text(replacements, resolution: dict) -> str:
+    """Comma-joined recorded replacements, each followed by ' (now H1, H2)' when
+    its resolution differs from it. The displacer never renders alone, and an
+    empty resolution renders as recorded. The caller applies its own escaping."""
+    parts = []
+    for handle in replacements:
+        resolved = tuple(resolution.get(handle) or ())
+        parts.append(handle if not resolved or resolved == (handle,)
+                     else f"{handle} (now {', '.join(resolved)})")
+    return ", ".join(parts)
 
 
 # The authored governs schema has no clause-amendment field. Declare this
@@ -1657,15 +2067,47 @@ def slug_of(handle: str) -> str:
     return str(handle).split("/", 1)[-1]
 
 
+def _displacers_by_target(records: list[dict], edges: tuple[RetirementEdge, ...],
+                          excluded: frozenset[str] = frozenset()) -> dict[str, set[str]]:
+    """The handles that displaced each retired handle, from two sources.
+
+    The live records of Accepted hosts, through their `retires` lists; and each
+    persisted edge's displacing handle, unless that handle is itself retired:
+    the target of a live Accepted record's `retires` entry, the target of any
+    persisted edge (its own target a collected record or an archived one), a
+    handle `excluded` by the caller (the facts' retired or historical handles,
+    the removed roster), or a record already stamped retired or historical.
+    An archived displacer is named although its host is not live, because
+    archival does not retire it.
+    """
+    live = live_records(records)
+    displacers: dict[str, set[str]] = {}
+    retired_targets: set[str] = {edge.target for edge in edges} | set(excluded)
+    retired_targets |= {r["handle"] for r in records if r.get("retired_by") or r.get("historical")}
+    for r in live:
+        if r.get("source_status") != "Accepted":
+            continue
+        for target in r.get("retires") or []:
+            displacers.setdefault(str(target), set()).add(r["handle"])
+            retired_targets.add(str(target))
+    for edge in edges:
+        if edge.handle not in retired_targets:
+            displacers.setdefault(edge.target, set()).add(edge.handle)
+    return displacers
+
+
 def live_and_retired_slugs(
-        records: list[dict]) -> tuple[dict[str, str], dict[str, list[str]]]:
+        records: list[dict], *,
+        persisted_edges: tuple | None = None) -> tuple[dict[str, str], dict[str, list[str]]]:
     """`(slugs, retired_slugs)` — the two slug maps the resolver carries
     beside its handle rows.
 
     `slugs` maps a live slug to the one live handle that owns it.
-    `retired_slugs` maps a retired slug to the sorted list of LIVE handles
-    that displaced it. An empty list is legal and means every displacer was
-    itself later retired.
+    `retired_slugs` maps a retired slug to the sorted list of handles that
+    displaced it: LIVE handles, plus the handle of each persisted retirement
+    whose host has left Accepted (even when that host is archived) unless
+    that handle was itself retired. An empty list is legal and means every
+    displacer was itself later retired.
 
     The map and the gate are ONE traversal on purpose. A builder that
     silently resolved a collision (first-wins, last-wins) beside a separate
@@ -1677,13 +2119,15 @@ def live_and_retired_slugs(
 
     Three derivation details carry the whole correctness of `retired_slugs`:
 
-    - The displacing handles come from the `retires` lists of LIVE records,
-      never from `retired_by`. `retired_by` holds source ADR *ids*, and this
-      map must resolve a citation to the rule that displaced it, not to the
-      document that carried the retirement.
-    - Only `live_records` contribute displacers, so a displacer that was
-      itself later retired drops out and the citation stops resolving
-      through it.
+    - The displacing handles come from the `retires` lists of LIVE records and
+      from the persisted edges, never from `retired_by`. `retired_by` holds
+      source ADR *ids*, and this map must resolve a citation to the rule that
+      displaced it, not to the document that carried the retirement.
+    - Only `live_records` and persisted edges contribute displacers, so a
+      displacer that was itself later retired drops out and the citation stops
+      resolving through it. A persisted edge's handle counts as retired when it
+      is the target of a live Accepted record's `retires` entry or of any
+      persisted edge, or is stamped retired or historical.
     - The Accepted-host predicate is `_stamp_retirements`' own. If these two
       disagreed, the resolver's retired map and the rule table's
       `## Retired handles` roster would describe different corpora.
@@ -1694,13 +2138,9 @@ def live_and_retired_slugs(
     omitted.
     """
     # The displacers of a retired handle: the live, Accepted-hosted rules
-    # whose `retires` names it.
-    displacers: dict[str, set[str]] = {}
-    for r in live_records(records):
-        if r.get("source_status") != "Accepted":
-            continue
-        for target in r.get("retires") or []:
-            displacers.setdefault(str(target), set()).add(r["handle"])
+    # whose `retires` names it, and each persisted edge's handle that was not
+    # itself retired (the archived displacer).
+    displacers = _displacers_by_target(records, _edges_in_force(records, persisted_edges))
 
     problems: list[dict] = []
     slugs: dict[str, str] = {}
@@ -1739,7 +2179,7 @@ def _removal_records(adrs: Path, hosts: dict[str, tuple[int, object]], records: 
     """One record per rule an active ADR's provenance record lists as deleted in-run, while the
     owner has not promoted the deletion: the rule still binds at its base_commit entry, so every
     lane that collects records keeps it live at that entry
-    (rule:owner-promotes-guidance). It is read here, beside the reviews and
+    (rule:historical-records-keep-their-interpretation). It is read here, beside the reviews and
     reconciliations `collect_records` already reads, so no lane can see a narrower rule set
     than another. A deleted handle that is back in a governs block refuses rather than
     projecting two rows. A tree with no record adds nothing."""
@@ -1776,7 +2216,9 @@ def collect_records(adrs: Path, governs_from: int | None = None,
     Each record: handle, domain, rule, scope, anchor (raw: str | list | None),
     provenance, source_adr (the HOST record id), adr_num, source_kind,
     evidence, anchor_id, source_status (the host record's raw frontmatter
-    `status`, consumed by `_stamp_retirements`'s Accepted-only gate). Sorted
+    `status`, consumed by `_stamp_retirements`'s Accepted-only gate), and the
+    internal `persisted_edges` (one immutable tuple of `RetirementEdge`, the same
+    on every record, never serialized; see `persisted_retirement_edges`). Sorted
     by `record_sort_key`.
 
     `governs_from` is the backfill discriminator (ADR-0088 clause 1): when it
@@ -1932,12 +2374,22 @@ def collect_records(adrs: Path, governs_from: int | None = None,
     # `live_records`. The two inputs the rules need beyond the records are read
     # here rather than threaded by each caller, so no caller can supply a
     # narrower history than the one the refusals are stated over.
+    #
+    # A host that has left Accepted keeps its retirement
+    # (rule:retirement-persists-after-its-host-leaves-accepted). Its edges are read
+    # after the shape checks above, so a malformed `retires` keeps its own
+    # refusal, and they travel on every record as an immutable tuple (route two of
+    # the handoff; the projection writers also pass them explicitly, route one).
+    persisted = persisted_retirement_edges(adrs, _source_io=_source_io)
     retirement = retirement_problems(
         records, removed_handles(read_reviews(adrs, _source_io=_source_io)),
-        signed_reconciliation_handles(adrs, _source_io=_source_io), archived_handles(adrs, _source_io=_source_io))
+        signed_reconciliation_handles(adrs, _source_io=_source_io),
+        archived_handles(adrs, _source_io=_source_io), persisted_edges=persisted)
     if retirement:
         raise GovernsValidationError(retirement)
-    _stamp_retirements(records)
+    for record in records:
+        record["persisted_edges"] = persisted
+    _stamp_retirements(records, persisted_edges=persisted)
     _apply_acceptance_amendments(records, accepted_amends)
     return records
 
@@ -1948,12 +2400,46 @@ def _projection_require(condition: bool, problem: str) -> None:
                                        "problem": problem}])
 
 
+def _published_origin(origin) -> bool:
+    """True for a migration fact whose replacements resolve: an absent origin (the
+    proved historical chain, built only from published batches) or a
+    prospective-publication origin whose reference has the published shape. A
+    candidate, prepared or malformed origin is checked strictly (fail closed)."""
+    if not origin:
+        return True
+    if not isinstance(origin, dict) or origin.get('origin') != 'prospective-publication':
+        return False
+    ref = origin.get('publication_ref', {})
+    return bool(isinstance(ref, dict) and set(ref) == {'path', 'sha256', 'publication_commit'}
+        and _summary_relative_path(ref['path']) and ref['path'].endswith('.publication.json')
+        and isinstance(ref['sha256'], str) and _DIGEST_RE.fullmatch(ref['sha256'])
+        and isinstance(ref['publication_commit'], str)
+        and re.fullmatch(r'(?:[0-9a-f]{40}|[0-9a-f]{64})', ref['publication_commit']))
+
+
+def _replacements_live(replacements, rows: list[dict], persisted, resolvable: bool) -> bool:
+    """Each recorded replacement is a live Accepted ADR handle, or, when
+    `resolvable`, resolves to at least one through the retirements in force."""
+    live = {r["handle"] for r in live_records(rows)
+            if r.get("source_status") == "Accepted" and r.get("source_kind", "adr") == "adr"}
+    if not resolvable:
+        return all(h in live for h in replacements)
+    resolution = resolve_replacements(replacements, rows, persisted_edges=persisted)
+    return all(resolution[h] for h in replacements)
+
+
 def _summary_authority_records(records: list[dict], facts: dict, removed: dict,
-                               aliases: dict, *, _prepared=False) -> dict:
+                               aliases: dict, *, _prepared=False,
+                               persisted_edges: tuple | None = None) -> dict:
     """Pure overlay of already validated migration facts, never an approval API.
 
     Raw admission records remain available to receipt readers. Original retirements
     precede selected historical edges; demotion cannot resurrect a predecessor.
+
+    `persisted_edges` is route one of the retirement handoff
+    (rule:retirement-persists-after-its-host-leaves-accepted): the retirements
+    of hosts that have left Accepted. Omitted, the union of the records' own
+    field is used, which a tree with no collected record leaves empty.
     """
     import copy
     rows = copy.deepcopy(records)
@@ -1969,7 +2455,8 @@ def _summary_authority_records(records: list[dict], facts: dict, removed: dict,
                 row['amended_by']=sorted(set(row.get('amended_by',[]))|set(handles))
     _projection_require(len({r["handle"] for r in rows}) == len(rows),
                         "summaries duplicate source handle")
-    _stamp_retirements(rows)
+    persisted = _edges_in_force(rows, persisted_edges)
+    _stamp_retirements(rows, persisted_edges=persisted)
     original_retired = {r["handle"] for r in retired_records(rows)}
     historical = copy.deepcopy(facts["historical_handles"])
     retired = set(facts["retired_handles"]) | original_retired
@@ -1979,6 +2466,9 @@ def _summary_authority_records(records: list[dict], facts: dict, removed: dict,
     for row in rows:
         _projection_require(not set(row.get("retires") or []).intersection(historical),
                             "summaries historical handle cannot be retired again")
+    # A persisted edge's target may be collected or archived: both are read here.
+    _projection_require(not {edge.target for edge in persisted}.intersection(historical),
+                        "summaries historical handle cannot be retired again")
     edges = {}
     for fact in facts["historical_displacements"]:
         _projection_require(set(fact) in ({"target_handle", "source_displacer", "source_identity", "source_ref"},
@@ -2010,16 +2500,22 @@ def _summary_authority_records(records: list[dict], facts: dict, removed: dict,
                 if target == row["handle"]}, key=adr_num)
         if row["handle"] in historical:
             row["historical"] = True
-    slugs, retired_slugs = live_and_retired_slugs(rows)
+    slugs, retired_slugs = live_and_retired_slugs(rows, persisted_edges=persisted)
+    # A persisted edge's displacer is not named once the removed roster withdrew
+    # it, or once the facts retired it or made it historical (IDR point 6).
+    retired_slugs = {slug: [h for h in handles
+                            if h not in removed and h not in retired and h not in historical]
+                     for slug, handles in retired_slugs.items()}
     live_architecture={r['handle'] for r in live_records(rows) if r.get('source_status')=='Accepted'}
     _projection_require(all(set(a['amending_handles'])<=live_architecture
         for h,a in facts.get('amendments',{}).items() if h in live_architecture),
         'summaries amendment successor is not live architecture')
+    # The same two sources as `live_and_retired_slugs`, with the facts' retired and
+    # historical handles and the removed roster also counted as retired.
     live_displacers = {}
-    for row in live_records(rows):
-        if row.get("source_status") == "Accepted":
-            for target in row.get("retires") or []:
-                live_displacers.setdefault(slug_of(target), set()).add(row["handle"])
+    for target, handles in _displacers_by_target(
+            rows, persisted, frozenset(retired | set(historical) | set(removed))).items():
+        live_displacers.setdefault(slug_of(target), set()).update(handles)
     for target in proven_targets:
         slug = slug_of(target)
         retired_slugs[slug] = sorted(set(retired_slugs.get(slug, [])) |
@@ -2037,22 +2533,21 @@ def _summary_authority_records(records: list[dict], facts: dict, removed: dict,
             isinstance(destination["clause_sha256"], str) and _DIGEST_RE.fullmatch(destination["clause_sha256"]),
             "summaries historical destination invalid")
         replacements = fact["replacements"]
-        live_handles = {row["handle"] for row in live_records(rows)
-                        if row.get("source_status") == "Accepted" and row.get("source_kind", "adr") == "adr"}
         origin = facts.get('origins', {}).get(handle, {})
+        prospective = _published_origin(origin) and bool(origin)
         ref = origin.get('publication_ref', {})
-        prospective = (origin.get('origin') == 'prospective-publication' and isinstance(ref,dict)
-            and set(ref)=={'path','sha256','publication_commit'} and _summary_relative_path(ref['path'])
-            and ref['path'].endswith('.publication.json') and isinstance(ref['sha256'],str)
-            and _DIGEST_RE.fullmatch(ref['sha256']) and isinstance(ref['publication_commit'],str)
-            and re.fullmatch(r'(?:[0-9a-f]{40}|[0-9a-f]{64})',ref['publication_commit']))
         prepared = (_prepared and origin.get('origin')=='prospective-prepared' and isinstance(ref,dict)
             and set(ref)=={'path','sha256'} and _summary_relative_path(ref['path'])
             and ref['path'].endswith('.publication.json') and isinstance(ref['sha256'],str)
             and _DIGEST_RE.fullmatch(ref['sha256']))
+        # A published fact's replacement resolves through the retirements in force to
+        # the live Accepted handles that displace it; a candidate, prepared or
+        # malformed origin keeps the strict live check.
         _projection_require(isinstance(replacements, list) and (replacements or prospective or prepared) and
-            all(isinstance(h, str) and h in live_handles for h in replacements) and
+            all(isinstance(h, str) for h in replacements) and
             len(set(replacements)) == len(replacements), "summaries replacement is not live architecture")
+        _projection_require(_replacements_live(replacements, rows, persisted, _published_origin(origin)),
+                            "summaries replacement is not live architecture")
         slug = slug_of(handle)
         _projection_require(slug not in historical_slugs and slug not in slugs and
             slug not in retired_slugs and slug not in {slug_of(h) for h in removed},
@@ -2128,7 +2623,14 @@ def _plain_summary_value(value, ancestors=()) -> None:
         if isinstance(value, dict):
             _projection_require(all(type(key) is str for key in value), "summaries model key is not text")
             for key in value: _plain_summary_value(key)
-        for item in (value.values() if isinstance(value, dict) else value):
+            # The one internal handoff that is not a plain value: an immutable tuple of
+            # `RetirementEdge` the collector attaches to a record, or a loader passes
+            # beside `archived_handles`. It is shape-checked here and never serialized.
+            _projection_require(all(_persisted_edges_shape(item) for key, item in value.items()
+                                    if key == "persisted_edges"),
+                                "summaries persisted retirement edges are not a tuple of edges")
+        items = (v for k, v in value.items() if k != "persisted_edges") if isinstance(value, dict) else value
+        for item in items:
             _plain_summary_value(item, ancestors + (id(value),))
 
 
@@ -2223,6 +2725,11 @@ def _plan_summary_outputs(loaded_inputs: dict, migration_facts: dict,
     has_provenance = isinstance(loaded_inputs, dict) and "provenance" in loaded_inputs
     if has_provenance:
         expected = expected | {"provenance"}
+    # `persisted_edges` is route one of the retirement handoff
+    # (rule:retirement-persists-after-its-host-leaves-accepted). The loaders always
+    # supply it; an input without it takes route two, the records' own field.
+    if isinstance(loaded_inputs, dict) and "persisted_edges" in loaded_inputs:
+        expected = expected | {"persisted_edges"}
     _projection_require(isinstance(loaded_inputs, dict) and set(loaded_inputs) == expected,
                         "summaries loaded input shape invalid")
     data = {k: v for k, v in loaded_inputs.items() if k not in ("tree", "paths")}
@@ -2286,6 +2793,9 @@ def _plan_summary_outputs(loaded_inputs: dict, migration_facts: dict,
     for key in ("archived_handles", "signed_handles"):
         _projection_require(isinstance(data[key], list) and all(isinstance(h, str)
             and _HANDLE_ANCHOR_RE.fullmatch(h) for h in data[key]), "summaries retirement history invalid")
+    persisted = data.get("persisted_edges")
+    _projection_require(persisted is None or _persisted_edges_shape(persisted),
+                        "summaries persisted retirement edges invalid")
     for handle, alias in aliases.items():
         _projection_require(isinstance(alias, dict) and set(alias) == {"alias_of", "alias_handles"}
             and _OBS_HANDLE_ANCHOR_RE.fullmatch(handle) and isinstance(alias["alias_of"], str)
@@ -2294,10 +2804,11 @@ def _plan_summary_outputs(loaded_inputs: dict, migration_facts: dict,
                 and h.startswith(alias["alias_of"] + "/") for h in alias["alias_handles"])
             and len(set(alias["alias_handles"])) == len(alias["alias_handles"]), "summaries alias shape invalid")
     problems = retirement_problems(rows, removed_handles(reviews), set(data["signed_handles"]),
-                                   set(data["archived_handles"]))
+                                   set(data["archived_handles"]), persisted_edges=persisted)
     if problems: raise GovernsValidationError(problems)
     overlay = _summary_authority_records(rows, migration_facts, removed_handles(reviews), aliases,
-        _prepared=pending_publication is not None and pending_publication['close_identity'].get('format')=='crux.adr-migration-publication.v1')
+        _prepared=pending_publication is not None and pending_publication['close_identity'].get('format')=='crux.adr-migration-publication.v1',
+        persisted_edges=persisted)
     for group in overlay["historical_displacements"].values():
         for edge in group:
             source = selected.get(edge["source_identity"])
@@ -2334,8 +2845,20 @@ def _plan_summary_outputs(loaded_inputs: dict, migration_facts: dict,
             isinstance(metadata[key], str) and _DIGEST_RE.fullmatch(metadata[key]), "summaries input digest invalid")
     clauses = data["historical_clauses"]
     _projection_require(isinstance(clauses, list), "summaries historical clause roster invalid")
-    accepted = {r["handle"] for r in live_records(overlay["records"])
-                if r.get("source_status") == "Accepted" and r.get("source_kind", "adr") == "adr"}
+    # A clause maps to its origin through the handle facts that share its source
+    # identity. A clause of a published application batch matches no handle fact.
+    # Any matched origin that is not a published one keeps the strict live check.
+    clause_origins: dict[str, list] = {}
+    for handle, fact in migration_facts["historical_handles"].items():
+        clause_origins.setdefault(fact.get("source_identity"), []).append(
+            migration_facts.get("origins", {}).get(handle, {}))
+    for clause in clauses:
+        resolvable = isinstance(clause, dict) and all(
+            _published_origin(origin) for origin in clause_origins.get(clause.get("source_identity"), []))
+        _projection_require(isinstance(clause, dict) and isinstance(clause.get("replacements"), list)
+            and all(isinstance(h, str) for h in clause["replacements"]) and _replacements_live(
+                clause["replacements"], overlay["records"], persisted, resolvable),
+            "summaries historical clause is not a selected source")
     for clause in clauses:
         _projection_require(isinstance(clause, dict) and set(clause) == {
             "source_identity", "source_ref", "destination", "replacements"} and
@@ -2345,8 +2868,7 @@ def _plan_summary_outputs(loaded_inputs: dict, migration_facts: dict,
             and clause["destination"] == {k: clause["source_ref"][k] for k in ("source_adr", "clause_sha256")}
             and selected.get(clause["source_identity"]) is not None and
             {k: selected[clause["source_identity"]][k] for k in ("path", "source_adr", "clause_sha256")} == clause["source_ref"]
-            and isinstance(clause["replacements"], list) and all(isinstance(h, str) and h in accepted
-                for h in clause["replacements"]) and len(set(clause["replacements"])) == len(clause["replacements"]),
+            and isinstance(clause["replacements"], list) and len(set(clause["replacements"])) == len(clause["replacements"]),
             "summaries historical clause is not a selected source")
     _projection_require(len({c["source_identity"] for c in clauses}) == len(clauses),
                         "summaries duplicate historical clause")
@@ -2366,8 +2888,12 @@ def _plan_summary_outputs(loaded_inputs: dict, migration_facts: dict,
         "historical_displacements": overlay["historical_displacements"], "historical_clauses": clauses}
     if overlay["historical_slugs"]:
         table += "\n## Historical implementation handles\n\n| handle | source identity | replacements |\n|---|---|---|\n"
+        resolution = resolve_replacements(
+            [h for value in overlay["historical_slugs"].values() for h in value["replacements"]],
+            rows, persisted_edges=persisted)
         for value in overlay["historical_slugs"].values():
-            table += f"| {_cell(value['source_handle'])} | {value['source_identity']} | {_cell(', '.join(value['replacements']))} |\n"
+            table += (f"| {_cell(value['source_handle'])} | {value['source_identity']} | "
+                      f"{_cell(resolved_replacement_text(value['replacements'], resolution))} |\n")
     if clauses:
         table += "\n## Historical implementation clauses\n\n| source | clause digest | source identity |\n|---|---|---|\n"
         for clause in sorted(clauses, key=lambda c: c["source_identity"]):
@@ -2931,10 +3457,48 @@ def _folded_anchor(anchor) -> str:
     return space_fold(" ".join(str(el) for el in elements))
 
 
-_LOG_HEADING_RE = re.compile(r"^## \[(\d{4}-\d{2}-\d{2})\] (\S+) \| (.*)$", re.M)
+def _operation_log_module():
+    """The operations-log module, loaded BY PATH under its own name.
+
+    Same reason as `_evidence_module` above. It is registered before it runs, because
+    its dataclasses look their module up in `sys.modules`, and under the name
+    `operation_log` so every importer shares one copy.
+    """
+    import importlib.util as _ilu
+    m = sys.modules.get("operation_log")
+    if m is None:
+        path = Path(__file__).resolve().parent / "operation_log.py"
+        spec = _ilu.spec_from_file_location("operation_log", path)
+        m = _ilu.module_from_spec(spec)
+        sys.modules["operation_log"] = m
+        try:
+            spec.loader.exec_module(m)
+        except BaseException:
+            sys.modules.pop("operation_log", None)
+            raise
+    return m
+
+
+# The one entry-heading grammar lives in `operation_log.HEADING`; this adds only the
+# multiline flag the document-wide scan below needs.
+_LOG_HEADING_RE = re.compile(_operation_log_module().HEADING.pattern, re.M)
 _JOURNAL_HEADING_RE = re.compile(
     r"^## \[(\d{4}-\d{2}-\d{2}) \d{2}:\d{2}\] (\S+) \| (.*)$", re.M)
 _ADRS_LINE_RE = re.compile(r"^ADRs:\s*(.*)$", re.M)
+
+
+def _read_operation_log(tree_dir: Path) -> str:
+    """The operations log of a tree as one text; empty when the tree holds none.
+
+    `operation_log.read_text` reads a legacy log.md, the detail files under log/ and any
+    stray once per entry. An unreadable file (a symlink, a non-file, bytes that are not
+    UTF-8) raises `operation_log.Refusal`, which a caller turns into its own problem.
+    """
+    ol = _operation_log_module()
+    if not any(item.is_symlink() or item.exists()
+               for item in (tree_dir / ol.LEGACY_NAME, tree_dir / ol.LOG_DIR)):
+        return ""
+    return ol.read_text(Path(tree_dir).resolve())
 
 
 def _log_entries(text: str) -> list[dict]:
@@ -3216,9 +3780,18 @@ def backfill_problems(root: Path, adrs: Path, manifest: dict) -> tuple[list[dict
     # batch id and date.
     tree_dir = resolve_tree(root)
     tree = tree_name(root)  # display spelling only; resolve_tree validated it
-    log_path = tree_dir / "log.md"
-    log_text = log_path.read_text(encoding="utf-8") if log_path.is_file() else ""
-    log_entries = _log_entries(log_text)
+    # Read through the log's own readers: a legacy log.md or the monthly detail files,
+    # newest write first. Every use below is a set, an any() or an all() over the entries,
+    # so none depends on their order.
+    try:
+        log_entries = _log_entries(_read_operation_log(tree_dir))
+    except (_operation_log_module().Refusal, OSError) as exc:
+        # An unreadable log corroborates nothing. It is a problem of its own only when a
+        # signed batch needs corroboration; a mid-batch state owes none.
+        log_entries = []
+        if any(batch["signed"] is not None for batch in reviews["batches"].values()):
+            problems.append(_gate_problem(
+                f"the operations log is unreadable and corroborates nothing: {redact(str(exc))}"))
     for entry in log_entries:
         if entry["op"] == "backfill" and entry["subject"] not in reviews["batches"]:
             problems.append(_gate_problem(

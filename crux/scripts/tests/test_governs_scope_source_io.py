@@ -84,6 +84,19 @@ class GovernsScopeSourceIOTests(unittest.TestCase):
                 if original is None: changed.unlink()
                 else: changed.write_bytes(original)
 
+    def test_guarded_scope_excludes_the_log_detail_files_and_keeps_the_summary(self):
+        log = self.tree / "log"; log.mkdir()
+        for name in ("2026-10.md", ".split-complete.json", "summary.md", "notes.md"):
+            (log / name).write_text("rule:synthetic-token\n")
+        expected = linter.resolve_scope(self.root, [])
+        with contextlib.closing(SourceIO(self.root)) as source_io:
+            actual = linter.resolve_scope(self.root, [], _source_io=source_io)
+            source_io.revalidate()
+        self.assertEqual(actual, expected)
+        scanned = {path.name for path in actual[0] if path.parent == (log).resolve()}
+        # The summary and an undefined name stay in scope; the dated files do not (positive control).
+        self.assertEqual(scanned, {"summary.md", "notes.md"})
+
     def test_guarded_explicit_scope_preserves_symlink_nonregular_and_bound_refusals(self):
         source = self.root / "crux/skills/a/SKILL.md"
         link = source.with_name("link.md"); link.symlink_to(source.name)

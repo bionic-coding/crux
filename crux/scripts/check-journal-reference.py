@@ -7,9 +7,10 @@
 # import through the runtime package. Inline metadata owns both dependencies.
 """check-journal-reference.py — the CLN-JR-1 reference decision, as a command.
 
-`cleanup-campsite` CLN-JR-1 invokes this once per artifact it found in a
-recent `adr`/`promptbook`/`schema` log op. It reads one month file and, when
-the tree has one, the summaries resolver; it writes nothing.
+`cleanup-campsite` CLN-JR-1 invoked this once per artifact it found in a
+recent `adr`/`promptbook`/`schema` log op. That rule is retired, and no skill
+invokes the command now; it stays a standalone command. It reads one month file
+and, when the tree has one, the summaries resolver; it writes nothing.
 
 The decision itself lives in `crux/scripts/journal_reference.py` and is
 shared, never re-implemented here — this script owns the filesystem guards

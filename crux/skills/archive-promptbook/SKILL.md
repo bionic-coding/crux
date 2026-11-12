@@ -230,13 +230,22 @@ Rewrite the index. The directory walk is **extension-agnostic** — enumerate bo
 - Promptbooks-concern row counts: decrement active count, increment archived count.
 - Bump `_Last updated:_` to today.
 
-### 7. Append to `docs/log.md`
+### 7. Record the `promptbook` operation
 
-One entry (newest-first, at top):
+Write the entry through the log writer (`docs/AGENTS.md` §6).[^log-writer] Write the body below to a file outside the tree, then run:
+
+```
+uv run "${CRUX_PLUGIN_ROOT}/scripts/operation-log.py" append --repo-root <repo-root> \
+  --op promptbook --subject 'archived <id>-<slug>' --date YYYY-MM-DD --body-file <path>
+```
+
+The entry it writes at the top of the current month's detail file `docs/log/YYYY-MM.md`:
 
 ```
 ## [YYYY-MM-DD] promptbook | archived <id>-<slug>
 ```
+
+A refused append keeps this skill's other writes and adds no entry: fix the cause it names, then rerun the append alone (§6). Then run the commit step of §6 over the result's `commit_paths` and `restore_paths`.
 
 Body, 1–3 lines:
 - Final run id and its `<N>/<total_prompts>` completion ratio.
@@ -268,7 +277,7 @@ Report to the user:
 - [ ] YAML `archive_note` mapping written exactly once (refused if it already existed).
 - [ ] `docs/promptbooks/index.md` regenerated: active count decremented, archived count incremented, `_Last updated:_` bumped.
 - [ ] `docs/index.md` row counts and `_Last updated:_` updated.
-- [ ] One `promptbook` op entry appended to top of `docs/log.md`, naming whether the book archived as delivered or as abandoned.
+- [ ] The current month's detail file `docs/log/YYYY-MM.md` has one new `promptbook` op entry at the top, written by `operation-log.py append`, naming whether the book archived as delivered or as abandoned.
 - [ ] The archive note records delivered-versus-abandoned truthfully; an abandoned book claims no completion ratio it did not reach.
 
 ## Red flags — STOP and reconsider
@@ -314,3 +323,5 @@ Report to the user:
 - **Modifying per-prompt state inside the run snapshot during archival.** The `prompts[]` array is written by `run-promptbook` and frozen at that moment.
 - **Renaming the book file during the move** (e.g., reslug because the title was cleaner). The slug and `.yaml` extension remain fixed through archival.
 - **Skipping the archive note** because "the index already records it". The YAML `archive_note` is the in-file record; the index is the catalog.
+
+[^log-writer]: rule:log-entries-go-through-the-log-writer, rule:no-writer-writes-the-legacy-log-file

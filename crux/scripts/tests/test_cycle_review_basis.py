@@ -30,7 +30,11 @@ class CliCycleCase(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name).resolve()
-        env = patch.dict(os.environ, {'CRUX_TEST_EVIDENCE_STORE': str(self.root / 'evidence')})
+        # The root is no git repository, so the fixture's identity comes from the environment:
+        # `cycle.py create` refuses without one, and CI configures none.
+        env = patch.dict(os.environ, {'CRUX_TEST_EVIDENCE_STORE': str(self.root / 'evidence'),
+                                      'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@example.invalid',
+                                      'GIT_COMMITTER_NAME': 't', 'GIT_COMMITTER_EMAIL': 't@example.invalid'})
         env.start()
         self.addCleanup(env.stop)
         (self.root / 'bionic').mkdir()

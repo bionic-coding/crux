@@ -49,6 +49,31 @@ class IntegrationTests(unittest.TestCase):
         doc=self.create('quick-fix');doc=self.apply(doc,'checks',checks=['unit']);doc=self.apply(doc,'advance');doc,result=self.evidence(doc,self.check())
         (self.root/'src/a.txt').write_text('bad')
         with self.assertRaises(CycleError):self.apply(doc,'advance')
+    def test_identical_repeated_evidence_writes_nothing(self):
+        doc=self.create('quick-fix');doc=self.apply(doc,'checks',checks=['unit']);doc=self.apply(doc,'advance')
+        doc,result=self.evidence(doc,self.check())
+        before=(tree(self.root).docs_root/'cycles'/doc['id']/'cycle.json').read_bytes()
+        again,changed=mutate_tracked(self.root,doc['id'],'evidence',check_id='unit',evidence_id=result['evidence']['id'],use=result['action'])
+        self.assertFalse(changed)
+        self.assertEqual(len(again['evidence']),1)
+        self.assertEqual((tree(self.root).docs_root/'cycles'/doc['id']/'cycle.json').read_bytes(),before)
+        # Positive control: a different use is a new entry and is written.
+        _,changed=mutate_tracked(self.root,doc['id'],'evidence',check_id='unit',evidence_id=result['evidence']['id'],use='reused' if result['action']!='reused' else 'executed')
+        self.assertTrue(changed)
+    def test_non_release_evidence_attachment_stores_receipt_id_and_digest_not_log_bytes(self):
+        marker='LOG-MARKER-'+'7f3a91'
+        decl={'check_id':'unit','command':[sys.executable,'-c',f"print('{marker}' * 50)"],'inputs':['src'],'environment':[]}
+        doc=self.create('quick-fix');doc=self.apply(doc,'checks',checks=['unit']);doc=self.apply(doc,'advance')
+        doc,result=self.evidence(doc,decl)
+        self.assertEqual(set(doc['evidence'][-1]),{'check_id','evidence_id','pass','use','declaration_sha256'})
+        self.assertEqual(doc['evidence'][-1]['evidence_id'],result['evidence']['id'])
+        self.assertRegex(doc['evidence'][-1]['declaration_sha256'],r'^[0-9a-f]{64}$')
+        # Positive control: the run's log bytes exist, in the evidence store.
+        stored=[p for p in (self.root/'evidence').rglob('*') if p.is_file() and marker.encode() in p.read_bytes()]
+        self.assertTrue(stored)
+        cycle_dir=tree(self.root).docs_root/'cycles'/doc['id']
+        copied=[p for p in cycle_dir.rglob('*') if p.is_file() and marker.encode() in p.read_bytes()]
+        self.assertEqual(copied,[])
     def reviewed(self):
         doc=self.create('quick-fix');doc=self.apply(doc,'checks',checks=['unit']);doc=self.apply(doc,'advance');doc,_=self.evidence(doc,self.check())
         doc=self.apply(doc,'advance');return self.review(doc)

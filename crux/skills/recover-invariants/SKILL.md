@@ -72,10 +72,17 @@ For each check idea, write a candidate check into `<docs_dir>/invariants/checks/
 ### 5. Write reconciliation entries
 For each emitted check, add a reconciliation entry `{check_id, pin_id, last_result, last_checked}` (`docs/AGENTS.md` §15.4). Initial `last_result` is the check's first recorded outcome if you ran it, else `none`; `last_checked` accordingly. Never fabricate a `pass`.
 
-### 6. Index + log
+### 6. Index + operations log
 - `<docs_dir>/invariants/index.md`: add each new pin's row, **visibly marked `observed`**.
 - `docs/index.md`: bump `## Invariants (N)` and `_Last updated:`.
-- `docs/log.md`: one entry summarizing the batch (count of candidates per class, where they landed). Use the concern's log op.
+- Operations log: one entry summarizing the batch (count of candidates per class, where they landed). Use the concern's log op (`invariant`). Write the entry through the log writer (`docs/AGENTS.md` §6).[^log-writer] Write the body to a file outside the tree, then run:
+
+  ```
+  uv run "${CRUX_PLUGIN_ROOT}/scripts/operation-log.py" append --repo-root <repo-root> \
+    --op invariant --subject 'recover-invariants emitted N observed candidates' --date YYYY-MM-DD --body-file <path>
+  ```
+
+  The entry lands at the top of the current month's detail file `docs/log/YYYY-MM.md`. A refused append keeps this skill's other writes and adds no entry: fix the cause it names, then rerun the append alone (§6). Then run the commit step of §6 over the result's `commit_paths` and `restore_paths`.
 
 ### 7. Hand off
 Report the candidates as **observed** and name `transition-invariant` as the human gate. NEVER imply any candidate is trusted. Surface the per-class confidence so the human ratifies with eyes open.
@@ -88,7 +95,7 @@ Report the candidates as **observed** and name `transition-invariant` as the hum
 - [ ] No `last_result: pass` was fabricated — `none` unless a check actually ran.
 - [ ] Per-class confidence was reported honestly (behavior = characterization candidate; experience = reconstructed-provisional).
 - [ ] Index rows visibly mark the new pins `observed`; `docs/index.md` count + `_Last updated:` bumped.
-- [ ] `docs/log.md` batch entry written.
+- [ ] The current month's detail file `docs/log/YYYY-MM.md` has the batch entry at the top, written by `operation-log.py append`.
 
 ## Red flags — STOP and reconsider
 
@@ -113,3 +120,5 @@ Report the candidates as **observed** and name `transition-invariant` as the hum
 - `extract-code-docs` — the Span-1 regenerative sibling (docs from source); this is Span-2 (invariant candidates from source).
 - `audit-docs` — the CHK-INV rules that read what this skill emits (`docs/AGENTS.md` §15.5).
 - `docs/AGENTS.md` §15 — the invariants-concern contract.
+
+[^log-writer]: rule:log-entries-go-through-the-log-writer, rule:no-writer-writes-the-legacy-log-file

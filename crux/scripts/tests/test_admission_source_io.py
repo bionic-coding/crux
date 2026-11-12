@@ -244,6 +244,59 @@ class AnchoredSourceIOTests(unittest.TestCase):
         self.assertIsNone(self.io.metadata(self.root / "missing.py"))
         self.io.revalidate()
 
+    def test_metadata_names_nothing_below_a_regular_file_component(self):
+        # A linked worktree's .git is a regular file; a path under it names nothing.
+        gitfile = self.root / ".git"
+        gitfile.write_text("gitdir: elsewhere\n")
+        self.assertEqual(self.io.metadata(gitfile)["st_mode"], gitfile.lstat().st_mode)
+        for path in (gitfile / "HEAD", gitfile / "refs" / "heads", gitfile / "a" / "b" / "c"):
+            with self.subTest(path=path):
+                self.assertIsNone(self.io.metadata(path))
+        self.io.revalidate()
+        # Symlink and containment refusals are unchanged.
+        (self.root / "out").symlink_to(self.outside, target_is_directory=True)
+        with self.assertRaises(SourceIORefusal) as outside:
+            self.io.metadata(self.root / "out" / "secret.py")
+        self.assertEqual(str(outside.exception), "admission-source-io-containment-refused")
+        with self.assertRaises(SourceIORefusal) as escape:
+            self.io.metadata(self.root / ".." / "x")
+        self.assertEqual(str(escape.exception), "admission-source-io-containment-refused")
+
+    def test_alias_to_a_regular_file_names_nothing_below_it_for_metadata_only(self):
+        alias = self.root / "alias.py"
+        alias.symlink_to("src/actual.py")
+        self.assertIsNone(self.io.metadata(alias / "child"))
+        self.assertIsNone(self.io.metadata(alias / "a" / "b"))
+        self.io.revalidate()
+
+    def test_kind_resolve_read_bytes_and_glob_refuse_below_a_regular_file(self):
+        gitfile = self.root / ".git"
+        gitfile.write_text("gitdir: elsewhere\n")
+        alias = self.root / "alias.py"
+        alias.symlink_to("src/actual.py")
+        for base in (gitfile, alias, self.source / "actual.py"):
+            below = base / "HEAD"
+            for name, call in (("kind", lambda p: self.io.kind(p)),
+                               ("resolve", lambda p: self.io.resolve(p)),
+                               ("read_bytes", lambda p: self.io.read_bytes(p)),
+                               ("glob", lambda p: self.io.glob(p, "*"))):
+                with self.subTest(base=base.name, method=name):
+                    with self.assertRaises(SourceIORefusal):
+                        call(below)
+
+    def test_below_regular_file_suffix_normalizes_dotdot_and_refuses_above_root(self):
+        (self.root / "norm").symlink_to("src/actual.py/../x")
+        path = self.root / "norm" / "leaf"
+        _, resolved, _ = self.io._walk(path.parent, _request=("metadata", path, None),
+                                       _tail=(path.name,), _below_file_is_absent=True)
+        self.assertEqual(resolved, self.source / "x")
+        self.assertIsNone(self.io.metadata(path))
+        (self.root / "up").symlink_to("src/actual.py/../../..")
+        with self.assertRaises(SourceIORefusal):
+            self.io.metadata(self.root / "up" / "leaf")
+        (self.root / "root").symlink_to("src/actual.py/../..")
+        self.assertIsNone(self.io.metadata(self.root / "root" / "leaf"))
+
     def test_metadata_supports_contained_parent_alias_and_detects_leaf_changes(self):
         folder = self.root / "linked"
         folder.symlink_to("src", target_is_directory=True)

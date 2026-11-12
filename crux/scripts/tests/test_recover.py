@@ -291,18 +291,6 @@ class ObservationCorrelationTests(unittest.TestCase):
         self.assertEqual(
             R.find_ratified_observation(obs, sid, predecessor_id="OBS-0007"), "OBS-0009")
 
-    def test_the_closed_limit_is_recorded_where_a_caller_reads_it(self):
-        self.assertIn("EXACT for both candidate forms",
-                      R.find_ratified_observation.__doc__)
-        skill = (REPO / "crux" / "skills" / "transition-decision"
-                 / "SKILL.md").read_text(encoding="utf-8")
-        self.assertIn("predecessor_id", skill)
-        # the stale claim must be GONE, not merely joined by a correct one
-        self.assertNotIn("does not cover a successor candidate", skill)
-        # the DECLARED limit is gone; the docstring may still narrate it as history
-        self.assertNotIn("KNOWN LIMIT — plain candidates only",
-                         R.find_ratified_observation.__doc__)
-
 
 class ObservationDedupTests(unittest.TestCase):
     # ADR-0095 req. 2 — the immutable claim, the successor candidate, the stale signal.

@@ -17,8 +17,15 @@ a count), validates fail-closed, then writes, with one threaded date:
      retained) and sets `adr.governs_backfill_complete: true` IFF the
      simulated post-sign arithmetic has zero pending (absent otherwise,
      never false);
-  3. `<docs_dir>/log.md` — prepends the `backfill` log op
-     `## [<date>] backfill | <batch-id>` carrying `ADRs: <sorted ids>`;
+  3. `<docs_dir>/log/YYYY-MM.md` — adds the `backfill` log op
+     `## [<date>] backfill | <batch-id>` carrying `ADRs: <sorted ids>` to the detail
+     file of the month holding the host's local date. The op goes through
+     `operation_log` in one order: validate the entry, plan the repair
+     (preflight), repair, the surfaces above, insert the entry. A stray `log.md`
+     an older writer leaves is merged by the repair; one that appears after the
+     repair is left and named. The result line `operation-log:` reports the
+     `changed_paths`, `commit_paths`, `restore_paths` and `left_strays` the
+     caller's commit step takes;
   4. `<docs_dir>/journal/<YYYY-MM>.md` — appends the journal hook
      `## [<date> HH:MM] review | backfill sign-off <batch-id>` naming the
      batch id and its ADR ids.
@@ -87,6 +94,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import summaries_projection as sp  # noqa: E402
 import implementation_migration as migration  # noqa: E402
+import operation_log as ol  # noqa: E402
 
 _SCRIPTS = Path(__file__).resolve().parent
 
@@ -355,7 +363,11 @@ def _migration_write_findings(root: Path, tree: Path, adrs: Path, plan: dict,
     mutations = set()
     if plan["flip"]: mutations.add(sp.reviews_path(adrs))
     if plan["appends"] or plan["set_marker"]: mutations.add(tree / "manifest.yml")
-    if plan["log"] == "write": mutations.add(tree / "log.md")
+    held = plan.get("oplog")
+    if plan["log"] == "write" and held is not None:
+        # The destination detail file and every path the repair would create, replace or remove.
+        mutations.add(tree / held["plan"].destination)
+        mutations.update(tree / rel for rel in held["plan"].paths)
     if plan["journal"] == "write": mutations.add(tree / "journal" / (date[:7] + ".md"))
     bound = {root / item["path"] for item in view["dependency_fingerprints"]}
     return [_finding("bound migration dependency cannot change during backfill sign-off; "
@@ -813,41 +825,26 @@ def _log_adrs_of(entry: dict) -> list[str] | None:
     return sorted(ids, key=sp.adr_num)
 
 
-def _write_log_entry(log_path: Path, bid: str, date: str,
-                     derived_ids: list[str], stats: str,
-                     allow_present: bool, *, contained_under: Path) -> str:
-    """Prepend the `backfill` log op (newest-first file). Returns
-    "written" | "present". A pre-existing entry for the batch must match the
-    threaded date and the derived ADR set exactly, else contradiction; on the
-    sign path ANY pre-existing entry is a hand-authored corroboration and
-    contradicts by construction."""
-    text = log_path.read_text(encoding="utf-8") if log_path.is_file() else ""
-    existing = [e for e in sp._log_entries(text)
+def _write_log_entry(tree: Path, root: Path, held: dict, bid: str, date: str,
+                     derived_ids: list[str], allow_present: bool) -> dict:
+    """Place the `backfill` log op with `insert_entry` (the repair already ran). Returns
+    the placement `{"status": "written" | "recorded" | "present", "file", "changed",
+    "left_strays"}`. A pre-existing entry for the batch must match the threaded date and
+    the derived ADR set exactly, else contradiction; on the sign path ANY pre-existing
+    entry is a hand-authored corroboration and contradicts by construction."""
+    existing = [e for e in sp._log_entries(ol.read_text(tree))
                 if e["op"] == "backfill" and e["subject"] == bid]
     if existing:
         if allow_present:
             for e in existing:
                 if e["date"] == date and _log_adrs_of(e) == derived_ids:
-                    return "present"
+                    return {"status": "present", "file": None, "changed": [],
+                            "left_strays": ol.left_strays(tree)}
         raise SurfaceContradiction(_finding(
-            f"log.md already carries an entry for batch {bid!r} that does "
+            f"the operations log already carries an entry for batch {bid!r} that does "
             "not match this sign-off's date and ADR set — corroboration is "
             "written by the sign-off, never by hand"))
-    entry = (f"## [{date}] backfill | {bid}\n\n"
-             f"Batch sign-off: {stats}.\n"
-             f"ADRs: {' '.join(derived_ids)}\n\n")
-    lines = text.splitlines(keepends=True)
-    first = next((i for i, l in enumerate(lines) if l.startswith("## [")), None)
-    if first is None:
-        new = text if text.endswith("\n") or not text else text + "\n"
-        sep = "" if new.endswith("\n\n") or not new else "\n"
-        _atomic_write_text(log_path, new + sep + entry,
-                           contained_under=contained_under)
-    else:
-        _atomic_write_text(log_path,
-                           "".join(lines[:first]) + entry + "".join(lines[first:]),
-                           contained_under=contained_under)
-    return "written"
+    return ol.insert_entry(tree, held["entry"], held["today"], root)
 
 
 def _write_journal_hook(journal_dir: Path, bid: str, date: str,
@@ -904,11 +901,30 @@ def _write_journal_hook(journal_dir: Path, bid: str, date: str,
     return "written"
 
 
+def _repo_paths(root: Path, tree: Path, rels: list[str]) -> list[str]:
+    prefix = tree.relative_to(root).as_posix()
+    return [f"{prefix}/{rel}" for rel in rels]
+
+
+def _log_report(root: Path, tree: Path, changed: list[str], strays: list[str]) -> dict:
+    """What the caller's commit step takes: `changed_paths` (every log path this run
+    created, replaced or removed), `commit_paths`, `restore_paths` and `left_strays`."""
+    report = {"changed_paths": _repo_paths(root, tree, list(dict.fromkeys(changed))),
+              "left_strays": _repo_paths(root, tree, strays),
+              "commit_paths": [], "restore_paths": []}
+    try:
+        report.update(ol.log_commit_paths(root, tree))
+    except (ol.Refusal, OSError) as exc:
+        report["error_commit_paths"] = str(exc)
+    return report
+
+
 # ── write planning (contradiction detection ahead of any mutation) ─────────
 
 def _plan_writes(tree_dir: Path, adrs: Path, manifest: dict,
                  reviews: dict, batch: dict, bid: str, mode: str, date: str,
-                 ctx: dict, set_marker: bool) -> tuple[dict, list[dict]]:
+                 ctx: dict, set_marker: bool,
+                 log_today: str | None = None) -> tuple[dict, list[dict]]:
     """Decide every write before making one — parse-and-plan, never write.
     Returns (plan, findings); a contradiction is a finding, never a partial
     write. The writers' text-shape parsers run HERE over the live bytes (the
@@ -938,14 +954,16 @@ def _plan_writes(tree_dir: Path, adrs: Path, manifest: dict,
                     for a, hs in ctx["admissions"].items()},
         "set_marker": set_marker
         and (manifest.get("adr") or {}).get("governs_backfill_complete") is not True,
-        "log": None, "journal": None,
+        "log": None, "journal": None, "oplog": None,
         "derived_ids": derived_ids, "stats": stats,
     }
     plan["appends"] = {a: hs for a, hs in plan["appends"].items() if hs}
 
-    log_text_path = tree_dir / "log.md"
-    log_text = (log_text_path.read_text(encoding="utf-8")
-                if log_text_path.is_file() else "")
+    try:
+        log_text = ol.read_text(tree_dir)
+    except ol.Refusal as exc:
+        findings.append(_finding(f"the operations log is unreadable: {exc}"))
+        log_text = ""
     existing_log = [e for e in sp._log_entries(log_text)
                     if e["op"] == "backfill" and e["subject"] == bid]
     if existing_log:
@@ -956,10 +974,19 @@ def _plan_writes(tree_dir: Path, adrs: Path, manifest: dict,
             plan["log"] = "present"
         else:
             findings.append(_finding(
-                f"log.md already carries an entry for batch {bid!r} that "
-                "does not match this sign-off's date and ADR set"))
+                f"the operations log already carries an entry for batch {bid!r} "
+                "that does not match this sign-off's date and ADR set"))
     else:
         plan["log"] = "write"
+        # One local date, read once: it governs the preflight, the repair and the insertion.
+        today = log_today if log_today is not None else ol.resolve_today(None, write=True)
+        body = f"Batch sign-off: {stats}.\nADRs: {' '.join(derived_ids)}"
+        try:
+            entry = ol.validate_entry(tree_dir, date, "backfill", bid, body)
+            plan["oplog"] = {"entry": entry, "today": today,
+                             "plan": ol.preflight(tree_dir, today, entry)}
+        except ol.Refusal as exc:
+            findings.append(_finding(f"the operations log refuses the backfill op: {exc}"))
 
     journal_path = tree_dir / "journal" / f"{date[:7]}.md"
     journal_text = (journal_path.read_text(encoding="utf-8")
@@ -1168,7 +1195,7 @@ def main(argv=None) -> int:
 
     try:
         findings, ctx = _validate(root, adrs, manifest, reviews, records, batch, bid, mode)
-    except (migration.Refused, sp.GovernsValidationError) as exc:
+    except (migration.Refused, sp.GovernsValidationError, ol.Refusal) as exc:
         print(json.dumps({"findings": [_finding(str(exc))]}, sort_keys=True))
         return 1
     _rsim, _lsim, counts, set_marker = _marker_report(ctx, batch, bid, date, reviews)
@@ -1186,7 +1213,8 @@ def main(argv=None) -> int:
             "replacement extraction or the no-rule receipt in the same "
             "correction batch"))
     plan, plan_findings = _plan_writes(tree_dir, adrs, manifest, reviews,
-                                       batch, bid, mode, date, ctx, set_marker)
+                                       batch, bid, mode, date, ctx, set_marker,
+                                       log_today=ol.resolve_today(None, write=True))
     findings += plan_findings
     findings += _migration_write_findings(root, tree_dir, adrs, plan, ctx["migration_view"], date)
     if not findings:
@@ -1225,6 +1253,19 @@ def main(argv=None) -> int:
         return 0
 
     wrote: list[str] = []
+    log_changed: list[str] = []
+    log_strays: list[str] = []
+    held = plan["oplog"]
+    if held is not None:
+        # The repair runs once, before any surface of this sign-off is written.
+        try:
+            log_changed += ol.repair(tree_dir, held["plan"], root)
+        except ol.Refusal as exc:
+            log_changed += getattr(exc, "changed", [])
+            print(json.dumps({"findings": [_finding(
+                f"the operations log repair refused before any write: {exc}")],
+                "changed_paths": _repo_paths(root, tree_dir, log_changed)}, sort_keys=True))
+            return 1
     try:
         if plan["flip"]:
             if _write_reviews_flip(sp.reviews_path(adrs), bid, date,
@@ -1235,11 +1276,14 @@ def main(argv=None) -> int:
             contained_under=tree_dir)
         wrote.extend(ledger_writes)
         if plan["log"] == "write":
-            _write_log_entry(tree_dir / "log.md", bid, date,
-                             plan["derived_ids"], plan["stats"],
-                             allow_present=(mode == "idempotent"),
-                             contained_under=tree_dir)
-            wrote.append("log: backfill op prepended")
+            placed = _write_log_entry(tree_dir, root, held, bid, date,
+                                      plan["derived_ids"],
+                                      allow_present=(mode == "idempotent"))
+            log_changed += placed["changed"]
+            log_strays = placed["left_strays"]
+            where = f" in {tree_dir.name}/{placed['file']}" if placed["file"] else ""
+            wrote.append(("log: backfill op placed" if placed["status"] == "written"
+                          else "log: backfill op already recorded") + where)
         if plan["journal"] == "write":
             _write_journal_hook(tree_dir / "journal", bid, date,
                                 plan["derived_ids"], plan["stats"],
@@ -1271,6 +1315,8 @@ def main(argv=None) -> int:
         print(f"signed batch {bid!r} on {date}:")
     for w in wrote:
         print(f"  {w}")
+    print("operation-log: " + json.dumps(
+        _log_report(root, tree_dir, log_changed, log_strays), sort_keys=True))
 
     gate_rc, gate_lines = _post_gates(root)
     for line in gate_lines:

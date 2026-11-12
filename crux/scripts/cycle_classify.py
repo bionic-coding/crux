@@ -44,10 +44,12 @@ import bionic_config
 import cycle_questions as questions
 import cycle_context as advisory
 from cycle_workflow import (
-    CHECK_PHASES, CLOSED, FINDING_ID, OPEN, PHASES, CycleError, event, fix_step_problem, load, locked, now, read_retained, run_git, save, tree,
+    CHECK_PHASES, CLOSED, FINDING_ID, OPEN, PHASES, CycleError, dependency_satisfied, event, fix_step_problem, load, locked, now, read_retained, run_git, save, tree,
 )
 
-KINDS = ('work-sizing', 'review-routing', 'finding-disposition', 'failure-routing', 'execution-arrangement',
+# `execution-arrangement` left this set in CYC-0127: every phase permits one role, so no writer asked it.
+# A historical classification of that kind stays readable in the record and is never revalidated.
+KINDS = ('work-sizing', 'review-routing', 'finding-disposition', 'failure-routing',
          'context-selection', 'handoff-completeness', 'review-finding-grouping', 'focused-test-ranking')
 # Version 2 partial-reuse records may misstate wire membership; never reuse them.
 ROUTING_POLICY_VERSION = '4'
@@ -471,7 +473,7 @@ def plan_failure(cfg, doc, job, repo_root=None):
     used = attempt_count(doc, task['id'], roles)
     routes = []
     redispatch = (task['phase'] == doc['phase'] and task['status'] in ('pending', 'blocked') and held is None
-                  and all(task_entry(doc, d)['status'] == 'done' for d in task['depends_on']) and used < cycle_ops.ATTEMPT_LIMIT)
+                  and all(dependency_satisfied(doc, d) for d in task['depends_on']) and used < cycle_ops.ATTEMPT_LIMIT)
     if redispatch and detail not in ('attempt-limit', 'superseded-attempt', 'result-path-missing', 'unresolved-dispatch'):
         routes.append('re-dispatch')
     if live is not None and detail in ('unresolved-dispatch', 'superseded-attempt', 'result-path-missing'):
@@ -922,24 +924,15 @@ def arrangement_result(cfg, doc, task_id, *, role=None):
         if role not in available_roles():
             raise CycleError('explicit role is not configured')
         return {'role': role, 'permitted_roles': [role], 'explicit': True}
+    # Every phase permits at most one role, so an omitted role selects it and no question is asked.
     roles = permitted_roles(doc, task) if task is not None and task['phase'] == doc['phase'] else []
-    found = {'role': roles[0] if len(roles) == 1 else None, 'permitted_roles': roles}
-    if len(roles) > 1:
-        try:
-            entry = selected_entries(cfg, doc, 'execution-arrangement').get(task_id)
-            found['role'] = entry['route'] if entry else None
-        except advisory.AdvisoryUnavailable:
-            found['unavailable'] = 'deadline-exhausted'
-    return found
+    return {'role': roles[0] if len(roles) == 1 else None, 'permitted_roles': roles}
 
 
 @advisory.advisory_operation
 def arrangement(repo_root, cycle_id, task_id, *, role=None, decisions_deadline=None):
-    """Replace role-choice deliberation; each role retains its configured tools and model."""
-    cfg, doc = tree(repo_root), load(repo_root, cycle_id)
-    found = arrangement_result(cfg, doc, task_id, role=role)
-    diagnostics = classify(repo_root, cycle_id, [Job('execution-arrangement', task_id)], decisions_deadline=decisions_deadline) if role is None and len(found['permitted_roles']) > 1 else {}
-    return {**diagnostics, **arrangement_result(cfg, load(repo_root, cycle_id), task_id, role=role)}
+    """The role a dispatch selects; each role retains its configured tools and model."""
+    return arrangement_result(tree(repo_root), load(repo_root, cycle_id), task_id, role=role)
 
 
 @advisory.advisory_operation

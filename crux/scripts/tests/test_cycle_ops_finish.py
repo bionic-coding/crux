@@ -60,6 +60,7 @@ class ReleaseFinishTests(FinishBase):
         self.assertEqual(offered[0]['request'], {'op': 'finish', 'expect_revision': seen['revision']})
         done = self.ok({**offered[0]['request'], 'op_id': 'finish-rel-1'}, cid=cid)
         self.assertEqual((done['status'], done['completion']['tip']), ('completed', shas[-1]))
+        self.assertNotIn('evidence_size', done)
         doc = load(self.repo, cid)
         self.assertEqual((doc['status'], doc['reflection']), ('completed', None))
         self.assertEqual(doc['completion']['commits'], shas)
@@ -126,6 +127,39 @@ class ReflectionFieldTests(FinishBase):
         self.assertEqual(recovery['caller_fills'], ['op_id', 'lessons', 'remaining'])
         self.check_requests_validate([recovery])
         self.assertEqual(self.ok(self.finish_request('finish-002'))['status'], 'completed')
+
+    def test_a_non_release_finish_reports_the_committed_evidence_size(self):
+        self.deliver_build_and_reflect()
+        done = self.ok(self.finish_request('finish-size'))
+        size = done['evidence_size']
+        relative = f'bionic/cycles/{self.cid}/'
+        self.assertEqual(size['measure'], f'sum of blob sizes from git ls-tree -r -l at the completion HEAD over {relative}')
+        self.assertEqual(set(size), {'bytes', 'files', 'measure'})
+        # The fixture ignores bionic/, so measure a commit that holds the cycle files.
+        self.git('add', '-f', relative)
+        self.git('commit', '-q', '-m', 'record')
+        head = self.git('rev-parse', 'HEAD')
+        listing = self.git('ls-tree', '-r', '-l', '--full-tree', head, '--', relative)
+        rows = [line.split('\t')[0].split() for line in listing.splitlines() if line.strip()]
+        self.assertGreater(len(rows), 0)
+        measured = cycle_ops.evidence_size(cycle_ops.tree(self.repo), load(self.repo, self.cid), head)
+        self.assertEqual(measured['files'], len(rows))
+        self.assertEqual(measured['bytes'], sum(int(r[3]) for r in rows))
+        self.assertGreater(measured['bytes'], 0)
+        # Uncommitted cycle bytes are not counted: at the completion HEAD the fixture had committed none.
+        self.assertEqual((size['bytes'], size['files']), (0, 0))
+
+    def test_evidence_size_counts_record_commits_after_the_last_task_commit(self):
+        self.deliver_build_and_reflect()
+        relative = f'bionic/cycles/{self.cid}/'
+        self.git('add', '-f', relative)
+        self.git('commit', '-q', '-m', 'record')
+        head = self.git('rev-parse', 'HEAD')
+        rows = [line.split('\t')[0].split() for line in self.git('ls-tree', '-r', '-l', '--full-tree', head, '--', relative).splitlines() if line.strip()]
+        done = self.ok(self.finish_request('finish-size2'))
+        self.assertNotEqual(done['completion']['tip'], head)
+        self.assertEqual((done['evidence_size']['files'], done['evidence_size']['bytes']), (len(rows), sum(int(r[3]) for r in rows)))
+        self.assertGreater(done['evidence_size']['bytes'], 0)
 
     def deliver_build_and_reflect(self):
         self.deliver_build()

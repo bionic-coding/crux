@@ -267,7 +267,7 @@ class EvidenceTests(unittest.TestCase):
     def test_hidden_local_skill_changes_invalidate_suite_evidence(self):
         from suite_evidence import INPUTS
         self.check["inputs"] = INPUTS
-        for location in (".claude/skills", ".agents/skills", ".opencode/skills", ".opencode/skill"):
+        for location in (".claude/skills", ".agents/skills", ".opencode/skills", ".opencode/skill", ".omp/skills"):
             with self.subTest(location=location):
                 skill = self.root / location / "example/SKILL.md"
                 skill.parent.mkdir(parents=True)

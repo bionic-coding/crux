@@ -165,7 +165,7 @@ class CommitBeforeRegenerationTests(unittest.TestCase):
     def test_propose_observation_regenerates_after_its_own_writes(self):
         text = read("propose-observation")
         self.assertNotIn("summarize-adrs.py", section(text, "### 6. Increment"))
-        self.assertLess(text.index("### 9. Append to `docs/log.md`"),
+        self.assertLess(text.index("### 9. Record the `observation` operation"),
                         text.index("summarize-adrs.py"))
 
 

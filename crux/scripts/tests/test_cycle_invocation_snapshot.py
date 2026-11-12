@@ -365,8 +365,9 @@ class InvocationSnapshotTests(fixtures.SliceBase):
         mutate(self.repo, self.cid, 'task-add', task={'id': 'second-task', 'phase': 'build', 'description': 'other work',
                'depends_on': [], 'status': 'pending', 'expected_evidence': ['commit']})
         first = self.prepare(host='codex')
+        # The concurrent developer isolates in its own worktree; a second main-checkout editor would be refused.
         second = self.ok({'op': 'prepare-dispatch', 'op_id': 'second-prepare-1', 'task_id': 'second-task',
-                          'role': 'developer', 'host': 'codex'})
+                          'role': 'developer', 'host': 'claude-code', 'mode': 'background'})
         for prepared, handle in ((first, 'actual-first-handle'), (second, 'actual-second-handle')):
             self.ok({'op': 'attach-execution', 'op_id': 'attach-' + handle, 'assignment': prepared['assignment'],
                      'attempt': 1, 'handle': handle})

@@ -71,7 +71,6 @@
       "Glob",
       "Agent(architect)",
       "Agent(brainstormer)",
-      "Agent(developer)",
       "Agent(dev-lead)",
       "Agent(historian)",
       "Agent(librarian)",
@@ -166,8 +165,7 @@
     "risk_level": "medium",
     "maxTurns": 200,
     "effort": "medium",
-    "skills": [],
-    "isolation": "worktree"
+    "skills": []
   },
   {
     "id": "historian",

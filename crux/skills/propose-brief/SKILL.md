@@ -41,7 +41,7 @@ Core principle: **scaffold, don't author** — with one sanctioned exception. A 
 
 Do **not** use this skill for:
 - Writing the brief's body — that's the user's job, **unless** `--from-inbox` supplies a whiteboarding session (the §2(b) machine-authored exception, which carries the session content into the body). Absent that flag, refuse to pre-fill the exploration content.
-- Transitioning a brief's status (`draft` → `published`, `draft` → `abandoned`) — that's the `transition-brief` skill (the lifecycle closer, the symmetric counterpart to `transition-adr`). Do NOT hand-edit the `status:` frontmatter to publish or abandon — the schema forbids hand-editing frontmatter outside a transition skill. **Abandon path:** when an exploration is dropped without becoming a decision, run `transition-brief` to move it `draft` → `abandoned` (it validates the transition, updates `updated_at` + the `docs/index.md` rollup, and writes a `brief` log op); the brief body stays as-is for the historical record.
+- Transitioning a brief's status (`draft` → `published`, `draft` → `abandoned`) — that's the `transition-brief` skill (the lifecycle closer, the symmetric counterpart to `transition-adr`). Do NOT hand-edit the `status:` frontmatter to publish or abandon — the schema forbids hand-editing frontmatter outside a transition skill. **Abandon path:** when an exploration is dropped without becoming a decision, run `transition-brief` to move it `draft` → `abandoned` (it validates the transition, updates `updated_at` + the `docs/index.md` rollup, and records a `brief` op through the log writer); the brief body stays as-is for the historical record.
 - Recording a decision — that's `propose-adr` (cite the brief with `--related-briefs BRIEF-<slug>`).
 - Promoting a brief to an ADR — that's `propose-adr`, not this skill.
 
@@ -82,7 +82,7 @@ Execute in order.
 
 ### 3. Write the file
 
-- Write `${FILE}`. If the write fails, **STOP** — no index/log changes.
+- Write `${FILE}`. If the write fails, **STOP** — no index or operations log changes.
 
 ### 4. Update `docs/index.md` brief rollup
 
@@ -91,15 +91,24 @@ Execute in order.
 - If no `## Briefs` section exists yet (first brief), create it in the correct concern order (after ADRs, before Journal — see `docs/AGENTS.md` §5).
 - Update the `_Last updated:_` line to `${TODAY}`.
 
-### 5. Append to `docs/log.md`
+### 5. Record the `brief` operation
 
-Prepended (newest first), using the `brief` op from the `docs/AGENTS.md` §6 canonical enum:
+Write the entry through the log writer (`docs/AGENTS.md` §6),[^log-writer] using the `brief` op from the §6 canonical enum. Write the body below to a file outside the tree, then run:
+
+```
+uv run "${CRUX_PLUGIN_ROOT}/scripts/operation-log.py" append --repo-root <repo-root> \
+  --op brief --subject 'scaffolded BRIEF-${SLUG}' --date ${TODAY} --body-file <path>
+```
+
+The entry it writes at the top of the current month's detail file `docs/log/YYYY-MM.md`:
 
 ```
 ## [${TODAY}] brief | scaffolded BRIEF-${SLUG}
 ```
 
 Body, 1–2 lines: the title, the file path, `status: draft`. Note the body is human-authored next — or, on the `--from-inbox` path, that the body was populated from the whiteboarding session (§2(b)).
+
+A refused append keeps this skill's other writes and adds no entry: fix the cause it names, then rerun the append alone (§6). Then run the commit step of §6 over the result's `commit_paths` and `restore_paths`.
 
 ### 6. Hand off to the user
 
@@ -116,7 +125,7 @@ Body, 1–2 lines: the title, the file path, `status: draft`. Note the body is h
 - [ ] The body is the template stub — NOT pre-filled exploration content (UNLESS `--from-inbox` carried a whiteboarding session, in which case the body is the session content per §2(b) and the leading directive/duplicate title were stripped).
 - [ ] `docs/index.md` `## Briefs (N)` count matches the actual `docs/briefs/BRIEF-*.md` file count, and a row for this brief is present.
 - [ ] `docs/index.md` `_Last updated:_` is `${TODAY}`.
-- [ ] `docs/log.md` has a new `## [${TODAY}] brief |` entry at the top.
+- [ ] The current month's detail file `docs/log/YYYY-MM.md` has a new `## [${TODAY}] brief |` entry at the top, written by `operation-log.py append`.
 - [ ] No ADR was created or modified (that's `propose-adr`).
 
 ## Red flags — STOP and reconsider
@@ -154,3 +163,5 @@ Body, 1–2 lines: the title, the file path, `status: draft`. Note the body is h
 - `audit-docs` — enforces the brief↔ADR bidirectional consistency (`related_briefs:` ↔ `related_adrs:`).
 - `docs/AGENTS.md` §2 (ownership — briefs are human-authored), §4 (briefs concern), §9 (slug rule), §10 (skill-invocation table).
 - Template: `crux/templates/BRIEF-template.md`.
+
+[^log-writer]: rule:log-entries-go-through-the-log-writer, rule:no-writer-writes-the-legacy-log-file

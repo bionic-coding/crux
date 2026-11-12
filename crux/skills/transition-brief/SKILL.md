@@ -105,7 +105,7 @@ If the target brief is already in the requested destination state, refuse with "
   - `updated_at: ${TODAY}`.
 - **Rewrite the body byte-for-byte.** Read everything after the closing `---` fence and rewrite it identically — never reformat, re-wrap, or touch a single line outside the frontmatter block.
 - Preserve frontmatter key order, comments, quote style, and trailing-newline conventions. Do NOT touch `created_at`, `title`, `slug`, `type`, `authors`, `tags`, `related_adrs`, `related_research`, or any other field.
-- Write `${FILE}` back. If the write fails, **STOP** — no index/log changes.
+- Write `${FILE}` back. If the write fails, **STOP** — no index or operations log changes.
 
 ### 4. Update `docs/index.md` brief rollup
 
@@ -114,9 +114,16 @@ If the target brief is already in the requested destination state, refuse with "
 - The `(N)` count is **unchanged** (the brief still exists; only its status changed) — but verify it still matches the actual `docs/briefs/BRIEF-*.md` file count.
 - Update the `_Last updated:_` line to `${TODAY}`.
 
-### 5. Append to `docs/log.md`
+### 5. Record the `brief` operation
 
-Prepended (newest first), using the `brief` op (`docs/AGENTS.md` §6 names `transition-brief` as that op's second writer):
+Write the entry through the log writer (`docs/AGENTS.md` §6),[^log-writer] using the `brief` op (§6 names `transition-brief` as that op's second writer). Write the body below to a file outside the tree, then run:
+
+```
+uv run "${CRUX_PLUGIN_ROOT}/scripts/operation-log.py" append --repo-root <repo-root> \
+  --op brief --subject 'BRIEF-${slug}: ${old_status} → ${new_status}' --date ${TODAY} --body-file <path>
+```
+
+The entry it writes at the top of the current month's detail file `docs/log/YYYY-MM.md`:
 
 ```markdown
 ## [${TODAY}] brief | BRIEF-${slug}: ${old_status} → ${new_status}
@@ -124,7 +131,9 @@ Prepended (newest first), using the `brief` op (`docs/AGENTS.md` §6 names `tran
 Transitioned BRIEF-${slug} from `${old_status}` to `${new_status}`. Body unchanged.
 ```
 
-The body is the transition format `BRIEF-<slug>: <old-status> → <new-status>`. Keep it terse — `log.md` is for grep, not reading.
+The body is the transition format `BRIEF-<slug>: <old-status> → <new-status>`. Keep it terse — the operations log is for grep, not reading.
+
+A refused append keeps this skill's other writes and adds no entry: fix the cause it names, then rerun the append alone (§6). Then run the commit step of §6 over the result's `commit_paths` and `restore_paths`.
 
 ### 6. Hand off to the user
 
@@ -142,7 +151,7 @@ The body is the transition format `BRIEF-<slug>: <old-status> → <new-status>`.
 - [ ] **Brief body bytes are byte-identical to pre-write** (nothing outside the frontmatter block changed).
 - [ ] `docs/index.md` `## Briefs (N)` row for this brief shows the new status and `updated_at: ${TODAY}`; the `(N)` count is unchanged and still matches the file count.
 - [ ] `docs/index.md` `_Last updated:_` is `${TODAY}`.
-- [ ] `docs/log.md` has a new `## [${TODAY}] brief | BRIEF-${slug}: ${old_status} → ${new_status}` entry at the top.
+- [ ] The current month's detail file `docs/log/YYYY-MM.md` has a new `## [${TODAY}] brief | BRIEF-${slug}: ${old_status} → ${new_status}` entry at the top, written by `operation-log.py append`.
 - [ ] No ADR and no other brief was created or modified.
 
 ## Red flags — STOP and reconsider
@@ -185,3 +194,5 @@ The body is the transition format `BRIEF-<slug>: <old-status> → <new-status>`.
 - `propose-adr` — the decision artifact that may cite a published brief (`--related-briefs BRIEF-<slug>`).
 - `audit-docs` — enforces brief↔ADR consistency; CHK-ADR-11 cross-checks brief draft-states.
 - `docs/AGENTS.md` §2 (ownership — briefs are human-authored), §4 (briefs write rules), §5 (index brief rollup format), §6 (`brief` log op), §7.A (SKILL.md frontmatter contract), §9 (slug rule), §10 (skill-invocation table).
+
+[^log-writer]: rule:log-entries-go-through-the-log-writer, rule:no-writer-writes-the-legacy-log-file

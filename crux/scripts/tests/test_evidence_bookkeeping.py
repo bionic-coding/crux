@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from _dev_surface import REPO_ROOT, require_dev_surface
 from _evidence_fixtures import write_lock_project
 from bionic_config import BionicConfigError
+import operation_log
 import suite_evidence
 import test_evidence as te
 
@@ -63,7 +64,6 @@ class RepoCase(unittest.TestCase):
         self.write("bionic/manifest.yml", 'schema_version: "5"\nconcerns_enabled: [journal]\n')
         (self.root / "bionic/AGENTS.md").write_bytes((SCRIPTS.parent / "templates" / "AGENTS.md.tmpl").read_bytes())
         self.write("bionic/journal/index.md", "# Journal index\n")
-        self.write("bionic/log.md", "# Operations log\n\n_Append-only. Newest first._\n\n")
         for rel in ("bionic/queue/cycles.yaml", "bionic/cycles/CYC-0001/cycle.json", "bionic/adrs/ADR-0001-x.md",
                     "bionic/arch/overview.md", "crux/scripts/tool.py", "crux/scripts/tests/test_x.py",
                     "crux/schemas/thing.schema.json", "tools/helper.py", "AGENTS.md", *NOTES,
@@ -92,11 +92,19 @@ class RepoCase(unittest.TestCase):
 
 
 class FiveWritesLeaveEvidenceValidTests(RepoCase):
-    def write_journal_entry(self):
+    def setUp(self):
+        super().setUp()
+        # The first log write of a tree splits it and records `.split-complete.json`, an input of the
+        # drift-gates receipt (OperationLogReceiptTests). This tree has had that write, as a tree
+        # in use has, so each later write below is the append the five-writes rule is about.
+        self.write_journal_entry("First write")
+        self.commit("first log write")
+
+    def write_journal_entry(self, subject="Bookkeeping entry"):
         body = self.root / "body.txt"
         body.write_text("A bookkeeping entry written by the real writer.\n")
         done = subprocess.run([sys.executable, str(WRITER), "--repo-root", str(self.root), "--mode", "journal",
-                               "--at", "2026-10-20T11:42:35-06:00", "--category", "learning", "--subject", "Bookkeeping entry",
+                               "--at", "2026-10-20T11:42:35-06:00", "--category", "learning", "--subject", subject,
                                "--body-file", str(body)], capture_output=True, text=True, env={**os.environ, "UV_NO_CONFIG": "1"})
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertEqual(json.loads(done.stdout)["status"], "complete")
@@ -105,8 +113,14 @@ class FiveWritesLeaveEvidenceValidTests(RepoCase):
 
     def bookkeeping_writes(self):
         yield "journal entry", self.write_journal_entry
-        yield "log.md append", lambda: (self.root / "bionic/log.md").write_text(
-            (self.root / "bionic/log.md").read_text() + "## [2026-10-20] skill | authored\n")
+        # The journal write above appends its log entry to the current month's detail file; a legacy log.md
+        # is still a bookkeeping path on a tree the new writer has not split. The drift-gates receipt
+        # excludes only the current month's file (OperationLogReceiptTests holds the settled-month side).
+        month = operation_log.local_date()[:7]
+        yield "log detail append", lambda: self.write(
+            f"bionic/log/{month}.md", f"# Operations log: {month}\n\n_Append-only. Latest write first._\n\n"
+            f"## [{month}-20] skill | authored\n")
+        yield "log.md append", lambda: self.write("bionic/log.md", "## [2026-10-20] skill | authored\n")
         yield "queue edit", lambda: self.write("bionic/queue/cycles.yaml", "original\nitem: edited\n")
         yield "cycle-record write", lambda: (self.write("bionic/cycles/CYC-0001/cycle.json", '{"phase": "reflect"}\n'),
                                              self.write("bionic/cycles/CYC-0002/cycle.json", "{}\n"))
@@ -202,6 +216,133 @@ class PositiveControlTests(RepoCase):
             self.assertNotEqual(after[name], before[name], name)
 
 
+class OperationLogReceiptTests(RepoCase):
+    """The operations log in test-evidence receipts: monthly detail files under bionic/log/.
+
+    Every receipt excludes the legacy log.md, the current month's detail file by the recording host's
+    local date, staged legacy files and staged strays. The drift-gates preset alone runs the summary gate,
+    so it keeps the settled detail files, the summary, the completion record, the transaction file and the
+    kept files as inputs and fingerprints the NAMES of the staged files. Every other preset excludes the
+    whole log directory. Each test passes the local date, so none depends on the clock.
+
+    Live-read audit (CYC-0134): no test of either suite root reads the live tree's `bionic/log/` or
+    `bionic/log.md`. `git ls-files bionic/log` is empty, every fixture here builds a temporary tree, and
+    the one live path left, `_dev_surface.TREE_LOG_MD`, has no reader.
+    """
+
+    LOG = "bionic/log"
+    LEGACY = ".legacy-" + "a" * 64 + ".md"
+    OTHER_LEGACY = ".legacy-" + "b" * 64 + ".md"
+    STRAY = ".stray-" + "c" * 64 + ".md"
+    OTHER_STRAY = ".stray-" + "d" * 64 + ".md"
+    TRANSACTION = ".split-" + "e" * 64 + ".json"
+    KEPT = ".kept-" + "f" * 64 + ".txt"
+    OTHER_PRESETS = ("whole-tree", "governs-references", "governs-coverage")
+
+    def month_file(self, month, text=None):
+        self.write(f"{self.LOG}/{month}.md", text or f"# Operations log: {month}\n\n## [{month}-05] skill | authored\n")
+
+    def declaration(self, preset="drift-gates", today="2026-10-20"):
+        command = ["python", "tools/anything.py"] if preset == "whole-tree" else None
+        return suite_evidence.preset_declaration(self.root, preset, "c-" + preset, command=command, today=today)
+
+    def snapshot(self, preset="drift-gates", today="2026-10-20"):
+        return te.snapshot(self.root, self.declaration(preset, today), source_root=self.root)
+
+    def fingerprint(self, preset="drift-gates", today="2026-10-20"):
+        return self.snapshot(preset, today)["fingerprint"]
+
+    def seed_log(self):
+        self.month_file("2026-09")
+        self.month_file("2026-10")
+        self.write(f"{self.LOG}/summary.md", "# Operations log summary\n")
+        self.write(f"{self.LOG}/.split-complete.json", "{}\n")
+        self.write(f"{self.LOG}/{self.TRANSACTION}", "{}\n")
+        self.write(f"{self.LOG}/{self.KEPT}", "kept\n")
+        self.commit("seed the log")
+
+    def log_inputs(self, preset="drift-gates", today="2026-10-20"):
+        return {name for name in self.snapshot(preset, today)["inputs"] if name.startswith(self.LOG + "/")}
+
+    def test_the_drift_gates_receipt_keeps_the_settled_files_and_excludes_the_current_month(self):
+        self.seed_log()
+        self.assertEqual(self.log_inputs(), {f"{self.LOG}/{name}" for name in (
+            "2026-09.md", "summary.md", ".split-complete.json", self.TRANSACTION, self.KEPT)})
+        exclusions = self.declaration()["exclude_inputs"]
+        self.assertIn(f"{self.LOG}/2026-10.md", exclusions)
+        self.assertIn("bionic/log.md", exclusions)
+        self.assertNotIn(self.LOG, exclusions)
+
+    def test_every_other_preset_and_both_registered_suites_exclude_the_whole_log_directory(self):
+        self.seed_log()
+        for preset in self.OTHER_PRESETS:
+            with self.subTest(preset=preset):
+                self.assertIn(self.LOG, self.declaration(preset)["exclude_inputs"])
+                self.assertEqual(self.log_inputs(preset), set())
+        for check in (CORE, TOOLS):
+            with self.subTest(check=check):
+                registered = suite_evidence.registered_declaration(self.root, check, dev_root=self.root)
+                self.assertIn(self.LOG, registered["exclude_inputs"])
+                found = te.snapshot(self.root, registered, source_root=self.root)["inputs"]
+                self.assertEqual({name for name in found if name.startswith(self.LOG + "/")}, set())
+
+    def test_a_receipt_recorded_on_a_months_last_day_lapses_on_the_first_day_of_the_next(self):
+        self.seed_log()
+        last, first = self.fingerprint(today="2026-10-31"), self.fingerprint(today="2026-11-01")
+        self.assertNotEqual(last, first)
+        # Positive control: another day of the same month gives the same fingerprint.
+        self.assertEqual(self.fingerprint(today="2026-10-01"), last)
+
+    def test_the_current_months_file_never_moves_the_fingerprint_and_a_settled_month_does(self):
+        self.seed_log()
+        before = self.fingerprint()
+        # A heading no reader accepts, in the current month's file: the receipt stays valid.
+        self.month_file("2026-10", "# Operations log: 2026-10\n\n## [not a date] ???\nbody\n")
+        self.assertEqual(self.fingerprint(), before)
+        # Positive control: the same edit to a settled month lapses the receipt.
+        self.month_file("2026-09", "# Operations log: 2026-09\n\n## [not a date] ???\nbody\n")
+        self.assertNotEqual(self.fingerprint(), before)
+
+    def test_the_summary_the_completion_record_the_transaction_and_the_kept_file_are_inputs(self):
+        self.seed_log()
+        before = self.fingerprint()
+        for name in ("summary.md", ".split-complete.json", self.TRANSACTION, self.KEPT):
+            with self.subTest(name=name):
+                original = (self.root / self.LOG / name).read_text()
+                self.write(f"{self.LOG}/{name}", "changed\n")
+                self.assertNotEqual(self.fingerprint(), before)
+                self.write(f"{self.LOG}/{name}", original)
+                self.assertEqual(self.fingerprint(), before)
+
+    def test_the_names_of_staged_files_move_the_fingerprint_and_their_bytes_do_not(self):
+        self.seed_log()
+        bare = self.fingerprint()
+        for label, name, other in (("legacy", self.LEGACY, self.OTHER_LEGACY), ("stray", self.STRAY, self.OTHER_STRAY)):
+            with self.subTest(kind=label):
+                self.write(f"{self.LOG}/{name}", "## [2026-10-02] skill | authored\n")
+                named = self.fingerprint()
+                self.assertNotEqual(named, bare)  # the name alone: an incomplete split state
+                self.assertIn(f"{self.LOG}/{name}", self.declaration()["exclude_inputs"])
+                self.write(f"{self.LOG}/{name}", "entirely different bytes\n")
+                self.assertEqual(self.fingerprint(), named)  # the bytes are not read
+                (self.root / self.LOG / name).rename(self.root / self.LOG / other)
+                self.assertNotEqual(self.fingerprint(), named)  # another name moves it
+                (self.root / self.LOG / other).unlink()
+                self.assertEqual(self.fingerprint(), bare)
+
+    def test_a_legacy_log_md_is_excluded_by_every_preset_including_drift_gates(self):
+        self.seed_log()
+        for preset in ("drift-gates", *self.OTHER_PRESETS):
+            with self.subTest(preset=preset):
+                before = self.fingerprint(preset)
+                self.write("bionic/log.md", f"## [2026-10-20] skill | authored\n{preset}\n")
+                self.assertEqual(self.fingerprint(preset), before)
+
+    def test_an_invalid_date_is_refused(self):
+        with self.assertRaisesRegex(Exception, "today"):
+            self.declaration(today="2026-13-45")
+
+
 class BookkeepingPathsSettingTests(RepoCase):
     def set_paths(self, value_lines):
         self.write(".bionic.yml", 'config_version: "1"\ndocs_dir: bionic\n' + value_lines)
@@ -291,7 +432,9 @@ class DeclareTests(RepoCase):
             with self.subTest(preset=preset):
                 command = ["python", "tools/anything.py"] if preset == "whole-tree" else None
                 declaration = suite_evidence.preset_declaration(self.root, preset, "c", command=command)
-                self.assertEqual(declaration["exclude_inputs"], expected)
+                # drift-gates alone keeps the settled log files as inputs (OperationLogReceiptTests).
+                self.assertEqual(declaration["exclude_inputs"],
+                                 suite_evidence.drift_gates_exclusions(self.root) if preset == "drift-gates" else expected)
                 if preset in DASHBOARD_GATES:
                     self.assertNotEqual(declaration["inputs"], suite_evidence.INPUTS)
                     self.assertIs(declaration["git_tracked"], False)
@@ -365,7 +508,7 @@ class DeclareCliTests(RepoCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         declaration = json.loads(done.stdout)
         self.assertEqual(declaration, suite_evidence.preset_declaration(self.root, "drift-gates", "cycle:drift-gates"))
-        self.assertEqual(declaration["exclude_inputs"], suite_evidence.runtime_exclusions(self.root))
+        self.assertEqual(declaration["exclude_inputs"], suite_evidence.drift_gates_exclusions(self.root))
         check = self.root / "declared.json"
         check.write_text(done.stdout)
         looked = subprocess.run([sys.executable, str(CLI), "lookup", "--repo-root", str(self.root), "--check", str(check)],

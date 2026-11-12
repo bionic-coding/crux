@@ -62,7 +62,7 @@ configuration. Human ADR acceptance still defaults to council-and-human.
 
 ## Overview
 
-The bootstrap operation for the `crux` plugin. Runs once per repository. Creates the full seven-concern documentation tree (code, research, adrs, briefs, journal, promptbooks, invariants) plus the default-on derived arch spine and the default-on observations concern at the resolved `docs_dir` — `bionic/` for a new repository — plus the four files at the tree's top level (`${DOCS_DIR}/AGENTS.md`, `index.md`, `log.md`, `manifest.yml`) plus seeded sub-indexes. Step 9 creates a repo-root `AGENTS.md` when the root holds no `AGENTS.md` or `CLAUDE.md` in any letter case. A `CLAUDE.local.md` does not block that create. Step 9 appends to an exact `AGENTS.md` that exists, and it reports a `CLAUDE.md` or a case variant of `AGENTS.md` with its remedy instead of writing to it. The invariants concern is ONE folder: the ledger, its `checks/` subdirectory, and `reconciliation.yml` all live inside the tree (see docs/AGENTS.md §15). New repos enable the invariants concern **by default** at `schema_version: "5"`, enable the observations concern **by default** additively (docs/AGENTS.md §17 — no `schema_version` bump), and init writes `.bionic.yml` naming the tree it created (merged, never clobbered, when a config already exists). Refuses to touch an existing tree unless `--force` is passed.
+The bootstrap operation for the `crux` plugin. Runs once per repository. Creates the full seven-concern documentation tree (code, research, adrs, briefs, journal, promptbooks, invariants) plus the default-on derived arch spine and the default-on observations concern at the resolved `docs_dir` — `bionic/` for a new repository — plus the three files at the tree's top level (`${DOCS_DIR}/AGENTS.md`, `index.md`, `manifest.yml`), the operations log's first detail file under `log/`, plus seeded sub-indexes. Step 9 creates a repo-root `AGENTS.md` when the root holds no `AGENTS.md` or `CLAUDE.md` in any letter case. A `CLAUDE.local.md` does not block that create. Step 9 appends to an exact `AGENTS.md` that exists, and it reports a `CLAUDE.md` or a case variant of `AGENTS.md` with its remedy instead of writing to it. The invariants concern is ONE folder: the ledger, its `checks/` subdirectory, and `reconciliation.yml` all live inside the tree (see docs/AGENTS.md §15). New repos enable the invariants concern **by default** at `schema_version: "5"`, enable the observations concern **by default** additively (docs/AGENTS.md §17 — no `schema_version` bump), and init writes `.bionic.yml` naming the tree it created (merged, never clobbered, when a config already exists). Refuses to touch an existing tree unless `--force` is passed.
 
 **New-repo bootstrap only — never an in-place upgrade.** `init-docs` governs the greenfield bootstrap; it MUST NOT enable or upgrade the invariants concern in place in an established (populated) tree. An older tree uses the pinned public recovery release's schema ladder on a copy. `init-docs --force` on a populated tree is a destructive *re-bootstrap*, not a migration: it archives the existing tree to `${DOCS_DIR}.bak.${TODAY}/` (never deletes) and builds a fresh tree of seven concerns plus the derived arch spine at `schema_version: "5"` — a replacement, not an in-place migration of the old data.
 
@@ -70,7 +70,7 @@ Core principle: **deterministic, idempotent-with-force, never partial**. Either 
 
 **Rollback contract.** Track every path this run writes as it is written, and record the PRIOR content of any pre-existing file it modifies (a merged `.bionic.yml`, the appended repo-root `AGENTS.md` line, an overwritten `USER_GUIDE.md`) before mutating it. On failure: remove ONLY the recorded new paths — files first, then the now-empty directories bottom-up — and **refuse to remove any path not on the list** (report it instead; a directory whose contents are unaccounted for is never removed). Restore the recorded prior content of every modified pre-existing file. If the run archived an existing tree under `--force`, move `${ARCHIVE}` back to `${DOCS_DIR}` — unless `${DOCS_DIR}` still exists (the unaccounted-contents branch refused to clear it), in which case do NOT move and instead report both paths. Always state the archive path in the failure report. The repo-root `AGENTS.md` that step 9 created is a new path. Remove it only through step 9's guarded rollback, never by path. That rollback deletes the file only when it still finds the regular file this run created. Never `rm -rf` the whole `${DOCS_DIR}/` directory.
 
-This skill owns: the directory tree, the `AGENTS.md` template substitution, `manifest.yml` generation (including language detection), the bootstrap meta-ADR, all root and sub-concern `index.md` headers, the seed `journal/YYYY-MM.md` for the current month, and the first `log.md` entry.
+This skill owns: the directory tree, the `AGENTS.md` template substitution, `manifest.yml` generation (including language detection), the bootstrap meta-ADR, all root and sub-concern `index.md` headers, the seed `journal/YYYY-MM.md` for the current month, and the first operations-log entry, which it writes through `operation-log.py append`.
 
 ## When to use
 
@@ -264,17 +264,20 @@ _No pages yet. Run `extract-code-docs` to populate. See [[code/index]] once pres
 
 **`${DOCS_DIR}/objectives.md`** — the placeholder objectives file, per `docs/AGENTS.md` §5.B. Read `${CRUX_PLUGIN_ROOT}/templates/objectives.md.tmpl`, substitute `${REPO_NAME}` and `${TODAY}`, and write it verbatim otherwise: `maturity: placeholder` stays as written, because the value is what tells every later reader (the decision review, the cleanup nudge, the night gardener) to ask the owner to populate the file rather than cite it. Never draft a mission or a goal here; the owner writes those.
 
-**`${DOCS_DIR}/log.md`**
+**The `init` operations-log entry** — written by the log writer, never by hand, and only after step 5 wrote `${DOCS_DIR}/AGENTS.md`, because the writer reads the op enum from that file's §6. Write this body to a file outside the tree:
 
 ```markdown
-# Operations log
-
-_Append-only. Newest first._
-
-## [${TODAY}] init | crux bootstrap
-
 Created `${DOCS_DIR}/` tree at schema_version 5 (seven concerns incl. invariants, plus the arch spine (deferred to first derive/audit) and the observations concern). Detected languages: ${LANGS}. Meta-ADR seeded.
 ```
+
+Then run:
+
+```
+uv run "${CRUX_PLUGIN_ROOT}/scripts/operation-log.py" append --repo-root ${REPO_ROOT} \
+  --op init --subject 'crux bootstrap' --date ${TODAY} --body-file <path>
+```
+
+On a tree with no log file, the command records the first split as complete in `${DOCS_DIR}/log/.split-complete.json`, creates the current month's detail file `${DOCS_DIR}/log/YYYY-MM.md` with its header, and writes the entry `## [${TODAY}] init | crux bootstrap`.[^init-log] `init-docs` creates no `${DOCS_DIR}/log.md`. The result must report `status: written`; a refusal names its fix (docs/AGENTS.md §6). Then run the commit step of `${DOCS_DIR}/AGENTS.md` §6 over the result's `commit_paths` and `restore_paths`.
 
 **`${DOCS_DIR}/research/sources.md`** — exactly the nine-column header from the samples pattern:
 
@@ -559,7 +562,7 @@ See below. If any item fails, roll back per the rollback contract (remove only t
 - [ ] `${DOCS_DIR}/invariants/index.md` exists (Pins (0)); `${DOCS_DIR}/invariants/reconciliation.yml` exists and parses (`config_version: "1"`, `checks: []`) — the invariants concern is audit-clean at 0 pins.
 - [ ] `${DOCS_DIR}/observations/index.md` exists (Records (0)) and `${DOCS_DIR}/observations/` holds no other file — the observations concern is audit-clean at 0 records.
 - [ ] `${DOCS_DIR}/arch/` exists with a placeholder `index.md`, the spine was NOT built at init (deferred to the first `derive-arch` / `audit-docs`), and the master `${DOCS_DIR}/index.md` has NO `## Arch` section.
-- [ ] `${DOCS_DIR}/log.md` exists with exactly one `## [${TODAY}] init |` entry, and its body records schema_version 5 (agreeing with the manifest).
+- [ ] `${DOCS_DIR}/log/YYYY-MM.md` (the current month) exists with the detail header and exactly one `## [${TODAY}] init |` entry, whose body records schema_version 5 (agreeing with the manifest). `${DOCS_DIR}/log/.split-complete.json` exists, and `${DOCS_DIR}/log.md` does not.
 - [ ] `${DOCS_DIR}/objectives.md` exists, carries `maturity: placeholder`, the substituted `${REPO_NAME}`, and the three H2 headings `## Mission`, `## Goals`, `## Shifts` in that order (per `docs/AGENTS.md` §5.B).
 - [ ] `${DOCS_DIR}/adrs/${META_BASENAME}` exists (unless `--no-adr-0000`).
 - [ ] `${DOCS_DIR}/adrs/index.md` exists with the meta-ADR row.
@@ -592,7 +595,7 @@ See below. If any item fails, roll back per the rollback contract (remove only t
 - About to silently edit the repo-root `AGENTS.md`. Two appends are sanctioned and no others, both made by the step 9 helper: the one-line tree reference (skip it if already referenced), and the objectives block (skip it if the file already names `objectives.md`). Both append and preserve existing content and generated regions. The one sanctioned create is step 9's, for a root that holds no `AGENTS.md` or `CLAUDE.md` in any letter case. Anything beyond those is a silent edit — don't.
 - About to create a repo-root `AGENTS.md` beside a `CLAUDE.md` or a case variant of `AGENTS.md`, to append to a case variant, or to write through a symlink. Step 9 refuses all three and reports the entry with its remedy; converting a legacy file is `audit-docs --migrate`'s work.
 - About to write the repo-root `AGENTS.md` by hand instead of running the step 9 helper. The helper alone creates the file with an exclusive, no-follow open and records what it created, so a failed run removes only that file.
-- About to create the tree but skip the `## [${TODAY}] init |` log entry. The audit relies on this entry to know the schema version was bootstrapped today.
+- About to create the tree but skip the `## [${TODAY}] init |` log entry, or to write it, or a `${DOCS_DIR}/log.md`, by hand instead of through `operation-log.py append`. The audit relies on this entry to know the schema version was bootstrapped today.
 - About to overwrite a pre-existing `USER_GUIDE.md` at repo root without `--force` AND an explicit per-file confirmation. The user may have customized it; preserve it and surface a WARNING.
 - About to leave a stale `USER_GUIDE.md` referencing a different `{{repo_name}}` after `--force` regeneration. Always substitute.
 
@@ -601,3 +604,5 @@ See below. If any item fails, roll back per the rollback contract (remove only t
 The Red flags list above is the primary stop-list. For the fuller
 excuse→reality mapping and the recurring-mistake catalog, read
 [`references/pitfalls.md`](references/pitfalls.md).
+
+[^init-log]: rule:init-docs-starts-the-log-in-a-detail-file, rule:init-docs-records-the-split-complete

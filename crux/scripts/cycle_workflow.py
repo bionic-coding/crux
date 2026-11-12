@@ -54,7 +54,7 @@ SEEDED_PLAN_TASK = {'id': 'plan', 'phase': 'plan', 'status': 'pending',
                     'description': 'Write the plan, and the IDR where the work needs one, and record them in this cycle',
                     'expected_evidence': ['the recorded plan, and the IDR when one is required']}
 ID = re.compile(r'^(?:[A-Z][A-Z0-9]{1,9}-)?CYC-[0-9]{4,}$')
-CLOSED = {'completed', 'abandoned'}
+CLOSED = {'completed', 'abandoned', 'shortcut'}
 # Attempt states that hold a task on a version-3 record.
 OPEN = ('reserved', 'running')
 # The assignment fields a version-3 record adds; low-level entries carry them as null.
@@ -80,6 +80,74 @@ def listed(doc):
 def legacy(doc):
     """A release record from before the fixed lists: historical, closable only."""
     return doc['type'] == 'release' and not doc.get('release_list')
+
+
+def satisfied(tasks, ident):
+    """Whether a dependency on `ident` is satisfied, over a mapping of task id to task.
+
+    A done task satisfies it; a superseded task satisfies it once its superseder is done (one hop)."""
+    task = tasks.get(ident)
+    if task is None:
+        return False
+    if task['status'] == 'done':
+        return True
+    if task['status'] == 'superseded':
+        other = tasks.get(task.get('superseded_by'))
+        return other is not None and other['status'] == 'done'
+    return False
+
+
+def dependency_satisfied(doc, ident):
+    """The one dependency predicate every dependency check reads."""
+    return satisfied({t['id']: t for t in doc['plan']['tasks']}, ident)
+
+
+def task_closed(task):
+    """A task a phase closes over: done, or superseded (it never runs)."""
+    return task['status'] in ('done', 'superseded')
+
+
+def validate_supersession(doc):
+    """The standing supersession invariants every save holds."""
+    tasks = {t['id']: t for t in doc['plan']['tasks']}
+    for task in tasks.values():
+        superseded = task['status'] == 'superseded'
+        if superseded != ('superseded_by' in task):
+            raise CycleError(f"task {task['id']}: superseded_by is present exactly when the status is superseded")
+        if not superseded:
+            continue
+        if listed(doc):
+            raise CycleError(f"task {task['id']}: a listed release cycle holds no superseded task; a failed step is fixed and rerun")
+        other = tasks.get(task['superseded_by'])
+        if other is None or other['id'] == task['id']:
+            raise CycleError(f"task {task['id']}: its superseder {task['superseded_by']} must be another task in the plan")
+        if other['status'] == 'superseded':
+            raise CycleError(f"task {task['id']}: its superseder {other['id']} is itself superseded")
+        if other['phase'] != task['phase']:
+            raise CycleError(f"task {task['id']}: its superseder {other['id']} belongs to another phase")
+    for task in tasks.values():
+        named = [unit for unit in task.get('integrates', []) if unit in tasks and tasks[unit]['status'] == 'superseded']
+        if named:
+            raise CycleError(f"task {task['id']} integrates superseded task {', '.join(named)}; integration proof requires a done child")
+    # The effective graph: a superseded task's only out-edge is to its superseder.
+    graph = {i: ([t['superseded_by']] if t['status'] == 'superseded' else list(t['depends_on'])) for i, t in tasks.items()}
+    state = {}
+    for start in graph:
+        stack = [(start, iter(graph[start]))]
+        if state.get(start) == 'done':
+            continue
+        state[start] = 'visiting'
+        while stack:
+            node, edges = stack[-1]
+            nxt = next(edges, None)
+            if nxt is None:
+                state[node] = 'done'
+                stack.pop()
+            elif state.get(nxt) == 'visiting':
+                raise CycleError('task dependencies contain a cycle through a superseded task and its superseder')
+            elif nxt in graph and state.get(nxt) is None:
+                state[nxt] = 'visiting'
+                stack.append((nxt, iter(graph[nxt])))
 
 
 # The phase after Build is 'test' on a record without phase_names and 'verify' on a record that carries it.
@@ -132,6 +200,11 @@ def contained(root: Path, relative: str | Path) -> Path:
     if any(parent.is_symlink() for parent in (target, *target.parents) if parent != root.parent):
         raise CycleError('symlink paths are refused')
     return target
+
+
+def scope_paths(root: Path, scope) -> list[Path]:
+    """The repository paths that `scope` entries name, through `contained`; `create` and the prerequisite check share it."""
+    return [contained(root, name) for name in scope]
 
 
 def atomic(path: Path, value):
@@ -225,7 +298,17 @@ def validate_arrangement(plan):
                     raise CycleError('independent stream paths must be disjoint')
             independent.append(paths)
     tasks = {task['id']: task for task in plan['tasks']}
+    declared = {stream['id']: stream for stream in streams}
     for task in tasks.values():
+        if 'stream' in task:
+            # Only an independent stream is disjoint from the others, so only its commits can be told apart.
+            if task['stream'] not in declared:
+                raise CycleError(f"task {task['id']}: stream {task['stream']} is not a declared plan stream")
+            if not declared[task['stream']]['independent']:
+                raise CycleError(f"task {task['id']}: stream {task['stream']} is not independent; a task names only an independent stream")
+        names = task.get('adr_dependencies', [])
+        if any(not name.strip() or name != name.strip() for name in names) or len(names) != len(set(names)):
+            raise CycleError(f"task {task['id']}: adr_dependencies must name distinct non-empty ADR decision names")
         units = task.get('integrates', [])
         if not units:
             continue
@@ -278,6 +361,7 @@ def validate(doc):
             visit(dependency, visiting | {node})
     for node in graph:
         visit(node, set())
+    validate_supersession(doc)
     if listed(doc):
         fixed = RELEASE_LISTS[doc['release_list']]
         expected = [(tid, 'release', [fixed[i - 1][0]] if i else []) for i, (tid, _, _) in enumerate(fixed)]
@@ -344,8 +428,7 @@ def create(repo, kind, title, goal, scope, acceptance, implementer, coordinator,
     if kind != 'release' and release_list is not None:
         raise CycleError('--list belongs to release cycles')
     with locked(repo) as (cfg, directory):
-        for name in scope:
-            contained(cfg.repo_root, name)
+        scope_paths(cfg.repo_root, scope)
         if kind == 'release':
             from cycle_hosts import release_scope
             release_scope(cfg, scope, release_list)
@@ -721,16 +804,56 @@ def check_withdrawals(doc):
             raise CycleError(f"IDR {row['name']} was withdrawn, and its task {', '.join(restored)} is in the plan again; remove it with a plan revision")
 
 
-def check_decisions(cfg, doc):
+def recorded_adr_status(cfg, decision):
+    """The `status` the ADR file of a recorded decision states; `unknown` when the file cannot be read."""
+    try:
+        from decision_policy import frontmatter
+        front, _ = frontmatter(contained(cfg.docs_root, decision['path']).read_text())
+        return str(front.get('status') or 'unknown')
+    except (OSError, ValueError, CycleError):
+        return 'unknown'
+
+
+def adr_dependency_problems(cfg, doc, task):
+    """Each problem of the ADR decisions a task names in `adr_dependencies`, in the order it names them.
+
+    A name resolves only to an ADR decision recorded in this cycle; its latest recorded revision must be accepted
+    (IDR closure-and-decision-gates approach 7). An ADR accepted elsewhere is not a recorded decision of this cycle.
+    Each problem is {code, name, status, problem}; an empty list means the task's decisions permit it."""
+    problems = []
+    for name in task.get('adr_dependencies', []):
+        latest = None
+        for decision in doc.get('decisions', []):
+            if decision['kind'] == 'adr' and decision['name'] == name:
+                latest = decision
+        if latest is None:
+            problems.append({'code': 'adr-dependency-unrecorded', 'name': name, 'status': None,
+                             'problem': f"task {task['id']} depends on ADR {name}, which no ADR decision of this cycle records; "
+                                        'adr_dependencies names ADR decisions recorded in this cycle only'})
+        elif not latest.get('accepted'):
+            status = recorded_adr_status(cfg, latest)
+            problems.append({'code': 'adr-dependency-awaiting-acceptance', 'name': name, 'status': status,
+                             'problem': f"task {task['id']} depends on ADR {name}, whose latest recorded revision is {status}, not accepted"})
+    return problems
+
+
+def check_decisions(cfg, doc, completion=False):
+    """Require the approvals dependent work needs.
+
+    An unaccepted cycle ADR blocks only an unfinished task that names it in `adr_dependencies`: a task of the current
+    phase when the cycle leaves the phase, a task of any phase when it completes (IDR closure-and-decision-gates
+    approach 7). An accepted ADR still passes validate_acceptance."""
     check_withdrawals(doc)
     withdrawn = withdrawn_names(doc)
     required = doc['type'] in ('dev', 'simplify') or any(d['kind'] == 'idr' and d['name'] not in withdrawn for d in doc['decisions'])
     if required and not approvals(cfg, doc, 'idr'):
         raise CycleError('council or owner approval of an exact IDR revision is required before dependent work')
+    for task in doc['plan']['tasks']:
+        if not task_closed(task) and (completion or task['phase'] == doc['phase']):
+            for problem in adr_dependency_problems(cfg, doc, task):
+                raise CycleError(f"{problem['code']}: {problem['problem']}")
     for decision in doc['decisions']:
-        if decision['kind'] == 'adr':
-            if not decision.get('accepted'):
-                raise CycleError('an ADR dependency is awaiting acceptance')
+        if decision['kind'] == 'adr' and decision.get('accepted'):
             from decision_policy import validate_acceptance
             validate_acceptance(cfg, decision)
     # Every retained IDR revision marked current requires its own approval.
@@ -897,7 +1020,7 @@ BASIS_VERSION = 4
 # so a future task field forces a decision rather than silently entering or
 # leaving the basis.
 TASK_BASIS_FIELDS = ('id', 'phase', 'description', 'expected_evidence', 'integrates')
-TASK_BOOKKEEPING_FIELDS = ('depends_on', 'status', 'assignee', 'result_path', 'commits', 'evidence', 'stage', 'note', 'replaced_commits', 'fix', 'adopted_commits')
+TASK_BOOKKEEPING_FIELDS = ('depends_on', 'status', 'assignee', 'result_path', 'commits', 'evidence', 'stage', 'note', 'replaced_commits', 'fix', 'adopted_commits', 'adr_dependencies', 'stream', 'superseded_by')
 
 
 def review_basis_digest(doc, version):
@@ -989,7 +1112,8 @@ def basis_binds(report, v1, v2, v3=None, v4=None):
     return False
 
 
-def check_review(cfg, doc):
+def qualifying_review(cfg, doc):
+    """The latest review of the current pass that binds the current source and review basis and is not by an implementer, as (ref, report); None without one."""
     v1, v2, v3, v4 = review_basis_v1(doc), review_basis_v2(doc), review_basis_digest(doc, 3), review_basis(doc)
     for ref in reversed(doc['reviews']):
         report = read_retained(cfg, ref)
@@ -997,10 +1121,18 @@ def check_review(cfg, doc):
             continue
         if report['reviewer'] in doc['implementers']:
             continue
-        if report['verdict'] == 'approve' and not report['blocking']:
-            return report
-        raise CycleError('blocking review findings require returning through the cycle')
-    raise CycleError('a passing independent review of the current scope is required')
+        return ref, report
+    return None
+
+
+def check_review(cfg, doc):
+    found = qualifying_review(cfg, doc)
+    if found is None:
+        raise CycleError('a passing independent review of the current scope is required')
+    report = found[1]
+    if report['verdict'] == 'approve' and not report['blocking']:
+        return report
+    raise CycleError('blocking review findings require returning through the cycle')
 
 
 def requirements(cfg, doc, target, first=False):
@@ -1022,7 +1154,8 @@ def requirements(cfg, doc, target, first=False):
 
     def tasks_done(phase=None, message='current phase has unfinished tasks'):
         def check():
-            open_tasks = [f"{t['id']} ({t['status']})" for t in doc['plan']['tasks'] if t['status'] != 'done' and (phase is None or t['phase'] == phase)]
+            # A superseded task never runs, so a phase closes over it (listed release cycles never hold one).
+            open_tasks = [f"{t['id']} ({t['status']})" for t in doc['plan']['tasks'] if not task_closed(t) and (phase is None or t['phase'] == phase)]
             if open_tasks:
                 raise CycleError(f'{message}: {unmet_message(open_tasks)}')
         return check
@@ -1032,7 +1165,7 @@ def requirements(cfg, doc, target, first=False):
         need('completion', lambda: check_completion(cfg, doc))
         return items
     phase = 'reflect' if target == 'completion' else doc['phase']
-    need('decisions', lambda: check_decisions(cfg, doc))
+    need('decisions', lambda: check_decisions(cfg, doc, completion=target == 'completion'))
     need('phase-tasks', tasks_done(phase))
     if phase == 'plan':
         def plan_check():
@@ -1075,7 +1208,7 @@ def first_unmet(cfg, doc, target='next'):
 
 
 
-DELIVERY_FIELDS = ('assignee', 'result_path', 'commits', 'evidence', 'stage', 'note', 'replaced_commits', 'fix', 'adopted_commits')
+DELIVERY_FIELDS = ('assignee', 'result_path', 'commits', 'evidence', 'stage', 'note', 'replaced_commits', 'fix', 'adopted_commits', 'superseded_by')
 STAGES = ('implemented', 'integrated')
 
 
@@ -1131,6 +1264,41 @@ def reopen(task):
     task.pop('stage', None)
 
 
+def execution_return_probe(cfg, doc, task_id):
+    """Check a return given --execution-task; return the execution_refusal the event retains.
+
+    The writer observes the refusal itself: (a) the task belongs to the current phase and is
+    pending or blocked; (b) no assignment of the cycle is reserved or running; (c) the writer's
+    own collect-mode probe of the task's next attempt refuses at least one commit with
+    execution-foreign-source or execution-source-outside-scope and no commit with another code.
+    """
+    from cycle_execution import return_probe
+    task = next((t for t in doc['plan']['tasks'] if t['id'] == task_id), None)
+    if task is None or task['phase'] != doc['phase'] or task['status'] not in ('pending', 'blocked'):
+        raise CycleError(f'return-execution-task-invalid: --execution-task {task_id} must name a pending or blocked '
+                         f'task of the current phase ({doc["phase"]})')
+    open_attempts = [f"{e['id']}/{e['attempt']}" for e in doc.get('assignments', []) if e.get('state') in ('reserved', 'running')]
+    if open_attempts:
+        raise CycleError('return-attempts-open: a return with --execution-task needs every attempt delivered or marked '
+                         'lost first; open: ' + ', '.join(open_attempts))
+    refusal, problem = return_probe(cfg, doc, task_id)
+    if problem is None:
+        return refusal
+    code = problem['code']
+    if code == 'no-refused-row':
+        raise CycleError(f'return-execution-not-refused: the execution proof of task {task_id} refuses no commit; '
+                         f're-dispatch the task with prepare-dispatch instead of returning')
+    if code == 'execution-dirty-owned-paths':
+        paths = ', '.join(problem.get('details', {}).get('paths', []))
+        raise CycleError(f'return-execution-refused: execution-dirty-owned-paths ({paths}). Under the work-in-progress '
+                         'exception the refused attempt commits its owned edits with git commit --only, naming exactly '
+                         "the edited paths of its refused execution-check under its own task's Cycle-Task trailer, and "
+                         'lists that commit in its blocked delivery; bytes of unknown authorship follow the out-of-scope '
+                         'removal rule')
+    raise CycleError(f'return-execution-refused: {code}; the execution proof of task {task_id} refuses with a code '
+                     'other than execution-foreign-source or execution-source-outside-scope, so the return is refused')
+
+
 def start_pass(cfg, doc):
     """Reset tasks for a new pass: Plan and Build tasks whose delivery still holds stay; others reset.
 
@@ -1144,13 +1312,36 @@ def start_pass(cfg, doc):
             else:
                 dropped.add(task['id'])
             continue
-        if task['phase'] not in {'plan', 'build'} or not delivery_holds(cfg, task):
+        # A superseded task stays superseded, with its superseded_by, across a new pass.
+        if task['status'] != 'superseded' and (task['phase'] not in {'plan', 'build'} or not delivery_holds(cfg, task)):
             reopen(task)
         kept.append(task)
     for task in kept:
         task['depends_on'] = [d for d in task['depends_on'] if d not in dropped]
     doc['plan']['tasks'] = kept
     doc['plan']['revision'] += 1
+
+
+def kept_build_tasks(cfg, tasks):
+    """The tasks a type change keeps: done Build tasks whose delivery still holds.
+
+    Done Plan, Verify, Review and Reflect tasks are dropped, and so is a done task that integrates a dropped
+    task. A kept task's depends_on drops the ids of tasks not kept; the type-changed event keeps the old plan."""
+    kept = {t['id']: t for t in tasks if t['phase'] == 'build' and t['status'] == 'done' and delivery_holds(cfg, t)}
+    changed = True
+    while changed:
+        changed = False
+        for ident, task in list(kept.items()):
+            if any(unit not in kept for unit in task.get('integrates', [])):
+                del kept[ident]
+                changed = True
+    out = []
+    for task in tasks:
+        if task['id'] in kept:
+            task = deepcopy(task)
+            task['depends_on'] = [d for d in task['depends_on'] if d in kept]
+            out.append(task)
+    return out
 
 
 REPLAN_FIELDS = ('phase', 'description', 'expected_evidence', 'depends_on', 'integrates')
@@ -1182,6 +1373,14 @@ def replan(cfg, previous, plan):
             continue
         new = deepcopy(task)
         marked = task.get('status') == 'done'
+        if old['status'] == 'superseded':
+            # A superseded task accepts no later state change; a changed field keeps status and superseded_by together.
+            if marked:
+                raise CycleError(f"plan task {task['id']} is superseded and accepts no state change")
+            new['status'] = 'superseded'
+            new['superseded_by'] = old['superseded_by']
+            merged.append(new)
+            continue
         new['status'] = 'done' if marked else old['status']
         for key in DELIVERY_FIELDS:
             if key in old:
@@ -1551,7 +1750,13 @@ def updated_task(cfg, doc, task, args):
     if not any(fields.values()) and not commits and not evidence and not pair and not args.get('fix_before') and not args.get('fix_after') and not args.get('fix_observation') and not args.get('adopt_commits'):
         raise CycleError('task update names no state or delivery field')
     state = fields['state']
-    if state == 'done' and any(t['status'] != 'done' for t in doc['plan']['tasks'] if t['id'] in task['depends_on']):
+    if task['status'] == 'superseded':
+        raise CycleError(f"task {task['id']} is superseded by {task['superseded_by']} and accepts no later state change")
+    if args.get('superseded_by') is not None and state != 'superseded':
+        raise CycleError('--superseded-by records a supersession; pass it with --state superseded')
+    if state == 'superseded':
+        return superseded_task(doc, task, new, args)
+    if state == 'done' and any(not dependency_satisfied(doc, d) for d in task['depends_on']):
         raise CycleError('task dependencies are incomplete')
     if pair:
         # With a replacement the note describes it and does not overwrite the task note.
@@ -1617,6 +1822,52 @@ def updated_task(cfg, doc, task, args):
     set_fix_observation(cfg, doc, new, args)
     if 'fix' in new and new['status'] == 'done' and task['status'] != 'done':
         check_fix_done(cfg, new, doc)
+    return new
+
+
+def superseded_task(doc, task, new, args):
+    """The command-time supersede refusals; the record validator holds the standing invariants on save."""
+    other_id = args.get('superseded_by')
+    tid = task['id']
+    note = args.get('note')
+    if not isinstance(other_id, str) or not other_id.strip():
+        raise CycleError('supersede names the replacing task with --superseded-by')
+    if not _text(note):
+        raise CycleError('supersede requires a --note that gives the reason')
+    if any(args.get(k) for k in ('assignee', 'result_path', 'stage', 'commits', 'evidence', 'replace_commit',
+                                  'fix_before', 'fix_after', 'fix_observation', 'adopt_commits')):
+        raise CycleError('supersede records only the state, the superseder and a note')
+    tasks = {t['id']: t for t in doc['plan']['tasks']}
+    other = tasks.get(other_id)
+    if other_id == tid:
+        raise CycleError(f'task {tid} cannot supersede itself')
+    if other is None:
+        raise CycleError(f'unknown superseder {other_id}: name a task in the plan')
+    if task['status'] == 'done':
+        raise CycleError(f'task {tid} is done; a delivered task is never superseded')
+    if 'fix' in task:
+        raise CycleError(f'task {tid} is a fix task; an unfinished fix task leaves the plan at a new pass instead')
+    if 'fix' in other:
+        raise CycleError(f'superseder {other_id} is a fix task; a new pass drops an unfinished fix task and would leave {tid} without its superseder')
+    if other['status'] == 'superseded':
+        raise CycleError(f'superseder {other_id} is itself superseded')
+    if any(t.get('superseded_by') == tid for t in tasks.values()):
+        raise CycleError(f'task {tid} already supersedes another task; a dependency resolves through one hop')
+    held = [e for e in doc.get('assignments', []) if e['task'] == tid and e['state'] in OPEN]
+    if held:
+        raise CycleError(f"task {tid} is held by {held[0]['state']} attempt {held[0]['id']}/{held[0]['attempt']}; deliver or mark it lost first")
+    delivered = [e for e in doc.get('assignments', []) if e['task'] == tid and (e.get('delivery') or {}).get('commits')]
+    if task.get('commits') or delivered:
+        raise CycleError(f'task {tid} records or delivered commits; execution proof admits another task\'s source only through a done delivery, so it is not superseded')
+    integrating = [t['id'] for t in tasks.values() if tid in t.get('integrates', [])]
+    if integrating:
+        raise CycleError(f"task {tid} is integrated by {', '.join(integrating)}; integration proof requires a done child")
+    if listed(doc):
+        raise CycleError('a listed release cycle holds no superseded task; a failed step is fixed and rerun')
+    new['status'] = 'superseded'
+    new['superseded_by'] = other_id
+    new['note'] = note
+    new.pop('stage', None)
     return new
 
 
@@ -1758,6 +2009,16 @@ def record_assignment(cfg, doc, args):
         holder = next((e for e in entries if task is not None and e['task'] == task and e['state'] in holding and e['id'] != ident), None)
         if holder:
             raise CycleError(f"task {task} is held by {holder['state']} assignment {holder['id']}: {describe_live(holder)}. {holder_routes(holder)}")
+        if doc['schema_version'] == 3 and task is not None:
+            # A low-level entry records no host, so it targets the main checkout (IDR one-editor-per-checkout approach 2).
+            import cycle_ops  # imported here: cycle_ops imports this module
+            planned = next(t for t in doc['plan']['tasks'] if t['id'] == task)
+            if role in cycle_ops.EDITING_ROLES and cycle_ops.editing_task(planned):
+                held = cycle_ops.open_editors(doc, task_id=task)
+                if held:
+                    raise CycleError('checkout-has-open-editing-attempt: the main checkout is held by '
+                                     + ', '.join(f"{e['role']} attempt {e['id']}/{e['attempt']} on task {e['task']}" for e in held)
+                                     + '; wait for it to deliver or be marked lost with host evidence, or dispatch an invocation that isolates in its own worktree')
         at = now()
         fresh = {'id': ident, 'role': role, 'task': task, 'agent': args.get('agent'), 'result_path': args.get('result_path'),
                  'state': 'running', 'attempt': entry['attempt'] + 1 if entry else 1, 'started_at': at, 'last_seen': at, 'ended_at': None, 'note': note}
@@ -1805,6 +2066,49 @@ LISTED_ACTIONS = {'task', 'completion', 'pause', 'resume', 'abandon', 'owner-com
 LEGACY_ACTIONS = {'pause', 'reflect', 'abandon'}
 
 
+def revise_plan(cfg, doc, plan, reason):
+    """The plan action's steps, in the record the caller saves: phase gate, plan-file check, replan, plan-revised event."""
+    if 'plan' not in phases_of(doc) or doc['phase'] not in {'plan', 'build'}:
+        raise CycleError('plan revisions require the Plan or Build phase')
+    plan = deepcopy(plan)
+    check_plan_file(plan, doc)
+    for planned in plan.get('tasks', []):
+        if isinstance(planned, dict) and 'phase' in planned:
+            planned['phase'] = own_phase(doc, planned['phase'])
+    marked = {t['id'] for t in plan.get('tasks', []) if isinstance(t, dict) and t.get('status') == 'done'}
+    replan(cfg, doc['plan'], plan)
+    by_id = {t['id']: t for t in plan['tasks'] if isinstance(t, dict) and 'id' in t}
+    for planned in (by_id[i] for i in marked if i in by_id):
+        late = [d for d in planned.get('depends_on', []) if d in by_id and not satisfied(by_id, d)]
+        if late:
+            raise CycleError(f"plan task {planned['id']} is done but its dependencies are not: {', '.join(late)}")
+    # A recorded plan task that any attempt names stays, as recorded, so the attempt keeps its task.
+    kept = next((t for t in doc['plan']['tasks'] if t['id'] == 'plan'), None)
+    if 'plan' not in by_id and kept is not None and any(e.get('task') == 'plan' for e in doc.get('assignments', [])):
+        plan['tasks'].insert(0, kept)
+    plan['revision'] = doc['plan']['revision'] + 1
+    event(doc, 'plan-revised', previous=deepcopy(doc['plan']), reason=reason)
+    doc['plan'] = plan
+
+
+def plan_file_of(doc):
+    """The recorded plan as a plan file: task state and delivery stripped, so replan restores them from the record.
+
+    A done Plan-phase task keeps `status: done` while the cycle is in Plan, the one state a plan file may set."""
+    plan = deepcopy(doc['plan'])
+    plan.pop('revision', None)
+    for task in plan['tasks']:
+        keep = task.get('status') == 'done' and doc['phase'] == 'plan' and task.get('phase') == 'plan'
+        for key in DELIVERY_FIELDS:
+            task.pop(key, None)
+        task.pop('stage', None)
+        if keep:
+            task['status'] = 'done'
+        else:
+            task.pop('status', None)
+    return plan
+
+
 def mutate(repo, identity, action, **args):
     return mutate_tracked(repo, identity, action, **args)[0]
 
@@ -1819,36 +2123,20 @@ def mutate_tracked(repo, identity, action, **args):
         late_finish = action == 'assignment' and args.get('state') == 'finished' and not args.get('seen')
         if doc['status'] in CLOSED and not late_finish:
             raise CycleError('closed cycles cannot restart or mutate')
+        shortcut = None
+        if action == 'shortcut':
+            shortcut_owner, shortcut_sha = shortcut_request(cfg, args['request'])
+            shortcut = shortcut_facts(cfg, doc, shortcut_sha)
         if listed(doc) and action not in LISTED_ACTIONS:
             raise CycleError(f'{action} is not available on a release cycle: it runs one fixed task list (ADR-0163)')
         if legacy(doc) and action not in LEGACY_ACTIONS:
             raise CycleError(f'{action} is not available on a historical release cycle; it can only be paused, reflected on and abandoned')
         # A paused cycle still records that an agent reported in or ended; it starts nothing.
         ending = action == 'assignment' and args.get('state') != 'running'
-        if doc['status'] == 'paused' and not ending and action not in {'resume', 'extend', 'abandon', 'reflect', 'change-type', 'owner-complete'}:
+        if doc['status'] == 'paused' and not ending and action not in {'resume', 'extend', 'abandon', 'reflect', 'change-type', 'owner-complete', 'shortcut'}:
             raise CycleError('cycle is paused; resolve its blocker and resume first')
         if action == 'plan':
-            if 'plan' not in phases_of(doc) or doc['phase'] not in {'plan', 'build'}:
-                raise CycleError('plan revisions require the Plan or Build phase')
-            plan = deepcopy(args['plan'])
-            check_plan_file(plan, doc)
-            for planned in plan.get('tasks', []):
-                if isinstance(planned, dict) and 'phase' in planned:
-                    planned['phase'] = own_phase(doc, planned['phase'])
-            marked = {t['id'] for t in plan.get('tasks', []) if isinstance(t, dict) and t.get('status') == 'done'}
-            replan(cfg, doc['plan'], plan)
-            by_id = {t['id']: t for t in plan['tasks'] if isinstance(t, dict) and 'id' in t}
-            for planned in (by_id[i] for i in marked if i in by_id):
-                late = [d for d in planned.get('depends_on', []) if d in by_id and by_id[d]['status'] != 'done']
-                if late:
-                    raise CycleError(f"plan task {planned['id']} is done but its dependencies are not: {', '.join(late)}")
-            # A recorded plan task that any attempt names stays, as recorded, so the attempt keeps its task.
-            kept = next((t for t in doc['plan']['tasks'] if t['id'] == 'plan'), None)
-            if 'plan' not in by_id and kept is not None and any(e.get('task') == 'plan' for e in doc.get('assignments', [])):
-                plan['tasks'].insert(0, kept)
-            plan['revision'] = doc['plan']['revision'] + 1
-            event(doc, 'plan-revised', previous=deepcopy(doc['plan']), reason=args['reason'])
-            doc['plan'] = plan
+            revise_plan(cfg, doc, args['plan'], args['reason'])
         elif action == 'plan-details':
             if doc['type'] != 'quick-fix':
                 raise CycleError('plan-details is for quick-fix; other types revise the plan in the Plan or Build phase')
@@ -1967,7 +2255,11 @@ def mutate_tracked(repo, identity, action, **args):
         elif action == 'evidence':
             from test_evidence import digest as evidence_digest, normalize, validate_evidence
             record = validate_evidence(cfg.repo_root, args['evidence_id'], check_id=args['check_id'])
-            doc['evidence'].append({'check_id': args['check_id'], 'evidence_id': args['evidence_id'], 'pass': doc['pass'], 'use': args['use'], 'declaration_sha256': evidence_digest(normalize(record['declaration']))})
+            entry = {'check_id': args['check_id'], 'evidence_id': args['evidence_id'], 'pass': doc['pass'], 'use': args['use'], 'declaration_sha256': evidence_digest(normalize(record['declaration']))}
+            if entry in doc['evidence']:
+                # An identical repeated entry is already recorded: write nothing.
+                return doc, False
+            doc['evidence'].append(entry)
         elif action == 'scrutiny':
             if args['scrutiny'] not in ('focused', 'standard', 'intensive'):
                 raise CycleError('invalid scrutiny level')
@@ -1999,8 +2291,13 @@ def mutate_tracked(repo, identity, action, **args):
                 raise CycleError('review must identify an independent reviewer and all report fields')
             if fix_task and report['reviewer'] == fix_task.get('assignee'):
                 raise CycleError('the fix-diff reviewer cannot be the fix assignee')
-            if not report['scope'] or set(report['scope']) != set(doc['plan']['scope']) or not report['evidence'] or not report['rationale'].strip():
-                raise CycleError('review scope must equal the declared scope exactly, and the review must identify evidence and rationale')
+            if not isinstance(report['scope'], list) or not report['scope'] or not all(isinstance(p, str) and p.strip() for p in report['scope']):
+                raise CycleError('invalid review report: scope must be a non-empty list of non-empty strings')
+            uncovered = [p for p in doc['plan']['scope'] if not any(scope_covers(r, p) for r in report['scope'])]
+            if uncovered:
+                raise CycleError('review-scope-incomplete: the report scope omits ' + ', '.join(uncovered))
+            if not report['evidence'] or not report['rationale'].strip():
+                raise CycleError('the review must identify evidence and rationale')
             check_tests(cfg, doc)
             if report['verdict'] not in {'approve', 'changes-required'} or not all(isinstance(report[k], list) for k in ('scope', 'evidence', 'blocking', 'advisory', 'cosmetic')):
                 raise CycleError('invalid review report')
@@ -2082,12 +2379,20 @@ def mutate_tracked(repo, identity, action, **args):
             doc['extensions'].append({'at': now(), 'from': doc['pass_limit'], 'to': args['limit'], 'human_approval': args['human_approval']})
             doc['pass_limit'] = args['limit']
         elif action == 'return':
-            if doc['phase'] not in {*CHECK_PHASES, 'review'}:
-                raise CycleError('only testing or review findings return a cycle')
+            execution_task = args.get('execution_task')
+            if doc['phase'] == 'build' and not execution_task:
+                raise CycleError('return-execution-task-required: a return from Build needs --execution-task naming '
+                                 'the pending or blocked Build task whose execution proof refuses '
+                                 'execution-foreign-source or execution-source-outside-scope')
+            if doc['phase'] not in {*CHECK_PHASES, 'review', 'build'}:
+                raise CycleError('only testing or review findings, or an execution refusal in Build, return a cycle')
             assessment = {k: args[k] for k in ('improved', 'unresolved', 'next_change', 'justification')}
             if not all(isinstance(v, str) and v.strip() for v in assessment.values()):
                 raise CycleError('return requires progress, remaining work, next change, and justification')
-            event(doc, 'return-requested', assessment=assessment, plan=deepcopy(doc['plan']))
+            extra_fields = {}
+            if execution_task:
+                extra_fields['execution_refusal'] = execution_return_probe(cfg, doc, execution_task)
+            event(doc, 'return-requested', assessment=assessment, plan=deepcopy(doc['plan']), **extra_fields)
             if not args['progress'] or doc['pass'] >= doc['pass_limit']:
                 doc['status'] = 'paused'
                 doc['blocker'] = {'reason': 'progress-stalled' if not args['progress'] else 'pass-limit', 'evidence': [assessment], 'next_step': 'reassess stalled work or request explicit approval for additional passes'}
@@ -2115,9 +2420,9 @@ def mutate_tracked(repo, identity, action, **args):
                 limit = max(limit, doc['pass_limit'])
             doc['type'], doc['pass_limit'], doc['phase'] = kind, limit, PHASES[kind][0]
             event(doc, 'type-changed', previous_type=old, reason=args['reason'], previous_plan=deepcopy(doc['plan']), human_approval=args.get('human_approval'))
-            doc['plan']['tasks'] = []
+            doc['plan']['tasks'] = kept_build_tasks(cfg, doc['plan']['tasks'])
             if PHASES[kind][0] == 'plan':
-                doc['plan']['tasks'].append(dict(SEEDED_PLAN_TASK, depends_on=[], expected_evidence=list(SEEDED_PLAN_TASK['expected_evidence'])))
+                doc['plan']['tasks'].insert(0, dict(SEEDED_PLAN_TASK, depends_on=[], expected_evidence=list(SEEDED_PLAN_TASK['expected_evidence'])))
         elif action == 'reflect':
             if doc['phase'] != 'reflect' and doc['status'] != 'paused':
                 raise CycleError('reflection belongs to Reflect or abandonment')
@@ -2135,6 +2440,11 @@ def mutate_tracked(repo, identity, action, **args):
             # owner's verbatim words and fingerprints of the cited authority.
             extra = {'owner': owner_authorization(cfg, args['owner'])}
             doc['status'] = 'completed'
+        elif action == 'shortcut':
+            # The owner closes a cycle that delivered work with gaps. Nothing is marked satisfied and no attempt changes.
+            extra = {'owner': shortcut_owner, 'reflection_sha256': shortcut['reflection_sha256'],
+                     'review': shortcut['review'], 'open_attempts': shortcut['open_attempts']}
+            doc['status'] = 'shortcut'
         elif action == 'abandon':
             if not doc['reflection'] and not listed(doc):
                 raise CycleError('abandonment requires reflection')
@@ -2151,6 +2461,63 @@ def mutate_tracked(repo, identity, action, **args):
         event(doc, action, **({'reason': args['reason']} if 'reason' in args else {}), **extra)
         save(cfg, doc)
         return doc, True
+
+
+SHORTCUT_KEYS = {'owner', 'reflection_sha256'}
+
+
+def shortcut_request(cfg, request):
+    """Validate the two-key shortcut request; return (owner block, reflection sha256).
+
+    The refusal order is part of the contract: a request without the owner's quoted words refuses first
+    (`shortcut-owner-quote-required`), then a malformed request (`shortcut-request-invalid`)."""
+    if not isinstance(request, dict) or 'owner' not in request:
+        raise CycleError("shortcut-owner-quote-required: a shortcut closure carries the owner's verbatim quote in an `owner` block")
+    try:
+        owner = owner_authorization(cfg, request['owner'])
+    except CycleError as exc:
+        raise CycleError(f'shortcut-owner-quote-required: {exc}') from exc
+    sha = request.get('reflection_sha256')
+    if set(request) != SHORTCUT_KEYS or not isinstance(sha, str) or not re.fullmatch(r'[0-9a-f]{64}', sha):
+        raise CycleError('shortcut-request-invalid: the request is an object with exactly `owner` and `reflection_sha256` (64 lowercase hex digits)')
+    return owner, sha
+
+
+def shortcut_facts(cfg, doc, expected_sha=None):
+    """The preconditions of a shortcut closure, in refusal order; return what the history event records.
+
+    `expected_sha` is the reflection digest a request carries; None (the --present preview) skips that comparison.
+    Each refusal carries its code as the message prefix."""
+    if doc['type'] == 'release':
+        raise CycleError('shortcut-release-cycle: a release cycle never closes as a shortcut; it runs its fixed list')
+    if doc['status'] != 'paused' and doc['phase'] != 'reflect':
+        raise CycleError(f"shortcut-cycle-not-stopped: a cycle closes as a shortcut only while paused or in Reflect, not {doc['status']} in {doc['phase']}")
+    reflection = doc.get('reflection')
+    remaining = reflection.get('remaining') if isinstance(reflection, dict) else None
+    if (not isinstance(reflection, dict) or not str(reflection.get('outcome') or '').strip() or not isinstance(remaining, list)
+            or [str(i).strip().lower() for i in remaining] == ['none']):
+        raise CycleError('shortcut-reflection-required: record a reflection first; its outcome names the delivered work and its remaining list names the gaps, not ["none"]')
+    reflection_sha = digest(encoded(reflection))
+    if expected_sha is not None and expected_sha != reflection_sha:
+        raise CycleError('shortcut-reflection-changed: the recorded reflection differs from the one the owner approved; run --present again')
+    found = qualifying_review(cfg, doc)
+    if found is None:
+        raise CycleError('shortcut-review-required: an independent review that binds the current source and review basis is required, whatever its verdict')
+    ref, report = found
+    return {'reflection': reflection, 'reflection_sha256': reflection_sha,
+            'review': {**ref, 'verdict': report['verdict'], 'blocking': len(report['blocking'])},
+            'open_attempts': [{'id': e['id'], 'attempt': e['attempt'], 'task': e['task'], 'state': e['state'], 'result_path': e.get('result_path')}
+                              for e in doc.get('assignments', []) if e['state'] in OPEN]}
+
+
+def shortcut_present(repo, identity):
+    """What a shortcut closure would record, for the owner to read before quoting. Writes nothing."""
+    cfg = tree(repo)
+    doc = load(repo, identity)
+    if doc['status'] in CLOSED:
+        raise CycleError('closed cycles cannot restart or mutate')
+    facts = shortcut_facts(cfg, doc)
+    return {'cycle': doc['id'], 'status': doc['status'], 'phase': doc['phase'], **facts}
 
 
 OWNER_COMPLETION_FIELDS = {'origin', 'quote', 'date', 'conversation', 'authority'}

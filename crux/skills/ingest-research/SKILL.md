@@ -27,7 +27,7 @@ This skill is portable across Claude Code, Codex, OpenCode, and OMP (Oh My Pi). 
 
 ## Overview
 
-The atomic operation for the research concern of `crux`. Each ingest moves one source through a fixed pipeline: capture to `docs/research/raw/YYYY-MM-DD/<slug>/` → audited markdown at `docs/research/sources/<slug>.md` → synthesis updates under `docs/research/<category>/` → `docs/research/index.md` → `docs/index.md` (master rollup) → `docs/research/sources.md` registry → `docs/log.md`. Skipping any step breaks the audit guarantee that every research page traces back to an immutable raw capture.
+The atomic operation for the research concern of `crux`. Each ingest moves one source through a fixed pipeline: capture to `docs/research/raw/YYYY-MM-DD/<slug>/` → audited markdown at `docs/research/sources/<slug>.md` → synthesis updates under `docs/research/<category>/` → `docs/research/index.md` → `docs/index.md` (master rollup) → `docs/research/sources.md` registry → the operations log. Skipping any step breaks the audit guarantee that every research page traces back to an immutable raw capture.
 
 Read `docs/AGENTS.md` once per session for surrounding architecture. This skill is the operational checklist for the research concern.
 
@@ -175,7 +175,7 @@ last_reviewed: 2026-05-26
 - 2–3 example page titles that would belong.
 - The nearest existing category and why this is distinct from it.
 
-Do not create the directory until the user agrees. When approved: create the empty directory, add a `(0)` section to `docs/research/index.md` in alphabetical order, log a `## [YYYY-MM-DD] schema | added category <name>` entry in `docs/log.md` (separate from this ingest's `ingest` entry).
+Do not create the directory until the user agrees. When approved: create the empty directory, add a `(0)` section to `docs/research/index.md` in alphabetical order, record a `## [YYYY-MM-DD] schema | added category <name>` entry through the log writer (`docs/AGENTS.md` §6; `operation-log.py append --op schema --subject 'added category <name>'`, then the commit step of §6), separate from this ingest's `ingest` entry.
 
 **Contradiction rule.** When a new source contradicts an existing page, add a `> [contradiction]` blockquote inline citing both sources. **Do not silently overwrite** the older claim. Ask the user which to favor before resolving.
 
@@ -217,9 +217,16 @@ Add **one new row at the top of the table** (immediately after the separator lin
 
 Newest-first ordering. Do not sort or rewrite older rows — only prepend.
 
-### 7. Append to `docs/log.md`
+### 7. Record the `ingest` operation
 
-Format (exact prefix, no variations):
+Write the entry through the log writer (`docs/AGENTS.md` §6).[^log-writer] Write the body below to a file outside the tree, then run:
+
+```
+uv run "${CRUX_PLUGIN_ROOT}/scripts/operation-log.py" append --repo-root <repo-root> \
+  --op ingest --subject '<slug>' --date ${TODAY} --body-file <path>
+```
+
+The entry it writes at the top of the current month's detail file `docs/log/YYYY-MM.md`:
 
 ```
 ## [YYYY-MM-DD] ingest | <slug>
@@ -231,6 +238,8 @@ Body, 1–5 lines:
 - List of synthesis pages touched.
 - If a new category was created, note it (and note the separate `schema` entry that recorded the category addition).
 - If contradictions were flagged, note them.
+
+A refused append keeps this skill's other writes and adds no entry: fix the cause it names, then rerun the append alone (§6). Then run the commit step of §6 over the result's `commit_paths` and `restore_paths`.
 
 ### 8. Run the verification checklist
 
@@ -249,8 +258,8 @@ Confirm every item. If any item fails, fix it and re-verify before reporting the
 - [ ] `docs/index.md`'s Research section header reads `## Research (N sources, M synthesis pages)` with the exact counts (the `docs/AGENTS.md` §5 canonical form).
 - [ ] `docs/index.md`'s `_Last updated:_` is today.
 - [ ] `docs/research/sources.md` has a new top row with all nine columns populated correctly.
-- [ ] `docs/log.md` has a new entry with prefix `## [<today>] ingest | <slug>`.
-- [ ] If a new category was introduced: the user approved it, the directory exists, `docs/research/index.md` has a section for it, and `docs/log.md` has a separate `## [<today>] schema | added category <name>` entry.
+- [ ] The current month's detail file `docs/log/YYYY-MM.md` has a new entry with prefix `## [<today>] ingest | <slug>` at the top, written by `operation-log.py append`.
+- [ ] If a new category was introduced: the user approved it, the directory exists, `docs/research/index.md` has a section for it, and the current month's detail file has a separate `## [<today>] schema | added category <name>` entry.
 
 ## Red flags — STOP and reconsider
 
@@ -261,7 +270,7 @@ Confirm every item. If any item fails, fix it and re-verify before reporting the
 - About to finish an ingest having touched **no** synthesis page because "nothing matched" — a new-domain source still needs a new synthesis page (or an explicit, logged deferral confirmed with the user). Don't silently skip synthesis.
 - About to overwrite a contradicted claim "to keep the page clean."
 - About to mark the ingest complete with the just-ingested files still sitting in `docs/inbox/`.
-- About to update `docs/research/` while skipping `docs/research/index.md`, `docs/index.md`, or `docs/log.md`.
+- About to update `docs/research/` while skipping `docs/research/index.md`, `docs/index.md`, or the operations-log entry.
 - Inclined to file a thin stub from a failed `web-to-markdown` fetch.
 - Inclined to "batch the log entry at the end" instead of writing it now.
 - About to write `raw_path: docs/research/raw/...` (absolute-with-docs-prefix) instead of `research/raw/...` (relative-to-docs). The contract is relative-to-docs.
@@ -295,3 +304,5 @@ Any of these means: STOP, return to the relevant step.
 - **Writing the `schema` log entry for a new category as part of the `ingest` entry**: they're separate ops. One `schema` entry for the category addition, one `ingest` entry for the source.
 - **Updating `docs/index.md`'s Research count by reading its old number**: count the actual files. Don't trust the prior rollup.
 - **Treating `research/raw/` as mutable**: it's not. Files in `raw/` are append-only. Re-captures land in a new dated folder via `refresh-research-sources`.
+
+[^log-writer]: rule:log-entries-go-through-the-log-writer, rule:no-writer-writes-the-legacy-log-file

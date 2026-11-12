@@ -101,7 +101,9 @@ class PresetsAndLiveCopyKeepTheRecordsTests(unittest.TestCase):
         for preset in ("drift-gates", "governs-references", "governs-coverage"):
             declaration = suite_evidence.preset_declaration(self.root, preset, "cycle:" + preset)
             self.assertEqual(declaration["inputs"], suite_evidence.INPUTS, preset)
-            self.assertEqual(declaration["exclude_inputs"], suite_evidence.runtime_exclusions(self.root), preset)
+            expected = (suite_evidence.drift_gates_exclusions(self.root) if preset == "drift-gates"
+                        else suite_evidence.runtime_exclusions(self.root))
+            self.assertEqual(declaration["exclude_inputs"], expected, preset)
             for name in RECORDS:
                 self.assertNotIn("docs/" + name, declaration["exclude_inputs"], (preset, name))
 

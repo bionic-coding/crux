@@ -20,7 +20,7 @@ writes. This script:
      fixed key order, 2-space indent, trailing newline).
   5. Validates every hand-authored catalog file named in CATALOG_TARGETS:
      catalog/bundles.yml against the regenerated skills.json for referential
-     integrity, and catalog/models.yml against rules V0-V9.
+     integrity, and catalog/models.yml against rules V0-V10.
 
 ADR-0005 established that extended crux frontmatter fields live UNDER a
 `metadata:` mapping in SKILL.md, not at top level. ADR-0092 amended the
@@ -422,7 +422,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "Validate the crux catalog against SKILL.md frontmatter. "
             "Regenerates catalog/skills.json from skills/*/SKILL.md and "
             "checks catalog/bundles.yml for referential integrity and "
-            "catalog/models.yml against rules V0-V9."
+            "catalog/models.yml against rules V0-V10."
         ),
     )
     parser.add_argument(
@@ -1489,12 +1489,12 @@ def bundle_closure_findings(
     return findings
 
 
-# ───────────────────────── models.yml validation (V0-V9) ──────────────────
+# ───────────────────────── models.yml validation (V0-V10) ─────────────────
 #
 # Rule ownership, one question each, no rule restating another's:
 #   V0 shape | V1 roster | V2 reference graph | V3-V5 value legality
 #   V6 the cross-file duplicate | V7 alias namespace | V8 row distinctness
-#   V9 value placement
+#   V9 value placement | V10 override authority and tier
 # V0, V1 and V2 also run inside models_catalog.load(), so a regenerator invoked
 # directly rather than through CI fails before it writes. They are imported
 # from there rather than restated, so the loader and its CI mirror cannot
@@ -1525,6 +1525,17 @@ def bundle_closure_findings(
 ALIAS_NAME_RE = re.compile(r"^[a-z][a-z0-9-]{0,31}\Z")
 ALIAS_PROVIDER_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}\Z")
 ALIAS_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9._/-]{0,95}\Z")
+
+# Rule V5's Codex leg (ADR-0170). A Codex slug validates against its recorded
+# Codex-catalog provenance, never against the router's `models` registry and
+# never by a live read of the local Codex install (ADR-0046 clause 6). The slug
+# is `^[a-z0-9][a-z0-9.-]*` ended by `\Z` for the trailing-newline reason above;
+# one character class under one quantifier is linear-time without a bound. The
+# cell's `source` must cite a Codex catalog read and name the slug backtick-quoted,
+# so a slug that differs from the one its source names fails. A typo copied into
+# both still passes: no static check can prove the cited catalog listed the slug.
+CODEX_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9.-]*\Z")
+CODEX_CATALOG_SOURCE_RE = re.compile(r"Codex [0-9]+\.[0-9]+\.[0-9]+ models_cache\.json")
 
 # Rule V4 warns past this age. Non-failing on purpose: a passing tree must not
 # turn red on the passage of time alone.
@@ -1641,9 +1652,9 @@ def _confinement_findings(agents: Any, levels: Any) -> list[dict]:
 def _router_registry(plugin_dir: Path) -> tuple[dict, dict] | None:
     """The router's `models` registry and `model_roles` map, or None if unreadable.
 
-    Read as a legality ORACLE only. This is the single point of contact between
-    the build-time catalog and the runtime router; nothing here makes the
-    router read models.yml.
+    Read only for the cycle_classifier check (rule V5), which validates the
+    router configuration itself; Codex slugs are not checked against it.
+    Nothing here makes the router read models.yml.
     """
     path = plugin_dir / "scripts" / "crux" / "_config" / "llm_router_config.json"
     try:
@@ -1712,7 +1723,7 @@ def _codex_runtime_cells(levels: dict, agents: dict) -> list[tuple[str, dict]]:
 
     V0 has already established the cell shape before this traversal runs. Agent
     cells are complete overrides, so they receive the same effort, provenance,
-    date, and registry checks as their level defaults.
+    and date checks as their level defaults.
     """
     cells = [(f"levels.{name}", row["codex"]) for name, row in sorted(levels.items())]
     cells.extend(
@@ -1723,9 +1734,16 @@ def _codex_runtime_cells(levels: dict, agents: dict) -> list[tuple[str, dict]]:
     return cells
 
 
-def validate_models_yml(models_path: Path, plugin_dir: Path) -> list[dict]:
-    """Run rules V0-V9 over models.yml. Returns findings; warnings carry
-    `severity: "warning"` and must not flip the exit code."""
+def validate_models_yml(
+    models_path: Path, plugin_dir: Path, repo_root: Path | None = None
+) -> list[dict]:
+    """Run rules V0-V10 over models.yml. Returns findings; warnings carry
+    `severity: "warning"` and must not flip the exit code.
+
+    ``repo_root`` is the repository whose ``crux/catalog/models.yml`` this is;
+    rule V10 resolves a named decision through that root's docs tree. It
+    defaults to the parent of ``plugin_dir``.
+    """
     rel = "catalog/models.yml"
     if not models_path.is_file():
         return [{"file": rel, "field": "<file>", "error": "required catalog file is missing"}]
@@ -1845,28 +1863,40 @@ def validate_models_yml(models_path: Path, plugin_dir: Path) -> list[dict]:
             )
 
     # ── V5 model-id legality, by column ────────────────────────────────────
+    # Codex cells validate against their recorded provenance (see
+    # CODEX_CATALOG_SOURCE_RE). The router registry is read only for the
+    # cycle_classifier check, which validates the router configuration itself.
+    for path, codex in codex_cells:
+        model = codex["model"]
+        source = codex["source"]
+        if not CODEX_SLUG_RE.match(model):
+            findings.append(
+                _finding("V5", f"{path}.codex.model={model!r} is not a Codex slug (^[a-z0-9][a-z0-9.-]*$)")
+            )
+        if not CODEX_CATALOG_SOURCE_RE.search(source):
+            findings.append(
+                _finding(
+                    "V5",
+                    f"{path}.codex.source={source!r} cites no Codex catalog read; "
+                    "it must name `Codex <x.y.z> models_cache.json`",
+                )
+            )
+        if f"`{model}`" not in source:
+            findings.append(
+                _finding(
+                    "V5",
+                    f"{path}.codex.source does not name the slug `{model}`; the source must "
+                    "record the slug the cited Codex catalog listed, backtick-quoted",
+                )
+            )
     registry = _router_registry(plugin_dir)
     if registry is None:
         findings.append(
-            _finding("V5", "cannot read llm_router_config.json; the Codex legality oracle is unavailable")
+            _finding("V5", "cannot read llm_router_config.json; the cycle_classifier entry cannot be checked")
         )
     else:
         router_models, router_roles = registry
         findings.extend(_classifier_findings(router_models, router_roles, plugin_dir))
-        for path, codex in codex_cells:
-            model = codex["model"]
-            if model not in router_models:
-                findings.append(
-                    _finding(
-                        "V5",
-                        f"{path}.codex.model={model!r} is not a key in the router's "
-                        "`models` registry — a name that reads like a slug and resolves nowhere",
-                    )
-                )
-            if model in router_roles:
-                findings.append(
-                    _finding("V5", f"{path}.codex.model={model!r} is a router ROLE, not a model")
-                )
 
     for alias, value in sorted(aliases.items()):
         provider, sep, slug = value.partition("/")
@@ -1965,6 +1995,275 @@ def validate_models_yml(models_path: Path, plugin_dir: Path) -> list[dict]:
 
     # V9 already ran, above the V1/V2 gate — see the comment there.
 
+    # ── V10 override authority and tier ────────────────────────────────────
+    findings += _override_authority_findings(
+        agents, levels, repo_root if repo_root is not None else plugin_dir.parent
+    )
+
+    return findings
+
+
+# ─────────────────────── V10 override authority and tier ──────────────────
+#
+# A per-agent override is authorized by a dated owner instruction recorded
+# beside it in models.yml. A move within the agent's tier is configuration; a
+# move to another tier needs an Accepted decision. The tier of an override is
+# INFERRED, never stated: per column, the set of levels whose cell in that
+# column names the same value (the Claude value for `claude`, the alias for
+# `opencode`, `codex.model` for `codex`). A value no level names has no
+# determinable tier and needs a decision too.
+
+# The ADR whose rule demands a decision for a cross-tier move. Citing it as the
+# decision would be circular, so V10 refuses it.
+RULE_DEMANDING_A_DECISION = "ADR-0170"
+
+# A decision handle in the resolver's own key grammar: `ADR-NNNN/<slug>`.
+DECISION_HANDLE_RE = re.compile(r"^ADR-[0-9]{4}/[a-z0-9]+(-[a-z0-9]+)*\Z")
+
+# The overrides that predate the rule, as exact (agent, level, column, value)
+# tuples: `value` is the alias for `opencode`, the Claude value for `claude`,
+# and the (model, reasoning_effort) pair for `codex`. Each matching override
+# yields a warning instead of a refusal until the owner settles it with an ADR,
+# a same-tier value or a revert. A change to the value, the codex effort or the
+# agent's level leaves the set. This set only shrinks; a test pins it to the
+# shipped catalog's unsettled overrides.
+PRE_RULE_OVERRIDE_EXEMPTIONS: frozenset[tuple] = frozenset({
+    ("architect", "flagship", "opencode", "opus-latest"),
+    ("dev-lead", "flagship", "opencode", "glm-latest"),
+    ("reviewer", "apex", "codex", ("gpt-6.1-sol", "xhigh")),
+    ("commander", "apex", "opencode", "kimi-latest"),
+    ("reviewer", "apex", "opencode", "kimi-latest"),
+    ("developer", "standard", "opencode", "deepseek-flash"),
+})
+
+_OWNER_FOLLOW_UP = (
+    "deferred owner follow-up: settle it with an ADR, a same-tier value or a revert"
+)
+
+
+def _utc_today() -> datetime.date:
+    """The run's current UTC date. Split out so a test can fix the clock."""
+    return datetime.datetime.now(datetime.timezone.utc).date()
+
+
+def _override_value(column: str, cell: Any) -> Any:
+    """The value an override cell selects, in the form tier inference compares."""
+    if column == "codex":
+        return cell.get("model") if isinstance(cell, dict) else None
+    return cell
+
+
+def _exemption_value(column: str, cell: Any) -> Any:
+    """The value an exemption tuple records: codex carries its effort too."""
+    if column == "codex":
+        if not isinstance(cell, dict):
+            return None
+        return (cell.get("model"), cell.get("reasoning_effort"))
+    return cell
+
+
+def _tier_set(levels: dict, column: str, value: Any) -> set[str]:
+    """Levels whose cell in ``column`` names ``value``. Per column only."""
+    out: set[str] = set()
+    for name, row in levels.items():
+        if not isinstance(row, dict) or column not in row:
+            continue
+        if _override_value(column, row[column]) == value:
+            out.add(name)
+    return out
+
+
+def override_tier_tuples(agents: dict, levels: dict) -> list[tuple[tuple, set[str]]]:
+    """Every override V10's inference finds cross-tier or of undeterminable tier.
+
+    Returns ``((agent, level, column, value), tier_set)`` pairs in the exemption
+    tuple form. Read by V10 and by the test that pins the exemption constant to
+    the shipped catalog.
+    """
+    out: list[tuple[tuple, set[str]]] = []
+    for agent in sorted(agents, key=repr):
+        row = agents[agent]
+        if not isinstance(row, dict) or not isinstance(row.get("level"), str):
+            continue
+        level = row["level"]
+        for column in models_catalog.OVERRIDE_COLUMNS:
+            if column not in row:
+                continue
+            tiers = _tier_set(levels, column, _override_value(column, row[column]))
+            if level not in tiers:
+                out.append(((agent, level, column, _exemption_value(column, row[column])), tiers))
+    return out
+
+
+def unsettled_override_tuples(agents: dict, levels: dict) -> list[tuple[tuple, set[str]]]:
+    """``override_tier_tuples`` without the overrides that name a decision.
+
+    An override whose ``authority.<column>.decision`` is set is settled by that
+    decision, so it can never be a pre-rule exemption. The test that pins
+    ``PRE_RULE_OVERRIDE_EXEMPTIONS`` to the shipped catalog reads this form.
+    """
+    out: list[tuple[tuple, set[str]]] = []
+    for key, tiers in override_tier_tuples(agents, levels):
+        agent, _level, column, _value = key
+        authority = agents[agent].get("authority") or {}
+        entry = authority.get(column)
+        if isinstance(entry, dict) and entry.get("decision") is not None:
+            continue
+        out.append((key, tiers))
+    return out
+
+
+def _decision_resolver(repo_root: Path) -> tuple[dict | None, str]:
+    """The catalog's own repository resolver, or None and the cause.
+
+    Read from `<docs_dir>/adrs/summaries/resolver.json`, where `docs_dir` is the
+    one `.bionic.yml` at ``repo_root`` names. A missing or malformed
+    `.bionic.yml`, one naming no `docs_dir`, and an absent or unreadable
+    resolver all count as no resolver. No discovery fallback runs: a decision
+    is confirmed only by the tree the configuration names.
+    """
+    cfg = repo_root / ".bionic.yml"
+    if not cfg.is_file():
+        return None, f"{cfg} is absent"
+    try:
+        bionic_config = _sibling("bionic_config")
+        text = cfg.read_text(encoding="utf-8")
+        parsed = bionic_config.parse_config_text(text, source=".bionic.yml", path=cfg)
+        docs_dir = parsed[1]
+        if docs_dir is None:
+            return None, f"{cfg} names no docs_dir"
+        tree = bionic_config.validate_docs_dir_override(repo_root, docs_dir)
+    except Exception as exc:  # noqa: BLE001 - every cause becomes a V10 finding
+        return None, f"{cfg} is unreadable or malformed ({type(exc).__name__})"
+    path = tree / "adrs" / "summaries" / "resolver.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None, f"{path} is absent"
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        return None, f"{path} is unreadable ({type(exc).__name__})"
+    if not isinstance(data, dict):
+        return None, f"{path} is not a mapping"
+    return data, str(path)
+
+
+def _override_authority_findings(agents: dict, levels: dict, repo_root: Path) -> list[dict]:
+    """Rule V10 — override authority and tier.
+
+    Each overridden column carries exactly one authority entry. A date after the
+    run's UTC date is refused. A named decision must be an `ADR-NNNN/<slug>`
+    handle, must not name the rule's own ADR, and must resolve Accepted in the
+    catalog repository's resolver. A cross-tier or undeterminable-tier override
+    needs a decision unless it is one of the exact pre-rule tuples, which warn.
+    """
+    findings: list[dict] = []
+    today = _utc_today()
+    resolver: tuple[dict | None, str] | None = None
+    tier_misses = {key[:3]: (key, tiers) for key, tiers in override_tier_tuples(agents, levels)}
+    for agent in sorted(agents, key=repr):
+        row = agents[agent]
+        if not isinstance(row, dict):
+            continue
+        overridden = {c for c in models_catalog.OVERRIDE_COLUMNS if c in row}
+        authority = row.get("authority") or {}
+        recorded = set(authority)
+        for column in sorted(overridden - recorded):
+            findings.append(_finding(
+                "V10",
+                f"agents.{agent}.{column} overrides the level with no authority.{column} entry "
+                "— record the owner's dated instruction beside the override",
+            ))
+        for column in sorted(recorded - overridden):
+            findings.append(_finding(
+                "V10",
+                f"agents.{agent}.authority.{column} records authority for a column the row "
+                "does not override",
+            ))
+        for column in sorted(overridden & recorded):
+            entry = authority[column]
+            path = f"agents.{agent}.authority.{column}"
+            try:
+                when = datetime.date.fromisoformat(entry["date"])
+            except (TypeError, ValueError, KeyError):  # pragma: no cover - V0 owns it
+                when = None
+            if when is not None and when > today:
+                findings.append(_finding(
+                    "V10",
+                    f"{path}.date={entry['date']!r} is later than the run's UTC date "
+                    f"{today.isoformat()}",
+                ))
+            decision = entry.get("decision")
+            if decision is not None:
+                if not DECISION_HANDLE_RE.match(decision):
+                    findings.append(_finding(
+                        "V10",
+                        f"{path}.decision={decision!r} is not a handle of the form "
+                        f"ADR-NNNN/<slug> (pattern {DECISION_HANDLE_RE.pattern})",
+                    ))
+                elif decision.split("/", 1)[0] == RULE_DEMANDING_A_DECISION:
+                    findings.append(_finding(
+                        "V10",
+                        f"{path}.decision={decision!r} names {RULE_DEMANDING_A_DECISION}, the "
+                        "ADR whose rule demands the decision; cite the decision that authorizes "
+                        "this move",
+                    ))
+                else:
+                    if resolver is None:
+                        resolver = _decision_resolver(repo_root)
+                    data, where = resolver
+                    if data is None:
+                        findings.append(_finding(
+                            "V10",
+                            f"{path}.decision={decision!r} cannot be confirmed Accepted: {where}",
+                        ))
+                    else:
+                        record = data.get(decision)
+                        status = record.get("source_status") if isinstance(record, dict) else None
+                        if not isinstance(record, dict):
+                            findings.append(_finding(
+                                "V10",
+                                f"{path}.decision={decision!r} is not listed in {where}",
+                            ))
+                        elif status is None or "source_adr" not in record:
+                            findings.append(_finding(
+                                "V10",
+                                f"{path}.decision={decision!r}: the {where} entry lacks "
+                                "source_adr or source_status",
+                            ))
+                        elif record["source_adr"] != decision.split("/", 1)[0]:
+                            findings.append(_finding(
+                                "V10",
+                                f"{path}.decision={decision!r}: the {where} entry has "
+                                f"source_adr {record['source_adr']!r}, not the handle's "
+                                f"{decision.split('/', 1)[0]!r}",
+                            ))
+                        elif status != "Accepted":
+                            findings.append(_finding(
+                                "V10",
+                                f"{path}.decision={decision!r} has source_status {status!r} in "
+                                f"{where}; only an Accepted decision authorizes an override",
+                            ))
+            miss = tier_misses.get((agent, row.get("level"), column))
+            if miss is None or decision is not None:
+                continue
+            key, tiers = miss
+            kind = "cross-tier" if tiers else "of undeterminable tier"
+            tier_text = sorted(tiers) if tiers else "[] (no level names this value)"
+            if key in PRE_RULE_OVERRIDE_EXEMPTIONS:
+                findings.append(_finding(
+                    "V10",
+                    f"agents.{agent}.{column} is {kind}: its tier set in the {column} column is "
+                    f"{tier_text} and the agent's level is {row['level']!r}; exempt as a pre-rule "
+                    f"override — {_OWNER_FOLLOW_UP}",
+                    warning=True,
+                ))
+            else:
+                findings.append(_finding(
+                    "V10",
+                    f"agents.{agent}.{column} is {kind}: its tier set in the {column} column is "
+                    f"{tier_text} and the agent's level is {row['level']!r}; a move outside the "
+                    f"agent's tier needs authority.{column}.decision naming an Accepted ADR",
+                ))
     return findings
 
 
@@ -1982,7 +2281,7 @@ def _bundles_target(path: Path, ctx: dict) -> list[dict]:
 
 
 def _models_target(path: Path, ctx: dict) -> list[dict]:
-    return validate_models_yml(path, ctx["plugin_dir"])
+    return validate_models_yml(path, ctx["plugin_dir"], ctx.get("repo_root"))
 
 
 CATALOG_TARGETS: dict[str, Callable[[Path, dict], list[dict]]] = {
@@ -2659,7 +2958,7 @@ def main(argv: list[str] | None = None) -> int:
     # the one declaration of which files this validator owns, and an audit rule
     # and a naming-convention test both read it.
     skill_ids = {e["id"] for e in new_entries}
-    target_ctx = {"skill_ids": skill_ids, "plugin_dir": plugin_dir}
+    target_ctx = {"skill_ids": skill_ids, "plugin_dir": plugin_dir, "repo_root": root}
     warnings: list[dict] = []
     # Counted separately from the skill findings they are appended beside. They
     # share a list because the payload shape and the exit code are consumed

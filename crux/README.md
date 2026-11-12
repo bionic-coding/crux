@@ -20,7 +20,7 @@ bionic/
   AGENTS.md            Schema layer (operations doc for Claude).
   README.md            One-page human explainer.
   index.md             Catalog, sectioned by concern.
-  log.md               Operational journal (append-only, newest-first).
+  log/                 Operations log: monthly detail files YYYY-MM.md (latest write first) and a generated summary.md.
   manifest.yml         Schema version + per-concern config.
   inbox/               Drop anything here; "process inbox" sorts and routes it.
 

@@ -3,10 +3,10 @@
   "clauses": [
     {
       "id": "log-op-heading-prefix",
-      "section": "\u00a76 docs/log.md format",
+      "section": "\u00a76 docs/log/ format",
       "canonical": "bionic/AGENTS.md",
       "twin": "crux/templates/AGENTS.md.tmpl",
-      "anchor": "## 6. `docs/log.md` format",
+      "anchor": "## 6. `docs/log/` format",
       "pattern": "YYYY-MM-DD"
     },
     {
@@ -22,7 +22,7 @@
       "section": "\u00a76 op-enum carries the `invariant` op",
       "canonical": "bionic/AGENTS.md",
       "twin": "crux/templates/AGENTS.md.tmpl",
-      "anchor": "## 6. `docs/log.md` format",
+      "anchor": "## 6. `docs/log/` format",
       "pattern": "\\| invariant \\|"
     },
     {
@@ -30,7 +30,7 @@
       "section": "\u00a76 op-enum carries the `observation` op",
       "canonical": "bionic/AGENTS.md",
       "twin": "crux/templates/AGENTS.md.tmpl",
-      "anchor": "## 6. `docs/log.md` format",
+      "anchor": "## 6. `docs/log/` format",
       "pattern": "\\| observation \\|"
     },
     {
@@ -158,7 +158,7 @@
       "section": "\u00a76 op-enum carries the `backfill` op",
       "canonical": "bionic/AGENTS.md",
       "twin": "crux/templates/AGENTS.md.tmpl",
-      "anchor": "## 6. `docs/log.md` format",
+      "anchor": "## 6. `docs/log/` format",
       "pattern": "\\| backfill"
     },
     {
@@ -238,7 +238,7 @@
       "section": "\u00a76 op-enum carries the `adr-review` op",
       "canonical": "bionic/AGENTS.md",
       "twin": "crux/templates/AGENTS.md.tmpl",
-      "anchor": "## 6. `docs/log.md` format",
+      "anchor": "## 6. `docs/log/` format",
       "pattern": "\\| adr-review \\|"
     },
     {
@@ -390,7 +390,7 @@
       "section": "\u00a76 op-enum carries the `release` op",
       "canonical": "bionic/AGENTS.md",
       "twin": "crux/templates/AGENTS.md.tmpl",
-      "anchor": "## 6. `docs/log.md` format",
+      "anchor": "## 6. `docs/log/` format",
       "pattern": "\\| release"
     },
     {
@@ -512,6 +512,22 @@
       "twin": "crux/templates/AGENTS.md.tmpl",
       "anchor": "### adrs (append-only history)",
       "pattern": "Historical reviews surface|preserves dated decision-review reports unchanged|Only `reviews/index.md` regenerates|`migrate-adrs`"
+    },
+    {
+      "id": "operations-log-detail-files-and-commit-step",
+      "section": "\u00a76 the operations log is monthly detail files written by the one log writer, with the commit step and the summary",
+      "canonical": "bionic/AGENTS.md",
+      "twin": "crux/templates/AGENTS.md.tmpl",
+      "anchor": "## 6. `docs/log/` format",
+      "pattern": "# Operations log: YYYY-MM|_Append-only\\. Latest write first\\._|operation-log\\.py\" append|git restore --staged --quiet|git commit --only|\\.split-complete\\.json|third day of month M\\+1|keeping the branch's whole file"
+    },
+    {
+      "id": "operations-log-defined-names",
+      "section": "§6 names every file under docs/log/: the kept file and the transient staged legacy, staged stray, transaction and writer-temporary names",
+      "canonical": "bionic/AGENTS.md",
+      "twin": "crux/templates/AGENTS.md.tmpl",
+      "anchor": "## 6. `docs/log/` format",
+      "pattern": "\\*\\*Names under `docs/log/`\\.\\*\\*|\\.kept-<sha256>\\.txt|\\.legacy-<sha256>\\.md|\\.stray-<sha256>\\.md|\\.split-<sha256>\\.json|\\.write-journal-<hex>"
     }
   ]
 }

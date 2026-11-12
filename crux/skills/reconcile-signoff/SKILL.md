@@ -158,15 +158,31 @@ The script validates fail-closed, upserts the digest-bound record into `reconcil
 
 The script's output ends with the post-gate lines: `compile-doctrine re-derived N files` and `compile-doctrine --dry-run clean`. If the post-gate is red (the ledger write landed but the re-compile is dirty or crashed), the script says so loudly and returns non-zero — surface it and remediate before the next sign-off. Do not work around a red post-gate by hand-editing any surface.
 
-### 6. Append to `<docs_dir>/log.md`
+### 6. Record the `adr` operation
 
-The sign-off changes doctrine state, so log it. Doctrine is an `adrs/` projection, so it rides the `adr` op (there is no dedicated reconciliation op in the enum). Newest entry at the top:
+The sign-off changes doctrine state, so record it. Doctrine is an `adrs/` projection, so it rides the `adr` op (there is no dedicated reconciliation op in the enum). Write the entry through the log writer (`<docs_dir>/AGENTS.md` §6).[^log-writer] Write the body below to a file outside the tree, then run:
+
+```
+uv run "${CRUX_PLUGIN_ROOT}/scripts/operation-log.py" append --repo-root <repo-root> \
+  --op adr --subject 'reconcile-signoff (INV-NNNN x ADR-NNNN/<slug> = <verdict>)' --date YYYY-MM-DD --body-file <path>
+```
+
+The entry it writes at the top of the current month's detail file `<docs_dir>/log/YYYY-MM.md`:
 
 ```
 ## [YYYY-MM-DD] adr | reconcile-signoff (INV-NNNN x ADR-NNNN/<slug> = <verdict>)
 ```
 
-Body, 1–3 lines: the pairing, the verdict, and the resulting domain state (believed / still BROKEN with the remaining pending pairings). On a no-op re-sign, log it as a no-op.
+Body, 1–3 lines: the pairing, the verdict, and the resulting domain state (believed / still BROKEN with the remaining pending pairings). On a no-op re-sign, record it as a no-op.
+
+A refused append keeps the sign-off's other writes and adds no entry. It refuses for one of three causes: the entry's own body or heading fails validation, a tree fault that names its own fix, or another writer's concurrent change. Fix the named cause, then rerun the append alone (§6).
+
+Then run the commit step of §6, whatever the append's status, because a refused append can still have repaired the operations log:
+
+1. When `restore_paths` is not empty, run `git restore --staged --quiet -- <restore_paths>`.
+2. When `commit_paths` is not empty, run `git add -- <commit_paths>` and then `git commit --only -- <commit_paths>`.
+
+This step commits the log paths only.
 
 ### 7. Hand-off
 
@@ -207,3 +223,5 @@ Report the pairing, the signed verdict and date, and the domain's resulting stat
 - `compile-doctrine` — the doctrine regenerator; this skill re-compiles doctrine inside its own write set after a sign, but is not the general compiler.
 - `transition-invariant` — the human gate that ratifies, rejects, or retires an invariant pin; only a ratified invariant seeds a reconciliation pairing.
 - `<docs_dir>/adrs/doctrine/index.md` — where pending pairings surface as BROKEN domains with `un-adjudicated` / `digest-stale` / `collision` rows.
+
+[^log-writer]: rule:log-entries-go-through-the-log-writer, rule:no-writer-writes-the-legacy-log-file

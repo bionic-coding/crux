@@ -297,6 +297,58 @@ def _accepted_governs_entries(repo: Path, tree: Path) -> list[dict]:
     return entries
 
 
+def _persisted_retired_targets(repo: Path, tree: Path) -> set[str]:
+    """Targets of the retirements that outlive their host's Accepted status.
+
+    Reads committed clean bytes of every ADR file in both tiers that is not an
+    active-tier Accepted file (those carry their `retires` on the entries
+    `_accepted_governs_entries` returns) and takes each target from
+    `retirement_edges_in_force`, so a Deprecated or Superseded host keeps its
+    retirement and a never-accepted host gives none
+    (rule:retirement-persists-after-its-host-leaves-accepted). A host whose tier,
+    retires shape or acceptance record is inconsistent stops the run as
+    `constraint-record-refused`."""
+    import summaries_projection as summaries
+
+    def contained(relative: str) -> tuple[Path, str]:
+        return checked_path(repo, str(tree / relative))
+
+    def proof_reader(relative: str) -> bytes:
+        absolute, rel = contained(relative)
+        require(cr.is_clean(repo, rel), "constraint-not-committed")
+        return absolute.read_bytes()
+
+    def exists(relative: str) -> bool:
+        absolute, rel = contained(relative)
+        if absolute.is_dir() and not absolute.is_symlink():
+            return True
+        if not (absolute.exists() or absolute.is_symlink()):
+            return False
+        require(cr.is_clean(repo, rel), "constraint-not-committed")
+        return True
+
+    targets: set[str] = set()
+    for tier, directory in (("active", tree / "adrs"), ("archive", tree / "adrs" / "archive")):
+        for path in sorted(directory.glob("*.md")):
+            if not re.match(r"(?:[A-Z][A-Z0-9]{1,9}-)?ADR-[0-9]{4}-", path.name):
+                continue
+            absolute, rel = checked_path(repo, str(path))
+            require(cr.is_clean(repo, rel), "constraint-not-committed")
+            match = re.match(r"\A---\r?\n(.*?)\r?\n---", absolute.read_text(), re.S)
+            require(match is not None, "constraint-record-refused")
+            fm = yaml.safe_load(match[1])
+            require(isinstance(fm, dict) and "record_type" not in fm, "constraint-record-refused")
+            if tier == "active" and fm.get("status") == "Accepted":
+                continue
+            try:
+                edges = summaries.retirement_edges_in_force(
+                    fm, path.name, tier, proof_reader=proof_reader, exists=exists)
+            except summaries.RetirementPersistenceRefusal:
+                raise Refused("constraint-record-refused") from None
+            targets.update(edge.target for edge in edges)
+    return targets
+
+
 def _current_governs_entries(repo: Path, tree: Path, *, view=None) -> list[dict]:
     """Current council context uses accepted amendments; historical proof stays raw."""
     import summaries_projection as summaries
@@ -308,6 +360,7 @@ def _current_governs_entries(repo: Path, tree: Path, *, view=None) -> list[dict]
     amenders = {amender for _, amender in summaries.ACCEPTANCE_SCOPE_AMENDMENTS}
     if not view.get('amendments') and not any(e.get('handle') in amenders for e in entries):
         dead = {handle for entry in entries for handle in entry.get('retires', [])}
+        dead |= _persisted_retired_targets(repo, tree)
         dead |= set(view['historical_handles']) | set(view['retired_handles'])
         return [entry for entry in entries if entry.get('handle') not in dead]
     rows=summaries.collect_records(tree/'adrs')
@@ -339,6 +392,7 @@ def _raw_live_constraints(repo: Path, handles: list[str]) -> None:
     retired = set()
     for entry in _accepted_governs_entries(repo, tree):
         retired.update(entry.get("retires", []))
+    retired |= _persisted_retired_targets(repo, tree)
     for handle in handles:
         require(isinstance(handle, str) and re.fullmatch(r"(?:[A-Z][A-Z0-9]{1,9}-)?ADR-[0-9]{4}/[a-z0-9-]+", handle),
                 "constraint-handle-refused")
@@ -379,6 +433,7 @@ def undeclared_governing_constraints(repo: Path, scope: list[str], handles: list
     paths = [_scope_path(repo, entry) for entry in scope]
     records = _current_governs_entries(repo, tree, view=view)
     dead = {h for e in records for h in e.get("retires", [])}
+    dead |= _persisted_retired_targets(repo, tree)
     dead |= set(view["historical_handles"]) | set(view["retired_handles"])
     overlapping, unscoped = set(), set()
     for entry in records:

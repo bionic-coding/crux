@@ -157,6 +157,35 @@ class PublicationTests(MigrationFixture):
         self.assertEqual(config.read_text(), 'docs_dir: bionic\n')
         config.write_bytes(original)
 
+    def test_inventory_runs_in_commit_order_so_the_last_row_is_the_newest(self):
+        # Readers name view["publications"][-1] the current publication. The newer
+        # record here sorts FIRST by path ('-' < '.'), so a path order would name
+        # the older publication current.
+        import adr_migration_publication as p
+        older='bionic/adrs/migrations/batch.publication.json'
+        newer='bionic/adrs/migrations/batch-follow-up.publication.json'
+        self.assertLess(newer,older)
+        self.write(older,{'publication':'older'});self.commit('Publish the older batch')
+        first=self.head()
+        self.write(newer,{'publication':'newer'});self.commit('Publish the follow-up batch')
+        second=self.head()
+        # The record schema is not under test; the row order is, so `load` only
+        # parses. Discovery, introduction and the edit check stay real.
+        with patch.object(m,'load',lambda repo,path,kind:json.loads((Path(repo)/path).read_bytes())):
+            rows=p.inventory(self.root)
+        self.assertEqual([(r['path'],r['publication_commit']) for r in rows],
+                         [(older,first),(newer,second)])
+        # control: committed in the opposite order, the rows follow the commits
+        # again rather than any fixed path order
+        self.git('rm','-q',older,newer);self.commit('Remove both')
+        self.write(newer,{'publication':'newer'});self.commit('Publish the follow-up first')
+        a=self.head()
+        self.write(older,{'publication':'older'});self.commit('Publish the batch second')
+        b=self.head()
+        with patch.object(m,'load',lambda repo,path,kind:json.loads((Path(repo)/path).read_bytes())):
+            rows=p.inventory(self.root)
+        self.assertEqual([(r['path'],r['publication_commit']) for r in rows],[(newer,a),(older,b)])
+
     def test_exception_binding_is_forwarded_and_preserved_by_projections(self):
         import adr_migration_publication as p
         self.approve()
@@ -226,28 +255,74 @@ class PublicationTests(MigrationFixture):
         # The refusal came from the real parent reader's subprocess, not from a receipt or a memo.
         self.assertEqual(len(calls),1)
 
-    def test_installed_consumer_uses_exact_bound_support_without_vendoring(self):
-        import adr_migration_publication as p
+    def installed_consumer(self,readiness):
+        """A consuming project's approval on an installed basis, with no vendored source.
+
+        A v1 basis is recorded as the v5.3.0 writer recorded it, before approve refused one.
+        """
         self.write('later.txt','A later migration, independently approved.\n')
         self.package.update(initial=False,record=self.bind('later.txt'))
         self.write(self.package_path,self.package)
         self.owner['presented']=self.bind(self.package_path)
-        self.readiness=m.installed_support()
+        self.readiness=readiness
         self.council_path='bionic/adrs/councils/later.json'
         vote=self.council(self.package_path.removeprefix('bionic/'),self.bind(self.package_path)['sha256'])
         vote['readiness']=self.readiness;vote['review_bundle_sha256']=digest(encoded(m.review_bundle(self.root,self.package_path)))
         self.write(self.council_path,self.seal(vote));self.commit('Later installed-support council')
-        m.record_approval(self.root,'approval-later',self.package_path,self.council_path,self.readiness,owner=self.owner)
+        with patch.object(m,'_new_approval_basis'):
+            m.record_approval(self.root,'approval-later',self.package_path,self.council_path,self.readiness,owner=self.owner)
         approval='bionic/adrs/migrations/approvals/approval-later.json';self.commit('Later approval')
         shutil.rmtree(self.root/'crux');self.commit('Consumer has no vendored Crux source')
         self.assertFalse((self.root/'crux').exists())
+        return approval
+
+    def replay(self,approval,*,changed_reader=False):
+        """Admit the consumer's approval; optionally report the installed reader's bytes as changed."""
+        import adr_migration_publication as p
         run,calls=_watch_parent_reader()
-        with patch.object(subprocess,'run',side_effect=run):
-            self.assertEqual(p.validate_boundary(self.root,approval,self.head())['package'],self.bind(self.package_path))
+        real=p.digest
+        def reader_digest(raw):return 'f'*64 if raw.startswith(b'#!/usr/bin/env python3') else real(raw)
+        with patch.object(subprocess,'run',side_effect=run),patch.object(p,'digest',side_effect=reader_digest if changed_reader else real):
+            result=p.validate_boundary(self.root,approval,self.head())
+        return result,calls
+
+    def test_installed_consumer_uses_exact_bound_support_without_vendoring(self):
+        approval=self.installed_consumer(m.installed_support())
+        self.assertEqual(self.readiness['format'],m.INSTALLED_SUPPORT_V2)
+        result,calls=self.replay(approval)
+        self.assertEqual(result['package'],self.bind(self.package_path))
         # The installed reader ran as a subprocess against the exact bound support.
         self.assertEqual(len(calls),1)
         self.assertEqual(Path(calls[0][1]).name,'adr-migration.py')
         self.assertFalse(Path(calls[0][1]).is_relative_to(self.root))
+
+    def test_v2_consumer_replay_runs_the_current_reader_without_the_per_file_comparison(self):
+        approval=self.installed_consumer(m.installed_support())
+        result,calls=self.replay(approval,changed_reader=True)
+        self.assertEqual((result['package'],len(calls)),(self.bind(self.package_path),1))
+
+    def test_byte_route_v1_consumer_keeps_the_per_file_reader_comparison(self):
+        from test_adr_migration import legacy_v1_support
+        approval=self.installed_consumer(legacy_v1_support())
+        with self.assertRaisesRegex(CycleError,'parent installed validator source changed'):
+            self.replay(approval,changed_reader=True)
+        result,calls=self.replay(approval)
+        self.assertEqual((result['package'],len(calls)),(self.bind(self.package_path),1))
+
+    def test_issued_v1_consumer_replay_skips_the_per_file_comparison(self):
+        from _dev_surface import REPO_ROOT, TREE, require_dev_surface
+        path=REPO_ROOT/TREE/'adrs/migrations/approvals/authority-reset-2026-11.json'
+        require_dev_surface(self,path,f'{TREE}/adrs/migrations/approvals/authority-reset-2026-11.json')
+        issued=json.loads(path.read_text())['readiness']
+        self.assertIn(digest(encoded(issued)),m.ISSUED_INSTALLED_SUPPORT)
+        approval=self.installed_consumer(issued)
+        result,calls=self.replay(approval,changed_reader=True)
+        self.assertEqual((result['package'],len(calls)),(self.bind(self.package_path),1))
+
+    def test_consumer_replay_refuses_an_unsupported_profile(self):
+        approval=self.installed_consumer(m.installed_support())
+        with patch.dict(m.APPROVAL_PROFILES,clear=True),self.assertRaisesRegex(CycleError,'unsupported approval profile'):
+            self.replay(approval)
 
     def test_transaction_refreshes_views_after_staged_source_change(self):
         import adr_migration_publication as p

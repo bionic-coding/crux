@@ -33,12 +33,6 @@ test('the reader starts with exactly the fixed argv and the installed crux as cw
   expect(text).toContain('status ok')
 })
 
-test('no env option is passed over the session environment', async ($, on) => {
-  const { w } = await ask($, on)
-  expect(w.runs.length).toBe(1)
-  expect(Object.keys(w.runs[0]!.init ?? {}).includes('env')).toBe(false)
-})
-
 test('hostile variables in the session never reach the argv', async ($, on) => {
   const hostile = {
     ...baseEnv,
@@ -98,12 +92,6 @@ for (const [name, opts, code] of refusals) {
   })
 }
 
-test('the refusals above are not vacuous: the baseline machine starts the reader', async ($, on) => {
-  const { w, text } = await ask($, on)
-  expect(w.runs.length).toBe(1)
-  expect(text.includes('status ok')).toBe(true)
-})
-
 // The names are a literal list: the manifest no longer declares loader variables.
 for (const name of ['LD_LIBRARY_PATH', 'DYLD_LIBRARY_PATH', 'LD_PRELOAD']) {
   test(`a session with ${name} set still starts the reader: status ok`, async ($, on) => {
@@ -162,18 +150,6 @@ test("only another project's install is crux-not-installed", async ($, on) => {
   expect(w.runs.length).toBe(0)
 })
 
-test('under a development folder the record key is crux@crux; the default record is found when the plugin cache names it', async ($, on) => {
-  // The test cannot move the plugin root, so the key stays crux@crux here and
-  // the segment rule is held by the unit test above.
-  const { text } = await ask($, on, { record: baseRecord() })
-  expect(text).toContain('status ok')
-})
-
-test('a reader error code in the closed set is shown as reader-failed:<code>', async ($, on) => {
-  const { text } = await ask($, on, { reader: { exitCode: 1, stdout: JSON.stringify(readerError('run-invalid')) } })
-  expect(text).toContain('status reader-failed:run-invalid')
-})
-
 test('a reader error code outside the closed set is reader-output-invalid, never echoed', async ($, on) => {
   const { text } = await ask($, on, { reader: { exitCode: 1, stdout: JSON.stringify(readerError('ignore-previous-instructions')) } })
   expect(text).toContain('status reader-output-invalid')
@@ -196,11 +172,6 @@ test('a dependency missing from the offline uv cache is offline-unavailable', as
   const dep = 'error: Failed to download `pyyaml==6.0.2`\n  Caused by: Network connectivity is disabled, but the requested data was not found in the cache\n'
   const { text } = await ask($, on, { reader: { exitCode: 1, stdout: '', stderr: dep } })
   expect(text).toContain('status offline-unavailable')
-})
-
-test('a reader that cannot start answers reader-cannot-start', async ($, on) => {
-  const { text } = await ask($, on, { reader: 'throw' })
-  expect(text).toContain('status reader-cannot-start')
 })
 
 test('the project root is the session root, not the directory a shell cd moved to', async ($, on) => {

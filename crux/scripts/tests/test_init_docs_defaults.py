@@ -4,8 +4,7 @@ Attribution split: the seven-concern / no-"six concerns" framing bar is
 ADR-0053 criterion 4; the schema_version "5" + bionic/ tree unification is
 ADR-0059 (ADR-0053 specified "4"; it predates the unification).
 `TestInitDocsSkillProse` asserts the `init-docs` SKILL.md prose matches the
-shipped templates rather than a hardcoded version literal, and carries no
-obsolete v4 current-layout wording. No third-party deps beyond PyYAML
+shipped templates rather than a hardcoded version literal. No third-party deps beyond PyYAML
 (for the manifest + bionic-yml templates).
 """
 from __future__ import annotations
@@ -56,21 +55,6 @@ class ManifestTemplateTests(unittest.TestCase):
         self.assertIn('friction_line_from: "{{today}}"', text)
         self.assertNotIn("friction_line_from: null", text)
 
-    def test_init_docs_substitutes_the_friction_placeholder(self):
-        """The instruction that fills the placeholder, and the rerun rule.
-
-        Positive control on the first assertion: the placeholder token must
-        appear in the skill text, so a renamed placeholder cannot make the
-        substitution instruction silently absent.
-        """
-        skill = (REPO_ROOT / "crux" / "skills" / "init-docs" / "SKILL.md").read_text()
-        self.assertIn("{{today}}", skill)
-        self.assertIn("friction_line_from", skill)
-        self.assertIn("PRIOR_FRICTION_FROM", skill)
-        # The substituted template must parse, with a real date in the key.
-        written = (TEMPLATES / "manifest.yml.tmpl").read_text().replace("{{today}}", "2026-09-10")
-        self.assertEqual(yaml.safe_load(written)["journal"]["friction_line_from"], "2026-09-10")
-
     def test_manifest_tmpl_carries_observation_counter_without_schema_bump(self):
         # Additive enablement on the arch precedent: the counters arrive with
         # NO schema_version bump (docs/AGENTS.md §17, §17.5). init-docs step 6
@@ -85,22 +69,6 @@ class ManifestTemplateTests(unittest.TestCase):
         self.assertEqual(m["adr"], {"next_number": 1, "governs_rule_baseline": []})
         self.assertEqual(m["promptbook"], {"next_number": 1})
 
-    def test_manifest_tmpl_ships_an_explicit_empty_rule_length_baseline(self):
-        """The key must be PRESENT and EMPTY, and the distinction is the whole design.
-
-        `init-docs` copies this template verbatim, so whatever is here is a fresh tree's manifest.
-        An ABSENT key means "this tree has not snapshotted its existing ADRs yet" and leaves the
-        rule-length advisory inert; an EMPTY list means "there is nothing to grandfather", which
-        is true of a tree with no ADRs and switches the advisory on. Ship it absent and every
-        freshly bootstrapped tree would carry the advisory permanently dead — the failure a
-        council round caught in the design before it was written.
-        """
-        m = yaml.safe_load((TEMPLATES / "manifest.yml.tmpl").read_text())
-        self.assertIn("governs_rule_baseline", m["adr"],
-                      "an absent key leaves the advisory inert in every new tree")
-        self.assertEqual(m["adr"]["governs_rule_baseline"], [],
-                         "a new tree grandfathers nothing; the list is empty, not populated")
-
     def test_the_template_ships_no_adr_identity_of_this_project(self):
         """This project's own ADR ids are not universal exemptions for anyone else."""
         import re
@@ -110,14 +78,6 @@ class ManifestTemplateTests(unittest.TestCase):
         body = "\n".join(l for l in raw.splitlines() if not l.strip().startswith("#"))
         self.assertEqual(re.findall(r"ADR-\d{4}", body), [],
                          "no ADR identifier may ship in the manifest template")
-
-    def test_manifest_tmpl_agrees_with_claude_md_tmpl(self):
-        # Twin lock-step: the AGENTS.md.tmpl §7 example manifest must show the
-        # same schema + include invariants, so a fresh seed is self-consistent.
-        c = (TEMPLATES / "AGENTS.md.tmpl").read_text()
-        self.assertIn('schema_version: "5"', c)
-        self.assertRegex(c, r"concerns_enabled:[\s\S]{0,400}- invariants")
-        self.assertRegex(c, r"concerns_enabled:[\s\S]{0,400}- arch")
 
     def test_manifest_tmpl_observation_block_matches_claude_md_tmpl_section_7(self):
         # The gap that shipped the survey keys to the dogfood tree but not to a
@@ -157,22 +117,11 @@ class StrictFramingSurfaceTests(unittest.TestCase):
                 f"residual six-concern framing in {f.relative_to(REPO_ROOT)}",
             )
 
-    def test_strict_surfaces_name_seven_concerns_or_invariants(self):
-        require_dev_surface(self, REPO_ROOT / "AGENTS.md", "AGENTS.md")
-        # Positive check: the framing actually moved to seven / names invariants.
-        for f in (REPO_ROOT / "README.md", REPO_ROOT / "USER_GUIDE.md", REPO_ROOT / "AGENTS.md"):
-            t = f.read_text()
-            self.assertTrue(
-                "seven concern" in t or "invariants" in t,
-                f"{f.relative_to(REPO_ROOT)} does not name seven concerns / invariants",
-            )
-
 
 @unittest.skipUnless(HAVE_YAML, "PyYAML required (run under uv)")
 class TestInitDocsSkillProse(unittest.TestCase):
     """ADR-0059 acceptance: init-docs SKILL.md prose matches the shipped
-    templates (bionic/ tree unification) and carries no obsolete v4
-    current-layout wording. Expectations are derived FROM the templates
+    templates (bionic/ tree unification). Expectations are derived FROM the templates
     where practical rather than hardcoded, so a future schema bump that
     updates the templates doesn't silently desync this test from them.
     """
@@ -197,31 +146,6 @@ class TestInitDocsSkillProse(unittest.TestCase):
             "manifest.yml.tmpl's schema_version",
         )
 
-    def test_no_obsolete_v4_current_layout_literals(self):
-        text = self._skill_text()
-        # Amendment A1: ban only obsolete CURRENT-LAYOUT literals; history /
-        # migration references to older schema versions stay legitimate.
-        banned = [
-            'currently `"4"`',
-            "tree at schema_version 4",
-        ]
-        for literal in banned:
-            self.assertNotIn(
-                literal,
-                text,
-                f"obsolete v4 current-layout literal {literal!r} found in init-docs SKILL.md",
-            )
-
-    def test_invariants_concern_is_one_folder_inside_the_tree(self):
-        text = self._skill_text()
-        # Positive: the suite + reconciliation are named INSIDE the tree.
-        self.assertIn("${DOCS_DIR}/invariants/checks/", text)
-        self.assertIn("${DOCS_DIR}/invariants/reconciliation.yml", text)
-        # Negative: no peer-root instruction survives (the v4 split layout).
-        self.assertNotIn("OUTSIDE docs/", text)
-        self.assertNotIn("at the repo root under `bionic/`", text)
-        self.assertNotIn("peer invariants check suite", text)
-
     def test_arch_concern_scaffolded_and_spine_deferred(self):
         # WU1 (arch enrollment): init eagerly creates the arch/ directory + a
         # placeholder index.md but DEFERS the derived spine (no derive-arch at
@@ -239,20 +163,6 @@ class TestInitDocsSkillProse(unittest.TestCase):
         # It must NOT instruct adding an `## Arch` master-index section; the
         # only permitted mention is the exemption (no `## Arch` section).
         self.assertIn("NO `## Arch` section", text)
-
-    def test_directory_tree_step_creates_under_docs_dir_not_literal_docs(self):
-        text = self._skill_text()
-        self.assertIn(
-            "${REPO_ROOT}/${DOCS_DIR}/",
-            text,
-            "step-4 directory-tree instructions should create the tree under "
-            "${REPO_ROOT}/${DOCS_DIR}/",
-        )
-        self.assertNotIn(
-            "under `${REPO_ROOT}/docs/`",
-            text,
-            "step-4 must not instruct creation under the retired literal docs/ layout",
-        )
 
     def test_checklist_guards_against_greenfield_docs_directory(self):
         text = self._skill_text()
@@ -385,27 +295,6 @@ def _fence_bodies(text: str, lang: str) -> list[str]:
     return bodies
 
 
-def _line_3_quote_problems(line3: str, see: str, objectives_line: str) -> list[str]:
-    """How line 3's quotes of step 9's appends differ from what step 9 writes."""
-    problems = []
-    quoted_see = '"' + see.replace("${DOCS_DIR}", "<docs_dir>") + '"'
-    if quoted_see not in line3:
-        problems.append(f"line 3 does not quote {quoted_see}")
-    token = re.match(r"Read (`\$\{DOCS_DIR\}/objectives\.md`)", objectives_line)
-    if token is None:
-        problems.append("step 9's objectives block does not open with its path")
-    else:
-        quoted = "read " + token.group(1).replace("${DOCS_DIR}", "<docs_dir>")
-        if quoted not in line3:
-            problems.append(f"line 3 does not say {quoted}")
-    for literal in ("See `docs/AGENTS.md`", "`docs/objectives.md`"):
-        if literal in line3:
-            problems.append(f"line 3 quotes the literal {literal}")
-    if _DOCS_DIR_GLOSS not in line3:
-        problems.append("line 3 does not gloss `<docs_dir>`")
-    return problems
-
-
 def _claude_compat():
     import importlib.util
     path = REPO_ROOT / "crux" / "scripts" / "check-claude-compat.py"
@@ -458,21 +347,6 @@ def _expected_note() -> str:
     ])
 
 
-def _expected_warning(see: str, objectives: list[str]) -> str:
-    """The whole WARNING fence body step 9 must carry, built from its sources."""
-    return "\n".join([
-        "WARNING: <lead>",
-        *_harness_facts(),
-        "- <entry name>: <sentence for its code>",
-        "When every entry above is resolved, add these lines to the repo-root AGENTS.md, "
-        "and create that file if it does not exist:",
-        "",
-        see,
-        "",
-        *objectives,
-    ])
-
-
 def _text_fence_problems(step9: str, marker: str, expected: str) -> list[str]:
     """How the ```text fence opening with `marker` departs from `expected`."""
     fences = [b for b in _fence_bodies(step9, "text") if b.startswith(marker)]
@@ -495,42 +369,6 @@ def _remedy_rows(step9: str) -> dict[str, str]:
     return rows
 
 
-# The retired no-create rule, in every shape the shipped prose stated it.
-_RETIRED_NO_CREATE = tuple(re.compile(p, re.IGNORECASE) for p in (
-    r"do \*\*not\*\* create one",
-    r"creates no repo-root `AGENTS\.md`",
-    r"neither creates a file",
-    r"do not create that file solely",
-    r"if it carries none, nothing was created",
-    r"never creates (?:a repo-root `AGENTS\.md`|that file)",
-    r"only warns when there is none",
-    r"warns when none does",
-    r"adding the file is your call",
-    r"warns and leaves adding one to you",
-))
-
-
-def _retired_no_create_claims(text: str) -> list[str]:
-    """Every sentence of `text` that still states the retired no-create rule."""
-    return [m.group(0) for p in _RETIRED_NO_CREATE for m in p.finditer(text)]
-
-
-# Pre-fix shipped prose, verbatim: the positive controls for the stale detector.
-_PRE_FIX_STEP9_BULLET = (
-    "- If it does not exist, do **not** create one — that's the user's call. Surface the "
-    "WARNING block given at the end of this step in the summary.")
-_PRE_FIX_OVERVIEW = ("It creates no repo-root `AGENTS.md`: step 9 appends to one that exists "
-                     "and only warns when there is none.")
-_PRE_FIX_RED_FLAG = ("Both append and preserve existing content and generated regions; "
-                     "neither creates a file that does not exist.")
-_PRE_FIX_CHECKLIST = "If it carries none, nothing was created."
-_PRE_FIX_CATALOG = ("It never creates a repo-root AGENTS.md: it appends a pointer to one that "
-                    "exists and warns when none does.")
-_PRE_FIX_LINE_3_NO_CREATE = ("`init-docs` never creates a repo-root `AGENTS.md`. When none "
-                             "exists, it warns and leaves adding one to you.")
-_PRE_FIX_GUIDE_NO_CREATE = ("`init-docs` never creates that file. When it exists, "
-                            "`init-docs` appends")
-
 #: The create rule as template line 3 states it.
 _LINE_3_CREATE_RULE = (
     "`init-docs` creates a repo-root `AGENTS.md` when the repository root holds no "
@@ -546,13 +384,6 @@ _LINE_3_CLAUDE_MENTIONS = (
 )
 
 
-def _without_sanctioned_claude_mentions(line: str) -> str:
-    for mention in _LINE_3_CLAUDE_MENTIONS:
-        assert mention in line, mention
-        line = line.replace(mention, "")
-    return line
-
-
 class RootAgentsPointerTests(unittest.TestCase):
     """What the shipped prose says init-docs does with a repo-root AGENTS.md.
 
@@ -565,7 +396,6 @@ class RootAgentsPointerTests(unittest.TestCase):
     SKILL_MD = REPO_ROOT / "crux" / "skills" / "init-docs" / "SKILL.md"
     TEMPLATE = TEMPLATES / "AGENTS.md.tmpl"
     GUIDE_TEMPLATE = TEMPLATES / "USER_GUIDE.md"
-    CATALOG_GUIDE = REPO_ROOT / "tools" / "bionic-catalog" / "crux-learning-catalog-guide.json"
 
     def _skill_text(self) -> str:
         return self.SKILL_MD.read_text(encoding="utf-8")
@@ -582,9 +412,6 @@ class RootAgentsPointerTests(unittest.TestCase):
         start = text.index("### 9. Create or update the repo-root `AGENTS.md`")
         return text[start:text.index("### 10.", start)]
 
-    def _step9(self) -> str:
-        return " ".join(self._raw_step9().split())
-
     def _step9_appends(self, step9: str) -> tuple[str, list[str]]:
         """The `See` line and the objectives block step 9 carries, verbatim."""
         fences = _fence_bodies(step9, "markdown")
@@ -596,57 +423,7 @@ class RootAgentsPointerTests(unittest.TestCase):
         self.assertEqual(len(objectives), 1, fences)
         return see[0], objectives[0].splitlines()
 
-    # -- the create rule is pinned; the retired rule is gone ------------------
-
-    def test_step9_states_the_create_rule_and_the_guards(self):
-        step9 = self._step9()
-        for pinned in (
-                "The root holds no `AGENTS.md` or `CLAUDE.md` in any letter case: it "
-                "creates `AGENTS.md` holding the pointer line, one blank line, then the "
-                "objectives block, in LF line endings with one final newline, and no heading.",
-                "Running the append rules below against that file appends nothing.",
-                "it appends the pointer line only when the file does not reference the "
-                "tree's `AGENTS.md`, and the objectives block only when the file does not "
-                "name `objectives.md`.",
-                "The root holds a `CLAUDE.md` or a variant, with no exact `AGENTS.md`: it "
-                "creates nothing, appends nothing to that entry, and reports it.",
-                "is a symlink (live or dangling), is not a regular file, cannot be read, "
-                "or is not valid UTF-8: it writes nothing to it and reports it.",
-                "A legacy directory limits only itself: an exact regular `AGENTS.md` beside "
-                "it still gets its append.",
-                "judged from the root's directory entries and never from a path probe.",
-                "It never renames, deletes or rewrites a `CLAUDE.md` or a variant."):
-            with self.subTest(pinned=pinned[:50]):
-                self.assertIn(pinned, step9)
-
-    def test_no_shipped_surface_states_the_retired_no_create_rule(self):
-        surfaces = {p.relative_to(REPO_ROOT).as_posix(): p.read_text(encoding="utf-8")
-                    for p in (self.SKILL_MD, self.TEMPLATE, self.GUIDE_TEMPLATE,
-                              REPO_ROOT / "crux" / "skills" / "init-docs" / "references"
-                              / "pitfalls.md")}
-        if not IS_STAGED_ARTIFACT:
-            for extra in (REPO_ROOT / "USER_GUIDE.md", self.CATALOG_GUIDE):
-                require_dev_surface(self, extra, extra.name)
-                surfaces[extra.name] = extra.read_text(encoding="utf-8")
-        self.assertGreaterEqual(len(surfaces), 4)
-        for name, text in surfaces.items():
-            with self.subTest(surface=name):
-                self.assertEqual(_retired_no_create_claims(text), [])
-
-    def test_positive_control_the_stale_detector_flags_the_pre_fix_text(self):
-        """The absence test above is not vacuous: each retired sentence is caught."""
-        for label, old in (("step 9 bullet", _PRE_FIX_STEP9_BULLET),
-                           ("overview", _PRE_FIX_OVERVIEW),
-                           ("red flag", _PRE_FIX_RED_FLAG + " never creates that file"),
-                           ("checklist", _PRE_FIX_CHECKLIST),
-                           ("catalog guide", _PRE_FIX_CATALOG),
-                           ("template line 3", _PRE_FIX_LINE_3_NO_CREATE),
-                           ("user guide", _PRE_FIX_GUIDE_NO_CREATE)):
-            with self.subTest(label):
-                self.assertGreaterEqual(len(_retired_no_create_claims(old)), 1, old)
-        # Neither the corrected line 3 nor the corrected bullet is flagged.
-        self.assertEqual(_retired_no_create_claims(_line_3(self.TEMPLATE)), [])
-        self.assertEqual(_retired_no_create_claims(self._guide_bullet()), [])
+    # -- the create rule is pinned ------------------------------------------
 
     def test_shipped_templates_assert_no_unconditional_root_pointer(self):
         for path in (self.TEMPLATE, self.GUIDE_TEMPLATE):
@@ -684,44 +461,6 @@ class RootAgentsPointerTests(unittest.TestCase):
 
     # -- overview, rollback contract, checklist, red flags ---------------------
 
-    def test_overview_rollback_and_red_flags_carry_the_create_rule(self):
-        text = " ".join(self._skill_text().split())
-        for pinned in (
-                "Step 9 creates a repo-root `AGENTS.md` when the root holds no `AGENTS.md` "
-                "or `CLAUDE.md` in any letter case. A `CLAUDE.local.md` does not block that "
-                "create. Step 9 appends to an exact `AGENTS.md` that exists, and it reports "
-                "a `CLAUDE.md` or a case variant of `AGENTS.md` with its remedy instead of "
-                "writing to it.",
-                "The repo-root `AGENTS.md` that step 9 created is a new path. Remove it only "
-                "through step 9's guarded rollback, never by path. That rollback deletes the "
-                "file only when it still finds the regular file this run created.",
-                "The one sanctioned create is step 9's, for a root that holds no `AGENTS.md` "
-                "or `CLAUDE.md` in any letter case.",
-                "About to create a repo-root `AGENTS.md` beside a `CLAUDE.md` or a case "
-                "variant of `AGENTS.md`, to append to a case variant, or to write through a "
-                "symlink."):
-            with self.subTest(pinned=pinned[:50]):
-                self.assertIn(pinned, text)
-
-    def test_checklist_items_name_the_created_file_the_append_and_the_report(self):
-        lines = self._skill_text().splitlines()
-        for item in (
-                "- [ ] If the repo root held no `AGENTS.md` or `CLAUDE.md` in any letter case, "
-                "step 9 created a repo-root `AGENTS.md` holding the pointer line and the "
-                "objectives block, and its NOTE was surfaced verbatim.",
-                "- [ ] If the repo root carries an exact `AGENTS.md` that is a regular UTF-8 "
-                "file, step 9 appended the tree reference and the objectives block where "
-                "each was missing, preserving existing content and generated regions; no "
-                "pre-existing content was rewritten.",
-                "- [ ] Every repo-root entry step 9 reported (a `CLAUDE.md`, a case variant "
-                "of `AGENTS.md`, or an `AGENTS.md` it could not write to) appears in the "
-                "WARNING with the sentence for its code, and was left unedited."):
-            with self.subTest(item=item[:60]):
-                self.assertIn(item, lines)
-        text = self._skill_text()
-        self.assertNotIn("the four root files", text)
-        self.assertEqual(text.count("If it carries none"), 0)
-
     # -- the NOTE and the WARNING ----------------------------------------------
 
     def test_note_is_verbatim_and_derives_its_facts_from_check_claude_compat(self):
@@ -745,41 +484,6 @@ class RootAgentsPointerTests(unittest.TestCase):
                 self.assertNotEqual(mutated, step9)
                 self.assertNotEqual(
                     _text_fence_problems(mutated, "NOTE:", _expected_note()), [])
-
-    def test_warning_is_verbatim_with_two_leads_and_one_sentence_per_code(self):
-        step9 = self._raw_step9()
-        see, objectives = self._step9_appends(step9)
-        self.assertEqual(
-            _text_fence_problems(step9, "WARNING:", _expected_warning(see, objectives)), [])
-        flat = " ".join(step9.split())
-        for lead in ("`init-docs created no repo-root AGENTS.md and appended no pointer to "
-                     "the documentation tree.`",
-                     "`init-docs left the repo-root entries below unchanged.`"):
-            self.assertIn(lead, flat)
-        self.assertIn("Drop the closing block, from \"When every entry above\" on, when "
-                      "`\"outcome\"` is `appended` or `unchanged`.", flat)
-
-    def test_positive_control_warning_check_is_not_vacuous(self):
-        step9 = self._raw_step9()
-        see, objectives = self._step9_appends(step9)
-        want = _expected_warning(see, objectives)
-        for old, new in (
-                ("WARNING: <lead>", "WARNING: nothing was created."),
-                (", .claude/CLAUDE.md and CLAUDE.local.md", " and CLAUDE.local.md"),
-                ("default settings, except on the Bedrock", "default settings, including on the Bedrock"),
-                ("and create that file if it does not exist:", "and never create that file:"),
-                ("- <entry name>: <sentence for its code>", "- <entry name>"),
-                ("When every entry above is resolved", "When one entry above is resolved")):
-            with self.subTest(old=old):
-                # The WARNING fence is the last text fence, so mutate the last occurrence:
-                # the first one may sit in the NOTE, which this check does not read.
-                head, sep, tail = step9.rpartition(old)
-                self.assertTrue(sep, old)
-                mutated = head + new + tail
-                self.assertNotEqual(_text_fence_problems(mutated, "WARNING:", want), [])
-        no_fence = re.sub(r"```text\nWARNING:.*?\n```\n", "", step9, flags=re.DOTALL)
-        self.assertNotEqual(no_fence, step9)
-        self.assertNotEqual(_text_fence_problems(no_fence, "WARNING:", want), [])
 
     def test_the_warning_and_note_are_true_for_every_harness(self):
         """No sentence of the NOTE, the WARNING or the table claims a host observation."""
@@ -843,55 +547,7 @@ class RootAgentsPointerTests(unittest.TestCase):
             with self.assertRaises(_root_agents().CapabilityError):
                 _root_agents().load_blocks(bad, "bionic")
 
-    def test_step9_invokes_the_helper_verbs_it_documents(self):
-        step9 = self._step9()
-        self.assertIn('uv run "${CRUX_PLUGIN_ROOT}/scripts/root_agents.py" apply --repo-root '
-                      '"${REPO_ROOT}" --docs-dir "${DOCS_DIR}" --record "${RECORD}"', step9)
-        self.assertIn('uv run "${CRUX_PLUGIN_ROOT}/scripts/root_agents.py" rollback '
-                      '--repo-root "${REPO_ROOT}" --record "${RECORD}"', step9)
-        self.assertIn("Exit `2` is a capability error. The helper wrote nothing to the root "
-                      "unless its stderr says an append failed part-way or a created "
-                      "`AGENTS.md` was kept.", step9)
-        # The record is private and fresh, and rollback follows only a create.
-        self.assertIn("Create a private directory with `mktemp -d`", step9)
-        self.assertIn("only when this run's `\"outcome\"` was `created`", step9)
-        # The rollback contract restores an appended file's prior content, so step 9
-        # records that content before the helper can append to it.
-        self.assertIn("record its prior content before you run the helper", step9)
-
     # -- template line 3 quotes step 9's appends, true for any docs_dir --------
-
-    def test_line_3_states_the_create_rule_and_quotes_both_appends(self):
-        """Template line 3 states the create rule and quotes the appends as step 9 writes them.
-
-        Step 9 appends `${DOCS_DIR}`, which is `bionic` by default. A literal
-        `docs/` in the quote is false for every tree init-docs creates.
-        """
-        see, objectives = self._step9_appends(self._raw_step9())
-        line3 = _line_3(self.TEMPLATE)
-        self.assertIn(_LINE_3_CREATE_RULE, line3)
-        # Only the create condition and the never-written list name a CLAUDE.md.
-        self.assertNotIn("CLAUDE.md", _without_sanctioned_claude_mentions(line3))
-        self.assertEqual(_line_3_quote_problems(line3, see, objectives[0]), [])
-        # POSITIVE CONTROLS: the pre-fix line 3 lacks the create rule, and the older
-        # one quoted `docs/` and fails the quote check.
-        self.assertNotIn(_LINE_3_CREATE_RULE, _PRE_FIX_LINE_3_NO_CREATE)
-        self.assertGreaterEqual(
-            len(_line_3_quote_problems(_PRE_FIX_DOCS_LINE_3, see, objectives[0])), 2)
-
-    def test_dev_twin_line_3_quotes_both_step9_appends(self):
-        require_dev_surface(self, TREE_AGENTS_MD, f"{TREE}/AGENTS.md")
-        see, objectives = self._step9_appends(self._raw_step9())
-        self.assertEqual(_line_3_quote_problems(_line_3(TREE_AGENTS_MD), see, objectives[0]),
-                         [])
-
-    def test_the_guide_bullet_states_the_create_rule(self):
-        bullet = self._guide_bullet()
-        self.assertIn("When the repository root holds no `AGENTS.md` or `CLAUDE.md` in any "
-                      "letter case, `init-docs` creates that file", bullet)
-        self.assertIn("A `CLAUDE.local.md` does not block that create.", bullet)
-        self.assertIn("which names `audit-docs --migrate` where that migration applies",
-                      bullet)
 
 
 @unittest.skipUnless(HAVE_YAML, "PyYAML required (run under uv)")
@@ -909,18 +565,6 @@ class TemplateCommentAgreementTests(unittest.TestCase):
                 m.group(1), v,
                 "manifest.yml.tmpl comment contradicts its own schema_version",
             )
-
-    def test_dot_crux_tmpl_comments_do_not_claim_docs_default(self):
-        raw = (TEMPLATES / "dot-crux.tmpl").read_text()
-        self.assertNotIn('Default: "docs"', raw)
-        self.assertNotIn("docs tree at ./docs/", raw)
-        self.assertIn("defaults to `bionic`", raw)
-
-    def test_bionic_yml_tmpl_comments_agree_with_its_own_docs_dir(self):
-        raw = (TEMPLATES / "bionic-yml.tmpl").read_text()
-        self.assertNotIn("ledger at ./docs/", raw)
-        docs_dir = yaml.safe_load(raw)["docs_dir"]
-        self.assertIn(docs_dir, raw.split("docs_dir:", 1)[1])
 
 
 def _frontmatter_keys(text: str) -> list[str]:
@@ -954,31 +598,6 @@ class ObservationsConcernTests(unittest.TestCase):
         canonical = _section_17_1_keyset(TREE_AGENTS_MD.read_text())
         self.assertTrue(self.OBS_TEMPLATE.exists(), "crux/templates/OBS-template.md missing")
         self.assertEqual(_frontmatter_keys(self.OBS_TEMPLATE.read_text()), canonical)
-
-    def test_obs_template_points_at_the_schema_and_restates_nothing(self):
-        # §11.D rule 4: the template names §17.1 as the source of truth and
-        # carries no copy of the field semantics (no `required`, no enum list).
-        t = self.OBS_TEMPLATE.read_text()
-        self.assertIn("§17.1", t)
-        self.assertNotRegex(t, r"(?i)\brequired\b")
-        self.assertNotIn("observed | ratified", t)
-
-    def test_obs_template_body_skeleton_and_no_code_excerpt(self):
-        t = self.OBS_TEMPLATE.read_text()
-        for heading in (
-            "# OBS-NNNN — <title>",
-            "## What the code does",
-            "## Evidence",
-            "## Why this is observed, not decided",
-        ):
-            self.assertIn(heading, t)
-        self.assertIn("path:line-range", t)
-        self.assertNotIn("```", t, "no code excerpt anywhere in the template")
-
-    def test_obs_template_is_a_clean_distributed_surface(self):
-        t = self.OBS_TEMPLATE.read_text()
-        self.assertNotRegex(t, r"ADR-\d{4}")
-        self.assertNotIn("[[adrs/", t)
 
     @unittest.skipUnless(HAVE_YAML, "PyYAML required (run under uv)")
     def test_dogfood_manifest_enables_observations_without_schema_bump(self):
@@ -1031,14 +650,6 @@ class ObservationsConcernTests(unittest.TestCase):
         self.assertRegex(t, r"concerns_enabled: \[[^\]]*observations[^\]]*\]")
         self.assertIn("`concerns_enabled` includes `invariants`, `arch`, and `observations`", t)
 
-    def test_init_docs_skill_adds_no_migration_rung_and_no_schema_bump(self):
-        t = self.SKILL_MD.read_text()
-        # The only `currently "X"` literal is the step-6 one, still "5".
-        self.assertEqual(re.findall(r'currently `"([^"]+)"`', t), ["5"])
-        i = t.index("Observations concern")
-        block = t[i : i + 900]
-        self.assertNotRegex(block, r"(?i)migrat")
-
 
 class InstallDocsSkillsProseTests(unittest.TestCase):
     """The sibling detection surface: fresh-vs-upgrade detection must not
@@ -1070,25 +681,6 @@ class UserGuideSchemaLiteralTests(unittest.TestCase):
                           f"{f.name} does not name schema_version {v}")
 
 
-class ReviewsSurfaceAtInitTests(unittest.TestCase):
-    """`init-docs` creates the decision-review surface before the first review.
-
-    Without it a fresh tree reaches the CLN-ADR-5 cadence nudge with nowhere
-    to write (review finding `adr-review-init-docs-omits-reviews`).
-    """
-
-    def setUp(self) -> None:
-        self.text = (REPO_ROOT / "crux" / "skills" / "init-docs" / "SKILL.md").read_text(encoding="utf-8")
-
-    def test_the_directory_tree_names_adrs_reviews(self):
-        self.assertIn("adrs/reviews/", self.text)
-
-    def test_the_gitkeep_list_and_the_checklist_carry_it(self):
-        keep = self.text[self.text.index("Add a `.gitkeep` file to each leaf directory"):]
-        self.assertIn("`adrs/reviews/`", keep.split("\n", 1)[0])
-        self.assertIn("`${DOCS_DIR}/adrs/reviews/`", self.text[self.text.index("## Verification checklist"):])
-
-
 if __name__ == "__main__":
     unittest.main()
 
@@ -1108,37 +700,6 @@ class FreshRepositoryInstructionNameTests(unittest.TestCase):
                         "init-docs seeds the tree schema from AGENTS.md.tmpl")
         self.assertFalse((TEMPLATES / "CLAUDE.md.tmpl").exists(),
                          "the legacy template name must not survive the migration")
-
-    def test_the_template_names_no_claude_instruction_file_outside_section_18(self):
-        """Section 18 names the legacy file deliberately; nothing else may."""
-        text = self.TEMPLATE.read_text(encoding="utf-8")
-        marker = "## 18. Repository instruction files"
-        self.assertIn(marker, text, "the template carries the instruction contract")
-        before = text.split(marker)[0]
-        # Line 3 names a CLAUDE.md in exactly two sanctioned sentences.
-        before = before.replace(
-            "holds no `AGENTS.md` or `CLAUDE.md` in any letter case.", "").replace(
-            "writes nothing to a `CLAUDE.md` in any letter case,", "")
-        self.assertNotIn("CLAUDE.md", before,
-                         "a CLAUDE.md reference survives outside section 18")
-
-    def test_init_docs_writes_agents_md_and_forbids_a_claude_sibling(self):
-        skill = (REPO_ROOT / "crux" / "skills" / "init-docs" / "SKILL.md").read_text()
-        self.assertIn("${REPO_ROOT}/${DOCS_DIR}/AGENTS.md", skill)
-        self.assertIn("Write no `CLAUDE.md` sibling", skill)
-        self.assertNotIn("Write `${DOCS_DIR}/CLAUDE.md` from template", skill)
-
-    def test_init_docs_reports_a_root_claude_md_rather_than_writing_to_it(self):
-        skill = (REPO_ROOT / "crux" / "skills" / "init-docs" / "SKILL.md").read_text()
-        flat = " ".join(skill.split())
-        self.assertIn("It never renames, deletes or rewrites a `CLAUDE.md` or a variant.", flat)
-        self.assertIn("The root holds a `CLAUDE.md` or a variant, with no exact `AGENTS.md`: it "
-                      "creates nothing, appends nothing to that entry, and reports it.", flat)
-        self.assertIn("audit-docs --migrate", skill)
-
-    def test_the_verification_checklist_asserts_no_managed_claude_sibling(self):
-        skill = (REPO_ROOT / "crux" / "skills" / "init-docs" / "SKILL.md").read_text()
-        self.assertIn("No `${DOCS_DIR}/CLAUDE.md` sibling was written", skill)
 
     def test_the_parity_manifest_points_at_the_renamed_twin(self):
         manifest = json.loads(

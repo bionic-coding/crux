@@ -1,7 +1,6 @@
 """Explicit pre-cycle instruction fixtures; never used by runtime readers.
 
-Only retired promptbook prose contracts read these fixtures. Current workflow
-contracts are asserted by test_cycle_instruction_contracts against shipped files.
+Only retired promptbook prose contracts read these fixtures.
 """
 from pathlib import Path
 PLUGIN = Path(__file__).resolve().parents[2]

@@ -169,9 +169,16 @@ For criterion 5 (new-overlapping-source candidates):
 
 The synthesis page's row in `docs/research/index.md` shows `last_reviewed: YYYY-MM-DD`. Bump to today. Update the `sources: N` count if the list grew. Update `_Last updated:_` at top of `docs/research/index.md`. Bump `_Last updated:_` in `docs/index.md`.
 
-### 4. After the batch, append to `docs/log.md`
+### 4. After the batch, record the `refresh` operation
 
-Single entry (newest-first):
+Write a single entry through the log writer (`docs/AGENTS.md` §6).[^log-writer] Write the body below to a file outside the tree, then run:
+
+```
+uv run "${CRUX_PLUGIN_ROOT}/scripts/operation-log.py" append --repo-root <repo-root> \
+  --op refresh --subject 'synthesis batch (N reconciled, K skipped, M deferred)' --date YYYY-MM-DD --body-file <path>
+```
+
+The entry it writes at the top of the current month's detail file `docs/log/YYYY-MM.md`:
 
 ```
 ## [YYYY-MM-DD] refresh | synthesis batch (N reconciled, K skipped, M deferred)
@@ -181,6 +188,8 @@ Body, three short lists:
 - **Reconciled** (N): page paths.
 - **Skipped** (K): pages where the user said "skip" at scope-setting or during a triage.
 - **Deferred** (M): pages where the user chose "I'll handle this myself" or the issue can't be resolved now.
+
+A refused append keeps this skill's other writes and adds no entry: fix the cause it names, then rerun the append alone (§6). Then run the commit step of §6 over the result's `commit_paths` and `restore_paths`.
 
 ### 5. Hand-off summary
 
@@ -201,7 +210,7 @@ Print to the user:
 - [ ] Every new citation in the body is paired with a slug in `sources:` frontmatter (no body-vs-frontmatter drift).
 - [ ] `docs/research/index.md` rows for affected pages show the new `last_reviewed`; `_Last updated:_` bumped.
 - [ ] `docs/index.md` `_Last updated:_` bumped.
-- [ ] One batch entry appended to `docs/log.md` with op `refresh`.
+- [ ] One batch entry with op `refresh` was written at the top of the current month's detail file `docs/log/YYYY-MM.md` by `operation-log.py append`.
 
 ## Red flags — STOP and reconsider
 
@@ -237,5 +246,7 @@ Print to the user:
 - **Treating new-overlapping-source candidates as the user's homework**. Read the candidate yourself and propose a specific claim it supports or contradicts. "Should we cite this?" is not enough.
 - **Skipping the `docs/research/index.md` row update**. The index's `last_reviewed` is what `audit-docs` reads.
 - **Preserving old slugs in `sources:` for a source page that was renamed**. Slugs are immutable — if a slug ever did change, this skill isn't the place to fix it.
-- **Inferring a marker resolution from `docs/log.md` or `docs/research/updates.md` without showing the user**. Those files capture upstream history; the synthesis-side decision is still the user's.
+- **Inferring a marker resolution from the operations log or `docs/research/updates.md` without showing the user**. Those files capture upstream history; the synthesis-side decision is still the user's.
 - **Forgetting to bump `last_reviewed` on a "confirmed accurate, no change" page**. The whole point of the pass is to record the verification.
+
+[^log-writer]: rule:log-entries-go-through-the-log-writer, rule:no-writer-writes-the-legacy-log-file

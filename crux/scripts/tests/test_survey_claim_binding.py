@@ -496,6 +496,9 @@ class ReceiptTreeBindingTests(_ClaimCase):
                                           encoding="utf-8")
         (tree / "manifest.yml").write_text(MANIFEST, encoding="utf-8")
         (tree / "log.md").write_text("# Log\n", encoding="utf-8")
+        # The operations log reads the op enum from the tree's own section 6.
+        (tree / "AGENTS.md").write_bytes(
+            (Path(__file__).resolve().parents[2] / "templates" / "AGENTS.md.tmpl").read_bytes())
         (root / "src").mkdir(exist_ok=True)
         (root / "src" / "a.py").write_text("x = 1\n", encoding="utf-8")
         (root / "src" / "b.py").write_text("y = 2\n", encoding="utf-8")

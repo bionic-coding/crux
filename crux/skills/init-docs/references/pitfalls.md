@@ -26,6 +26,6 @@ recurring-mistake catalog.
 - **Template placeholders left in output**: a stray `{{repo_name}}` in `AGENTS.md` is the canonical broken-init smell.
 - **Off-by-one on ADR numbering**: the zeroth ADR is the bootstrap; `manifest.yml.adr.next_number` is `1`, not `0` and not `1` only "after the first user ADR".
 - **Forgetting to seed `research/sources.md` with the exact nine-column header**: `ingest-research` prepends rows but won't write the header.
-- **Including a hand-edited entry in `log.md`**: only the canonical `init` entry. Anything else belongs to other skills.
+- **Including a hand-edited entry in the operations log**: only the canonical `init` entry, written by `operation-log.py append`. Anything else belongs to other skills. Never create `log.md`; the writer starts the log in `log/YYYY-MM.md`.
 - **Detecting JavaScript as TypeScript (or vice versa)**: probe for `tsconfig.json` and `.ts` files; default to TypeScript only if both are present.
 - **Skipping the `code/_meta/` directory**: `extract-code-docs` writes `manifest.json` there; missing dir = first extract fails.

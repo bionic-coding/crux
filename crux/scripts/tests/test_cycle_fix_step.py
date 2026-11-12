@@ -331,6 +331,49 @@ class ReviewFixTests(FixBase):
         workflow.check_review(workflow.tree(self.root), workflow.load(self.root, cid))
 
 
+class FixAssignmentTests(FixBase):
+    """CYC-0121 F3 and CYC-0117 F2: prepare-dispatch renders a fix task's completion sequence into its assignment."""
+
+    def prompt(self, cid, task_id, op_id):
+        (self.root / 'bionic/objectives.md').write_text('Mission: useful changes.\n')
+        code, payload = self.run_cli('op', cid, '--json', json.dumps(
+            {'op': 'prepare-dispatch', 'op_id': op_id, 'task_id': task_id, 'host': 'claude-code'}))
+        self.assertEqual(code, 0, payload)
+        self.assertEqual(payload['invocation']['parameters']['subagent_type'], 'crux:dev-lead')
+        return payload['invocation']['parameters']['prompt']
+
+    def test_a_review_fix_assignment_names_every_step_in_order(self):
+        cid = self.to_review(blocking=1)
+        self.add_fix(cid, 'review', findings=['r1:blocking:0'])
+        before = self.record('regress')
+        self.ok('task', cid, '--task-id', 'fix-1', '--fix-before', before['id'])
+        text = self.prompt(cid, 'fix-1', 'fix-assign-review')
+        steps = [f'Fix task (answers r1:blocking:0). It is done only after this sequence, in this order:',
+                 f'1. The fix-before receipt that recorded the failure (recorded: {before["id"]}): '
+                 f'`cycle.py task {cid} --task-id fix-1 --fix-before TE-ID`.',
+                 f'2. The fix commit, recorded on the task: `cycle.py task {cid} --task-id fix-1 --commit SHA`.',
+                 f'3. The fix-after receipt: the current passing receipt for the same check id: '
+                 f'`cycle.py task {cid} --task-id fix-1 --fix-after TE-ID`.',
+                 '4. Current evidence for every required check after the fix commit',
+                 '5. A fix-diff review:', '6. Then deliver.']
+        positions = [text.index(step) for step in steps]
+        self.assertEqual(positions, sorted(positions))
+        self.assertLess(text.index(steps[0]), text.index('Engine facts for this attempt'))
+
+    def test_a_verify_fix_has_no_fix_diff_review_and_an_ordinary_task_has_no_sequence(self):
+        cid = self.to_test()
+        self.add_fix(cid, 'test')
+        text = self.prompt(cid, 'fix-1', 'fix-assign-test')
+        self.assertIn('1. The fix-before receipt that recorded the failure (not yet recorded)', text)
+        self.assertIn('5. Then deliver.', text)
+        self.assertNotIn('fix-diff review', text)
+        # Positive control: a task without fix renders no sequence.
+        self.ok('task-add', cid, '--file', self.write_json('plain.json', {
+            'id': 'plain', 'phase': 'test', 'description': 'check b', 'depends_on': [], 'status': 'pending',
+            'expected_evidence': ['note']}))
+        self.assertNotIn('Fix task (answers', self.prompt(cid, 'plain', 'fix-assign-plain'))
+
+
 class TestFixFlowTests(FixBase):
     def test_test_fix_completes_through_advance_and_is_covered_by_the_following_review(self):
         cid = self.to_test()

@@ -58,7 +58,7 @@ Do **not** use this skill for:
 Before invoking the script, confirm:
 
 1. The tree exists and `<docs_dir>/manifest.yml` is present.
-2. **`arch` is enabled** — `arch` appears in `manifest.yml`'s `concerns_enabled`. arch is **additive**; it is **default-on for new repos** (`init-docs` enrolls it) and **opt-in for existing trees that predate the default**. If `arch` is absent from `concerns_enabled`, enabling it is a one-line addition (no `schema_version` bump, no migration). If the user asked to build arch on a tree where it is not enabled, add `arch` to `concerns_enabled` first (a `schema` log op), then derive.
+2. **`arch` is enabled** — `arch` appears in `manifest.yml`'s `concerns_enabled`. arch is **additive**; it is **default-on for new repos** (`init-docs` enrolls it) and **opt-in for existing trees that predate the default**. If `arch` is absent from `concerns_enabled`, enabling it is a one-line addition (no `schema_version` bump, no migration). If the user asked to build arch on a tree where it is not enabled, add `arch` to `concerns_enabled` first (record a `schema` op through `operation-log.py append`, `<docs_dir>/AGENTS.md` §6), then derive.
 3. The repo root is resolved (per §0 below).
 4. Git history is complete. A tree that has published a clause migration needs full Git history. In a shallow clone (the default `actions/checkout` depth of 1 in CI, for example) the governing readers (summaries, doctrine, rules catalog, arch and reviews index) refuse with `history-unavailable`. Set `fetch-depth: 0` in CI, or run `git fetch --unshallow` locally.
 
@@ -72,7 +72,7 @@ Four steps: resolve config, run the script, paste the table, log the op. Nothing
 
 Run `python3 "${CRUX_PLUGIN_ROOT}/scripts/crux-config.py"` from the repo root (or pass `--repo-root <repo-root>`), and confirm the returned `repo_root` is the repo you are operating in. On exit 1, **STOP** and surface the `{"error": ...}` payload — never fall back to defaults. Use the returned `docs_dir` wherever this skill says `<docs_dir>` (default `bionic`).
 
-Then read `<docs_dir>/manifest.yml` and confirm `arch` is in `concerns_enabled` (see Prerequisites). If it is not and the user wants arch, add it, append a `schema` log op recording the enablement, then continue.
+Then read `<docs_dir>/manifest.yml` and confirm `arch` is in `concerns_enabled` (see Prerequisites). If it is not and the user wants arch, add it, record a `schema` op for the enablement through `operation-log.py append` (`<docs_dir>/AGENTS.md` §6, with its commit step), then continue.
 
 ### 2. Run the regenerator
 
@@ -139,7 +139,16 @@ A tree whose `.bionic.yml` still sets `arch_confidence_threshold` loads clean an
 
 **`derive` never offers escalation, and never points a reader at the runtime as the remedy.** Do not name `escalate-arch-runtime`, `CRUX_ARCH_ALLOW_RUNTIME`, or the runtime package in any report of a verdict. A stubbed verdict is a recorded fact, not an invitation. `derive` records the verdict and stops: it writes nothing into `arch/`, acts on nothing, and runs no application code.
 
-### 4. Append to `<docs_dir>/log.md`
+### 4. Record the `arch` operation
+
+Write the entry through the log writer (`<docs_dir>/AGENTS.md` §6).[^log-writer] Write the body below to a file outside the tree, then run:
+
+```
+uv run "${CRUX_PLUGIN_ROOT}/scripts/operation-log.py" append --repo-root <repo-root> \
+  --op arch --subject 'regenerated <docs_dir>/arch/ (N files; spine <first-12-of-hash>)' --date YYYY-MM-DD --body-file <path>
+```
+
+The entry it writes at the top of the current month's detail file `<docs_dir>/log/YYYY-MM.md`:
 
 ```
 ## [YYYY-MM-DD] arch | regenerated <docs_dir>/arch/ (N files; spine <first-12-of-hash>)
@@ -147,12 +156,14 @@ A tree whose `.bionic.yml` still sets `arch_confidence_threshold` loads clean an
 
 Body, 1–3 lines: which spine files changed, the new spine hash, and the trigger (manual, source change, or audit drift). arch carries no timestamps in its own tree — the log entry + git are the provenance record.
 
+A refused append keeps this skill's other writes and adds no entry: fix the cause it names, then rerun the append alone (§6). Then run the commit step of §6 over the result's `commit_paths` and `restore_paths`.
+
 ## Verification
 
 - [ ] `<docs_dir>/arch/` contains the four spine files, `overview.md`, `index.md`, and `_meta/manifest.json`.
 - [ ] `overview.md` carries the `<!-- arch-spine-hash: sha256:... -->` stamp and `index.md` surfaces the same hash.
 - [ ] `derive-arch.py --dry-run --docs-dir <docs_dir>` now exits `0` (the spine and its hash agree).
-- [ ] `<docs_dir>/log.md` has a new top-of-file `arch |` entry.
+- [ ] The current month's detail file `<docs_dir>/log/YYYY-MM.md` has a new `arch |` entry at the top, written by `operation-log.py append`.
 
 ## Keeping arch current
 
@@ -170,7 +181,7 @@ The lightweight habit: after any change that touches a tracked source and before
 - About to hand-edit a file under `<docs_dir>/arch/` to "fix" the architecture description. NEVER — the next derive overwrites it. Fix the *source* (the schema, the ADR, the skill), then re-derive.
 - About to read `<docs_dir>/arch/*` as input to another regeneration. NEVER — arch is output, not source.
 - About to report an exit 1 as "your architecture is broken", or to prescribe a re-derive for every exit 1. Read the payload first — exit 1 carries two independent channels with opposite remedies. `drift` non-empty means the spine drifted from its sources, and a re-derive is the fix. `strict_failures` non-empty means a required concern's recorded verdict is not `populated`; **never prescribe a re-derive there** — it writes identical bytes and clears nothing. `{"clean": true, "drift": []}` at exit 1 is the strict channel, not a contradiction. An exit `2` reaches no verdict at all and never reads as document drift: surface stderr, which says whether it is the environment lane or the `StaleProjectionInput` deliberate-refusal lane.
-- About to build arch on a tree where `arch` is not in `concerns_enabled` without enabling it first. Enable it (additive, one line) and log the `schema` op, or STOP and tell the user.
+- About to build arch on a tree where `arch` is not in `concerns_enabled` without enabling it first. Enable it (additive, one line) and record the `schema` op through `operation-log.py append` (`<docs_dir>/AGENTS.md` §6), or STOP and tell the user.
 - About to skip the `arch` log entry because "nothing changed". Even a no-op derive is auditable — log it.
 - About to treat `CRUX_ARCH_ALLOW_RUNTIME=1` as something `derive` reads. NEVER — `derive` reads no runtime flag and runs no application code; `--dry-run` stays `clean:true` with the spine hash byte-unchanged even with the flag set. That flag gates `escalate-arch-runtime` alone.
 
@@ -187,7 +198,7 @@ The lightweight habit: after any change that touches a tracked source and before
 ## Common mistakes
 
 - **Hand-editing the spine.** Everything under `arch/` is regenerated; the only durable inputs are the project's real sources.
-- **Forgetting arch has no timestamps.** Provenance is the spine hash + git + the `log.md` entry, not an in-tree date. `_meta/manifest.json` is byte-stable (tool pins + per-source hashes, no timestamps).
+- **Forgetting arch has no timestamps.** Provenance is the spine hash + git + the operations log entry, not an in-tree date. `_meta/manifest.json` is byte-stable (tool pins + per-source hashes, no timestamps).
 - **Building arch but not keeping it current.** A stale arch surface is worse than none — wire the drift gate and let `audit-docs` auto-regenerate.
 - **Confusing arch with ADRs.** arch is the current-state snapshot; ADRs are the decision history. Both matter; they answer different questions.
 - **Treating exit 2 as drift (exit 1).** Exit 1 is findings JSON. Exit 2 means the derive reached no verdict, and never reads as document drift.
@@ -199,3 +210,5 @@ The lightweight habit: after any change that touches a tracked source and before
 - `extract-code-docs` / `verify-code-docs` — the sibling regenerative concern (`code/`) and its dry-run drift check.
 - `link-adr-graph` — regenerates the ADR lineage graph (the decision-history surface arch's `decision-index` complements).
 - `query-docs` / the `librarian` agent — read the architecture from `arch/overview.md`; this skill builds it, they answer from it.
+
+[^log-writer]: rule:log-entries-go-through-the-log-writer, rule:no-writer-writes-the-legacy-log-file

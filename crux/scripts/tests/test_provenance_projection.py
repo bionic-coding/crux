@@ -570,6 +570,8 @@ class RemovedInRunProjectionTests(_Base):
         archive = self.t.adrs / "archive"
         archive.mkdir()
         (self.t.adrs / "ADR-0901-x.md").rename(archive / "ADR-0901-x.md")
+        moved = archive / "ADR-0901-x.md"
+        moved.write_text(moved.read_text().replace("status: Accepted", "status: Deprecated", 1))
         summaries, doctrine = self.t.built()
         self.assertNotIn(REMOVED, summaries["resolver.json"])
         self.assertNotIn(REMOVED, summaries["rule-table.md"])

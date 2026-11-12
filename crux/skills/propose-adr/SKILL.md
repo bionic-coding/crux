@@ -33,7 +33,8 @@ not approve the draft's contents. Follow `cycle/SKILL.md` for this boundary.
 For new proposals, use `decision-policy.py propose` with the actual origin and the
 proposal JSON described in `cycle/references/commands.md`. The allocation steps
 below describe historical authoring; do not allocate a second record manually.
-Regenerate standard indexes/projections and log the operation after the writer,
+Regenerate standard indexes/projections and record the operation through
+`operation-log.py append` (`docs/AGENTS.md` §6, with its commit step) after the writer,
 respecting their commit preconditions.
 Any accept-immediately shortcut still requires council approval of the exact draft
 and the configured acceptance policy; it never bypasses approval.
@@ -58,7 +59,7 @@ Do **not** use this skill for:
 - Accepting/deprecating/superseding an existing ADR (that's `transition-adr`).
 - Editing an ADR's body after it has been written (the body is mutable only while `Proposed`; the user edits it directly — this skill never rewrites bodies).
 - Recording a pre-decision exploration — that's a brief: scaffold it with `propose-brief` (and close its lifecycle with `transition-brief`); the body stays human-authored.
-- Logging routine work (use `log-work` for narrative; use the originating skill's own `log.md` write for ops).
+- Logging routine work (use `log-work` for narrative; use the originating skill's own `operation-log.py append` step for ops).
 
 ## Inputs
 
@@ -76,7 +77,7 @@ Execute in order. Never reorder, never skip. Number allocation must be atomic.
 
 ### 0. Resolve per-repo configuration (.crux)
 
-Run `python3 "${CRUX_PLUGIN_ROOT}/scripts/crux-config.py"` from the repo root (or pass `--repo-root <repo-root>`), and confirm the returned `repo_root` is the repo you are operating in — `source: "discovery:<dir>"` with an unexpected `repo_root` means you resolved the wrong directory, not that no config exists. On exit 1, **STOP** and surface the `{"error": ...}` payload — never fall back to defaults. Use the returned `docs_dir` wherever this skill says `docs/` (per the docs/AGENTS.md §14 normative definition clause). When `artifact_prefix` is non-empty, the prefixed string (e.g. `CRX-ADR-NNNN`) **IS** `${ID}` for every subsequent step — the filename, the frontmatter `id:`, the index row, wiki-links, and the `log.md` subject all carry it verbatim (per docs/AGENTS.md §14.3, "verbatim on every surface"); only the `NNNN` allocation is prefix-blind (it still comes from the manifest counter exactly as below).
+Run `python3 "${CRUX_PLUGIN_ROOT}/scripts/crux-config.py"` from the repo root (or pass `--repo-root <repo-root>`), and confirm the returned `repo_root` is the repo you are operating in — `source: "discovery:<dir>"` with an unexpected `repo_root` means you resolved the wrong directory, not that no config exists. On exit 1, **STOP** and surface the `{"error": ...}` payload — never fall back to defaults. Use the returned `docs_dir` wherever this skill says `docs/` (per the docs/AGENTS.md §14 normative definition clause). When `artifact_prefix` is non-empty, the prefixed string (e.g. `CRX-ADR-NNNN`) **IS** `${ID}` for every subsequent step — the filename, the frontmatter `id:`, the index row, wiki-links, and the operations log subject all carry it verbatim (per docs/AGENTS.md §14.3, "verbatim on every surface"); only the `NNNN` allocation is prefix-blind (it still comes from the manifest counter exactly as below).
 
 ### 1. Read `docs/manifest.yml`
 
@@ -120,7 +121,7 @@ Step 9 commits the counter bump with the ADR file it allocated, and only then ru
 The index is a markdown table. Columns, in order: `id | title | status | date | supersedes | superseded_by | tags`.
 
 - Locate the table body (rows after the `|----|...` separator).
-- Insert a new row immediately after the separator (newest at top, like `log.md`):
+- Insert a new row immediately after the separator (newest at top, like the operations log):
 
   ```
   | ${ID} | ${title} | Proposed | ${TODAY} | — | — | ${tags_csv} |
@@ -130,15 +131,24 @@ The index is a markdown table. Columns, in order: `id | title | status | date | 
 - `${tags_csv}` is comma-separated; `—` if no tags.
 - Update the `_Last updated:_` line to `${TODAY}`.
 
-### 7. Append to `docs/log.md`
+### 7. Record the `adr` operation
 
-Prepended (newest first):
+Write the entry through the log writer (`docs/AGENTS.md` §6).[^log-writer] Write the body below to a file outside the tree, then run:
+
+```
+uv run "${CRUX_PLUGIN_ROOT}/scripts/operation-log.py" append --repo-root <repo-root> \
+  --op adr --subject '${ID}: ${title}' --date ${TODAY} --body-file <path>
+```
+
+The entry it writes at the top of the current month's detail file `docs/log/YYYY-MM.md`:
 
 ```markdown
 ## [${TODAY}] adr | ${ID}: ${title}
 
 Proposed. File `docs/adrs/${ID}-${SLUG}.md`. Tags: ${tags_csv}.
 ```
+
+A refused append keeps this skill's other writes and adds no entry: fix the cause it names, then rerun the append alone (§6). Step 9 runs the commit step of §6 over the result's `commit_paths` and `restore_paths`.
 
 ### 8. Update `docs/index.md` ADR section
 
@@ -148,7 +158,7 @@ Proposed. File `docs/adrs/${ID}-${SLUG}.md`. Tags: ${tags_csv}.
 
 While a tester's window is open, commit nothing and run no regenerator. The window runs from the tester's dispatch until the tester returns; outside a run there is none.
 
-Commit this skill's own writes first: the ADR file, `manifest.yml`, `adrs/index.md`, `log.md` and `docs/index.md`. Never commit the counter bump without the file it allocated. Stage only these paths (`git add -- <paths>`) and commit only them (`git commit -- <paths>`), so no change already staged is included. If a regenerator still exits 2 with `migration-input-not-committed`, another uncommitted input is in the tree: stop and name it; never commit a file this skill did not write.
+Commit this skill's own writes first: the ADR file, `manifest.yml`, `adrs/index.md` and `docs/index.md`, plus the append result's `commit_paths`, after `git restore --staged --quiet` on its `restore_paths` when that list is not empty (the commit step of §6). Run that step whatever the append's status, because a refused append can still have repaired the operations log. Never commit the counter bump without the file it allocated. Stage only these paths (`git add -- <paths>`) and commit only them (`git commit -- <paths>`), so no change already staged is included. If a regenerator still exits 2 with `migration-input-not-committed`, another uncommitted input is in the tree: stop and name it; never commit a file this skill did not write.
 
 Then regenerate the derived outputs, on every ADR write, whether or not the ADR carries a `governs` block. The commit comes first because, in a tree whose projections declare migration inputs, a regenerator refuses an uncommitted ADR input with exit 2 (`migration-input-not-committed`). The summaries input hash covers every active ADR's frontmatter, so any new ADR drifts it. Run the regenerators in this order:
 
@@ -193,7 +203,7 @@ the advisory is inert; that is a tree-configuration matter, not a finding about 
 
 - Only if the flag was passed.
 - Chain-invoke `transition-adr accept ${ID}`.
-- That skill writes a second entry to `log.md` (`adr | ${ID}: accepted`) and updates the ADR's status frontmatter. This skill does NOT modify the ADR's frontmatter or body after the initial write.
+- That skill writes a second entry to the operations log (`adr | ${ID}: accepted`) and updates the ADR's status frontmatter. This skill does NOT modify the ADR's frontmatter or body after the initial write.
 
 ### 11. Hand off to the user
 
@@ -224,7 +234,7 @@ the advisory is inert; that is a tree-configuration matter, not a finding about 
 - [ ] `docs/manifest.yml` `adr.next_number` is `${N} + 1`.
 - [ ] `docs/adrs/index.md` has a new row at the top with this ADR's `${ID}`, status `Proposed`, date `${TODAY}`.
 - [ ] `docs/adrs/index.md` `_Last updated:_` is `${TODAY}`.
-- [ ] `docs/log.md` has a new `## [${TODAY}] adr | ${ID}:` entry at the top.
+- [ ] The current month's detail file `docs/log/YYYY-MM.md` has a new `## [${TODAY}] adr | ${ID}:` entry at the top, written by `operation-log.py append`.
 - [ ] The ADR file, the counter bump and the index, log and docs-index writes are committed before any regenerator runs.
 - [ ] `generate-adr-index.py`, `generate-lineage.py`, `generate-index-rollup.py`, `summarize-adrs.py` and `compile-doctrine.py` `--dry-run` exit 0, and `derive-arch.py --dry-run` exits 0 when `arch` is enabled; the regenerated projections are committed.
 - [ ] If `--accept-immediately` was passed: `transition-adr accept ${ID}` ran successfully and the verification carries through.
@@ -253,7 +263,7 @@ the advisory is inert; that is a tree-configuration matter, not a finding about 
 | "The decision needs the exact call signature to be reviewable." | Then it is being reviewed by the wrong instrument — prose review is not a type checker. State the requirement and the postcondition; the dev module's tests review the signature. See `docs/AGENTS.md` §11.D, and its carve-out for when the mechanism IS the decision. |
 | "The body is over the line budget, so I'll trim the Alternatives section." | The budget is a tripwire, not a cap. An over-budget body is a prompt to re-read for embedded recipe — remove the recipe, or declare the justification in the form §11.D states. Cutting a real alternative to hit a number is the wrong repair. |
 | "The index update is bookkeeping — I'll do it on the next ADR." | The index is queried before the file system on most reads. Drift here means downstream skills see stale state. Update on every write. |
-| "I'll skip the log entry because `propose-adr` is implicit." | Every op gets a `log.md` entry. The chronology is the audit; no exceptions. |
+| "I'll skip the log entry because `propose-adr` is implicit." | Every op gets an operations log entry. The chronology is the audit; no exceptions. |
 | "I'll allocate the number now and write the file when the user finalizes the title." | Pre-allocated numbers with no file are how reused-number bugs happen. Allocate atomically with the write. |
 
 ## Common mistakes
@@ -270,3 +280,5 @@ the advisory is inert; that is a tree-configuration matter, not a finding about 
 ## Two-tier counter (SP-4)
 
 When allocating the next `ADR-NNNN` and running the `${ID}-*.md` collision check, scan **both** `<docs_dir>/adrs/` **and** `<docs_dir>/adrs/archive/`, so an archived id is never reissued. Numbers remain monotonic and never reused across either tier.
+
+[^log-writer]: rule:log-entries-go-through-the-log-writer, rule:no-writer-writes-the-legacy-log-file

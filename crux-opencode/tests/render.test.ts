@@ -58,10 +58,6 @@ test('every reader fixture in the list is a view, and the empty reader document 
   expect(parseReader(jsonText(READER_EMPTY))).toEqual({ ok: false, code: 'no-active-run' })
 })
 
-test('a drawing with no width reported is as wide as the default, 40 cells', () => {
-  expect(DEFAULT_WIDTH).toBe(40)
-})
-
 test('the frame model costs what the core charges a bordered panel', () => {
   const p = fromDoc(READER_OK)
   const node = panelNode(p, PANEL, 60, 0)

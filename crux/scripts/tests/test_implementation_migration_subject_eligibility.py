@@ -69,7 +69,7 @@ def build_recovery_subject(stable_dependencies):
     root = f.root
     # Make the demoted handle raw-eligible so denial must retain historical facts.
     batch = migration.load_batch(root, f.f.path)
-    entry = batch['entries'][0]; entry['affected_governs'][0]['retires'] = []
+    entry = batch['entries'][0]; entry['affected_governs'][0].pop('retires', None)
     entry['source_identity'] = migration.source_identity(entry)
     source = root / 'docs/adrs/ADR-0110-source.md'
     source.write_text('---\n' + yaml.safe_dump(dict(id='ADR-0110', status='Accepted',

@@ -79,13 +79,16 @@ def seat_values(role: str, reg: dict | None = None) -> dict:
             "served_provider": entry["accepted_served_providers"][0]}
 
 
+#: The git identity a fixture commit carries. A child process that commits (a writer CLI, the
+#: council runner) gets it too, so no commit depends on the machine's global or system git
+#: configuration or on git's hostname-derived fallback identity.
+GIT_IDENTITY = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid",
+                "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.invalid"}
+
+
 def git(cwd: Path, *args: str) -> str:
     env = scrubbed_env()
-    env.update({
-        "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull,
-        "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid",
-        "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.invalid",
-    })
+    env.update({"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull, **GIT_IDENTITY})
     r = subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, text=True, env=env)
     if r.returncode != 0:
         raise AssertionError(f"git {args} failed: {r.stderr}")

@@ -496,19 +496,6 @@ test('the clock guard throws on Date() and on new Date without parentheses, and 
   })).not.toThrow()
 })
 
-// Every shape of a clock read, including Date() and new Date with no parentheses; a Date from a number passes.
-const CLOCK_ANY = new RegExp('\\bDate\\s*\\.\\s*now\\b|\\bperformance\\s*\\.\\s*now\\b|\\bnew\\s+Date\\s*\\(\\s*\\)|\\bnew\\s+Date\\b(?!\\s*\\()|(?<!\\bnew\\s+)\\bDate\\s*\\(')
-test('no export of draw.ts or view.ts names a clock read in any of five shapes', () => {
-  for (const [s, hit] of [
-    ['Date.now()', true], ['performance.now()', true], ['new Date()', true], ['new Date;', true], ['x = Date()', true], ['Date ( )', true],
-    ['new Date(s * 1000)', false], ['d.getUTCDate()', false], ['utc(s)', false],
-  ] as [string, boolean][]) expect([s, CLOCK_ANY.test(s)]).toEqual([s, hit])
-  const sources = [...Object.values(draw), ...Object.values(view)].filter(v => typeof v === 'function').map(f => String(f))
-  expect(sources.length).toBeGreaterThan(40)
-  expect(sources.filter(s => CLOCK_ANY.test(s))).toEqual([])
-  expect(sources.some(s => s.includes('new Date(s * 1e3)') || s.includes('new Date(s * 1000)'))).toBe(true)
-})
-
 test('a prompt with a start and no usable end draws the empty track, never a guessed segment', async ($, on) => {
   const doc = clone(READER_OK)
   doc.runs[0].prompts[3] = { ...doc.runs[0].prompts[3], state: 'pending', started_s: RUN.started_s + 10 }

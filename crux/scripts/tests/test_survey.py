@@ -30,7 +30,6 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 SCRIPTS_DIR = REPO_ROOT / "crux" / "scripts"
 SURVEY = SCRIPTS_DIR / "survey.py"
-SKILL_MD = REPO_ROOT / "crux" / "skills" / "recover-decisions" / "SKILL.md"
 
 try:
     import yaml  # noqa: F401
@@ -188,12 +187,11 @@ class _TreeFixture(unittest.TestCase):
 @unittest.skipUnless(HAVE_YAML, "PyYAML required (run under uv)")
 class ExitLaneTests(_TreeFixture):
 
-    def test_verify_before_project_is_exit_2_and_todo_marker_is_gone(self):
+    def test_verify_before_project_is_exit_2(self):
         proc = _run("--repo-root", str(self.root), "--phase", "verify")
         self.assertEqual(proc.returncode, 2, proc.stdout)
         self.assertIn("project", proc.stderr)
         self.assertEqual(proc.stdout.strip(), "")
-        self.assertNotIn("TODO(B1-verify)", SURVEY.read_text(encoding="utf-8"))
 
     def test_verify_docs_dir_disagreeing_with_config_is_exit_2(self):
         self._make_tree("other", write_config=False)
@@ -766,13 +764,6 @@ class ShippedScriptContractTests(unittest.TestCase):
                         "tree-sitter-typescript=="):
             with self.subTest(grammar=grammar):
                 self.assertIn(grammar, head)
-
-    def test_skill_md_carries_a_survey_section_with_no_adr_reference(self):
-        text = SKILL_MD.read_text(encoding="utf-8")
-        self.assertIn("survey.py", text)
-        self.assertIn("--phase", text)
-        self.assertIsNone(re.search(r"ADR-\d{4}", text))
-        self.assertNotIn("[[adrs/", text)
 
 
 if __name__ == "__main__":

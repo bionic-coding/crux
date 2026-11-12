@@ -1,7 +1,7 @@
 """The ADR provenance reader CLI (`crux/scripts/adr-provenance.py`).
 
 Pins, one named test per claim (rule:provenance-is-recorded-at-acceptance,
-rule:in-run-adr-text-is-guidance, rule:owner-promotes-guidance):
+rule:in-run-adr-text-is-guidance, rule:historical-records-keep-their-interpretation):
 
   - a rule added in-run is guidance; an edited pre-existing rule is binding at its base entry,
     and an edit to any governs field but `handle` and `provenance` is in-run text; an unchanged

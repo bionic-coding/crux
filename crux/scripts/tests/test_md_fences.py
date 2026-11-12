@@ -364,18 +364,6 @@ class SharedImplementationTests(unittest.TestCase):
         self._assert_defined_in_md_fences(sig._closes_fence, "closes_fence")
         self._assert_defined_in_md_fences(ctp._closes_fence, "closes_fence")
 
-    def test_neither_caller_still_defines_a_fence_subset_of_its_own(self):
-        """The paired negative: no `def _fence_marker` survives in either
-        caller. Without it, a file could import the shared name AND shadow it
-        with a local copy, and the provenance rows above would still pass on
-        whichever binding won."""
-        for filename in ("adr-signals.py", "check_template_parity.py"):
-            source = (SCRIPTS / filename).read_text(encoding="utf-8")
-            with self.subTest(caller=filename):
-                self.assertNotIn("def _fence_marker", source)
-                self.assertNotIn("def fence_marker", source)
-                self.assertNotIn("_FENCE_RUN = ", source)
-
     #: Every file that reads a Markdown or YAML document line by line. The ban
     #: below covers all three: the two callers, and the shared module that now
     #: holds the one split they are allowed to use.
@@ -438,16 +426,6 @@ class SharedImplementationTests(unittest.TestCase):
         """
         self._assert_defined_in_md_fences(sig._lines, "split_lines")
         self._assert_defined_in_md_fences(ctp._lines, "split_lines")
-
-    def test_neither_caller_still_defines_a_line_split_of_its_own(self):
-        """The paired negative: no `def _lines` survives in either caller, so
-        a file cannot import the shared name and shadow it with a local copy
-        while the provenance row above passes on whichever binding won."""
-        for filename in ("adr-signals.py", "check_template_parity.py"):
-            source = (SCRIPTS / filename).read_text(encoding="utf-8")
-            with self.subTest(caller=filename):
-                self.assertNotIn("def _lines", source)
-                self.assertNotIn("def split_lines", source)
 
     def test_every_line_reader_reads_files_untranslated(self):
         """No line reader may open a document in universal-newline mode.

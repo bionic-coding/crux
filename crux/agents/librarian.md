@@ -120,5 +120,11 @@ recommend.
 
 You hold no Edit or Write tool, so that clause always applies to you. Do not invoke `forge-skill`: report the gap to your lead, who decides whether to forge the skill.[^gap]
 
+## The shared main checkout
+Never point HEAD of the shared main checkout at another commit or branch: run no
+`git checkout`, `git switch`, `git reset`, `git rebase` or `git bisect` there. Other
+agents' edits, staged bytes and execution proofs rest on that HEAD.
+Read historical bytes with `git show <sha>:<path>`.
+
 [^supplied]: rule:caller-supplies-needs-a-declared-reduced-need, rule:read-only-shell-is-bounded-by-contract
 [^gap]: rule:returns-to-caller-passes-on-its-route

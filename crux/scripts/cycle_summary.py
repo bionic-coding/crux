@@ -172,7 +172,7 @@ def test_runs(repo_root, doc, now):
 
 def recorded_or_live_runs(repo_root, doc, now):
     """What inspect and `cycle status` show: a closed cycle's recorded `test_runs`, else the live tally of an open one."""
-    if doc.get('status') in ('completed', 'abandoned'):
+    if doc.get('status') in ('completed', 'abandoned', 'shortcut'):
         done = doc.get('completion')
         return done.get('test_runs') if isinstance(done, dict) else None
     return test_runs(repo_root, doc, now)

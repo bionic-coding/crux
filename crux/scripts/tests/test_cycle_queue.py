@@ -22,6 +22,8 @@ from cycle_workflow import create, load, now, PHASES
 from cycle_progress import view, render
 
 DATE = '2026-10-19'
+IDENTITY = {'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@example.invalid',
+            'GIT_COMMITTER_NAME': 't', 'GIT_COMMITTER_EMAIL': 't@example.invalid'}
 
 
 class Crash(BaseException):
@@ -33,6 +35,11 @@ class Base(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.repo = Path(self.temp.name)
+        # The root is no git repository, so the fixture's identity comes from the environment:
+        # `queue start-next` stops without one, and CI configures none.
+        identity = patch.dict(os.environ, IDENTITY)
+        identity.start()
+        self.addCleanup(identity.stop)
         (self.repo / '.bionic.yml').write_text('config_version: "1"\ndocs_dir: notes\n')
         (self.repo / 'notes').mkdir()
         (self.repo / 'notes/manifest.yml').write_text('schema_version: "5"\nconcerns_enabled: [adrs]\nadr:\n  next_number: 1\n')
@@ -625,6 +632,56 @@ class StartNextTests(Base):
         self.assertEqual(len(self.cycle_dirs()), 1)
         self.ok('edit', b, '--no-depends')
         self.assertEqual(self.start()[1]['item'], b)
+
+    def test_a_shortcut_cycle_is_terminal_and_the_authorized_queue_continues(self):
+        a, b = self.add('A'), self.add('B')
+        self.authorize('next-n', 2)
+        _, first = self.start()
+        self.end_cycle(first['cycle'], 'shortcut')
+        code, second = self.start()  # no previous-abandoned stop: a shortcut is not an abandonment
+        self.assertEqual((code, second['outcome'], second['item']), (0, 'started', b))
+        self.assertEqual(self.item(a)['cycle_status'], 'shortcut')
+
+    def test_a_shortcut_cycle_item_is_archived_like_a_completed_one(self):
+        a = self.add('A')
+        self.authorize('queue')
+        _, started = self.start()
+        self.end_cycle(started['cycle'], 'shortcut')
+        self.ok('archive', '--migrate')
+        self.assertNotIn(a, [i['id'] for i in self.queue_doc()['items']])
+        self.assertTrue((self.repo / 'notes/queue/history/items' / (a + '.json')).exists())
+
+    def test_an_open_cycle_is_never_archived_the_positive_control(self):
+        a = self.add('A')
+        self.authorize('queue')
+        self.start()
+        self.ok('archive', '--migrate')
+        self.assertIn(a, [i['id'] for i in self.queue_doc()['items']])
+
+    def test_a_dependency_on_a_shortcut_cycle_stops_blocked_with_the_shortcut_text(self):
+        a = self.add('A')
+        b = self.add('B', (a,))
+        self.authorize('queue')
+        _, first = self.start()
+        self.end_cycle(first['cycle'], 'shortcut')
+        code, payload = self.start()
+        self.assertEqual((code, payload['stop']['reason']), (1, 'blocked'))
+        self.assertIn('shortcut', payload['stop']['detail'])
+        self.assertIn(a, payload['stop']['detail'])
+        self.assertFalse(self.item(b)['dependencies'][0]['satisfied'])
+        self.assertEqual(self.item(b)['state'], 'pending')
+        self.assertEqual(len(self.cycle_dirs()), 1)
+        self.ok('edit', b, '--no-depends')  # the owner's repair
+        self.assertEqual(self.start()[1]['item'], b)
+
+    def test_a_dependency_stopped_by_an_active_cycle_carries_no_shortcut_text(self):
+        a = self.add('A')
+        self.add('B', (a,))
+        self.authorize('queue')
+        self.start()
+        code, payload = self.start()  # the open cycle reports in-progress, not a blocked stop
+        self.assertEqual(code, 0)
+        self.assertEqual(payload['outcome'], 'in-progress')
 
     def test_ac3_one_authorized_item_completes_without_starting_another(self):
         a, b = self.add('A'), self.add('B')

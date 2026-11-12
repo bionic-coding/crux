@@ -33,38 +33,49 @@ class NewBase(ClassifyBase):
 
 
 class ArrangementTests(NewBase):
-    def test_bounded_build_removes_the_development_lead_without_a_question(self):
-        result = classify.arrangement(self.repo, self.cid, 'build-it')
-        self.assertEqual(result['role'], 'developer')
-        self.assertEqual(self.asked, [])
+    """Build and fix tasks select the dev-lead, so no role question exists (IDR dev-lead-owned-build
+    approach 1). CYC-0127 removed the dormant execution-arrangement kind."""
 
-    def test_independent_streams_offer_only_configured_permitted_roles(self):
-        self.streams()
-        self.edit(lambda doc: doc['plan']['tasks'][0].update(description='x' * 400))
-        self.default = answered('dev-lead')
+    def test_bounded_build_selects_the_dev_lead_without_a_question(self):
         result = classify.arrangement(self.repo, self.cid, 'build-it')
         self.assertEqual(result['role'], 'dev-lead')
-        self.assertEqual(list(self.asked[0]['question'].options), ['developer', 'dev-lead', 'insufficient-information'])
-        self.assertTrue(self.asked[0]['state']['clipped']['task.description']['clipped'])
+        self.assertEqual(result['permitted_roles'], ['dev-lead'])
+        self.assertEqual(self.asked, [])
 
-    def test_explicit_role_skips_the_model_and_wrong_answer_grants_nothing(self):
+    def test_independent_streams_select_the_dev_lead_and_ask_nothing(self):
+        self.streams()
+        self.default = answered('developer')
+        result = classify.arrangement(self.repo, self.cid, 'build-it')
+        self.assertEqual((result['role'], result['permitted_roles']), ('dev-lead', ['dev-lead']))
+        self.assertEqual(self.asked, [])
+
+    def test_explicit_developer_role_stays_accepted_without_a_question(self):
         self.streams()
         result = classify.arrangement(self.repo, self.cid, 'build-it', role='developer')
-        self.assertEqual((result['role'], self.asked), ('developer', []))
-        self.default = answered('commander')
-        result = classify.arrangement(self.repo, self.cid, 'build-it')
-        self.assertIsNone(result['role'])
-        self.assertEqual(result['classifications'][0]['fallback'], 'route-not-permitted')
+        self.assertEqual((result['role'], result['explicit'], self.asked), ('developer', True, []))
 
-    def test_each_failure_class_returns_the_question_to_the_agent(self):
-        self.streams()
-        for status in decisions.FALLBACKS:
-            with self.subTest(status=status):
-                self.edit(lambda doc: doc['plan']['tasks'][0].update(description='route ' + status))
-                self.default = failed(status)
-                result = classify.arrangement(self.repo, self.cid, 'build-it')
-                self.assertIsNone(result['role'])
-                self.assertEqual(result['classifications'][0]['fallback'], status)
+    def test_a_fix_task_selects_the_dev_lead_in_every_fix_phase(self):
+        doc = load(self.repo, self.cid)
+        for phase in ('verify', 'test', 'review'):
+            with self.subTest(phase=phase):
+                task = {'id': 'fix-1', 'phase': phase, 'fix': {'finding': 'r1:blocking:0', 'eligibility': 'small'}}
+                self.assertEqual(cycle_context.permitted_roles(doc, task), ['dev-lead'])
+        self.assertEqual(cycle_context.permitted_roles(doc, {'id': 'r', 'phase': 'review'}), ['reviewer'])
+
+    def test_the_removed_kind_has_no_question_set_and_a_refresh_naming_it_is_refused(self):
+        import cycle_questions
+        self.assertNotIn('execution-arrangement', classify.KINDS)
+        self.assertNotIn('execution-arrangement', cycle_questions.QUESTION_SETS)
+        cfg = classify.tree(self.repo)
+        self.assertIsNone(classify.plan_of(cfg, load(self.repo, self.cid), classify.Job('execution-arrangement', 'build-it'), self.repo))
+        refused = self.op({'op': 'advice-refresh', 'op_id': 'refresh-removed-kind', 'task_id': 'build-it',
+                           'kinds': ['execution-arrangement']})
+        self.assertEqual(refused[0], 1, refused)
+        self.assertEqual(refused[1]['errors'][0]['code'], 'invalid-request')
+        # Positive control: the same request naming a remaining kind passes the schema.
+        import cycle_ops
+        self.assertEqual(cycle_ops.schema_errors({'op': 'advice-refresh', 'op_id': 'refresh-remaining-kind',
+                                                  'task_id': 'build-it', 'kinds': ['context-selection']}), [])
 
 
 class ContextTests(NewBase):

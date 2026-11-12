@@ -137,6 +137,19 @@ class RefusalTests(unittest.TestCase):
                     with self.assertRaises(Y.CatalogYamlError):
                         Y.load_catalog_yaml(text)
 
+    def test_an_impossible_plain_timestamp_is_a_document_finding_not_a_traceback(self):
+        # safe_load raises ValueError (not YAMLError) for a plain scalar that has
+        # the timestamp shape but names no real date.
+        for label, text in (
+            ("day", "a: 2026-02-30\n"),
+            ("month", "a: 2026-13-01\n"),
+            ("datetime", "a: 2026-13-01T10:00:00Z\n"),
+        ):
+            with self.subTest(case=label):
+                with self.assertRaises(Y.CatalogYamlError) as ctx:
+                    Y.load_catalog_yaml(text)
+                self.assertIn("invalid YAML", str(ctx.exception))
+
     def test_parse_failures_surface_as_a_capability_error_on_the_minimal_path(self):
         with _WithoutPyYAML():
             for label, text in sorted(self.PARSE_FAILURE_CASES.items()):

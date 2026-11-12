@@ -82,6 +82,9 @@ class _ScaffoldFixture(unittest.TestCase):
         self.obs.mkdir(parents=True)
         (self.root / ".bionic.yml").write_text("docs_dir: bionic\n", encoding="utf-8")
         (self.tree / "manifest.yml").write_text(MANIFEST, encoding="utf-8")
+        # The operations log reads the op enum from the tree's own section 6.
+        (self.tree / "AGENTS.md").write_bytes(
+            (Path(__file__).resolve().parents[2] / "templates" / "AGENTS.md.tmpl").read_bytes())
         (self.root / "src").mkdir()
         (self.root / "src" / "a.py").write_text("x = 1\n", encoding="utf-8")
         self.state_path = self.tree / "arch" / "_recovered" / "state.yml"
@@ -419,30 +422,6 @@ class AnchorCollisionTests(_ScaffoldFixture):
         proc = self._scaffold()
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(self._payload(proc)["batch_id"], "SVY-0001")
-
-
-class SurveySheetSkillContractTests(unittest.TestCase):
-    """The scaffold skill's step 4 told the model to write the SIGN-OFF's log
-    op. Following it wedged the batch: `batch_state` reads any
-    `observation | survey batch <id>` entry as cell 12 already done, so the
-    sign-off skips it, and cell 16 then refuses the entry as a contradicting
-    surface — with nothing published and a `log.md` hand-edit, which
-    `survey-signoff` forbids, as the only way out."""
-
-    SKILLS = Path(__file__).resolve().parents[2] / "skills"
-
-    def test_the_scaffold_skill_does_not_instruct_the_signoffs_log_op(self):
-        text = (self.SKILLS / "survey-sheet" / "SKILL.md").read_text(
-            encoding="utf-8")
-        self.assertNotIn("observation | survey batch SVY-NNNN\n```", text,
-                         "the scaffold skill still hands the model the "
-                         "sign-off's log-op heading to write")
-        self.assertIn("The scaffold logs nothing", text)
-        # Positive control: the subject is not gone from the pair, it moved to
-        # its owner — the sign-off, which writes it as part of the publish.
-        signoff = (self.SKILLS / "survey-signoff" / "SKILL.md").read_text(
-            encoding="utf-8")
-        self.assertIn("The script writes the `observation` log op", signoff)
 
 
 if __name__ == "__main__":

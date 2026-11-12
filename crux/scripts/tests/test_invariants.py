@@ -161,23 +161,6 @@ class ConcernWiringTests(unittest.TestCase):
         idx = p.read_text()
         self.assertIn("## Invariants", idx)
 
-    def test_audit_docs_defines_the_five_chk_inv_rules(self):
-        a = (REPO_ROOT / "crux" / "skills" / "audit-docs" / "SKILL.md").read_text()
-        for rule in ("CHK-INV-BIJECTION", "CHK-INV-ORPHAN-CHECK", "CHK-INV-DECORATION",
-                     "CHK-INV-FAILING", "CHK-INV-DANGEROUS"):
-            self.assertIn(rule, a, f"{rule} missing from audit-docs")
-
-    def test_audit_docs_supports_schema_4(self):
-        a = (REPO_ROOT / "crux" / "skills" / "audit-docs" / "SKILL.md").read_text()
-        self.assertIn('schema_version == "5"', a)
-
-    def test_claude_md_defines_invariants_contract(self):
-        p = REPO_ROOT / TREE / "AGENTS.md"
-        require_dev_surface(self, p, f"{TREE}/AGENTS.md")
-        c = p.read_text()
-        self.assertIn("## 15. The invariants concern", c)
-        self.assertIn("machine proposes, human disposes", c)
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -249,7 +249,8 @@ def _load_catalog_inputs(repo_root: Path, plugin_root: Path, *, _prepared=None) 
     cited, refusals = cited_slug_paths(plugin_root)
     migration._unchanged_inputs(repo_root, view["dependency_fingerprints"])
     return dict(root=repo_root, target=target, records=records,
-        reviews=reviews, aliases=aliases, cited=cited, refusals=refusals), view
+        reviews=reviews, aliases=aliases, cited=cited, refusals=refusals,
+        persisted_edges=sp.persisted_retirement_edges(docs / "adrs")), view
 
 
 def _catalog_payload(loaded: dict, facts: dict, *, _prepared=False) -> dict:
@@ -257,7 +258,8 @@ def _catalog_payload(loaded: dict, facts: dict, *, _prepared=False) -> dict:
     for value in (loaded["records"], loaded["reviews"], loaded["aliases"], loaded["cited"], loaded["refusals"], facts):
         sp._plain_summary_value(value)
     overlay = sp._summary_authority_records(loaded["records"], facts,
-        sp.removed_handles(loaded["reviews"]), loaded["aliases"], _prepared=_prepared)
+        sp.removed_handles(loaded["reviews"]), loaded["aliases"], _prepared=_prepared,
+        persisted_edges=loaded.get("persisted_edges"))
     records = sp.live_records(overlay["records"])
     slugs = overlay["slugs"]
     by_handle = {r["handle"]: r for r in records}
@@ -275,12 +277,17 @@ def _catalog_payload(loaded: dict, facts: dict, *, _prepared=False) -> dict:
                  if sp.slug_of(r["handle"]) not in by_slug}
     known = {**proposals, **by_slug}
     ineligible = pe.findings({s: cited[s] for s in wanted.intersection(known)}, known)
+    resolution = sp.resolve_replacements(
+        [h for slug in historical for h in overlay["historical_slugs"][slug]["replacements"]],
+        overlay["records"], persisted_edges=loaded.get("persisted_edges"))
     for slug in sorted(historical):
         row = overlay["historical_slugs"][slug]
+        # Suggest the live rules that displace a recorded replacement, never a retired one.
+        suggested = sorted({"rule:" + sp.slug_of(h)
+                            for h in sp.resolved_replacement_handles(row["replacements"], resolution)})
         for path in sorted(set(cited[slug]))[:pe.MAX_LOCATIONS_PER_FINDING]:
             ineligible.append(dict(path=path, citation="rule:" + slug, slug=slug,
-                reason="historical implementation citation; replace with " + ", ".join(
-                    "rule:" + sp.slug_of(h) for h in row["replacements"])))
+                reason="historical implementation citation; replace with " + ", ".join(suggested)))
     rules = {}
     for slug in sorted(wanted.intersection(by_slug)):
         row = by_slug[slug]
@@ -298,8 +305,14 @@ class _CatalogOutputPlan(tuple):
 
 def _plan_rules_catalog_outputs(loaded: dict, migration_facts: dict,
                                pending_publication: dict | None) -> _CatalogOutputPlan:
-    sp._projection_require(set(loaded) == {"root", "target", "records", "reviews", "aliases", "cited", "refusals"},
+    # `persisted_edges` is route one of the retirement handoff; an input without it
+    # takes route two, the records' own field.
+    sp._projection_require(set(loaded) - {"persisted_edges"} ==
+                           {"root", "target", "records", "reviews", "aliases", "cited", "refusals"},
                            "catalog loaded input shape invalid")
+    sp._projection_require(loaded.get("persisted_edges") is None or
+                           sp._persisted_edges_shape(loaded["persisted_edges"]),
+                           "catalog persisted retirement edges invalid")
     root, target = loaded["root"], loaded["target"]
     sp._projection_require(isinstance(root, Path) and root.is_absolute() and
         isinstance(target, Path) and target == root / "crux/catalog/rules.json", "catalog destination invalid")

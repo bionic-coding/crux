@@ -1,4 +1,4 @@
-<!-- generated-from: CHANGELOG.md@sha256:38d7e0d72b08ca213c91304b3cab1520bc86a604266ae82a269bd9c3271f6bd4; model: claude-sonnet-5.5; date: 2026-11-05 -->
+<!-- generated-from: CHANGELOG.md@sha256:ceaad0a1a2f8b20404c7f3ece1c42c9a0536320500d51edf6e37370c2c288bfc; model: claude-sonnet-5.5; date: 2026-11-11 -->
 # Changelog
 
 All notable changes to crux. The format roughly follows [Keep a Changelog](https://keepachangelog.com/) and the project adheres to [Semantic Versioning](https://semver.org/).
@@ -8,6 +8,99 @@ All notable changes to crux. The format roughly follows [Keep a Changelog](https
 ### Added
 
 ### Changed
+
+### Fixed
+
+### Removed
+
+## [5.5.1] — 2026-11-11
+
+### Added
+
+### Changed
+
+- The architect and historian role instructions now require running `execution-check` before the first write of a cycle task, generators included. They also forbid delivering with staged or uncommitted changes.
+- When an ADR is accepted, `owner-decision apply` now runs inside the accept task, which checkpoints and commits the ADR lifecycle changes and the acceptance record. The cycle skill and commander instructions describe this order.
+- Plans now name the Reflect entry's journal and log paths, and an accept task's ADR paths, in their scope. Acceptance criteria are checked against Build's output before leaving Build, because an acceptance change is refused after Build.
+
+### Fixed
+
+### Removed
+
+## [5.5.0] — 2026-11-11
+
+### Added
+
+- `<docs_dir>/log/summary.md` now summarises each settled month of the operations log. It has a rollup region and one generated section per month, starting on the third day of the following month. `generate-log-summary.py` writes it, and its `--dry-run` is the check that the summary is up to date. A settled month with no section yet is pending, not drift.
+- `operation-log.py` writes, repairs and checks the operations log. `append` adds one entry, `repair` splits a legacy `log.md` and merges a stray one, and `check` runs CHK-LOG-1 to CHK-LOG-7.
+- The `cleanup-campsite` rule CLN-LOG-1 runs the log repair and the summary catch-up on every run. A refused repair or catch-up is reported as a P1 finding.
+- The `test-tiers` skill now states what makes a test worth keeping: its failure would show a regression in a behaviour that a program, a user or a release depends on, and no other kept test or gate would show it. A test fails the rule if it is a wording pin, a removed-text guard, a duplicate or a host-dependent fixture. Such a test is either deleted, with the remaining coverage named, or labelled ephemeral with a reason and an end condition. A test whose only fault is its fixture stays, and sets that state or skips with a stated reason. The reviewer of a change applies the rule to every test the change adds.
+
+### Changed
+
+- The operations log is now one detail file per month, `<docs_dir>/log/YYYY-MM.md`, with the latest write at the top. Each entry goes in the file for the writer's local month, whatever date its heading carries. Every skill writes its entry through `operation-log.py append` and commits the log paths it reports, and no writer creates `log.md`. The first log write splits a legacy `log.md` by heading month without changing any entry's bytes. Later writes merge in a `log.md` that an older plugin version creates. The documentation-tree schema version stays at 5.
+- In the development repository, the project's own operations log moved from a single `log.md` to monthly detail files.
+- `init-docs` now starts the log in the current month's detail file and records the split as complete.
+- `audit-docs` now runs `operation-log.py check` for its CHK-LOG checks. CHK-LOG-2 checks each detail file's header and no longer checks date order, because a file holds entries in write order.
+- `generate-adr-index.py` now reads the tree name through the shared configuration reader. A `.bionic.yml` without `config_version` therefore makes it exit 2, as the ADR rollup and lineage regenerators already did. Add `config_version: "1"` to such a file.
+
+### Fixed
+
+### Removed
+
+## [5.4.0] — 2026-11-09
+
+### Added
+
+- `finish` on a cycle other than a listed release cycle now reports `evidence_size: {bytes, files, measure}`, the committed size of the cycle's evidence. It is the sum of the blob sizes `git ls-tree -r -l` reports over the cycle directory at the completion HEAD, and the reflection reports it too.
+- `execution-check` accepts `record_commit: "defer"`. The proof and record stay uncommitted, so the worker's source commit (made with `git commit --only` on the checkpoint's edited paths) lands directly on the checkpointed HEAD, and the worker then runs `commit-record`.
+- Execution proof admits two new kinds after `current-delivery`. `cycle-task-source` is a one-parent commit grounded by another done task's validated delivery, through a retained proof row or its trailer inside the delivered range. `cycle-task-merge` is a conflict-free merge of such work by any role. A retry whose base predates another task's delivered work is no longer refused.
+- A plan task may name `stream`, a declared independent stream. Proof then tests the attempt's own edited paths and commits against that stream, and refuses with `execution-edited-path-outside-stream`, listing the paths and a stream-revision recovery.
+- A replaced task can now be marked superseded with `task --state superseded --superseded-by OTHER --note TEXT`. A dependency on it is satisfied once its superseder, a task of the same phase, is done. A phase closes over it, and it never counts as delivered. Every save refuses a superseder that is missing, superseded or in another phase. It also refuses an `integrates` entry naming a superseded task, a superseded task in a listed release cycle, and a dependency cycle through a superseder.
+- `owner-decision` accepts the purpose `acceptance-change`. Its subject is a proposal under `cycles/<id>/acceptance/` that removes acceptance criteria, moves them to a pending or held queue item, or adds them. `apply` writes the plan revision through the plan writer's own steps and cites the owner capture.
+- `parallel_suite.py` now refuses a whole suite root run from a linked worktree, with the code `focused-check-rule`, before discovery. Only the test coordinator runs a whole root, on the main checkout. `--allow-linked-worktree` lifts the refusal. A run with `--select` or `--failed-from` is focused and never refused. `--tier` counts as focused only beside `--select`, and a non-default `-p` pattern never does.
+- `decision-policy.py adopt --subject PATH` writes proposal metadata with origin `legacy-adoption` for a legacy Proposed decision record tracked at HEAD, so it can be accepted. Accepting it under `council-and-human` requires an owner capture and refuses free-text human approval.
+- `cycle.py return` takes `--execution-task TASK`, which is required in Build. The return is accepted only while no attempt is reserved or running, and only if the writer's own probe of that task's next attempt refuses at least one commit with `execution-foreign-source` or `execution-source-outside-scope` and none with another code. The probe classifies the whole range in a new collect mode, while the default proof still refuses at the first unadmitted commit. The `return-requested` event retains `execution_refusal`: one range per task whose base the return abandons, each row with its sha, paths, `Cycle-Task` trailers and kind or refusal code. `inspect` offers this return from a current-pass delivery that journaled either code, and runs no proof.
+- Execution proof now labels another open cycle's whole record commit as bookkeeping, with `basis: other-cycle-record` and its cycle ids. A concurrent cycle's record commits therefore no longer refuse with `execution-source-outside-scope`. A change to a cycle that was closed or unreadable at the commit's parent, a mixed commit, a merge, or a commit touching this cycle's plan scope still refuses.
+
+### Changed
+
+- `prepare-dispatch` for a fix task now renders the fix's completion sequence into its assignment. The sequence is the fix-before receipt, the fix commit recorded on the task, the fix-after receipt for the same check, current evidence for every required check, a fix-diff review for a Review fix, and then delivery.
+- The checkout suites fingerprint each local skill root's `forge-log.md` through its preamble only. A `used` entry committed by the engine no longer makes the next cycle rerun both checkout suites.
+- An inspect recovery never offers a developer dispatch. A developer-reserved task of any phase stays with its coordinating dev-lead.
+- `execution-foreign-source` now names one recovery route, a return to a new pass, along with its consequence. It also names a damaged grounding delivery report and, where the engine can check it, the fact that delivering another task first admits the commit. `execution-edited-path-outside-scope` reports the refused paths and the rule for removing the worker's own bytes.
+- An integration merge whose child tip holds only bookkeeping, such as an evidence file under the cycle directory, is now admitted. Proof walks at most 32 bookkeeping commits to the child's source commit.
+- `change-type` now keeps each done Build task whose delivery still holds, instead of clearing the task list. It drops other tasks, and any done task that integrates a dropped one. A type with a Plan phase still restarts in Plan with a pending `plan` task.
+- The council attempt count for purposes `adr` and `disposition` now spans the standalone directory and every cycle's council directory, whatever the cycle's status. Moving a decision between scopes no longer resets its limit.
+- `context-read` reads `<docs_dir>/log.md`, where a listed reference names it, under an 8 MiB bound instead of 1 MiB. Every other object keeps the 1 MiB bound.
+- Every role that holds a shell now states that it never moves HEAD of the shared main checkout and reads historical bytes with `git show`.
+- A fix task's dev-lead writes the fix itself. The cycle skill, the operational schema and the commander no longer say a developer may write it.
+- The instructions now state that a finding is deferred only in Review, and that an undeclared child that is a done, delivered task of the cycle is admitted. They also state that on Codex, OpenCode and OMP the dev-lead implements every unit itself, because only one agent edits the main checkout at a time. The OpenCode and OMP guides no longer say the commander dispatches a developer.
+- The `cleanup-campsite` check CLN-RETRO-1 now dates a cycle's closure by its closing status event, so a late assignment event no longer moves it.
+
+### Fixed
+
+- `child-link` now accepts a lead's first child when the lead's task has no completed Build prerequisite. The first child joins `depends_on` only, and the next link declares the integration. A declared integration still names at least two units.
+- A cycle record nested deeply enough to exhaust the JSON parser now defers the forge-log flush as an unreadable record, instead of failing the record commit.
+- `cycle.py evidence` with an entry identical to one already recorded now writes nothing and returns `changed: false`, instead of appending a duplicate entry and a history event.
+
+### Removed
+
+- The dormant `execution-arrangement` advice kind. `advice-refresh` now refuses it, while historical classifications of that kind stay readable.
+
+## [5.3.0] — 2026-11-07
+
+### Added
+
+- `cycle.py create` and `queue start-next` now check the environment before writing anything. Each refuses with `environment-prerequisite` and lists every missing prerequisite with its fix. The prerequisites are a git author or committer identity, a Python minor declared under `[tool.crux] python-versions` in the development repository's `pyproject.toml`, and `node` when the scope reaches a TypeScript test root. A queue item that is stopped this way stays pending.
+
+### Changed
+
+- The commander now dispatches a dev-lead for every Build task and every fix task, never a developer, and no longer holds the developer grant. `prepare-dispatch` selects the dev-lead when such a task names no role. The dev-lead implements bounded work itself on the main checkout, or fans independent units out to developers and integrates them on main. The developer role no longer declares `isolation: worktree`. On Claude Code the engine adds per-call worktree isolation to every developer invocation, and a developer that finds itself on the main checkout despite that makes no edit and reports `blocked`. On Codex, OpenCode and OMP, developer units run one at a time on the main checkout.
+- The test coordinator is now a dev-lead. Full suites, the staged dry run and per-minor runs run only there, one at a time, while developers and reviewers run focused checks only.
+- An operational blocker that no dispatchable role can clear now returns to the main session to fix, instead of pausing the cycle. Examples are a missing git identity, interpreter or tool, an integration the dev-lead cannot complete, or a missing grant. The main session pauses the cycle only when it cannot clear the blocker.
+- The `execution-arrangement` advice kind is now dormant, because every phase permits only one role. `context-selection` advice now accepts any explicit configured role.
+- Rule citations in the `council` and `srde` skills, the brainstormer role, and the shipped documentation (`AGENTS.md`, `README.md`, `DEPLOY.md` and `OPENCODE_GUIDE.md`) now name the accepted rules that replace the ones they cited. The shipped rules catalog carries the new rules in place of the old ones.
 
 ### Fixed
 

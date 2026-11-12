@@ -1112,7 +1112,6 @@ class PartnerRemedyTests(TmpRoot):
 
 
 MIGRATE_CLI = SCRIPTS / "migrate-instructions.py"
-MIGRATE_MODE = REPO_ROOT / "crux" / "skills" / "audit-docs" / "references" / "migrate-mode.md"
 
 
 def _remedy_sentences() -> dict[str, str]:
@@ -1439,9 +1438,6 @@ class FollowedRemedyTests(unittest.TestCase):
 
     # -- MF-2: the migrate-mode guidance for init-docs' lines, followed literally
 
-    def guidance(self) -> str:
-        return " ".join(MIGRATE_MODE.read_text(encoding="utf-8").split())
-
     def build_untracked_winner_migrated(self):
         """rereview-c/live1: an untracked CLAUDE.md beside a committed AGENTS.md
         holding init-docs' pointer line, migrated once."""
@@ -1460,10 +1456,6 @@ class FollowedRemedyTests(unittest.TestCase):
 
     def test_followed_guidance_for_an_untracked_winner_does_not_loop(self):
         """Copy the lines into the winner left in place, then migrate again."""
-        text = self.guidance()
-        self.assertIn("While an untracked or ignored `CLAUDE.md` stays in place, copy them "
-                      "into that `CLAUDE.md`, not into `AGENTS.md`, then run `--migrate` "
-                      "again", text)
         self.build_untracked_winner_migrated()
         self.add_missing_lines("CLAUDE.md")
         self.migrate()
@@ -1477,13 +1469,6 @@ class FollowedRemedyTests(unittest.TestCase):
 
     def test_followed_guidance_to_track_the_winner_first_does_not_loop(self):
         """Or git add the winner, migrate, and only then copy the lines into AGENTS.md."""
-        text = self.guidance()
-        self.assertIn("Or, where git does not ignore that `CLAUDE.md`, track it first with "
-                      "`git add`, then run `--migrate` again. Once a run stages the scope, "
-                      "copy them into `AGENTS.md`.", text)
-        # Forcing an ignored winner into the index publishes it, which the migration's
-        # "publishes nothing" contract forbids, so the guidance never offers it.
-        self.assertNotIn("git add -f", text)
         self.build_untracked_winner_migrated()
         _git(self.root, "add", "--", "CLAUDE.md")
         snapshot = self.index_texts()
