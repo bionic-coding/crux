@@ -21,7 +21,9 @@ SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 import secret_scan  # noqa: E402
-from secret_scan import KEY_SHAPES, check_input_path, scan_fields, scan_text  # noqa: E402
+from secret_scan import (  # noqa: E402
+    KEY_SHAPES, check_input_path, check_secret_location, scan_fields, scan_text,
+)
 
 _BODY_CHAR = {
     "[0-9a-f]": "0",
@@ -423,6 +425,33 @@ class InputPathTests(unittest.TestCase):
                 f = self.repo / name
                 f.write_text("x")
                 self.assertIsNone(self.check(f))
+
+    def test_env_example_is_not_an_env_file(self):
+        # One subdirectory per spelling: a case-insensitive volume would merge them otherwise.
+        for index, name in enumerate((".env.example", ".ENV.EXAMPLE", ".Env.Example")):
+            with self.subTest(name=name):
+                d = self.repo / f"example{index}"
+                d.mkdir()
+                f = d / name
+                f.write_text("API_KEY=\n")
+                self.assertIsNone(self.check(f))
+                self.assertIsNone(check_secret_location(f))
+
+    def test_env_file_names_around_the_example_exception(self):
+        # Only the exact basename `.env.example` is exempt. `x.env.example` matched no part of
+        # the rule before the exception and still matches none.
+        expectations = {".env": "env-file", ".env.local": "env-file",
+                        ".env.production": "env-file", "prod.env": "env-file",
+                        ".envrc": "env-file", ".env.example.local": "env-file",
+                        ".env.examples": "env-file", "x.env.example": None}
+        for index, (name, expected) in enumerate(expectations.items()):
+            with self.subTest(name=name):
+                d = self.repo / f"names{index}"
+                d.mkdir()
+                f = d / name
+                f.write_text("x")
+                self.assertEqual(self.check(f), expected)
+                self.assertEqual(check_secret_location(f), expected)
 
     def test_missing_and_non_regular(self):
         self.assertEqual(self.check("sub/absent.md"), "missing")

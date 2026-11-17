@@ -229,10 +229,21 @@ class SummaryTests(AdvanceBase):
             self.assertEqual(short[name], full[name], name)
         self.assertEqual([a.get('request') for a in short['actions']], [a.get('request') for a in full['actions']])
         self.assertTrue(short['summary'])
-        self.assertNotIn('reusable_evidence', short)
-        for name in ('reusable_evidence', 'assignments', 'classifier', 'head', 'test_runs', 'councils'):
+        for name in ('assignments', 'classifier', 'head', 'test_runs', 'councils'):
             self.assertIn(name, full, name)
+            self.assertNotIn(name, short, name)
         self.assertLessEqual(len(json.dumps(short, indent=2)), 3 * 1024)
+
+    def test_summary_lists_the_same_reusable_evidence_as_full_inspect(self):
+        # In Verify the unit check is declared and not attached, and a passing receipt matches it: advance would
+        # attach it, so both forms state it as reusable rather than the summary reading it as missing.
+        self.to_test()
+        receipt = self.receipt()
+        full = self.ok({'op': 'inspect'})
+        short = self.ok({'op': 'inspect', 'summary': True})
+        self.assertEqual([row['evidence_id'] for row in full['reusable_evidence']], [receipt])
+        self.assertEqual(short['reusable_evidence'], full['reusable_evidence'])
+        self.assertEqual(short['unmet'], full['unmet'])
 
     def test_summary_lists_open_attempts_with_state_and_recovery(self):
         prepared = self.prepare()

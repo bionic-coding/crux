@@ -68,15 +68,25 @@ Usage:
 
 Exit codes (sibling of extract-code-docs.py --dry-run):
   0  clean (no drift on --dry-run; wrote the tree otherwise)
-  1  findings, in either of two channels, both on stdout as valid JSON:
-       * drift detected on --dry-run (the `drift` list); or
+  1  findings, in one of three channels, each on stdout as valid JSON:
+       * drift detected on --dry-run (the `drift` list);
        * ADR-0096 clause 5's strict gate — a concern named by the tree
          manifest's `arch.require`, or every concern under --strict, whose
-         RECORDED verdict is not `populated` (the `strict_failures` list).
-     No new code is minted for the second: exit 1 already means findings, so a
-     strict failure stays distinguishable from an environment failure.
+         RECORDED verdict is not `populated` or which carries an omission
+         (ADR-0181), in the `strict_failures` list; or
+       * ADR-0181's document lane — an input the derive could not use for a
+         reason attributable to the file (a permission refusal, a listed entry
+         that vanished, or a content failure in the completeness-dependent
+         decision index), as `{"validation_errors": [{"file", "error"}]}`.
+         Nothing is written and nothing is compared.
+     No new code is minted for these: exit 1 already means findings, so each
+     stays distinguishable from an environment failure.
   2  no verdict (surface stderr) — two lanes share this code:
-       * environment / usage error, with no in-repo remedy; or
+       * environment / usage error, with no in-repo remedy, including an
+         input failure the host determines (ADR-0177/ADR-0181: an unlistable
+         input directory, a FIFO or device, an I/O error, a parser out of
+         memory). Stdout is empty; stderr names each failure and every
+         document finding the same run met. Nothing is written; or
        * a deliberate refusal, when a spine file that projects a gated
          artifact finds that artifact is not what its own regenerator
          produces. Nothing is written. stderr carries StaleProjectionInput
@@ -118,7 +128,9 @@ from bionic_config import BionicConfigError, load_config, load_yaml  # noqa: E40
 # drift. `SystemExit` and `KeyboardInterrupt` derive from `BaseException` and so
 # still pass through untouched.
 try:
-    from crux.arch.derive import CONCERNS, coverage_table, derive, dry_run  # noqa: E402
+    from crux.arch.derive import (  # noqa: E402
+        CONCERNS, ArchEnvironmentFailure, ArchInputRefusal, coverage_table, derive, dry_run,
+    )
     # ADR-0096 clause 7's annotation, imported HERE and not by the deriver. The
     # recorded channel stays git-free: a byte-compared tree that varied with the
     # commit graph would report drift on a fresh clone and clean on the machine
@@ -223,11 +235,28 @@ def _print_advisories(advisories: list) -> None:
 def _print_strict_failures(failures: list) -> None:
     """One line per failing concern, on stderr beside the table it belongs to."""
     for f in failures:
+        omitted = f.get("omissions") or []
         print(f"strict: {f['concern']} is required by {f['required_by']} and its "
               f"recorded verdict is {f['verdict']}"
               + (f" ({f['stub_reason']}: expected {f['expected']}, "
-                 f"found {f['found']})" if f["verdict"] == "stubbed" else ""),
+                 f"found {f['found']})" if f["verdict"] == "stubbed" else "")
+              + (f"; it is incomplete: {len(omitted)} input(s) omitted"
+                 if omitted else ""),
               file=sys.stderr)
+
+
+def _print_document_lane(exc: ArchInputRefusal) -> None:
+    """ADR-0181's document lane: the findings on stdout. The caller exits 1."""
+    print(json.dumps({"validation_errors": exc.findings}, indent=2, sort_keys=True))
+
+
+def _print_environment_lane(exc: ArchEnvironmentFailure) -> None:
+    """ADR-0177's environment lane through the shared form: empty stdout, and
+    stderr naming each failure and every document finding met. The caller
+    exits 2."""
+    from input_lanes import EnvironmentLaneError, emit_environment_failure
+    emit_environment_failure(
+        EnvironmentLaneError(exc.failures, exc.findings), "derive-arch", sys.stderr)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -320,6 +349,12 @@ def main(argv: list[str] | None = None) -> int:
         _print_strict_failures(failures)
         _print_advisories(advisories)
         return 1 if failures else 0
+    except ArchInputRefusal as exc:
+        _print_document_lane(exc)
+        return 1
+    except ArchEnvironmentFailure as exc:
+        _print_environment_lane(exc)
+        return 2
     # Exit 2 is the no-verdict lane, and two things reach it. A crash or broken
     # environment is one. A StaleProjectionInput refusal is the other: a spine
     # file that projects a gated artifact declines rather than baking a stale

@@ -1,7 +1,5 @@
 exit_code: 0
-residuals:
-  - class: project-unreadable
-    path: App.xcworkspace/contents.xcworkspacedata
+omissions:
+  - path: App.xcworkspace/contents.xcworkspacedata
+    reason: unparseable
     kind: too-deep
-    first_line: null
-    last_line: null

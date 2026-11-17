@@ -238,6 +238,7 @@ def references(report):
                        if not re.match(r'^(?:Assignment|Attempt|Result-End):', line))
     found = []
     patterns = (
+        ('local-check', r'\b(LC-[0-9a-f]{32})\b'),
         ('receipt', r'\b(TE-[0-9a-f]{32})\b'),
         ('commit', r'\b(?:commit:|commit\s+)([0-9a-f]{7,64})\b|`([0-9a-f]{7,40})`'),
         ('path', r'(?<![\w/])(?:path:)?((?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+(?::[0-9]+(?:-[0-9]+)?)?)'),
@@ -253,12 +254,20 @@ def references(report):
     return [{'id': f'ref-{index}', 'kind': kind, 'value': value} for index, (kind, value) in enumerate(found)]
 
 
-def resolve_reference(cfg, reference, delivery):
+def resolve_reference(cfg, reference, delivery, doc=None):
     """Return currency facts without returning referenced file or receipt contents."""
     from cycle_workflow import contained, run_git
     kind, value = reference['kind'], reference['value']
     checkpoint()
     try:
+        if kind == 'local-check':
+            from cycle_workflow import local_check, proportionate
+            if doc is None or not proportionate(doc):
+                return {'valid': False, 'reason': 'local-check-cycle-unavailable'}
+            observed = local_check(doc, value)
+            results = [r for r in doc['local_checks'] if r['check_id'] == observed['check_id'] and r['pass'] == doc['pass']]
+            passed = observed['result'] == 'passed' and results[-1]['result'] == 'passed'
+            return {'valid': passed, 'reason': None if passed else 'local-check-not-passing'}
         if kind == 'path':
             match = re.fullmatch(r'(.+?)(?::([0-9]+)(?:-([0-9]+))?)?', value)
             relative, first, last = match.groups()
@@ -349,7 +358,7 @@ def _handoff_data(cfg, doc, assignment, attempt):
         raise CycleError('handoff task is missing')
     report = retained_report(cfg, entry)
     refs = references(report)
-    checked = {ref['id']: resolve_reference(cfg, ref, entry['delivery']) for ref in refs}
+    checked = {ref['id']: resolve_reference(cfg, ref, entry['delivery'], doc) for ref in refs}
     return {'entry': entry, 'task': task, 'report': report, 'sections': sections(report),
             'references': refs, 'checked': checked}
 

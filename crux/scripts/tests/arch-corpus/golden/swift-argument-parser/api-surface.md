@@ -796,3 +796,10 @@ _586 interfaces (public, package or open declarations, and every protocol), 48 p
 - `macro-not-expanded` `Tests/ArgumentParserUnitTests/TreeTests.swift` lines 34-34, 43-43, 89-89, 94-94 — attached macro @Test is not expanded; code it generates does not render
 - `macro-not-expanded` `Tests/ArgumentParserUnitTests/UsageGenerationTests.swift` lines 16-16 — attached macro @Suite is not expanded; code it generates does not render
 - `parse-error` `Tests/ArgumentParserUnitTests/UsageGenerationTests.swift` lines 18-247 — location top level; effect no enclosing declaration
+
+## Omissions
+
+_Recognizable inputs this map does not describe:_
+
+- `Plugins/GenerateDoccReference/GenerateCommon` — not-a-file (symbolic-link)
+- `Plugins/GenerateManual/GenerateCommon` — not-a-file (symbolic-link)

@@ -36,7 +36,7 @@ import cycle_context_read
 import cycle_hosts
 import cycle_local_skills
 import cycle_ops
-from cycle_workflow import create, load, mutate, tree
+from cycle_workflow import create, load, mutate, tree, save
 from test_evidence import execute
 from _classifier_isolation import isolate_classifier
 
@@ -74,6 +74,9 @@ class CycleFixture(unittest.TestCase):
         (self.repo / '.gitignore').write_text('*.lock\n__pycache__/\n')
         self.git('add', '.'); self.git('commit', '-q', '-m', 'base')
         doc = create(self.repo, 'quick-fix', 'Answer', 'Return 2', self.scope(), ['answer is 2'], 'builder', 'tester')
+        # These dispatch/log fixtures preserve their original receipt-based lifecycle.
+        doc.pop('testing_policy'); doc.pop('local_checks')
+        save(tree(self.repo), doc)
         self.cid = doc['id']
         self.cycles = [self.cid]
         self.add_tasks(self.cid)
@@ -88,6 +91,8 @@ class CycleFixture(unittest.TestCase):
     def second_cycle(self):
         """Cycle Y beside the fixture's cycle X, with the same two tasks."""
         doc = create(self.repo, 'quick-fix', 'Other answer', 'Return 3', ['src'], ['answer is 3'], 'builder', 'tester')
+        doc.pop('testing_policy'); doc.pop('local_checks')
+        save(tree(self.repo), doc)
         self.cycles.append(doc['id'])
         self.add_tasks(doc['id'])
         return doc['id']

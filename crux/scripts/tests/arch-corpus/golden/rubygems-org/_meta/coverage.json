@@ -9,6 +9,7 @@
       ],
       "n_entities": 463,
       "n_sources": 1,
+      "omissions": [],
       "verdict": "populated"
     },
     {
@@ -19,6 +20,7 @@
       ],
       "n_entities": 218,
       "n_sources": 1,
+      "omissions": [],
       "verdict": "populated"
     },
     {
@@ -565,6 +567,7 @@
       ],
       "n_entities": 619,
       "n_sources": 537,
+      "omissions": [],
       "verdict": "populated"
     },
     {
@@ -573,6 +576,7 @@
       "extractor": "stub",
       "found": "no matching input",
       "inputs_found": [],
+      "omissions": [],
       "stub_reason": "precondition_missing",
       "verdict": "stubbed"
     }

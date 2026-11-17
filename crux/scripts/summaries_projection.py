@@ -49,8 +49,11 @@ Key design points, honored exactly:
 
 from __future__ import annotations
 
+import errno
+import fnmatch
 import hashlib
 import json
+import os
 import re
 import stat
 import sys
@@ -135,20 +138,69 @@ def _source_bytes(path: Path, source_io) -> bytes:
     return path.read_bytes() if source_io is None else source_io.read_bytes(path)
 
 
+def _input_lanes():
+    """The shared lane classifier, under its canonical module name.
+
+    Loaded by path when `crux/scripts/` is not on `sys.path`, for the reason
+    `_evidence_module` gives, and registered as `input_lanes` so a driver's
+    `except input_lanes.EnvironmentLaneError` catches what this module raises.
+    """
+    m = sys.modules.get("input_lanes")
+    if m is None:
+        import importlib.util as _ilu
+        path = Path(__file__).resolve().parent / "input_lanes.py"
+        spec = _ilu.spec_from_file_location("input_lanes", path)
+        m = _ilu.module_from_spec(spec)
+        sys.modules["input_lanes"] = m
+        spec.loader.exec_module(m)
+    return m
+
+
+# The unseamed branches below decide by the operating system's answer, never
+# by a pathlib predicate. A predicate answers False for a path the process
+# cannot stat, and on Python 3.14 also for a file under an unsearchable
+# parent, so a reader deciding absence by one reads an unreadable input as an
+# absent one. Confirmed absence (ENOENT or ENOTDIR at the `stat`) answers
+# False; every other failure raises naming the path.
 def _source_is_file(path: Path, source_io) -> bool:
-    return path.is_file() if source_io is None else source_io.kind(path) == "file"
+    if source_io is not None:
+        return source_io.kind(path) == "file"
+    st = _input_lanes().path_state(path)
+    return st is not None and stat.S_ISREG(st.st_mode)
 
 
 def _source_is_dir(path: Path, source_io) -> bool:
-    return path.is_dir() if source_io is None else source_io.kind(path) == "directory"
+    if source_io is not None:
+        return source_io.kind(path) == "directory"
+    st = _input_lanes().path_state(path)
+    return st is not None and stat.S_ISDIR(st.st_mode)
 
 
 def _source_exists(path: Path, source_io) -> bool:
-    return path.exists() if source_io is None else source_io.kind(path) is not None
+    if source_io is not None:
+        return source_io.kind(path) is not None
+    return _input_lanes().path_state(path) is not None
 
 
 def _source_glob(path: Path, pattern: str, source_io):
-    return path.glob(pattern) if source_io is None else source_io.glob(path, pattern)
+    """The entries of the directory `path` whose names `pattern` matches.
+
+    Unseamed, this lists the directory itself: a confirmed-absent directory
+    yields nothing, and a directory that cannot be listed, or a regular file
+    at its path, raises naming it rather than reading as empty.
+    Hidden names match as `Path.glob` matches them. A pattern with a path
+    separator or `**` raises `ValueError`, so a multi-component pattern never
+    reads as an empty listing.
+    """
+    if source_io is not None:
+        return source_io.glob(path, pattern)
+    if "/" in pattern or "\\" in pattern or "**" in pattern:
+        raise ValueError(f"_source_glob takes a one-component pattern, not {pattern!r}")
+    lanes = _input_lanes()
+    if not lanes.directory_exists(path):
+        return []
+    return [path / name for name in lanes.list_directory(path)
+            if fnmatch.fnmatchcase(name, pattern)]
 
 
 def _source_resolve(path: Path, source_io) -> Path:
@@ -334,16 +386,22 @@ def provenance_entries(adrs: Path, *, _source_io=None) -> list[tuple[str, bytes]
         raise refuse("the adrs directory does not resolve inside the tree")
 
     if _source_io is None:
-        if directory.is_symlink():
-            raise refuse("the provenance directory is a symlink")
-        if not directory.exists():
+        # Decided by the operating system's answer, never by a predicate: an
+        # lstat that fails for any cause but ENOENT or ENOTDIR raises naming
+        # the path rather than reading the directory as absent.
+        lanes = _input_lanes()
+        meta = lanes.path_state(directory, follow=False)
+        if meta is None:
             return []
-        if not directory.is_dir():
+        if stat.S_ISLNK(meta.st_mode):
+            raise refuse("the provenance directory is a symlink")
+        if not stat.S_ISDIR(meta.st_mode):
             raise refuse("the provenance path is not a directory")
-        leaves = sorted(directory.iterdir())
+        leaves = [directory / name for name in lanes.list_directory(directory)]
 
         def regular(leaf: Path) -> bool:
-            return not leaf.is_symlink() and leaf.is_file()
+            leaf_meta = lanes.path_state(leaf, follow=False)
+            return leaf_meta is not None and stat.S_ISREG(leaf_meta.st_mode)
     else:
         meta = _source_io.metadata(directory)
         if meta is None:
@@ -483,8 +541,7 @@ def survey_receipt_paths(obs: Path, *, _source_io=None) -> list[Path]:
     if not _source_is_dir(resolved_base, _source_io):
         return []
     out = []
-    batches = base.iterdir() if _source_io is None else _source_glob(base, "*", _source_io)
-    for batch in sorted(batches):
+    for batch in sorted(_source_glob(base, "*", _source_io)):
         if not _source_is_dir(batch, _source_io):
             continue
         resolved = _source_contained(obs, f"_surveys/{batch.name}/receipt.yml", _source_io)
@@ -494,7 +551,14 @@ def survey_receipt_paths(obs: Path, *, _source_io=None) -> list[Path]:
                 "/receipt.yml: it does not resolve to a file inside "
                 f"{redact(base, quoted=False)} — a batch receipt is read "
                 "from the concern directory, never through a link out of it")
-        if _source_is_file(resolved, _source_io):
+        if _source_io is not None:
+            if _source_is_file(resolved, _source_io):
+                out.append(batch / "receipt.yml")
+        elif _input_lanes().optional_file_state(
+                batch / "receipt.yml",
+                name=f"observations/_surveys/{batch.name}/receipt.yml") is not None:
+            # An optional file named by path: a dangling link is not
+            # confirmed absent, and a directory at the path raises EISDIR.
             out.append(batch / "receipt.yml")
     return out
 
@@ -650,14 +714,18 @@ def declared_input_domain(summaries: Path, *, _source_io=None) -> list[str] | No
     caller's known-set check refuses it."""
     import json
     path = summaries / "_meta.json"
-    if not _source_is_file(path, _source_io):
+    if _source_io is not None:
+        if not _source_is_file(path, _source_io):
+            return None
+    elif _input_lanes().optional_file_state(path, name=f"adrs/{summaries.name}/_meta.json") is None:
         return None
-    # A guarded read refusal is not a missing declaration. Keep the legacy
-    # unguarded read fallback while letting operation I/O failures propagate.
-    guarded_text = _source_text(path, _source_io) if _source_io is not None else None
+    # A failed read is not a missing declaration: an OSError or a decode
+    # failure propagates naming the file. Only text that is not JSON reads as
+    # no declaration.
+    text = _source_text(path, _source_io)
     try:
-        doc = json.loads(path.read_text(encoding="utf-8") if _source_io is None else guarded_text)
-    except (ValueError, OSError):
+        doc = json.loads(text)
+    except ValueError:
         return None
     if not isinstance(doc, dict) or "input_domain" not in doc:
         return None
@@ -1410,7 +1478,13 @@ def signed_reconciliation_handles(adrs: Path, *, _source_io=None) -> set[str]:
     readers of this file can never disagree about whether it parses.
     """
     path = adrs / "doctrine" / RECONCILIATIONS_FILENAME
-    if not _source_is_file(path, _source_io):
+    if _source_io is not None:
+        if not _source_is_file(path, _source_io):
+            return set()
+    elif _input_lanes().optional_file_state(
+            path, name=f"adrs/doctrine/{RECONCILIATIONS_FILENAME}") is None:
+        # Absent only when both its stat and its lstat confirm it: a dangling
+        # link at the ledger is not an empty ledger.
         return set()
     import yaml
     text = _source_text(path, _source_io)
@@ -1735,6 +1809,12 @@ def _once_accepted(fm: dict, filename: str, host: str,
         from decision_policy import resolve_acceptance
         _, receipt = resolve_acceptance(host, proof_reader=proof_reader, exists=exists)
     except Exception as exc:  # noqa: BLE001 — every failure to resolve refuses
+        # A chain file that could not be read keeps its lane. One whose
+        # absence is confirmed keeps this refusal and its repair: a lost
+        # acceptance record is restored, and the refusal (exit 1) names it
+        # by its docs-relative path.
+        if isinstance(exc, _chain_lanes()) and not _chain_absence(exc):
+            raise
         raise RetirementPersistenceRefusal(
             host, f"accepted_date is set but the acceptance record does not "
             f"resolve ({redact(str(exc), quoted=False)})", _RECORD_REPAIR) from None
@@ -1800,19 +1880,93 @@ def retirement_edges_in_force(fm: dict, filename: str, tier: str, *,
     return tuple(sorted(edges, key=lambda e: (e.target, e.source_adr, e.handle)))
 
 
-def _docs_reader(adrs: Path, source_io):
-    """A docs-relative contained reader pair over the tree holding `adrs`."""
+def prospective_accepted(adrs: Path, fm: dict, *, _source_io=None, _on_probe=None) -> bool:
+    """Whether an active ADR is a prospective Accepted ADR, whose acceptance
+    chain `collect_records` resolves: one predicate, shared with the input
+    census so the census reaches exactly the chains the build reads.
+
+    Prospective means the policy acceptance format, a proposal record or an
+    acceptance receipt. The probes run in that order, stopping at the first
+    that holds, for every ADR with an id whatever its status, as
+    `collect_records` has always run them. `_on_probe`, when given, is called
+    with each path before it is probed; the census records its members so.
+    """
+    src = str(fm.get("id") or "")
+    if not src:
+        return False
+    proposal = _source_contained(adrs, f"proposals/{src}.json", _source_io)
+    receipt_path = _source_contained(adrs, f"acceptances/{src}.json", _source_io)
+
+    def probe(path: Path | None) -> bool:
+        if path is None:
+            return False
+        if _on_probe is not None:
+            _on_probe(path)
+        return _source_is_file(path, _source_io)
+    prospective = (fm.get('acceptance_format') == 'crux.adr-acceptance.v1'
+                   or probe(proposal) or probe(receipt_path))
+    return bool(prospective) and fm.get("status") == "Accepted"
+
+
+def _chain_lanes() -> tuple[type, ...]:
+    """The two lane exceptions an acceptance-chain read raises; re-raised as they are."""
+    return (InputLaneRefusal, _input_lanes().EnvironmentLaneError)
+
+
+def _chain_absence(exc: BaseException) -> bool:
+    """Whether a chain lane exception reports only confirmed-absent files."""
+    absent = _input_lanes().absent_reason("file")
+    return isinstance(exc, InputLaneRefusal) and all(
+        p.get("error") == absent for p in exc.problems)
+
+
+def _chain_lane(relative: str, exc: BaseException) -> Exception:
+    """The lane of a failed acceptance-chain read or probe of `relative`.
+
+    The chain's files are named by path by the acceptance criteria, so a
+    file whose absence is confirmed is a required-file finding
+    (`absent_reason('file')`). Another path-attributable cause is a finding
+    with its document reason; any other cause takes the environment lane.
+    Every text names the docs-relative path and carries no absolute path.
+    """
+    lanes = _input_lanes()
+    if isinstance(exc, OSError) and exc.errno in lanes.ABSENCE_ERRNOS:
+        return InputLaneRefusal([{"file": relative, "error": lanes.absent_reason("file")}])
+    if lanes.is_path_attributable(exc):
+        return InputLaneRefusal([{"file": relative, "error": lanes.document_reason(exc)}])
+    return lanes.EnvironmentLaneError([lanes.environment_reason(relative, exc)])
+
+
+def _docs_reader(adrs: Path, source_io, *,
+                 read_escape: str = "acceptance proof escapes documentation tree",
+                 probe_escape: str = "acceptance path escapes documentation tree"):
+    """A docs-relative contained reader pair over the tree holding `adrs`.
+
+    Unseamed, a failed read or probe raises its lane (`_chain_lane`) naming
+    the docs-relative path, so a chain file that fails after a clean census
+    is classified rather than quoted. The seamed branch is unchanged.
+    """
     def proof_reader(relative: str) -> bytes:
         proof = _source_contained(adrs.parent, relative, source_io)
         if proof is None:
-            raise ValueError("acceptance proof escapes documentation tree")
-        return _source_bytes(proof, source_io)
+            raise ValueError(read_escape)
+        if source_io is not None:
+            return _source_bytes(proof, source_io)
+        try:
+            return _source_bytes(proof, None)
+        except OSError as exc:
+            raise _chain_lane(relative, exc) from None
 
     def exists(relative: str) -> bool:
         proof = _source_contained(adrs.parent, relative, source_io)
         if proof is None:
-            raise ValueError("acceptance path escapes documentation tree")
-        return _source_exists(proof, source_io)
+            raise ValueError(probe_escape)
+        if source_io is not None:
+            return _source_exists(proof, source_io)
+        try:
+            return _source_exists(proof, None)
+        except OSError as exc:
+            raise _chain_lane(relative, exc) from None
     return proof_reader, exists
 
 
@@ -2261,32 +2415,28 @@ def collect_records(adrs: Path, governs_from: int | None = None,
         fm = read_frontmatter(text)
         src = str(fm.get("id") or "")
         if src:
-            proposal = _source_contained(adrs, f"proposals/{src}.json", _source_io)
-            receipt_path = _source_contained(adrs, f"acceptances/{src}.json", _source_io)
             _projection_require(fm.get('acceptance_format') in (None, 'crux.adr-acceptance.v1'),
                                 'unknown ADR acceptance format')
-            prospective = (fm.get('acceptance_format') == 'crux.adr-acceptance.v1'
-                           or (proposal is not None and _source_is_file(proposal, _source_io))
-                           or (receipt_path is not None and _source_is_file(receipt_path, _source_io)))
-            if prospective and fm.get("status") == "Accepted":
+            if prospective_accepted(adrs, fm, _source_io=_source_io):
+                receipt_path = _source_contained(adrs, f"acceptances/{src}.json", _source_io)
                 try:
                     from decision_policy import resolve_acceptance
                     if receipt_path is None or not _source_is_file(receipt_path, _source_io):
                         raise ValueError("acceptance receipt missing")
-                    def proof_reader(relative):
-                        proof=_source_contained(adrs.parent,relative,_source_io)
-                        if proof is None:raise ValueError('native council proof escapes documentation tree')
-                        return _source_bytes(proof,_source_io)
-                    def proof_exists(relative):
-                        proof=_source_contained(adrs.parent,relative,_source_io)
-                        if proof is None:raise ValueError('acceptance binding escapes documentation tree')
-                        return _source_exists(proof,_source_io)
+                    proof_reader, proof_exists = _docs_reader(
+                        adrs, _source_io,
+                        read_escape='native council proof escapes documentation tree',
+                        probe_escape='acceptance binding escapes documentation tree')
                     _,receipt=resolve_acceptance(src,proof_reader=proof_reader,exists=proof_exists)
                     if receipt['subject']!=f"adrs/{path.name}":
                         raise ValueError('acceptance receipt subject mismatch')
                     if receipt['accepted_sha256'] != hashlib.sha256(text.encode()).hexdigest():
                         raise ValueError("accepted decision contents changed")
                     accepted_amends[src] = fm.get("amends") or []
+                except _chain_lanes():
+                    # A chain file the census read clean failed in the build:
+                    # it keeps its lane, never quoted into a validation error.
+                    raise
                 except (ValueError, OSError, KeyError, TypeError) as exc:
                     _projection_require(False, f"invalid prospective ADR acceptance for {src}: {exc}")
         _projection_require("record_type" not in fm,
@@ -3099,9 +3249,18 @@ def backfill_reviews_sha256(adrs: Path, *, _source_io=None) -> str | None:
     absent (the input hash covers it as primary authored data per the ADR-0086
     Decision 3 amendment)."""
     path = reviews_path(adrs)
-    if not _source_is_file(path, _source_io):
+    if not _reviews_present(path, _source_io):
         return None
     return hashlib.sha256(_source_bytes(path, _source_io)).hexdigest()
+
+
+def _reviews_present(path: Path, source_io) -> bool:
+    """Whether the optional reviews manifest is present: absent only when
+    both its stat and its lstat confirm it, unseamed."""
+    if source_io is not None:
+        return _source_is_file(path, source_io)
+    return _input_lanes().optional_file_state(
+        path, name=f"adrs/summaries/{REVIEWS_FILENAME}") is not None
 
 
 def _reviews_problem(handle: str | None, problem: str) -> dict:
@@ -3153,7 +3312,7 @@ def read_reviews(adrs: Path, *, _source_io=None) -> dict:
     never an error.
     """
     path = reviews_path(adrs)
-    if not _source_is_file(path, _source_io):
+    if not _reviews_present(path, _source_io):
         return {"batches": {}, "receipts": [], "no_rule": []}
     return parse_reviews(_source_text(path, _source_io))
 
@@ -3407,7 +3566,7 @@ def backfill_cohort_live(adrs: Path, governs_from: int) -> list[str]:
     adrs/), numbered below `governs_from`. Sorted by number."""
     ids: list[str] = []
     for path in adr_paths(adrs):
-        fm = read_frontmatter(path.read_text(encoding="utf-8"))
+        fm = read_frontmatter(_source_text(path, None))
         aid = str(fm.get("id") or "")
         if aid and fm.get("status") == "Accepted" and adr_num(aid) < governs_from:
             ids.append(aid)
@@ -3422,19 +3581,21 @@ def _adr_ids_including_archive(adrs: Path) -> set[str]:
     the list (ADR-0088 clause 7)."""
     ids: set[str] = set()
     for d in (adrs, adrs / "archive"):
-        for path in sorted(d.glob("*.md")):
+        # A confirmed-absent tier yields nothing; one that cannot be listed
+        # raises naming it rather than reading as an empty tier.
+        for path in sorted(_source_glob(d, "*.md", None)):
             if not _is_adr_filename(path.name):
                 continue
-            resolved = _evidence_module().resolve_contained(d, path.name)
+            resolved = _source_contained(d, path.name, None)
             if resolved is None:
                 raise ValueError(
                     f"refusing to read {redact(path.name, quoted=False)}: it "
                     f"does not resolve to a file inside {redact(d, quoted=False)} "
                     "— an ADR is read from its tier directory, never through "
                     "a link out of it")
-            if not resolved.is_file():
+            if not _source_is_file(resolved, None):
                 continue
-            fm = read_frontmatter(resolved.read_text(encoding="utf-8"))
+            fm = read_frontmatter(_source_text(resolved, None))
             aid = str(fm.get("id") or "")
             if aid:
                 ids.add(aid)
@@ -3885,7 +4046,7 @@ def _run_binding_domain(runs: Path, repo_root: Path | None, *, _source_io=None) 
         if _source_contained(tree, "adrs", _source_io) is None:
             raise GovernsValidationError([_gate_problem("run-binding sources escape their tree")])
         for path in sorted(_source_glob(adrs, "*.md", _source_io)):
-            if not re.match(r"(?:[A-Z][A-Z0-9]{1,9}-)?ADR-\d{4}(?:-|\.md$)", path.name):
+            if not _RUN_BINDING_SOURCE_RE.match(path.name):
                 continue
             if _source_contained(adrs, path.name, _source_io) is None:
                 raise GovernsValidationError([_gate_problem("run-binding source escapes its ADR directory")])
@@ -3972,12 +4133,11 @@ def read_run_bindings(runs: Path, *, repo_root: Path | None = None, _source_io=N
     bindings: dict[str, dict] = {}
     if not _source_is_dir(runs, _source_io):
         return bindings
-    if _source_io is None:
-        snapshots = runs.glob("*/run-*.yaml")
-    else:
-        snapshots = [snap for directory in _source_glob(runs, "*", _source_io)
-                     if _source_is_dir(directory, _source_io)
-                     for snap in _source_glob(directory, "run-*.yaml", _source_io)]
+    # Two one-level listings in both modes: a run directory that cannot be
+    # listed raises naming it rather than contributing no snapshot.
+    snapshots = [snap for directory in _source_glob(runs, "*", _source_io)
+                 if _source_is_dir(directory, _source_io)
+                 for snap in _source_glob(directory, "run-*.yaml", _source_io)]
     for snap in sorted(snapshots):
         try:
             doc = yaml.safe_load(_source_text(snap, _source_io)) or {}
@@ -4273,7 +4433,12 @@ def build_implementation_map(adrs: Path, runs: Path, *, repo_root: Path | None =
 def read_manifest(root: Path, *, _source_io=None) -> dict:
     """Parse <docs_dir>/manifest.yml into a dict ({} when absent)."""
     path = resolve_tree(root, _source_io=_source_io) / "manifest.yml"
-    if not _source_exists(path, _source_io):
+    if _source_io is not None:
+        if not _source_exists(path, _source_io):
+            return {}
+    elif _input_lanes().optional_file_state(
+            path, name=os.path.relpath(path, Path(root))) is None:
+        # Absent only when both its stat and its lstat confirm it.
         return {}
     import yaml
     return yaml.safe_load(_source_text(path, _source_io)) or {}
@@ -4349,7 +4514,7 @@ def coverage(adrs: Path, manifest: dict) -> dict:
         return {"governs_from": None, "cohort": [], "covered": [], "uncovered": []}
     entries_by_adr: list[tuple[str, list]] = []
     for path in adr_paths(adrs):
-        fm = read_frontmatter(path.read_text(encoding="utf-8"))
+        fm = read_frontmatter(_source_text(path, None))
         aid = str(fm.get("id") or "")
         if not aid or adr_num(aid) < threshold:
             continue
@@ -4459,3 +4624,676 @@ def rule_length_advisories(adrs: Path, manifest: dict) -> list[dict]:
             })
     rows.sort(key=lambda r: (r["file"], r["handle"] or ""))
     return rows
+
+
+# ── the input census: one run names every unreadable input ────────────────
+#
+# A failed read of a recognizable input takes the document lane when its
+# cause is attributable to the file's path, and the environment lane
+# otherwise; an input directory that cannot be listed takes the environment
+# lane (see `input_lanes`). The readers above raise at the first failure, and
+# `implementation_migration.authority_view` reads the ADRs before them and
+# turns every OSError into a code that names no file. So each driver runs
+# this census first: it examines the declared input set once, in a fixed
+# order, collects every finding and failure, and only then refuses.
+
+#: The drivers whose declared inputs the census examines.
+CENSUS_DRIVERS = ("summarize-adrs", "compile-doctrine", "generate-rules-catalog",
+                  "lint-governs-references", "check-governs-coverage")
+
+
+class InputLaneRefusal(GovernsValidationError):
+    """The census met document-lane findings and no environment-lane failure.
+
+    `problems` holds the `{"file", "error"}` findings, so every existing
+    `GovernsValidationError` handler prints them as `validation_errors` at
+    exit 1.
+    """
+
+    def __init__(self, findings: list[dict]):
+        self.problems = list(findings)
+        ValueError.__init__(self, "unreadable input(s): " + "; ".join(
+            f"{f['file']}: {f['error']}" for f in self.problems))
+
+
+class InputCensus:
+    """What one census run met.
+
+    `findings` holds the document-lane `{"file", "error"}` entries, with
+    `file` relative to the repository. `failures` holds one environment-lane
+    stderr line each. `members` holds `(path, access)` for each path
+    examined, where `access` is `list` for a directory, `stat` for a path the
+    build only probes, and `read` for a file the build reads.
+    """
+
+    def __init__(self, root: Path):
+        self.root = Path(root)
+        self.findings: list[dict] = []
+        self.failures: list[str] = []
+        self.members: list[tuple[str, str]] = []
+
+    def rel(self, path) -> str:
+        path = Path(path)
+        try:
+            return str(path.relative_to(self.root))
+        except ValueError:
+            return str(path)
+
+    def refuse(self) -> None:
+        """Raise the lane the census decided, or return when every input read clean."""
+        lanes = _input_lanes()
+        if self.failures:
+            raise lanes.EnvironmentLaneError(self.failures, self.findings)
+        if self.findings:
+            raise InputLaneRefusal(self.findings)
+
+    def classify(self, path, exc: BaseException, *, output: bool = False) -> None:
+        """Record a failed stat, open, read or decode of `path` in its lane.
+
+        A path already recorded in a lane is not recorded again, so a file
+        the census meets twice (a listed sidecar that a chain also reads) is
+        named once.
+        """
+        lanes = _input_lanes()
+        rel = self.rel(path)
+        if isinstance(exc, lanes.DanglingOptionalLinkError):
+            self._fail(str(exc))
+        elif lanes.is_path_attributable(exc):
+            reason = lanes.output_reason(exc) if output else lanes.document_reason(exc)
+            self._find(rel, reason)
+        else:
+            self._fail(lanes.environment_reason(rel, exc))
+
+    def _find(self, rel: str, reason: str) -> None:
+        if not any(f["file"] == rel for f in self.findings):
+            self.findings.append({"file": rel, "error": reason})
+
+    def _fail(self, line: str) -> None:
+        if line not in self.failures:
+            self.failures.append(line)
+
+    def directory(self, path: Path, *, required: bool) -> list[str] | None:
+        """The names in the input directory `path`, or None when it yields nothing.
+
+        A confirmed-absent directory yields nothing, and is a failure carrying
+        the present "not found" text when `required`. A directory whose
+        existence cannot be determined, a regular file at its path, and a
+        directory that cannot be listed are environment-lane failures.
+        """
+        lanes = _input_lanes()
+        self.members.append((self.rel(path), "list"))
+        try:
+            if not lanes.directory_exists(path):
+                if required:
+                    self._fail(f"FileNotFoundError: {path} not found")
+                return None
+            return lanes.list_directory(path)
+        except OSError as exc:
+            self._fail(lanes.environment_reason(self.rel(path), exc))
+            return None
+
+    def level_directory(self, path: Path) -> bool:
+        """Whether the listed name `path`, at a level whose reader admits only
+        directories, is a directory to descend into.
+
+        A name whose followed stat shows any other kind is no input, as the
+        reader skips it. A name whose followed stat fails was listed, so it is
+        classified: a dangling link there is a listed-then-ENOENT finding.
+        """
+        try:
+            st = os.stat(path)
+        except OSError as exc:
+            self.members.append((self.rel(path), "stat"))
+            self.classify(path, exc)
+            return False
+        return stat.S_ISDIR(st.st_mode)
+
+    def candidate(self, directory: Path, name: str, *, escape_text: str | None = None,
+                  contain: bool = True, access: str = "read") -> bytes | None:
+        """Examine one listed candidate: containment, then its stat, then its bytes.
+
+        Returns the bytes read, or None. `escape_text` is the reader's own
+        refusal for a candidate that resolves out of `directory`, recorded in
+        the environment lane with its words; when it is None the reader's
+        refusal is not an environment failure, so the census records nothing
+        and leaves the refusal, with its lane and words, to the build.
+        `contain=False` skips the check for a reader that makes none.
+        """
+        lanes = _input_lanes()
+        path = directory / name
+        if contain and _source_contained(directory, name, None) is None:
+            try:
+                os.stat(path)
+            except OSError as exc:
+                if exc.errno == errno.ELOOP:
+                    self.members.append((self.rel(path), access))
+                    self.classify(path, exc)
+                    return None
+            if escape_text is not None:
+                # The reader's own refusal, with its lane (exit 2) and its words.
+                self._fail(escape_text)
+            return None
+        self.members.append((self.rel(path), access))
+        if not self.regular(path):
+            return None
+        if access == "read":
+            return self.read_bytes(path)
+        return None
+
+    def regular(self, path: Path) -> bool:
+        """Whether `path`, followed, is a regular file; every other answer is recorded.
+
+        A failed stat is classified. A directory is an EISDIR finding. A FIFO,
+        socket or device is an environment-lane failure and is never opened.
+        """
+        lanes = _input_lanes()
+        try:
+            st = os.stat(path)
+        except OSError as exc:
+            self.classify(path, exc)
+            return False
+        if stat.S_ISDIR(st.st_mode):
+            self.classify(path, IsADirectoryError(errno.EISDIR, "is a directory, not the expected file"))
+            return False
+        if not stat.S_ISREG(st.st_mode):
+            self._fail(f"{self.rel(path)}: is a {lanes.file_kind(st.st_mode)}, not a "
+                       "regular file; it was not opened")
+            return False
+        return True
+
+    def read_bytes(self, path: Path, *, output: bool = False) -> bytes | None:
+        """Read `path` whole and check it decodes as UTF-8; its bytes, or None."""
+        try:
+            with open(path, "rb") as handle:
+                data = handle.read()
+            data.decode("utf-8")
+            return data
+        except (OSError, UnicodeDecodeError, MemoryError) as exc:
+            self.classify(path, exc, output=output)
+            return None
+
+    def read(self, path: Path, *, output: bool = False) -> str | None:
+        """Read `path` whole and decode it as UTF-8; None when that failed."""
+        data = self.read_bytes(path, output=output)
+        return None if data is None else data.decode("utf-8")
+
+    def optional_file(self, path: Path, *, output: bool = False) -> tuple[bool, str | None]:
+        """Examine an optional file named by path: `(decided, text)`.
+
+        `decided` is False when the file could not be examined, so a decision
+        that rests on it is skipped. A confirmed-absent file is decided with
+        no text. A dangling symbolic link is an environment-lane failure, and
+        a FIFO, socket or device one too, never opened.
+        """
+        lanes = _input_lanes()
+        rel = self.rel(path)
+        self.members.append((rel, "read"))
+        try:
+            if lanes.optional_file_state(path, name=rel) is None:
+                return True, None
+        except lanes.DanglingOptionalLinkError as exc:
+            self.classify(path, exc, output=output)
+            return False, None
+        except OSError as exc:
+            if exc.errno is None:
+                # Another non-regular kind: named, and never opened.
+                self._fail(f"{rel}: {exc}; it was not opened")
+            else:
+                self.classify(path, exc, output=output)
+            return False, None
+        text = self.read(path, output=output)
+        return text is not None, text
+
+    def chain_reader(self, tree: Path):
+        """A recording docs-relative reader pair for the by-reference members.
+
+        The build's own acceptance-chain functions are called with this pair,
+        so the census reaches exactly the files those functions read and
+        probe, without copying their logic. `read` stats before it opens: a
+        file whose absence is confirmed is a required-file finding
+        (`absent_reason('file')`), a directory an EISDIR finding, and a FIFO,
+        socket or device an environment-lane failure that is never opened.
+        `exists` returns the stat's answer, and a probed path whose absence
+        is confirmed is no input. Any failure ends that one chain by raising
+        `_CensusChainStop`, because the chain's later paths are named by the
+        content the failed read did not return. A path that escapes the tree
+        raises the reader's ValueError, which is the chain's own question.
+        """
+        lanes = _input_lanes()
+        census = self
+
+        def contained(relative: str, message: str) -> Path:
+            path = tree / relative
+            if _source_contained(tree, relative, None) is None:
+                try:
+                    os.stat(path)
+                except OSError as exc:
+                    if exc.errno == errno.ELOOP:
+                        census.members.append((census.rel(path), "stat"))
+                        census.classify(path, exc)
+                        raise _CensusChainStop() from None
+                raise ValueError(message)
+            return path
+
+        def read(relative: str) -> bytes:
+            path = contained(relative, "acceptance proof escapes documentation tree")
+            census.members.append((census.rel(path), "read"))
+            try:
+                if lanes.path_state(path) is None:
+                    census._find(census.rel(path), lanes.absent_reason("file"))
+                    raise _CensusChainStop()
+            except OSError as exc:
+                census.classify(path, exc)
+                raise _CensusChainStop() from None
+            if not census.regular(path):
+                raise _CensusChainStop()
+            data = census.read_bytes(path)
+            if data is None:
+                raise _CensusChainStop()
+            return data
+
+        def exists(relative: str) -> bool:
+            path = contained(relative, "acceptance path escapes documentation tree")
+            census.members.append((census.rel(path), "stat"))
+            try:
+                return lanes.path_state(path) is not None
+            except OSError as exc:
+                census.classify(path, exc)
+                raise _CensusChainStop() from None
+        return read, exists
+
+
+class _CensusChainStop(Exception):
+    """One by-reference chain met a failure the census recorded; the chain ends."""
+
+
+#: The active-tier names the run-binding domain admits beside `_is_adr_filename`.
+_RUN_BINDING_SOURCE_RE = re.compile(r"(?:[A-Z][A-Z0-9]{1,9}-)?ADR-\d{4}(?:-|\.md$)")
+
+
+def _escape_refusal(name: str, directory: Path, what: str) -> str:
+    """A tier reader's containment refusal text, as its reader raises it."""
+    return (f"ValueError: refusing to read {redact(name, quoted=False)}: it does "
+            f"not resolve to a file inside {redact(directory, quoted=False)} "
+            f"— {what}, never through a link out of it")
+
+
+def _frontmatter_of(data: bytes | None) -> dict | None:
+    """The parsed frontmatter of a candidate's bytes, or None when it has none to read."""
+    if data is None:
+        return None
+    try:
+        fm = read_frontmatter(data.decode("utf-8"))
+    except Exception:  # noqa: BLE001 — a parse failure is the build's own report
+        return None
+    return fm if isinstance(fm, dict) else None
+
+
+def _census_manifest(census: InputCensus, tree: Path) -> tuple[bool, list]:
+    """Member (a): `(decided, concerns_enabled)`.
+
+    An unreadable manifest, or one that does not parse to a mapping, is not
+    decided: the decisions that rest on it are skipped, so a manifest finding
+    is not displaced by a "not found" failure.
+    """
+    decided, text = census.optional_file(tree / "manifest.yml")
+    concerns: list = []
+    if decided and text is not None:
+        import yaml
+        try:
+            doc = yaml.safe_load(text) or {}
+        except yaml.YAMLError:
+            # A manifest that does not parse is left to `read_manifest`'s own
+            # report; the decisions that rest on it are skipped.
+            doc = None
+        if isinstance(doc, dict):
+            concerns = doc.get("concerns_enabled") or []
+        else:
+            decided = False
+    return decided, concerns
+
+
+def _census_adr_tiers(census: InputCensus, tree: Path, decided: bool, concerns) -> dict | None:
+    """Members (b) to (d): the adrs directory, its ADRs and the archive.
+
+    Returns `{"active": {name: fm}, "archive": {name: fm}}` for the ADRs read
+    clean, or None when the adrs directory yields nothing.
+    """
+    adrs = tree / "adrs"
+    observations_only = "adrs" not in concerns and "observations" in concerns
+    names = census.directory(adrs, required=decided and not observations_only)
+    read: dict = {"active": {}, "archive": {}}
+    for name in names or ():
+        if not fnmatch.fnmatchcase(name, "*.md"):
+            continue
+        if not (_is_adr_filename(name) or _RUN_BINDING_SOURCE_RE.match(name)):
+            continue
+        fm = _frontmatter_of(census.candidate(adrs, name, escape_text=_escape_refusal(
+            name, adrs, "an ADR is read from the adrs directory")))
+        if fm is not None and _is_adr_filename(name):
+            read["active"][name] = fm
+    if names is None:
+        return None
+    archive = adrs / "archive"
+    for name in census.directory(archive, required=False) or ():
+        if not (fnmatch.fnmatchcase(name, "*.md") and _is_adr_filename(name)):
+            continue
+        fm = _frontmatter_of(census.candidate(archive, name, escape_text=_escape_refusal(
+            name, archive, "an archived ADR is read from the archive directory")))
+        if fm is not None:
+            read["archive"][name] = fm
+    return read
+
+
+def _census_sidecars(census: InputCensus, adrs: Path) -> None:
+    """Member (e): adrs/proposals/*.json and adrs/acceptances/*.json, listed and read.
+
+    A sidecar that escapes the tree keeps the build's own refusal, with its
+    lane (exit 1) and words, so the census records nothing for it.
+    """
+    for directory in ("proposals", "acceptances"):
+        for name in census.directory(adrs / directory, required=False) or ():
+            if fnmatch.fnmatchcase(name, "*.json"):
+                census.candidate(adrs / directory, name)
+
+
+def _census_provenance(census: InputCensus, adrs: Path) -> None:
+    """Member (f): adrs/provenance, listed, and its non-dot entries, read.
+
+    `provenance_entries`' refusals keep their environment lane and their
+    text: a tree-escaping adrs directory, a symlinked provenance directory, a
+    regular file at its path, and an entry that is a symbolic link or another
+    non-regular kind. A subdirectory is an EISDIR finding.
+    """
+    lanes = _input_lanes()
+    name = _provenance_module().DIRNAME
+    directory = adrs / name
+
+    def refuse(what: str) -> None:
+        census._fail(f"OSError: refusing to read adrs/{name}: {what}")
+
+    if _source_contained(adrs.parent, adrs.name, None) is None:
+        refuse("the adrs directory does not resolve inside the tree")
+        return
+    census.members.append((census.rel(directory), "list"))
+    try:
+        meta = lanes.path_state(directory, follow=False)
+        if meta is None:
+            return
+        if stat.S_ISLNK(meta.st_mode):
+            refuse("the provenance directory is a symlink")
+            return
+        if not stat.S_ISDIR(meta.st_mode):
+            refuse("the provenance path is not a directory")
+            return
+        leaves = lanes.list_directory(directory)
+    except OSError as exc:
+        census._fail(lanes.environment_reason(census.rel(directory), exc))
+        return
+    for leaf in leaves:
+        if leaf.startswith("."):
+            continue
+        path = directory / leaf
+        census.members.append((census.rel(path), "read"))
+        try:
+            leaf_meta = os.lstat(path)
+        except OSError as exc:
+            census.classify(path, exc)
+            continue
+        if stat.S_ISDIR(leaf_meta.st_mode):
+            census.classify(path, IsADirectoryError(errno.EISDIR, "is a directory, not the expected file"))
+        elif not stat.S_ISREG(leaf_meta.st_mode):
+            refuse(f"{leaf} is not a regular record file")
+        else:
+            census.read_bytes(path)
+
+
+#: Member (g): the optional files named by path that each driver's build reads.
+_CENSUS_OPTIONAL_FILES = {
+    "summarize-adrs": ("summaries/_meta.json", "summaries/backfill-reviews.yml",
+                       "doctrine/reconciliations.yml"),
+    "compile-doctrine": ("doctrine/_meta.json", "summaries/backfill-reviews.yml",
+                         "doctrine/reconciliations.yml"),
+    "generate-rules-catalog": ("summaries/_meta.json", "summaries/backfill-reviews.yml",
+                               "doctrine/reconciliations.yml"),
+    "lint-governs-references": ("summaries/_meta.json", "summaries/backfill-reviews.yml",
+                                "doctrine/reconciliations.yml"),
+    "check-governs-coverage": ("summaries/_meta.json", "summaries/backfill-reviews.yml",
+                               "doctrine/reconciliations.yml"),
+}
+
+
+def _census_optional_files(census: InputCensus, adrs: Path, driver: str) -> None:
+    """Member (g). A `_meta.json` is a wholly generated output, so a failed
+    read of one carries `output_reason`."""
+    for relative in _CENSUS_OPTIONAL_FILES[driver]:
+        census.optional_file(adrs / relative, output=relative.endswith("_meta.json"))
+
+
+def _census_observations(census: InputCensus, tree: Path) -> None:
+    """Member (h), when the observations concern is enabled: the
+    containment-checked observations directory and its records, and each
+    survey batch's receipt.yml, an optional file named by path.
+
+    Each refusal the observations readers raise keeps its environment lane
+    and its words: an escaping concern, record or holding area, and a
+    confirmed-absent concern directory.
+    """
+    prefix = "FileNotFoundError: cannot read the observations source: "
+    try:
+        obs = observations_root(tree)
+    except ValueError as exc:
+        census._fail(prefix + str(exc))
+        return
+    census.members.append((census.rel(obs), "list"))
+    lanes = _input_lanes()
+    try:
+        present = lanes.directory_exists(obs)
+        names = lanes.list_directory(obs) if present else None
+    except OSError as exc:
+        census._fail(lanes.environment_reason(census.rel(obs), exc))
+        return
+    if names is None:
+        census._fail(prefix + f"the observations directory {redact(obs, quoted=False)} is absent")
+        return
+    for name in names:
+        if name == "index.md" or not fnmatch.fnmatchcase(name, "*.md"):
+            continue
+        census.candidate(obs, name, escape_text=prefix + (
+            f"refusing to read {redact(name, quoted=False)}: it does not resolve to a "
+            f"file inside {redact(obs, quoted=False)} — an observation record is read "
+            "from the concern directory, never through a link out of it"))
+    surveys = obs / "_surveys"
+    if _source_contained(obs, "_surveys", None) is None:
+        census._fail(prefix + (
+            f"refusing to read the survey holding area under {redact(obs, quoted=False)}: "
+            "`_surveys` does not resolve to a directory inside the concern — a batch "
+            "receipt is read from the concern directory, never through a link out of it"))
+        return
+    for batch in census.directory(surveys, required=False) or ():
+        if not census.level_directory(surveys / batch):
+            continue
+        if _source_contained(obs, f"_surveys/{batch}/receipt.yml", None) is None:
+            census._fail(prefix + (
+                f"refusing to read {redact(batch, quoted=False)}/receipt.yml: it does not "
+                f"resolve to a file inside {redact(surveys, quoted=False)} — a batch receipt "
+                "is read from the concern directory, never through a link out of it"))
+            continue
+        census.optional_file(surveys / batch / "receipt.yml")
+
+
+def _census_runs(census: InputCensus, tree: Path) -> None:
+    """Member (i): promptbooks/runs, listed; each first-level directory, listed;
+    and within each the `run-*.yaml` names, read. The reader makes no
+    containment check here, so the census makes none."""
+    runs = tree / "promptbooks" / "runs"
+    for name in census.directory(runs, required=False) or ():
+        run_dir = runs / name
+        if not census.level_directory(run_dir):
+            continue
+        for snap in census.directory(run_dir, required=False) or ():
+            if fnmatch.fnmatchcase(snap, "run-*.yaml"):
+                census.candidate(run_dir, snap, contain=False)
+
+
+def _census_invariants(census: InputCensus, tree: Path) -> None:
+    """Member (j), for compile-doctrine: the invariants directory, listed, and
+    its `*.md` candidates, read. `doctrine_projection.read_invariants` makes
+    no containment check, so the census makes none. A confirmed-absent
+    directory is no input, as the reader reads it."""
+    invariants = tree / "invariants"
+    for name in census.directory(invariants, required=False) or ():
+        if fnmatch.fnmatchcase(name, "*.md"):
+            census.candidate(invariants, name, contain=False)
+
+
+def _census_chains(census: InputCensus, tree: Path, read: dict) -> None:
+    """Members (k) and (l), by reference: the acceptance-proof chain of each
+    prospective Accepted ADR, and the retirement-standing reads of each
+    archived host and each active host that is not Accepted.
+
+    Each is reached by calling the build's own function with the recording
+    reader pair, so the chain logic is not copied. A validation error inside
+    a chain is not the census's question: it is discarded, and the build
+    reports it as before.
+    """
+    adrs = tree / "adrs"
+    proof_reader, exists = census.chain_reader(tree)
+    from decision_policy import resolve_acceptance
+    for name, fm in sorted(read["active"].items()):
+        src = str(fm.get("id") or "")
+        if not src or fm.get("acceptance_format") not in (None, "crux.adr-acceptance.v1"):
+            continue            # the build refuses before it probes
+        probed: list[Path] = []
+        try:
+            if not prospective_accepted(adrs, fm, _on_probe=probed.append):
+                continue
+            receipt = _source_contained(adrs, f"acceptances/{src}.json", None)
+            if receipt is None:
+                continue        # the build refuses "acceptance receipt missing"
+            probed.append(receipt)
+            if not _source_is_file(receipt, None):
+                continue
+        except OSError as exc:
+            census.classify(probed[-1] if probed else adrs, exc)
+            continue
+        finally:
+            # The predicate resolves the proposal path whether or not it probes it,
+            # and resolving stats it; a driver that lists no sidecars (member (e))
+            # still stats it here, so it is a stat member.
+            proposal = _source_contained(adrs, f"proposals/{src}.json", None)
+            if proposal is not None and proposal not in probed:
+                probed.append(proposal)
+            census.members.extend((census.rel(path), "stat") for path in probed)
+        try:
+            resolve_acceptance(src, proof_reader=proof_reader, exists=exists)
+        except Exception:  # noqa: BLE001 — recorded, or the build's own question
+            pass
+    for tier in ("active", "archive"):
+        for name, fm in sorted(read[tier].items()):
+            host = _host_id_from_filename(name)
+            if host is None or (tier == "active" and fm.get("status") == "Accepted"):
+                continue
+            try:
+                if tier == "archive" and not any(
+                        isinstance(entry, dict) and entry.get("retires")
+                        for entry in raw_governs_entries(fm)):
+                    _is_policy_host(fm, host, exists)
+                retirement_edges_in_force(fm, name, tier, proof_reader=proof_reader,
+                                          exists=exists)
+            except Exception:  # noqa: BLE001 — recorded, or the build's own question
+                pass
+
+
+#: Drivers whose build neither lists the proposal and acceptance sidecars
+#: (member (e)) nor reads promptbooks/runs (member (i)): the rules catalog and
+#: the two gates compute no input fingerprint and no implementation map. The
+#: census-coverage tests decide this set in both directions. An acceptance
+#: record a chain names is still read, by reference, under member (k).
+_CENSUS_WITHOUT_SIDECARS_AND_RUNS = frozenset({"generate-rules-catalog",
+                                               "lint-governs-references",
+                                               "check-governs-coverage"})
+
+#: Drivers whose build never reads the observations concern (member (h)): the
+#: coverage gate counts ADR governs blocks only. Its census-coverage test
+#: decides this set in both directions.
+_CENSUS_WITHOUT_OBSERVATIONS = frozenset({"check-governs-coverage"})
+
+
+def input_census(root: Path, *, driver: str) -> InputCensus:
+    """Examine `driver`'s declared input set once, before any proof, build or output read.
+
+    The members, in order: (a) manifest.yml; (b) the adrs directory; (c) its
+    ADR candidates; (d) adrs/archive and its candidates; (e) the proposal
+    and acceptance sidecars; (f) adrs/provenance; (g) the optional files the
+    driver's build reads; (h) the observations concern when it is enabled;
+    (i) promptbooks/runs; (j) for compile-doctrine, the invariants directory
+    and its pages; and, by reference, (k) the acceptance-proof chains
+    and (l) the retirement-standing reads. Each member is recorded with its
+    access kind: `list`, `stat` or `read`. A driver in
+    `_CENSUS_WITHOUT_SIDECARS_AND_RUNS` skips (e) and (i), and a driver in
+    `_CENSUS_WITHOUT_OBSERVATIONS` skips (h), because its build never reads
+    them.
+
+    Returns the `InputCensus`; call its `refuse()` to raise the lane it
+    decided. Resolving the tree may raise `GovernsValidationError`, as every
+    reader's resolution does.
+    """
+    if driver not in CENSUS_DRIVERS:
+        raise ValueError(f"unknown census driver {driver!r}; expected one of {list(CENSUS_DRIVERS)}")
+    root = Path(root)
+    census = InputCensus(root)
+    tree = resolve_tree(root)
+    decided, concerns = _census_manifest(census, tree)
+    read = _census_adr_tiers(census, tree, decided, concerns)
+    adrs = tree / "adrs"
+    if read is not None:
+        if driver not in _CENSUS_WITHOUT_SIDECARS_AND_RUNS:
+            _census_sidecars(census, adrs)
+        _census_provenance(census, adrs)
+        _census_optional_files(census, adrs, driver)
+    if "observations" in concerns and driver not in _CENSUS_WITHOUT_OBSERVATIONS:
+        _census_observations(census, tree)
+    if driver not in _CENSUS_WITHOUT_SIDECARS_AND_RUNS:
+        _census_runs(census, tree)
+    if driver == "compile-doctrine":
+        _census_invariants(census, tree)
+    if read is not None:
+        _census_chains(census, tree, read)
+    return census
+
+
+def late_input_failure(root: Path, exc: BaseException) -> Exception | None:
+    """The lane of an OSError a reader raised after a clean census, or None.
+
+    A read beneath the documentation tree can still fail after the census
+    read it clean, through a concurrent change. A path-attributable cause
+    returns an `InputLaneRefusal` naming the path relative to the repository;
+    any other cause returns an `input_lanes.EnvironmentLaneError` naming it.
+    An exception that is not an OSError, or names no path beneath the tree,
+    returns None and keeps its present handling.
+    """
+    if not isinstance(exc, OSError) or not exc.filename:
+        return None
+    try:
+        tree = resolve_tree(Path(root))
+    except Exception:  # noqa: BLE001 — an unresolvable tree classifies nothing
+        return None
+    path = Path(os.fsdecode(exc.filename))
+    if not path.is_absolute():
+        path = Path(root) / path
+    path = Path(os.path.abspath(path))
+    trees = {Path(os.path.abspath(tree))}
+    try:
+        trees.add(tree.resolve())
+    except (OSError, RuntimeError):
+        pass
+    if not any(path.is_relative_to(t) for t in trees):
+        return None
+    census = InputCensus(Path(root))
+    census.classify(path, exc)
+    try:
+        census.refuse()
+    except Exception as refusal:  # noqa: BLE001 — the census's own lanes
+        return refusal
+    return None

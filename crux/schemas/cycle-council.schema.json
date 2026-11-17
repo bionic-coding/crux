@@ -233,7 +233,8 @@
         "type": "string"
       },
       "call_evidence": {"type": "object"},
-      "checkpoint_failure": {"type": "object"}
+      "checkpoint_failure": {"type": "object"},
+      "evidence_uncommitted": {"const": "tree-ignored"}
     }
   }
 }

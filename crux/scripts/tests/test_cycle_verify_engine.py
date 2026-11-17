@@ -288,7 +288,8 @@ class CommittedRecordTests(unittest.TestCase):
     def test_every_committed_record_validates_loads_and_renders_with_unchanged_bytes(self):
         directory = REPO / 'bionic/cycles'
         require_dev_surface(self, directory, 'bionic/cycles')
-        paths = sorted(directory.glob('CYC-*/cycle.json'))
+        # An opt-in pilot record has its own format and reader, outside this schema.
+        paths = sorted(p for p in directory.glob('CYC-*/cycle.json') if json.loads(p.read_text()).get('format') != 'crux.cycle.vNext')
         self.assertTrue(paths)
         before = {path: hashlib.sha256(path.read_bytes()).hexdigest() for path in paths}
         for path in paths:

@@ -41,6 +41,17 @@ Exit: 0 every in-cohort ADR covered (or cohort empty -> vacuous pass) ·
       with `uncovered` empty) · 2 crash (stderr). The clean-path JSON may also
       carry an optional `backfill` counts block (backfilled / no_rule / pending).
 
+Before the authority proof or the build reads an input, the input census
+(`summaries_projection.input_census`, driver `check-governs-coverage`)
+examines the declared inputs once. An input whose read fails for a cause
+attributable to its path is a `validation_errors` finding naming it (exit 1).
+A cause in the process or host, a directory that cannot be listed, and a
+dangling link at an optional file take the environment lane: exit 2, stdout
+empty, stderr naming each failing input and every finding the same run met.
+A read beneath the documentation tree that fails after a clean census is
+classified the same way. The operations-log and journal reads of the backfill
+contract keep their present lanes.
+
 An optional `warnings` list rides BESIDE whichever verdict above is reached,
 on the clean path and on the exit-1 payload alike. It is ADVISORY and never
 changes the exit code: each row reports a `governs` rule longer than the
@@ -61,6 +72,27 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import summaries_projection as sp
 import implementation_migration as migration
+import input_lanes
+
+SCRIPT = "check-governs-coverage"
+
+
+def _late_failure_exit(root: Path, exc: Exception) -> int | None:
+    """The exit code for an exception the catch-all would otherwise report, or None.
+
+    An OSError naming a path beneath the documentation tree, raised after a
+    clean census, goes through the census's classifier: a path-attributable
+    cause is a `validation_errors` finding naming the input (exit 1), and any
+    other cause takes the environment lane (exit 2, stdout empty). An
+    exception the classifier does not place returns None.
+    """
+    late = sp.late_input_failure(root, exc) if isinstance(exc, OSError) else None
+    if isinstance(late, input_lanes.EnvironmentLaneError):
+        return input_lanes.emit_environment_failure(late, SCRIPT, sys.stderr)
+    if isinstance(late, sp.GovernsValidationError):
+        print(json.dumps({"validation_errors": late.problems}, sort_keys=True))
+        return 1
+    return None
 
 
 def main(argv=None) -> int:
@@ -72,6 +104,10 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     root = Path(args.repo_root).resolve()
     try:
+        # The input census runs first: it examines the declared inputs once and
+        # refuses in the lane each failed read takes, so one run names every
+        # unreadable input before the authority proof or the build reads one.
+        sp.input_census(root, driver=SCRIPT).refuse()
         manifest = sp.read_manifest(root)
         adrs = sp.adrs_dir(root)
         view = migration.authority_view(root)
@@ -111,7 +147,15 @@ def main(argv=None) -> int:
     except sp.GovernsValidationError as exc:
         print(json.dumps({"validation_errors": exc.problems}, sort_keys=True))
         return 1
+    except input_lanes.EnvironmentLaneError as exc:
+        return input_lanes.emit_environment_failure(exc, SCRIPT, sys.stderr)
+    except input_lanes.DanglingOptionalLinkError as exc:
+        return input_lanes.emit_environment_failure(
+            input_lanes.EnvironmentLaneError([str(exc)]), SCRIPT, sys.stderr)
     except Exception as exc:
+        code = _late_failure_exit(root, exc)
+        if code is not None:
+            return code
         sys.stderr.write(f"check-governs-coverage: {type(exc).__name__}: {exc}\n")
         return 2
     if report["uncovered"] or backfill_errors:

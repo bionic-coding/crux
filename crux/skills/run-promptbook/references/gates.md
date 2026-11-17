@@ -181,7 +181,7 @@ A refusal the conductor may not repair is not returned as retryable. The council
 
 | Code | Meaning | Owner's remedy |
 |---|---|---|
-| `env-file` | a subject is a `.env`, `.env.*`, `*.env` or `.envrc` file, or the crux env file | remove it from the subjects, because its values never reach a seat |
+| `env-file` | a subject is a `.env`, `.env.*`, `*.env` or `.envrc` file other than `.env.example`, or the crux env file | remove it from the subjects, because its values never reach a seat |
 | `crux-home` | a subject lies in the crux home directory | copy the content a seat needs into a tracked file in the repository, and name that file |
 | `ignored` | git ignores a subject | track the file and commit it, or name another file |
 | `mixed` | the index holds a staged version of a subject that differs from its working-tree version | decide which version holds, then commit it |

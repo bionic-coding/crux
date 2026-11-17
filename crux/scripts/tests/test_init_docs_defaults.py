@@ -651,23 +651,6 @@ class ObservationsConcernTests(unittest.TestCase):
         self.assertIn("`concerns_enabled` includes `invariants`, `arch`, and `observations`", t)
 
 
-class InstallDocsSkillsProseTests(unittest.TestCase):
-    """The sibling detection surface: fresh-vs-upgrade detection must not
-    key on the retired literal `docs/` absence (a bionic/-only repo is an
-    existing installation)."""
-
-    SKILL_MD = REPO_ROOT / "crux" / "skills" / "install-docs-skills" / "SKILL.md"
-    DETAIL_MD = SKILL_MD.parent / "references" / "install-and-upgrade.md"
-
-    def test_detection_never_keys_on_literal_docs_absence(self):
-        self.assertIn("references/install-and-upgrade.md", self.SKILL_MD.read_text())
-        t = self.DETAIL_MD.read_text()
-        self.assertNotIn(
-            "If `docs/` does NOT exist in the target repo (fresh install)", t)
-        for marker in ("`.bionic.yml`", "`bionic/` tree", "legacy `docs/` tree"):
-            self.assertIn(marker, t, f"detection marker {marker} missing")
-
-
 class UserGuideSchemaLiteralTests(unittest.TestCase):
     """USER_GUIDE 'this project uses schema_version N' claims must match the
     shipped manifest template's value (the class that recurred across two

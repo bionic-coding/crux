@@ -89,8 +89,8 @@ Exit codes (the contract every sibling regenerator follows):
     2  environment-lane failure, or a pass-2 write failure: nothing on stdout,
        a message on stderr
 
-[^file]: rule:path-attributable-read-failure-is-a-document-finding
-[^member]: rule:absent-catalogue-member-is-a-document-finding
+[^file]: rule:unreadable-file-outside-a-descriptive-map-is-a-document-finding
+[^member]: rule:absent-member-outside-a-descriptive-map-is-a-document-finding
 [^process]: rule:process-level-read-failure-is-an-environment-failure
 [^unlistable]: rule:unlistable-input-directory-is-an-environment-failure
 [^precedence]: rule:environment-failure-takes-precedence
@@ -331,10 +331,34 @@ def _catalog(root: Path, lanes: _Lanes) -> list[str] | None:
         lanes.finding(CATALOG_FILE, "expected a non-empty list of skill records.")
         return None
     try:
-        return sorted(str(record["name"]) for record in records)
+        raw = [record["name"] for record in records]
     except (TypeError, KeyError) as exc:
         lanes.finding(CATALOG_FILE, f"a record has no `name` key ({exc})")
         return None
+    # Every member path is built as `crux/skills/<name>/SKILL.md`, so a name that
+    # is not one path component would read, and in write mode rewrite, a file
+    # outside the skills directory. Refuse before any path is built, and never
+    # echo the raw name: it may hold a NUL or a path.
+    refused = [index for index, name in enumerate(raw) if not _is_path_component(name)]
+    for index in refused:
+        lanes.finding(
+            CATALOG_FILE,
+            f"record {index} has a `name` that is not one path component (a non-empty "
+            "string that is not a dot entry and holds no slash, backslash or NUL); "
+            "refusing to build a path from it.",
+        )
+    if refused:
+        return None
+    return sorted(raw)
+
+
+def _is_path_component(name: object) -> bool:
+    """True when `name` is exactly one path component, safe to join under SKILLS_DIR."""
+    return (
+        isinstance(name, str)
+        and name not in ("", ".", "..")
+        and not any(ch in name for ch in ("/", "\\", "\x00"))
+    )
 
 
 def _load_canonical(root: Path) -> str:

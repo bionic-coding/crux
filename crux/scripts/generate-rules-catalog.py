@@ -46,13 +46,27 @@ stdout), 2 environment or input error (stderr, no stdout payload). An eligibilit
 DOCUMENT-lane finding and so takes exit 1 with `validation_errors` on stdout: its remedy is to
 accept the decision or drop the citation, never to re-run this script, and exit 2 would be read by
 every CI classifier as "the gate did not execute".
+
+INPUT LANES. The surface-absent lane needs a CONFIRMED-absent adrs directory: one whose presence
+cannot be determined takes the environment lane, with or without --require-surface. Before the
+authority proof or the build reads an input, the input census
+(`summaries_projection.input_census`, driver `generate-rules-catalog`) examines the declared inputs
+once. When the census meets anything, the citing-surface scan still runs, and one run reports both:
+any environment failure gives exit 2 with stdout empty and stderr naming every census finding and
+every blocking scan row; otherwise the census findings, as `{path, reason}` rows, and the blocking
+scan rows share one `validation_errors` list at exit 1. The scan lists each directory itself: a
+directory it cannot list is an environment failure, and a listed text-suffix entry it cannot read for
+a cause attributable to its path is a blocking row. The read of the existing catalog follows the
+output-read rule: an absent catalog reads as empty.
 """
 
 from __future__ import annotations
 
 import argparse
 import bisect
+import errno
 import json
+import os
 import re
 import stat
 import sys
@@ -61,9 +75,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import authoring_scope as _scope  # noqa: E402
 
+import input_lanes  # noqa: E402
 import publication_eligibility as pe  # noqa: E402
 import summaries_projection as sp  # noqa: E402
 import implementation_migration as migration  # noqa: E402
+
+SCRIPT = "generate-rules-catalog"
 
 # The repository's one bound-and-redact helper, reached through the projection
 # exactly as the sibling citation lint reaches it. Every untrusted value this
@@ -114,8 +131,147 @@ def _guarded_citing_paths(directory: Path, plugin_root: Path, source_io):
                 yield path
 
 
+def _scan_failure(label: str, exc: BaseException) -> str:
+    """One environment-lane stderr line naming `label`, with no absolute path.
+
+    An OSError's own text carries the path it failed on, which is absolute; this
+    names the errno and its description instead, beside the plugin-relative label.
+    """
+    if isinstance(exc, OSError) and exc.errno is not None:
+        detail = f"{errno.errorcode.get(exc.errno, exc.errno)}: {exc.strerror or 'no detail'}"
+    else:
+        detail = redact(exc, quoted=False)
+    return f"{label}: {type(exc).__name__}: {detail}"
+
+
+def _listed_citing_paths(base: Path, plugin_root: Path,
+                         failures: list[str]) -> list[tuple[Path, OSError | None]]:
+    """The candidates beneath `base`, each with the lstat failure it met, or None.
+
+    The walk lists each directory itself and descends real directories only, as
+    `Path.rglob` does, pruning `EXCLUDED_PARTS`. A directory it cannot list is an
+    environment failure naming its `crux/` label: an unlisted directory would
+    otherwise hide every surface beneath it. A candidate is a listed entry whose
+    suffix is in `TEXT_SUFFIXES` and whose lstat shows a regular file or a symbolic
+    link. A FIFO, socket or device is skipped, as today. A listed entry whose lstat
+    fails for a cause attributable to its path is a candidate carrying that failure
+    when its suffix is a text suffix; any other lstat failure is an environment
+    failure, because the walk cannot tell whether it hides a directory.
+    """
+    candidates: list[tuple[Path, OSError | None]] = []
+    pending = [base]
+    while pending:
+        directory = pending.pop()
+        try:
+            names = input_lanes.list_directory(directory)
+        except OSError as exc:
+            failures.append(_scan_failure(f"crux/{directory.relative_to(plugin_root)}", exc))
+            continue
+        for name in names:
+            if name in EXCLUDED_PARTS:
+                continue
+            path = directory / name
+            try:
+                mode = os.lstat(path).st_mode
+            except OSError as exc:
+                if path.suffix in TEXT_SUFFIXES and input_lanes.is_path_attributable(exc):
+                    candidates.append((path, exc))
+                else:
+                    failures.append(_scan_failure(f"crux/{path.relative_to(plugin_root)}", exc))
+                continue
+            if stat.S_ISDIR(mode):
+                pending.append(path)
+            elif path.suffix in TEXT_SUFFIXES and (stat.S_ISREG(mode) or stat.S_ISLNK(mode)):
+                candidates.append((path, None))
+    return sorted(candidates, key=lambda entry: entry[0])
+
+
+def _read_listed_candidate(path: Path, lstat_error: OSError | None, plugin_real: Path,
+                           label: str, refusals: list[dict], failures: list[str]) -> str | None:
+    """The text of one listed candidate, or None after recording why it gave none.
+
+    The order is the approved one. A symbolic link is resolved first, without
+    requiring its target: a target outside the plugin root keeps the advisory row,
+    dangling or not. The candidate is then stat-ed with the link followed, BEFORE any
+    open: a regular file is read; a directory is a blocking EISDIR row; a FIFO, socket
+    or device is skipped unopened, so a link to a FIFO can never block the scan. A
+    failure attributable to the path is a blocking row whose reason is
+    `input_lanes.document_reason`, which carries no absolute path; any other failure
+    is an environment failure naming the label.
+    """
+    def classify(exc: BaseException) -> None:
+        if input_lanes.is_path_attributable(exc):
+            refusals.append({"path": label, "reason": input_lanes.document_reason(exc)})
+        else:
+            failures.append(_scan_failure(label, exc))
+
+    if lstat_error is not None:
+        classify(lstat_error)
+        return None
+    real = Path(os.path.realpath(path))
+    try:
+        real.relative_to(plugin_real)
+    except ValueError:
+        # Deliberately NOT a refusal that reds the gate: a symlink leaving the
+        # plugin root does not ship, so it is not a shipped surface and has no
+        # citations to hide. Recorded for visibility only.
+        refusals.append({"path": label, "reason": "resolves outside the plugin "
+                                                  "root; not a shipped surface",
+                         "advisory": True})
+        return None
+    try:
+        st = os.stat(path)
+    except OSError as exc:
+        classify(exc)
+        return None
+    if stat.S_ISDIR(st.st_mode):
+        classify(IsADirectoryError(errno.EISDIR, os.strerror(errno.EISDIR)))
+        return None
+    if not stat.S_ISREG(st.st_mode):
+        return None
+    if st.st_size > MAX_FILE_BYTES:
+        refusals.append({
+            "path": label,
+            "reason": f"larger than MAX_FILE_BYTES ({MAX_FILE_BYTES}); "
+                      "refused rather than read whole",
+        })
+        return None
+    try:
+        # O_NONBLOCK, and the kind checked again on the open descriptor: a path
+        # replaced by a FIFO after the stat still cannot block the scan.
+        fd = os.open(real, os.O_RDONLY | os.O_NONBLOCK)
+        with open(fd, encoding="utf-8") as handle:
+            if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+                failures.append(f"{label}: changed kind during the scan; not read")
+                return None
+            return handle.read()
+    except (OSError, UnicodeDecodeError) as exc:
+        classify(exc)
+    except MemoryError as exc:
+        failures.append(_scan_failure(label, exc))
+    return None
+
+
 def cited_slug_paths(
         plugin_root: Path, *, _source_io=None) -> tuple[dict[str, list[str]], list[dict]]:
+    """`(slug -> sorted `path:line` locations, refusals)` over the shipped surfaces.
+
+    Raises `input_lanes.EnvironmentLaneError` when the scan met an environment-lane
+    failure, such as a directory it could not list; the error's `findings` name every
+    blocking refusal row the same scan met. `_cited_slug_scan` returns the failures
+    instead, for a caller that reports them beside other findings.
+    """
+    found, refusals, failures = _cited_slug_scan(plugin_root, _source_io=_source_io)
+    if failures:
+        raise input_lanes.EnvironmentLaneError(failures, [
+            {"file": row["path"], "error": row["reason"]}
+            for row in refusals if not row.get("advisory")])
+    return found, refusals
+
+
+def _cited_slug_scan(
+        plugin_root: Path, *, _source_io=None
+) -> tuple[dict[str, list[str]], list[dict], list[str]]:
     """`(slug -> sorted `path:line` locations, refusals)` over the shipped surfaces.
 
     The CITING PATH is what makes a refusal actionable: a finding naming only the slug
@@ -136,18 +292,39 @@ def cited_slug_paths(
     The corpus, the roots and the exclusions are unchanged: a richer return and a
     refusal list, not a wider scan. Two readers of "what is shipped" giving two answers
     is a defect this repository has already paid to fix once.
+
+    A SCAN THAT CANNOT LIST IS AN ENVIRONMENT FAILURE. `Path.rglob` returns nothing for
+    a directory it cannot list, with no error, so an unlistable directory used to hide
+    every surface beneath it. Without `_source_io` the scan lists each directory itself
+    (`_listed_citing_paths`) and returns, as its third item, one stderr line per
+    environment-lane failure: an unlistable directory, or a read that failed for a cause
+    outside the path-attributable list. A listed candidate whose read failed for a cause
+    attributable to its path, including a dangling link inside the plugin root, is a
+    blocking refusal row whose reason carries no absolute path. The seamed branch
+    (`_source_io`) is unchanged and returns no failures.
     """
     found: dict[str, list[str]] = {}
     refusals: list[dict] = []
+    failures: list[str] = []
     scanned = 0
+    plugin_real = plugin_root.resolve() if _source_io is None else None
     for root in SCAN_ROOTS:
         base = plugin_root / root
-        if not sp._source_is_dir(base, _source_io):
-            continue
-        paths = (base.rglob("*") if _source_io is None else
-                 _guarded_citing_paths(base, plugin_root, _source_io))
-        for path in sorted(paths):
-            if not sp._source_is_file(path, _source_io):
+        if _source_io is None:
+            try:
+                if not input_lanes.directory_exists(base):
+                    continue
+            except OSError as exc:
+                failures.append(_scan_failure(f"crux/{root}", exc))
+                continue
+            entries = _listed_citing_paths(base, plugin_root, failures)
+        else:
+            if not sp._source_is_dir(base, _source_io):
+                continue
+            entries = [(path, None) for path in
+                       sorted(_guarded_citing_paths(base, plugin_root, _source_io))]
+        for path, lstat_error in entries:
+            if _source_io is not None and not sp._source_is_file(path, _source_io):
                 continue
             rel = path.relative_to(plugin_root)
             if any(part in EXCLUDED_PARTS for part in rel.parts):
@@ -171,47 +348,49 @@ def cited_slug_paths(
                 })
                 break
             scanned += 1
-            # Containment and size refusals, matching the sibling citation lint rather
-            # than diverging from it: a symlink out of the plugin root is not a shipped
-            # surface, and an oversized file is refused rather than read whole. Each is
-            # now RECORDED rather than skipped.
-            try:
-                real = (path.resolve(strict=True) if _source_io is None else
-                        _source_io.resolve(path))
-            except OSError as exc:
-                refusals.append({"path": label,
-                                 "reason": f"cannot resolve: {redact(exc, quoted=False)}"})
-                continue
-            plugin_real = sp._source_resolve(plugin_root, _source_io)
-            try:
-                real.relative_to(plugin_real)
-            except ValueError:
-                # Deliberately NOT a refusal that reds the gate: a symlink leaving the
-                # plugin root does not ship, so it is not a shipped surface and has no
-                # citations to hide. Recorded for visibility only.
-                refusals.append({"path": label, "reason": "resolves outside the plugin "
-                                                          "root; not a shipped surface",
-                                 "advisory": True})
-                continue
-            try:
-                size = (real.stat().st_size if _source_io is None else
-                        _source_io.metadata(real)["st_size"])
-                if size > MAX_FILE_BYTES:
+            if _source_io is None:
+                # Containment, kind and size, in the approved order; see
+                # `_read_listed_candidate`.
+                text = _read_listed_candidate(path, lstat_error, plugin_real, label,
+                                              refusals, failures)
+                if text is None:
+                    continue
+            else:
+                # Containment and size refusals, matching the sibling citation lint
+                # rather than diverging from it: a symlink out of the plugin root is not
+                # a shipped surface, and an oversized file is refused rather than read
+                # whole. Each is now RECORDED rather than skipped.
+                try:
+                    real = _source_io.resolve(path)
+                except OSError as exc:
+                    refusals.append({"path": label,
+                                     "reason": f"cannot resolve: {redact(exc, quoted=False)}"})
+                    continue
+                plugin_real = sp._source_resolve(plugin_root, _source_io)
+                try:
+                    real.relative_to(plugin_real)
+                except ValueError:
+                    refusals.append({"path": label, "reason": "resolves outside the plugin "
+                                                              "root; not a shipped surface",
+                                     "advisory": True})
+                    continue
+                try:
+                    size = _source_io.metadata(real)["st_size"]
+                    if size > MAX_FILE_BYTES:
+                        refusals.append({
+                            "path": label,
+                            "reason": f"larger than MAX_FILE_BYTES ({MAX_FILE_BYTES}); "
+                                      "refused rather than read whole",
+                        })
+                        continue
+                    text = _source_io.read_text(real, max_bytes=MAX_FILE_BYTES)
+                except (OSError, UnicodeDecodeError) as exc:
                     refusals.append({
                         "path": label,
-                        "reason": f"larger than MAX_FILE_BYTES ({MAX_FILE_BYTES}); "
-                                  "refused rather than read whole",
+                        "reason": f"unreadable as UTF-8 text: {type(exc).__name__}: "
+                                  f"{redact(exc, quoted=False)}",
                     })
                     continue
-                text = (real.read_text(encoding="utf-8") if _source_io is None else
-                        _source_io.read_text(real, max_bytes=MAX_FILE_BYTES))
-            except (OSError, UnicodeDecodeError) as exc:
-                refusals.append({
-                    "path": label,
-                    "reason": f"unreadable as UTF-8 text: {type(exc).__name__}: "
-                              f"{redact(exc, quoted=False)}",
-                })
-                continue
             # Newline offsets computed ONCE per file, then bisected. The obvious
             # `text.count("\n", 0, m.start())` per match rescans the buffer from zero
             # every time, which is quadratic: measured at 1.37s / 5.43s / 21.96s for
@@ -228,7 +407,7 @@ def cited_slug_paths(
         else:
             continue
         break
-    return ({slug: sorted(set(locs)) for slug, locs in found.items()}, refusals)
+    return ({slug: sorted(set(locs)) for slug, locs in found.items()}, refusals, failures)
 
 
 def _load_catalog_inputs(repo_root: Path, plugin_root: Path, *, _prepared=None) -> tuple[dict, dict]:
@@ -413,6 +592,90 @@ def render(catalog: dict) -> str:
     return json.dumps(shipped, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
 
 
+def _print_rows(rows: list[dict], repo_root: Path, target: Path) -> int:
+    """Report document-lane rows in the catalog's row shape and return 1."""
+    print(json.dumps({"validation_errors": rows, "path": str(target.relative_to(repo_root)),
+                      "written": None}, sort_keys=True))
+    print(f"generate-rules-catalog: {len(rows)} input(s) could not be read for a cause "
+          "attributable to the path; nothing was written. Each row's `reason` names the "
+          "repair.", file=sys.stderr)
+    return 1
+
+
+def _census_and_scan_exit(census, repo_root: Path, plugin_root: Path, target: Path) -> int:
+    """Report what the census met beside what the citing-surface scan meets, in one run.
+
+    Any environment failure from either gives exit 2 with stdout empty, and stderr names
+    every census finding and every blocking scan row. Otherwise the census findings,
+    rendered as `{path, reason}` with the path relative to the repository, and the
+    blocking scan rows share one `validation_errors` list at exit 1.
+    """
+    _, refusals, failures = _cited_slug_scan(plugin_root)
+    blocking = [row for row in refusals if not row.get("advisory")]
+    if census.failures or failures:
+        return input_lanes.emit_environment_failure(input_lanes.EnvironmentLaneError(
+            census.failures + failures,
+            census.findings + [{"file": row["path"], "error": row["reason"]} for row in blocking]),
+            SCRIPT, sys.stderr)
+    rows = [{"path": f["file"], "reason": f["error"]} for f in census.findings] + blocking
+    return _print_rows(rows, repo_root, target)
+
+
+def _read_current_catalog(target: Path) -> str | None:
+    """The existing catalog's text, under the output-read rule.
+
+    A confirmed-absent catalog reads as None. A failure attributable to the path is an
+    `InputLaneRefusal` naming the catalog with `input_lanes.output_reason`; any other
+    failure, and a FIFO, socket or device at the path, which is never opened, is an
+    environment-lane failure naming it.
+    """
+    label = "crux/catalog/rules.json"
+    try:
+        st = input_lanes.path_state(target)
+        if st is None:
+            return None
+        if stat.S_ISDIR(st.st_mode):
+            raise IsADirectoryError(errno.EISDIR, os.strerror(errno.EISDIR), str(target))
+        if not stat.S_ISREG(st.st_mode):
+            raise OSError(f"is a {input_lanes.file_kind(st.st_mode)}, not a regular file; "
+                          "not opened")
+        return target.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        if input_lanes.is_path_attributable(exc):
+            raise sp.InputLaneRefusal([{"file": label,
+                                        "error": input_lanes.output_reason(exc)}]) from None
+        raise input_lanes.EnvironmentLaneError([_scan_failure(label, exc)]) from None
+    except MemoryError as exc:
+        raise input_lanes.EnvironmentLaneError([_scan_failure(label, exc)]) from None
+
+
+def _refusal_exit(repo_root: Path, target: Path, exc: Exception) -> int:
+    """Report an exception from the read phase in its lane and return the exit code.
+
+    An OSError naming a path beneath the documentation tree, raised after a clean
+    census, goes through the census's classifier first, so a late path-attributable
+    failure is a row naming the input rather than an unclassified crash. A dangling
+    link at an optional file takes the environment lane. Every other exception keeps
+    its present report.
+    """
+    if isinstance(exc, OSError):
+        exc = sp.late_input_failure(repo_root, exc) or exc
+    if isinstance(exc, input_lanes.DanglingOptionalLinkError):
+        exc = input_lanes.EnvironmentLaneError([str(exc)])
+    if isinstance(exc, input_lanes.EnvironmentLaneError):
+        return input_lanes.emit_environment_failure(exc, SCRIPT, sys.stderr)
+    if isinstance(exc, sp.InputLaneRefusal):
+        return _print_rows([{"path": f["file"], "reason": f["error"]} for f in exc.problems],
+                           repo_root, target)
+    if isinstance(exc, (migration.Refused, sp.GovernsValidationError)):
+        problems = (exc.problems if isinstance(exc, sp.GovernsValidationError)
+                    else [{"problem": redact(exc, quoted=False)}])
+        print(json.dumps({"validation_errors": problems, "written": None}, sort_keys=True))
+        return 1
+    print(f"generate-rules-catalog: {type(exc).__name__}: {exc}", file=sys.stderr)
+    return 2
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--repo-root", default=".")
@@ -463,7 +726,23 @@ def main(argv: list[str] | None = None) -> int:
         print(f"generate-rules-catalog: cannot resolve the documentation tree: "
               f"{type(exc).__name__}: {exc}", file=sys.stderr)
         return 2
-    if docs is None or not (docs / "adrs").is_dir():
+    # THE TREE PROBE DECIDES BY THE OPERATING SYSTEM'S ANSWER. `is_dir()` answered False
+    # for an adrs directory the process could not stat, which read an unsearchable tree
+    # as an absent one and reported surface-absent: a green from a gate that examined
+    # nothing. Only a confirmed absence (ENOENT or ENOTDIR) takes the surface-absent
+    # lane; an adrs path whose presence cannot be determined, or a regular file at it,
+    # takes the environment lane, with or without --require-surface.
+    adrs_present = False
+    if docs is not None:
+        try:
+            adrs_present = input_lanes.directory_exists(docs / "adrs")
+        except OSError as exc:
+            label = os.path.relpath(docs / "adrs", repo_root)
+            return input_lanes.emit_environment_failure(input_lanes.EnvironmentLaneError(
+                [_scan_failure(label, exc) + "; the documentation tree is present but its "
+                 "adrs directory cannot be examined, so this is not an absent surface"]),
+                SCRIPT, sys.stderr)
+    if not adrs_present:
         if args.require_surface:
             return _require_surface_refusal(
                 "no documentation tree is present here, so no source record's status "
@@ -473,16 +752,17 @@ def main(argv: list[str] | None = None) -> int:
             reason="the rules catalog is projected from this tree's own governs blocks, "
                    "and no documentation tree is present here")
 
+    # The input census runs first: it examines the declared inputs once, before the
+    # authority proof or the build reads one. When it meets anything, the scan still
+    # runs, so one run names every census finding and every blocking scan row.
     try:
+        census = sp.input_census(repo_root, driver=SCRIPT)
+        if census.findings or census.failures:
+            return _census_and_scan_exit(census, repo_root, plugin_root, target)
         catalog = build_catalog(repo_root, plugin_root)
         payload = render(catalog)
-    except (migration.Refused, sp.GovernsValidationError) as exc:
-        problems = exc.problems if isinstance(exc, sp.GovernsValidationError) else [{"problem": redact(exc, quoted=False)}]
-        print(json.dumps({"validation_errors": problems, "written": None}, sort_keys=True))
-        return 1
-    except Exception as exc:  # noqa: BLE001 — environment/input failures are the exit-2 lane
-        print(f"generate-rules-catalog: {type(exc).__name__}: {exc}", file=sys.stderr)
-        return 2
+    except Exception as exc:  # noqa: BLE001 — each lane is decided in _refusal_exit
+        return _refusal_exit(repo_root, target, exc)
 
     if catalog["unresolved"]:
         print(
@@ -546,7 +826,10 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    current = target.read_text(encoding="utf-8") if target.is_file() else None
+    try:
+        current = _read_current_catalog(target)
+    except Exception as exc:  # noqa: BLE001 — each lane is decided in _refusal_exit
+        return _refusal_exit(repo_root, target, exc)
 
     if args.dry_run:
         drift = current != payload

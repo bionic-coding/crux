@@ -69,7 +69,7 @@ and `_admit` (a copy of `swift_xcode._admit`). The work bound
 
 from __future__ import annotations
 
-from ..core import _cell
+from ..core import _LANE_RAISES, _cell
 from . import swift_pbxproj, swift_prune
 from .swift_xcinputs import (UNRESOLVED_DIR, ResidualSink, WorkBoundExceeded, charge, charge_excluded,
                              contained, has_symlink_component, l2_units, listed_names, never_resolved)
@@ -734,6 +734,12 @@ def resolve_product_dependencies(root, projects, manifests, workspace_facts=None
             dependencies.extend(p_dependencies)
             residuals.extend(p_residuals)
             break
+        except MemoryError as exc:
+            # ADR-0181 point 3: under a derive, the environment failure
+            # naming this project file; never `malformed`.
+            swift_prune.per_file_lane(root / p.pbxproj_rel, exc)
+        except _LANE_RAISES:
+            raise
         except Exception:
             # ADR-0130 clause 2, last bullet: the per-project
             # boundary in `swift_xcode.py::read_projects` covers the first

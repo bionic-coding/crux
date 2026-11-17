@@ -87,7 +87,26 @@ residuals:                     # a list of residual bullets every one of
                                           # body (class/path/kind, ignoring any
                                           # line-range clause) -- `find_residual`
                                           # alone only proves at-least-one.
+
+omissions:                     # a list of Omissions-section lines every one
+                                # of which must appear. `path`, `reason` and
+                                # `kind` are each required; an entry is met by
+                                # a rendered line EQUAL to what
+                                # `crux/arch/core.py::omission_line` renders
+                                # for {path, reason, kind} -- no wildcard
+                                # reason or kind, no substring match.
+  - path: App.xcodeproj/project.pbxproj
+    reason: unparseable
+    kind: malformed
+  - path: project.yml                  # `count:` (optional): when given,
+    reason: absent                      # asserts the EXACT number of equal
+    kind: missing-input                 # lines across every rendered concern
+    count: 1                            # body; otherwise at least one.
 ```
+
+A whole input the derive does not describe (an oversize, absent, unreadable
+or unparseable file) renders once per concern as an Omissions line, not as a
+residual bullet, so a fixture names it under `omissions:`, never `residuals:`.
 
 Every fixture directory holds `expected.yml` beside its source tree (a
 `.bionic.yml`, a `bionic/manifest.yml`, and whatever project/package inputs
@@ -222,6 +241,62 @@ def count_matching_residuals(rendered: dict, expected: dict) -> int:
 
 class FixtureCaseError(AssertionError):
     """Raised when a fixture case's result does not match `expected.yml`."""
+
+
+#: The keys every `omissions:` entry must carry, and the one it may add.
+_OMISSION_REQUIRED = ("path", "reason", "kind")
+_OMISSION_KEYS = _OMISSION_REQUIRED + ("count",)
+
+
+def expected_omission_line(entry: dict) -> str:
+    """The exact line `core.omission_line` renders for an `omissions:` entry.
+
+    The derive's own template is called, so the fixture grammar cannot drift
+    from the rendered grammar. `crux.arch.core` imports only the standard
+    library."""
+    if str(SCRIPTS) not in sys.path:
+        sys.path.insert(0, str(SCRIPTS))
+    from crux.arch import core
+    return core.omission_line({k: entry[k] for k in _OMISSION_REQUIRED})
+
+
+def count_omission_lines(rendered: dict, entry: dict) -> int:
+    """How many lines across every rendered concern body equal the omission
+    line `entry` names."""
+    want = expected_omission_line(entry)
+    return sum(1 for body in rendered.values()
+               for line in body.split("\n") if line == want)
+
+
+def check_omissions(name: str, rendered: dict, entries) -> None:
+    """`omissions:` -- each entry is met by a rendered line equal to
+    `expected_omission_line(entry)`: at least one, or exactly `count` across
+    every rendered concern body when `count` is given. Raises
+    `FixtureCaseError` naming the fixture and the entry otherwise."""
+    for entry in entries or []:
+        if not isinstance(entry, dict):
+            raise FixtureCaseError(f"{name}: omissions entry {entry!r} is not a mapping")
+        missing = [k for k in _OMISSION_REQUIRED if not isinstance(entry.get(k), str) or not entry.get(k)]
+        unknown = sorted(set(entry) - set(_OMISSION_KEYS))
+        if missing or unknown:
+            raise FixtureCaseError(
+                f"{name}: omissions entry {entry!r} needs path, reason and kind "
+                f"(missing {missing!r}, unknown {unknown!r})")
+        want_count = entry.get("count")
+        if want_count is not None and (not isinstance(want_count, int) or isinstance(want_count, bool)
+                                       or want_count < 1):
+            raise FixtureCaseError(
+                f"{name}: omissions entry {entry!r} has a count that is not a positive integer")
+        got = count_omission_lines(rendered, entry)
+        if want_count is not None:
+            if got != want_count:
+                raise FixtureCaseError(
+                    f"{name}: expected {want_count} omission lines matching {entry!r}, "
+                    f"found {got} equal to {expected_omission_line(entry)!r}")
+        elif got == 0:
+            raise FixtureCaseError(
+                f"{name}: no omission line matches {entry!r}; expected a line equal to "
+                f"{expected_omission_line(entry)!r}")
 
 
 def load_expected(fixture_dir: Path) -> dict:
@@ -775,6 +850,7 @@ def run_case(fixture_dir: Path, *, timeout: int = 30) -> dict:
                     f"{fixture_dir.name}: no residual bullet matches "
                     f"{residual!r} against the exact swift.py residual "
                     f"grammar")
+        check_omissions(fixture_dir.name, rendered, expected.get("omissions"))
 
         # Byte-identical second derive, and no temporary path leaked into
         # the spine.

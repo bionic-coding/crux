@@ -761,6 +761,25 @@ class SkillMemberLaneTests(InputLaneCase):
         rel = "crux/skills/beta/SKILL.md"
         self.assert_environment_lane(f"{rel}: OSError: ", patch=self.eio_on(rel))
 
+    def test_a_directory_at_a_catalogued_skill_md_is_a_finding(self):
+        """A3: a directory where a catalogued member's SKILL.md belongs is refused."""
+        self.control()
+        path = self.skills / "beta" / "SKILL.md"
+        path.unlink()
+        path.mkdir()
+        alpha_before = (self.skills / "alpha" / "SKILL.md").read_bytes()
+        self.assert_document_lane([("crux/skills/beta/SKILL.md", "could not be read (EISDIR")])
+        self.assertTrue(path.is_dir(), "a refusal replaced the directory")
+        self.assertEqual((self.skills / "alpha" / "SKILL.md").read_bytes(), alpha_before)
+
+    def test_positive_control_a_regular_skill_md_lets_the_write_run(self):
+        """Positive control for A3: the same fixture with a file there writes alpha."""
+        self.control()
+        self.assertTrue((self.skills / "beta" / "SKILL.md").is_file())
+        rc, out, err = self.main()
+        self.assertEqual(rc, 0, out + err)
+        self.assertNotIn("stale\n", self._read(self.root, "alpha"))
+
     def test_two_simultaneous_findings_are_named_in_one_payload(self):
         self.control()
         (self.skills / "beta" / "SKILL.md").write_bytes(b"\xff not utf-8\n")
@@ -769,6 +788,70 @@ class SkillMemberLaneTests(InputLaneCase):
             (gen.CANONICAL_FILE, "is a required input and is absent"),
             ("crux/skills/beta/SKILL.md", "is not valid UTF-8"),
         ])
+
+
+class CatalogNameTests(InputLaneCase):
+    """A4: a catalogued name that is not one path component is refused before any path.
+
+    `crux/outside/SKILL.md` carries a drifted marker pair, so a name that escaped
+    the skills directory to it would be read and rewritten.
+    """
+
+    BAD_NAMES = ("../outside", "..", ".", "", "a\x00b", "a/b", "a\\b", 5)
+    OUTSIDE = "crux/outside/SKILL.md"
+
+    def setUp(self) -> None:
+        super().setUp()
+        outside = self.root / self.OUTSIDE
+        outside.parent.mkdir(parents=True)
+        outside.write_text(_skill_md("stale outside\n"), encoding="utf-8")
+        self.catalog = self.root / gen.CATALOG_FILE
+
+    def _write_catalog(self, names: list[object]) -> None:
+        self.catalog.write_text(json.dumps([{"name": n} for n in names]), encoding="utf-8")
+
+    def test_positive_control_only_valid_names_rewrite_a_marked_member(self):
+        self._write_catalog(["alpha", "beta"])
+        self.control()
+        outside_before = (self.root / self.OUTSIDE).read_bytes()
+        rc, out, err = self.main()
+        self.assertEqual(rc, 0, out + err)
+        self.assertNotIn("stale\n", self._read(self.root, "alpha"))
+        self.assertEqual((self.root / self.OUTSIDE).read_bytes(), outside_before)
+
+    def test_each_name_that_is_not_one_path_component_is_refused(self):
+        outside_before = (self.root / self.OUTSIDE).read_bytes()
+        for bad in self.BAD_NAMES:
+            with self.subTest(name=repr(bad)):
+                self._write_catalog(["alpha", "beta"])
+                self.control()
+                self._write_catalog(["alpha", "beta", bad])
+                entries = self.assert_document_lane(
+                    [(gen.CATALOG_FILE, "record 2 ")])
+                if isinstance(bad, str) and bad not in ("", "."):
+                    self.assertNotIn(bad, entries[0]["error"], "the raw name was echoed")
+                self.assertNotIn("\x00", entries[0]["error"])
+                self.assertEqual((self.root / self.OUTSIDE).read_bytes(), outside_before)
+
+    def test_every_refused_record_is_its_own_finding(self):
+        self._write_catalog(["..", "alpha", "../outside", "beta"])
+        entries = self.assert_document_lane(
+            [(gen.CATALOG_FILE, "record 0 "), (gen.CATALOG_FILE, "record 2 ")])
+        self.assertEqual(len(entries), 2)
+
+    def test_the_refusal_reaches_the_command_line_without_a_traceback(self):
+        self._write_catalog(["alpha", "beta", "../outside"])
+        outside_before = (self.root / self.OUTSIDE).read_bytes()
+        for _mode, args in MODES:
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), *args, "--repo-root", str(self.root)],
+                capture_output=True, text=True, check=False)
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertNotIn("Traceback", result.stderr)
+            entries = json.loads(result.stdout)["validation_errors"]
+            self.assertEqual([e["file"] for e in entries], [gen.CATALOG_FILE])
+            self.assertIn("record 2 ", entries[0]["error"])
+        self.assertEqual((self.root / self.OUTSIDE).read_bytes(), outside_before)
 
 
 class DependentCheckTests(InputLaneCase):

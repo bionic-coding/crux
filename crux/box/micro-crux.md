@@ -1127,7 +1127,7 @@ Then rerun the append step alone. It writes the entry once, and a further rerun 
 **The commit step.** Run it after every append, whatever the status, because a refused append can still have repaired the log:
 
 1. When `restore_paths` is not empty, run `git restore --staged --quiet -- <restore_paths>`. It resets each path's index entry to HEAD and changes no work-tree file.
-2. Combine the skill's own paths with `commit_paths`. The skill's own paths are those its own rule commits; a skill that commits nothing of its own, and any skill after a refused append, adds none. When the combined list is not empty, run `git add -- <paths>` and then `git commit --only -- <paths>`. When it is empty, the step ends after the restore.
+2. Combine the skill's own paths with `commit_paths`. The skill's own paths are those its own rule commits; a skill that commits nothing of its own, and any skill after a refused append, adds none. When the combined list is not empty, drop every path that `git check-ignore -- <paths>` prints. Git ignores each such path, so the step never commits it. `git check-ignore` exits 1 when it prints no path, which is not an error. When paths remain, run `git add -- <paths>` and then `git commit --only -- <paths>`; otherwise the step ends after the restore. Report each dropped path and that its commit was skipped.
 
 Known limit: the commit step commits every log path that `git status` lists. That includes a file that `operation-log.py check` reports as undefined and a half-finished hand edit of a detail file, as the whole-file commit of `docs/log.md` did.
 
@@ -1540,8 +1540,8 @@ Cross-field and lifecycle requirements in the guide apply in addition to schemas
 
 ### Crux single-undertaking cycle
 
-Source: `crux/schemas/cycle.schema.json`  
-Source SHA-256: `ad409e38a518a7da02a174549056aedfd359fa79479102f8d0182164f50612ab`
+Source: `crux/schemas/cycle.schema.json`<br>
+Source SHA-256: `2df6151e4e99497eee22c2c0e0672048650e1d72172dc3768d0ca15e6a801711`
 
 <!-- BEGIN EXAMPLE: cycle.schema.json -->
 ```json
@@ -1577,6 +1577,80 @@ Source SHA-256: `ad409e38a518a7da02a174549056aedfd359fa79479102f8d0182164f50612a
     "release"
   ],
   "properties": {
+    "testing_policy": {
+      "enum": [
+        "proportionate"
+      ]
+    },
+    "local_checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "at",
+          "check_id",
+          "pass",
+          "command",
+          "tested_revision",
+          "result",
+          "summary",
+          "reason",
+          "use"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^LC-[0-9a-f]{32}$"
+          },
+          "at": {
+            "type": "string",
+            "minLength": 1
+          },
+          "check_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "pass": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "command": {
+            "type": "string",
+            "minLength": 1
+          },
+          "tested_revision": {
+            "type": "string",
+            "minLength": 1
+          },
+          "result": {
+            "enum": [
+              "passed",
+              "failed"
+            ]
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          },
+          "use": {
+            "enum": [
+              "executed",
+              "reused"
+            ]
+          },
+          "reused_from": {
+            "type": "string",
+            "pattern": "^LC-[0-9a-f]{32}$"
+          }
+        }
+      }
+    },
     "schema_version": {
       "enum": [
         1,
@@ -1728,6 +1802,54 @@ Source SHA-256: `ad409e38a518a7da02a174549056aedfd359fa79479102f8d0182164f50612a
           "items": {
             "type": "string",
             "minLength": 1
+          }
+        },
+        "stale_verification": {
+          "type": "array",
+          "description": "Optional. One record per applied acceptance change that flagged a verification entry or added a criterion. Only the acceptance-change writer adds a record; the plan command keeps or clears the field. Absence means nothing to reconcile.",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "capture",
+              "entries",
+              "added"
+            ],
+            "properties": {
+              "capture": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "path",
+                  "sha256"
+                ],
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "sha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  }
+                }
+              },
+              "entries": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "added": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
           }
         },
         "tasks": {
@@ -1991,11 +2113,11 @@ Source SHA-256: `ad409e38a518a7da02a174549056aedfd359fa79479102f8d0182164f50612a
                   },
                   "before": {
                     "type": "string",
-                    "pattern": "^TE-[0-9a-f]{32}$"
+                    "pattern": "^(TE|LC)-[0-9a-f]{32}$"
                   },
                   "after": {
                     "type": "string",
-                    "pattern": "^TE-[0-9a-f]{32}$"
+                    "pattern": "^(TE|LC)-[0-9a-f]{32}$"
                   },
                   "review": {
                     "type": "object",
@@ -3559,9 +3681,611 @@ Source SHA-256: `ad409e38a518a7da02a174549056aedfd359fa79479102f8d0182164f50612a
 ```
 <!-- END EXAMPLE: cycle.schema.json -->
 
+### Opt-in smaller-cycle pilot
+
+Source: `crux/schemas/cycle-pilot.schema.json`<br>
+Source SHA-256: `9f95651c621c23823022548508086a5feaf79678b367a5b7217344535b655248`
+
+<!-- BEGIN EXAMPLE: cycle-pilot.schema.json -->
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Opt-in smaller-cycle pilot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "id",
+    "revision",
+    "state",
+    "title",
+    "lead",
+    "base_commit",
+    "created_at",
+    "updated_at",
+    "plan",
+    "tasks",
+    "checks",
+    "councils",
+    "review",
+    "delivery",
+    "blockers",
+    "history",
+    "completion"
+  ],
+  "properties": {
+    "format": {
+      "const": "crux.cycle.vNext"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^(?:[A-Z][A-Z0-9]{1,9}-)?CYC-[0-9]{4,}$"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "state": {
+      "enum": [
+        "planning",
+        "working",
+        "reviewing",
+        "reviewed",
+        "completed",
+        "paused",
+        "abandoned"
+      ]
+    },
+    "resume_state": {
+      "enum": [
+        "planning",
+        "working",
+        "reviewing",
+        "reviewed"
+      ]
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "lead": {
+      "type": "string",
+      "minLength": 1
+    },
+    "base_commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40,64}$"
+    },
+    "created_at": {
+      "type": "string",
+      "minLength": 1
+    },
+    "updated_at": {
+      "type": "string",
+      "minLength": 1
+    },
+    "plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "revision",
+        "goal",
+        "scope",
+        "acceptance",
+        "verification",
+        "council"
+      ],
+      "properties": {
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "goal": {
+          "type": "string",
+          "minLength": 1
+        },
+        "scope": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "acceptance": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "verification": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "checks",
+            "gaps"
+          ],
+          "properties": {
+            "checks": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "rationale"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "rationale": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            },
+            "gaps": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "council": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "needed",
+            "reason"
+          ],
+          "properties": {
+            "needed": {
+              "type": "boolean"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1
+            },
+            "approach": {
+              "type": "string",
+              "minLength": 1
+            },
+            "questions": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    "tasks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "description",
+          "owner",
+          "run",
+          "status",
+          "kind",
+          "depends_on",
+          "council",
+          "checkout",
+          "summary",
+          "attempts"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          },
+          "owner": {
+            "type": "string",
+            "minLength": 1
+          },
+          "run": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "working",
+              "blocked",
+              "done"
+            ]
+          },
+          "kind": {
+            "enum": [
+              "implementation",
+              "review"
+            ]
+          },
+          "depends_on": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "council": {
+            "type": "boolean"
+          },
+          "checkout": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "summary": {
+            "type": "string"
+          },
+          "attempts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "run",
+                "owner",
+                "checkout",
+                "started_at",
+                "ended_at",
+                "outcome",
+                "summary"
+              ],
+              "properties": {
+                "run": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "owner": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "checkout": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "started_at": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "ended_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "outcome": {
+                  "enum": [
+                    null,
+                    "done",
+                    "blocked",
+                    "interrupted"
+                  ]
+                },
+                "summary": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "at",
+          "check_id",
+          "plan_revision",
+          "command",
+          "tested_revision",
+          "result",
+          "summary",
+          "reason",
+          "use"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^LC-[0-9a-f]{32}$"
+          },
+          "at": {
+            "type": "string",
+            "minLength": 1
+          },
+          "check_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "plan_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "command": {
+            "type": "string",
+            "minLength": 1
+          },
+          "tested_revision": {
+            "type": "string",
+            "minLength": 1
+          },
+          "result": {
+            "enum": [
+              "passed",
+              "failed"
+            ]
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          },
+          "use": {
+            "enum": [
+              "executed",
+              "reused"
+            ]
+          },
+          "reused_from": {
+            "type": "string",
+            "pattern": "^LC-[0-9a-f]{32}$"
+          }
+        }
+      }
+    },
+    "councils": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "plan_revision",
+          "subject",
+          "record",
+          "outcome",
+          "response",
+          "at"
+        ],
+        "properties": {
+          "plan_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "subject": {
+            "type": "string",
+            "minLength": 1
+          },
+          "record": {
+            "type": "string",
+            "minLength": 1
+          },
+          "outcome": {
+            "enum": [
+              "approved"
+            ]
+          },
+          "response": {
+            "type": "string",
+            "minLength": 1
+          },
+          "at": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "review": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "follows": {
+      "type": "string",
+      "pattern": "^(?:[A-Z][A-Z0-9]{1,9}-)?CYC-[0-9]{4,}$"
+    },
+    "review_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reviewer",
+        "plan_revision",
+        "head_commit",
+        "at"
+      ],
+      "properties": {
+        "reviewer": {
+          "type": "string",
+          "minLength": 1
+        },
+        "plan_revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "head_commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40,64}$"
+        },
+        "at": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "queue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "item",
+        "token"
+      ],
+      "properties": {
+        "item": {
+          "type": "string",
+          "pattern": "^Q-[0-9]{4,}$"
+        },
+        "token": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "origin": {
+          "enum": [
+            "start",
+            "reconcile"
+          ]
+        },
+        "started_at": {
+          "type": "string",
+          "minLength": 1
+        },
+        "item_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "review_head": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40,64}$"
+        },
+        "assessment": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "outcome",
+            "acceptance"
+          ],
+          "properties": {
+            "outcome": {
+              "type": "string",
+              "minLength": 1
+            },
+            "acceptance": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "criterion",
+                  "evidence"
+                ],
+                "properties": {
+                  "criterion": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "evidence": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        "reconciled_at": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "delivery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pr",
+        "ci",
+        "merge",
+        "commit"
+      ],
+      "properties": {
+        "pr": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ci": {
+          "enum": [
+            "unknown",
+            "pending",
+            "passed",
+            "failed"
+          ]
+        },
+        "merge": {
+          "enum": [
+            "unmerged",
+            "merged"
+          ]
+        },
+        "commit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "published": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "blockers": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "history": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "completion": {
+      "type": [
+        "object",
+        "null"
+      ]
+    }
+  }
+}
+```
+<!-- END EXAMPLE: cycle-pilot.schema.json -->
+
 ### Crux persistent cycle queue
 
-Source: `crux/schemas/cycle-queue.schema.json`  
+Source: `crux/schemas/cycle-queue.schema.json`<br>
 Source SHA-256: `4bf616bedf1cd3b58071cbb8b3ca55f7de2ae774c2a67d6c029fdd8de3cb35eb`
 
 <!-- BEGIN EXAMPLE: cycle-queue.schema.json -->
@@ -3846,7 +4570,7 @@ Source SHA-256: `4bf616bedf1cd3b58071cbb8b3ca55f7de2ae774c2a67d6c029fdd8de3cb35e
 
 ### Repository test execution evidence
 
-Source: `crux/schemas/test-evidence.schema.json`  
+Source: `crux/schemas/test-evidence.schema.json`<br>
 Source SHA-256: `0820d002a5ed0676186d3fb534e2c47bdb281b36e798c1446f4d59b243d31e3b`
 
 <!-- BEGIN EXAMPLE: test-evidence.schema.json -->
@@ -4152,7 +4876,7 @@ Source SHA-256: `0820d002a5ed0676186d3fb534e2c47bdb281b36e798c1446f4d59b243d31e3
 
 ### crux ADR provenance record (schema 1)
 
-Source: `crux/schemas/adr-provenance.schema.json`  
+Source: `crux/schemas/adr-provenance.schema.json`<br>
 Source SHA-256: `c1d994bfad185bd675d89ec4d9f664906e2c6ab8cbb8b0ccb027f870db7b474c`
 
 <!-- BEGIN EXAMPLE: adr-provenance.schema.json -->
@@ -4370,7 +5094,7 @@ Source SHA-256: `c1d994bfad185bd675d89ec4d9f664906e2c6ab8cbb8b0ccb027f870db7b474
 
 ### Prospective frozen council attempt
 
-Source: `crux/schemas/cycle-council-attempt.schema.json`  
+Source: `crux/schemas/cycle-council-attempt.schema.json`<br>
 Source SHA-256: `0975ab5ecd770ddaba56fec39f16ca4a23f134c62d2d837a3ecd60860fed9529`
 
 <!-- BEGIN EXAMPLE: cycle-council-attempt.schema.json -->
@@ -4643,8 +5367,8 @@ Source SHA-256: `0975ab5ecd770ddaba56fec39f16ca4a23f134c62d2d837a3ecd60860fed952
 
 ### Prospective mode-aware council result
 
-Source: `crux/schemas/cycle-council.schema.json`  
-Source SHA-256: `d33e937145fc9a81ec9fcd12fa568ed26e9a58eaa779ba2d7804d527babf4536`
+Source: `crux/schemas/cycle-council.schema.json`<br>
+Source SHA-256: `f68498018c11db3cdd97d3bc042cd3d0aa6ee423fedc808a6c45ee748b8e7d3f`
 
 <!-- BEGIN EXAMPLE: cycle-council.schema.json -->
 ```json
@@ -4887,6 +5611,9 @@ Source SHA-256: `d33e937145fc9a81ec9fcd12fa568ed26e9a58eaa779ba2d7804d527babf453
       },
       "checkpoint_failure": {
         "type": "object"
+      },
+      "evidence_uncommitted": {
+        "const": "tree-ignored"
       }
     }
   }
@@ -4911,27 +5638,31 @@ No timestamp, machine path, or uncommitted-history claim enters the guide.
   "sources": {
     "crux/schemas/adr-provenance.schema.json": "c1d994bfad185bd675d89ec4d9f664906e2c6ab8cbb8b0ccb027f870db7b474c",
     "crux/schemas/cycle-council-attempt.schema.json": "0975ab5ecd770ddaba56fec39f16ca4a23f134c62d2d837a3ecd60860fed9529",
-    "crux/schemas/cycle-council.schema.json": "d33e937145fc9a81ec9fcd12fa568ed26e9a58eaa779ba2d7804d527babf4536",
+    "crux/schemas/cycle-council.schema.json": "f68498018c11db3cdd97d3bc042cd3d0aa6ee423fedc808a6c45ee748b8e7d3f",
+    "crux/schemas/cycle-pilot.schema.json": "9f95651c621c23823022548508086a5feaf79678b367a5b7217344535b655248",
     "crux/schemas/cycle-queue.schema.json": "4bf616bedf1cd3b58071cbb8b3ca55f7de2ae774c2a67d6c029fdd8de3cb35eb",
-    "crux/schemas/cycle.schema.json": "ad409e38a518a7da02a174549056aedfd359fa79479102f8d0182164f50612ab",
+    "crux/schemas/cycle.schema.json": "2df6151e4e99497eee22c2c0e0672048650e1d72172dc3768d0ca15e6a801711",
     "crux/schemas/test-evidence.schema.json": "0820d002a5ed0676186d3fb534e2c47bdb281b36e798c1446f4d59b243d31e3b",
     "crux/scripts/adr_provenance.py": "5febb88dc5ce1f1c23295a0596acda2a3897bc266e11e64a57b9ef25348e27cb",
     "crux/scripts/authoring_scope.py": "2970ad31854348b156c82c88804fd7055c93a172b4281dd2e5663a24f52261e2",
-    "crux/scripts/bionic_config.py": "561f120be08ab97b129bf0c89684f6fd95e7d0d9731b45fe65301004d9fa679f",
-    "crux/scripts/council_policy.py": "c630dc4c968b76e505f757ba9427552aef699cd7068524d0012a25130561efbd",
-    "crux/scripts/cycle_council.py": "923b538df47adb0a29fa14ec6654deada2bc77d7ff4e85ab6cbb2a1b632a261d",
-    "crux/scripts/cycle_queue.py": "9eb83bbcc256c35b8f8bc1d9fab8ac5bcab3e47da3f7dae5127f6218426252e2",
-    "crux/scripts/cycle_workflow.py": "16f59f6cd63dc1a7fb676746d9b81d97c8c99f20cc7d61212a7da80786b82e0c",
-    "crux/scripts/decision_policy.py": "c19cede90012bfde4d07fde79e68337e3ab5121501666176c6116c57272a4fd2",
-    "crux/scripts/generate-micro-crux.py": "e412bbb790192035c83b44f39059ce41a3e9632d7f18565c70bb1696d4fdb7e5",
-    "crux/scripts/test_evidence.py": "c00c9c6e5c4e55da2b451a6cfa9e1f958b6dce531317b6dbe599a2de21b4f941",
-    "crux/skills/cycle/references/review.md": "2811f884887711f871f0ec6ca1e9cf209e1f9ad249114c26212ef6ed8bbbce53",
-    "crux/skills/cycle/references/testing.md": "718ab02a75e0cb416925d48ab984785707df8b7b7b43d0198fd2c2ed91a1ccf3",
+    "crux/scripts/bionic_config.py": "b73c3268169a0440b1760e46edf84537a80d6dbf35be1bcee036d20015f1e130",
+    "crux/scripts/council_policy.py": "20cbe274d16b4a7b0b5d8c4a199292561dce6c071a962c362c3436f38dec43ba",
+    "crux/scripts/cycle_council.py": "89933f1f864d20cdd039f0296dccf45d6d2fafdbcf8d36e3ba19a3822807d6b9",
+    "crux/scripts/cycle_pilot.py": "21352881048cfe0a21c856aa343e679c3d9408a4d9954e753d18e235b583b2ae",
+    "crux/scripts/cycle_queue.py": "b588edaa40073f5e7a54ed6d96ab9cbc508038fdaadb9ee031a42d5ee19e7c11",
+    "crux/scripts/cycle_runtime.py": "311591751341b901bfaa42520f2a42435692ade651cfbe7608ab0f535a1d5f01",
+    "crux/scripts/cycle_workflow.py": "443e7c44c2d4597338e3d272a9ed2c50b49020fb41f1c40dc89671b9ebc5c1cd",
+    "crux/scripts/decision_policy.py": "9ce4ca08ac8bd6fc45dcaf305d3ef8ef4f09f31b57b79cb9de2c534aed2e0976",
+    "crux/scripts/generate-micro-crux.py": "a4d013b8d8799a85d62adee6e98e3426718cc4ee0cca7fcf3de7f87cfd17a383",
+    "crux/scripts/test_evidence.py": "b829238712b44acb45c889414edbc522883ff037ef5bd6924232e4038a88c6ef",
+    "crux/skills/cycle/references/lightweight.md": "057076fba7c643a29999b1b74d754fdcd2911ae6a3443c3ae3b5e9f311cb6f6d",
+    "crux/skills/cycle/references/review.md": "ff75321a3516f306f7c87340084977e7f1a64fce37c30616436148cf092d978e",
+    "crux/skills/cycle/references/testing.md": "f22256ef7628cbe8e5e49fc03fdfa37bd95212738c45fdd74c82113ce509deb6",
     "crux/skills/ingest-research/SKILL.md": "44f440403eba4d298f396d1a9523fbac6d420272c22ff44120b141d51949c5ed",
     "crux/skills/refresh-research-sources/SKILL.md": "778f3dc8df5fd5c30a0c67388c8cfabf6c3f33742c4d0306ea7cc00c04529e8c",
     "crux/skills/transition-brief/SKILL.md": "8fb48887ae3118e9226fad3ee61bde00757a7d27460d8f5dea6325311c645594",
     "crux/templates/ADR-template.md": "2ed32d5ec415cdd4e63f7d92f5c041196a712ff310e4eef4a66cc969b95747c5",
-    "crux/templates/AGENTS.md.tmpl": "3a52a6debcf93ffee15b10cdca07541f1c37f74a10087efce506f28a81808e36",
+    "crux/templates/AGENTS.md.tmpl": "573e86d65f35dfdad1637f9db4e41ddb65eb7d63e0b8986abdf9111384d0183f",
     "crux/templates/BRIEF-template.md": "25b0ddcfbeeaedac93f6fd7eaeee13a2cd6aa6485b4d76b7c9a689571bd5cbe3",
     "crux/templates/manifest.yml.tmpl": "6144ab96dbec0d319bc4d3608abe909f37ac8139c0211bf7e0cdef7acc98ae4e",
     "crux/templates/micro-crux.md.tmpl": "268d06781de11073d852dc9dc574ca91788e1e0dd45abcf6a69e12132e6b896b",

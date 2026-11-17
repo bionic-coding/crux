@@ -8,9 +8,9 @@
       "domain": "regenerator-input",
       "rule": "An enrolled regenerator treats an input directory, a declared catalogue member or a file the declared criteria name by path as absent only when a stat or open of its path fails with ENOENT or ENOTDIR, or when its name is missing from a successful listing of the directory that holds it, never because a language predicate returned false."
     },
-    "absent-catalogue-member-is-a-document-finding": {
+    "absent-member-outside-a-descriptive-map-is-a-document-finding": {
       "domain": "regenerator-input",
-      "rule": "Each run reports every declared catalogue member whose absence is confirmed, the absent-member case, as a document-lane finding naming the member and its absence, with the same exit code in every mode that reads the declared input set; a member whose existence cannot be determined is in the unreadable-file case or is a process-level read failure, by the cause of the failed stat or open."
+      "rule": "Outside a descriptive map, each run reports every declared catalogue member whose absence is confirmed, the absent-member case, as a document-lane finding naming the member and its absence, with the same exit code in every mode that reads the declared input set; a member whose existence cannot be determined is in the unreadable-file case or is a process-level read failure, by the cause of the failed stat or open."
     },
     "acceptance-makes-rules-binding": {
       "domain": "decision-authority",
@@ -476,10 +476,6 @@
       "domain": "template-parity",
       "rule": "A template-parity clause matches every top-level alternation of its pattern the same number of times in the canonical section and in the twin section. A count that differs between the sides is a finding of that clause, and the finding names the alternation, both counts, and the side that holds fewer. Equal counts of zero are not a pass: an alternation matching neither section names text the manifest guards and neither file carries, and it is stale at the lower severity. This subsumes the weaker question of whether an alternation resolves at all, and it sits beside the value comparison the clause already performs, which alone catches a value reworded behind an open-ended pattern tail."
     },
-    "path-attributable-read-failure-is-a-document-finding": {
-      "domain": "regenerator-input",
-      "rule": "Each run reports every recognizable file the process cannot stat, open, read or decode for a cause attributable to its path, the unreadable-file case, as a document-lane finding naming the file and the reason, with the same exit code in every mode that reads the declared input set; the attributable causes are exactly a permission refusal (EACCES, EPERM), an overlong name (ENAMETOOLONG), ENOENT or ENOTDIR at the stat or open of a file that was listed, the confirmed absence of a file the declared criteria name by path as required, a directory in place of the file (EISDIR), a symbolic-link loop (ELOOP), and content invalid in the declared encoding."
-    },
     "pending-month-is-not-drift": {
       "domain": "operations-log",
       "rule": "The log summary gate lists a settled month that has a detail file and no section as pending, and does not fail on it."
@@ -503,6 +499,10 @@
     "profile-three-order-is-audited-never-refused": {
       "domain": "implementation-decisions",
       "rule": "A read-only audit reads each retained context naming profile 3 through profile 4's order function and reports its council history as agreeing, contradicting, or uncomparable with a reason. It never refuses, and it changes no approval's replay or eligibility."
+    },
+    "provenance-manifest-selects-no-recognizable-input": {
+      "domain": "regenerator-input",
+      "rule": "derive-arch's provenance manifest selects no recognizable input: its derivation takes the spine hash, the tool and parser pins, the declared globs and the hashes the extractors returned, and parses no input, so an input a descriptive map names as an omission is no input the manifest's derivation is missing."
     },
     "python-duplicate-binding-carries-a-gap-note": {
       "domain": "code-docs-python",
@@ -723,6 +723,10 @@
     "unlistable-input-directory-is-an-environment-failure": {
       "domain": "regenerator-input",
       "rule": "A directory an enrolled regenerator must list to apply its declared criteria, which exists and cannot be listed or whose existence cannot be determined, the unlistable-directory case, takes the environment lane in every mode that reads the declared input set, naming the directory, and is never read as empty."
+    },
+    "unreadable-file-outside-a-descriptive-map-is-a-document-finding": {
+      "domain": "regenerator-input",
+      "rule": "Outside a descriptive map, each run reports every recognizable file the process cannot stat, open, read or decode for a cause attributable to its path, the unreadable-file case, as a document-lane finding naming the file and the reason, with the same exit code in every mode that reads the declared input set; the attributable causes are exactly a permission refusal (EACCES, EPERM), an overlong name (ENAMETOOLONG), ENOENT or ENOTDIR at the stat or open of a file that was listed, the confirmed absence of a file the declared criteria name by path as required, a directory in place of the file (EISDIR), a symbolic-link loop (ELOOP), and content invalid in the declared encoding."
     },
     "unrunnable-ci-tests-need-recorded-evidence": {
       "domain": "test-tiers",

@@ -75,6 +75,10 @@ class CliCycleCase(unittest.TestCase):
 
     def create_quick_fix(self):
         doc = self.ok('create', '--type', 'quick-fix', '--title', 'Fix', '--goal', 'Outcome', '--implementer', 'builder', '--coordinator', 'tester', '--scope', 'src', '--acceptance', 'correct')
+        # Retain the historical receipt fixture shared by review and fix tests.
+        full = workflow.load(self.root, doc['id'])
+        full.pop('testing_policy'); full.pop('local_checks')
+        workflow.save(workflow.tree(self.root), full)
         return doc['id']
 
     def approved_quick_fix(self, checks=('unit',), build_tasks=()):

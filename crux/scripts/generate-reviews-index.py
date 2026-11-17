@@ -80,14 +80,77 @@ silently dropping a file it does not understand. Three refusals, all in BOTH
 modes — a drift gate that passes on a corpus the writer would refuse is a
 false green.
 
-A refusal is a DOCUMENT finding, not an environment problem. Both exit 1 with
-a `"validation_errors"` list on stdout, of the `{"file", "error"}` shape
-`validate-catalog.py` emits, plus the message on stderr. `check-drift` reads a
-non-empty `validation_errors` as BROKEN — the named input must be repaired,
-and regenerating cannot fix it — which is the right verdict for a hand-edited
-report. Exit 2 stays reserved for a genuine environment failure (an unreadable
-file, a bad encoding, a malformed `.bionic.yml`), which `check-drift` reads as
-CRASH. The three refusals:
+A refusal is a DOCUMENT finding, not an environment problem. Both modes exit 1
+with a `"validation_errors"` list on stdout, of the `{"file", "error"}` shape
+`validate-catalog.py` emits, plus one stderr line per finding. `check-drift`
+reads a non-empty `validation_errors` as BROKEN — the named input must be
+repaired, and regenerating cannot fix it — which is the right verdict for a
+hand-edited report.
+
+THE LANES. Exit 2 with empty stdout is the ENVIRONMENT lane, which
+`check-drift` reads as CRASH.
+
+  * A report the process cannot stat, open or read for a cause attributable to
+    its path (a permission refusal, an over-long name, a link loop), or whose
+    bytes are not UTF-8, is a DOCUMENT finding naming that report, with
+    `input_lanes.document_reason`: the repair is at that path.[^file]
+  * Memory exhaustion and every errno outside that closed list, such as EIO,
+    is a fact about the host and takes the environment lane naming the
+    input.[^process] So does a malformed `.bionic.yml`.
+  * The reviews directory and the handle-probe surfaces are absent only when
+    a `stat` fails with ENOENT or ENOTDIR.[^absence] One that exists and
+    cannot be listed or examined takes the environment lane.[^unlistable]
+    The one exception is `resolver.json`'s own stat, in the next bullet.
+  * THE RESOLVER READ. `build` reads `adrs/summaries/resolver.json` once,
+    after the reviews directory's presence and containment checks and before
+    `collect`. Its outcome is the slug maps, None for confirmed absence (which
+    answers True for every `rule:` handle), or one DOCUMENT finding naming
+    `<docs_dir>/adrs/summaries/resolver.json`. A path-attributable failure of
+    the file's own stat or open, a directory or other non-regular file in its
+    place, bytes that are not UTF-8, a body over `RESOLVER_LIMIT`, a body that
+    does not parse as JSON and a body of the wrong shape each take that
+    finding.[^file] The cap follows
+    ADR-0181/declared-cap-refusal-is-a-document-finding and the parse and
+    shape refusals follow
+    ADR-0181/unparseable-input-outside-a-descriptive-map-is-a-document-finding;
+    each of their reasons names `summarize-adrs.py` as the repair. A stat
+    refused for want of search permission on `adrs/summaries` says so in its
+    reason. ENOENT or ENOTDIR at the open, after a stat that saw a regular
+    file, memory exhaustion and every errno outside the closed list take the
+    environment lane naming resolver.json.[^process] A failure to examine
+    the `adrs/summaries` surface itself (a non-directory there, its own
+    `lstat` failing, a symlink, a dangling symlink, a path resolving outside
+    the tree) is a fact about the checkout and keeps the environment lane, as
+    a symlinked or uncontained `resolver.json` does. Every environment-lane
+    outcome of the read raises at once, before `collect` and before any
+    authority read: the run has read no report yet, so it has met no
+    document finding to name. A document finding SEEDS `collect`, so the run
+    names it first, beside every report finding, and beside any environment
+    failure it meets after it.[^precedence] Such a run makes no
+    `_review_history` authority read, builds no probe and evaluates no
+    locator, because `collect` always raises on a seed. Under the "met"
+    reading of the precedence rule in the corpus bullet below, an
+    authority-level environment failure that run would otherwise have met is
+    met only on the run after the resolver is repaired.
+  * PER-INPUT COLLECTION. `collect` reads every listed entry and keeps going
+    past a finding, so one run names every input it cannot parse, classify
+    or read, in sorted name order. A run that meets an environment failure
+    exits 2, and its stderr names every failure and every document finding
+    the same run met.[^precedence]
+  * CORPUS refusals (refusal 3 below) stay FIRST-FINDING. They run only after
+    `collect` returned clean, and each raises one finding naming the reviews
+    directory. A corpus refusal, or a removed-skill archive finding raised
+    from the probe, leaves before the closing `_review_history` authority
+    read. The precedence rule governs what the run has MET, and when either
+    fires the run has met no environment failure.
+  * THE OUTPUT READ. The on-disk index is read once, after every input, the
+    corpus checks and the closing `_review_history` read, and only when the
+    listing held it as a regular file. Its read failure is classified like a
+    report's, with `input_lanes.output_reason`, because the index is wholly
+    generated. Reading it last is what the precedence rule asks: an output
+    finding cannot pre-empt an environment failure the run would still meet.
+
+The three refusals:
 
   1. A NAME OUTSIDE THE GRAMMAR. An entry under `<docs_dir>/adrs/reviews/`
      whose name is neither `index.md` nor a valid ISO `YYYY-MM-DD.md` calendar
@@ -158,12 +221,20 @@ Usage:
 
 Exit: 0 clean/written · 1 drift or a report/corpus validation error (JSON on
 stdout) · 2 env error (stderr), which includes a symlinked directory segment.
+
+[^file]: rule:unreadable-file-outside-a-descriptive-map-is-a-document-finding
+[^process]: rule:process-level-read-failure-is-an-environment-failure
+[^absence]: rule:absence-is-confirmed-by-enoent-or-enotdir
+[^unlistable]: rule:unlistable-input-directory-is-an-environment-failure
+[^precedence]: rule:environment-failure-takes-precedence
 """
 
 from __future__ import annotations
 
 import argparse
 import datetime
+import errno
+import fnmatch
 import importlib.util
 import hashlib
 import json
@@ -175,14 +246,31 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import input_lanes  # noqa: E402
 import review_findings  # noqa: E402
 from untrusted import MESSAGE_LIMIT, redact  # noqa: E402
+
+#: The removed workflow's archived former source, repository-relative. The
+#: probe reads it to resolve one historical locator; a path-attributable
+#: failure to read it is a document finding naming this path.
+REMOVED_SKILL_ARCHIVE = "crux/box/history/review-decisions.md"
+REMOVED_SKILL_ARCHIVE_SHA256 = "9518731c2fe1b7f2ddc6fec086e8eed49d0fffc69ea52fd1c5c3f9ffb1361d3a"
+
+
+def _cause(exc: BaseException) -> str:
+    """A short cause for an environment-lane message: the type and errno name.
+
+    It carries no path: each caller names the path it was examining.
+    """
+    code = getattr(exc, "errno", None)
+    name = errno.errorcode.get(code, str(code)) if code is not None else "no errno"
+    return f"{type(exc).__name__}: {name}"
 
 #: [SECURITY:S1] `[0-9]`, never `\d`. `\d` matches every Unicode decimal digit
 #: in a `str` pattern, so a filename spelled in Arabic-Indic digits matched a
 #: pattern whose whole job is to say "this is an ISO-dated report", and the
 #: groups then reached `datetime.date`. The same rule holds for the two
-#: handle patterns below, whose digits are interpolated into a glob.
+#: handle patterns below, whose digits are interpolated into a match pattern.
 DATE_NAME = re.compile(r"^([0-9]{4})-([0-9]{2})-([0-9]{2})\.md$")
 FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n?", re.S)
 
@@ -191,9 +279,9 @@ FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n?", re.S)
 LOCATOR_HANDLE = re.compile(
     r"\A(?:(?:ADR|OBS)-[0-9]{4}(?:/[a-z0-9][a-z0-9-]*)?|rule:[a-z][a-z0-9-]*)\Z")
 
-#: The 4 digits of an `ADR-NNNN`/`OBS-NNNN` handle. Bounds the glob built from
+#: The 4 digits of an `ADR-NNNN`/`OBS-NNNN` handle. Bounds the pattern built from
 #: an otherwise-untrusted locator to exactly the digits `LOCATOR_HANDLE`
-#: already validated — the slug, if present, never reaches a glob.
+#: already validated — the slug, if present, never reaches a pattern.
 _HANDLE_KIND_AND_DIGITS = re.compile(r"\A(ADR|OBS)-([0-9]{4})(?:/|\Z)")
 
 #: A `rule:<slug>` handle's slug, already bounded by `LOCATOR_HANDLE`.
@@ -343,7 +431,7 @@ def _contained(child: Path, parent: Path, subject: str) -> Path:
     guard, applied to the reviews directory. A checkout supplies the
     directories under the tree, so `<tree>/adrs` or `<tree>/adrs/reviews` can
     be a symlink pointing anywhere on the filesystem; without this,
-    `iterdir()` would enumerate — and `_read_report` would read — a directory
+    the listing would enumerate — and `_read_report` would read — a directory
     outside the repository, and its first line would be quoted back into
     `validation_errors`. Raised as OSError so it lands in `main`'s environment
     lane (exit 2, CRASH to `check-drift`): a symlinked directory is a fact
@@ -400,38 +488,119 @@ def _contained(child: Path, parent: Path, subject: str) -> Path:
 RESOLVER_LIMIT = 4 * 1024 * 1024
 
 
-def _surface(tree: Path, rel: str, subject: str) -> Path:
+#: The resolver's `validation_errors` file key when a caller has no repository
+#: root to name it from: the path relative to the documentation tree.
+RESOLVER_REL = "adrs/summaries/resolver.json"
+
+#: The repair every content refusal of the resolver names: it is the summaries
+#: projection, so regenerating it restores it.
+_RESOLVER_REPAIR = "; regenerate it with summarize-adrs.py"
+
+#: `_locator_probe`'s marker for "build passed no resolver outcome". Distinct
+#: from None, which is the confirmed-absent outcome build passes through.
+_NOT_READ = object()
+
+
+def _resolver_stat_reason(exc: OSError, file: str) -> str:
+    """The document reason for a path-attributable stat failure of resolver.json.
+
+    `document_reason` asks for read permission on the file. A stat refused
+    with EACCES or EPERM is a search-permission refusal on the directory that
+    holds it, so the reason says which directory needs it, by the same
+    repository-relative name the `file` key uses.
+    """
+    reason = input_lanes.document_reason(exc)
+    if exc.errno in (errno.EACCES, errno.EPERM):
+        holder = Path(file).parent.as_posix()
+        reason += (f"; the stat of resolver.json failed, so the repair is search "
+                   f"permission on {holder}")
+    return reason
+
+
+def _resolver_rel(tree: Path, base: Path) -> str:
+    """resolver.json's file key: its path relative to `base`, the repository root.
+
+    Falls back to `RESOLVER_REL`, relative to the tree, when `tree` does not
+    lie under `base`; the key never carries an absolute path.
+    """
+    for t, b in ((tree, base), (tree.resolve(), base.resolve())):
+        try:
+            prefix = t.relative_to(b)
+        except ValueError:
+            continue
+        return str(prefix / "adrs" / "summaries" / "resolver.json")
+    return RESOLVER_REL
+
+
+def _surface(tree: Path, rel: str, subject: str, *,
+             finding_file: str | None = None) -> Path:
     """A surface the HANDLE probe reads, refused when it is hostile.
 
     [SECURITY:S5] The per-segment walk in `build` covers `<tree>/adrs` and
     `<tree>/adrs/reviews`. It never covered the four surfaces this probe
     reaches on its own — `adrs/archive`, `observations`, `adrs/summaries` and
     `adrs/summaries/resolver.json` — and each of them is a path a checkout
-    supplies. Two refusals, in the order that makes the second meaningful:
+    supplies. The surface is examined by ONE `lstat`, classified by errno,
+    never by a pathlib predicate. Two refusals for a present surface, in the
+    order that makes the second meaningful:
 
-      1. A SYMLINK, whether or not it resolves. `is_dir()` and `is_file()` are
-         both FALSE through a dangling link, so a dangling link at the archive
-         read as an absent tier and a dangling link at the resolver took the
-         graceful-degradation branch below and answered True — a handle naming
-         nothing resolved clean, on a checkout that had redirected the surface.
-         The refusal NAMES the surface it refused.
+      1. A SYMLINK, whether or not it resolves. A predicate that follows the
+         link answers False through a dangling one, which is how a dangling
+         link at the archive once read as an absent tier and a dangling link
+         at the resolver answered True for every `rule:` handle. The `lstat`
+         sees the link itself. The refusal NAMES the surface it refused.
       2. CONTAINMENT of the resolved path under the resolved tree, on the
          `observation_evidence.resolve_contained` model: resolve both sides and
          require the tree to be an ancestor. Spelling cannot decide
          containment; the resolved path can.
 
+    ABSENCE. The surface is absent only when its `lstat` fails with ENOENT or
+    ENOTDIR. Then its parent is examined by `lstat` too: a non-directory
+    parent is refused, a parent whose own `lstat` fails with ENOENT or ENOTDIR
+    confirms a genuinely absent surface, and any other failure of the parent
+    refuses naming the surface and the parent. Any other `lstat` failure of
+    the surface itself refuses naming the surface: a surface the process
+    cannot examine is never read as absent.
+
     LANE: environment (exit 2), beside `_contained` and the segment walk and
     for their reason. A redirected surface is a fact about the CHECKOUT, not a
     hand-edited document a human repairs by fixing a report.
+
+    ONE EXCEPTION, `finding_file`. Only the `resolver.json` call passes it,
+    naming the file's repository-relative key. With it, a path-attributable
+    failure of that surface's OWN `lstat` (EACCES, EPERM, ENAMETOOLONG,
+    EISDIR, ELOOP) is a document finding naming the file, raised as
+    `ReviewsError`, because resolver.json is a file input rather than a
+    directory surface.[^file] Its symlink and containment refusals, its
+    parent's refusals and every other errno keep the environment lane.
     """
     path = tree.joinpath(*rel.split("/"))
-    if path.is_symlink():
-        raise OSError(
-            f"refusing to read {path}: the {subject} is a symlink — the handle "
-            "probe reads only real surfaces under the tree, and following one "
-            "would read outside it. A dangling link is refused on the same "
-            "terms rather than read as an absent surface")
-    if path.exists():
+    # ONE `lstat`, classified by errno. The pathlib predicates this replaces
+    # answered False for a surface the process could not examine on Python
+    # 3.14 and raised on 3.13, so an unsearchable parent read as an absent
+    # surface on one minor. Absence is now confirmed only by ENOENT or
+    # ENOTDIR; every other failure takes the environment lane naming the
+    # surface, except a path-attributable one under `finding_file`.
+    try:
+        st = os.lstat(path)
+    except OSError as exc:
+        if finding_file is not None and exc.errno not in input_lanes.ABSENCE_ERRNOS \
+                and input_lanes.is_path_attributable(exc):
+            raise ReviewsError(finding_file,
+                               _resolver_stat_reason(exc, finding_file)) from None
+        if exc.errno not in input_lanes.ABSENCE_ERRNOS:
+            raise OSError(
+                f"refusing to read {path}: the {subject} cannot be examined "
+                f"({_cause(exc)}), so its presence cannot be confirmed and it "
+                "is not read as absent") from None
+        st = None
+    if st is not None:
+        if stat.S_ISLNK(st.st_mode):
+            raise OSError(
+                f"refusing to read {path}: the {subject} is a symlink — the handle "
+                "probe reads only real surfaces under the tree, and following one "
+                "would read outside it. A dangling link is refused on the same "
+                "terms rather than read as an absent surface")
         tree_resolved = tree.resolve()
         resolved = path.resolve()
         if resolved != tree_resolved and tree_resolved not in resolved.parents:
@@ -439,19 +608,24 @@ def _surface(tree: Path, rel: str, subject: str) -> Path:
                 f"refusing to read {path}: the {subject} resolves to "
                 f"{resolved}, which is not contained under {tree_resolved}")
         return path
-    # ABSENT, or absent-LOOKING. `exists()` is false when a component of the
-    # path is not a directory — a regular FILE at `adrs/summaries` makes
-    # `adrs/summaries/resolver.json` read as an absent ledger, and an absent
-    # ledger is the branch that answers True for every `rule:` handle. That is
-    # a broken checkout answering a question about a handle, so it takes the
-    # environment lane and names the surface that is in the way. `lstat`
-    # rather than `is_dir`, so a symlinked parent is refused as what it is
-    # rather than followed.
+    # ABSENT, or absent-LOOKING. The `lstat` fails with ENOTDIR when a
+    # component of the path is not a directory — a regular FILE at
+    # `adrs/summaries` makes `adrs/summaries/resolver.json` read as an absent
+    # ledger, and an absent ledger is the branch that answers True for every
+    # `rule:` handle. That is a broken checkout answering a question about a
+    # handle, so it takes the environment lane and names the surface that is
+    # in the way. `lstat` rather than `is_dir`, so a symlinked parent is
+    # refused as what it is rather than followed.
     parent = path.parent
     try:
         mode = os.lstat(parent).st_mode
-    except OSError:
-        return path  # the parent is absent too: a genuinely absent surface
+    except OSError as exc:
+        if exc.errno in input_lanes.ABSENCE_ERRNOS:
+            return path  # the parent is absent too: a genuinely absent surface
+        raise OSError(
+            f"refusing to read {path}: the {subject} cannot be confirmed absent "
+            f"because its parent {parent} cannot be examined ({_cause(exc)})"
+        ) from None
     if not stat.S_ISDIR(mode):
         raise OSError(
             f"refusing to read {path}: the {subject} is absent because "
@@ -460,24 +634,46 @@ def _surface(tree: Path, rel: str, subject: str) -> Path:
     return path
 
 
-def _resolver_slugs(resolver: Path) -> dict | None:
+def _resolver_slugs(resolver: Path, *, rel: str = RESOLVER_REL) -> dict | None:
     """The resolver's `slugs` and `retired_slugs` maps, or None when ABSENT.
 
-    ABSENT means the file does not exist AND is not a symlink — `_surface`
-    has already refused the symlink case, so a dangling link can no longer
-    reach the None branch and be mistaken for a tree that never enabled
-    `governs`. Everything else that is not a readable, in-bound, well-shaped
-    JSON object is an ENVIRONMENT refusal naming the file: a broken ledger is
-    a fact about the checkout, and answering True for one would let a handle
-    that names nothing resolve clean.
+    ABSENT means `input_lanes.path_state` confirmed it: the `stat` failed
+    with ENOENT or ENOTDIR. `_surface` has already refused a symlink, so a
+    dangling link cannot reach the None branch and be mistaken for a tree
+    that never enabled `governs`. Answering True for a broken ledger would
+    let a handle that names nothing resolve clean, so every other outcome
+    that is not a readable, in-bound, well-shaped JSON object refuses, in the
+    lane the module docstring's resolver bullet states.
+
+    DOCUMENT lane, raised as `ReviewsError(rel, reason)`: a path-attributable
+    stat or open failure, a non-regular file, bytes that are not UTF-8, the
+    size cap, the parse and the shape. `rel` is the `validation_errors` file
+    key, the path relative to the repository root, and no reason carries an
+    absolute path. ENVIRONMENT lane, raised as `OSError` naming the file: any
+    other errno, ENOENT or ENOTDIR at the open after a stat that saw a regular
+    file, and memory exhaustion.
     """
-    if not resolver.exists():
-        return None
-    if not resolver.is_file():
+    # PRESENCE by `path_state`, never by `exists()`: on Python 3.14 the
+    # predicate answered False under an unsearchable `adrs/summaries`, and the
+    # graceful-degradation branch then resolved every `rule:` handle. Only
+    # ENOENT or ENOTDIR confirms absence. A path-attributable failure is a
+    # document finding naming resolver.json; any other is the environment
+    # lane.
+    try:
+        state = input_lanes.path_state(resolver)
+    except OSError as exc:
+        if input_lanes.is_path_attributable(exc):
+            raise ReviewsError(rel, _resolver_stat_reason(exc, rel)) from None
         raise OSError(
-            f"refusing to read {resolver}: resolver.json is present but is not "
-            "a regular file, so it is neither an absent ledger nor a readable "
-            "one; a directory or a FIFO here is a broken checkout")
+            f"refusing to read {resolver}: resolver.json's presence cannot be "
+            f"confirmed ({_cause(exc)}), so it is not read as an absent ledger"
+        ) from None
+    if state is None:
+        return None
+    if not stat.S_ISREG(state.st_mode):
+        raise ReviewsError(
+            rel, "is present but is not a regular file, so it is neither an "
+                 "absent ledger nor a readable one" + _RESOLVER_REPAIR)
     # ONE OPEN, bounded by the read rather than by a prior `stat`. Sizing the
     # file and then reading it left a window in which the file grew between the
     # two calls, and the read that followed was unbounded. Reading
@@ -487,46 +683,77 @@ def _resolver_slugs(resolver: Path) -> dict | None:
     # so the refusal names the bound rather than the file's exact length —
     # deliberately: the message crosses a channel, and a byte count is a fact
     # about a file the caller may not be entitled to.
+    #
+    # THE OPEN IS CLASSIFIED. The stat above saw a regular file, so ENOENT or
+    # ENOTDIR here is neither confirmed absence nor a path-attributable cause:
+    # resolver.json is never listed, and the file was present a moment ago.
+    # That contradiction takes the environment lane, so a file removed
+    # mid-run never resolves every `rule:` handle clean.
     try:
         with resolver.open("rb") as handle:
             raw = handle.read(RESOLVER_LIMIT + 1)
     except OSError as exc:
+        if exc.errno in input_lanes.ABSENCE_ERRNOS:
+            raise OSError(
+                f"refusing to read {resolver}: resolver.json was present at its "
+                f"stat and is gone at its open ({_cause(exc)}), so it is neither "
+                "an absent ledger nor a readable one") from None
+        if input_lanes.is_path_attributable(exc):
+            raise ReviewsError(rel, input_lanes.document_reason(exc)) from None
         raise OSError(
             f"refusing to read {resolver}: resolver.json is present but "
-            f"cannot be read ({type(exc).__name__})") from exc
-    if len(raw) > RESOLVER_LIMIT:
+            f"cannot be read ({_cause(exc)})") from None
+    except MemoryError as exc:
         raise OSError(
-            f"refusing to read {resolver}: resolver.json exceeds "
-            f"{RESOLVER_LIMIT} bytes ({RESOLVER_LIMIT // (1024 * 1024)} MiB); no "
-            "summaries projection is that large, so this is not a rule resolver "
-            "this reader will read")
+            f"refusing to read {resolver}: resolver.json is present but "
+            f"cannot be read ({_cause(exc)})") from None
+    if len(raw) > RESOLVER_LIMIT:
+        raise ReviewsError(
+            rel, f"exceeds {RESOLVER_LIMIT} bytes "
+                 f"({RESOLVER_LIMIT // (1024 * 1024)} MiB); no summaries projection "
+                 "is that large, so this is not a rule resolver this reader will "
+                 "read" + _RESOLVER_REPAIR)
         # The unit is DERIVED from the constant, never spelled beside it. The
         # message this replaced read "(64 KiB)" and stayed literally correct
         # while the sentence around it had become false; a hand-written unit is
         # one more thing that can drift away from the number it describes.
+    # DECODE apart from PARSE. Bytes that are not UTF-8 ask for a re-encoding
+    # and name the byte, which `document_reason` states; a body that decodes
+    # and does not parse asks for regeneration.
     try:
-        data = json.loads(raw.decode("utf-8"))
-    except (ValueError, UnicodeDecodeError, RecursionError) as exc:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ReviewsError(rel, input_lanes.document_reason(exc)) from None
+    except MemoryError as exc:
         raise OSError(
-            f"refusing to read {resolver}: resolver.json is present but does "
-            f"not parse as JSON ({type(exc).__name__})") from exc
-        # `RecursionError` is caught beside the two value errors deliberately.
-        # A deeply nested array is valid JSON that `json.loads` cannot build,
-        # and uncaught it left `main` through the generic handler — exit 2 with
-        # EMPTY stdout, the lane the exit conventions reserve for a crash. The
-        # message names `resolver.json`, so a reader knows which file to open.
+            f"refusing to read {resolver}: resolver.json cannot be decoded "
+            f"({_cause(exc)})") from None
+    try:
+        data = json.loads(text)
+    except (ValueError, RecursionError) as exc:
+        raise ReviewsError(
+            rel, f"is present but does not parse as JSON ({type(exc).__name__})"
+                 + _RESOLVER_REPAIR) from None
+        # `RecursionError` is caught beside the value error deliberately. A
+        # deeply nested array is valid JSON that `json.loads` cannot build, and
+        # uncaught it left `main` through the generic handler — exit 2 with
+        # EMPTY stdout, the lane the exit conventions reserve for a crash.
+    except MemoryError as exc:
+        raise OSError(
+            f"refusing to read {resolver}: resolver.json cannot be parsed "
+            f"({_cause(exc)})") from None
     if not isinstance(data, dict):
-        raise OSError(
-            f"refusing to read {resolver}: resolver.json is a "
-            f"{type(data).__name__} at its top level; the rule resolver is an "
-            "object carrying `slugs` and `retired_slugs`")
+        raise ReviewsError(
+            rel, f"is a {type(data).__name__} at its top level; the rule resolver "
+                 "is an object carrying `slugs` and `retired_slugs`"
+                 + _RESOLVER_REPAIR)
     maps: dict = {}
     for key in ("slugs", "retired_slugs", "historical_slugs"):
         value = data.get(key, {})
         if not isinstance(value, dict):
-            raise OSError(
-                f"refusing to read {resolver}: resolver.json's `{key}` is a "
-                f"{type(value).__name__}; it is a map keyed by rule slug")
+            raise ReviewsError(
+                rel, f"`{key}` is a {type(value).__name__}; it is a map keyed by "
+                     "rule slug" + _RESOLVER_REPAIR)
         maps[key] = value
     for slug, row in maps["historical_slugs"].items():
         valid = isinstance(slug, str) and isinstance(row, dict) and set(row) == {
@@ -540,8 +767,25 @@ def _resolver_slugs(resolver: Path) -> dict | None:
                 and isinstance(destination["clause_sha256"], str) and re.fullmatch(r"[0-9a-f]{64}", destination["clause_sha256"]) \
                 and isinstance(row["replacements"], list) and all(isinstance(h, str) for h in row["replacements"])
         if not valid:
-            raise OSError("resolver.json historical_slugs rows must contain only source identities, destinations and replacement references")
+            raise ReviewsError(
+                rel, "resolver.json historical_slugs rows must contain only source "
+                     "identities, destinations and replacement references"
+                     + _RESOLVER_REPAIR)
     return maps
+
+
+def _read_resolver(tree: Path, rel: str) -> dict | None:
+    """The one resolver read: the maps, or None for confirmed absence.
+
+    Walks the two surfaces and reads the file. A document finding raises
+    `ReviewsError` naming `rel`; every environment-lane outcome raises
+    `OSError` naming resolver.json or the `adrs/summaries` surface.
+    """
+    _surface(tree, "adrs/summaries", "summaries directory")
+    return _resolver_slugs(
+        _surface(tree, "adrs/summaries/resolver.json",
+                 "rule resolver resolver.json", finding_file=rel),
+        rel=rel)
 
 
 def _review_history(root: Path, *, with_paths=False):
@@ -583,9 +827,13 @@ def _handle_exists(locator: str, tree: Path, resolver_maps=None, *, repo_root: P
     `<tree>/adrs/archive/` holds an `ADR-NNNN-*.md` file — the archived tier
     counts, because an ADR archived after a report cited it did not stop
     existing. An `OBS-NNNN` or `OBS-NNNN/<slug>` handle exists when
-    `<tree>/observations/` holds an `OBS-NNNN-*.md` file. Only the 4 digits
-    `LOCATOR_HANDLE` already bounded feed the glob — the slug, if present,
-    plays no part in it; never glob on untrusted text.
+    `<tree>/observations/` holds an `OBS-NNNN-*.md` file. A tier is absent
+    only when `input_lanes.directory_exists` confirms it; a present tier is
+    listed with `input_lanes.list_directory` and its names matched with
+    `fnmatch.fnmatchcase`, and a tier that cannot be listed is an environment
+    refusal naming it. Only the 4 digits `LOCATOR_HANDLE` already bounded
+    feed the pattern — the slug, if present, plays no part in it; never
+    match on untrusted text.
 
     A `rule:<slug>` handle is resolved against
     `<tree>/adrs/summaries/resolver.json`'s `slugs` and `retired_slugs` maps
@@ -596,9 +844,12 @@ def _handle_exists(locator: str, tree: Path, resolver_maps=None, *, repo_root: P
     would make the reviews index unbuildable on a tree that did nothing wrong
     — answer True. ABSENT is now the narrow thing it says: the file does not
     exist and is not a symlink. Present-but-unreadable, present-but-unparseable,
-    present-but-not-a-regular-file, oversize and wrong-shaped are each an
-    ENVIRONMENT refusal naming the file, never a silent True for a broken
-    ledger, and never an `AttributeError` from `.get` on a list.
+    present-but-not-a-regular-file, oversize and wrong-shaped each refuse,
+    never a silent True for a broken ledger, and never an `AttributeError`
+    from `.get` on a list. Each takes the lane the module docstring's resolver
+    bullet states: a document finding raises `ReviewsError` naming the file
+    relative to `repo_root` (the tree's parent when `repo_root` is None), and
+    an environment failure raises `OSError`.
 
     [SECURITY:S5] Every surface reached here goes through `_surface` first.
     Only the surfaces this handle class actually reads are checked, so a
@@ -610,25 +861,84 @@ def _handle_exists(locator: str, tree: Path, resolver_maps=None, *, repo_root: P
         kind, number = digits.group(1), digits.group(2)
         pattern = f"{kind}-{number}-*.md"
         if kind == "ADR":
-            dirs = (_surface(tree, "adrs", "adrs directory"),
-                    _surface(tree, "adrs/archive", "adrs archive directory"))
+            dirs = ((_surface(tree, "adrs", "adrs directory"), "adrs directory"),
+                    (_surface(tree, "adrs/archive", "adrs archive directory"),
+                     "adrs archive directory"))
         else:
-            dirs = (_surface(tree, "observations", "observations directory"),)
-        return any(d.is_dir() and any(d.glob(pattern)) for d in dirs)
+            dirs = ((_surface(tree, "observations", "observations directory"),
+                     "observations directory"),)
+        for d, subject in dirs:
+            # A tier is absent only when its `stat` fails with ENOENT or
+            # ENOTDIR. `is_dir()` and `glob` answered False and [] for a tier
+            # the process could not list, so an unlistable archive read as one
+            # holding no match.
+            try:
+                names = (input_lanes.list_directory(d)
+                         if input_lanes.directory_exists(d) else [])
+            except OSError as exc:
+                raise OSError(
+                    f"refusing to read {d}: the {subject} cannot be listed "
+                    f"({_cause(exc)}), so it is not read as holding no match"
+                ) from None
+            if any(fnmatch.fnmatchcase(name, pattern) for name in names):
+                return True
+        return False
     slug = _HANDLE_RULE_SLUG.match(locator).group(1)
+    base = repo_root if repo_root is not None else tree.parent
     if resolver_maps is None:
         # No cache supplied: walk and read the two surfaces here. `build`
-        # supplies one, so this is the direct-call path.
-        _surface(tree, "adrs/summaries", "summaries directory")
-        maps = _resolver_slugs(_surface(tree, "adrs/summaries/resolver.json",
-                                        "rule resolver resolver.json"))
+        # never reaches this path, so this is the direct-call path.
+        maps = _read_resolver(tree, _resolver_rel(tree, base))
     else:
         maps = resolver_maps()
-    return _rule_exists(slug, maps, _review_history(repo_root if repo_root is not None else tree.parent))
+    return _rule_exists(slug, maps, _review_history(base))
 
 
-def _locator_probe(root: Path, subject: str, tree: Path):
+def _archive_matches(root_resolved: Path, locator: str) -> bool:
+    """Whether the removed workflow's archive holds its exact former source.
+
+    A confirmed-absent archive, a non-regular one, an oversized one and one
+    whose digest differs all answer False, so the locator takes the document
+    refusal for a locator naming nothing. A failure to stat or read the
+    archive is never an answer of False. A cause attributable to the path is
+    a document finding naming the archive, raised as `ReviewsError`, which
+    `main` emits directly because `standing_by_finding` and `build` catch
+    only `ReviewFindingsError`. Any other cause takes the environment lane
+    naming the archive. The archive is read as bytes and compared by digest,
+    so no decoding happens here.
+    """
+    archive = (root_resolved / REMOVED_SKILL_ARCHIVE).resolve()
+    if root_resolved not in archive.parents:
+        return False
+    try:
+        state = input_lanes.path_state(archive)
+        if state is None or not stat.S_ISREG(state.st_mode) \
+                or state.st_size > 2_000_000:
+            return False
+        data = archive.read_bytes()
+    except OSError as exc:
+        if input_lanes.is_path_attributable(exc):
+            raise ReviewsError(
+                REMOVED_SKILL_ARCHIVE,
+                f"{input_lanes.document_reason(exc)}; it was read to resolve "
+                f"the locator {redact(locator)}") from None
+        raise OSError(
+            f"refusing to read {REMOVED_SKILL_ARCHIVE}: the removed-skill "
+            f"archive cannot be examined ({_cause(exc)}) while resolving the "
+            f"locator {redact(locator)}") from None
+    return hashlib.sha256(data).hexdigest() == REMOVED_SKILL_ARCHIVE_SHA256
+
+
+def _locator_probe(root: Path, subject: str, tree: Path, *,
+                   resolver_outcome=_NOT_READ):
     """The injected existence probe `standing_by_finding` asks about a locator.
+
+    THE RESOLVER OUTCOME. `build` reads resolver.json once, before `collect`,
+    and passes its outcome here as `resolver_outcome`: the maps, or None for
+    confirmed absence. The probe then reads the file no second time. Omitted,
+    as a direct caller omits it, the probe reads the resolver itself before
+    its authority read, raising `ReviewsError` for a document finding naming
+    the file relative to `root` and `OSError` for an environment failure.
 
     [SECURITY:S5] The probe is the one part of the finding grammar that
     touches the filesystem, which is why `review_findings` takes it as a
@@ -664,20 +974,19 @@ def _locator_probe(root: Path, subject: str, tree: Path):
     # ONE resolver read per BUILD. Every `rule:` handle in every report used to
     # re-walk the two surfaces and re-parse the file, so a corpus naming N rule
     # handles opened `resolver.json` N times — and a checkout that changed it
-    # mid-run could answer two handles differently. The cache holds the
-    # refusal too: a broken ledger is refused once, on the same terms.
-    cache: list = []
+    # mid-run could answer two handles differently. `build` passes the outcome
+    # it already read; a direct caller's probe reads it here, once.
+    cache: list = [] if resolver_outcome is _NOT_READ else [resolver_outcome]
 
     def resolver_maps():
         if not cache:
-            _surface(tree, "adrs/summaries", "summaries directory")
-            cache.append(_resolver_slugs(_surface(
-                tree, "adrs/summaries/resolver.json",
-                "rule resolver resolver.json")))
+            cache.append(_read_resolver(tree, _resolver_rel(tree, root)))
         return cache[0]
 
-    # Preserve the resolver's bounded shape/containment diagnostics before the
-    # shared authority reader inspects declared projection inputs.
+    # The resolver is read before the shared authority reader inspects the
+    # declared projection inputs, so its own refusal, in its own lane, is the
+    # one a broken ledger yields. `build` reads it earlier still, before
+    # `collect`, and never builds a probe when the read yields a finding.
     resolver_maps()
     historical,removed_paths = _review_history(root,with_paths=True)
 
@@ -699,7 +1008,12 @@ def _locator_probe(root: Path, subject: str, tree: Path):
                 "root with `..`; it is refused rather than followed")
         try:
             resolved = (root_resolved / locator).resolve()
-            here = resolved.exists()
+            # PRESENCE by `path_state`, never by `exists()`. Under an
+            # unsearchable directory `exists()` raised on Python 3.13 and
+            # answered False on 3.14, so the same locator took two different
+            # refusals by minor. Only ENOENT or ENOTDIR confirms that the
+            # locator names nothing.
+            here = input_lanes.path_state(resolved) is not None
         except (OSError, ValueError) as exc:
             # [SECURITY:S1] A NUL byte raises `ValueError` and an over-long
             # component raises `OSError` (ENAMETOOLONG). Uncaught, either left
@@ -708,6 +1022,17 @@ def _locator_probe(root: Path, subject: str, tree: Path):
             # report's author typed. The locator grammar refuses both shapes
             # before this line, so this is the guard that keeps a future
             # grammar change from re-opening the lane.
+            #
+            # A ValueError, or an OSError whose cause is attributable to the
+            # path (a permission refusal, an over-long name, a link loop),
+            # stays a DOCUMENT refusal: the repair is at the value the author
+            # typed. Any other cause, such as EIO, is a fact about the host
+            # and takes the environment lane naming the redacted locator.
+            if isinstance(exc, OSError) and not input_lanes.is_path_attributable(exc):
+                raise OSError(
+                    f"refusing to resolve the locator {redact(locator)}: its "
+                    f"target cannot be examined ({_cause(exc)}), which is a "
+                    "fact about the host rather than about the report") from None
             raise review_findings.ReviewFindingsError(
                 f"the locator {redact(locator)} cannot be resolved as a path "
                 f"({type(exc).__name__}); it is refused rather than followed"
@@ -720,11 +1045,7 @@ def _locator_probe(root: Path, subject: str, tree: Path):
         # The removed workflow's exact former source remains a historical
         # surface. This resolves old report evidence, never a live skill route.
         if locator == 'crux/skills/review-decisions/SKILL.md' and locator in removed_paths:
-            archive=(root_resolved/'crux/box/history/review-decisions.md').resolve()
-            if root_resolved not in archive.parents:return False
-            try:
-                return archive.is_file() and archive.stat().st_size<=2_000_000 and hashlib.sha256(archive.read_bytes()).hexdigest()=='9518731c2fe1b7f2ddc6fec086e8eed49d0fffc69ea52fd1c5c3f9ffb1361d3a'
-            except OSError:return False
+            return _archive_matches(root_resolved, locator)
         return False
 
     return probe
@@ -784,11 +1105,57 @@ def _read_untranslated(path: Path) -> str:
         return handle.read()
 
 
+class _EntryEnvironmentFailure(Exception):
+    """An environment-lane failure met while reading ONE listed entry.
+
+    `collect` gathers these beside the document findings and raises them
+    together as `input_lanes.EnvironmentLaneError` after the loop, so one
+    run names every input it could not read. `line` is the stderr text,
+    naming the entry relative to the repository.
+    """
+
+    def __init__(self, line: str) -> None:
+        super().__init__(line)
+        self.line = line
+
+
+class ReviewsFindings(Exception):
+    """Every per-input document finding one `collect` pass met.
+
+    `findings` holds `{"file", "error"}` entries in sorted listing order, the
+    order `input_lanes.list_directory` returns, so the payload reads the same
+    on every filesystem. `main` emits them all in one `validation_errors`
+    payload.
+    """
+
+    def __init__(self, findings: list[dict]) -> None:
+        super().__init__("; ".join(f"{f['file']}: {f['error']}" for f in findings))
+        self.findings = list(findings)
+
+
 def _read_report(path: Path, rel: str) -> dict:
     # `\r\n` is a LINE ENDING rather than a payload, so it is normalised here
     # and a CRLF report parses to exactly what its LF twin parses to. A LONE
     # `\r` survives this replace and reaches the grammar, which is the point.
-    text = _read_untranslated(path).replace("\r\n", "\n")
+    #
+    # THE READ IS CLASSIFIED. A report the process cannot open or read for a
+    # cause attributable to its path, or whose bytes are not UTF-8, is a
+    # DOCUMENT finding naming the report: the repair is at that path. Memory
+    # exhaustion and every errno outside the closed list are facts about the
+    # host and take the environment lane naming the report.
+    try:
+        raw = _read_untranslated(path)
+    except (OSError, UnicodeDecodeError) as exc:
+        if input_lanes.is_path_attributable(exc):
+            raise ReviewsError(rel, input_lanes.document_reason(exc)) from None
+        raise _EntryEnvironmentFailure(
+            f"refusing to read {redact(rel, quoted=False)}: the report cannot be "
+            f"read ({_cause(exc)})") from None
+    except MemoryError as exc:
+        raise _EntryEnvironmentFailure(
+            f"refusing to read {redact(rel, quoted=False)}: the report cannot be "
+            f"read ({_cause(exc)})") from None
+    text = raw.replace("\r\n", "\n")
     m = FRONTMATTER.match(text)
     if not m:
         raise ReviewsError(rel, "no frontmatter block — a review report must open with ---")
@@ -825,8 +1192,31 @@ def _read_report(path: Path, rel: str) -> dict:
     }
 
 
-def collect(reviews: Path, tree_rel: Path, today: datetime.date | None = None) -> list[dict]:
-    """Every report under `reviews`, newest first. Raises on a refusal.
+def collect(reviews: Path, tree_rel: Path,
+            today: datetime.date | None = None, *,
+            seed: dict | None = None) -> tuple[list[dict], bool]:
+    """Every report under `reviews`, newest first, and whether `index.md` was listed.
+
+    The second value is True when the listing held an `index.md` that the
+    per-entry `lstat` classified as a regular file; `build` reads the index
+    only then, so the index's presence comes from the listing.
+
+    PER-INPUT COLLECTION. Each listed entry yields at most one outcome: a
+    parsed report, a document finding, or an environment failure. A finding
+    does not stop the loop, so one run names every input it cannot parse,
+    classify or read. After the loop, any environment failure raises
+    `input_lanes.EnvironmentLaneError` carrying every failure and every
+    finding; otherwise any finding raises `ReviewsFindings` carrying them all,
+    in sorted listing order. A listing that fails raises before any entry is
+    read.
+
+    THE SEED. `seed` is the resolver's document finding, which `build` read
+    before this call, or None. The findings list starts with it, so it is
+    named first in either raise after the loop. A seeded call therefore
+    always raises. With a seed, a listing failure raises
+    `input_lanes.EnvironmentLaneError` naming the reviews directory and the
+    seed, so the run's stderr names the finding it met beside the failure;
+    with none it raises `OSError` as before.
 
     `today` is the clock the future-date refusal reads; `None` means the
     system date. A future-dated report would anchor every cadence check
@@ -835,71 +1225,126 @@ def collect(reviews: Path, tree_rel: Path, today: datetime.date | None = None) -
     """
     today = datetime.date.today() if today is None else today
     reports: list[dict] = []
-    for entry in sorted(reviews.iterdir()):
-        if entry.name.startswith("."):
+    findings: list[dict] = [seed] if seed is not None else []
+    failures: list[str] = []
+    index_listed = False
+    # LISTED by `list_directory`, which never returns an empty list for a
+    # directory it could not list, in sorted name order as before.
+    try:
+        names = input_lanes.list_directory(reviews)
+    except OSError as exc:
+        line = (f"refusing to read {reviews}: the reviews directory cannot be "
+                f"listed ({_cause(exc)}), so it is not read as empty")
+        if findings:
+            raise input_lanes.EnvironmentLaneError([line], findings) from None
+        raise OSError(line) from None
+    for name in names:
+        if name.startswith("."):
             continue
-        rel = str(tree_rel / entry.name)
-        # [SECURITY:S5] Checked BEFORE the `index.md` skip, so the derived
-        # index cannot be a symlink either: `build` reads it back for the
-        # orphan-row scan, and that content reaches the JSON envelope.
-        # `is_file()` follows the link, so a `2026-01-01.md -> /etc/passwd`
-        # entry would otherwise be read as a report and its first line quoted
-        # into `validation_errors`.
-        #
-        # LANE, and why it differs from the segment walk in `build`. A LEAF
-        # under the reviews directory takes the DOCUMENT lane (exit 1, a
-        # `validation_errors` entry naming the file): a report file is content
-        # a pull request added, and a human repairs it by deleting or replacing
-        # that one entry. A directory SEGMENT — `adrs`, `reviews`, and the four
-        # surfaces `_surface` guards — takes the ENVIRONMENT lane (exit 2): a
-        # redirected directory is a fact about the checkout, and `check-drift`
-        # reads CRASH, which is the verdict that sends a human to the
-        # filesystem rather than to a report.
-        if entry.is_symlink():
-            raise ReviewsError(
-                rel, "is a symlink — the reviews grammar admits only regular "
-                     "files, and following one would read outside the tree")
-        if entry.name == "index.md":
-            if entry.is_file():
-                continue
-            # NAME THE KIND. This used to fall through to the name refusal
-            # below and report "outside the reviews grammar", which is wrong
-            # twice over: the name IS in the grammar, and the reader is left
-            # looking for a typo in a name that has none.
-            raise ReviewsError(
-                rel, "is a directory, and the derived index must be a regular "
-                     "file this regenerator can rewrite"
-                     if entry.is_dir() else
-                     "is not a regular file, and the derived index must be one")
-        m = DATE_NAME.match(entry.name) if entry.is_file() else None
-        if not m:
-            # NAME THE KIND, as the `index.md` branch above does. A directory
-            # called `2026-09-07.md` has a name the grammar admits; reporting
-            # "outside the reviews grammar" sent the reader hunting for a typo
-            # in a name that has none.
-            if DATE_NAME.match(entry.name):
-                raise ReviewsError(
-                    rel, "is a directory, and a review report must be a "
-                         "regular file this regenerator can read"
-                         if entry.is_dir() else
-                         "is not a regular file, and a review report must be one")
-            raise ReviewsError(
-                rel, "name is outside the reviews grammar — expected "
-                     "index.md or a YYYY-MM-DD.md report file")
+        rel = str(tree_rel / name)
         try:
-            report_date = datetime.date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
-        except ValueError as exc:
-            raise ReviewsError(
-                rel, f"{redact(m.group(0)[:-3], quoted=False)} is not a "
-                     f"calendar date ({redact(exc, quoted=False)})") from exc
-        if report_date > today:
-            raise ReviewsError(
-                rel, f"{redact(m.group(0)[:-3], quoted=False)} is in the future "
-                     f"(today is {today.isoformat()}) — a future-dated report would "
-                     f"suppress the decision-review cadence nudge")
-        reports.append(_read_report(entry, rel))
+            report = _collect_entry(reviews / name, name, rel, today)
+        except ReviewsError as exc:
+            findings.append({"file": exc.file, "error": exc.problem})
+            continue
+        except _EntryEnvironmentFailure as exc:
+            failures.append(exc.line)
+            continue
+        if report is None:
+            index_listed = True
+        else:
+            reports.append(report)
+    if failures:
+        raise input_lanes.EnvironmentLaneError(failures, findings)
+    if findings:
+        raise ReviewsFindings(findings)
     reports.sort(key=lambda r: r["date"], reverse=True)
-    return reports
+    return reports, index_listed
+
+
+def _collect_entry(entry: Path, name: str, rel: str,
+                   today: datetime.date) -> dict | None:
+    """One listed entry's outcome: a parsed report, or None for a regular `index.md`.
+
+    Raises `ReviewsError` for a document finding naming the entry and
+    `_EntryEnvironmentFailure` for an environment-lane failure naming it.
+    """
+    # ONE `lstat` per entry, taken before any open, classifies its kind.
+    # The predicates it replaces raised on Python 3.13 and answered False
+    # on 3.14 for an entry the process could not examine, so the same
+    # entry took two lanes by minor. A cause attributable to the path is a
+    # document finding naming the entry — `output_reason` for the wholly
+    # generated index, `document_reason` for every other entry. Any other
+    # cause takes the environment lane naming the entry.
+    try:
+        mode = os.lstat(entry).st_mode
+    except OSError as exc:
+        if input_lanes.is_path_attributable(exc):
+            raise ReviewsError(
+                rel, input_lanes.output_reason(exc) if name == "index.md"
+                else input_lanes.document_reason(exc)) from None
+        raise _EntryEnvironmentFailure(
+            f"refusing to read {redact(rel, quoted=False)}: the reviews "
+            f"entry cannot be examined ({_cause(exc)})") from None
+    # [SECURITY:S5] Checked BEFORE the `index.md` skip, so the derived
+    # index cannot be a symlink either: `build` reads it back for the
+    # orphan-row scan, and that content reaches the JSON envelope.
+    # `is_file()` follows the link, so a `2026-01-01.md -> /etc/passwd`
+    # entry would otherwise be read as a report and its first line quoted
+    # into `validation_errors`.
+    #
+    # LANE, and why it differs from the segment walk in `build`. A LEAF
+    # under the reviews directory takes the DOCUMENT lane (exit 1, a
+    # `validation_errors` entry naming the file): a report file is content
+    # a pull request added, and a human repairs it by deleting or replacing
+    # that one entry. A directory SEGMENT — `adrs`, `reviews`, and the four
+    # surfaces `_surface` guards — takes the ENVIRONMENT lane (exit 2): a
+    # redirected directory is a fact about the checkout, and `check-drift`
+    # reads CRASH, which is the verdict that sends a human to the
+    # filesystem rather than to a report.
+    if stat.S_ISLNK(mode):
+        raise ReviewsError(
+            rel, "is a symlink — the reviews grammar admits only regular "
+                 "files, and following one would read outside the tree")
+    if name == "index.md":
+        if stat.S_ISREG(mode):
+            return None
+        # NAME THE KIND. This used to fall through to the name refusal
+        # below and report "outside the reviews grammar", which is wrong
+        # twice over: the name IS in the grammar, and the reader is left
+        # looking for a typo in a name that has none.
+        raise ReviewsError(
+            rel, "is a directory, and the derived index must be a regular "
+                 "file this regenerator can rewrite"
+                 if stat.S_ISDIR(mode) else
+                 "is not a regular file, and the derived index must be one")
+    m = DATE_NAME.match(name) if stat.S_ISREG(mode) else None
+    if not m:
+        # NAME THE KIND, as the `index.md` branch above does. A directory
+        # called `2026-09-07.md` has a name the grammar admits; reporting
+        # "outside the reviews grammar" sent the reader hunting for a typo
+        # in a name that has none.
+        if DATE_NAME.match(name):
+            raise ReviewsError(
+                rel, "is a directory, and a review report must be a "
+                     "regular file this regenerator can read"
+                     if stat.S_ISDIR(mode) else
+                     "is not a regular file, and a review report must be one")
+        raise ReviewsError(
+            rel, "name is outside the reviews grammar — expected "
+                 "index.md or a YYYY-MM-DD.md report file")
+    try:
+        report_date = datetime.date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    except ValueError as exc:
+        raise ReviewsError(
+            rel, f"{redact(m.group(0)[:-3], quoted=False)} is not a "
+                 f"calendar date ({redact(exc, quoted=False)})") from exc
+    if report_date > today:
+        raise ReviewsError(
+            rel, f"{redact(m.group(0)[:-3], quoted=False)} is in the future "
+                 f"(today is {today.isoformat()}) — a future-dated report would "
+                 f"suppress the decision-review cadence nudge")
+    return _read_report(entry, rel)
 
 
 def raised_cell(parsed) -> str:
@@ -968,8 +1413,12 @@ def orphan_rows(index_text: str, known: set[str]) -> list[str]:
     return out
 
 
-def build(root: Path, today: datetime.date | None = None) -> tuple[Path | None, str, list[str], Path]:
-    """The index path, its wanted body, any orphan rows, and the tree dir.
+def build(root: Path, today: datetime.date | None = None) -> tuple[Path | None, str, list[str], Path, str]:
+    """The index path, its wanted body, any orphan rows, the tree dir, and the index text.
+
+    The index text is what the on-disk index held, read once by `_read_index`;
+    `main` reuses it for the drift comparison rather than reading again. It is
+    empty when the listing held no `index.md`.
 
     A `None` path means the reviews surface is absent — not an error, and not
     a clean gate either. `main` turns it into the `surface_absent` discriminator.
@@ -987,14 +1436,21 @@ def build(root: Path, today: datetime.date | None = None) -> tuple[Path | None, 
     tree_rel = Path(_tree_name(root)) / "adrs" / "reviews"
     reviews = root / tree_rel
     # [SECURITY:S5] The per-segment symlink walk, BEFORE any `is_dir()` or
-    # `resolve()`. `Path.is_symlink()` is true for a DANGLING link while
-    # `is_dir()` is false through one, so a dangling link at either segment
-    # used to leave the run through the `surface_absent` branch below: exit 0,
-    # a positive discriminator asserting there is no derived artifact, on a
-    # checkout that had redirected the surface off the tree. The walk also
-    # NAMES the segment it refused; `_contained` alone reported "reviews
-    # directory" when `adrs` was the link. Shape follows the dormancy-surface
-    # repair in adr-signals.py.
+    # `resolve()`. An `lstat` sees a DANGLING link while `is_dir()` is false
+    # through one, so a dangling link at either segment used to leave the run
+    # through the `surface_absent` branch below: exit 0, a positive
+    # discriminator asserting there is no derived artifact, on a checkout that
+    # had redirected the surface off the tree. The walk also NAMES the segment
+    # it refused; `_contained` alone reported "reviews directory" when `adrs`
+    # was the link. Shape follows the dormancy-surface repair in adr-signals.py.
+    #
+    # Each segment is decided by one `lstat` whose errno this code classifies,
+    # never by a pathlib predicate. When the `lstat` fails EACCES under an
+    # unsearchable parent, Python 3.13's `Path.is_symlink()` raises
+    # PermissionError while 3.14's answers False, so a predicate gave a
+    # different reason on each minor. ENOENT or ENOTDIR confirms the segment
+    # holds no link, and `directory_exists` below decides presence. Any other
+    # failure means the segment cannot be examined, on every minor.
     #
     # LANE: environment (exit 2), beside `_contained` and for its reason. A
     # symlinked directory segment is a fact about the CHECKOUT, not a
@@ -1003,21 +1459,65 @@ def build(root: Path, today: datetime.date | None = None) -> tuple[Path | None, 
     # filesystem rather than to a report.
     for segment, subject in ((tree / "adrs", "adrs directory"),
                              (reviews, "reviews directory")):
-        if segment.is_symlink():
+        try:
+            state = input_lanes.path_state(segment, follow=False)
+        except OSError as exc:
+            raise OSError(
+                f"refusing to read {segment}: the {subject} cannot be examined "
+                f"({_cause(exc)}), so its presence cannot be confirmed; it is "
+                "not read as an absent surface") from None
+        if state is not None and stat.S_ISLNK(state.st_mode):
             raise OSError(
                 f"refusing to read {segment}: the {subject} is a symlink — the "
                 "reviews grammar admits only real directories under the tree, "
                 "and following one would read or write outside it. A dangling "
                 "link is refused on the same terms rather than read as an "
                 "absent surface")
-    if not reviews.is_dir():
+    # PRESENCE by `directory_exists`, after the walk. Absence is confirmed
+    # only when the `stat` fails with ENOENT or ENOTDIR — ENOTDIR from a
+    # regular file at `adrs`, an ancestor, included. `is_dir()` answered False
+    # for a directory the process could not examine on Python 3.14 and for a
+    # regular file at `adrs/reviews`, and both left the run through the
+    # `surface_absent` branch. Any other failure, or a non-directory at the
+    # path, takes the environment lane naming the reviews directory.
+    try:
+        present = input_lanes.directory_exists(reviews)
+    except OSError as exc:
+        why = ("exists and is not a directory, so it cannot be listed as the "
+               "reviews surface" if isinstance(exc, NotADirectoryError)
+               and exc.errno == errno.ENOTDIR and exc.filename == str(reviews)
+               else f"cannot be examined ({_cause(exc)}), so its presence "
+                    "cannot be confirmed")
+        raise OSError(
+            f"refusing to read {reviews}: the reviews directory {why}; it is "
+            "not read as an absent surface") from None
+    if not present:
         _review_history(root)
-        return None, "", [], tree
+        return None, "", [], tree, ""
     _contained(reviews, tree, "reviews directory")
+    # THE RESOLVER READ, once per build, before `collect`. Every
+    # environment-lane outcome raises here, before any authority read: no
+    # report has been read, so the run has met no document finding to name.
+    # A document finding is kept and seeds `collect`.
+    resolver_rel = str(Path(_tree_name(root)) / "adrs" / "summaries" / "resolver.json")
+    seed: dict | None = None
+    try:
+        resolver_outcome = _read_resolver(tree, resolver_rel)
+    except ReviewsError as exc:
+        resolver_outcome, seed = None, {"file": exc.file, "error": exc.problem}
     # Obtain proof before parsing or rendering, including corpora with no rule
     # locators. Invalid activation must never look like an absent history map.
-    probe = _locator_probe(root, str(tree_rel), tree)
-    reports = collect(reviews, tree_rel, today)
+    # A run whose resolver yielded a finding makes no authority read and builds
+    # no probe: on a tree without git that read refuses the same broken
+    # resolver with a migration code, which would pre-empt the finding.
+    probe = None if seed is not None else _locator_probe(
+        root, str(tree_rel), tree, resolver_outcome=resolver_outcome)
+    # `collect` raises every per-input finding together, so the corpus checks
+    # below run only after a clean collect. They stay FIRST-FINDING: each one
+    # raises one `ReviewsError` naming the reviews directory. A seeded
+    # `collect` always raises, so `probe` is built whenever this returns.
+    reports, index_listed = collect(reviews, tree_rel, today, seed=seed)
+    assert probe is not None, "a seeded collect returned"
     # Standing is a CORPUS property: every report is parsed before any row is
     # built, because a resolution written on one date moves the standing of a
     # finding another date raised. Nothing is written until this returns, so
@@ -1044,11 +1544,38 @@ def build(root: Path, today: datetime.date | None = None) -> tuple[Path | None, 
         # branch — `standing_by_finding` re-raises it carrying the record's
         # line and report date, which the probe itself cannot know.
         raise ReviewsError(str(tree_rel), exc.problem) from exc
-    index = reviews / "index.md"
-    have = _read_untranslated(index) if index.is_file() else ""
-    orphans = orphan_rows(have, {r["name"] for r in reports})
+    # PRECEDENCE. A corpus refusal above, or a removed-skill archive document
+    # finding raised from the probe, leaves before the closing
+    # `_review_history` read. That satisfies the environment-precedence rule,
+    # which governs what the run has MET: when either fires, collect returned
+    # clean and the run has met no environment failure.
     _review_history(root)
-    return index, render(reports), orphans, tree
+    index = reviews / "index.md"
+    have = _read_index(index, str(tree_rel / "index.md")) if index_listed else ""
+    orphans = orphan_rows(have, {r["name"] for r in reports})
+    return index, render(reports), orphans, tree, have
+
+
+def _read_index(index: Path, rel: str) -> str:
+    """The on-disk index text, read ONCE and LAST.
+
+    The read follows every input read, the corpus checks and the closing
+    `_review_history` authority read, so an output finding cannot pre-empt an
+    environment failure the run would still have met; this placement is what
+    the environment-precedence rule asks of the output read. The index is
+    wholly generated, so a read failure attributable to its path, or bytes
+    that are not UTF-8, is a document finding naming the index with
+    `input_lanes.output_reason`. Memory exhaustion and every other cause take
+    the environment lane naming the index. `generate-adr-index.py` classifies
+    its own output read the same way.
+    """
+    try:
+        return _read_untranslated(index)
+    except (OSError, UnicodeDecodeError, MemoryError) as exc:
+        if input_lanes.is_path_attributable(exc):
+            raise ReviewsError(rel, input_lanes.output_reason(exc)) from None
+        raise input_lanes.EnvironmentLaneError(
+            [f"refusing to read {rel}: the index cannot be read ({_cause(exc)})"]) from None
 
 
 def main(argv=None) -> int:
@@ -1083,22 +1610,31 @@ def main(argv=None) -> int:
         # state; `build` writes nothing, and the index write below is outside it.
         import implementation_migration as migration
         with migration.read_scope():
-            path, want, orphans, tree_dir = build(root, today)
-    except ReviewsError as exc:
+            path, want, orphans, tree_dir, have = build(root, today)
+    except (ReviewsError, ReviewsFindings) as exc:
         # A hand-edited report is a DOCUMENT finding, not an environment
         # problem: exit 1 with `validation_errors` on stdout, which
         # `check-drift` classifies BROKEN. Exit 2 stays reserved for a
-        # genuine environment failure, which it reads as CRASH.
-        payload = {"path": rel_index,
-                   "validation_errors": [{"file": exc.file, "error": exc.problem}]}
+        # genuine environment failure, which it reads as CRASH. Every
+        # per-input finding `collect` met arrives together in one payload; a
+        # corpus or output refusal arrives alone.
+        findings = (exc.findings if isinstance(exc, ReviewsFindings)
+                    else [{"file": exc.file, "error": exc.problem}])
+        payload = {"path": rel_index, "validation_errors": findings}
         if args.dry_run:
             payload |= {"drift": False, "orphan_rows": []}
         else:
             payload |= {"written": None}
         print(json.dumps(payload, sort_keys=True))
-        sys.stderr.write(f"generate-reviews-index: {exc}\n")
+        sys.stderr.write("".join(f"generate-reviews-index: {f['file']}: {f['error']}\n"
+                                 for f in findings))
         return 1
-    except Exception as exc:  # unreadable file, bad encoding — still an env error
+    except input_lanes.EnvironmentLaneError as exc:
+        # Exit 2 with empty stdout. The stderr names every environment failure
+        # and every document finding the same run met.
+        return input_lanes.emit_environment_failure(
+            exc, "generate-reviews-index", sys.stderr)
+    except Exception as exc:  # a process-level failure outside the collected pass
         # [SECURITY:S1] The composed message is redacted at MESSAGE_LIMIT
         # rather than LIMIT: its untrusted parts were already bounded where
         # they were interpolated, and the value bound would cut a real
@@ -1119,7 +1655,7 @@ def main(argv=None) -> int:
         print(json.dumps(payload, sort_keys=True))
         return 0
     rel = str(path.relative_to(root))
-    have = _read_untranslated(path) if path.exists() else ""
+    # `have` is the text `build` read once, last; no second read here.
     if args.dry_run:
         drift = have != want or bool(orphans)
         print(json.dumps({"drift": drift, "path": rel, "orphan_rows": orphans},

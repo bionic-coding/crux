@@ -47,9 +47,19 @@ Usage:
   compile-doctrine.py [--repo-root DIR]        rewrite adrs/doctrine/{...}
   compile-doctrine.py --dry-run [...]          exit 1 + JSON diff if drift
 
+Before the authority proof or the build reads an input, the input census
+(`summaries_projection.input_census`, driver `compile-doctrine`) examines the
+declared inputs once, including the invariants directory and its pages, and
+refuses in the lane each failed read takes, so one run names every unreadable
+input. A dangling link at an optional file named by path (the manifest, the
+backfill reviews manifest, `adrs/doctrine/_meta.json`, the ledger) is not read
+as absent. The --dry-run read of each output runs after the input decision.
+
 Exit: 0 clean/written · 1 drift (JSON on stdout), or an input validation error
-(malformed governs entry / malformed reconciliation ledger; JSON on stdout, key
-`validation_errors`) · 2 env error (stderr).
+(malformed governs entry / malformed reconciliation ledger / an input whose
+read failed for a cause attributable to its path; JSON on stdout, key
+`validation_errors`) · 2 env error, including an unlistable input directory
+and a dangling optional-file link (stdout empty, stderr names each input).
 """
 
 from __future__ import annotations
@@ -64,6 +74,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import summaries_projection as sp  # noqa: E402
 import doctrine_projection as dp  # noqa: E402
 from untrusted import MESSAGE_LIMIT, redact  # noqa: E402
+import input_lanes  # noqa: E402
+
+SCRIPT = "compile-doctrine"
 
 
 def _atomic_write_text(path: Path, body: str, *, contained_under: Path) -> None:
@@ -141,6 +154,49 @@ def _print_remedy(exc) -> None:
         sys.stderr.write(json.dumps({"remedy": remedy}) + "\n")
 
 
+def _refusal_exit(root: Path, exc: Exception) -> int:
+    """Report an exception from the read phase in its lane and return the exit code.
+
+    An OSError naming a path beneath the documentation tree, raised after a
+    clean census, goes through the census's classifier first, so a late
+    path-attributable failure is a finding naming the input rather than an
+    unclassified crash. A dangling link at an optional file takes the
+    environment lane. Every other exception keeps its present report.
+    """
+    if isinstance(exc, OSError):
+        exc = sp.late_input_failure(root, exc) or exc
+    if isinstance(exc, input_lanes.DanglingOptionalLinkError):
+        exc = input_lanes.EnvironmentLaneError([str(exc)])
+    if isinstance(exc, input_lanes.EnvironmentLaneError):
+        return input_lanes.emit_environment_failure(exc, SCRIPT, sys.stderr)
+    if isinstance(exc, (sp.GovernsValidationError, dp.DoctrineValidationError)):
+        print(json.dumps({"validation_errors": exc.problems}, sort_keys=True))
+        return 1
+    sys.stderr.write(f"compile-doctrine: {type(exc).__name__}: {exc}\n")
+    _print_remedy(exc)
+    return 2
+
+
+def _read_outputs(root: Path, wanted: dict[Path, str]) -> dict[Path, str]:
+    """Each output's present text, read only after the input decision.
+
+    An output whose absence is confirmed reads as empty. A path-attributable
+    failed read is a finding naming the output; any other failure takes the
+    environment lane. Every output is tried before the census refuses, so one
+    run names each.
+    """
+    census = sp.InputCensus(root)
+    have: dict[Path, str] = {}
+    for path in sorted(wanted):
+        try:
+            have[path] = ("" if input_lanes.path_state(path) is None
+                          else path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, MemoryError) as exc:
+            census.classify(path, exc, output=True)
+    census.refuse()
+    return have
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         description="Regenerate the doctrine projection (adrs/doctrine/) from "
@@ -151,21 +207,24 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     root = Path(args.repo_root).resolve()
 
+    # The input census runs first: it examines the declared inputs once and
+    # refuses in the lane each failed read takes, so one run names every
+    # unreadable input before any authority proof or build reads one.
     try:
+        sp.input_census(root, driver=SCRIPT).refuse()
         wanted = build(root)
-    except (sp.GovernsValidationError, dp.DoctrineValidationError) as exc:
-        print(json.dumps({"validation_errors": exc.problems}, sort_keys=True))
-        return 1
     except Exception as exc:
-        sys.stderr.write(f"compile-doctrine: {type(exc).__name__}: {exc}\n")
-        _print_remedy(exc)
-        return 2
+        return _refusal_exit(root, exc)
 
     if args.dry_run:
+        try:
+            present = _read_outputs(root, wanted)
+        except Exception as exc:
+            return _refusal_exit(root, exc)
         drifted = []
         for path in sorted(wanted):
             want = wanted[path]
-            have = path.read_text(encoding="utf-8") if path.exists() else ""
+            have = present[path]
             if have != want:
                 drifted.append(str(path.relative_to(root)))
         print(json.dumps({"drift": bool(drifted), "paths": drifted}, sort_keys=True))

@@ -213,7 +213,9 @@ class JsonAdditiveTests(unittest.TestCase):
         self.assertEqual({k: v for k, v in after.items() if k != 'cycles'}, {k: v for k, v in before.items() if k != 'cycles'})
         for b, a in zip(before['cycles'], after['cycles']):
             self.assertNotIn('activity', b)
-            self.assertEqual(set(a) - set(b), {'activity'}, a['id'])
+            # A pilot record carries no attempts, so its view derives no activity.
+            added = set() if b['schema_version'] == 'crux.cycle.vNext' else {'activity'}
+            self.assertEqual(set(a) - set(b), added, a['id'])
             self.assertEqual({k: a[k] for k in b}, b, a['id'])
 
     def test_the_visualizer_adds_activity_only_on_request(self):

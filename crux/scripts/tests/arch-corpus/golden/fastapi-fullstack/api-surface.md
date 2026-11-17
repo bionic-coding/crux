@@ -34,4 +34,9 @@ _Static `ast` parse of the project's own Python sources (FastAPI and Flask route
 
 - This table is a floor, not a census. A static parse sees a route only where a decorator or a `urlpatterns` element DECLARES it; a route registered by `add_api_route`, `add_url_rule`, a loop, or an application factory is not declared anywhere this parse can read.
 - 1 mount prefix expression(s) are decided at import time and cannot be evaluated by a parse, so every path under them renders the expression VERBATIM as `${…}` rather than a guessed value: `settings.API_V1_STR`.
-- Source(s) Python's parser refused — malformed, or nested past the parser's own limits (hashed, not parsed): `backend/app/api/deps.py`.
+
+## Omissions
+
+_Recognizable inputs this map does not describe:_
+
+- `backend/app/api/deps.py` — unparseable (unparseable)

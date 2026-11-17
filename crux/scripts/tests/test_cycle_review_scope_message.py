@@ -13,6 +13,9 @@ class ReviewScopeMessageTests(basis.CliCycleCase):
         (self.root / 'src2/b.txt').write_text('b')
         args = [a for s in scopes for a in ('--scope', s)]
         cid = self.ok('create', '--type', 'quick-fix', '--title', 'Fix', '--goal', 'Outcome', '--implementer', 'builder', '--coordinator', 'tester', *args, '--acceptance', 'correct')['id']
+        doc = basis.workflow.load(self.root, cid)
+        doc.pop('testing_policy'); doc.pop('local_checks')
+        basis.workflow.save(basis.workflow.tree(self.root), doc)
         self.ok('checks', cid, '--check', 'unit')
         self.ok('coverage', cid, '--file', self.write_json('coverage.json', self.coverage()))
         self.ok('advance', cid)

@@ -44,7 +44,11 @@ class Scratch(unittest.TestCase):
         (self.root / 'src/a.txt').write_text('good')
 
     def create(self):
-        return create(self.root, 'quick-fix', 'Fix', 'Outcome', ['src'], ['correct'], 'builder', 'tester')
+        # These tests preserve the historical receipt-based gates.
+        doc = create(self.root, 'quick-fix', 'Fix', 'Outcome', ['src'], ['correct'], 'builder', 'tester')
+        doc.pop('testing_policy'); doc.pop('local_checks')
+        save(tree(self.root), doc)
+        return doc
 
     def apply(self, doc, action, **args):
         return mutate(self.root, doc['id'], action, **args)
@@ -136,7 +140,26 @@ class BuildChecksTests(Scratch):
         done = subprocess.run([sys.executable, str(script), '--repo-root', str(self.root), 'checks', doc['id'], '--phase', 'build', '--check', 'unit'],
                               capture_output=True, text=True)
         self.assertEqual(done.returncode, 0, done.stderr)
-        self.assertEqual(json.loads(done.stdout)['cycle']['build_checks'], ['unit'])
+        self.assertEqual(json.loads(done.stdout)['build_checks'], ['unit'])
+
+    def test_the_cli_prints_a_bounded_summary_and_full_prints_the_record(self):
+        # CYC-0160: checks printed the whole record, about 75 KB for a real cycle.
+        doc = self.create()
+        for index in range(60):
+            doc = self.apply(doc, 'task-add', task={'id': f'unit-{index}', 'phase': 'build', 'depends_on': [], 'status': 'pending',
+                                                    'description': 'Implement the unit. ' * 20, 'expected_evidence': ['ok']})
+        script = Path(__file__).resolve().parents[1] / 'cycle.py'
+        run = lambda *extra: subprocess.run([sys.executable, str(script), '--repo-root', str(self.root), 'checks', doc['id'],
+                                             '--check', 'unit', '--check', 'lint', *extra], capture_output=True, text=True)
+        done, full = run(), run('--full')
+        self.assertEqual((done.returncode, full.returncode), (0, 0), done.stderr + full.stderr)
+        self.assertGreater(len(full.stdout.encode()), 20 * 1024)
+        self.assertLess(len(done.stdout.encode()), 2 * 1024)
+        summary = json.loads(done.stdout)
+        self.assertEqual((summary['ok'], summary['cycle'], summary['required_checks']), (True, doc['id'], ['unit', 'lint']))
+        self.assertNotIn('plan', summary)
+        self.assertEqual(json.loads(full.stdout)['cycle']['required_checks'], ['unit', 'lint'])
+        self.assertEqual(json.loads(full.stdout)['cycle'], load(self.root, doc['id']))
 
 
 class AuthoringCheckoutTests(Scratch):
@@ -240,6 +263,8 @@ class SkillsContractConflictTests(unittest.TestCase):
 
     def test_the_conflict_stops_the_cycle_in_build_and_a_fix_reaches_test(self):
         doc = create(self.root, 'quick-fix', 'Teach', 'Outcome', ['skills'], ['correct'], 'builder', 'tester')
+        doc.pop('testing_policy'); doc.pop('local_checks')
+        save(tree(self.root), doc)
         doc = mutate(self.root, doc['id'], 'checks', checks=['contract'], phase='build')
         failed = execute(self.root, self.declaration())
         self.assertEqual(failed['evidence']['status'], 'failed')

@@ -61,6 +61,15 @@ def summarize(doc, review_verdict=None):
         'latest_review': latest, 'decision_count': len(doc.get('decisions', [])),
         'recent_history': [{'action': h.get('action'), 'at': h.get('at')} for h in doc.get('history', [])[-HISTORY_COUNT:]],
     }
+    if doc.get('testing_policy') == 'proportionate' and doc['type'] != 'release':
+        latest_checks = {}
+        for observation in doc.get('local_checks', []):
+            if observation['pass'] == doc['pass']:
+                latest_checks[observation['check_id']] = {
+                    key: clip(observation[key], BLOCKER_LIMIT)
+                    for key in ('id', 'check_id', 'result', 'tested_revision', 'summary', 'use')}
+        summary['testing_policy'] = 'proportionate'
+        summary['local_checks'] = list(latest_checks.values())
     if doc.get('schema_version') == 3:
         # Version 1 and 2 summaries keep their keys exactly; a version-3 record adds these four.
         states = [a['state'] for a in doc.get('assignments', [])]
@@ -143,6 +152,8 @@ def test_runs(repo_root, doc, now):
     receipts' wall seconds. `executions` is the total; `with_retry_reason` is the subtotal of runs started
     with --retry-reason. A run killed before it wrote a receipt is not counted. Only receipts written
     inside the window or attached by the record are parsed, and `unreadable` counts among those."""
+    if doc.get('testing_policy') == 'proportionate' and doc['type'] != 'release':
+        return None  # Local observations carry no invented duration or repository receipt tally.
     store = _store(repo_root)
     if store is None:
         return None

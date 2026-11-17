@@ -344,18 +344,46 @@ def _select_config_file(root_raw: Path) -> tuple[Path | None, str]:
     config file is present (source="defaults". Note: load_config overwrites this when no config file exists; the CLI emits "discovery:<dir>"). A present-but-broken file
     (directory, or dangling symlink) is fail-loud per its own tier — it is
     intended config, so we never silently fall through to a lower tier.
+
+    A tier is absent only when `os.lstat` of it fails with ENOENT or ENOTDIR
+    (rule:absence-is-confirmed-by-enoent-or-enotdir). Any other lstat or stat
+    failure, such as EACCES on a repo root without search permission, is no
+    proof of absence: it raises, naming the file and the errno name. The
+    pathlib predicates this replaces swallow some of those errors on 3.14 and
+    re-raise them bare on 3.13.
     """
+    import errno
+    import stat
+
+    absent = (errno.ENOENT, errno.ENOTDIR)
+
+    def undetermined(cfg_path: Path, exc: OSError) -> BionicConfigError:
+        name = errno.errorcode.get(exc.errno, str(exc.errno)) if exc.errno is not None else "no errno"
+        return BionicConfigError(
+            f"{cfg_path}: cannot determine whether the config file exists ({name}); "
+            "an unreadable config is not treated as absent"
+        )
+
     for filename in (BIONIC_CONFIG_FILENAME, CONFIG_FILENAME):
         cfg_path = root_raw / filename
-        if cfg_path.is_dir():
+        try:
+            link_state = cfg_path.lstat()
+        except OSError as exc:
+            if exc.errno in absent:
+                continue
+            raise undetermined(cfg_path, exc) from exc
+        try:
+            state = cfg_path.stat() if stat.S_ISLNK(link_state.st_mode) else link_state
+        except OSError as exc:
+            if exc.errno in absent:
+                # A committed-but-dangling symlink is intended config, not absence;
+                # silently falling through here is the split-the-tree failure the
+                # fail-loud rule prohibits.
+                raise BionicConfigError(f"{cfg_path} is a dangling symlink; expected a YAML file") from exc
+            raise undetermined(cfg_path, exc) from exc
+        if stat.S_ISDIR(state.st_mode):
             raise BionicConfigError(f"{cfg_path} is a directory; expected a YAML file")
-        if cfg_path.is_symlink() and not cfg_path.exists():
-            # A committed-but-dangling symlink is intended config, not absence;
-            # silently falling through here is the split-the-tree failure the
-            # fail-loud rule prohibits.
-            raise BionicConfigError(f"{cfg_path} is a dangling symlink; expected a YAML file")
-        if cfg_path.exists():
-            return cfg_path, filename
+        return cfg_path, filename
     return None, "defaults"
 
 

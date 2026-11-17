@@ -74,6 +74,22 @@ class RegistryTests(unittest.TestCase):
             self.assertIn(item, ADAPTERS['claude-code'].unverified)
 
 
+class OpRequestFactTests(unittest.TestCase):
+    """CYC-0160: workers ran `cycle.py commit-record` and `cycle.py execution-check`, which are op requests."""
+
+    def test_the_preamble_names_both_op_requests_with_their_exact_invocation(self):
+        text = cycle_hosts.preamble(cycle='CYC-0001', task='build-it', assignment='build-it', attempt=2, objectives='/r/o.md',
+                                    result_path='/tmp/r.md', base='a' * 40, task_commits=[], engine='/p/scripts/cycle.py')
+        self.assertIn('commit-record and execution-check are op requests, not cycle.py subcommands', text)
+        self.assertIn("  uv run /p/scripts/cycle.py op CYC-0001 --json '{\"op\":\"commit-record\"}'\n", text)
+        line = next(l for l in text.splitlines() if '"op":"execution-check"' in l)
+        request = json.loads(line.split("--json '", 1)[1].rstrip("'"))
+        self.assertEqual((request['assignment'], request['attempt']), ('build-it', 2))
+        self.assertEqual(sorted(request), ['assignment', 'attempt', 'checkout', 'op', 'op_id'])
+        self.assertTrue(line.startswith('  uv run /p/scripts/cycle.py op CYC-0001 --json '), line)
+        self.assertIn('uv run cycle.py op CYC-0001', PRE)
+
+
 class RoleNameTests(unittest.TestCase):
     """Projected role names match what the installers project."""
 

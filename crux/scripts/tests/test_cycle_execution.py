@@ -87,6 +87,26 @@ class ExecutionProofTests(fixtures.SliceBase):
         self.refused({'op': 'execution-check', 'op_id': 'execution-unowned-3', 'assignment': 'build-it', 'attempt': 1,
                       'edited_paths': ['README.md']}, 'execution-edited-path-outside-scope')
 
+    def test_checkpoint_admits_env_example_and_refuses_every_other_env_name(self):
+        # One env-name rule, from secret_scan: only the exact basename `.env.example`,
+        # in any letter case, is not an env file.
+        self.prepare()
+        self.check()
+        refused = ['.env', '.env.local', 'prod.env', '.envrc', '.env.example.local']
+        for index, name in enumerate(refused, start=2):
+            path = self.repo / 'src' / name
+            path.write_text('API_KEY=\n')
+            self.refused({'op': 'execution-check', 'op_id': f'execution-env-{index}', 'assignment': 'build-it',
+                          'attempt': 1, 'edited_paths': [f'src/{name}']}, 'execution-checkpoint-path-refused')
+            path.unlink()
+        for index, name in enumerate(['.env.example', '.ENV.Example'], start=10):
+            path = self.repo / 'src' / name
+            path.write_text('API_KEY=\n')
+            checked = self.check(op_id=f'execution-env-example-{index}', edited_paths=[f'src/{name}'])
+            self.assertEqual(checked['execution']['dirty_paths'], [f'src/{name}'])
+            self.assertIn(f'src/{name}', checked['execution']['pending_sources'])
+            path.unlink()
+
     def test_dirty_prepare_refuses_without_reservation(self):
         (self.repo / 'src/a.py').write_text('unowned work already here\n')
         self.refused({'op': 'prepare-dispatch', 'op_id': 'dirty-prepare-1', 'task_id': 'build-it', 'role': 'developer',

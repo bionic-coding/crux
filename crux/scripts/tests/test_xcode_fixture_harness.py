@@ -1,6 +1,7 @@
 """Self-tests for the Xcode fixture harness (`xcode_fixture_harness.py`)
 itself. Most classes call the harness's own pieces directly: the residual
-grammar, residual matching and counting, the `materialize:` containment guard,
+grammar, residual matching and counting, `omissions:` entry matching and
+counting, the `materialize:` containment guard,
 padded and repeated materialisation, and the `max_bytes` check. The report
 checks drive the real subprocess path. `ChildReportChecksTests` and
 `StrictReportCheckTests` run `run_case` on the harness control fixture, with
@@ -19,6 +20,75 @@ SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
 
 import xcode_fixture_harness as h  # noqa: E402
+
+
+class OmissionEntryTests(unittest.TestCase):
+    """`omissions:` entries: met by a rendered line equal to what
+    `core.omission_line` renders for {path, reason, kind}, counted across
+    every concern body when `count` is given. Each refusal shares its
+    rendered fixture with the positive control that meets it."""
+
+    RENDERED = {
+        "module-graph": ("## Omissions\n\n_Recognizable inputs this map does not describe:_\n\n"
+                         "- `App.xcodeproj/project.pbxproj` — unparseable (malformed)\n"),
+        "api-surface": ("## Omissions\n\n"
+                        "- `App.xcodeproj/project.pbxproj` — unparseable (malformed)\n"),
+    }
+    ENTRY = {"path": "App.xcodeproj/project.pbxproj", "reason": "unparseable", "kind": "malformed"}
+
+    def test_the_expected_line_is_the_derive_template(self):
+        import importlib
+        line = h.expected_omission_line(self.ENTRY)  # puts crux/scripts on sys.path
+        core = importlib.import_module("crux.arch.core")
+        self.assertEqual(line, core.omission_line(self.ENTRY))
+        self.assertEqual(h.expected_omission_line(self.ENTRY),
+                         "- `App.xcodeproj/project.pbxproj` — unparseable (malformed)")
+
+    def test_an_exact_entry_is_met(self):
+        self.assertEqual(h.count_omission_lines(self.RENDERED, self.ENTRY), 2)
+        h.check_omissions("case", self.RENDERED, [self.ENTRY])
+        h.check_omissions("case", self.RENDERED, [dict(self.ENTRY, count=2)])
+
+    def test_a_different_reason_is_refused(self):
+        h.check_omissions("case", self.RENDERED, [self.ENTRY])  # positive control
+        with self.assertRaises(h.FixtureCaseError) as cm:
+            h.check_omissions("case", self.RENDERED, [dict(self.ENTRY, reason="over-cap")])
+        self.assertEqual(
+            str(cm.exception),
+            "case: no omission line matches {'path': 'App.xcodeproj/project.pbxproj', "
+            "'reason': 'over-cap', 'kind': 'malformed'}; expected a line equal to "
+            "'- `App.xcodeproj/project.pbxproj` — over-cap (malformed)'")
+
+    def test_a_different_kind_is_refused(self):
+        h.check_omissions("case", self.RENDERED, [self.ENTRY])  # positive control
+        with self.assertRaises(h.FixtureCaseError) as cm:
+            h.check_omissions("case", self.RENDERED, [dict(self.ENTRY, kind="too-deep")])
+        self.assertEqual(
+            str(cm.exception),
+            "case: no omission line matches {'path': 'App.xcodeproj/project.pbxproj', "
+            "'reason': 'unparseable', 'kind': 'too-deep'}; expected a line equal to "
+            "'- `App.xcodeproj/project.pbxproj` — unparseable (too-deep)'")
+
+    def test_a_wrong_count_is_refused(self):
+        h.check_omissions("case", self.RENDERED, [dict(self.ENTRY, count=2)])  # positive control
+        with self.assertRaises(h.FixtureCaseError) as cm:
+            h.check_omissions("case", self.RENDERED, [dict(self.ENTRY, count=1)])
+        self.assertEqual(
+            str(cm.exception),
+            "case: expected 1 omission lines matching {'path': 'App.xcodeproj/project.pbxproj', "
+            "'reason': 'unparseable', 'kind': 'malformed', 'count': 1}, found 2 equal to "
+            "'- `App.xcodeproj/project.pbxproj` — unparseable (malformed)'")
+
+    def test_an_entry_missing_a_required_key_is_refused(self):
+        h.check_omissions("case", self.RENDERED, [self.ENTRY])  # positive control
+        entry = {"path": "App.xcodeproj/project.pbxproj", "reason": "unparseable"}
+        with self.assertRaises(h.FixtureCaseError) as cm:
+            h.check_omissions("case", self.RENDERED, [entry])
+        self.assertEqual(
+            str(cm.exception),
+            "case: omissions entry {'path': 'App.xcodeproj/project.pbxproj', "
+            "'reason': 'unparseable'} needs path, reason and kind "
+            "(missing ['kind'], unknown [])")
 
 
 class DescriptorAttributionTests(unittest.TestCase):

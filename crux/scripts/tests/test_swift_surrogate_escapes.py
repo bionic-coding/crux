@@ -10,14 +10,16 @@ rendered verdict:
 
 * a pbxproj `\\U` surrogate pair is one scalar and renders; the output of a
   second derive is byte-identical;
-* a lone, unpaired or reversed pbxproj surrogate renders `project-unreadable`
-  `malformed`;
+* a lone, unpaired or reversed pbxproj surrogate is named as an omission,
+  `unparseable (malformed)` (ADR-0181);
 * a manifest `\\u{D800}` or `\\u{DFFF}` renders `non-literal-manifest`, as an
   out-of-range scalar does; `\\u{D7FF}` and `\\u{E000}`, the scalars either
   side of the surrogate block, render as names;
 * the sibling spellings of a surrogate (the bytes ED A0 80 in a `.swift`
   identifier, a `Package.swift` string and an `.xcconfig`, and `&#xD800;` in
-  a workspace) each render a residual and exit 0.
+  a workspace) each name the input as an omission and exit 0: the bytes are
+  not valid UTF-8, so the first three are `undecodable`, and the workspace
+  reference is `unparseable (malformed)` (ADR-0181).
 
 The positive control for the exit-0 assertions is a mutation: with the
 decoder fixes reverted, every pbxproj and `\\u{...}` case here exits 2. It is
@@ -89,6 +91,11 @@ class _Tree(unittest.TestCase):
         self.assertTrue(any(line.startswith(bullet_prefix) for line in lines),
                         f"no residual starting {bullet_prefix!r}")
 
+    def assertOmission(self, rendered: dict, line: str) -> None:
+        """`line`, an Omissions-section line, appears in some concern."""
+        lines = [x for body in rendered.values() for x in body.split("\n")]
+        self.assertIn(line, lines, f"no omission line {line!r}")
+
     def assertNoReplacementCharacter(self, rendered: dict) -> None:
         for concern, body in rendered.items():
             self.assertNotIn("\ufffd", body, concern)
@@ -135,8 +142,7 @@ class PbxprojSurrogateEscapeTests(_Tree):
                 shutil.rmtree(self.tmp / "case", ignore_errors=True)
                 code, rendered, err = _derive(self._project(escape))
                 self.assertEqual(code, 0, err)
-                self.assertResidual(
-                    rendered, "- `project-unreadable` `App.xcodeproj/project.pbxproj` lines — — malformed")
+                self.assertOmission(rendered, "- `App.xcodeproj/project.pbxproj` — unparseable (malformed)")
                 self.assertNotIn("| app | application |", rendered["module-graph"])
                 self.assertNoReplacementCharacter(rendered)
 
@@ -188,15 +194,16 @@ class ManifestSurrogateScalarTests(_Tree):
 
 
 class SurrogateBytesSiblingTests(_Tree):
-    """The sibling spellings of U+D800 each exit 0 with a residual, and none
-    renders U+FFFD in a name."""
+    """The sibling spellings of U+D800 each exit 0 with the input named as an
+    omission, and none renders U+FFFD in a name."""
 
     def test_surrogate_bytes_in_a_swift_identifier(self):
         root = _copy(WORKSPACE_76, self.tmp / "case")
         _replace_bytes(root / "Sources" / "Lib" / "Lib.swift", b"struct Lib", b"struct Li" + SURROGATE_BYTES + b"b")
         code, rendered, err = _derive(root)
         self.assertEqual(code, 0, err)
-        self.assertResidual(rendered, "- `parse-error` `Sources/Lib/Lib.swift` lines 1-1 — ")
+        self.assertOmission(rendered, "- `Sources/Lib/Lib.swift` — undecodable (undecodable)")
+        self.assertNotIn("`Li", rendered["data-model"].split("## Omissions")[0])
         self.assertNoReplacementCharacter(rendered)
 
     def test_surrogate_bytes_in_a_package_manifest_string(self):
@@ -204,7 +211,7 @@ class SurrogateBytesSiblingTests(_Tree):
         _replace_bytes(root / "Package.swift", b'name: "Pipex"', b'name: "Pi' + SURROGATE_BYTES + b'pex"')
         code, rendered, err = _derive(root)
         self.assertEqual(code, 0, err)
-        self.assertResidual(rendered, ManifestSurrogateScalarTests._NON_LITERAL)
+        self.assertOmission(rendered, "- `Package.swift` — undecodable (undecodable)")
         self.assertNotIn("| `Pi", rendered["api-surface"])
         self.assertNoReplacementCharacter(rendered)
 
@@ -214,7 +221,7 @@ class SurrogateBytesSiblingTests(_Tree):
             f.write(b"OTHER_" + SURROGATE_BYTES + b" = a" + SURROGATE_BYTES + b"b\n")
         code, rendered, err = _derive(root)
         self.assertEqual(code, 0, err)
-        self.assertResidual(rendered, "- `project-unreadable` `Shared.xcconfig` lines — — undecodable")
+        self.assertOmission(rendered, "- `Shared.xcconfig` — undecodable (undecodable)")
         self.assertNoReplacementCharacter(rendered)
 
     def test_a_surrogate_character_reference_in_a_workspace(self):
@@ -223,8 +230,7 @@ class SurrogateBytesSiblingTests(_Tree):
                        b"group:Modules", b"group:Mod&#xD800;ules")
         code, rendered, err = _derive(root)
         self.assertEqual(code, 0, err)
-        self.assertResidual(
-            rendered, "- `project-unreadable` `App.xcworkspace/contents.xcworkspacedata` lines — — malformed")
+        self.assertOmission(rendered, "- `App.xcworkspace/contents.xcworkspacedata` — unparseable (malformed)")
         self.assertNoReplacementCharacter(rendered)
 
 

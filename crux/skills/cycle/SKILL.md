@@ -30,6 +30,20 @@ Use `uv run "${CRUX_PLUGIN_ROOT}/scripts/cycle.py" --help` for supported command
 For command-specific options, append the subcommand and `--help`.
 Read [commands.md](references/commands.md) when creating plans or recording evidence.
 
+## Explicit lightweight pilot
+
+When the owner explicitly chooses the lightweight pilot, follow
+[lightweight.md](references/lightweight.md). One lead plans, implements or delegates
+through native host tools, and requests independent review; the requested reviewer
+records its own verdict. Do not wrap the pilot
+in a typed cycle or create dispatch/proof artifacts for it. Pilot record updates are
+milestones, committed with ordinary work checkpoints and at handoff or completion.
+
+The pilot contract replaces the execution instructions below only for pilot records.
+It changes no role's actual tool grants, project context, review independence, or
+external-action authority. The standard cycle path remains the default. Release
+cycles and historical records continue through their existing writers and readers.
+
 ## Route through the lead
 
 The main session dispatches cycle execution to commander. Commander owns the
@@ -302,6 +316,13 @@ Every operation is one call with one JSON request:
 uv run "${CRUX_PLUGIN_ROOT}/scripts/cycle.py" op CYC-0001 --json '{"op":"inspect"}'
 ```
 
+`commit-record` and `execution-check` are op requests too, never `cycle.py` subcommands:
+
+```bash
+uv run "${CRUX_PLUGIN_ROOT}/scripts/cycle.py" op CYC-0001 --json '{"op":"commit-record"}'
+uv run "${CRUX_PLUGIN_ROOT}/scripts/cycle.py" op CYC-0001 --json '{"op":"execution-check","op_id":"build-a1-start","assignment":"build","attempt":1,"checkout":"/abs/repo"}'
+```
+
 The commander passes the request single-quoted and inline, with no file and no pipe.
 Inside a JSON string it writes an apostrophe as `\u0027` and a newline as `\n`, for
 example `"note":"owner said:\nit\u0027s gone"`. `--json -` (standard input) and
@@ -319,7 +340,7 @@ and not journaled. [commands.md](references/commands.md) gives each request.
 
 - `inspect` is read-only and takes no `op_id`. `{"op":"inspect","summary":true}` prints
   only the position, unmet requirements, next actions, open attempts with their state
-  and recovery, problems and record state. Use it to pick the next action. The full output returns `reusable_evidence`, a typed
+  and recovery, problems, record state and the reusable receipts. Use it to pick the next action. The full output returns `reusable_evidence`, a typed
   `advance` action that carries `expect_revision`, the low-level `return` and `pause`
   argv, the low-level `checks`, `coverage` and `review` argv for an unmet Verify or Review
   declaration (the caller writes its content), and for each open attempt its `recovery`
@@ -617,19 +638,15 @@ cycle created under the beta has no version-2 form. The previous release cannot 
   asserts instruction text to the stream that owns that text. A stream that changes
   behaviour such text describes reports the wording to the owning stream and leaves
   the test alone.
-- Build: implement the plan. Do not hide test/review retries inside this phase.
-  Build checks include, besides focused tests, every test that imports, invokes,
-  reads, globs or enumerates a changed path; when a test enumerates a directory
-  that holds a changed path, select the suite that contains it. The test coordinator
-  records the complete set once the streams integrate, with `checks --phase build`;
-  each call replaces the set. Build ends only when every Build check has current
-  passing evidence, and Verify reuses it while inputs are unchanged.
-- Verify: use the shared evidence policy in [testing.md](references/testing.md).
-  Every test runs once per code state in the main run on the floor minor. A
-  decision-only commit to the docs tree leaves its receipts reusable; Verify declares
-  drift-gates, governs-references and governs-coverage, which keep the decision records
-  as inputs. The per-minor checks are the flagged list and the health check against
-  the staged artifact.
+- Build: implement the plan. Run focused checks for changed and related behavior.
+  After fixes, rerun failed and affected checks. The coordinator records selected
+  checks with `checks --phase build`; each call replaces the set. Record actual
+  passing and failing results with `local-check` for proportionate cycles.
+  Build ends when selected checks pass. Reassess applicability after edits.
+- Verify: follow the record's testing policy in [testing.md](references/testing.md).
+  New non-release cycles use proportionate checks selected for PR confidence.
+  Scope and risk determine breadth; no phase or cycle type requires full suites.
+  Historical cycles retain the legacy TE route. Release artifact checks stay unchanged.
   Compare observed behavior with acceptance criteria. A known acceptance failure
   returns immediately to Build (or takes the fix step), even if automated checks pass.
   Do not send a known blocking defect to Review merely to obtain the same finding.
@@ -679,6 +696,13 @@ replay acknowledges the existing receipt and later disposition without reapplyin
 or revoking historical standing. No owner terminal command is required. This grants
 no pass extension, owner exception or outward authorization. See the commands reference.
 
+A decision presented to the owner carries exactly one concrete proposal: the exact
+revision the answer binds. The architect, or whoever presents, never asks the owner to
+choose among alternatives inside one presentation. Write each alternative as its own
+complete revision and present it separately, so one owner answer binds one revision. An
+answer that picks an alternative named inside another revision binds neither revision,
+and the owner is asked twice.
+
 For an ADR acceptance, `apply` writes the ADR's lifecycle bytes and its record under
 `adrs/acceptances/`, and commits neither. Run `apply` inside the accept task: after the
 task's clean-start `execution-check`, the task runs `apply`, checkpoints both paths as
@@ -689,6 +713,11 @@ An acceptance criterion changes only in Plan or Build (`acceptance-change-phase`
 Compare each criterion with what Build produced before advancing out of Build, and
 raise a needed narrowing there. From Verify or Review, a narrowing needs a return to
 Build, which spends a pass; at the pass limit it also needs an owner-approved `extend`.
+An applied acceptance change flags the verification entries it affects in the plan's
+`stale_verification` field. Reconcile those entries through the `plan` command, which
+clears the flag, before leaving the phase.
+`change-type` into a type without a Plan phase, such as quick-fix, refuses while the
+flag is held. Reconcile the entries before that type change.
 
 Every role that a cycle task dispatches runs `execution-check` before its first write,
 generators included, and delivers with nothing staged or uncommitted. The plan scope
@@ -825,6 +854,18 @@ with no developer unit; the commander's shell stays the cycle writer and read-on
 The task finishes with a commit, a failed check that now passes, and a rerun of only the
 checks whose inputs changed. After a Review finding, a reviewer checks only the fix
 diff against the finding. After a Verify finding, the normal Review covers it.
+
+Each fix commit meets at least one attribution basis: it carries the fix task's
+`Cycle-Task` trailer, it is a recorded adoption, or it is a cycle-record commit. A
+cycle-record commit changes only paths under the cycle's directory, changes at least
+one evidence file the writer did not write, and lands after the task's first
+`execution-check`. Run that check before the first fix edit. A records-only fix
+commits its evidence through `commit-record` and records that commit. When another
+writer commit swept the file first, record the commit that holds it
+(`git log -1 -- PATH`). Deliver lists such a commit under `untrailered_commits`; that
+line is expected. Any other commit refuses `fix-commit-unattributed`. A cycle-record
+commit can also sweep in records another task wrote after the same check. The fix-diff
+review guards that case.
 
 An ineligible finding, a failed fix, or a blocking fix-diff review returns to Build.
 Metrics count fix tasks. [commands.md](references/commands.md) gives the fields.

@@ -203,8 +203,19 @@ def scan_fields(
     return sorted(hits)
 
 
-def _is_env_name(name: str) -> bool:
+def is_env_name(name: str) -> bool:
+    """Return whether one path component names an env file.
+
+    This is the single env-name rule: a name is an env file when it is ``.env``,
+    starts with ``.env.``, ends with ``.env``, or is ``.envrc``, compared
+    case-insensitively. The one exception is the exact name ``.env.example``.
+    Every guard that classifies env files by name calls this function.
+    """
     lowered = name.lower()
+    if lowered == ".env.example":
+        # A committed template of variable names, not a credential store. Its content
+        # still passes through the content secret scan wherever content is scanned.
+        return False
     return (
         lowered == ".env"
         or lowered.startswith(".env.")
@@ -298,7 +309,8 @@ def check_input_path(
       ``crux_home`` adds to the other two. A file named ``env`` there is
       reported as ``"env-file"``.
     * ``"env-file"``: the basename is ``.env``, starts with ``.env.``, ends
-      with ``.env``, or is ``.envrc``.
+      with ``.env``, or is ``.envrc``, compared case-insensitively. The one
+      exception is the basename ``.env.example``, which is not an env file.
 
     File content is never read.
     """
@@ -330,12 +342,13 @@ def check_secret_location(path: str | Path, *, crux_home: Path | None = None) ->
     named on a command line). ``"crux-home"``: the real path lies under ``~/.crux``, under
     ``crux_home`` or under ``$CRUX_HOME`` (string prefix or directory identity); a file named
     ``env`` there is ``"env-file"``. ``"env-file"``: the basename is ``.env``, starts with
-    ``.env.``, ends with ``.env``, or is ``.envrc``. File content is never read.
+    ``.env.``, ends with ``.env``, or is ``.envrc``, compared case-insensitively; the one
+    exception is the basename ``.env.example``. File content is never read.
     """
     real = _real(Path(path))
     for home in _crux_homes(crux_home):
         if real.is_relative_to(home) or _under_by_identity(real, home):
             return "env-file" if real.name == "env" else "crux-home"
-    if _is_env_name(real.name):
+    if is_env_name(real.name):
         return "env-file"
     return None

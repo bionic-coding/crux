@@ -443,7 +443,7 @@ Then rerun the append step alone. It writes the entry once, and a further rerun 
 **The commit step.** Run it after every append, whatever the status, because a refused append can still have repaired the log:
 
 1. When `restore_paths` is not empty, run `git restore --staged --quiet -- <restore_paths>`. It resets each path's index entry to HEAD and changes no work-tree file.
-2. Combine the skill's own paths with `commit_paths`. The skill's own paths are those its own rule commits; a skill that commits nothing of its own, and any skill after a refused append, adds none. When the combined list is not empty, run `git add -- <paths>` and then `git commit --only -- <paths>`. When it is empty, the step ends after the restore.
+2. Combine the skill's own paths with `commit_paths`. The skill's own paths are those its own rule commits; a skill that commits nothing of its own, and any skill after a refused append, adds none. When the combined list is not empty, drop every path that `git check-ignore -- <paths>` prints. Git ignores each such path, so the step never commits it. `git check-ignore` exits 1 when it prints no path, which is not an error. When paths remain, run `git add -- <paths>` and then `git commit --only -- <paths>`; otherwise the step ends after the restore. Report each dropped path and that its commit was skipped.
 
 Known limit: the commit step commits every log path that `git status` lists. That includes a file that `operation-log.py check` reports as undefined and a half-finished hand edit of a detail file, as the whole-file commit of `docs/log.md` did.
 
@@ -1180,6 +1180,26 @@ The boundary is configurable while the 120-line budget is not, for two reasons. 
 
 ## 11.E. Current cycle workflow
 
+### Opt-in lightweight cycle pilot
+
+Use the lightweight path only when the owner explicitly requests the pilot. It uses
+one lead, a plan, a task checklist, and independent final review. The lead uses native
+host tools to delegate; the record writer saves milestone updates without committing
+on every operation. Read the cycle skill's `references/lightweight.md` for its interface,
+controls and recovery. This pilot does not replace default cycles or release workflows.
+
+For pilot records, the lightweight contract replaces the typed dispatch, execution
+proof, phase/pass and per-operation commit instructions below. The lead changes
+the pilot record, except that the requested reviewer records its own verdict; the lead
+never submits it. Actor names are cooperative ownership declarations, not authenticated
+identities. A cycle completes through `pilot finish` once its work, selected checks and
+approving independent review are done; PR, CI, merge and publication are separate
+delivery facts, and a completed cycle reopens only on the owner's instruction. Preserve one editor per checkout, explicit worktree isolation for
+parallel editors, ordinary Git checkpoints, independent review and real authorization
+for external actions. Historical records keep their original interpretation.
+
+### Standard cycle workflow
+
 New work uses the `cycle` skill and `cycle.py`. This section governs new cycles
 instead of the historical promptbook authoring, module counts, repeated runs,
 three-round module loops, and fixed review assignments elsewhere in this file.
@@ -1498,33 +1518,29 @@ shortcut cycle never restarts. A dependency on a shortcut cycle's queue item sto
 cycle ADR names it in `adr_dependencies`; other tasks proceed, and the named task
 refuses dispatch with `adr-dependency-awaiting-acceptance` until the ADR is accepted.
 
-Test evidence belongs to the repository and is shared across cycles. One coordinator
-per cycle checks command, relevant input fingerprints, dependencies, environment,
-and freshness before execution. Reuse matching passes and await matching executions.
-Run missing or invalidated checks; record why each rerun is needed. Bookkeeping
-outside a check's inputs does not invalidate it. Required coverage is established
-by valid evidence, not by repeated execution at each phase boundary. Packaging and
-installation checks bind the actual artifact; deployment checks inspect deployment.
-Declare affected behavior and integration points, selected related checks with
-coverage rationale, and reasons for omitted checks. Build checks, recorded with
-`checks --phase build`, include every test that imports, invokes, reads, globs or
-enumerates a changed path, and Build ends only when they pass; Verify reuses them.
-New tests alone are insufficient.
-Every test runs once per code state in the main run on the floor minor. A docs-tree
-decision-only commit (adrs, arch, observations, research, briefs, index.md, manifest.yml,
-objectives.md) leaves the main-run receipts reusable; a change to root instruction or
-guide documents or to the kept docs entries still runs it. Verify declares drift-gates,
-governs-references and governs-coverage, which keep the decision records as inputs. In
-the Crux development repository, the flagged per-minor list and the health check run
-against the staged artifact on every supported minor. A rerun on an unchanged code state needs `--retry-reason` and counts as a
-recovery execution. `finish` records the cycle's suite runs and test minutes.
-If automated tests do not apply, explain why and record an appropriate inspection
-check. Declare cycle checks from the evidence presets, which carry the shared
-bookkeeping exclusions. A path is bookkeeping for a check only when the check does not
-read it, or when it is an append-only record whose new entries cannot change the
-check's verdict. Document any other input exclusion; never exclude an actual dependency
-just to reuse evidence. The cycle skill's testing reference is the canonical statement.
-New version-two records require this declaration and valid passing evidence.
+New non-release cycles use `testing_policy: proportionate`. During development,
+run focused tests for changed behavior and related callers, dependencies, fixtures,
+and integration points. After fixes, rerun failed and affected checks. Before a PR,
+select checks according to the change's scope and risk; broad shared changes can
+justify full suites. A phase boundary or cycle type never requires a full suite.
+
+Declare selected Build and Verify checks and their coverage rationale. Record actual
+results with `cycle.py local-check`, including the command, tested revision, result,
+summary and reason. The tested revision is agent-attested; the writer does not run
+the command or prove that the tested bytes equal the current checkout. After edits,
+reassess applicability and rerun affected checks. The latest selected failure blocks.
+Explicit reuse references a prior passing local check in the same cycle and pass;
+it preserves the original command and revision. Do not create TE snapshots or reuse
+results across cycles for this policy. Independent review assesses both selection
+and applicability to the final change. Comprehensive PR CI remains the integration
+backstop, not a reason to ignore known local failures.
+
+Historical cycles without this policy retain the legacy TE evidence contract.
+Release artifact checks, staged checks, smoke checks and full PR CI remain unchanged.
+
+The cycle skill's testing reference defines both routes. Select related checks by
+behavior and dependency reach; new regression tests alone are insufficient. Use a
+verifiable inspection when automated checks do not apply.
 
 Test tiers label every test with exactly one tier.[^tier-one] `dev` serves the focused
 checks of what a change touches. `release` is a chosen subset, never every test, that
@@ -1534,12 +1550,10 @@ reason and an expiry date or a retirement condition, and the test stays until a 
 names it for removal.[^tier-ephemeral] A project adopts tiers by committing a
 `test-tiers.json` manifest in each test root; the `test-tiers` skill states the format,
 the check and the runner contract. A change that adds a test file or test method labels
-it in the same change.[^tier-label] Tiers narrow development loops only: a unit's
-focused checks, fix-step reruns and reviewer probes. No gate narrows by
-tier.[^tier-gates] Completing a cycle of any type except release requires current
-passing evidence for every test. A tier-filtered receipt never counts as that
-evidence. A release cycle completes on its fixed step list.[^tier-complete] In a project
-that adopts tiers, the tier check is a required check at Verify.[^tier-verify] Release
+it in the same change.[^tier-label] Tiers can select proportionate local checks.
+Run the tier check when tests or manifests change. Historical cycles without the
+policy retain all-tier completion and Verify tier checks.[^tier-complete][^tier-verify]
+A release cycle completes on its fixed step list. Release
 verification there runs the tier check and establishes passing evidence for the release
 tier.[^tier-release] Merging a pull request requires every test to pass on its head.
 Pull-request CI runs every test its environment can run and the tier check. A test it

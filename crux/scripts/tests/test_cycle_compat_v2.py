@@ -375,7 +375,8 @@ class CommittedRecordTests(unittest.TestCase):
     def records(self):
         if not self.ROOT.is_dir():
             self.skipTest('the dogfood tree is not in this checkout')
-        found = sorted(self.ROOT.glob('*/cycle.json'))
+        # An opt-in pilot record has its own format and reader, outside this schema.
+        found = sorted(p for p in self.ROOT.glob('*/cycle.json') if json.loads(p.read_text()).get('format') != 'crux.cycle.vNext')
         self.assertTrue(found)
         return found
 
@@ -405,6 +406,10 @@ class CommittedRecordTests(unittest.TestCase):
                     # keeps every earlier key's rendering.
                     self.assertEqual(list(summary)[-4:], ['schema_version', 'revision', 'attempts', 'classifications'])
                     summary = {k: v for k, v in summary.items() if k not in ('schema_version', 'revision', 'attempts', 'classifications')}
+                if doc.get('testing_policy') == 'proportionate' and doc['type'] != 'release':
+                    # The base predates proportionate testing; such a record adds exactly these two keys.
+                    self.assertEqual(list(summary)[-2:], ['testing_policy', 'local_checks'])
+                    summary = {k: v for k, v in summary.items() if k not in ('testing_policy', 'local_checks')}
                 self.assertEqual(cycle_summary.render(summary), base.render(base.summarize(doc)))
 
 

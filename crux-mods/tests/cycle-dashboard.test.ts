@@ -540,3 +540,64 @@ test('cycle band and pane draw a shortcut cycle as closed work: the done glyph a
   expect(parseReader(JSON.stringify(doc)).ok).toBe(true)
   expect(answer(parseReader(JSON.stringify(doc)))).toContain('shortcut')
 })
+
+
+test('pilot progress distinguishes reviewed from merged and hides loops and effort bars', () => {
+  const doc = structuredClone(cycle) as any
+  Object.assign(doc.cycles[0], {
+    schema_version:'crux.cycle.vNext',revision:4,type:'pilot',status:'active',phase:'working',
+    phases:['planning','working','reviewing','reviewed'],phase_times:[],
+    tasks:[{id:'change',phase:'working',description:'Change [lead run 1]',status:'active'}],
+    reflection:'PR: none; CI: unknown; merge: unmerged',
+  })
+  const parsed=parseReader(JSON.stringify(doc))
+  expect(parsed.ok).toBe(true)
+  const text=answer(parsed)
+  expect(text).toContain('type pilot status active phase working')
+  expect(text).not.toContain(' pass ')
+  expect(text).toContain('tasks done 0 total 1')
+  const drawing=JSON.stringify(pane(parsed,agents([]),100,'docked',HARNESS))
+  expect(drawing).not.toContain('loop 1')
+  expect(drawing).toContain('0/1 tasks')
+  expect(drawing).toContain('merge: unmerged')
+  doc.cycles[0].status='reviewed';doc.cycles[0].phase='reviewed'
+  const reviewed=parseReader(JSON.stringify(doc))
+  expect(reviewed.ok).toBe(true)
+  expect(answer(reviewed)).toContain('status reviewed')
+  expect(answer(reviewed)).not.toContain('status completed')
+  doc.cycles[0].schema_version=3
+  expect(parseReader(JSON.stringify(doc)).ok).toBe(false)
+  doc.cycles[0].schema_version='crux.cycle.vNext';doc.cycles[0].status='completed'
+  expect(parseReader(JSON.stringify(doc)).ok).toBe(false)
+})
+
+test('a completed pilot loads: completion and delivery stay separate facts', () => {
+  const doc = structuredClone(cycle) as any
+  Object.assign(doc.cycles[0], {
+    schema_version:'crux.cycle.vNext',revision:12,type:'pilot',status:'completed',phase:'completed',
+    phases:['planning','working','reviewing','reviewed','completed'],phase_times:[],ended_s:1780000000,open_started_s:null,
+    tasks:[{id:'change',phase:'working',description:'Change [lead run 1]',status:'done'}],
+    reflection:'Completed. Delivery, recorded separately: PR: none; CI: unknown; merge: unmerged',
+  })
+  const parsed=parseReader(JSON.stringify(doc))
+  expect(parsed.ok).toBe(true)
+  expect(answer(parsed)).toContain('type pilot status completed phase completed')
+  const drawing=JSON.stringify(pane(parsed,agents([]),100,'docked',HARNESS))
+  expect(drawing).toContain('merge: unmerged')
+  // A reviewed pilot awaiting finish, in the five-phase list, and a reopened one back in working.
+  for (const [status, phase] of [['reviewed','reviewed'],['active','working'],['paused','working'],['abandoned','working']]) {
+    doc.cycles[0].status=status;doc.cycles[0].phase=phase
+    expect(parseReader(JSON.stringify(doc)).ok).toBe(true)
+  }
+  // The four-phase list of a crux from before the completed state still loads; a mixed list does not.
+  doc.cycles[0].phases=['planning','working','reviewing','reviewed']
+  expect(parseReader(JSON.stringify(doc)).ok).toBe(true)
+  doc.cycles[0].phases=['planning','working','reviewed','completed']
+  expect(parseReader(JSON.stringify(doc)).ok).toBe(false)
+  // The row the reader emits for a pilot record it cannot read.
+  Object.assign(doc.cycles[0], {title:'Unreadable cycle record',status:'paused',phase:'planning',revision:null,tasks:[],
+    phases:['planning','working','reviewing','reviewed','completed'],blocker:'This record cannot be read: invalid pilot cycle. The other cycles are shown.'})
+  const unreadable=parseReader(JSON.stringify(doc))
+  expect(unreadable.ok).toBe(true)
+  expect(JSON.stringify(pane(unreadable,agents([]),100,'docked',HARNESS))).toContain('This record cannot be read')
+})

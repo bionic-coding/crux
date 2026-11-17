@@ -27,6 +27,8 @@ carry the claim forward as a standing property of this file.
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import enum
 import errno
 import functools
@@ -48,6 +50,11 @@ SPINE_FILES = ["data-model.md", "api-surface.md", "module-graph.md", "decision-i
 NO_EXTRACTOR = "> _no extractor for this stack — empty-but-valid spine file._\n"
 
 # Tool-version pins recorded in _meta/manifest.json (byte-stable provenance).
+# They name the derive engine and the serialization format. No pin identifies
+# the interpreter version, and neither does a pack's parser pin. At the
+# standard-library parse sites, the running interpreter decides whether an
+# input parses. That is a documented checkout limit. Two interpreters can
+# therefore record equal pins beside different spine hashes.
 TOOL_PINS = {"engine": "arch-derive/1", "serialization": "canonical/1"}
 
 # The manifest's tree key, and the one sub-object `dry_run` does not compare —
@@ -80,7 +87,17 @@ def _rel(root: Path, p: Path) -> str:
 _FM_RE = re.compile(r"^---\n(.*?)\n---\n", re.DOTALL)
 
 
-def _frontmatter(text: str) -> dict:
+def _frontmatter_fallback(block: str) -> dict:
+    """The stdlib-only `key: value` reader `_frontmatter` falls back to."""
+    out: dict = {}
+    for line in block.splitlines():
+        mm = re.match(r"^([A-Za-z0-9_]+)\s*:\s*(.*)$", line)
+        if mm:
+            out[mm.group(1)] = mm.group(2).strip().strip('"\'')
+    return out
+
+
+def _frontmatter(text: str, path=None) -> dict | None:
     """Parse a leading YAML frontmatter block; {} if absent.
 
     The stdlib-only fallback keeps this module IMPORTABLE without PyYAML, and
@@ -89,20 +106,34 @@ def _frontmatter(text: str) -> dict:
     refuses before any extractor runs. That matters because the fallback ANSWERS
     DIFFERENTLY — one tree produced two spine hashes through the two readers,
     both at exit 0 — which is the defect the declaration exists to end.
+
+    `path` names the input the text came from. With `path` and an active input
+    ledger (ADR-0181, IDR approach 13) a YAML error, or frontmatter that is not
+    a mapping, is an unparseable input: it is recorded through `parsing` and
+    the answer is None. An unavailable PyYAML still takes the fallback, because
+    that is the interpreter's state and not the file's. Without `path`, or with
+    no active ledger, a YAML error takes the fallback as before.
     """
     m = _FM_RE.match(text)
     if not m:
         return {}
     try:
         import yaml  # PyYAML is available under `uv run`.
+    except ImportError:
+        return _frontmatter_fallback(m.group(1))
+    if path is not None and ledger_active():
+        data = None
+        with parsing(path, (yaml.YAMLError, *_PARSE_FAILED)) as outcome:
+            data = yaml.safe_load(m.group(1)) or {}
+            if not isinstance(data, dict):
+                raise ValueError("frontmatter is not a mapping")
+        return None if outcome.failed else data
+    try:
         return yaml.safe_load(m.group(1)) or {}
+    except _LANE_RAISES:
+        raise
     except Exception:
-        out: dict = {}
-        for line in m.group(1).splitlines():
-            mm = re.match(r"^([A-Za-z0-9_]+)\s*:\s*(.*)$", line)
-            if mm:
-                out[mm.group(1)] = mm.group(2).strip().strip('"\'')
-        return out
+        return _frontmatter_fallback(m.group(1))
 
 
 def _body(text: str) -> str:
@@ -784,6 +815,8 @@ def resolve_declared_parsers(pack_name: str) -> None:
         for name in ic.parser:
             try:
                 found = importlib.util.find_spec(name) is not None
+            except _LANE_RAISES:
+                raise
             except Exception:            # a broken/half-installed dist, same lane
                 found = False
             if not found:
@@ -798,6 +831,8 @@ def resolve_declared_parsers(pack_name: str) -> None:
         if verify is not None:
             try:
                 verify()
+            except _LANE_RAISES:
+                raise
             except Exception as exc:
                 raise ParserUnavailable(
                     f"the {pack_name} pack's verify_parser_load() failed: "
@@ -1122,7 +1157,13 @@ def _prose_cell(s) -> str:
 #: `ast.parse` — it is a regex pass over the file text — so it has no refusal to
 #: report, and it hashes every file it reads whether or not any OTHER concern
 #: could parse it. Naming a refusal there would be inventing one.
-_PARSE_FAILED = (SyntaxError, ValueError, RecursionError, MemoryError)
+#:
+#: **`MemoryError` left this tuple (ADR-0181 point 3).** A parser that runs out
+#: of memory says something about the process, not about the file, so it takes
+#: the environment lane: `parsing(path)` turns it into `ArchEnvironmentFailure`
+#: naming the input, and no handler in this engine swallows it (`_LANE_RAISES`).
+#: The tuple now names content failures only.
+_PARSE_FAILED = (SyntaxError, ValueError, RecursionError)
 
 
 @functools.lru_cache(maxsize=1)
@@ -1156,9 +1197,22 @@ def _retained_source_resolver(root: Path):
     return lambda path: retained.resolve_source_path(repo, docs, Path(path).absolute())
 
 
-def _retained_source_walk(root: Path, base: Path):
-    """Prune holdings before descent; callers retain their own source filters."""
+def _retained_source_walk(root: Path, base: Path, origin: str = "fixed"):
+    """Prune holdings before descent; callers retain their own source filters.
+
+    Under an active input ledger (ADR-0181, approach 7) the walk classifies
+    its base by `origin` first, so a confirmed-absent optional base is no
+    input; it sorts children and files in place before it yields, so every
+    cap applies over a sorted traversal; an unlistable directory is an
+    environment failure (ADR-0177) and a listed subdirectory that vanished a
+    document finding; and a directory link that survives the caller's pruning
+    is a not-a-file omission. File links reach the caller, and the reader's
+    `lstat` names them. With no active ledger the walk is unchanged.
+    """
     held = _retained_source_filter(root)
+    if _ACTIVE_LEDGER.get() is not None:
+        yield from _ledger_walk(root, Path(base), origin, held)
+        return
     if not _contained(root, base) or held(base):
         return
     for directory, children, files in os.walk(base, followlinks=False):
@@ -1191,6 +1245,59 @@ def _retained_source_walk(root: Path, base: Path):
             if not held(path):
                 remaining_files.append(name)
         yield directory, children, remaining_files
+
+
+def _ledger_walk(root: Path, base: Path, origin: str, held):
+    """`_retained_source_walk` under an active input ledger (approach 7)."""
+    if not _lexically_contained(root, base) or held(base):
+        return
+    if not _input_dir_ok(base, origin):
+        return
+
+    def onerror(exc: OSError) -> None:
+        where = Path(exc.filename) if exc.filename else base
+        if exc.errno == errno.ENOENT:
+            # A listed subdirectory vanished between listing and descent.
+            _document_finding(where, exc)
+            return
+        _environment_failure(where, exc)
+
+    for directory, children, files in os.walk(base, topdown=True, onerror=onerror,
+                                              followlinks=False):
+        children.sort()
+        files.sort()
+        # A link is never asked about holdings: the retained-evidence check
+        # follows links, and a link is named not-a-file whatever it targets.
+        children[:] = [n for n in children
+                       if _is_link(Path(directory) / n) or not held(Path(directory) / n)]
+        kept_files = [n for n in files
+                      if _is_link(Path(directory) / n) or not held(Path(directory) / n)]
+        yield directory, children, kept_files
+        # The caller has pruned. A directory link that survived is a listed
+        # entry that is a symbolic link: named, never descended.
+        survivors = []
+        for name in children:
+            path = Path(directory) / name
+            try:
+                st = os.lstat(path)
+            except OSError as exc:
+                if exc.errno in (errno.ENOENT, errno.ENOTDIR):
+                    _document_finding(path, exc)
+                    continue
+                _environment_failure(path, exc)
+            if stat.S_ISLNK(st.st_mode):
+                _omit(path, "not-a-file", "symbolic-link")
+                continue
+            survivors.append(name)
+        children[:] = survivors
+
+
+def _is_link(path: Path) -> bool:
+    """An `lstat` link test that answers False for a path it cannot `lstat`."""
+    try:
+        return stat.S_ISLNK(os.lstat(path).st_mode)
+    except OSError:
+        return False
 
 
 def _iter_py_files(root: Path):
@@ -1230,6 +1337,617 @@ def _contained(root: Path, p: Path) -> bool:
     return rp == root_r or rp.is_relative_to(root_r)
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# ADR-0181 — the INPUT LEDGER
+#
+# A descriptive map (the three descriptive spine files, overview.md, index.md)
+# may describe less than its recognizable inputs only when it names each input
+# it omits, with one reason from a closed set. A completeness-dependent output
+# (the decision index) refuses instead. A host-determined failure refuses the
+# whole derive in the environment lane.
+#
+# One ledger per derive, reached through a ContextVar so the shared readers
+# record into it with no signature change. `_build` sets the ledger and, per
+# concern, the active concern; with no active ledger every reader and listing
+# keeps its previous results and order, so an extractor called directly (as the
+# tests and the corpus harness do) behaves as before.
+# ═══════════════════════════════════════════════════════════════════════════
+
+#: The closed reason set (ADR-0181 point 2), spelled once.
+OMISSION_REASONS = ("undecodable", "unparseable", "over-cap", "absent", "not-a-file")
+
+#: The three spine concerns whose maps are descriptive. Their files, plus
+#: `overview.md` and `index.md`, are the five descriptive maps.
+DESCRIPTIVE_CONCERNS = ("data-model", "api-surface", "module-graph")
+
+#: The spine concern whose output is completeness-dependent.
+COMPLETENESS_DEPENDENT_CONCERNS = ("decision-index",)
+
+#: Where a listing or a read found its path (approach 3). `listed` came from a
+#: walk or a listing; `fixed` is a path the pack declares by convention;
+#: `named` is a path tree content names.
+INPUT_ORIGINS = ("listed", "fixed", "named")
+
+
+class ArchEnvironmentFailure(Exception):
+    """A host-determined input failure: the derive refuses in the environment lane.
+
+    `failures` holds one line per failure, naming the input relative to the
+    repository. `findings` holds every document finding the derive met before
+    it, so the stderr report can name them (ADR-0177's precedence rule).
+    Raised before `derive` writes anything and before `dry_run` compares.
+    """
+
+    def __init__(self, failures: list[str], findings: list[dict] | None = None) -> None:
+        super().__init__("; ".join(failures))
+        self.failures = list(failures)
+        self.findings = list(findings or [])
+
+
+class ArchInputRefusal(Exception):
+    """One or more document findings: the derive refuses in the document lane.
+
+    `findings` is the `validation_errors` payload, one `{"file", "error"}` per
+    input. Raised by `_build` after the last extractor, before any write.
+    """
+
+    def __init__(self, findings: list[dict]) -> None:
+        super().__init__("; ".join(f"{f['file']}: {f['error']}" for f in findings))
+        self.findings = list(findings)
+
+
+#: What every broad handler in this engine re-raises before it catches
+#: `Exception` (approach 16). Only types this module defines or builtins, so
+#: `core` gains no module-level import.
+_LANE_RAISES = (ArchEnvironmentFailure, MemoryError)
+
+
+class InputLedger:
+    """The omissions and document findings one derive met.
+
+    Omissions are kept per concern and keyed, so a probe and its extractor
+    reading one input record it once. Findings are kept in arrival order,
+    one per file and text.
+    """
+
+    def __init__(self, root: Path) -> None:
+        self.root = Path(root)
+        self._omissions: dict[str, dict[tuple, dict]] = {}
+        self.findings: list[dict] = []
+        self._finding_keys: set[tuple[str, str]] = set()
+
+    def add_omission(self, concern: str, key: tuple, record: dict) -> None:
+        self._omissions.setdefault(concern, {}).setdefault(key, record)
+
+    def add_finding(self, file: str, error: str) -> None:
+        if (file, error) not in self._finding_keys:
+            self._finding_keys.add((file, error))
+            self.findings.append({"file": file, "error": error})
+
+    def omissions(self, concern: str) -> list[dict]:
+        """The concern's omissions in render order: every path omission by path
+        then reason, then every scan-cap omission by cap then directory."""
+        records = list(self._omissions.get(concern, {}).values())
+        paths = sorted((r for r in records if "path" in r),
+                       key=lambda r: (r["path"], r["reason"], r["kind"]))
+        caps = sorted((r for r in records if "cap" in r),
+                      key=lambda r: (r["cap"], r["dir"], r.get("loop", "")))
+        return [dict(r) for r in paths] + [
+            {k: v for k, v in r.items() if k != "loop"} for r in caps]
+
+
+_ACTIVE_LEDGER: contextvars.ContextVar = contextvars.ContextVar(
+    "crux_arch_input_ledger", default=None)
+_ACTIVE_CONCERN: contextvars.ContextVar = contextvars.ContextVar(
+    "crux_arch_input_concern", default=None)
+
+
+def ledger_active() -> bool:
+    """True inside a derive's `_build`, False for a direct extractor call."""
+    return _ACTIVE_LEDGER.get() is not None
+
+
+def _display(text: str) -> str:
+    """`text` in a form that always encodes as UTF-8: a name holding bytes the
+    file-system decoder surrogate-escaped renders in backslashreplace form."""
+    try:
+        text.encode("utf-8")
+        return text
+    except UnicodeEncodeError:
+        try:
+            raw = text.encode("utf-8", "surrogateescape")
+        except UnicodeEncodeError:
+            return text.encode("utf-8", "backslashreplace").decode("utf-8")
+        return raw.decode("utf-8", "backslashreplace")
+
+
+def _abs(path) -> str:
+    return os.path.abspath(os.fspath(path))
+
+
+def _lexically_contained(root: Path, path) -> bool:
+    """True when `path`, without following any link, lies at or under `root`."""
+    r, p = _abs(root), _abs(path)
+    try:
+        return os.path.commonpath([r, p]) == r
+    except ValueError:
+        return False
+
+
+def _ancestor_escapes(root: Path, path) -> bool:
+    """True when an ancestor directory of `path`, below `root`, is a link that
+    leaves `root`. The root and its own ancestors are never examined."""
+    if _abs(path) == _abs(root):
+        return False
+    parent = os.path.dirname(_abs(path))
+    real_root = os.path.realpath(_abs(root))
+    real_parent = os.path.realpath(parent)
+    try:
+        return os.path.commonpath([real_root, real_parent]) != real_root
+    except ValueError:
+        return True
+
+
+def _input_rel(root: Path | None, path) -> str:
+    """The repository-relative name of `path` as an omission or a finding shows
+    it: lexical, POSIX, never a host path, and always encodable."""
+    if root is not None and _lexically_contained(root, path):
+        rel = os.path.relpath(_abs(path), _abs(root))
+        name = Path(rel).as_posix()
+    else:
+        try:
+            name = _rel(root, Path(path)) if root is not None else Path(path).name
+        except (OSError, RuntimeError, ValueError):
+            name = Path(os.fspath(path)).name
+    return _display(name)
+
+
+def _exc_text(exc) -> str:
+    """A failure's text with no host path: the type, the errno name, the message."""
+    if isinstance(exc, str):
+        return exc
+    if isinstance(exc, OSError) and exc.errno is not None:
+        name = errno.errorcode.get(exc.errno, str(exc.errno))
+        return f"{type(exc).__name__}: {name}: {exc.strerror or ''}".rstrip(": ")
+    return f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
+
+
+def _input_lanes():
+    """The vendored `input_lanes.py`, loaded at call time (approach 4): this
+    module takes no module-level import of a vendored script."""
+    module = _vendored("input_lanes.py", "_crux_arch_input_lanes")
+    if module is None:
+        raise RuntimeError("crux/scripts/input_lanes.py could not be loaded")
+    return module
+
+
+def _environment_failure(path, exc) -> "typing.NoReturn":
+    """Raise `ArchEnvironmentFailure` naming `path` and every finding so far."""
+    ledger = _ACTIVE_LEDGER.get()
+    root = ledger.root if ledger is not None else None
+    line = f"{_input_rel(root, path)}: {_display(_exc_text(exc))}"
+    raise ArchEnvironmentFailure([line], list(ledger.findings) if ledger is not None else [])
+
+
+def _document_finding(path, exc) -> None:
+    """Record a path-attributable read failure as a document finding."""
+    ledger = _ACTIVE_LEDGER.get()
+    if ledger is None:
+        return
+    lanes = _input_lanes()
+    if isinstance(exc, str):
+        text = exc
+    elif lanes.is_path_attributable(exc):
+        text = lanes.document_reason(exc)
+    else:
+        text = _exc_text(exc)
+    ledger.add_finding(_input_rel(ledger.root, path), _display(text))
+
+
+#: The document-finding text for a content-determined failure in the
+#: completeness-dependent concern, per reason.
+_COMPLETENESS_TEXT = {
+    "undecodable": "is not valid UTF-8 — re-encode the file as UTF-8",
+    "unparseable": "does not parse — repair the file's syntax",
+    "absent": "is named by tree content and is absent — restore the file or the reference",
+    "not-a-file": "is not a regular file — replace it with a regular file",
+}
+
+
+def _omit(path, reason: str, kind: str | None = None, *, cap: int | None = None) -> None:
+    """Record that the active concern omits `path` for `reason`.
+
+    A descriptive concern records an omission. The completeness-dependent
+    concern records a document finding instead, naming the input and the
+    reason, and a cap failure names the cap (ADR-0181 point 6). With no active
+    concern (stack detection) a content-determined failure records nothing:
+    detection describes no input.
+    """
+    if reason not in OMISSION_REASONS:
+        raise ValueError(f"unknown omission reason {reason!r}")
+    ledger = _ACTIVE_LEDGER.get()
+    if ledger is None:
+        return
+    concern = _ACTIVE_CONCERN.get()
+    if concern is None:
+        return
+    kind = kind or reason
+    rel = _input_rel(ledger.root, path)
+    if concern in COMPLETENESS_DEPENDENT_CONCERNS:
+        if reason == "over-cap":
+            text = (f"over-cap ({kind}): larger than the {cap}-byte per-file cap"
+                    if cap is not None else f"over-cap ({kind}): over a declared cap")
+            text += " — reduce the file below the cap"
+        else:
+            text = f"{reason} ({kind}): {_COMPLETENESS_TEXT[reason]}"
+        ledger.add_finding(rel, text)
+        return
+    ledger.add_omission(concern, (rel, reason),
+                        {"path": rel, "reason": reason, "kind": kind})
+
+
+def record_scan_cap(cap: str, directory, skipped: int, loop: str) -> None:
+    """Record one aggregate scan cap that skipped `skipped` inputs (approach 8).
+
+    `cap` is the cap constant's name, `directory` the directory the loop
+    scanned and `loop` the scanning function, so two loops over one directory
+    under one cap stay two records while a probe and its extractor running the
+    same loop record it once. In the completeness-dependent concern the cap is
+    a document finding naming the directory, the cap and the skipped count.
+    """
+    ledger = _ACTIVE_LEDGER.get()
+    if ledger is None:
+        return
+    concern = _ACTIVE_CONCERN.get()
+    if concern is None or skipped <= 0:
+        return
+    rel = _input_rel(ledger.root, directory)
+    if concern in COMPLETENESS_DEPENDENT_CONCERNS:
+        ledger.add_finding(rel, f"over-cap (scan-cap): the scan cap {cap} skipped "
+                                f"{int(skipped)} input(s) under this directory")
+        return
+    ledger.add_omission(concern, ("scan-cap", rel, cap, loop), {
+        "cap": cap, "dir": rel, "skipped": int(skipped), "reason": "over-cap",
+        "kind": "scan-cap", "loop": loop,
+    })
+
+
+def omission_line(record: dict) -> str:
+    """The one closed template for an omission (ADR-0181 point 4).
+
+    Every field is escaped with `_cell`; no exception text and no host path
+    reaches it. A scan cap renders the cap and the skipped count in place of a
+    path.
+    """
+    reason = _cell(record["reason"])
+    kind = _cell(_display(str(record["kind"])))
+    if "cap" in record:
+        return (f"- scan cap `{_cell(record['cap'])}` under "
+                f"`{_cell(_display(str(record['dir'])))}` skipped "
+                f"{int(record['skipped'])} input(s) — {reason} ({kind})")
+    return f"- `{_cell(_display(str(record['path'])))}` — {reason} ({kind})"
+
+
+#: The heading of the section that names a concern's omissions.
+OMISSIONS_HEADING = "## Omissions"
+
+
+def _append_omissions(content: str, omissions: list[dict]) -> str:
+    """`content` plus its Omissions section, or `content` unchanged when none."""
+    if not omissions:
+        return content
+    lines = [OMISSIONS_HEADING, "",
+             "_Recognizable inputs this map does not describe:_", ""]
+    lines += [omission_line(r) for r in omissions]
+    return content.rstrip("\n") + "\n\n" + "\n".join(lines) + "\n"
+
+
+def omission_count_line(spine_file: str, count: int) -> str:
+    """The fixed form of one descriptive spine file's omission count, used in
+    `overview.md` and `index.md` alike (approach 10)."""
+    return f"- Omitted inputs in `{spine_file}`: {int(count)}"
+
+
+def _classify_lstat_failure(path, origin: str, exc: OSError) -> None:
+    """Route an `lstat` failure of a would-be input by its origin (approach 3).
+
+    Returns after recording no input, an absent omission or a document finding;
+    raises `ArchEnvironmentFailure` for a host failure.
+    """
+    code = exc.errno
+    if origin == "named" and code in (errno.ENOENT, errno.ENOTDIR, errno.ENAMETOOLONG):
+        _omit(path, "absent", "too-long" if code == errno.ENAMETOOLONG else "absent")
+        return
+    if origin == "fixed" and code in (errno.ENOENT, errno.ENOTDIR):
+        return                                   # confirmed-absent optional: no input
+    if code in (errno.EACCES, errno.EPERM):
+        _document_finding(path, exc)
+        return
+    if origin == "listed" and code in (errno.ENOENT, errno.ENOTDIR, errno.ENAMETOOLONG):
+        _document_finding(path, exc)
+        return
+    _environment_failure(path, exc)
+
+
+def input_kind(path, origin: str = "listed") -> str:
+    """What `path` is, classified as approach 3 classifies an input's `lstat`.
+
+    Returns `"file"`, `"dir"`, `"absent"` (confirmed absent; any absent
+    omission or finding its origin calls for is already recorded) or
+    `"omitted"` (a link, recorded not-a-file). A FIFO, device or socket, and
+    every `lstat` failure outside the closed list, raise the environment lane.
+
+    With no active ledger this answers as the follow-the-link predicates did:
+    `"file"` for `is_file()`, `"dir"` for `is_dir()`, `"absent"` otherwise.
+    """
+    if _ACTIVE_LEDGER.get() is None:
+        p = Path(path)
+        if p.is_file():
+            return "file"
+        if p.is_dir():
+            return "dir"
+        return "absent"
+    ledger = _ACTIVE_LEDGER.get()
+    if _lexically_contained(ledger.root, path) and _ancestor_escapes(ledger.root, path):
+        _omit(path, "not-a-file", "symbolic-link")
+        return "omitted"
+    try:
+        st = os.lstat(path)
+    except OSError as exc:
+        _classify_lstat_failure(path, origin, exc)
+        return "absent"
+    if stat.S_ISLNK(st.st_mode):
+        _omit(path, "not-a-file", "symbolic-link")
+        return "omitted"
+    if stat.S_ISDIR(st.st_mode):
+        return "dir"
+    if stat.S_ISREG(st.st_mode):
+        return "file"
+    _environment_failure(path, f"is a {_input_lanes().file_kind(st.st_mode)}, "
+                               "not a regular file or directory")
+
+
+def _input_dir_ok(path, origin: str) -> bool:
+    """Classify `path` as an input directory under an active ledger (approach 7).
+
+    True for a listable-kind directory. ENOENT or ENOTDIR at the `lstat`, and a
+    regular file where the directory is expected, are absence for the origin;
+    a link is not-a-file; a FIFO, device or socket, and any other `lstat`
+    failure, raise the environment lane.
+    """
+    ledger = _ACTIVE_LEDGER.get()
+    if _lexically_contained(ledger.root, path) and _ancestor_escapes(ledger.root, path):
+        _omit(path, "not-a-file", "symbolic-link")
+        return False
+    try:
+        st = os.lstat(path)
+    except OSError as exc:
+        _classify_lstat_failure(path, origin, exc)
+        return False
+    if stat.S_ISLNK(st.st_mode):
+        _omit(path, "not-a-file", "symbolic-link")
+        return False
+    if stat.S_ISREG(st.st_mode):
+        _classify_lstat_failure(path, origin, NotADirectoryError(
+            errno.ENOTDIR, "is a regular file where a directory is expected", os.fspath(path)))
+        return False
+    if not stat.S_ISDIR(st.st_mode):
+        _environment_failure(path, f"is a {_input_lanes().file_kind(st.st_mode)}, "
+                                   "not a directory")
+    return True
+
+
+def list_input_dir(path, origin: str = "fixed") -> list[Path] | None:
+    """The entries of the input directory `path`, sorted, or None for no input.
+
+    Replaces the `Path.glob`, `iterdir` and `scandir` listing sites (approach
+    7). Under an active ledger it `lstat`s the path before it lists: absence
+    takes the origin's route, a link is not-a-file, and a FIFO, device or
+    socket, an `lstat` failure outside the closed list, and a directory that
+    cannot be listed are environment failures naming the path (ADR-0177).
+
+    With no active ledger it answers as the listing sites did: every entry of a
+    listable directory, sorted, and `[]` for a path that is absent or cannot be
+    listed.
+    """
+    p = Path(path)
+    if _ACTIVE_LEDGER.get() is None:
+        try:
+            return sorted(p.iterdir())
+        except OSError:
+            return []
+    if not _input_dir_ok(p, origin):
+        return None
+    try:
+        names = _input_lanes().list_directory(p)
+    except OSError as exc:
+        _environment_failure(p, exc)
+    return [p / n for n in names]
+
+
+def input_dir_present(path, origin: str = "fixed", legacy=os.path.isdir) -> bool:
+    """A directory gate (approach 3): `list_input_dir`'s classification under
+    an active ledger, `legacy(path)` (the predicate the gate used) without one."""
+    if _ACTIVE_LEDGER.get() is None:
+        return bool(legacy(path))
+    return _input_dir_ok(Path(path), origin)
+
+
+def marker_exists(path, kind: str | None = None) -> bool:
+    """A stack-detection marker's presence (approach 3).
+
+    Under an active ledger presence is decided by one `stat`: ENOENT, ENOTDIR
+    or ELOOP is no match, and every other failure is an environment failure
+    naming the marker. `kind` adds the marker's type test (`"dir"`, `"file"`).
+    With no active ledger the answer is the predicate's: `exists()`,
+    `is_dir()` or `is_file()`.
+    """
+    p = Path(path)
+    if _ACTIVE_LEDGER.get() is None:
+        if kind == "dir":
+            return p.is_dir()
+        if kind == "file":
+            return p.is_file()
+        return p.exists()
+    try:
+        st = os.stat(p)
+    except OSError as exc:
+        if exc.errno in (errno.ENOENT, errno.ENOTDIR, errno.ELOOP):
+            return False
+        _environment_failure(p, exc)
+    if kind == "dir":
+        return stat.S_ISDIR(st.st_mode)
+    if kind == "file":
+        return stat.S_ISREG(st.st_mode)
+    return True
+
+
+def decode_input(path, raw: bytes) -> str | None:
+    """Decode an input's bytes as strict UTF-8 (approach 5).
+
+    Under an active ledger an undecodable input is an undecodable omission (a
+    document finding in the completeness-dependent concern) and returns None,
+    so no map describes replacement-decoded content. With no active ledger it
+    returns the replacement-decoded text the read sites returned before.
+    """
+    if _ACTIVE_LEDGER.get() is None:
+        return raw.decode("utf-8", errors="replace")
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        _omit(path, "undecodable")
+        return None
+
+
+class ParseOutcome:
+    """What `parsing(path)` reports: `failed` is True when the parse raised a
+    content failure the block caught."""
+
+    __slots__ = ("failed",)
+
+    def __init__(self) -> None:
+        self.failed = False
+
+
+@contextlib.contextmanager
+def parsing(path, catch=_PARSE_FAILED, *, legacy=None, kind: str = "unparseable"):
+    """Bound one parse site (approach 6).
+
+    A content failure (`catch`, `_PARSE_FAILED` by default) sets
+    `outcome.failed` and, under an active ledger, records an unparseable
+    omission (a document finding in the completeness-dependent concern).
+    `MemoryError` is an environment failure naming the input under an active
+    ledger and is re-raised without one; `ArchEnvironmentFailure` passes
+    through. `legacy` is the tuple caught with no active ledger, where it
+    differs from `catch` — so a broad handler that only the ledger widens
+    leaves a direct extractor call's behaviour unchanged.
+
+        with parsing(path) as outcome:
+            tree = ast.parse(text)
+        if outcome.failed:
+            ...
+    """
+    outcome = ParseOutcome()
+    active = _ACTIVE_LEDGER.get() is not None
+    caught = catch if (active or legacy is None) else legacy
+    try:
+        yield outcome
+    except _LANE_RAISES as exc:
+        if active and isinstance(exc, MemoryError):
+            _environment_failure(path, exc)
+        raise
+    except caught:
+        outcome.failed = True
+        if active:
+            _omit(path, "unparseable", kind)
+
+
+def _ledger_read_bytes(root, path, oversize, max_bytes, refusal, origin) -> bytes | None:
+    """`_safe_read_bytes` under an active ledger: lstat-first (approach 3)."""
+    def refuse(token: str) -> None:
+        if refusal is not None:
+            refusal.append(token)
+
+    if not _lexically_contained(root, path):
+        refuse("escape")
+        return None                            # no recognizable input
+    if _ancestor_escapes(root, path):
+        _omit(path, "not-a-file", "symbolic-link")
+        refuse("escape")
+        return None
+    try:
+        st = os.lstat(path)
+    except OSError as exc:
+        _classify_lstat_failure(path, origin, exc)
+        refuse("read-failed")
+        return None
+    if stat.S_ISLNK(st.st_mode):
+        _omit(path, "not-a-file", "symbolic-link")
+        refuse("not-regular")
+        return None
+    # Asked only of a path that is not a link: the retained-evidence check
+    # follows links, so asking it about one could refuse on a link loop.
+    if _retained_source_filter(root, discovery=False)(path):
+        return None
+    if stat.S_ISDIR(st.st_mode):
+        _omit(path, "not-a-file", "directory")
+        refuse("not-regular")
+        return None
+    if not stat.S_ISREG(st.st_mode):
+        _environment_failure(path, f"is a {_input_lanes().file_kind(st.st_mode)}, "
+                                   "not a regular file")
+
+    def over_cap() -> None:
+        _note_oversize(root, path, oversize)
+        _omit(path, "over-cap", "oversize", cap=max_bytes)
+        refuse("oversize")
+
+    if st.st_size > max_bytes:
+        over_cap()
+        return None
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+    try:
+        fd = os.open(path, flags)
+    except OSError as exc:
+        if exc.errno in (errno.EACCES, errno.EPERM, errno.ENOENT, errno.ENOTDIR):
+            _document_finding(path, exc)
+            refuse("read-failed")
+            return None
+        _environment_failure(path, exc)
+    try:
+        try:
+            fst = os.fstat(fd)
+        except OSError as exc:
+            _environment_failure(path, exc)
+        if not stat.S_ISREG(fst.st_mode):
+            _environment_failure(path, "changed from a regular file between lstat and open")
+        if fst.st_size > max_bytes:
+            over_cap()
+            return None
+        chunks: list[bytes] = []
+        total = 0
+        try:
+            os.set_blocking(fd, True)
+            while total <= max_bytes:
+                block = os.read(fd, 1 << 20)
+                if not block:
+                    break
+                chunks.append(block)
+                total += len(block)
+        except OSError as exc:
+            if exc.errno in (errno.EACCES, errno.EPERM):
+                _document_finding(path, exc)
+                refuse("read-failed")
+                return None
+            _environment_failure(path, exc)
+    finally:
+        os.close(fd)
+    if total > max_bytes:
+        over_cap()
+        return None
+    return b"".join(chunks)
+
+
 def _safe_read_bytes(
     root: Path,
     path: Path,
@@ -1237,6 +1955,7 @@ def _safe_read_bytes(
     *,
     max_bytes: int = _MAX_FILE_BYTES,
     refusal: list | None = None,
+    origin: str = "fixed",
 ) -> bytes | None:
     """Read `path` iff it is a REGULAR file contained under `root` and within
     `max_bytes` (point 8; default `_MAX_FILE_BYTES`, the existing 2 MB bound).
@@ -1295,7 +2014,23 @@ def _safe_read_bytes(
     byte is read, which is what stops a 2 GB ADR from being resident, and once
     against the bytes actually returned, because `st_size` is a snapshot and a
     file being appended to can outrun it.
+
+    **Under an active input ledger (ADR-0181) the read is lstat-first.**
+    `origin` states where the path came from — `listed` (a walk or listing),
+    `fixed` (a path the pack declares by convention, the default) or `named`
+    (a path tree content names) — and decides what absence means. The default
+    is `fixed` because it differs from `listed` only on a confirmed-absent
+    path, which a read without a stated origin treats as no input. A link or a
+    directory is a not-a-file omission, the per-file cap an over-cap omission,
+    a permission failure a document finding, and a FIFO, device, socket or any
+    failure outside the closed list an environment failure naming the entry.
+    The `oversize` and `refusal` out-parameters are still filled as before.
+    With no active ledger nothing below changes.
     """
+    if origin not in INPUT_ORIGINS:
+        raise ValueError(f"unknown input origin {origin!r}")
+    if _ACTIVE_LEDGER.get() is not None:
+        return _ledger_read_bytes(root, path, oversize, max_bytes, refusal, origin)
     if not _contained(root, path):
         if refusal is not None:
             refusal.append("escape")
@@ -1487,6 +2222,8 @@ def _vendored(script: str, modname: str):
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         return module
+    except _LANE_RAISES:
+        raise
     except Exception:
         return None
     finally:
@@ -1526,7 +2263,16 @@ def _skills_catalog_projection(root: Path) -> tuple[list, str, str] | None:
     reads.
     """
     cat = root / "crux" / "catalog" / "skills.json"
-    if not cat.is_file():
+    # Under an active input ledger the gate is the fixed-origin read itself
+    # (ADR-0181 approach 3): confirmed absence is clause 3's absent case, and a
+    # link or directory at the path is named not-a-file before clause 3 falls
+    # back to the source of truth. Without one, the predicate stays.
+    early = None
+    if ledger_active():
+        early = _safe_read_bytes(root, cat, [], origin="fixed")
+        if early is None:
+            return None                                  # clause 3: absent or omitted
+    elif not cat.is_file():
         return None                                      # clause 3: absent
     vc = _vendored("validate-catalog.py", "_crux_arch_catalog_regenerator")
     needed = ("regenerate_skills_json", "serialize_skills_json")
@@ -1540,7 +2286,7 @@ def _skills_catalog_projection(root: Path) -> tuple[list, str, str] | None:
         # in-bound file is one this projection cannot compare, and an
         # unread-therefore-different byte string would refuse as clause 2 STALE
         # over a file it never opened. Clause 3 is the honest lane for it.
-        raw = _safe_read_bytes(root, cat, [])
+        raw = early if early is not None else _safe_read_bytes(root, cat, [])
         if raw is None:
             _disqualified(
                 "api-surface",
@@ -1551,6 +2297,8 @@ def _skills_catalog_projection(root: Path) -> tuple[list, str, str] | None:
         # translation, and the regenerator this is compared against emits LF. Without
         # it a CRLF checkout refuses its own clean index as stale.
         have = _universal(raw.decode("utf-8"))   # strict: UnicodeDecodeError is clause 3
+    except _LANE_RAISES:
+        raise
     except Exception as exc:                             # clause 3: check unrunnable
         _disqualified(
             "api-surface",
@@ -1586,6 +2334,8 @@ def _skills_catalog_projection(root: Path) -> tuple[list, str, str] | None:
         )
     try:
         on_disk = json.loads(have)
+    except _LANE_RAISES:
+        raise
     except Exception:                                    # unreachable while want==have
         _disqualified("api-surface", "crux/catalog/skills.json is not readable JSON")
         return None
@@ -1724,7 +2474,26 @@ def _adr_index_projection(root: Path, docs_dir: str) -> tuple[list, str, str] | 
     carries in a roster of its own.
     """
     index_path = root / docs_dir / "adrs" / "index.md"
-    if not index_path.is_file():
+    # Under an active input ledger the gate is the fixed-origin read itself
+    # (ADR-0181, IDR approach 13), in the completeness-dependent concern:
+    # confirmed absence is clause 3's absent case, and a link, a directory, an
+    # over-cap or unreadable index, or an undecodable one is a document finding
+    # that refuses the derive. Without one, the predicate stays.
+    early = None
+    if ledger_active():
+        raw = _safe_read_bytes(root, index_path, [], origin="fixed")
+        if raw is None:
+            return None                                  # clause 3: absent, or refused
+        early = decode_input(index_path, raw)
+        if early is None:
+            return None                                  # refused: undecodable
+        early = _universal(early)
+        # The regenerator walks both tiers and its failure is a clause-3
+        # fallback. List them through the seam first, so an unlistable tier is
+        # the environment failure naming it (ADR-0177) and never a fallback.
+        _adr_files(index_path.parent)
+        _adr_files(index_path.parent / "archive")
+    elif not index_path.is_file():
         return None                                      # clause 3: absent
     gai = _vendored("generate-adr-index.py", "_crux_arch_adr_index_regenerator")
     if gai is None or not hasattr(gai, "build"):
@@ -1732,20 +2501,25 @@ def _adr_index_projection(root: Path, docs_dir: str) -> tuple[list, str, str] | 
         return None                                      # clause 3: no check
     try:
         built_path, want = gai.build(root)
-        # Gated like every other read, for the reason the skills-json projection
-        # states: an unread input compared as a differing byte string would
-        # refuse as clause 2 STALE over a file this never opened.
-        raw = _safe_read_bytes(root, index_path, [])
-        if raw is None:
-            _disqualified(
-                "decision-index",
-                "the ADR index is not a readable, in-bound regular file",
-            )
-            return None                                  # clause 3: unreadable
-        # `_universal` because the previous `read_text` applied universal-newline
-        # translation, and the regenerator this is compared against emits LF. Without
-        # it a CRLF checkout refuses its own clean index as stale.
-        have = _universal(raw.decode("utf-8"))   # strict: UnicodeDecodeError is clause 3
+        if early is not None:
+            have = early                                 # read and decoded above
+        else:
+            # Gated like every other read, for the reason the skills-json
+            # projection states: an unread input compared as a differing byte
+            # string would refuse as clause 2 STALE over a file this never opened.
+            raw = _safe_read_bytes(root, index_path, [])
+            if raw is None:
+                _disqualified(
+                    "decision-index",
+                    "the ADR index is not a readable, in-bound regular file",
+                )
+                return None                              # clause 3: unreadable
+            # `_universal` because the previous `read_text` applied universal-newline
+            # translation, and the regenerator this is compared against emits LF.
+            # Without it a CRLF checkout refuses its own clean index as stale.
+            have = _universal(raw.decode("utf-8"))   # strict: UnicodeDecodeError is clause 3
+    except _LANE_RAISES:
+        raise
     except Exception as exc:                             # clause 3: check unrunnable
         _disqualified(
             "decision-index",
@@ -1851,15 +2625,20 @@ def _extract_module_graph(root: Path, pkg: Path, pkg_name: str) -> tuple[str, di
         # gated read serves both the hash and pass 2's text, so this engine has
         # exactly one way into a file. Ungated, `_rel` on the next line raised
         # on a path resolving outside the root and took the whole derive down.
-        raw = _safe_read_bytes(root, py, [])
+        raw = _safe_read_bytes(root, py, [], origin="listed")
         if raw is None:
             continue
         sources[_rel(root, py)] = _sha256_hex(raw)
+        # Strict under an active ledger: an undecodable module stays hashed and
+        # is named undecodable rather than described from replaced text.
+        text = decode_input(py, raw)
+        if text is None:
+            continue
         rel_parts = py.relative_to(pkg).with_suffix("").parts
         mod = ".".join(rel_parts).replace(".__init__", "") or "__init__"
         pkg_path = ".".join(py.relative_to(pkg).parts[:-1])   # containing package
         modules.add(mod)
-        files.append((mod, pkg_path, raw.decode("utf-8", errors="replace")))
+        files.append((mod, pkg_path, text))
 
     # Pass 2: absolute (<pkg_name>.X) AND relative (from .X / ..X / from . import X)
     # imports. `pkg_name` is regex-escaped so a dotted or punctuated package name
@@ -1972,8 +2751,45 @@ def _replacement_resolutions(root: Path, view: dict, clauses: list[dict]) -> dic
                                    overlay["records"], persisted_edges=persisted)
 
 
-def _architectural_frontmatter(text: str) -> dict:
-    front = _frontmatter(text)
+#: The decision index's file selection, `ADR-*.md` as `Path.glob` matched it.
+_ADR_FILE_RE = re.compile(r"ADR-.*\.md", re.DOTALL)
+
+
+def _decision_directory_present(adrs_dir: Path) -> bool:
+    """Whether the decision directory is present (ADR-0181 point 9, approach 13).
+
+    The decision directory is optional input: confirmed absence (ENOENT or
+    ENOTDIR at the `stat`) is no input and the stub names it. Under an active
+    ledger every other `stat` failure, and a present non-directory, is the
+    environment failure naming the directory; with no active ledger the
+    `exists()` predicate answers as before.
+    """
+    if not ledger_active():
+        return adrs_dir.exists()
+    try:
+        return _input_lanes().directory_exists(adrs_dir)
+    except OSError as exc:
+        _environment_failure(adrs_dir, exc)
+
+
+def _adr_files(directory: Path) -> list[Path]:
+    """The `ADR-*.md` entries of `directory`, sorted, listed through the seam.
+
+    Under an active ledger a confirmed-absent directory is no input, a link is
+    not-a-file and an unlistable one is the environment failure naming it (the
+    `list_input_dir` lanes). With no active ledger the answer is
+    `sorted(directory.glob("ADR-*.md"))`'s.
+    """
+    entries = list_input_dir(directory, origin="fixed") or []
+    return [p for p in entries if _ADR_FILE_RE.fullmatch(p.name)]
+
+
+def _architectural_frontmatter(text: str, path=None) -> dict | None:
+    """An ADR's frontmatter, or None when it does not parse under an active
+    ledger (a document finding in the decision index)."""
+    front = _frontmatter(text, path)
+    if front is None:
+        return None
     if "record_type" in front:
         raise ValueError("typed implementation evidence cannot supply architectural decisions")
     return front
@@ -2006,7 +2822,7 @@ def extract_decision_index(root: Path, docs_dir: str, mode: str = "complete") ->
     # object. A single 2 GB ADR drove 4.33 GB RSS through that shape.
     oversize: list = []
     adrs_dir = root / docs_dir / "adrs"
-    if not adrs_dir.exists():
+    if not _decision_directory_present(adrs_dir):
         return _canon(["# Decision index", "", NO_EXTRACTOR.rstrip("\n")]), sources
 
     projected = _adr_index_projection(root, docs_dir)
@@ -2020,14 +2836,17 @@ def extract_decision_index(root: Path, docs_dir: str, mode: str = "complete") ->
         sources[_index_rel] = index_hash
         # Provenance for what the assertion read — see `extract_api_surface`.
         # Both tiers, because the regenerator walks both to build the index.
-        for ap in sorted(adrs_dir.glob("ADR-*.md")):
-            raw = _safe_read_bytes(root, ap, oversize)
+        for ap in _adr_files(adrs_dir):
+            raw = _safe_read_bytes(root, ap, oversize, origin="listed")
             if raw is None:
                 continue
-            _architectural_frontmatter(_universal(raw.decode("utf-8", errors="replace")))
             sources[_rel(root, ap)] = _sha256_hex(raw)
-        for ap in sorted((adrs_dir / "archive").glob("ADR-*.md")):
-            raw = _safe_read_bytes(root, ap, oversize)
+            text = decode_input(ap, raw)
+            if text is None:
+                continue
+            _architectural_frontmatter(_universal(text), ap)
+        for ap in _adr_files(adrs_dir / "archive"):
+            raw = _safe_read_bytes(root, ap, oversize, origin="listed")
             if raw is None:
                 continue
             sources[_rel(root, ap)] = _sha256_hex(raw)
@@ -2046,14 +2865,19 @@ def extract_decision_index(root: Path, docs_dir: str, mode: str = "complete") ->
         # spine hash of a prefixed tree, so it is a separate change with its own
         # tests, filed as a follow-on. This tree sets `artifact_prefix: ""`, so
         # both spellings select the same files here and nothing is masked by it.
-        for ap in sorted(adrs_dir.glob("ADR-*.md")):
+        for ap in _adr_files(adrs_dir):
             # One gated read serves both the frontmatter parse and the hash, so
             # this path has exactly one way into an ADR file, as the projected
             # path above does.
-            raw = _safe_read_bytes(root, ap, oversize)
+            raw = _safe_read_bytes(root, ap, oversize, origin="listed")
             if raw is None:
                 continue
-            fm = _architectural_frontmatter(_universal(raw.decode("utf-8", errors="replace")))
+            text = decode_input(ap, raw)
+            if text is None:
+                continue                                 # a document finding: refused
+            fm = _architectural_frontmatter(_universal(text), ap)
+            if fm is None:
+                continue                                 # a document finding: refused
             status = str(fm.get("status", "")).strip()
             if status != "Accepted":
                 continue
@@ -2451,12 +3275,22 @@ def _scan_dirs(root: Path, max_depth: int = DETECTION_MAX_DEPTH):
     for _ in range(max_depth):
         nxt = []
         for parent, prefix in frontier:
-            try:
+            if ledger_active():
+                # ADR-0177 under an active ledger: a directory the scan cannot
+                # list, or an entry it cannot stat, is an environment failure
+                # naming it, never an empty directory.
                 children = sorted(
-                    p for p in parent.iterdir() if not p.is_symlink() and not held(p) and p.is_dir()
+                    p for p in list_input_dir(parent, "fixed") or ()
+                    if not held(p) and _scan_entry_is_dir(p)
                 )
-            except OSError:
-                continue
+            else:
+                try:
+                    children = sorted(
+                        p for p in parent.iterdir()
+                        if not p.is_symlink() and not held(p) and p.is_dir()
+                    )
+                except OSError:
+                    continue
             for child in children:
                 if child.name.startswith(".") or child.name in _SKIP_DIRS:
                     continue
@@ -2464,6 +3298,19 @@ def _scan_dirs(root: Path, max_depth: int = DETECTION_MAX_DEPTH):
                 nxt.append((child, rel))
                 yield child, rel
         frontier = nxt
+
+
+def _scan_entry_is_dir(path: Path) -> bool:
+    """A detection-scan entry is a directory to descend: an `lstat` directory,
+    never a link. ENOENT is an entry that vanished; any other failure is an
+    environment failure naming the entry."""
+    try:
+        st = os.lstat(path)
+    except OSError as exc:
+        if exc.errno in (errno.ENOENT, errno.ENOTDIR):
+            return False
+        _environment_failure(path, exc)
+    return stat.S_ISDIR(st.st_mode)
 
 
 def _scan_candidates(root: Path, max_depth: int = DETECTION_MAX_DEPTH):
@@ -2816,6 +3663,8 @@ def load_regex_roster(path: Path | None = None) -> list[dict]:
     import yaml  # PyYAML is available under `uv run`; see the docstring above.
     try:
         raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except _LANE_RAISES:
+        raise
     except Exception as exc:
         raise ValueError(f"regex roster {path} is not valid YAML: {exc}") from exc
     if not isinstance(raw, dict) or not isinstance(raw.get("probes"), list):
@@ -3017,6 +3866,8 @@ def _resolve_extractor(
     for probe in pack_probes(pack_name, decision_index_mode).get(concern, []):
         try:
             hit = probe.detect(root)
+        except _LANE_RAISES:
+            raise
         except Exception:
             hit = False
         if hit:
@@ -3113,6 +3964,8 @@ def _run_override(
         module = importlib.util.module_from_spec(mod_spec)
         mod_spec.loader.exec_module(module)
         fn = getattr(module, func_name)
+    except _LANE_RAISES:
+        raise
     except Exception as exc:
         warn(f"import failed: {type(exc).__name__}: {exc}")
         return fallback(root, docs_dir)
@@ -3134,6 +3987,8 @@ def _run_override(
 
     try:
         result = fn(root, docs_dir)
+    except _LANE_RAISES:
+        raise
     except Exception as exc:
         warn(f"raised: {type(exc).__name__}: {exc}")
         return fallback(root, docs_dir)
@@ -3291,7 +4146,33 @@ def _build(
     coverage table without building the tree twice. It is an out-parameter
     rather than a second return value because `_build`'s single-dict return is
     bound by eleven test modules and the corpus harness.
+
+    **One input ledger per call (ADR-0181).** The ledger is active for the
+    whole body and the concern is active for each concern's body, so every
+    shared reader records into them; both are reset in a `finally`, so a build
+    that refuses or raises leaves neither active. A document finding raises
+    `ArchInputRefusal` after the last extractor; an environment failure raises
+    `ArchEnvironmentFailure` at once. Both escape before any caller writes.
     """
+    ledger = InputLedger(Path(root))
+    token = _ACTIVE_LEDGER.set(ledger)
+    try:
+        return _build_with_ledger(root, docs_dir, decision_index_mode, cfg,
+                                  report=report, ledger=ledger)
+    finally:
+        _ACTIVE_LEDGER.reset(token)
+
+
+def _build_with_ledger(
+    root: Path,
+    docs_dir: str,
+    decision_index_mode: str,
+    cfg,
+    *,
+    report: list | None,
+    ledger: InputLedger,
+) -> dict:
+    """`_build`'s body, run with `ledger` active."""
     resolution = resolve_stack(root, cfg)          # once; may raise on bad pin
     pack_name = resolution.pack_name
     # Clause 2's environment lane, checked BEFORE anything is extracted, hashed
@@ -3310,72 +4191,16 @@ def _build(
     coverage_records: list = []
     for fname in SPINE_FILES:                      # fixed order == hash domain
         concern = fname[:-3]
-        extractor, rung = _resolve_extractor(
-            concern, root, docs_dir, cfg,
-            decision_index_mode=decision_index_mode, pack_name=pack_name,
-        )
-        content, sources = extractor(root, docs_dir)
-        all_sources.update(sources)
-
-        # `extractor` names WHAT PRODUCED THE CONTENT — the pack when a probe
-        # rendered real content, `stub` when the empty-but-valid renderer did.
-        # It is deliberately not derived from the verdict: a `no_entities`
-        # concern's file was produced by its pack's extractor, and recording
-        # `stub` there would say the pack never ran.
-        #
-        # This used to carry `concern_verdict`'s substring twin, and inherited
-        # the same defect: the literal empty-but-valid sentence in a target
-        # document made a record claim `stub` for a file a pack probe really
-        # produced. `_is_empty_but_valid` asks the structural question instead —
-        # is this file NOTHING BUT a title and the marker — which target content
-        # inside a populated document cannot satisfy, because a populated
-        # document has other lines.
-        rendered_stub = _is_empty_but_valid(content)
-        verdict = concern_verdict(concern, pack_name, rung, content, sources)
-
-        # Clause 6's two detection verdicts, applied ONLY over an already-stubbed
-        # concern so a real extraction can never be relabelled an ambiguity.
-        #
-        # `decision-index` is exempt from `ambiguous_stack` on purpose: it is the
-        # UNIVERSAL concern, the ADR tree is stack-independent, and a repository
-        # whose stack is undecided still has whatever ADR index it has. Saying
-        # the decision index is ambiguous because two stacks matched would be the
-        # same false sentence clause 4 removed from the other 20 stubs.
-        # The decode-failure seam (`_concern_decode_verdict`, ADR-0129 clause
-        # 7) sits between the two: called only when the
-        # STACK resolved with no ambiguity at all (not merely "not ambiguous
-        # for this concern" — `resolution.ambiguity is None`), and always
-        # before `pack_ambiguity` so a pack's own `parse_failed` verdict is
-        # never shadowed by an ambiguous-package check that runs after it.
-        if verdict.kind == "stubbed":
-            if resolution.ambiguity is not None and concern != "decision-index":
-                verdict = ambiguous_stack_verdict(resolution.ambiguity)
-            else:
-                decoded = None
-                if resolution.ambiguity is None:
-                    decoded = _concern_decode_verdict(pack_name, concern, content, sources)
-                if decoded is not None:
-                    verdict = decoded
-                else:
-                    by_pack = pack_ambiguity(pack_name, concern, root)
-                    if by_pack is not None:
-                        verdict = by_pack
-
-        spine[fname] = _apply_stub_line(content, verdict)
-
-        coverage_records.append({
-            "concern": concern,
-            "extractor": "stub" if rendered_stub else pack_name,
-            "inputs_found": sorted(sources),
-            **verdict.as_record(),
-        })
-
-    if report is not None:
-        # The declared map is passed rather than re-resolved inside, so a
-        # `precondition_missing` remediation names the refresh command THIS
-        # pack declared — clause 9's line and clause 7's advisory then read the
-        # one `InputClass.refresh` field and cannot disagree about it.
-        report.extend(reported_coverage(coverage_records, input_classes(pack_name)))
+        concern_token = _ACTIVE_CONCERN.set(concern)
+        try:
+            spine[fname], record = _build_concern(
+                root, docs_dir, cfg, decision_index_mode, pack_name, resolution,
+                concern, all_sources)
+        finally:
+            _ACTIVE_CONCERN.reset(concern_token)
+        record["omissions"] = ledger.omissions(concern)
+        spine[fname] = _append_omissions(spine[fname], record["omissions"])
+        coverage_records.append(record)
 
     # A pin's config file is hashed into sources (ADR-0066 point 9b). That hash
     # is NOT how a pin change reaches the drift gate any more: `sources` is the
@@ -3394,15 +4219,31 @@ def _build(
             # Gated: the config file is repo content like any other input, and a
             # provenance entry is not worth an unbounded read. An unreadable one
             # simply contributes no source row.
-            raw_cfg = _safe_read_bytes(root, cfg_file, [])
+            raw_cfg = _safe_read_bytes(root, cfg_file, [], origin="fixed")
             if raw_cfg is not None:
                 all_sources[_rel(root, cfg_file)] = _sha256_hex(raw_cfg)
+
+    # ADR-0181's document lane: every finding met anywhere in the derive
+    # refuses it here, after the last read and before any caller writes or
+    # compares a file.
+    if ledger.findings:
+        raise ArchInputRefusal(ledger.findings)
+
+    if report is not None:
+        # The declared map is passed rather than re-resolved inside, so a
+        # `precondition_missing` remediation names the refresh command THIS
+        # pack declared — clause 9's line and clause 7's advisory then read the
+        # one `InputClass.refresh` field and cannot disagree about it.
+        report.extend(reported_coverage(coverage_records, input_classes(pack_name)))
 
     # Spine hash: SHA-256 over exactly the four spine files, fixed order.
     spine_hash = _sha256_hex(b"".join(spine[f].encode("utf-8") for f in SPINE_FILES))
 
-    overview = _synthesize_overview(spine, spine_hash, pack_name, arch_stack_pin)
-    index = _synthesize_index(spine_hash)
+    counts = {f"{c}.md": len(r["omissions"]) for c, r in
+              zip(CONCERNS, coverage_records) if c in DESCRIPTIVE_CONCERNS}
+    overview = _synthesize_overview(spine, spine_hash, pack_name, arch_stack_pin,
+                                    omission_counts=counts)
+    index = _synthesize_index(spine_hash, omission_counts=counts)
     manifest = _synthesize_manifest(
         spine_hash, all_sources,
         {c: ic.globs for c, ic in input_classes(pack_name).items()},
@@ -3417,8 +4258,82 @@ def _build(
     return tree
 
 
+def _build_concern(
+    root: Path,
+    docs_dir: str,
+    cfg,
+    decision_index_mode: str,
+    pack_name: str,
+    resolution: "StackResolution",
+    concern: str,
+    all_sources: dict,
+) -> tuple[str, dict]:
+    """One concern's spine file and coverage record, run with the concern
+    active: its probe detects, its extractor, `_concern_decode_verdict` and
+    `pack_ambiguity` all record under it."""
+    extractor, rung = _resolve_extractor(
+        concern, root, docs_dir, cfg,
+        decision_index_mode=decision_index_mode, pack_name=pack_name,
+    )
+    content, sources = extractor(root, docs_dir)
+    all_sources.update(sources)
+
+    # `extractor` names WHAT PRODUCED THE CONTENT — the pack when a probe
+    # rendered real content, `stub` when the empty-but-valid renderer did.
+    # It is deliberately not derived from the verdict: a `no_entities`
+    # concern's file was produced by its pack's extractor, and recording
+    # `stub` there would say the pack never ran.
+    #
+    # This used to carry `concern_verdict`'s substring twin, and inherited
+    # the same defect: the literal empty-but-valid sentence in a target
+    # document made a record claim `stub` for a file a pack probe really
+    # produced. `_is_empty_but_valid` asks the structural question instead —
+    # is this file NOTHING BUT a title and the marker — which target content
+    # inside a populated document cannot satisfy, because a populated
+    # document has other lines.
+    rendered_stub = _is_empty_but_valid(content)
+    verdict = concern_verdict(concern, pack_name, rung, content, sources)
+
+    # Clause 6's two detection verdicts, applied ONLY over an already-stubbed
+    # concern so a real extraction can never be relabelled an ambiguity.
+    #
+    # `decision-index` is exempt from `ambiguous_stack` on purpose: it is the
+    # UNIVERSAL concern, the ADR tree is stack-independent, and a repository
+    # whose stack is undecided still has whatever ADR index it has. Saying
+    # the decision index is ambiguous because two stacks matched would be the
+    # same false sentence clause 4 removed from the other 20 stubs.
+    # The decode-failure seam (`_concern_decode_verdict`, ADR-0129 clause
+    # 7) sits between the two: called only when the
+    # STACK resolved with no ambiguity at all (not merely "not ambiguous
+    # for this concern" — `resolution.ambiguity is None`), and always
+    # before `pack_ambiguity` so a pack's own `parse_failed` verdict is
+    # never shadowed by an ambiguous-package check that runs after it.
+    if verdict.kind == "stubbed":
+        if resolution.ambiguity is not None and concern != "decision-index":
+            verdict = ambiguous_stack_verdict(resolution.ambiguity)
+        else:
+            decoded = None
+            if resolution.ambiguity is None:
+                decoded = _concern_decode_verdict(pack_name, concern, content, sources)
+            if decoded is not None:
+                verdict = decoded
+            else:
+                by_pack = pack_ambiguity(pack_name, concern, root)
+                if by_pack is not None:
+                    verdict = by_pack
+
+    content = _apply_stub_line(content, verdict)
+    return content, {
+        "concern": concern,
+        "extractor": "stub" if rendered_stub else pack_name,
+        "inputs_found": sorted(sources),
+        **verdict.as_record(),
+    }
+
+
 def _synthesize_overview(
-    spine: dict, spine_hash: str, pack_name: str = STUB_PACK_NAME, arch_stack_pin: str | None = None
+    spine: dict, spine_hash: str, pack_name: str = STUB_PACK_NAME, arch_stack_pin: str | None = None,
+    *, omission_counts: dict | None = None,
 ) -> str:
     """Deterministic narrative synthesized FROM the spine. Header carries the
     spine-hash stamp the gate checks (ADR-0060 Decision 2). Records the resolved
@@ -3431,7 +4346,13 @@ def _synthesize_overview(
     through the spine, because different extractors produce different spine
     files. For a pin that names the pack auto-detection would have chosen, the
     spine is byte-identical and this inline render is the only remaining
-    route."""
+    route.
+
+    `omission_counts` maps each descriptive spine file to the number of
+    inputs its map omits (ADR-0181). One fixed-form line per descriptive spine
+    file follows the Shape bullets, so no existing line changes; an absent map
+    counts zero.
+    """
     def _count(fname: str, pat: str) -> str:
         m = re.search(pat, spine[fname])
         return m.group(1) if m else "?"
@@ -3477,6 +4398,7 @@ def _synthesize_overview(
         "## Shape",
         "",
         *shape,
+        *_omission_count_lines(omission_counts),
         "",
         "## How to read this",
         "",
@@ -3488,7 +4410,17 @@ def _synthesize_overview(
     ])
 
 
-def _synthesize_index(spine_hash: str) -> str:
+def _omission_count_lines(omission_counts: dict | None) -> list[str]:
+    """One `omission_count_line` per descriptive spine file, in spine order."""
+    counts = omission_counts or {}
+    return [omission_count_line(f"{c}.md", counts.get(f"{c}.md", 0))
+            for c in DESCRIPTIVE_CONCERNS]
+
+
+def _synthesize_index(spine_hash: str, *, omission_counts: dict | None = None) -> str:
+    """The arch tree's index. `omission_counts` adds one fixed-form line per
+    descriptive spine file after the file list (ADR-0181); `overview.md` and
+    `index.md` have no concern of their own and carry no count."""
     files = SPINE_FILES + ["overview.md"]
     return _canon(
         ["# arch", "",
@@ -3496,6 +4428,7 @@ def _synthesize_index(spine_hash: str) -> str:
          f"**spine hash:** `sha256:{spine_hash}`", "",
          "## Files", ""]
         + [f"- [[arch/{f[:-3]}]]" for f in files]
+        + _omission_count_lines(omission_counts)
         + ["", "See `_meta/manifest.json` for source hashes and tool pins."]
     )
 
@@ -3504,6 +4437,13 @@ def _synthesize_manifest(spine_hash: str, sources: dict,
                          declared_sources: dict | None = None,
                          parser_pins: dict | None = None) -> str:
     """Byte-stable JSON: no timestamps; sorted keys; tool pins + per-source hash.
+
+    Per rule:provenance-manifest-selects-no-recognizable-input this builder
+    selects no recognizable input. It builds the document from its arguments
+    and the constant `TOOL_PINS`: the spine hash, the hashes the extractors
+    returned, the declared globs and the parser pins. It opens no file and
+    resolves no glob, so an input a descriptive map names as an omission is no
+    input this derivation is missing.
 
     `parser_pins` is clause 1's pin, supplied by `core.parser_pins` for the
     RESOLVED pack and merged into `tool_pins` under a `parser:` prefix. Merged
@@ -3683,6 +4623,9 @@ def coverage_table(records: list) -> str:
         else:
             detail = (f"{rec['stub_reason']}: expected {rec['expected']}, "
                       f"found {rec['found']}")
+        omitted = rec.get("omissions") or []
+        if omitted:
+            detail += f"; incomplete: {len(omitted)} input(s) omitted"
         note = "".join(f"  [{a}]" for a in rec.get("annotations", ()))
         lines.append(f"{rec['concern']:<{_COVERAGE_CONCERN_W}} "
                      f"{rec['verdict']:<{_COVERAGE_VERDICT_W}} {detail}{note}")
@@ -3707,10 +4650,13 @@ def strict_failures(
     """The clause 5 gate: which recorded verdicts fail this run.
 
     A pure function of the coverage records, the required set and the flag.
-    Deliberately pure, and deliberately reading `verdict` and nothing else:
+    Deliberately pure, and deliberately reading the recorded verdict and the
+    recorded omission list and nothing else:
 
-      * it reads the RECORDED verdict, so the gate cannot be moved by anything
-        outside the byte-compared channel;
+      * it reads the RECORDED verdict and `omissions`, both in the byte-compared
+        `coverage.json`, so the gate cannot be moved by anything outside that
+        channel. A required concern carrying an omission fails even when its
+        verdict is `populated` (ADR-0181), and each failure carries the list;
       * it never reads `annotations`, which is how clause 5's last sentence is
         kept — `possibly_stale` never fails strict, because strict must not
         depend on the commit graph. An annotation added to the vocabulary later
@@ -3729,10 +4675,11 @@ def strict_failures(
         named = rec["concern"] in required
         if not (named or strict):
             continue
-        if rec.get("verdict") == "populated":
+        if rec.get("verdict") == "populated" and not rec.get("omissions"):
             continue
         out.append(dict(rec, required_by=REQUIRED_BY_MANIFEST if named
-                        else REQUIRED_BY_FLAG))
+                        else REQUIRED_BY_FLAG,
+                        omissions=list(rec.get("omissions") or [])))
     return out
 
 

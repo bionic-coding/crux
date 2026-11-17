@@ -655,6 +655,231 @@ class AcceptanceChangeTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, 'acceptance-change-phase')
 
 
+# ───────────────────────── IDR stale-verification-signal ─────────────────────────
+
+LABELLED = ['Criterion 0: works check', 'Criterion 1: fast check', 'Criterion 2: small check', 'Drift: gates']
+
+
+class StaleVerificationSignalTests(unittest.TestCase):
+    """An acceptance change flags the verification entries it affects; the plan command clears the flag."""
+    setUp_base = fixtures.CycleTests.setUp
+    cycle = fixtures.CycleTests.cycle
+    apply = fixtures.CycleTests.apply
+    setUp = AcceptanceChangeTests.setUp
+    proposal = AcceptanceChangeTests.proposal
+    captured = AcceptanceChangeTests.captured
+    apply_capture = AcceptanceChangeTests.apply_capture
+
+    def planned(self, kind):
+        doc = self.cycle(kind)
+        plan = deepcopy(doc['plan'])
+        plan.update(acceptance=['Works', 'Fast', 'Small'], verification=list(LABELLED),
+                    tasks=[task(p, phase=p) for p in wf.PHASES[kind]])
+        return self.apply(doc, 'plan', plan=plan, reason='initial plan')
+
+    def change(self, name, ident, **change):
+        binding = self.proposal(name, **{'remove': [], 'move': [], 'add': [], **change})
+        self.apply_capture(binding, self.captured(binding, ident=ident))
+        return load(self.repo, self.doc['id'])
+
+    def flagged(self, verification=None, **change):
+        if verification is not None:
+            plan = wf.plan_file_of(load(self.repo, self.doc['id']))
+            plan['verification'] = verification
+            self.apply(load(self.repo, self.doc['id']), 'plan', plan=plan, reason='verification fixture')
+        return self.change('flag', '0101', **change)
+
+    def op(self, request):
+        import cycle_ops
+        return cycle_ops.run(self.repo, self.doc['id'], request)
+
+    def test_a_removal_flags_the_shifted_entries_and_rewrites_none(self):
+        doc = self.flagged(remove=['Fast'], add=['Has a test'])
+        self.assertEqual(doc['plan']['acceptance'], ['Works', 'Small', 'Has a test'])
+        self.assertEqual(doc['plan']['verification'], LABELLED)
+        [record] = doc['plan']['stale_verification']
+        self.assertEqual(record['entries'], LABELLED[1:])
+        self.assertEqual(record['added'], [2])
+        self.assertNotIn(LABELLED[0], record['entries'])
+        revised = [e for e in doc['history'] if e['action'] == 'plan-revised'][-1]
+        self.assertIn(record['capture']['path'], revised['reason'])
+
+    def test_an_add_only_change_flags_no_entry_and_records_the_added_index(self):
+        doc = self.flagged(add=['Has a test'])
+        self.assertEqual(doc['plan']['stale_verification'][0]['entries'], [])
+        self.assertEqual(doc['plan']['stale_verification'][0]['added'], [3])
+        self.assertEqual(doc['plan']['verification'], LABELLED)
+
+    def test_a_head_naming_two_criteria_is_unlabelled_and_flagged_on_a_removal(self):
+        shared = 'Criterion 0 and 2: shared check'
+        doc = self.flagged(verification=['Criterion 0: works check', shared], remove=['Small'])
+        self.assertEqual(doc['plan']['acceptance'], ['Works', 'Fast'])
+        self.assertEqual(doc['plan']['stale_verification'][0]['entries'], [shared])
+        self.assertEqual(owner_decision._criterion_label('Criterion 0, A2, rollup: gate'), 0)
+        self.assertIsNone(owner_decision._criterion_label('Criterion 1, 2: both'))
+
+    def test_empty_verification_records_nothing(self):
+        doc = self.change('empty-only', '0103', remove=['Small'])
+        self.assertIn('stale_verification', doc['plan'])  # control: the labelled plan flags the removal
+        self.setUp()
+        plan = wf.plan_file_of(load(self.repo, self.doc['id']))
+        plan['verification'] = []
+        self.apply(load(self.repo, self.doc['id']), 'plan', plan=plan, reason='no verification yet')
+        doc = self.change('empty', '0102', remove=['Small'])
+        self.assertNotIn('stale_verification', doc['plan'])
+
+    def test_a_replay_writes_nothing(self):
+        binding = self.proposal('replay', remove=['Fast'], move=[], add=[])
+        captured = self.captured(binding, ident='0104')
+        self.apply_capture(binding, captured)
+        before = (self.cfg.docs_root / f"cycles/{self.doc['id']}/cycle.json").read_bytes()
+        self.assertTrue(self.apply_capture(binding, captured)['already_applied'])
+        self.assertEqual((self.cfg.docs_root / f"cycles/{self.doc['id']}/cycle.json").read_bytes(), before)
+
+    def test_two_successive_changes_keep_both_records(self):
+        first = self.flagged(remove=['Fast'])['plan']['stale_verification'][0]
+        doc = self.change('second', '0105', add=['Later'])
+        self.assertEqual(len(doc['plan']['stale_verification']), 2)
+        self.assertEqual(doc['plan']['stale_verification'][0], first)
+        self.assertEqual(doc['plan']['stale_verification'][1]['added'], [2])
+
+    def test_inspect_exposes_the_flag_and_advance_refuses_until_the_plan_clears_it(self):
+        doc = self.apply(load(self.repo, self.doc['id']), 'task', task_id='plan', state='done')
+        code, seen = self.op({'op': 'inspect'})
+        self.assertEqual(code, 0)
+        self.assertEqual(seen['unmet']['next'], [])  # positive control: nothing else holds Plan
+        self.flagged(remove=['Fast'])
+        code, seen = self.op({'op': 'inspect'})
+        self.assertEqual([i['requirement'] for i in seen['unmet']['next']], ['stale-verification'])
+        self.assertIn('Criterion 1: fast check', seen['unmet']['next'][0]['problem'])
+        plan_routes = [a for a in seen['actions'] if a.get('argv', [])[-2:] == ['plan', self.doc['id']]]
+        self.assertEqual(len(plan_routes), 1)
+        self.assertEqual(plan_routes[0]['caller_fills'], ['--file', '--reason'])
+        doc = load(self.repo, self.doc['id'])
+        code, refused = self.op({'op': 'advance', 'op_id': 'advance-stale', 'expect_revision': doc['revision']})
+        self.assertNotEqual(code, 0)
+        [error] = refused['errors']
+        self.assertEqual((error['code'], error['field']), ('requirement-unmet', 'stale-verification'))
+        self.assertEqual(error['recovery'][0]['argv'][-2:], ['plan', self.doc['id']])
+        plan = wf.plan_file_of(doc)
+        plan['verification'] = ['Criterion 0: works check', 'Criterion 1: small check', 'Drift: gates']
+        plan['stale_verification'] = []
+        doc = self.apply(doc, 'plan', plan=plan, reason='reconciled verification after the acceptance change')
+        self.assertNotIn('stale_verification', doc['plan'])
+        code, seen = self.op({'op': 'inspect'})
+        self.assertEqual(seen['unmet']['next'], [])
+        code, advanced = self.op({'op': 'advance', 'op_id': 'advance-clear', 'expect_revision': doc['revision']})
+        self.assertEqual(code, 0, advanced)
+        self.assertEqual(load(self.repo, self.doc['id'])['phase'], 'build')
+
+    def test_a_plan_file_keeps_an_omitted_or_equal_flag_and_refuses_any_other_value(self):
+        doc = self.flagged(remove=['Fast'])
+        held = deepcopy(doc['plan']['stale_verification'])
+        omitted = wf.plan_file_of(doc)
+        omitted.pop('stale_verification')
+        doc = self.apply(doc, 'plan', plan=omitted, reason='unrelated revision')
+        self.assertEqual(doc['plan']['stale_verification'], held)
+        doc = self.apply(doc, 'plan', plan=wf.plan_file_of(doc), reason='round trip')
+        self.assertEqual(doc['plan']['stale_verification'], held)
+        altered = deepcopy(held)
+        altered[0]['entries'] = []
+        for value in (altered, None, 'cleared', [{}]):
+            with self.subTest(value=value):
+                plan = wf.plan_file_of(doc)
+                plan['stale_verification'] = value
+                before = (self.cfg.docs_root / f"cycles/{self.doc['id']}/cycle.json").read_bytes()
+                with self.assertRaises(CycleError) as raised:
+                    self.apply(doc, 'plan', plan=plan, reason='forged')
+                self.assertIn('stale-verification-not-writable', str(raised.exception))
+                self.assertEqual((self.cfg.docs_root / f"cycles/{self.doc['id']}/cycle.json").read_bytes(), before)
+
+    def test_a_plan_file_cannot_add_a_flag_and_an_empty_list_without_one_is_a_no_op(self):
+        doc = load(self.repo, self.doc['id'])
+        plan = wf.plan_file_of(doc)
+        plan['stale_verification'] = [{'capture': {'path': 'x', 'sha256': '0' * 64}, 'entries': [], 'added': [0]}]
+        with self.assertRaises(CycleError) as raised:
+            self.apply(doc, 'plan', plan=plan, reason='forged')
+        self.assertIn('stale-verification-not-writable', str(raised.exception))
+        plan['stale_verification'] = []
+        doc = self.apply(doc, 'plan', plan=plan, reason='nothing held')
+        self.assertNotIn('stale_verification', doc['plan'])
+
+
+class ChangeTypeStaleVerificationTests(unittest.TestCase):
+    """Criterion 0: change-type into a type with no Plan phase refuses while stale verification is held."""
+    setUp_base = fixtures.CycleTests.setUp
+    cycle = fixtures.CycleTests.cycle
+    apply = fixtures.CycleTests.apply
+    setUp = AcceptanceChangeTests.setUp
+    proposal = AcceptanceChangeTests.proposal
+    captured = AcceptanceChangeTests.captured
+    apply_capture = AcceptanceChangeTests.apply_capture
+    planned = StaleVerificationSignalTests.planned
+    change = StaleVerificationSignalTests.change
+    flagged = StaleVerificationSignalTests.flagged
+
+    def record_bytes(self):
+        return (self.cfg.docs_root / f"cycles/{self.doc['id']}/cycle.json").read_bytes()
+
+    def assert_refusal_text(self, message, revision):
+        self.assertTrue(message.startswith('change-type-stale-verification: quick-fix has no Plan phase'), message)
+        self.assertIn(f'Record plan revision {revision + 1} with the plan command, passing stale_verification []', message)
+        self.assertIn('then change type to quick-fix after that revision', message)
+
+    def test_change_to_quick_fix_refuses_and_writes_nothing(self):
+        doc = self.flagged(remove=['Fast'])
+        held = deepcopy(doc['plan']['stale_verification'])
+        before = self.record_bytes()
+        with self.assertRaises(CycleError) as raised:
+            self.apply(doc, 'change-type', kind='quick-fix', reason='the remaining scope is a small correction')
+        self.assert_refusal_text(str(raised.exception), doc['plan']['revision'])
+        self.assertEqual(self.record_bytes(), before)
+        after = load(self.repo, self.doc['id'])
+        self.assertEqual((after['type'], after['phase'], after['pass_limit'], after['plan']['tasks']),
+                         (doc['type'], doc['phase'], doc['pass_limit'], doc['plan']['tasks']))
+        self.assertEqual(after['plan']['stale_verification'], held)
+
+    def test_change_to_a_type_that_starts_in_plan_keeps_the_flag(self):
+        doc = self.flagged(remove=['Fast'])
+        held = deepcopy(doc['plan']['stale_verification'])
+        doc = self.apply(doc, 'change-type', kind='refactor', reason='the work preserves behaviour')
+        self.assertEqual((doc['type'], doc['phase']), ('refactor', 'plan'))
+        self.assertEqual(doc['plan']['stale_verification'], held)
+
+    def test_clearing_with_the_named_plan_revision_lets_the_change_proceed(self):
+        doc = self.flagged(remove=['Fast'])
+        with self.assertRaises(CycleError) as raised:
+            self.apply(doc, 'change-type', kind='quick-fix', reason='small correction')
+        named = doc['plan']['revision'] + 1
+        self.assert_refusal_text(str(raised.exception), doc['plan']['revision'])
+        plan = wf.plan_file_of(doc)
+        plan['verification'] = ['Criterion 0: works check', 'Criterion 1: small check', 'Drift: gates']
+        plan['stale_verification'] = []
+        doc = self.apply(doc, 'plan', plan=plan, reason='reconciled verification after the acceptance change')
+        self.assertEqual(doc['plan']['revision'], named)
+        self.assertNotIn('stale_verification', doc['plan'])
+        doc = self.apply(doc, 'change-type', kind='quick-fix', reason='small correction')
+        self.assertEqual((doc['type'], doc['phase']), ('quick-fix', 'build'))
+
+    def test_the_cli_prints_the_refusal_and_succeeds_once_cleared(self):
+        from test_cycle_slice import SCRIPTS, shared_interpreter_env
+        doc = self.flagged(remove=['Fast'])
+        argv = [sys.executable, str(SCRIPTS / 'cycle.py'), '--repo-root', str(self.repo), '--compact', 'change-type', self.doc['id'],
+                '--type', 'quick-fix', '--reason', 'small correction']
+        before = self.record_bytes()
+        refused = subprocess.run(argv, capture_output=True, text=True, cwd=SCRIPTS, env=shared_interpreter_env())
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn('change-type-stale-verification: quick-fix has no Plan phase', refused.stdout + refused.stderr)
+        self.assertIn(f"Record plan revision {doc['plan']['revision'] + 1}", refused.stdout + refused.stderr)
+        self.assertEqual(self.record_bytes(), before)
+        plan = wf.plan_file_of(doc)
+        plan['stale_verification'] = []
+        self.apply(doc, 'plan', plan=plan, reason='reconciled verification')
+        changed = subprocess.run(argv, capture_output=True, text=True, cwd=SCRIPTS, env=shared_interpreter_env())
+        self.assertEqual(changed.returncode, 0, changed.stdout + changed.stderr)
+        self.assertEqual(load(self.repo, self.doc['id'])['type'], 'quick-fix')
+
+
 # ───────────────────────────── approach 6: legacy adoption ─────────────────────────────
 
 LEGACY = '''---

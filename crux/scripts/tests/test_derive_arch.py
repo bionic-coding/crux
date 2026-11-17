@@ -572,7 +572,9 @@ class ArchDeriveTests(unittest.TestCase):
                              [f[:-3] for f in D.SPINE_FILES], label)
             for rec in concerns:
                 where = f"{label}/{rec['concern']}"
-                base = {"concern", "extractor", "inputs_found", "verdict"}
+                # `omissions` is always present, empty when none (ADR-0181).
+                base = {"concern", "extractor", "inputs_found", "verdict", "omissions"}
+                self.assertIsInstance(rec["omissions"], list, where)
                 if rec["verdict"] == "populated":
                     self.assertEqual(set(rec), base | {"n_sources", "n_entities"}, where)
                 else:

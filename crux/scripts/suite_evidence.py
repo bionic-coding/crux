@@ -253,6 +253,10 @@ def supported_minors(dev_root):
     return FALLBACK_MINORS
 
 
+# The most reads of the changelog tokens one projection makes when HEAD moves during a read.
+CHANGELOG_TOKEN_READS = 3
+
+
 def _changelog_projection(root):
     """The changelog projection, computed once per subject inside a call scope (see ``_changelog_tokens``)."""
     import test_evidence
@@ -272,13 +276,24 @@ def _changelog_tokens(root):
     module loads where that one cannot. Every uncertain state returns ``{}``, which leaves CHANGELOG.md a
     whole-file input: the call raises, no batch binds CHANGELOG.md, the token set is empty (an empty kind
     never validates), or a binding batch has no committed application.
+
+    A commit that lands while the reader walks the history makes it refuse
+    ``migration-history-head-changed``. That refusal is transient, so the read runs again, at most
+    ``CHANGELOG_TOKEN_READS`` reads in all; a third head change keeps the ``{}`` fallback.
     """
     try:
         # A tree with no batch file has no tokens. The reader walks the commit history, so skip it there.
         if not any((Path(root) / _docs_relative(root) / "adrs/migrations").glob("*.yaml")):
             return {}
         from implementation_migration import changelog_citation_tokens
-        found = changelog_citation_tokens(root)
+        for read in range(CHANGELOG_TOKEN_READS):
+            try:
+                found = changelog_citation_tokens(root)
+                break
+            except Exception as error:
+                if getattr(error, "code", None) != "migration-history-head-changed" \
+                        or read + 1 == CHANGELOG_TOKEN_READS:
+                    raise
         tokens, binding, unpublished = found["tokens"], found["binding"], found["unpublished"]
         if not tokens or not binding or unpublished or tokens != sorted(set(tokens)):
             return {}

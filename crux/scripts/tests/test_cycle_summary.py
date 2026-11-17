@@ -42,7 +42,7 @@ class SummaryTests(unittest.TestCase):
             body = json.loads(self.run_cli(command, self.cid))
             self.assertTrue(body['ok']); self.assertNotIn('cycle', body)
             s = body['summary']
-            self.assertEqual(set(s), SUMMARY_KEYS | V3_KEYS)
+            self.assertEqual(set(s), SUMMARY_KEYS | V3_KEYS | {'testing_policy', 'local_checks'})
             self.assertEqual((s['schema_version'], s['revision'], s['attempts']), (3, load(self.repo, self.cid)['revision'], {'reserved': 0, 'running': 0}))
             self.assertEqual((s['id'], s['type'], s['status']), (self.cid, 'iterate', 'active'))
             self.assertEqual(len(s['tasks']), len(PHASES['iterate']))

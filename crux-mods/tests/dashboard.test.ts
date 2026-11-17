@@ -1069,8 +1069,15 @@ test('the band is one Text holding a Text per span, never sibling Texts laid out
   const tree = (await (await $.ui.mount({ plugin: 'crux-mods', surface: 'terminal', component: 'AbovePrompt', props: BAND })).drawn()) as any
   const flat = (cs: unknown[]): any[] => cs.flatMap(c => (Array.isArray(c) ? flat(c) : [c]))
   const elements = (n: any): any[] => flat(Array.isArray(n?.children) ? n.children : []).filter(c => c !== null && typeof c === 'object')
-  expect(tree.type).toBe('Box')
-  const kids = elements(tree)
+  // From Claude Code 2.1.325 the host stacks each plugin's part in a column Box and tags the part's own
+  // root Box with `part.plugin`. The invariant holds on the mod's root Box: the tagged part, or, on a host
+  // that draws the part as the root, the root itself.
+  const parts = (n: any): any[] => (n?.part?.plugin === 'crux-mods' ? [n] : elements(n).flatMap(parts))
+  const tagged = parts(tree)
+  expect(tagged.length).toBeLessThanOrEqual(1)
+  const band = tagged[0] ?? tree
+  expect(band.type).toBe('Box')
+  const kids = elements(band)
   expect(kids.map(k => k.type)).toEqual(['Text'])
   const spans = elements(kids[0])
   expect(spans.length).toBeGreaterThan(8)

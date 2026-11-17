@@ -16,6 +16,7 @@ import tempfile
 import uuid
 
 from bionic_config import load_config, load_workflow_policy, require_schema_version
+import cycle_runtime
 
 PHASES = {
     'dev': ['plan', 'build', 'test', 'review', 'reflect'],
@@ -80,6 +81,11 @@ def listed(doc):
 def legacy(doc):
     """A release record from before the fixed lists: historical, closable only."""
     return doc['type'] == 'release' and not doc.get('release_list')
+
+
+def proportionate(doc):
+    """New local testing records; absent policy preserves historical receipt semantics."""
+    return doc['type'] != 'release' and doc.get('testing_policy') == 'proportionate'
 
 
 def satisfied(tasks, ident):
@@ -326,6 +332,26 @@ def validate(doc):
     validator.validate(doc, schema, '#', '#', errors, 'cycle')
     if errors:
         raise CycleError(f'invalid cycle: {errors[0]}')
+    if doc.get('testing_policy') == 'proportionate' and 'local_checks' not in doc:
+        raise CycleError('proportionate testing requires local_checks')
+    local_ids = set()
+    for observation in doc.get('local_checks', []):
+        if any(not _text(observation[k]) or len(observation[k]) > 4000
+               for k in ('check_id', 'command', 'tested_revision', 'summary', 'reason')):
+            raise CycleError('local check text fields must contain at most 4000 characters')
+        if observation['id'] in local_ids:
+            raise CycleError('local check identities must be unique')
+        if observation['use'] == 'reused':
+            prior = next((r for r in doc['local_checks'] if r['id'] == observation.get('reused_from') and r['id'] in local_ids), None)
+            previous_checks = [r for r in doc['local_checks'] if r['id'] in local_ids
+                               and r['check_id'] == observation['check_id'] and r['pass'] == observation['pass']]
+            if (prior is None or prior['pass'] != observation['pass'] or prior['check_id'] != observation['check_id']
+                    or prior['result'] != 'passed' or not previous_checks or previous_checks[-1]['result'] != 'passed'
+                    or any(prior[k] != observation[k] for k in ('command', 'tested_revision', 'result'))):
+                raise CycleError('local reuse must retain a prior passing observation from this cycle and pass')
+        elif 'reused_from' in observation:
+            raise CycleError('an executed local check carries no reuse reference')
+        local_ids.add(observation['id'])
     if doc['schema_version'] == 2 and not {'coverage', 'completion'}.issubset(doc):
         raise CycleError('version-two cycle requires coverage and completion fields')
     if len(doc['implementers']) != len(set(doc['implementers'])) or len(doc['required_checks']) != len(set(doc['required_checks'])):
@@ -379,6 +405,8 @@ def load(repo, identity):
         doc = json.loads(path.read_text())
     except (OSError, ValueError) as exc:
         raise CycleError(f'cannot load cycle {identity}: {type(exc).__name__}') from exc
+    if isinstance(doc, dict) and doc.get('format') == 'crux.cycle.vNext':
+        raise CycleError('this is an opt-in pilot record; use cycle.py pilot show or pilot milestone commands')
     validate(doc)
     if doc['id'] != identity:
         raise CycleError('cycle identity differs from its directory')
@@ -432,9 +460,8 @@ def create(repo, kind, title, goal, scope, acceptance, implementer, coordinator,
         if kind == 'release':
             from cycle_hosts import release_scope
             release_scope(cfg, scope, release_list)
-        used = [int(match.group(1)) for path in directory.iterdir()
-                if (match := re.search(r'CYC-([0-9]+)$', path.name))]
-        identity = f"{cfg.artifact_prefix + '-' if cfg.artifact_prefix else ''}CYC-{max(used, default=0) + 1:04d}"
+        from cycle_runtime import allocate
+        identity = allocate(cfg, directory)
         policy = load_workflow_policy(repo)
         doc = {
             'schema_version': 3, 'id': identity, 'title': title, 'type': kind, 'goal': goal,
@@ -446,6 +473,8 @@ def create(repo, kind, title, goal, scope, acceptance, implementer, coordinator,
             'reflection': None, 'blocker': None, 'extensions': [], 'release': None,
             'coverage': None, 'completion': None, 'phase_names': 'verify', **v3_fields(),
         }
+        if kind != 'release':
+            doc.update(testing_policy='proportionate', local_checks=[])
         if PHASES[kind][0] == 'plan':
             doc['plan']['tasks'].append(dict(SEEDED_PLAN_TASK, depends_on=[], expected_evidence=list(SEEDED_PLAN_TASK['expected_evidence'])))
         if kind == 'release':
@@ -966,6 +995,17 @@ def check_current_evidence(cfg, doc, checks):
 
     The refusal names every check that fails, each with its reason, not only the first
     (IDR lean-workflow-traps-and-recovery approach 8)."""
+    if proportionate(doc):
+        problems = []
+        for check in checks:
+            records = [r for r in doc.get('local_checks', []) if r['check_id'] == check and r['pass'] == doc['pass']]
+            if not records:
+                problems.append(f'missing passing local check for {check}')
+            elif records[-1]['result'] != 'passed':
+                problems.append(f'latest local check failed for {check}')
+        if problems:
+            raise CycleError(unmet_message(problems))
+        return
     from test_evidence import validate_evidence
     problems = []
     for check in checks:
@@ -998,7 +1038,7 @@ def check_tests(cfg, doc):
     check_coverage(doc)
     if not doc['required_checks']:
         raise CycleError('declare at least one required check (focused verification is sufficient)')
-    missing = [check for check in whole_state_checks(cfg) if check not in doc['required_checks']]
+    missing = [check for check in (whole_state_checks(cfg) if not proportionate(doc) else []) if check not in doc['required_checks']]
     if missing:
         raise CycleError('required checks must include the full checkout suites and the tier check; missing: '
                          + ', '.join(missing))
@@ -1008,7 +1048,7 @@ def check_tests(cfg, doc):
 def check_build(cfg, doc):
     """Build exit: each declared Build check passes; a plugin-authoring checkout also declares the full checkout suites and the tier check."""
     declared = doc.get('build_checks', [])
-    missing = [check for check in whole_state_checks(cfg) if check not in declared]
+    missing = [check for check in (whole_state_checks(cfg) if not proportionate(doc) else []) if check not in declared]
     if missing:
         raise CycleError('Build checks must include the registered checkout suites; missing: ' + ', '.join(missing))
     check_current_evidence(cfg, doc, declared)
@@ -1068,6 +1108,10 @@ def review_basis_digest(doc, version):
         latest = {}
         for ref in current:
             latest[ref['check_id']] = ref.get('declaration_sha256') or ref['evidence_id']
+        if proportionate(doc):
+            for ref in doc.get('local_checks', []):
+                if ref['pass'] == doc['pass']:
+                    latest[ref['check_id']] = ref['command']
         evidence = {check: latest[check] for check in sorted(set(doc['required_checks'])) if check in latest}
     else:
         evidence = current
@@ -1135,6 +1179,41 @@ def check_review(cfg, doc):
     raise CycleError('blocking review findings require returning through the cycle')
 
 
+def check_stale_verification(doc):
+    """Refuse while an acceptance change has left verification entries to reconcile."""
+    records = doc['plan'].get('stale_verification')
+    if not records:
+        return
+    parts = []
+    for record in records:
+        flagged = '; '.join(repr(entry[:80]) for entry in record['entries']) or 'none'
+        added = ', '.join(str(i) for i in record['added']) or 'none'
+        parts.append(f"capture {record['capture']['path']}: flagged entries {flagged}; added criteria {added}")
+    raise CycleError('an acceptance change left verification to reconcile: ' + ' | '.join(parts)
+                     + '. Revise the verification entries with the plan command, passing stale_verification [] '
+                     'in the plan file to clear the signal')
+
+
+def apply_stale_verification(doc, plan):
+    """The plan action's rule for stale_verification: absent or equal keeps the recorded value, [] clears it.
+
+    Any other value refuses, because only the acceptance-change writer adds a record."""
+    plan = deepcopy(plan)
+    recorded = doc['plan'].get('stale_verification')
+    if 'stale_verification' not in plan:
+        if recorded is not None:
+            plan['stale_verification'] = deepcopy(recorded)
+        return plan
+    value = plan['stale_verification']
+    if value == []:
+        plan.pop('stale_verification')
+        return plan
+    if recorded is not None and value == recorded:
+        return plan
+    raise CycleError('stale-verification-not-writable: a plan file keeps stale_verification as recorded '
+                     'or clears it with []; only an applied acceptance change adds a record')
+
+
 def requirements(cfg, doc, target, first=False):
     """Unmet requirements for `target`: `next` (leave the current phase) or `completion` (close the cycle).
 
@@ -1167,6 +1246,7 @@ def requirements(cfg, doc, target, first=False):
     phase = 'reflect' if target == 'completion' else doc['phase']
     need('decisions', lambda: check_decisions(cfg, doc, completion=target == 'completion'))
     need('phase-tasks', tasks_done(phase))
+    need('stale-verification', lambda: check_stale_verification(doc))
     if phase == 'plan':
         def plan_check():
             plan = doc['plan']
@@ -1418,8 +1498,49 @@ FIX_KEYS = {'finding', 'eligibility'}
 FIX_PHASES = (*CHECK_PHASES, 'review')
 
 
-def fix_receipt(cfg, evidence_id):
+def local_check(doc, ident):
+    """An observed local result from this cycle and pass; never a reusable repository receipt."""
+    records = [r for r in doc.get('local_checks', []) if r['id'] == ident and r['pass'] == doc['pass']]
+    if not records:
+        raise CycleError(f'local check {ident} is not recorded in this cycle and pass')
+    return records[-1]
+
+
+def record_local_check(doc, args):
+    if not proportionate(doc):
+        raise CycleError('local-check belongs to a new cycle with proportionate testing')
+    for key in ('check_id', 'summary', 'reason'):
+        value = args.get(key)
+        if not _text(value) or len(value) > 4000:
+            raise CycleError(f'local-check {key} must be non-empty text of at most 4000 characters')
+    entry = {'check_id': args['check_id'], 'pass': doc['pass'], 'summary': args['summary'], 'reason': args['reason']}
+    if args.get('reuse'):
+        previous = local_check(doc, args['reuse'])
+        latest = [r for r in doc['local_checks'] if r['check_id'] == args['check_id'] and r['pass'] == doc['pass']]
+        if previous['check_id'] != args['check_id'] or previous['result'] != 'passed' or not latest or latest[-1]['result'] != 'passed':
+            raise CycleError('reuse must name a passing result of this check, with no later failed result')
+        if any(args.get(key) is not None for key in ('result', 'executed_command', 'tested_revision')):
+            raise CycleError('reuse retains the original command, result and tested revision; do not supply replacements')
+        entry.update({key: previous[key] for key in ('command', 'tested_revision', 'result')}, use='reused', reused_from=previous['id'])
+    else:
+        for key in ('executed_command', 'tested_revision'):
+            if not _text(args.get(key)) or len(args[key]) > 4000:
+                raise CycleError(f'local-check {key} must be non-empty text of at most 4000 characters')
+        if args.get('result') not in ('passed', 'failed'):
+            raise CycleError('local-check requires a passed or failed result')
+        entry.update(command=args['executed_command'], tested_revision=args['tested_revision'], result=args['result'], use='executed')
+    # Idempotent retry of an observation does not produce another record.
+    if doc['local_checks'] and all(doc['local_checks'][-1].get(k) == v for k, v in entry.items()):
+        return False
+    doc['local_checks'].append({'id': 'LC-' + uuid.uuid4().hex, 'at': now(), **entry})
+    return True
+
+
+def fix_receipt(cfg, evidence_id, doc=None):
     """The stored test-evidence record for an id, or a refusal."""
+    if doc is not None and proportionate(doc):
+        record = local_check(doc, evidence_id)
+        return {**record, 'status': record['result'], 'declaration': {'check_id': record['check_id']}}
     from test_evidence import EvidenceError, _read, storage
     if not isinstance(evidence_id, str) or not re.fullmatch(r'TE-[0-9a-f]{32}', evidence_id):
         raise CycleError('invalid evidence ID: a fix names test-evidence receipts such as TE-<32 hex>')
@@ -1429,23 +1550,33 @@ def fix_receipt(cfg, evidence_id):
         raise CycleError(f'evidence {evidence_id} cannot be read: {exc}') from exc
 
 
-def fix_before_receipt(cfg, evidence_id):
-    record = fix_receipt(cfg, evidence_id)
+def fix_before_receipt(cfg, evidence_id, doc=None):
+    record = fix_receipt(cfg, evidence_id, doc)
     if record.get('status') != 'failed':
         raise CycleError(f"--fix-before must name a receipt that recorded a failure; {evidence_id} has status {record.get('status')}")
     return record
 
 
-def fix_after_receipt(cfg, evidence_id, check_id):
-    """The receipt is the current valid passing result for ``check_id`` (the check that failed before)."""
+def fix_after_receipt(cfg, evidence_id, check_id, doc):
+    """The receipt is the current valid passing result for ``check_id`` (the check that failed before).
+
+    The cycle's own record directory is bookkeeping, not an input: recording --fix-after rewrites it, and
+    a git_tracked declaration would otherwise read that write as a changed input (CYC-0154 friction F1)."""
+    if proportionate(doc):
+        record = fix_receipt(cfg, evidence_id, doc)
+        records = [r for r in doc['local_checks'] if r['check_id'] == check_id and r['pass'] == doc['pass']]
+        if record['status'] != 'passed' or record['check_id'] != check_id or not records or records[-1]['id'] != evidence_id:
+            raise CycleError(f'--fix-after {evidence_id} must be the latest passing local result for {check_id}')
+        return record
     from test_evidence import EvidenceError, validate_evidence
+    own = (cfg.docs_root / 'cycles' / doc['id']).relative_to(cfg.repo_root).as_posix()
     try:
-        return validate_evidence(cfg.repo_root, evidence_id, check_id=check_id)
+        return validate_evidence(cfg.repo_root, evidence_id, check_id=check_id, bookkeeping=(own,))
     except EvidenceError as exc:
         raise CycleError(f'--fix-after {evidence_id} does not answer the failed check {check_id}: {exc}') from exc
 
 
-def set_fix_receipts(cfg, new, args):
+def set_fix_receipts(cfg, new, args, doc):
     """Record --fix-before and --fix-after on a fix task; finding and eligibility are never touched."""
     before, after = args.get('fix_before'), args.get('fix_after')
     if not (before or after):
@@ -1454,19 +1585,19 @@ def set_fix_receipts(cfg, new, args):
         raise CycleError(f"task {new['id']} is not a fix task; --fix-before and --fix-after belong to a task added with a fix")
     fix = dict(new['fix'])
     if before:
-        fix['before'] = fix_before_receipt(cfg, before)['id']
-    check = fix_receipt(cfg, fix['before'])['declaration']['check_id'] if fix.get('before') else None
+        fix['before'] = fix_before_receipt(cfg, before, doc)['id']
+    check = fix_receipt(cfg, fix['before'], doc)['declaration']['check_id'] if fix.get('before') else None
     if after:
         if check is None:
             raise CycleError('record --fix-before, the receipt of the failure, before --fix-after')
-        fix['after'] = fix_after_receipt(cfg, after, check)['id']
+        fix['after'] = fix_after_receipt(cfg, after, check, doc)['id']
     elif fix.get('after') and before:
-        fix_after_receipt(cfg, fix['after'], check)
+        fix_after_receipt(cfg, fix['after'], check, doc)
     new['fix'] = fix
 
 
 def criterion_observation(cfg, doc, index, path, *, before=False):
-    """Read a committed observation; retain its digest so later edits cannot rewrite the measurement."""
+    """Read a committed observation, or one git ignores; retain its digest so later edits cannot rewrite the measurement."""
     if type(index) is not int or not 0 <= index < len(doc['plan']['acceptance']):
         raise CycleError('criterion observation index is outside the acceptance criteria (indices start at zero)')
     if not _text(path):
@@ -1476,12 +1607,15 @@ def criterion_observation(cfg, doc, index, path, *, before=False):
     if path_class(source, cfg.docs_root) is not None:
         raise CycleError('criterion observation must be a regular file within the documentation tree')
     data = source.read_bytes()
-    try:
-        code, committed = run_git(cfg, 'show', f'HEAD:{rel}')
-    except UnicodeError as exc:
-        raise CycleError('criterion observation must contain UTF-8 JSON') from exc
-    if code or committed.encode() != data:
-        raise CycleError('criterion observation must match a committed file on HEAD')
+    from ignored_paths import ignored
+    # A path git ignores has no HEAD bytes to compare; the retained digest still binds the measurement.
+    if rel not in ignored(cfg.repo_root, [rel]):
+        try:
+            code, committed = run_git(cfg, 'show', f'HEAD:{rel}')
+        except UnicodeError as exc:
+            raise CycleError('criterion observation must contain UTF-8 JSON') from exc
+        if code or committed.encode() != data:
+            raise CycleError('criterion observation must match a committed file on HEAD')
     try:
         record = json.loads(data)
     except (ValueError, UnicodeError) as exc:
@@ -1509,11 +1643,68 @@ def set_fix_observation(cfg, doc, new, args):
     criterion['after'] = ref
 
 
-def check_fix_done(cfg, new, doc=None):
-    """A fix task is done only with a commit, a failed check that now passes, and for Review an approving fix-diff review."""
+# The paths under a cycle's evidence/ directory that the writer itself writes, as path components below
+# evidence/: the friction log (cycle.py friction), the results a hand-back resume retains
+# (rotate_delivery_tokens) and the release ledger (tools/release.py). A records commit whose only evidence
+# paths are these is the writer's, never a fix's. A writer that adds a path under evidence/ joins this constant.
+WRITER_EVIDENCE_PATHS = (('friction.md',), ('resumed-results',), ('release',))
+
+
+class FixUnattributed(CycleError):
+    code = 'fix-commit-unattributed'
+
+
+def fix_window_anchor(doc, task_id):
+    """The execution_head of the earliest execution-check of an attempt of this task in the current pass, else None."""
+    return next((h['execution_head'] for h in doc['history']
+                 if h.get('action') == 'execution-check' and h.get('task') == task_id
+                 and h.get('pass') == doc['pass'] and h.get('execution_head')), None)
+
+
+def records_fix_commit(cfg, doc, sha, anchor):
+    """Basis (c): a cycle-record commit after the task's first execution-check that holds fix evidence.
+
+    Every changed path lies under this cycle's directory, at least one lies under its evidence/
+    directory outside WRITER_EVIDENCE_PATHS, and the commit is an ancestor of HEAD and a proper
+    descendant of the anchor. Paths compare as whole components."""
+    if anchor is None or sha == anchor:
+        return False
+    cycle = PurePosixPath((cfg.docs_root / 'cycles' / doc['id']).relative_to(cfg.repo_root).as_posix()).parts
+    evidence = cycle + ('evidence',)
+    code, out = run_git(cfg, 'diff-tree', '--no-commit-id', '--name-only', '-r', '--root', '-z', sha)
+    paths = [PurePosixPath(p).parts for p in out.split('\0') if p]
+    if code or not paths or any(parts[:len(cycle)] != cycle for parts in paths):
+        return False
+    below = [parts[len(evidence):] for parts in paths if parts[:len(evidence)] == evidence]
+    if not any(rest and not any(rest[:len(w)] == w for w in WRITER_EVIDENCE_PATHS) for rest in below):
+        return False
+    return on_head(cfg, sha) and run_git(cfg, 'merge-base', '--is-ancestor', anchor, sha)[0] == 0
+
+
+def check_fix_attribution(cfg, doc, new):
+    """Admit each fix commit on at least one basis: (a) its Cycle-Task trailer names the task, (b) a recorded
+    adoption that adoption_source validates, (c) a cycle-record commit of fix evidence (records_fix_commit)."""
+    from cycle_ops import adopted_for_delivery, carries_trailer
+    anchor = fix_window_anchor(doc, new['id'])
+    for sha in new['commits']:
+        if (carries_trailer(cfg, sha, new['id']) or adopted_for_delivery(cfg, doc, new, sha)
+                or records_fix_commit(cfg, doc, sha, anchor)):
+            continue
+        evidence_dir = (cfg.docs_root / 'cycles' / doc['id'] / 'evidence').relative_to(cfg.repo_root).as_posix()
+        raise FixUnattributed(
+            f'fix-commit-unattributed: commit {sha[:12]} of fix task {new["id"]} meets no attribution basis. It carries no '
+            f'Cycle-Task: {new["id"]} trailer, it is no recorded adoption, and it is no cycle-record commit that changes '
+            f'fix evidence under {evidence_dir}/ after the task\'s first execution-check. Recovery: commit source with the '
+            f'trailer; for a records-only fix, run execution-check, change the evidence file, run commit-record again and '
+            f'record that commit, or record the commit that already holds the file (git log -1 -- PATH).')
+
+
+def check_fix_done(cfg, new, doc):
+    """A fix task is done only with an attributed commit, a failed check that now passes, and for Review an approving fix-diff review."""
     fix = new['fix']
     if not new.get('commits'):
         raise CycleError('a fix task needs at least one commit before it is done')
+    check_fix_attribution(cfg, doc, new)
     if 'criterion' in fix:
         criterion = fix['criterion']
         if not criterion.get('after'):
@@ -1536,8 +1727,8 @@ def check_fix_done(cfg, new, doc=None):
             raise CycleError('a fix task needs --fix-before: the receipt of the check that failed')
         if not fix.get('after'):
             raise CycleError('a fix task needs --fix-after: the receipt of the same check passing now')
-        check = fix_before_receipt(cfg, fix['before'])['declaration']['check_id']
-        fix_after_receipt(cfg, fix['after'], check)
+        check = fix_before_receipt(cfg, fix['before'], doc)['declaration']['check_id']
+        fix_after_receipt(cfg, fix['after'], check, doc)
     if new['phase'] == 'review':
         if not fix.get('review'):
             raise CycleError('a Review-phase fix needs a recorded fix-diff review before it is done: record a review whose report names this task as fix_task')
@@ -1818,7 +2009,7 @@ def updated_task(cfg, doc, task, args):
             raise CycleError('integrated requires every commit to be an ancestor of HEAD; not on HEAD: ' + ', '.join(behind))
     if 'criterion' in new.get('fix', {}) and (args.get('fix_before') or args.get('fix_after')):
         raise CycleError('a criterion fix uses observations rather than --fix-before and --fix-after receipts')
-    set_fix_receipts(cfg, new, args)
+    set_fix_receipts(cfg, new, args, doc)
     set_fix_observation(cfg, doc, new, args)
     if 'fix' in new and new['status'] == 'done' and task['status'] != 'done':
         check_fix_done(cfg, new, doc)
@@ -2009,6 +2200,9 @@ def record_assignment(cfg, doc, args):
         holder = next((e for e in entries if task is not None and e['task'] == task and e['state'] in holding and e['id'] != ident), None)
         if holder:
             raise CycleError(f"task {task} is held by {holder['state']} assignment {holder['id']}: {describe_live(holder)}. {holder_routes(holder)}")
+        planned = next((t for t in doc['plan']['tasks'] if t['id'] == task), None)
+        if role in ('developer', 'dev-lead') and planned and (planned['phase'] == 'build' or 'fix' in planned):
+            cycle_runtime.require_unclaimed(cfg.repo_root, cfg.repo_root)
         if doc['schema_version'] == 3 and task is not None:
             # A low-level entry records no host, so it targets the main checkout (IDR one-editor-per-checkout approach 2).
             import cycle_ops  # imported here: cycle_ops imports this module
@@ -2115,7 +2309,7 @@ def mutate(repo, identity, action, **args):
 
 def mutate_tracked(repo, identity, action, **args):
     """Apply an action under the lock; return (record, changed). A no-op task update writes nothing."""
-    with locked(repo) as (cfg, directory):
+    with locked(repo) as (cfg, directory), cycle_runtime.admission(repo, action == 'assignment' and args.get('state') == 'running'):
         doc = load(repo, identity)
         extra = {}
         # One recording survives closure: an assignment's `finished`, so a final hand-back that arrives
@@ -2136,7 +2330,10 @@ def mutate_tracked(repo, identity, action, **args):
         if doc['status'] == 'paused' and not ending and action not in {'resume', 'extend', 'abandon', 'reflect', 'change-type', 'owner-complete', 'shortcut'}:
             raise CycleError('cycle is paused; resolve its blocker and resume first')
         if action == 'plan':
-            revise_plan(cfg, doc, args['plan'], args['reason'])
+            plan = args['plan']
+            if isinstance(plan, dict):
+                plan = apply_stale_verification(doc, plan)
+            revise_plan(cfg, doc, plan, args['reason'])
         elif action == 'plan-details':
             if doc['type'] != 'quick-fix':
                 raise CycleError('plan-details is for quick-fix; other types revise the plan in the Plan or Build phase')
@@ -2252,7 +2449,12 @@ def mutate_tracked(repo, identity, action, **args):
             areas = reduction_areas(args['reduction'])
             doc['reduction'] = {'pass': doc['pass'], 'at': now(), 'input_sha256': source_fingerprint(cfg.repo_root, doc), 'areas': areas}
             extra = {'input_sha256': doc['reduction']['input_sha256'], 'changes': {name: areas[name]['change'] for name in REDUCTION_AREAS}}
+        elif action == 'local-check':
+            if not record_local_check(doc, args):
+                return doc, False
         elif action == 'evidence':
+            if proportionate(doc):
+                raise CycleError('record local test observations with local-check; reusable receipts belong to historical or release workflows')
             from test_evidence import digest as evidence_digest, normalize, validate_evidence
             record = validate_evidence(cfg.repo_root, args['evidence_id'], check_id=args['check_id'])
             entry = {'check_id': args['check_id'], 'evidence_id': args['evidence_id'], 'pass': doc['pass'], 'use': args['use'], 'declaration_sha256': evidence_digest(normalize(record['declaration']))}
@@ -2415,6 +2617,12 @@ def mutate_tracked(repo, identity, action, **args):
             old = doc['type']
             if doc['pass'] >= doc['pass_limit'] and doc['phase'] in {*CHECK_PHASES, 'review'} and not args.get('human_approval'):
                 raise CycleError('changing type after the final attempt requires explicit human approval')
+            if doc['plan'].get('stale_verification') and PHASES[kind][0] != 'plan':
+                # Only the plan command clears the flag, and a type without a Plan phase offers no plan route.
+                raise CycleError(f"change-type-stale-verification: {kind} has no Plan phase, so it could not clear the "
+                                 "stale verification an acceptance change left. Record plan revision "
+                                 f"{doc['plan']['revision'] + 1} with the plan command, passing stale_verification [] "
+                                 f"in the plan file, then change type to {kind} after that revision")
             limit = max(LIMITS[kind], doc['pass'])
             if doc['extensions']:
                 limit = max(limit, doc['pass_limit'])
@@ -2646,7 +2854,8 @@ def query_decisions(repo, identity):
                 reviews.append({'report':report['path'],'input_sha256':value['input_sha256'],'pass':value['pass'],'matches_current_source':fingerprint_binds(cfg.repo_root,doc,value['input_sha256']),'matches_current':value==current_review})
         rows.append({'decision':ref['path'],'name':ref['name'],'revision':record['revision'],'intent':record['contents'],
                      'council_approved':approved,'approval':ref.get('approval'),
-                     'delivery':{'cycle_status':doc['status'],'reviewed_evidence':reviews,'test_evidence':doc['evidence']},
+                     'delivery':{'cycle_status':doc['status'],'reviewed_evidence':reviews,'test_evidence':doc['evidence'],
+                                 **({'testing_policy': doc['testing_policy'], 'local_checks': doc['local_checks']} if proportionate(doc) else {})},
                      'current_source':{'scope':doc['plan']['scope'],'sha256':current,'implementation_claim':'Review and tests establish their declared coverage; intent alone proves no implementation.'}})
     return {'cycle_id':identity,'decisions':rows}
 

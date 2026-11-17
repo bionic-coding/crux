@@ -720,6 +720,7 @@ const phaseKey = (phase: string): ThemeKey => own(PHASE_KEYS, phase) ?? 'text'
 const CYCLE_STATUS: Readonly<Record<string, { glyph: string; color: ThemeKey }>> = {
   active: { glyph: STATE_GLYPHS.running!, color: 'claude' },
   completed: { glyph: STATE_GLYPHS.done!, color: 'success' },
+  reviewed: { glyph: STATE_GLYPHS.done!, color: 'success' },
   paused: { glyph: STATE_GLYPHS.skipped!, color: 'warning' },
   abandoned: { glyph: STATE_GLYPHS.blocked!, color: 'error' },
   shortcut: { glyph: STATE_GLYPHS.done!, color: 'warning' },
@@ -760,7 +761,7 @@ function cycleTrack(c: CycleView, n: number): Line {
 
 // The pieces of the meta line the band shares: the loop icon and number, the status glyph and word
 // in the status key, and the type word.
-const loopMark = (c: CycleView): Line => [span(LOOP_GLYPH), span(` loop ${c.pass}`)]
+const loopMark = (c: CycleView): Line => c.type === 'pilot' ? [] : [span(LOOP_GLYPH), span(` loop ${c.pass}`)]
 const statusGlyph = (c: CycleView): Span => {
   const st = statusOf(c.status)
   return span(st.glyph, { color: st.color, bold: true })
@@ -814,7 +815,7 @@ function cycleLines(c: CycleView, n: number, now: Time): Line[] {
   // The slot also names the loop limit, except for a listed release cycle, which has one phase and
   // draws no limit. When the line does not fit n cells the limit gives way first, then the type word.
   const loop = [...loopMark(c), span(' '), ...statusMark(c)]
-  const limited = !(c.type === 'release' && c.phases.length === 1) ? [...loopMark(c), span(` of ${c.pass_limit}`), span(' '), ...statusMark(c)] : loop
+  const limited = c.type !== 'pilot' && !(c.type === 'release' && c.phases.length === 1) ? [...loopMark(c), span(` of ${c.pass_limit}`), span(' '), ...statusMark(c)] : loop
   const typed = [...typeWord(c), span(' '), ...limited]
   const meta = lineCells(typed) <= n ? typed : lineCells([...typeWord(c), span(' '), ...loop]) <= n ? [...typeWord(c), span(' '), ...loop] : loop
   const lines: Line[] = [
@@ -823,7 +824,7 @@ function cycleLines(c: CycleView, n: number, now: Time): Line[] {
     cycleTrack(c, n),
   ]
   if (c.tasks.length > 0) {
-    lines.push(joined([bar(Math.round((100 * done) / c.tasks.length), Math.min(BAR_WIDTH, Math.max(0, n - cells(count) - 1))), [span(count, { dim: true })]], ' '))
+    lines.push(c.type === 'pilot' ? [span(count, { dim: true })] : joined([bar(Math.round((100 * done) / c.tasks.length), Math.min(BAR_WIDTH, Math.max(0, n - cells(count) - 1))), [span(count, { dim: true })]], ' '))
   }
   // The elapsed line follows title, meta, the single phase track and task progress.
   const time = cycleTimeText(c, now)

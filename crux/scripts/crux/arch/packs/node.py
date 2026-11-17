@@ -69,15 +69,23 @@ from ..core import (
     _canon,
     _cell,
     _contained,
+    _retained_source_resolver,
     _retained_source_walk,
     _mermaid,
     _node_ids,
     _norm_path,
+    _omit,
     _rel,
     _render_openapi,
     _safe_read_bytes,
     _sha256_hex,
     _split_top_level,
+    decode_input,
+    input_kind,
+    ledger_active,
+    marker_exists,
+    parsing,
+    record_scan_cap,
 )
 
 
@@ -147,19 +155,25 @@ def _scrub_js_comments(text: str) -> str:
     return "".join(out)
 
 
-def _walk_js_files(root: Path):
+def _walk_js_files(root: Path, exts: tuple = _JS_EXTS):
     """Yield contained JS/TS files under `root`, skipping VCS/vendor + dot dirs.
     `os.walk(followlinks=False)` never descends a symlinked directory; dir and
     file names are codepoint-sorted so an aggregate-cap truncation selects a
-    stable, locale-independent prefix (point 6)."""
+    stable, locale-independent prefix (point 6).
+
+    Inside a derive (ADR-0181) the shared walk classifies every listing, and
+    every matching entry is yielded — a file link included — so the shared
+    reader names what it cannot read rather than this filter dropping it.
+    `exts` narrows the suffixes yielded; it defaults to every JS/TS suffix."""
+    ledger = ledger_active()
     for dirpath, dirnames, filenames in _retained_source_walk(root, root):
         dirnames[:] = sorted(
             d for d in dirnames if d not in _SKIP_DIRS and not d.startswith(".")
         )
         for fn in sorted(filenames):
-            if fn.endswith(_JS_EXTS):
+            if fn.endswith(exts):
                 p = Path(dirpath) / fn
-                if _contained(root, p):
+                if ledger or _contained(root, p):
                     yield p
 
 
@@ -167,6 +181,27 @@ def _has_js_sources(root: Path) -> bool:
     for _ in _walk_js_files(Path(root)):
         return True
     return False
+
+
+# ── the input seam (ADR-0181) ────────────────────────────────────────────────
+# Inside a derive every read, listing, presence gate, decode and parse in this
+# pack goes through core's shared readers, so an input the pack cannot describe
+# is named in the concern's Omissions section, refused, or fails the
+# environment lane — never dropped in silence. Outside a derive
+# (`ledger_active()` False) each site keeps the predicate and the read it
+# always had, so a direct extractor call returns what it always returned.
+
+
+def _scan_cap(cap_hit_files: bool, root: Path, walk, loop: str) -> None:
+    """Record the aggregate scan cap a loop over `walk` hit (ADR-0181 approach
+    8): a counted over-cap omission naming the cap and every source the loop
+    skipped — the one in hand plus the rest of the sorted walk. Outside a
+    derive this counts nothing and records nothing."""
+    if not ledger_active():
+        return
+    skipped = 1 + sum(1 for _ in walk)
+    record_scan_cap("_MAX_SCAN_FILES" if cap_hit_files else "_MAX_SCAN_BYTES",
+                    root, skipped, loop)
 
 
 def _scan_node_files(root: Path):
@@ -182,6 +217,11 @@ def _scan_node_files(root: Path):
     node offsets are byte offsets: decoding first makes every slice wrong on a
     file holding a multi-byte character. The three readers that still want text
     decode from these same bytes, so no probe acquires a second way in.
+
+    Inside a derive (ADR-0181) every entry is strict UTF-8: a source that does
+    not decode is named undecodable and is no entry, but it was read, so it
+    stays hashed in `sources`. The aggregate cap is a counted over-cap
+    omission, and the oversize and cap residual lines give way to the ledger.
     """
     entries: list = []
     sources: dict = {}
@@ -190,18 +230,27 @@ def _scan_node_files(root: Path):
     n_files = 0
     n_bytes = 0
     capped = False
-    for p in _walk_js_files(root):
+    ledger = ledger_active()
+    walk = _walk_js_files(root)
+    for p in walk:
         if n_files >= _MAX_SCAN_FILES or n_bytes >= _MAX_SCAN_BYTES:
             capped = True
+            _scan_cap(n_files >= _MAX_SCAN_FILES, root, walk, "node._scan_node_files")
             break
-        raw = _safe_read_bytes(root, p, oversize)   # containment + 2 MB bound.
+        raw = _safe_read_bytes(root, p, oversize, origin="listed")   # containment + 2 MB bound.
         if raw is None:
             continue
         rel = _rel(root, p)
         sources[rel] = _sha256_hex(raw)
-        entries.append((rel, raw))
         n_files += 1
         n_bytes += len(raw)
+        if decode_input(p, raw) is None:
+            continue                       # named undecodable inside a derive only.
+        entries.append((rel, raw))
+    if ledger:
+        # Inside a derive the oversize sources and the cap are ledger
+        # omissions, named once by core's Omissions section (ADR-0181).
+        return entries, sources, residuals
     if oversize:
         residuals.append("Skipped for exceeding the 2 MB bound: "
                          + ", ".join(f"`{_cell(p)}`" for p in sorted(oversize)))
@@ -215,11 +264,46 @@ def _scan_node_files(root: Path):
 
 # ── api-surface: committed OpenAPI first, then one receiver-agnostic route scan ─
 
+def _present_kind(path: Path, origin: str, admit) -> str:
+    """`core.input_kind` of `path`, with a path the retained-evidence resolver
+    prunes read as absent. Only called under an active ledger.
+
+    `input_kind` classifies by `lstat` before `admit` runs, because `admit`
+    follows links and answers None for an unreadable component: asked first,
+    it would hide a link or a permission failure as absence."""
+    kind = input_kind(path, origin)
+    if kind in ("file", "dir") and admit(path) is None:
+        return "absent"
+    return kind
+
+
 def _node_openapi_path(root: Path) -> Path | None:
+    if ledger_active():
+        return _node_openapi_path_ledger(root)
     for c in _OPENAPI_CANDIDATES:
         p = root / c
         if p.is_file() and _contained(root, p):
             return p
+    return None
+
+
+def _node_openapi_path_ledger(root: Path) -> Path | None:
+    """`_node_openapi_path`'s candidate probe inside a derive (ADR-0181
+    approach 3). Each candidate is decided by an `lstat`: confirmed absence is
+    'not this candidate'; a regular file is the document; a link or a
+    directory where the document is expected ends the probe, named
+    not-a-file, so a later candidate is not read in its place."""
+    admit = _retained_source_resolver(root)
+    for c in _OPENAPI_CANDIDATES:
+        p = root / c
+        kind = _present_kind(p, "fixed", admit)
+        if kind == "file":
+            return p
+        if kind == "omitted":
+            return None
+        if kind == "dir":
+            _omit(p, "not-a-file", "directory")
+            return None
     return None
 
 
@@ -238,9 +322,16 @@ def extract_node_api_surface_openapi(root: Path, docs_dir: str) -> tuple[str, di
     if raw is None:
         return _canon(["# API surface", "", NO_EXTRACTOR.rstrip("\n")]), {}
     sources = {_rel(root, spec): _sha256_hex(raw)}
-    try:
-        doc = json.loads(raw.decode("utf-8"))
-    except Exception:
+    # Inside a derive the decode and the parse go through the shared readers,
+    # so a document that does not decode or parse is named (ADR-0181) rather
+    # than stubbing in silence. Outside one this is the strict decode and the
+    # broad handler it always was.
+    text = decode_input(spec, raw) if ledger_active() else None
+    if ledger_active() and text is None:
+        return _canon(["# API surface", "", NO_EXTRACTOR.rstrip("\n")]), sources
+    with parsing(spec, Exception) as parsed:
+        doc = json.loads(text if text is not None else raw.decode("utf-8"))
+    if parsed.failed:
         return _canon(["# API surface", "", NO_EXTRACTOR.rstrip("\n")]), sources
     md = _render_openapi(doc, f"_Derived from `{_cell(_rel(root, spec))}`._")
     if md is None:
@@ -318,6 +409,27 @@ def _js_parse(rel: str, raw: bytes):
     return _js_ts_parser(dialect).parse(raw)
 
 
+def _parse_one(root: Path, rel: str, raw: bytes):
+    """`_js_parse` bounded by `core.parsing` (ADR-0181 approach 6): inside a
+    derive a content failure names the source unparseable and answers None, and
+    a `MemoryError` is the environment lane naming it. Outside a derive the
+    parse is unguarded, as it always was."""
+    with parsing(Path(root) / rel, legacy=()) as outcome:
+        tree = _js_parse(rel, raw)
+    return None if outcome.failed else tree
+
+
+def _parse_entries(root: Path, entries) -> list:
+    """`(rel, raw, tree)` for every `_scan_node_files` entry that parses; a
+    source named unparseable is no entry, and stays hashed."""
+    out = []
+    for rel, raw in entries:
+        tree = _parse_one(root, rel, raw)
+        if tree is not None:
+            out.append((rel, raw, tree))
+    return out
+
+
 def _ts_nodes(root):
     """Every node in the tree, pre-order. Iterative, so a deep file cannot
     exhaust the interpreter stack the way a recursive walk would."""
@@ -329,6 +441,9 @@ def _ts_nodes(root):
 
 
 def _ts_text(node, src: bytes) -> str:
+    # Not an input decode site: inside a derive `src` has already passed
+    # `decode_input`'s strict decode in `_scan_node_files` (ADR-0181), so a
+    # node's byte span decodes with no replacement.
     return src[node.start_byte:node.end_byte].decode("utf-8", errors="replace")
 
 
@@ -916,9 +1031,15 @@ def _node_pkg_label(root: Path) -> tuple[str, dict]:
     raw = _safe_read_bytes(Path(root), pkg, [])
     if raw is None:
         return "", {}
-    try:
-        doc = json.loads(raw.decode("utf-8"))
-    except Exception:
+    # Inside a derive a `package.json` that does not decode or parse is named
+    # (ADR-0181): its labels are missing from the map. Outside one this is the
+    # strict decode and the broad handler it always was.
+    text = decode_input(pkg, raw) if ledger_active() else None
+    if ledger_active() and text is None:
+        return "", {}
+    with parsing(pkg, Exception) as parsed:
+        doc = json.loads(text if text is not None else raw.decode("utf-8"))
+    if parsed.failed:
         return "", {}
     deps: dict = {}
     if isinstance(doc, dict):
@@ -966,8 +1087,13 @@ def _find_graphql_files(root: Path) -> list:
     contents, so nothing here reads one. The walk itself mirrors
     `_walk_js_files`: `os.walk(followlinks=False)`, skip-dir/dot-dir pruned,
     codepoint-sorted for a byte-stable render.
+
+    Inside a derive each entry is classified by `core.input_kind` rather than
+    the link-following containment check (ADR-0181 approach 3): a link is
+    named not-a-file and not listed as a schema file.
     """
     out: list = []
+    ledger = ledger_active()
     for dirpath, dirnames, filenames in _retained_source_walk(root, root):
         dirnames[:] = sorted(
             d for d in dirnames if d not in _SKIP_DIRS and not d.startswith(".")
@@ -975,7 +1101,7 @@ def _find_graphql_files(root: Path) -> list:
         for fn in sorted(filenames):
             if fn.endswith(_GRAPHQL_EXTS):
                 p = Path(dirpath) / fn
-                if _contained(root, p):
+                if (input_kind(p, "listed") == "file") if ledger else _contained(root, p):
                     out.append(_rel(root, p))
     return sorted(out)
 
@@ -1065,7 +1191,7 @@ def extract_node_api_surface_routes(root: Path, docs_dir: str) -> tuple[str, dic
     # scan needs the SAME trees rather than a second read of the same files:
     # re-resolving a module by opening it again would put a file read back
     # inside a probe, which is the seam `_scan_node_files` exists to hold.
-    parsed = [(rel, raw, _js_parse(rel, raw)) for rel, raw in entries]
+    parsed = _parse_entries(root, entries)
     resolved_map: dict = {}
     for rel, _raw, _tree in parsed:
         try:
@@ -1142,8 +1268,13 @@ _PRISMA_FIELD = re.compile(r"^\s*([A-Za-z_]\w*)\s+([A-Za-z_]\w*)(\[\])?(\?)?\s*(
 
 def _find_prisma_schemas(root: Path) -> list:
     """All contained `schema.prisma` files, sorted by repo-relative path (point 2
-    monorepo rule: the sorted-first is rendered, the rest a residual)."""
+    monorepo rule: the sorted-first is rendered, the rest a residual).
+
+    Inside a derive every `schema.prisma` the shared walk lists is kept — a
+    file link included — so the shared reader names what it cannot read
+    (ADR-0181) rather than the link-following containment check dropping it."""
     out: list = []
+    ledger = ledger_active()
     for dirpath, dirnames, filenames in _retained_source_walk(root, root):
         dirnames[:] = sorted(
             d for d in dirnames if d not in _SKIP_DIRS and not d.startswith(".")
@@ -1151,7 +1282,7 @@ def _find_prisma_schemas(root: Path) -> list:
         for fn in sorted(filenames):
             if fn == "schema.prisma":
                 p = Path(dirpath) / fn
-                if _contained(root, p):
+                if ledger or _contained(root, p):
                     out.append(p)
     return sorted(out, key=lambda p: _rel(root, p))
 
@@ -1336,11 +1467,15 @@ def extract_node_data_model_prisma(root: Path, docs_dir: str) -> tuple[str, dict
         return _canon(["# Data model", "", NO_EXTRACTOR.rstrip("\n")]), {}
     primary = schemas[0]
     oversize: list = []
-    raw = _safe_read_bytes(root, primary, oversize)
+    raw = _safe_read_bytes(root, primary, oversize, origin="listed")
     if raw is None:
         return _canon(["# Data model", "", NO_EXTRACTOR.rstrip("\n")]), {}
     sources = {_rel(root, primary): _sha256_hex(raw)}
-    models, enums, composites = _parse_prisma(raw.decode("utf-8", errors="replace"))
+    text = decode_input(primary, raw)
+    if text is None:
+        # Named undecodable inside a derive (ADR-0181); never None outside.
+        return _canon(["# Data model", "", NO_EXTRACTOR.rstrip("\n")]), sources
+    models, enums, composites = _parse_prisma(text)
     if not models:
         return _canon(["# Data model", "", NO_EXTRACTOR.rstrip("\n")]), sources
 
@@ -1407,7 +1542,8 @@ def extract_node_data_model_prisma(root: Path, docs_dir: str) -> tuple[str, dict
         res.append("Additional `schema.prisma` files not rendered (single-primary "
                    "posture): "
                    + ", ".join(f"`{_cell(_rel(root, p))}`" for p in schemas[1:]) + ".")
-    if oversize:
+    if oversize and not ledger_active():
+        # Inside a derive an oversize schema is a ledger omission (ADR-0181).
         res.append("Skipped for exceeding the 2 MB bound: "
                    + ", ".join(f"`{_cell(p)}`" for p in sorted(oversize)))
     if res:
@@ -1417,25 +1553,33 @@ def extract_node_data_model_prisma(root: Path, docs_dir: str) -> tuple[str, dict
 
 # ── TypeORM: a `.ts` with `@Entity(` → `@Column`/`@PrimaryGeneratedColumn` ─────
 
-def _detect_node_scan(root: Path, want: tuple, exts: tuple | None = None) -> bool:
+def _detect_node_scan(root: Path, want: tuple, exts: tuple | None = None,
+                     loop: str = "node._detect_node_scan") -> bool:
     """True if any contained JS/TS file (optionally filtered to `exts`) contains
     one of `want` on comment-scrubbed text — BOUNDED by the aggregate file/byte
     caps (point 6). The detect phase must not scan an unbounded tree on a repo
     with no marker; a marker past the cap degrades that probe to the stub, the
-    same tradeoff the extractor's own aggregate cap makes."""
+    same tradeoff the extractor's own aggregate cap makes.
+
+    Inside a derive (ADR-0181) the cap is a counted over-cap omission naming
+    every source the scan skipped, `loop` names this scan in its ledger key,
+    and a source that does not decode is named undecodable and not searched."""
     root = Path(root)
     n_files = n_bytes = 0
-    for p in _walk_js_files(root):
-        if exts and not str(p).endswith(exts):
-            continue
+    walk = _walk_js_files(root, exts or _JS_EXTS)
+    for p in walk:
         if n_files >= _MAX_SCAN_FILES or n_bytes >= _MAX_SCAN_BYTES:
+            _scan_cap(n_files >= _MAX_SCAN_FILES, root, walk, loop)
             break
-        raw = _safe_read_bytes(root, p, [])
+        raw = _safe_read_bytes(root, p, [], origin="listed")
         if raw is None:
             continue
         n_files += 1
         n_bytes += len(raw)
-        if any(w in _scrub_js_comments(raw.decode("utf-8", errors="replace")) for w in want):
+        text = decode_input(p, raw)
+        if text is None:
+            continue
+        if any(w in _scrub_js_comments(text) for w in want):
             return True
     return False
 
@@ -1443,7 +1587,8 @@ def _detect_node_scan(root: Path, want: tuple, exts: tuple | None = None) -> boo
 def _detect_node_typeorm(root: Path) -> bool:
     """A `.ts`/`.tsx` file containing `@Entity(` (gated on `@Entity(` so
     `sequelize-typescript`'s `@Table`/`@Column` is owned by Sequelize, point 2)."""
-    return _detect_node_scan(Path(root), ("@Entity(",), (".ts", ".tsx"))
+    return _detect_node_scan(Path(root), ("@Entity(",), (".ts", ".tsx"),
+                             "node._detect_node_typeorm")
 
 
 def _ts_prop_type(s: str) -> str | None:
@@ -1513,8 +1658,10 @@ def extract_node_data_model_typeorm(root: Path, docs_dir: str) -> tuple[str, dic
     root = Path(root)
     entries, sources, residuals = _scan_node_files(root)
     entities: list = []
-    for _rel_path, raw in entries:
-        entities.extend(_parse_typeorm(raw.decode("utf-8", errors="replace")))
+    for rel, raw in entries:
+        text = decode_input(root / rel, raw)
+        if text is not None:
+            entities.extend(_parse_typeorm(text))
     if not entities:
         return _canon(["# Data model", "", NO_EXTRACTOR.rstrip("\n")]), sources
 
@@ -1557,7 +1704,8 @@ def extract_node_data_model_typeorm(root: Path, docs_dir: str) -> tuple[str, dic
 
 def _detect_node_sequelize(root: Path) -> bool:
     """A JS/TS file calling `sequelize.define(` or `.init(` (point 2)."""
-    return _detect_node_scan(Path(root), ("sequelize.define", ".init("))
+    return _detect_node_scan(Path(root), ("sequelize.define", ".init("),
+                             loop="node._detect_node_sequelize")
 
 
 def _js_object_from(text: str, idx: int):
@@ -1621,8 +1769,10 @@ def extract_node_data_model_sequelize(root: Path, docs_dir: str) -> tuple[str, d
     root = Path(root)
     entries, sources, residuals = _scan_node_files(root)
     models: list = []
-    for _rel_path, raw in entries:
-        models.extend(_parse_sequelize(raw.decode("utf-8", errors="replace")))
+    for rel, raw in entries:
+        text = decode_input(root / rel, raw)
+        if text is not None:
+            models.extend(_parse_sequelize(text))
     if not models:
         return _canon(["# Data model", "", NO_EXTRACTOR.rstrip("\n")]), sources
 
@@ -1683,19 +1833,28 @@ def _detect_node_mongoose(root: Path) -> bool:
     `new Schema(` — matched on the parse TREE (point above), BOUNDED by the
     same aggregate scan caps `_detect_node_scan` uses (a marker past the cap
     degrades this probe to the stub, the same tradeoff every detector here
-    makes)."""
+    makes).
+
+    Inside a derive (ADR-0181) the cap is a counted over-cap omission, and a
+    source that does not decode or parse is named and not searched."""
     root = Path(root)
     n_files = n_bytes = 0
-    for p in _walk_js_files(root):
+    walk = _walk_js_files(root)
+    for p in walk:
         if n_files >= _MAX_SCAN_FILES or n_bytes >= _MAX_SCAN_BYTES:
+            _scan_cap(n_files >= _MAX_SCAN_FILES, root, walk, "node._detect_node_mongoose")
             break
-        raw = _safe_read_bytes(root, p, [])
+        raw = _safe_read_bytes(root, p, [], origin="listed")
         if raw is None:
             continue
         n_files += 1
         n_bytes += len(raw)
+        if decode_input(p, raw) is None:
+            continue
         rel = _rel(root, p)
-        tree = _js_parse(rel, raw)
+        tree = _parse_one(root, rel, raw)
+        if tree is None:
+            continue
         for node in _ts_nodes(tree.root_node):
             if _is_mongoose_schema_call(node, raw):
                 return True
@@ -1882,8 +2041,7 @@ def extract_node_data_model_mongoose(root: Path, docs_dir: str) -> tuple[str, di
     model_names: dict = {}          # ident -> resolved model name
     discriminated: set = set()
 
-    for rel, raw in entries:
-        tree = _js_parse(rel, raw)
+    for rel, raw, tree in _parse_entries(root, entries):
         for ident, def_obj in _find_mongoose_schemas(tree, raw):
             if ident not in schema_defs:
                 schema_defs[ident] = def_obj
@@ -1992,18 +2150,29 @@ def _load_tsconfig_aliases(root: Path):
     (point 3). Returns (rules, base_dir, residual, sources). `extends`/`references`
     → aliases deferred + residual. The read tsconfig is hashed (point 6)."""
     p = Path(root) / "tsconfig.json"
-    if not (p.is_file() and _contained(Path(root), p)):
+    # Inside a derive the fixed-origin read is the presence gate (ADR-0181
+    # approach 3): confirmed absence is no input, a link or a directory is
+    # named not-a-file, and a permission failure is a document finding.
+    # Outside one it is the `is_file()` predicate the reader always used.
+    ledger = ledger_active()
+    if not ledger and not (p.is_file() and _contained(Path(root), p)):
         return [], Path(root), "", {}
     raw = _safe_read_bytes(Path(root), p, [])
     if raw is None:
         return [], Path(root), "", {}
     sources = {_rel(Path(root), p): _sha256_hex(raw)}
-    text = _scrub_js_comments(raw.decode("utf-8", errors="replace"))
+    text = decode_input(p, raw)
+    if text is None:
+        return [], Path(root), "", sources             # named undecodable (ADR-0181).
+    text = _scrub_js_comments(text)
     text = re.sub(r",(\s*[}\]])", r"\1", text)          # tolerate trailing commas.
-    try:
+    with parsing(p, Exception) as parsed:
         doc = json.loads(text)
-    except Exception:
+    if parsed.failed:
+        # Inside a derive the unparseable file is a ledger omission, named
+        # once by core's Omissions section, so the residual line gives way.
         return ([], Path(root),
+                "" if ledger else
                 "`tsconfig.json` present but unparseable; path aliases not applied "
                 "(a named residual).", sources)
     if not isinstance(doc, dict):
@@ -2064,7 +2233,9 @@ def extract_node_module_graph(root: Path, docs_dir: str) -> tuple[str, dict]:
     root = Path(root)
     entries, sources, residuals = _scan_node_files(root)
     if not entries:
-        return _canon(["# Module graph", "", NO_EXTRACTOR.rstrip("\n")]), {}
+        # `sources` is empty here outside a derive; inside one it holds any
+        # source read and named undecodable, which stays hashed (ADR-0181).
+        return _canon(["# Module graph", "", NO_EXTRACTOR.rstrip("\n")]), sources
 
     resolved_map: dict = {}
     for rel, _text in entries:
@@ -2078,7 +2249,9 @@ def extract_node_module_graph(root: Path, docs_dir: str) -> tuple[str, dict]:
     edges: set = set()
     for rel, raw in entries:
         importer = root / rel
-        text = raw.decode("utf-8", errors="replace")
+        text = decode_input(importer, raw)
+        if text is None:
+            continue
         for spec in _js_specifiers(_scrub_js_comments(text)):
             tgt = _resolve_js_spec(importer, spec, resolved_map, alias_rules, base_dir)
             if tgt and tgt != rel:
@@ -2133,8 +2306,11 @@ def detect(root: Path) -> DetectResult:
     (`(root / "package.json").exists()`); `markers` names the repo-relative
     marker path that fired, sorted, so an `ambiguous_stack` verdict can cite it
     (ADR-0096 clause 6). No marker → an empty tuple.
+
+    The marker's presence is decided through `core.marker_exists` (ADR-0181
+    approach 3): with no active ledger it is the `exists()` predicate it was.
     """
-    matched = (root / "package.json").exists()
+    matched = marker_exists(Path(root) / "package.json")
     markers = ("package.json",) if matched else ()
     return DetectResult(matched=matched, markers=markers)
 

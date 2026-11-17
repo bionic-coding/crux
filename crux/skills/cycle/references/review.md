@@ -46,12 +46,13 @@ dispute is never raised to the owner from Review.
 Review the diff, criteria, and relevant integration points. The reviewer reads the
 diff, history and receipts itself unless the host denies it that shell. Expand only
 for a concrete dependency or failure path. Record unrelated existing issues separately
-unless they prevent the change working safely. Reuse valid test evidence; request new
-checks for a specific gap. The reviewer runs focused checks only, the tests that
-exercise a finding; full suites, the staged dry run and per-minor runs belong to the
-test coordinator, the dev-lead. Check that the Build checks include every test that
-imports, invokes, reads, globs or enumerates a changed path; an omitted related test
-is missing evidence. After fixes, revisit changed portions and their consequences;
+unless they prevent the change working safely. For proportionate cycles, assess
+selected local checks, coverage rationale, tested revisions and applicability after
+edits. Request a specific gap; broad shared changes can justify a full suite, but
+review alone does not. The reviewer runs focused probes; the coordinator owns broad
+checks. Explicit reuse stays within the current cycle and pass. Historical TE
+results retain fingerprint and freshness validation. After fixes, revisit changed
+portions and their consequences;
 repeat full review only when earlier conclusions were invalidated. Blocking findings
 use the cycle's return path and pass limit, never a hidden loop.
 

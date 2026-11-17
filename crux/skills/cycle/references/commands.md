@@ -75,6 +75,10 @@ content another agent authored and returned, such as a review report, inline. `c
 holds the request shapes. Exit 0 means success or a replay, 1 a refusal, 2 an
 environment error. A refusal writes nothing.
 
+`commit-record` and `execution-check` are op requests, never `cycle.py` subcommands. Their
+exact forms are `uv run /abs/plugin-root/scripts/cycle.py op CYC-0001 --json '{"op":"commit-record"}'` and
+`uv run /abs/plugin-root/scripts/cycle.py op CYC-0001 --json '{"op":"execution-check","op_id":"ID","assignment":"A","attempt":1,"checkout":"/abs/repo"}'`.
+
 Request fields. Mutating requests carry `op_id` (8 to 64 characters from
 `[A-Za-z0-9._-]`), except `commit-record`, which accepts it optionally and does not
 journal it. `inspect` takes none. Invalid JSON names the `--file PATH` recovery;
@@ -101,7 +105,8 @@ that path must be a regular file.
 
 `commit-record` commits pending cycle bookkeeping, excluding queue-owned paths, and returns
 `{changed, commit, paths, message, deferred, detail}`; a repeat with nothing to commit
-returns `changed: false`. Phase-changing `advance`, `finish`, `owner-exception`,
+returns `changed: false`. `paths` names only the files the commit changed; with no commit
+it names the files still pending, and it is empty when nothing is pending. Phase-changing `advance`, `finish`, `owner-exception`,
 dispatch, attach, delivery, loss, execution-check, child-link and release-continue operations return
 the same object as `record_commit`. The message is `<cycle> record: <event> (rev N)` with
 no `Cycle-Task` trailer. `inspect` returns `record: {git, pending, files, deferred}` and
@@ -110,6 +115,16 @@ reported project-local skill uses into the forge log (see Project-local skills).
 A replay commits a record an interrupted operation left pending without repeating
 its mutation. `queue start-next` commits the queue and new record together.
 An `execution-check` with `record_commit` `"defer"` commits nothing; see Execution proof admissions.
+
+A path is tracked when the user's own git does not ignore it, through `.gitignore`,
+`.git/info/exclude` or a global excludes file. A global pattern that matches a cycle
+path therefore makes that path ignored. The record commit and the queue commit drop
+every ignored path and commit the rest. The result then adds
+`commit_skipped: "tree-ignored"` and `skipped_paths`, the dropped paths. `paths` names
+the committed paths. `deferred` stays null, because no later commit follows. A cycle
+council result recorded in an ignored tree carries `evidence_uncommitted: "tree-ignored"`.
+Known limit: git skips an ignored file inside a named directory that is not itself
+ignored, without a report, so `skipped_paths` lists only the named paths.
 
 `withdraw-decision` runs in Plan only. One record write marks `name` withdrawn
 (`withdrawals` in the record) and removes `tasks` from the plan, recording a
@@ -149,8 +164,8 @@ names are filled; the engine inserts no placeholder.
   With `summary: true`, `inspect` prints `revision`, `status`, `phase`, `pass`,
   `pass_limit`, `unmet`, `actions` (each with its `request` or `argv` and
   `caller_fills`), `open_attempts` (identity, `state`, `observation`, `liveness`,
-  `last_activity`, `problem` and `recovery`), `problems`, `record`, `activity` and
-  `summary: true`. The full
+  `last_activity`, `problem` and `recovery`), `problems`, `record`, `activity`,
+  `reusable_evidence` and `summary: true`. The full
   output is the default and keeps every field.
 - `prepare-dispatch` returns `assignment`, `attempt`, `task`, `result_path`, `base` and
   an `invocation`: `{host, mode, tool, parameters, role_name, handle, attach, wait}`.
@@ -689,6 +704,15 @@ sequence `handoff`, `assignment` and `task` by hand as the normal path.
 preserving its predecessor. Fields are `scope`, `constraints`, `acceptance`,
 `verification`, `tasks`, optional `streams`, and `revision` (the writer updates revision). Refactor adds
 `preserved_behavior` and `improvement`. Plan tasks cover every phase of the type.
+
+`stale_verification` is never authored: an applied acceptance change adds it (see
+Conversational owner decisions). To reconcile, revise the flagged verification entries as you judge,
+set `stale_verification` to `[]` in the plan file and pass a reason. A plan file
+that omits the field, or repeats the recorded value, keeps it. Any other value
+refuses with `stale-verification-not-writable`. The writer never compares
+verification texts. The `plan-revised` event keeps the previous plan, with its
+`stale_verification` field.
+
 Each task has this shape:
 
 ```json
@@ -747,9 +771,13 @@ pending with no delivery fields, and the writer sets `fix.pass`. Allow one fix p
 per pass. A Review fix needs the pass's latest review to be blocking with at least one
 blocking finding. One fix may answer several; `finding` names them, and the optional
 `fix.findings` lists their ids (`r<N>:blocking:<index>`, distinct, from the latest
-review). Each finding meets the eligibility and the whole fix stays small. `task --fix-before TE-ID` names a receipt that recorded the failure.
-`--fix-after TE-ID` names the current passing receipt for the same check id. Done
-needs a commit, both receipts and, for a Review fix, an approving fix-diff review.
+review). Each finding meets the eligibility and the whole fix stays small.
+For proportionate cycles, `task --fix-before LC-ID` names a failed local observation;
+`--fix-after LC-ID` names a later passing observation for the same check in this pass.
+Record both with `local-check` and reassess affected checks after the fix.
+Historical cycles use `TE-ID` receipts instead, with input validation and bookkeeping
+exclusions under the legacy contract. Done needs a commit, both results and, for a
+Review fix, an approving fix-diff review.
 `fix` is bookkeeping for the review basis (the basis version is unchanged) and a
 delivery field, so plan files refuse it. A done fix stays done on a new pass; an
 unfinished one leaves the plan. `handoff` lists fixes. A fix changes no pass, phase or
@@ -758,16 +786,29 @@ plan revision.
 A fix task completes in this order, and `prepare-dispatch` renders the same sequence
 into the fix task's mandatory assignment:
 
-1. Record the fix-before receipt, the receipt that recorded the failure:
-   `cycle.py task CYC --task-id ID --fix-before TE-ID`.
+1. Record the failed local observation (or historical TE receipt):
+   `cycle.py task CYC --task-id ID --fix-before LC-ID`.
 2. Commit the fix and record the commit on the task:
    `cycle.py task CYC --task-id ID --commit SHA`.
-3. Record the fix-after receipt, the current passing receipt for the same check id:
-   `cycle.py task CYC --task-id ID --fix-after TE-ID`.
+3. Record the passing local observation for the same check (or historical TE receipt):
+   `cycle.py task CYC --task-id ID --fix-after LC-ID`.
 4. Hold current evidence for every required check after the fix commit. Rerun only the
    checks whose inputs the fix changed.
 5. For a Review fix, record the approving fix-diff review (`review` with `fix_task`).
 6. Deliver.
+
+Use `TE-ID` instead of `LC-ID` for historical cycles without the proportionate policy.
+
+When the fix task becomes done, each of its commits meets at least one basis: (a) a
+`Cycle-Task` trailer naming the task; (b) a recorded adoption that the writer validates;
+(c) a cycle-record commit. Basis (c) holds when every changed path lies under the cycle's
+directory, at least one lies under its `evidence/` directory outside the writer's own
+paths (`evidence/friction.md`, `evidence/resumed-results/`, `evidence/release/`), and the
+commit descends from the `execution_head` of the task's first `execution-check` in the
+pass and is an ancestor of HEAD. Paths compare as whole components. Any other commit
+refuses `fix-commit-unattributed`. A records-only fix records its `commit-record` commit,
+or the commit that swept its file (`git log -1 -- PATH`). Deliver then lists that commit
+under `untrailered_commits`, as expected.
 
 A failed acceptance criterion also qualifies for the same one fix allowance.
 Supply `fix.criterion: {index: N, observation: PATH}` with the zero-based acceptance
@@ -969,8 +1010,33 @@ the plan, raises `plan.revision`, and records the previous plan with the reason 
 
 ## Checks and review
 
+New non-release records use `testing_policy: proportionate`. Record a local result:
+
+```bash
+uv run /abs/plugin-root/scripts/cycle.py local-check CYC-0001 --check-id parser \
+  --command 'python3 -m unittest tests.test_parser' --result passed \
+  --summary 'Parser and caller cases pass' --tested-revision COMMIT \
+  --reason 'Changed parser behavior and callers'
+uv run /abs/plugin-root/scripts/cycle.py local-check CYC-0001 --check-id parser \
+  --reuse LC-ID --summary 'Still applicable' --reason 'Only unrelated prose changed'
+```
+
+Run the example check in the project's selected environment with its interpreter and dependencies.
+Record the actual command used. Use `failed` for a failed execution.
+The writer records an agent-attested observation; it does not execute the command
+or compare source fingerprints. Reuse requires a
+prior passing local observation from the same cycle and pass, preserving its original
+command and revision. Omit command, result and tested revision for reuse. A newer
+failure blocks reuse. Selected Build/Verify check IDs and `coverage` still apply;
+missing or latest failed selected results block. Reassess applicability after edits.
+No automatic full suites or TE attachment applies to this policy.
+
+The TE attachment and mandatory full-suite details below apply only to historical
+cycles without that policy. Release evidence retains its artifact contract.
+
 Declare required checks through `checks CYC-ID --check CHECK-ID` (repeat `--check`
-for the complete set). Execute or reuse them with `test-evidence.py` as described
+for the complete set). `checks` prints the cycle's position and the check list it wrote;
+`--full` prints the whole record. Execute or reuse them with `test-evidence.py` as described
 in [testing.md](testing.md). Attach valid results using:
 
 ```bash
@@ -1019,6 +1085,10 @@ dev root's lock (`crux/scripts/suite_evidence.py:278-286`), and no writer path p
 `source_root`, so validation refuses the receipt (`crux/scripts/test_evidence.py:646-648`).
 Staged per-minor checks stay Verify observations and test runs. Release verification
 judges staged receipts against a fresh stage.
+
+The following review-binding rules apply to both testing policies. For proportionate
+cycles, review assesses local observations and coverage; the TE declaration-digest
+details apply only to historical evidence.
 
 A passing review binds to a basis: the plan's scope, constraints, acceptance,
 verification, preserved behavior and improvement, the plan tasks up to the
@@ -1204,7 +1274,9 @@ Every request carries `purpose` (`idr`, `adr-acceptance` or `acceptance-change`)
 by these examples.
 
 - `owner-decision present` also takes `op_id` and the concrete `question`. It
-  binds the current subject digest and returns a `presentation` path/digest.
+  binds the current subject digest and returns a `presentation` path/digest. The
+  question asks about one concrete proposal, the presented revision; an alternative
+  is a separate complete revision with its own presentation.
 - `capture` also takes its own `op_id`, that `presentation` reference,
   `disposition` (`approve`, `reject` or `pending`), verbatim `quote`,
   `source` (`kind: conversation|tool-question`, `reference: ACTUAL_REFERENCE`),
@@ -1216,6 +1288,15 @@ by these examples.
 - `apply` takes `capture` path/digest; ADR acceptance also takes `approval` naming
   the existing exact council record. Fresh application requires the unique current
   unsuperseded approval, current presented bytes and existing lifecycle/council checks.
+
+A refusal prints `{"ok": false, "error": {"code": CODE, ...}}`. A request whose keys
+differ from the expected set refuses `invalid-request-fields` with `missing` and
+`unknown` key lists. `apply` refuses `invalid-capture-field` when `capture` is not the
+`{path, sha256}` object `capture` returned, and `invalid-approval-field` when `approval`
+is not a nonempty path string; each names the `field` and what it `expected`. A paused
+cycle refuses a new `present`, `capture` or `apply` with `cycle-not-active`,
+`status: paused` and a `recovery` that names `cycle.py resume`; after the resume, repeat
+the request unchanged.
 
 The writer checks structure, retained presentation, purpose, cycle, subject and
 digest; it authenticates neither the speaker nor the truth of a transcribed quote.
@@ -1262,11 +1343,31 @@ must hold, and a refusal names the failed check:
   (`acceptance-change-criterion-fix-shift`);
 - the cycle is in Plan or Build, in a type with a Plan phase (`acceptance-change-phase`).
 
-`apply` then writes the plan revision through the plan writer's own steps, with only
+`apply` then writes the plan revision through the plan writer's own steps, with
 `acceptance` changed. The same save writes the `plan-revised` event, whose reason
 names the capture, and the `owner-decision-applied` event. A removed criterion's
 record is the owner capture, with the owner's verbatim words. Quick-fix, and a cycle
 in Verify, Review or Reflect, cannot change acceptance through this route.
+
+The same save may also append one record to the plan's `stale_verification` list.
+`apply` writes a record when the plan has verification entries and the change flags
+an entry or adds a criterion. A record holds `capture` (the capture's `{path, sha256}`),
+`entries` (the verbatim text of each flagged entry, in plan order) and `added` (the
+zero-based index of each added criterion). `apply` never changes, reorders or removes
+a verification entry.
+
+An entry's head is its text before the first colon, or the whole entry when it holds
+no colon. An entry is labelled N when its head starts with `Criterion N` and the rest
+of the head names no other number and no second criterion. N is the zero-based
+acceptance index. Write `Criterion 0: ...` for the first criterion's entry.
+
+- A labelled entry is flagged unless its criterion keeps both its index and its text.
+- Every other entry is flagged when the change removes or moves a criterion.
+- A change that only adds criteria flags no unlabelled entry.
+
+While the field is present, the `stale-verification` requirement holds the phase:
+`inspect` lists it in `unmet` and offers the `plan` route, and `advance` refuses.
+Reconcile through the `plan` command, as the plan section describes.
 
 This evidence interface grants no pass extension, owner exception or outward action.
 The commander may record real owner evidence through cycle.py; council execution and
@@ -1348,6 +1449,8 @@ A task that failed revalidation is pending again. Recover it by its cause:
 never invent or infer the owner's instruction. `change-type` takes `--type` and
 `--reason`, plus human approval when required to avoid bypassing an exhausted limit.
 Changing type out of simplify always needs `--human-approval`.
+While `stale_verification` is held, `change-type` into a type without a Plan phase
+refuses with `change-type-stale-verification` and names the plan revision that clears it.
 
 A type change keeps each done Build task whose delivery still holds, with its commits
 and evidence. It drops every other task, including done Plan, Verify, Review and

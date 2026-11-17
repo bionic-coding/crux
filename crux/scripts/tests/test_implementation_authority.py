@@ -24,6 +24,13 @@ from test_implementation_cycles import WriterFixture, book_two
 from test_implementation_migration import quoted_rule
 
 
+#: Every template directory, held for the worker's lifetime. An `atexit` registration
+#: alone is not a lasting reference: a test that forks a `multiprocessing` child runs
+#: `atexit._clear()` in the child, which drops it, and the child's finalizer then
+#: removes the parent's directory from the shared filesystem.
+_TEMPLATE_DIRS = []
+
+
 @functools.lru_cache(maxsize=4)
 def _writer_template(environment, cwd):
     """A real writer baseline per worker and environment; never a cached test result.
@@ -32,6 +39,7 @@ def _writer_template(environment, cwd):
     setting. Constructor tests still instantiate WriterFixture directly.
     """
     temp = tempfile.TemporaryDirectory()
+    _TEMPLATE_DIRS.append(temp)
     atexit.register(temp.cleanup)
     return WriterFixture(Path(temp.name) / "repo", migration=True)
 

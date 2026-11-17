@@ -51,15 +51,14 @@ that names it.[^leave]
 
 ## Where each tier runs
 
-Tiers narrow development loops only: a unit's focused checks, fix-step reruns and
-reviewer probes. No gate's test selection narrows by tier.[^gates] A unit gate still runs
-every test the change could reach.
+Tiers can select local checks in cycles with `testing_policy: proportionate`.
+Selection must cover changed and related behavior; a tier label alone proves no coverage.
 
-- **Cycle completion.** Completing a cycle of any type except release needs current
-  passing evidence for every test of every tier.[^complete] A tier-filtered receipt
-  never counts as an all-tests pass. A release cycle completes on its fixed step list.
-- **Verify.** The tier check is a required check at Verify, or Test on older records,
-  of every cycle type that has one.[^verify]
+- **Cycle completion.** Selected checks must pass, with coverage and independent review.
+  Scope and risk determine whether full suites are needed. Historical cycles without
+  the policy retain their all-tier completion contract.[^complete]
+- **Verify.** For proportionate cycles, run the tier check when tests or manifests change.
+  Historical cycles retain their required Verify tier check.[^verify]
 - **Release verification.** It establishes passing evidence for every release-tier
   test[^release] and runs the tier check.[^release-check] Matching evidence is reused;
   otherwise only the release tier executes.
@@ -220,14 +219,14 @@ coverage rule to "at least one release test".
 
 ## What makes a test worth keeping
 
-A test is worth keeping when its failure would show that a behaviour a program, a user
-or a release depends on has regressed, and no other kept test or gate would show the
-same regression. A program here is code in the repository or a script the project
-ships. A program parses content when it reads that specific content out of the text.
-An agent is not a program. A program that copies, embeds or pattern-scans a whole file
-parses none of its sentences.
+By the value rule, a test is worth keeping when its failure would show that a behaviour
+a program, a user or a release depends on has regressed, and no other kept test or gate
+would show the same regression. A program here is code in the repository or a script
+the project ships. A program parses content when it reads that specific content out of
+the text. An agent is not a program. A program that copies, embeds or pattern-scans a
+whole file parses none of its sentences.
 
-A test fails the rule in any of four shapes:
+A test fails the value rule in any of four shapes:
 
 - **Wording pin**: it asserts that a document people or agents read carries a phrase, a
   sentence or a heading. Such documents include an `AGENTS.md`, a skill, a role
@@ -245,14 +244,21 @@ A test fails the rule in any of four shapes:
   configuration files under it, an environment variable the test does not set, the
   locale, the time zone, the user id, the network, or a tool or tool version outside
   the project's declared prerequisites. The declared prerequisites are the project's
-  stated toolchain and its supported interpreter versions. A declared tool is a
-  prerequisite, not host state. A test that checks for state no fixture can set, and
-  skips with a stated reason when that state is absent, does not fail this shape.
+  stated toolchain and its supported interpreter versions. They also include the
+  dependencies the project declares for its toolchain, such as a script's inline
+  dependency block or a lockfile. A declared tool is a prerequisite, not host state.
+  The declared tool's own store of those dependencies, such as a package cache at the
+  location the tool resolves, is part of the prerequisite and is not host state.
+  Fetching a declared dependency into that store is part of installing the
+  prerequisites. A dependency the project does not declare is host state. So is the
+  network when a test reaches it for any purpose other than fetching a declared
+  dependency. A test that checks for state no fixture can set, and skips with a stated
+  reason when that state is absent, does not fail this shape.
 
-Apply one disposition to each test the rule reaches:
+Apply one disposition to each test the value rule reaches:
 
-- Delete a test that fails the rule. The change names the coverage that remains, or
-  states why none is needed.
+- Delete a test that fails the value rule. The change names the coverage that remains,
+  or states why none is needed.
 - Label it ephemeral instead, with a reason and an end condition, when an explicit later
   change should retire it. A test already labelled ephemeral stays until its end
   condition is met.
@@ -262,8 +268,8 @@ Apply one disposition to each test the rule reaches:
   a stated reason when it is absent.
 - Keep a test that a live rule names as its mechanism.
 
-The tier commands never delete a test; the change that applies the rule does. The
-reviewer of a change applies the rule to every test the change adds.
+The tier commands never delete a test; the change that applies the value rule does.
+The reviewer of a change applies the value rule to every test the change adds.
 
 [^one-tier]: rule:every-test-has-exactly-one-tier
 [^same-change]: rule:new-tests-are-labelled-in-the-same-change

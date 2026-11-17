@@ -378,6 +378,26 @@ class FileInputs(WriterCase):
         self.ok("--path", SUBJECT, "--verdict", "APPROVE", "--finding", "fine",
                 "--finding-file", str(clean))  # control: no key shape
 
+    def test_env_example_finding_file_is_read(self):
+        # Each name in its own directory, so the two never collide on a case-insensitive volume.
+        dotenv_dir = Path(self._tmp.name) / "dotenv"
+        dotenv_dir.mkdir()
+        dotenv = dotenv_dir / ".env"
+        dotenv.write_text("API_KEY=\n", encoding="utf-8")
+        out = self.refused("--path", SUBJECT, "--verdict", "APPROVE", "--finding-file", str(dotenv))
+        self.assertIn("is an env file", out["problems"][0])  # control: the guard refuses `.env`
+        example = self.write_file(".env.example", "API_KEY=\n")
+        self.ok("--path", SUBJECT, "--verdict", "APPROVE", "--finding-file", str(example))
+        doc = json.loads(reports(self.env)[0].read_text())
+        self.assertIn("API_KEY=", json.dumps(doc))
+
+    def test_secret_in_an_env_example_finding_file_is_refused_by_the_content_scan(self):
+        leak = self.write_file(".env.example", f"API_KEY={FAKE_KEY}\n")
+        out = self.refused("--path", SUBJECT, "--verdict", "APPROVE", "--finding-file", str(leak))
+        self.assertTrue(out["problems"][0].startswith("findings[0]"), out)
+        self.assertNotIn("is an env file", out["problems"][0])
+        self.assertNotIn(FAKE_KEY, json.dumps(out))
+
     def test_secret_in_a_verdict_file_names_the_field_not_the_value(self):
         leak = self.write_file("leak.txt", f"APPROVE {FAKE_KEY}")
         out = self.refused("--path", SUBJECT, "--verdict-file", str(leak))

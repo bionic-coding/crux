@@ -48,12 +48,17 @@ def queue_parser(sub):
     o=op('move',item=True);o.add_argument('--position',type=int,required=True)
     o=op('hold',item=True);o.add_argument('--reason',required=True)
     op('unhold',item=True);op('remove',item=True)
+    o=op('reconcile',item=True,help='associate a pending item with the reviewed pilot cycle that completed it; a repeat changes nothing')
+    o.add_argument('--pilot',required=True,help='the pilot cycle id');o.add_argument('--actor',required=True,help="the pilot's recorded lead")
+    o.add_argument('--file',required=True,help='JSON assessment: outcome evidence and one evidence entry per queue acceptance criterion')
     o=op('authorize',help="record the owner's quoted instruction and capture the items it covers")
     o.add_argument('--kind',choices=['next','next-n','queue'],required=True);o.add_argument('--count',type=int)
     o.add_argument('--instruction',required=True,help="the owner's own message, verbatim");o.add_argument('--date',required=True,help='YYYY-MM-DD of the owner message')
     o=op('revoke',help='end the active authorization; use it for an owner pause');o.add_argument('--reason',required=True)
     o=op('start-next',help='start the head item as a cycle, or report the open cycle or the stop reason')
     o.add_argument('--implementer',default='dev-lead');o.add_argument('--coordinator',default='dev-lead')
+    o.add_argument('--pilot',action='store_true',help='explicitly start the head item as a lightweight pilot; never the default')
+    o.add_argument('--lead',help='with --pilot: the pilot lead');o.add_argument('--plan',help='with --pilot: JSON holding verification, council and tasks; the item supplies goal, scope and acceptance')
 
 
 # The commands that take one JSON document, and the argument name each hands to the mutation.
@@ -97,6 +102,8 @@ def parser():
     p.add_argument('--repo-root', default='.')
     p.add_argument('--compact', action='store_true', help='print one JSON line: the cycle position, whether the record changed, and the named task')
     sub=p.add_subparsers(dest='command', required=True)
+    from cycle_pilot import add_parser as add_pilot_parser
+    add_pilot_parser(sub)
     c=sub.add_parser('create')
     for name in ('title','goal','implementer','coordinator'):
         c.add_argument('--'+name, required=True)
@@ -105,9 +112,9 @@ def parser():
     c.add_argument('--list', dest='release_list', choices=['beta','official'], help='the fixed task list of a release cycle; required with --type release')
     for name in ('scope','acceptance'):
         c.add_argument('--'+name, action='append', required=True)
-    for name in ('owner-approval','show','validate','advance','pause','resume','plan','task','checks','coverage','completion','evidence','scrutiny','review','decision','approve-decision','return','change-type','extend','reflect','abandon','query-decisions','task-add','plan-details','owner-complete','shortcut','handoff','reconcile','reduction','assignment','defer','withdraw-decision','friction'):
+    for name in ('owner-approval','show','validate','advance','pause','resume','plan','task','checks','coverage','completion','evidence','local-check','scrutiny','review','decision','approve-decision','return','change-type','extend','reflect','abandon','query-decisions','task-add','plan-details','owner-complete','shortcut','handoff','reconcile','reduction','assignment','defer','withdraw-decision','friction'):
         c=sub.add_parser(name); cycle_arguments(c)
-        if name in ('show','validate'): c.add_argument('--full', action='store_true', help='print the whole record instead of the bounded summary')
+        if name in ('show','validate','checks'): c.add_argument('--full', action='store_true', help='print the whole record instead of the bounded summary')
         c.add_argument('--compact', action='store_true', default=argparse.SUPPRESS, help=argparse.SUPPRESS)
         if name=='reconcile': c.add_argument('--apply', action='store_true', help='write only the updates the commits and repository establish')
         if name in ('pause','resume','plan','change-type','plan-details','withdraw-decision'):
@@ -137,8 +144,8 @@ def parser():
             c.add_argument('--commit', dest='commits', action='append', help='commit that resolves in this repository; repeatable, merged as a set')
             c.add_argument('--evidence', action='append', help='path that exists, relative to the docs root or the repository root (converted to docs-relative); repeatable, merged as a set')
             c.add_argument('--stage', choices=['implemented','integrated'])
-            c.add_argument('--fix-before', dest='fix_before', metavar='TE-ID', help='fix task: the test-evidence receipt of the check that failed')
-            c.add_argument('--fix-after', dest='fix_after', metavar='TE-ID', help='fix task: the receipt of the same check passing now')
+            c.add_argument('--fix-before', dest='fix_before', metavar='CHECK-ID', help='fix task: failed LC observation; historical cycles use a TE receipt')
+            c.add_argument('--fix-after', dest='fix_after', metavar='CHECK-ID', help='fix task: latest passing LC observation of the same check; historical cycles use a TE receipt')
             c.add_argument('--fix-observation', help='criterion fix: committed JSON after observation, relative to the docs root')
             c.add_argument('--adopt-commit', dest='adopt_commits', action='append', help='adopt an ancestor commit delivered by this cycle in an earlier pass; repeatable')
             c.add_argument('--replace-commit', nargs=2, metavar=('OLD','NEW'), help='replace a recorded commit (for example after a rebase) and keep the old id in replaced_commits; requires --note')
@@ -160,6 +167,14 @@ def parser():
             c.add_argument('--remaining', required=True)
         if name=='evidence':
             c.add_argument('--check-id',required=True); c.add_argument('--evidence-id',required=True); c.add_argument('--use',choices=['executed','reused','waited'],required=True)
+        if name=='local-check':
+            c.add_argument('--check-id', required=True)
+            c.add_argument('--result', choices=['passed', 'failed'])
+            c.add_argument('--command', dest='executed_command', help='the command actually executed, recorded as text; this writer executes nothing')
+            c.add_argument('--summary', required=True, help='short observed result, without raw logs')
+            c.add_argument('--tested-revision', help='the revision tested, with working-tree edits named when relevant')
+            c.add_argument('--reuse', help='LC observation from this cycle and pass that remains applicable')
+            c.add_argument('--reason', required=True, help='why this execution or explicit reuse was appropriate')
         if name=='scrutiny':
             c.add_argument('--scrutiny',choices=['focused','standard','intensive'],required=True); c.add_argument('--rationale',required=True); c.add_argument('--risk',action='append',default=[])
         if name=='decision':
@@ -462,6 +477,9 @@ def main(argv=None):
     extra={}
     try:
         resolve_cycle(pr,a)
+        if a.command == 'pilot':
+            from cycle_pilot import cli
+            return cli(a)
         changed=True; task_id=None
         if a.command=='owner-decision':
             import owner_decision
@@ -469,7 +487,7 @@ def main(argv=None):
                 request=json.loads(read_json_arg(a.repo_root,a.owner_request))
                 report=getattr(owner_decision,a.owner_action)(a.repo_root,request)
             except owner_decision.OwnerDecisionError as exc:
-                print(json.dumps({'ok':False,'error':{'code':exc.code}})); return 1
+                print(json.dumps({'ok':False,'error':{'code':exc.code,**exc.detail}})); return 1
             if request.get('cycle_id'):
                 report['record_commit']=cycle_commit.after_write(a.repo_root,request['cycle_id'],'owner-decision '+a.owner_action)
             print(json.dumps({'ok':True,**report},indent=2)); return 0
@@ -528,7 +546,7 @@ def main(argv=None):
             result=query_decisions(a.repo_root,a.cycle)
         else:
             args=vars(a).copy()
-            for k in ('repo_root','command','cycle','compact','present'): args.pop(k,None)
+            for k in ('repo_root','command','cycle','compact','present','full'): args.pop(k,None)
             task_id=args.get('task_id')
             if 'file' in args:
                 path,text=args.pop('file'),args.pop('json_text')
@@ -552,7 +570,16 @@ def main(argv=None):
                 extra.update(cycle_classify.response_fields(cycle_classify.safely(cycle_classify.recorded_review,a.repo_root,a.cycle)))
             if changed and a.command in cycle_commit.LOW_LEVEL_COMMITTING: extra['record_commit']=cycle_commit.after_write(a.repo_root,a.cycle)
             if 'revision' in extra: result=load(a.repo_root,a.cycle)
+        if a.command == 'local-check':
+            print(json.dumps({'ok': True, 'cycle': result['id'], 'changed': changed,
+                              'local_check': result['local_checks'][-1], **extra}, separators=(',', ':')))
+            return 0
         if a.compact: print(json.dumps({**compact_line(result,changed,task_id),**extra},separators=(',',':'))); return 0
+        if a.command=='checks' and not a.full:
+            # The whole record runs to tens of kilobytes; checks prints the fields it wrote. --full prints the record.
+            field='build_checks' if a.phase=='build' else 'required_checks'
+            print(json.dumps({**compact_line(result,changed),field:result.get(field),**extra,
+                              'full_record':f'cycle.py show {result["id"]} --full, or rerun with --full'},indent=2)); return 0
         print(json.dumps({'ok':True,'cycle':result,**extra},indent=2)); return 0
     except cycle_prereqs.EnvironmentPrerequisite as exc:
         print(json.dumps(exc.payload(),**({'separators':(',',':')} if getattr(a,'compact',False) else {}))); return 1

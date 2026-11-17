@@ -52,11 +52,11 @@ class FixBase(basis.CliCycleCase):
     def record(self, check_id):
         return execute(self.root, self.decl(check_id))['evidence']
 
-    def fix_source(self):
-        """Repair src/b.txt and commit; return the commit."""
+    def fix_source(self, task='fix-1', trailer=True):
+        """Repair src/b.txt and commit, with the fix task's Cycle-Task trailer unless told not to; return the commit."""
         (self.root / 'src/b.txt').write_text('good')
         self.git('add', 'src/b.txt')
-        self.git('commit', '-qm', 'fix b')
+        self.git('commit', '-qm', f'fix b\n\nCycle-Task: {task}' if trailer else 'fix b')
         return self.git('rev-parse', 'HEAD')
 
     def to_test(self):
@@ -102,7 +102,7 @@ class FixBase(basis.CliCycleCase):
         """Record the before receipt, fix the source, commit it, record the after receipt and the task bookkeeping."""
         before = self.record('regress')
         self.assertEqual(before['status'], 'failed')
-        sha = self.fix_source()
+        sha = self.fix_source(identity)
         after = self.record('regress')
         self.assertEqual(after['status'], 'passed')
         return self.ok('task', cid, '--task-id', identity, '--commit', sha, '--fix-before', before['id'], '--fix-after', after['id']), sha, before, after
@@ -253,6 +253,57 @@ class DoneGateTests(FixBase):
             workflow.check_plan_file(plan)
         self.assertIn('fix', workflow.DELIVERY_FIELDS)
         self.assertIn('fix', workflow.TASK_BOOKKEEPING_FIELDS)
+
+
+class GitTrackedFixCheckTests(FixBase):
+    """A git_tracked fix check does not count the cycle's own record as a changed input (CYC-0154 friction F1).
+
+    Recording --fix-after rewrites the cycle record, which a git_tracked declaration reads as a tracked input,
+    so the receipt went stale at once and the fix task could never be done."""
+
+    def decl(self, check_id='unit'):
+        return {**super().decl(check_id), 'git_tracked': True}
+
+    def recorded(self):
+        """A Verify fix task whose cycle record is tracked, with its before and after receipts recorded."""
+        cid = self.to_test()
+        self.add_fix(cid, 'test')
+        (self.root / 'src/other.txt').write_text('tracked, read by no check')
+        self.git('add', '-A', 'bionic', 'src/other.txt')
+        self.git('commit', '-qm', 'track the cycle record')
+        before = self.record('regress')
+        sha = self.fix_source()
+        after = self.record('regress')
+        self.assertEqual((before['status'], after['status']), ('failed', 'passed'))
+        self.ok('task', cid, '--task-id', 'fix-1', '--commit', sha, '--fix-before', before['id'], '--fix-after', after['id'])
+        return cid, after
+
+    def test_a_git_tracked_fix_check_delivers_done_after_its_passing_receipt_is_recorded(self):
+        cid, after = self.recorded()
+        self.assertNotEqual(self.git('status', '--porcelain', '--', 'bionic/cycles'), '')
+        doc = self.ok('task', cid, '--task-id', 'fix-1', '--state', 'done')
+        self.assertEqual((self.task_of(doc)['status'], self.task_of(doc)['fix']['after']), ('done', after['id']))
+
+    def test_a_committed_record_change_still_delivers_done(self):
+        cid, after = self.recorded()
+        self.git('add', '-A', 'bionic')
+        self.git('commit', '-qm', 'record bookkeeping')
+        doc = self.ok('task', cid, '--task-id', 'fix-1', '--state', 'done')
+        self.assertEqual(self.task_of(doc)['status'], 'done')
+
+    def test_a_tracked_change_outside_the_cycle_record_still_blocks_done(self):
+        cid, _ = self.recorded()
+        (self.root / 'src/other.txt').write_text('changed outside the cycle record')
+        error = self.refused('task', cid, '--task-id', 'fix-1', '--state', 'done')
+        self.assertIn('current valid passing', error)
+        self.assertIn('relevant inputs changed', error)
+
+    def test_a_committed_change_outside_the_cycle_record_still_blocks_done(self):
+        cid, _ = self.recorded()
+        (self.root / 'src/new.txt').write_text('a new tracked file')
+        self.git('add', 'src/new.txt')
+        self.git('commit', '-qm', 'outside change')
+        self.assertIn('relevant inputs changed', self.refused('task', cid, '--task-id', 'fix-1', '--state', 'done'))
 
 
 class ReviewFixTests(FixBase):

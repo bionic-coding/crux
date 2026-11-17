@@ -1,4 +1,4 @@
-<!-- generated-from: CHANGELOG.md@sha256:ceaad0a1a2f8b20404c7f3ece1c42c9a0536320500d51edf6e37370c2c288bfc; model: claude-sonnet-5.5; date: 2026-11-11 -->
+<!-- generated-from: CHANGELOG.md@sha256:405a270575a13d0c29143e48c989bb679150a52f953227944849d3b2d6ca3572; model: claude-sonnet-5.5; date: 2026-11-16 -->
 # Changelog
 
 All notable changes to crux. The format roughly follows [Keep a Changelog](https://keepachangelog.com/) and the project adheres to [Semantic Versioning](https://semver.org/).
@@ -8,6 +8,123 @@ All notable changes to crux. The format roughly follows [Keep a Changelog](https
 ### Added
 
 ### Changed
+
+### Fixed
+
+### Removed
+
+## [5.8.1] — 2026-11-16
+
+### Added
+
+- `cycle.py pilot finish` completes a lightweight pilot cycle once its tasks, selected checks and independent review are done. It refuses to finish if a task is unfinished, a selected check is missing or failed, a finding is blocking, a criterion is unmet, or the review no longer covers the final change.
+- `cycle.py pilot delivery` records PR, CI, merge, commit and publication facts at any time, separately from completion. A failed CI result changes no state and prints the choices to offer the owner.
+- `cycle.py pilot reopen` reopens a completed pilot, taking a reason and the owner's words. It keeps the earlier completion, checks and review, and requires a review newer than the reopening.
+- `cycle.py pilot create --follows CYC` links a new pilot cycle to the completed cycle it repairs or extends.
+- `cycle.py pilot batch` applies task updates and check observations as one validated write.
+- `cycle.py pilot recover` removes a checkout claim that an interrupted write left without a matching record entry. The next write to that pilot removes it automatically.
+- `cycle.py queue reconcile Q --pilot CYC` binds a pending queue item to the reviewed pilot cycle that completed it, without changing the authorization. Repeating the call writes nothing.
+- `cycle.py queue start-next --pilot` starts the next authorized queue item as a lightweight pilot cycle.
+
+### Changed
+
+- The reviewer named by `pilot review-start --reviewer` now submits its own verdict through `pilot review`. The writer refuses the lead as review actor, any other reviewer, a superseded plan revision, and a review head after which code changed.
+- A pending pilot task can now be marked `done` directly.
+- Pilot task and batch writes now update the record and the checkout claims as one unit.
+- `pilot show`, the queue views and the dashboards now report the recorded review, whether it still covers the final change, completion and delivery, all from one shared reader.
+- The queue now reports a reviewed pilot item as `reviewed` and keeps it open. A completed pilot satisfies dependencies and archives like any completed cycle.
+- In the development repository, the `derive-arch` provenance manifest builder now cites the rule that it selects no input, and a test fails if the builder reads a file or resolves a glob.
+
+### Fixed
+
+- The dashboards no longer fail to load once a pilot cycle is completed. The progress reader accepts a completed pilot record, and the dashboards' validator accepts the completed pilot status and phase and the `reviewed` queue status. In the development repository, a test keeps the reader's and the validator's vocabularies equal.
+- A pilot record that the progress reader cannot interpret now appears as a listing row naming the record and the reason, instead of blanking the whole listing.
+- A process killed between writing the claims and writing the record no longer leaves an orphaned checkout claim behind. The record is the commit point, and the next write or `pilot recover` removes the claim.
+- Legacy cycle operations no longer report their own errors as a runtime-state refusal. They now report the original error, and only reads and writes of the runtime state file itself refuse. The 5.7.0 beta carried this defect.
+
+### Removed
+
+## [5.7.0] — 2026-11-16
+
+### Added
+
+- Added an opt-in lightweight cycle pilot with one lead, a plan, a task checklist and an independent final review. `cycle.py pilot` records milestones without committing every operation, and it keeps task ownership, checkout claims, council conclusions, test summaries and review tied to the delivered code.
+- Progress views and dashboards now show pilot and standard cycles together. Pilot status separates reviewed work from PR, CI and merge outcomes, and it shows blockers that depend on a council.
+
+### Changed
+
+- New non-release cycles now choose local checks based on the changed behavior, related code and risk. `cycle.py local-check` records compact results and the coverage rationale, with no test-input snapshots and no automatic full-suite requirement. A cycle cannot advance if a selected check is missing or its latest run failed, and explicit reuse of a result stays within the same cycle and pass.
+- The lightweight pilot uses native delegation, milestone checkpoints and ordinary Git commits. It keeps checkout ownership across linked worktrees and rejects obsolete task results or reviews after relevant changes. The pilot stays opt-in, and the queue and default cycle route keep their existing workflows.
+- Historical cycles keep their existing evidence contract. Release artifact verification, staged checks and comprehensive PR CI requirements are unchanged.
+
+### Fixed
+
+### Removed
+
+## [5.6.1] — 2026-11-16
+
+### Added
+
+- `test-evidence.py run` and `lookup`, and `cycle.py checks`, now take `--full` to print the whole receipt or the whole cycle record.
+
+### Changed
+
+- `test-evidence.py run` and `lookup` now print the receipt by default without its input snapshot and environment, and add the stored receipt path. `cycle.py checks` prints the cycle position and the check list it wrote.
+- A commit result now lists only the files the commit changed. `queue add`, `queue start-next` and `finish` no longer list every unchanged queue history item.
+- Dispatch prompts, the `cycle` skill and its commands reference now name `commit-record` and `execution-check` as op requests, with their exact invocation.
+- The `derive-arch` and `check-drift` skills now describe the `omissions` key of `_meta/coverage.json` and the strict gate's refusal of a required concern that omits inputs. They also describe the exit 1 document lane (`validation_errors`) and the exit 2 environment lane.
+- The `derive-arch` provenance manifest is now documented as selecting no input. Its derivation takes the spine hash, the tool and parser pins, the declared globs and the hashes the extractors returned, and it parses no input. The standard-library parsers of the Python interpreter are a documented limit. For the same tree, a concern's verdict, its omissions, the coverage record, the spine hash and the strict and drift gate results can differ between Python 3.13 and 3.14.
+- `generate-reviews-index.py` now reads the summaries resolver once, before it reads the reports. If the resolver cannot be opened, is not a regular file, is not UTF-8, exceeds the size cap or does not parse to the expected shape, the result is a document finding naming the resolver. It is reported beside every report finding, and the command exits 1. A failure caused by the host takes the environment lane and exits 2 before any authority read.
+- `cycle.py change-type` into a type without a Plan phase, such as quick-fix, now refuses with `change-type-stale-verification` while the plan holds stale verification. The refusal names the plan revision that clears the flag and writes nothing.
+- `owner-decision` apply now refuses a capture or approval of the wrong type by naming the field, instead of crashing. `invalid-request-fields` lists the missing and the unknown keys, and a refusal on a paused cycle names `resume` as the recovery.
+- The `cycle` skill now states the one-proposal rule for presenting an owner decision.
+
+### Fixed
+
+- The reviews-index regenerator's symbolic-link walk now reports one refusal reason on both Python 3.13 and 3.14. Under an unsearchable parent, 3.13 raised a permission error where 3.14 read no link, so the two versions named different reasons.
+- A fix check over tracked files no longer goes stale when only the cycle's own record directory changed, so the fix task can deliver done.
+
+### Removed
+
+## [5.6.0] — 2026-11-15
+
+### Added
+
+- `derive-arch` now reports what a descriptive architecture map omits. Inputs it cannot decode or parse, inputs over the size cap, named inputs that are absent, and links where a file was expected are listed as omissions instead of being silently dropped. `_meta/coverage.json` gains an always-present `omissions` list, `overview.md` and `index.md` state each spine file's omission count, and the printed coverage table marks incomplete concerns. `--strict`, and any concern named in the tree manifest's `arch.require`, fail a required concern that carries an omission. A listed input that cannot be read is a finding that exits 1, and a host-caused failure such as a FIFO exits 2. Neither case writes an arch file.
+- An applied acceptance change now flags the verification entries it may have made stale, along with the criteria it adds, in a `stale_verification` record on the plan. It rewrites no entry. The flag holds Plan and Build until a plan revision clears it with an explicit empty list, and `inspect` offers that plan route.
+- Summary `inspect` now lists `reusable_evidence`, as full `inspect` already does.
+
+### Changed
+
+- The credential-path guard now admits a file named exactly `.env.example`, in any letter case. The secret scan, `context-read` and `execution-check` share this one rule. `.env`, `.env.local`, `prod.env`, `.envrc` and `.env.example.local` are still refused, and content secret scanning still refuses an `.env.example` that holds a secret-shaped value.
+- An unlistable directory during a `derive-arch` walk now exits 2 and names the directory, instead of being read as empty. Prune the directory or fix its permissions.
+- The summaries, doctrine and rules-catalog regenerators now tell an absent input apart from a dangling link, an unreadable file and an unlistable directory. An input whose presence cannot be determined exits 2, and a single run names every failing input. A dangling link at the doctrine reconciliation ledger is no longer read as an empty ledger.
+- The decision-review index regenerator now tells confirmed absence apart from an unreadable or unlistable input, and refuses the latter. It reads every report and collects each per-input finding in one run.
+- A fix task's commit must now be attributable. It needs a `Cycle-Task` trailer naming the fix task, a recorded adoption, or a cycle-record commit that changes fix evidence under the cycle's `evidence/` directory. Any other commit is refused with `fix-commit-unattributed`.
+- The "declaration differs" receipt message now names the top-level keys that differ.
+- The `test-tiers` skill now names its rule for keeping a test: the value rule. A project's declared dependencies, such as a script's inline dependency block or a lockfile, and the declared tool's own store of them count as prerequisites, not host state.
+- The ADR index, lineage and `index.md` rollup regenerators now write atomically. A failed write exits 2 and leaves the output byte-unchanged with no temporary file left behind. An output that is a symbolic link is replaced by a regular file.
+- An inaccessible `.bionic.yml` or `.crux` now refuses with the file and its errno name instead of reading as absent. A symbolic-link loop there reports `ELOOP`.
+
+### Fixed
+
+- Summary and full `inspect` now read a checkout receipt the same way. Previously, a commit that landed while the changelog citations were being read made summary `inspect` report a passing receipt as "declaration differs".
+- The lineage generator now exits 2 with `<docs_dir>/adrs not found` when the ADR directory is missing, instead of proposing an empty lineage.
+- The runtime-compatibility generator now refuses a catalogued skill name that is not a single path component, including a non-string name. Such a name could read, and in write mode rewrite, a file outside the skills directory, and a NUL name raised a traceback.
+
+### Removed
+
+## [5.5.2] — 2026-11-14
+
+### Added
+
+- Crux now works when git ignores the documentation tree, or part of it, through `.gitignore`, `.git/info/exclude` or a global excludes file. The writers save their files but commit nothing under an ignored tree. The cycle and queue writers report `commit_skipped: "tree-ignored"` along with `skipped_paths`, and a council's sealed record carries `evidence_uncommitted: "tree-ignored"`. The log-work and ADR skills drop ignored paths before `git add` and report the skipped commit. A tracked tree keeps its commits and refusals unchanged.
+- The user guide has a new section, "A documentation tree that git ignores", which explains the weaker proof in this setup. Git keeps no history or copy of an ignored tree, so a fresh clone or `git clean -X` deletes it, council attempt counts included. The section also lists the cases that still need a tracked tree, such as historical promptbook councils and the `migrate-adrs` disposition and publication steps.
+
+### Changed
+
+- Council evidence, the detached council await reader, ADR adoption and acceptance-criterion observations now skip their staging and HEAD checks for ignored paths only. A single shared check decides whether a path is ignored.
+- The crux-mods release gate now counts host type-check diagnostics instead of refusing on them.
 
 ### Fixed
 

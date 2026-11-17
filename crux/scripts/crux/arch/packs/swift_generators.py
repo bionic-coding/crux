@@ -20,7 +20,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..core import _contained, _safe_read_bytes
+from ..core import (
+    _LANE_RAISES,
+    _contained,
+    _is_link,
+    _safe_read_bytes,
+    input_dir_present,
+    input_kind,
+    ledger_active,
+    list_input_dir,
+)
 from . import swift_prune
 
 #: The untagged/standard YAML scalar, sequence and mapping tags the XcodeGen
@@ -81,19 +90,28 @@ def _dir_path(root: Path, directory_rel: str) -> Path:
 def _clean_components(base: Path, parts) -> bool:
     """True when no directory component in `parts`, walked from `base`, is a
     pruned name (ADR-0129 clause 8) or a symlink (ADR-0130 clause 3: no
-    directory symlink is descended). `is_symlink` answers with `lstat`, so
-    the check follows nothing."""
+    directory symlink is descended). `core._is_link` answers with `lstat`,
+    so the check follows nothing."""
     current = base
     for part in parts:
         current = current / part
         if swift_prune.pruned_name(part):
             return False
-        try:
-            if current.is_symlink():
-                return False
-        except OSError:
+        if _is_link(current):
             return False
     return True
+
+
+def _regular_file(p: Path) -> bool:
+    """True when `p` is a regular file that is not a symlink.
+
+    Under an active input ledger the answer is `core.input_kind`'s `lstat`
+    with origin `fixed` (ADR-0181 approach 3): confirmed absence is no file,
+    a link is a not-a-file omission, a FIFO or device is the environment
+    lane. With no active ledger it is the predicates it replaces."""
+    if not ledger_active():
+        return p.is_file() and not p.is_symlink()
+    return input_kind(p, "fixed") == "file"
 
 
 def _has_companion_project(root: Path, directory_rel: str) -> bool:
@@ -108,16 +126,17 @@ def _has_companion_project(root: Path, directory_rel: str) -> bool:
     d = _dir_path(root, directory_rel)
     if not _contained(root, d):
         return False
-    if not d.is_dir():
-        return False
-    for entry in d.iterdir():
-        if entry.is_symlink():
+    # `list_input_dir` lists the directory: under an active input ledger an
+    # unlistable one is the environment lane (ADR-0181 approach 7), and with
+    # none it answers as `is_dir()` then `iterdir()` did.
+    for entry in list_input_dir(d, "listed" if directory_rel else "fixed") or ():
+        if _is_link(entry):
             continue
-        if entry.name.endswith(".xcodeproj") and entry.is_dir():
+        if entry.name.endswith(".xcodeproj") and input_kind(entry, "listed") == "dir":
             pbx = entry / "project.pbxproj"
             if not _contained(root, pbx):
                 continue
-            if pbx.is_file() and not pbx.is_symlink():
+            if _regular_file(pbx):
                 return True
     return False
 
@@ -143,7 +162,7 @@ def check_tuist(root: Path, directory_rel: str) -> GeneratorResult:
     d = _dir_path(root, directory_rel)
     if not _contained(root, d):
         return GeneratorResult("tuist", False, None, ())
-    if not d.is_dir():
+    if not input_dir_present(d, "listed" if directory_rel else "fixed", legacy=Path.is_dir):
         return GeneratorResult("tuist", False, None, ())
 
     def present(*parts: str) -> Path | None:
@@ -155,7 +174,7 @@ def check_tuist(root: Path, directory_rel: str) -> GeneratorResult:
         p = d.joinpath(*parts)
         if not _contained(root, p):
             return None
-        return p if p.is_file() and not p.is_symlink() else None
+        return p if _regular_file(p) else None
 
     manifest = present("Project.swift") or present("Workspace.swift")
     companion = present("Tuist.swift") or present("Tuist", "Config.swift")
@@ -195,10 +214,12 @@ def _scan_events_safe(raw: bytes) -> bool:
 
     The `except Exception` below is deliberately broad, not
     `except yaml.YAMLError`: a pathological document can raise
-    `RecursionError` or `MemoryError` out of the Parser itself, or
-    `ValueError` (an out-of-range int/float/date literal token), none of
-    which subclasses `YAMLError`. Any of those means the document is not a
-    marker, exactly as a `YAMLError` does.
+    `RecursionError` out of the Parser itself, or `ValueError` (an
+    out-of-range int/float/date literal token), neither of which subclasses
+    `YAMLError`. Either means the document is not a marker, exactly as a
+    `YAMLError` does. A `MemoryError` passes through it (`_LANE_RAISES`):
+    `check_xcodegen` names the manifest in the environment lane under a
+    derive (ADR-0181 point 3).
     """
     import yaml  # noqa: PLC0415
 
@@ -221,6 +242,8 @@ def _scan_events_safe(raw: bytes) -> bool:
             if isinstance(event, yaml.ScalarEvent) and event.value == "<<":
                 return False
         return True
+    except _LANE_RAISES:
+        raise
     except Exception:
         return False
 
@@ -270,17 +293,27 @@ def check_xcodegen(root: Path, directory_rel: str, raw: bytes | None = None) -> 
         raw = _safe_read_bytes(root, manifest_path, oversize)
     if raw is None:
         return GeneratorResult("xcodegen", False, None, ())
-    if not _scan_events_safe(raw):
+    try:
+        safe = _scan_events_safe(raw)
+    except MemoryError as exc:
+        # ADR-0181 point 3: under a derive, the environment failure naming
+        # the manifest.
+        swift_prune.per_file_lane(manifest_path, exc)
+    if not safe:
         return GeneratorResult("xcodegen", False, None, ())
 
     import yaml  # noqa: PLC0415
 
     try:
         value = yaml.safe_load(raw)
+    except MemoryError as exc:
+        swift_prune.per_file_lane(manifest_path, exc)
+    except _LANE_RAISES:
+        raise
     except Exception:
         # Broad, not `yaml.YAMLError`: a deeply nested-but-shape-legal
         # document reaching this point (within `_MAX_NESTING`) can still
-        # raise `RecursionError`/`MemoryError` from the Composer/Constructor,
+        # raise `RecursionError` from the Composer/Constructor,
         # or `ValueError` from an out-of-range timestamp or an int literal
         # past the interpreter's digit-string limit. Each makes the file not
         # a marker, and none exits 2 (ADR-0130 clause 13).

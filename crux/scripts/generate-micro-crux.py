@@ -28,7 +28,7 @@ import authoring_scope
 
 FORMAT_VERSION = 1
 SCHEMAS = (
-    "cycle.schema.json", "cycle-queue.schema.json", "test-evidence.schema.json",
+    "cycle.schema.json", "cycle-pilot.schema.json", "cycle-queue.schema.json", "test-evidence.schema.json",
     "adr-provenance.schema.json", "cycle-council-attempt.schema.json", "cycle-council.schema.json",
 )
 # Prefixes identify canonical sections without depending on historical citation suffixes.
@@ -49,6 +49,7 @@ SEMANTIC_SOURCES = (
     "scripts/bionic_config.py", "scripts/cycle_workflow.py", "scripts/decision_policy.py",
     "scripts/adr_provenance.py", "scripts/cycle_queue.py", "scripts/test_evidence.py",
     "scripts/cycle_council.py", "scripts/council_policy.py",
+    "scripts/cycle_pilot.py", "scripts/cycle_runtime.py", "skills/cycle/references/lightweight.md",
     "skills/ingest-research/SKILL.md", "skills/refresh-research-sources/SKILL.md",
     "skills/transition-brief/SKILL.md", "skills/cycle/references/testing.md",
     "skills/cycle/references/review.md", "templates/BRIEF-template.md",
@@ -161,7 +162,7 @@ def schema_contracts(plugin_root: Path) -> str:
         schema = json.loads(raw)
         validate_refs(schema)
         title = schema.get("title", name)
-        parts.append(f"### {title}\n\nSource: `crux/schemas/{name}`  \nSource SHA-256: `{hashlib.sha256(raw).hexdigest()}`\n\n" +
+        parts.append(f"### {title}\n\nSource: `crux/schemas/{name}`<br>\nSource SHA-256: `{hashlib.sha256(raw).hexdigest()}`\n\n" +
                      fenced_example(name, "json", json.dumps(schema, indent=2, ensure_ascii=False)))
     return "\n\n".join(parts)
 

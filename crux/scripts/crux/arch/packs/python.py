@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 from pathlib import Path, PurePosixPath
 
 from ..core import (
@@ -40,6 +41,7 @@ from ..core import (
     StubReason,
     Verdict,
     _HTTP_METHODS,
+    _LANE_RAISES,
     _MAX_SCAN_BYTES,
     _MAX_SCAN_FILES,
     _PARSE_FAILED,
@@ -48,6 +50,7 @@ from ..core import (
     _cell,
     _extract_module_graph,
     _iter_py_files,
+    _omit,
     _retained_source_resolver,
     _retained_source_walk,
     _rel,
@@ -55,6 +58,13 @@ from ..core import (
     _safe_read_bytes,
     _sha256_hex,
     _topo_order,
+    decode_input,
+    input_kind,
+    ledger_active,
+    list_input_dir,
+    marker_exists,
+    parsing,
+    record_scan_cap,
 )
 
 
@@ -81,6 +91,47 @@ def _unparsed_residual(rels) -> str:
     return ("Source(s) Python's parser refused — malformed, or nested past the "
             "parser's own limits (hashed, not parsed): "
             + ", ".join(f"`{_cell(r)}`" for r in sorted(rels)) + ".")
+
+
+# ── the input seam (ADR-0181) ────────────────────────────────────────────────
+# Inside a derive every read, listing, presence gate, decode and parse below
+# goes through core's shared readers, so an input this pack cannot describe is
+# named in the concern's Omissions section, refused, or fails the environment
+# lane — never dropped in silence. Outside a derive (`ledger_active()` False)
+# each site keeps the predicate and the read it always had, so a direct
+# extractor call returns what it always returned.
+
+
+def _present_kind(path: Path, origin: str, admit) -> str:
+    """`core.input_kind` of `path`, with a path the retained-evidence resolver
+    prunes read as absent. Only called under an active ledger.
+
+    `input_kind` classifies by `lstat` before `admit` runs, because `admit`
+    follows links and answers None for an unreadable component: asked first,
+    it would hide a link or a permission failure as absence."""
+    kind = input_kind(path, origin)
+    if kind in ("file", "dir") and admit(path) is None:
+        return "absent"
+    return kind
+
+
+def _parsed_source(root: Path, py: Path, oversize: list | None = None):
+    """`(raw, tree)` for one walked Python source.
+
+    `raw` is None when the file was not read; `tree` is None when it was read
+    and did not decode or parse. Inside a derive both failures are named by
+    the shared readers; outside one the decode replaces bad bytes and a parse
+    failure answers None, as every scan in this pack did."""
+    raw = _safe_read_bytes(root, py, [] if oversize is None else oversize,
+                           origin="listed")
+    if raw is None:
+        return None, None
+    text = decode_input(py, raw)
+    if text is None:
+        return raw, None
+    with parsing(py) as parsed:
+        tree = ast.parse(text)
+    return raw, (None if parsed.failed else tree)
 
 
 
@@ -112,19 +163,26 @@ def _pyproject_pkg_name(root: Path, d: Path) -> str | None:
     outside the root and declares nothing (ADR-0068/ADR-0069 clause 6).
     """
     p = d / "pyproject.toml"
-    if not p.is_file():
-        return None
-    raw = _safe_read_bytes(root, p, [])
+    if ledger_active():
+        # The fixed-origin read is the presence gate (ADR-0181): confirmed
+        # absence is no input, a link or directory is named not-a-file.
+        raw = _safe_read_bytes(root, p, [], origin="fixed")
+    else:
+        if not p.is_file():
+            return None
+        raw = _safe_read_bytes(root, p, [])
     if raw is None:
         return None
-    text = raw.decode("utf-8", errors="replace")
+    text = decode_input(p, raw)
+    if text is None:
+        return None
     try:
         import tomllib  # noqa: PLC0415  — stdlib since 3.11; the pinned floor is 3.13.
     except ImportError:
         return None
-    try:
+    with parsing(p, (*_PARSE_FAILED, TypeError)) as parsed:
         data = tomllib.loads(text)
-    except (*_PARSE_FAILED, TypeError):
+    if parsed.failed:
         # `_PARSE_FAILED` plus `TypeError`, and the union is not belt-and-braces.
         # `TOMLDecodeError` subclasses `ValueError`, which is why the handler was
         # written as `(ValueError, TypeError)` — but `tomllib` is a RECURSIVE-
@@ -153,10 +211,44 @@ def _resolve_pkg_dir(root: Path, name: str, admit=None) -> tuple[Path, str] | No
     then `<name>/__init__.py` (with `-`→`_` normalization)."""
     norm = name.replace("-", "_")
     admit = admit if admit is not None else _retained_source_resolver(root)
+    if ledger_active():
+        return _resolve_pkg_dir_ledger(root, norm, admit)
     for base in (root / "src", root):
         cand = base / norm
         if admit(cand) is not None and cand.is_dir() and admit(cand / "__init__.py") is not None and (cand / "__init__.py").is_file():
             return cand, norm
+    return None
+
+
+def _resolve_pkg_dir_ledger(root: Path, norm: str, admit) -> tuple[Path, str] | None:
+    """`_resolve_pkg_dir`'s candidate probe inside a derive (ADR-0181 approach 3).
+
+    Each candidate is decided by an `lstat` of the candidate entry. Confirmed
+    absence, and a regular file where the package directory is expected, are
+    'not this candidate' (approach 7). A present link ends the probe, named
+    not-a-file, so the next candidate is not read in its place. No candidate
+    present records nothing: a distribution name is not a path content named.
+    A name that cannot be one path component names no candidate.
+    """
+    if (norm in ("", ".", "..") or "/" in norm or "\x00" in norm
+            or len(os.fsencode(norm)) > 255):
+        return None
+    for base in (root / "src", root):
+        cand = base / norm
+        kind = _present_kind(cand, "fixed", admit)
+        if kind == "omitted":
+            return None
+        if kind != "dir":
+            continue
+        init = cand / "__init__.py"
+        init_kind = _present_kind(init, "fixed", admit)
+        if init_kind == "file":
+            return cand, norm
+        if init_kind == "omitted":
+            return None
+        if init_kind == "dir":
+            _omit(init, "not-a-file", "directory")
+            return None
     return None
 
 
@@ -174,20 +266,28 @@ def _setup_py_pkg_name(root: Path, d: Path) -> str | None:
     with no residual channel to record into: the function answers a single
     yes/no question about one file, and its whole contract is already to return
     None when it cannot answer. Falling through is the honest stub here.
+    Inside a derive the shared parse boundary also names a refused file in
+    the concern's Omissions section (ADR-0181).
 
     Containment is `_pyproject_pkg_name`'s, for the reason stated there: `d` can
     be a symlinked directory, so the read is gated against the repository root
     rather than against `d`.
     """
     p = d / "setup.py"
-    if not p.is_file():
-        return None
-    raw = _safe_read_bytes(root, p, [])
+    if ledger_active():
+        raw = _safe_read_bytes(root, p, [], origin="fixed")
+    else:
+        if not p.is_file():
+            return None
+        raw = _safe_read_bytes(root, p, [])
     if raw is None:
         return None
-    try:
-        tree = ast.parse(raw.decode("utf-8", errors="replace"))
-    except _PARSE_FAILED:
+    text = decode_input(p, raw)
+    if text is None:
+        return None
+    with parsing(p) as parsed:
+        tree = ast.parse(text)
+    if parsed.failed:
         return None
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
@@ -223,6 +323,8 @@ def _manifest_dirs(root: Path, max_depth: int = 2) -> list[Path]:
     out: list[Path] = []
     admit = _retained_source_resolver(root)
     frontier = [root]
+    if ledger_active():
+        return _manifest_dirs_ledger(root, admit, max_depth)
     for _depth in range(max_depth):
         nxt: list[Path] = []
         for parent in frontier:
@@ -237,6 +339,32 @@ def _manifest_dirs(root: Path, max_depth: int = 2) -> list[Path]:
                 continue
             for child in children:
                 if (child / "pyproject.toml").is_file() or (child / "setup.py").is_file():
+                    out.append(child)
+                nxt.append(child)
+        frontier = nxt
+    return out
+
+
+def _manifest_dirs_ledger(root: Path, admit, max_depth: int) -> list[Path]:
+    """`_manifest_dirs` inside a derive: each directory is listed through
+    `list_input_dir`, so an unlistable one is an environment failure rather
+    than an empty level, and each child and manifest is classified by `lstat`.
+    The name pruning runs before the classification, so a link under a pruned
+    name is never recorded, as in the shared walk."""
+    out: list[Path] = []
+    frontier = [root]
+    for _depth in range(max_depth):
+        nxt: list[Path] = []
+        for parent in frontier:
+            entries = list_input_dir(parent, "fixed" if parent == root else "listed") or ()
+            children = [
+                c for c in entries
+                if not c.name.startswith(".") and c.name not in _SKIP_DIRS
+                and _present_kind(c, "listed", admit) == "dir"
+            ]
+            for child in children:
+                if (_present_kind(child / "pyproject.toml", "fixed", admit) == "file"
+                        or _present_kind(child / "setup.py", "fixed", admit) == "file"):
                     out.append(child)
                 nxt.append(child)
         frontier = nxt
@@ -328,6 +456,10 @@ def detect_packages(root: Path) -> tuple[tuple[Path, str], ...]:
 
     candidates: list[Path] = []
     src = root / "src"
+    if ledger_active():
+        candidates = _tier2_candidates_ledger(root, src, admit)
+        return tuple((d, d.name)
+                     for d in sorted(candidates, key=lambda p: (p.name, str(p))))
     if admit(src) is not None and src.is_dir():
         candidates.extend(
             d for d in src.iterdir()
@@ -343,6 +475,26 @@ def detect_packages(root: Path) -> tuple[tuple[Path, str], ...]:
         pass
     return tuple((d, d.name)
                  for d in sorted(candidates, key=lambda p: (p.name, str(p))))
+
+
+def _tier2_candidates_ledger(root: Path, src: Path, admit) -> list[Path]:
+    """`detect_packages` tier 2 inside a derive: `src/` and the root are listed
+    through `list_input_dir`, and each child and its `__init__.py` are
+    classified by `lstat` (ADR-0181). A regular file at `src` is no input."""
+    def package(d: Path, origin: str) -> bool:
+        return (_present_kind(d, origin, admit) == "dir"
+                and _present_kind(d / "__init__.py", "fixed", admit) == "file")
+
+    candidates: list[Path] = []
+    if _present_kind(src, "fixed", admit) == "dir":
+        candidates.extend(d for d in list_input_dir(src, "fixed") or ()
+                          if package(d, "listed"))
+    candidates.extend(
+        d for d in list_input_dir(root, "fixed") or ()
+        if not d.name.startswith(".") and d.name not in _SKIP_DIRS
+        and package(d, "listed")
+    )
+    return candidates
 
 
 def detect_package(root: Path) -> tuple[Path, str] | None:
@@ -401,7 +553,12 @@ def extract_python_module_graph(root: Path, docs_dir: str) -> tuple[str, dict]:
 
 
 def _detect_python_api_surface(root: Path) -> bool:
-    return (Path(root) / "openapi.json").is_file()
+    spec = Path(root) / "openapi.json"
+    if ledger_active():
+        # The gate is the fixed-origin read (ADR-0181 approach 3): a link or a
+        # directory at the path is named not-a-file and selects no probe.
+        return _safe_read_bytes(Path(root), spec, [], origin="fixed") is not None
+    return spec.is_file()
 
 
 
@@ -413,17 +570,27 @@ def extract_python_api_surface(root: Path, docs_dir: str) -> tuple[str, dict]:
     live route introspection is deferred. Stub when `openapi.json` is absent."""
     root = Path(root)
     spec = root / "openapi.json"
-    if not spec.is_file():
-        return _canon(["# API surface", "", NO_EXTRACTOR.rstrip("\n")]), {}
-    raw = _safe_read_bytes(root, spec, [])
+    if ledger_active():
+        raw = _safe_read_bytes(root, spec, [], origin="fixed")
+    else:
+        if not spec.is_file():
+            return _canon(["# API surface", "", NO_EXTRACTOR.rstrip("\n")]), {}
+        raw = _safe_read_bytes(root, spec, [])
     if raw is None:
         # A symlinked `openapi.json` whose target escapes the root, or one over
         # the 2 MB bound. Neither is read, so the concern stubs.
         return _canon(["# API surface", "", NO_EXTRACTOR.rstrip("\n")]), {}
     sources = {_rel(root, spec): _sha256_hex(raw)}
-    try:
-        doc = json.loads(raw.decode("utf-8"))
-    except Exception:
+    # Inside a derive the decode and the parse go through the shared readers,
+    # so a document that does not decode or parse is named (ADR-0181) rather
+    # than stubbing in silence. Outside one this is the strict decode and the
+    # broad handler it always was.
+    text = decode_input(spec, raw) if ledger_active() else None
+    if ledger_active() and text is None:
+        return _canon(["# API surface", "", NO_EXTRACTOR.rstrip("\n")]), sources
+    with parsing(spec, Exception) as parsed:
+        doc = json.loads(text if text is not None else raw.decode("utf-8"))
+    if parsed.failed:
         return _canon(["# API surface", "", NO_EXTRACTOR.rstrip("\n")]), sources
 
     md = _render_openapi(doc, "_Derived from `openapi.json`._")
@@ -508,6 +675,8 @@ def _kw_node(call: ast.Call, key: str):
 def _unparse(node) -> str:
     try:
         return ast.unparse(node)
+    except _LANE_RAISES:
+        raise
     except Exception:
         return "<unparsable>"
 
@@ -871,24 +1040,30 @@ class _RouteScan:
     # ── reading ─────────────────────────────────────────────────────────────
     def _scan(self) -> None:
         files = bytes_read = 0
-        for py in sorted(_iter_py_files(self.root)):
+        paths = sorted(_iter_py_files(self.root))
+        for index, py in enumerate(paths):
             if files >= _MAX_SCAN_FILES or bytes_read >= _MAX_SCAN_BYTES:
                 self.truncated = True
+                # Inside a derive the cap is a counted over-cap omission naming
+                # the cap that stopped the scan and every source it skipped
+                # (ADR-0181 approach 8); outside one this records nothing.
+                record_scan_cap(
+                    "_MAX_SCAN_FILES" if files >= _MAX_SCAN_FILES else "_MAX_SCAN_BYTES",
+                    self.root, len(paths) - index, "python._RouteScan._scan")
                 break
-            raw = _safe_read_bytes(self.root, py, self.oversize)
+            raw, tree = _parsed_source(self.root, py, self.oversize)
             if raw is None:
                 continue
             files += 1
             bytes_read += len(raw)
             rel = _rel(self.root, py)
-            try:
-                tree = ast.parse(raw.decode("utf-8", errors="replace"))
-            except _PARSE_FAILED:
+            if tree is None:
                 # Hash before the `continue`, or the residual below names a path
                 # this concern's `inputs_found` does not carry — see
                 # `_PARSE_FAILED`. `sources()` adds `unparsed` to what it emits;
                 # this dict is keyed by `per_file`, which a refused file never
-                # enters.
+                # enters. Inside a derive an undecodable file lands here too:
+                # read and omitted for its content, it stays hashed (ADR-0181).
                 self.unparsed.append(rel)
                 self.hashes[rel] = _sha256_hex(raw)
                 continue
@@ -1097,6 +1272,10 @@ class _RouteScan:
         if self.cycles:
             named = ", ".join(f"`{_cell(c)}`" for c in sorted(self.cycles))
             lines.append(f"A mount cycle was cut at: {named}.")
+        if ledger_active():
+            # Inside a derive the oversize, unparsed and truncated inputs are
+            # ledger omissions, named once by core's Omissions section.
+            return lines
         if self.oversize:
             named = ", ".join(f"`{_cell(p)}`" for p in sorted(self.oversize))
             lines.append(f"Source(s) above the per-file size bound were not read: {named}.")
@@ -1215,6 +1394,8 @@ def _column_type_and_fk(call) -> tuple[str, str | None]:
     if type_node is not None:
         try:
             typ = ast.unparse(type_node)
+        except _LANE_RAISES:
+            raise
         except Exception:
             typ = _base_name(type_node) or "—"
     return typ, fk
@@ -1286,12 +1467,10 @@ def _scan_sqlalchemy_models(root: Path, unparsed=None):
     rows = []
     sources: dict = {}
     for py in sorted(_iter_py_files(root)):
-        raw = _safe_read_bytes(root, py, [])
+        raw, tree = _parsed_source(root, py)
         if raw is None:
             continue
-        try:
-            tree = ast.parse(raw.decode("utf-8", errors="replace"))
-        except _PARSE_FAILED:
+        if tree is None:
             if unparsed is not None:
                 unparsed.append(_rel(root, py))
                 sources[_rel(root, py)] = _sha256_hex(raw)
@@ -1512,13 +1691,11 @@ def _scan_orm_models(root: Path, unparsed=None):
     django_rows: list = []
     sources: dict = {}
     for py in sorted(_iter_py_files(root)):
-        raw = _safe_read_bytes(root, py, [])
+        raw, tree = _parsed_source(root, py)
         if raw is None:
             continue
         rel = _rel(root, py)
-        try:
-            tree = ast.parse(raw.decode("utf-8", errors="replace"))
-        except _PARSE_FAILED:
+        if tree is None:
             if unparsed is not None:
                 unparsed.append(rel)
                 sources[rel] = _sha256_hex(raw)
@@ -1561,31 +1738,68 @@ def _sqlmodel_tablename(node: ast.ClassDef) -> str | None:
     return None
 
 
-def _has_migration(root: Path, d: Path) -> bool:
+def _has_migration(root: Path, d: Path, origin: str = "fixed") -> bool:
     """Does `d` hold at least one Alembic revision file?
 
     `root` is threaded through because `d` is not the containment anchor — the
     repository root is. Without it an off-root symlink inside a `versions/` dir
     could be the sole evidence that selected that directory.
+
+    Inside a derive `d` is listed through `list_input_dir` with `origin`, in
+    sorted order, and each entry is read and decoded through the shared
+    readers (ADR-0181).
     """
     if _retained_source_resolver(root)(d) is None:
         return False
-    for py in d.glob("*.py"):
+    if ledger_active():
+        entries = [p for p in list_input_dir(d, origin) or () if p.name.endswith(".py")]
+    else:
+        entries = d.glob("*.py")
+    for py in entries:
         if py.name.startswith("__"):
             continue
-        raw = _safe_read_bytes(root, py, [])
+        raw = _safe_read_bytes(root, py, [], origin="listed")
         if raw is None:
             continue
-        text = raw.decode("utf-8", errors="replace")
+        text = decode_input(py, raw)
+        if text is None:
+            continue
         if "down_revision" in text and "revision" in text:
             return True
     return False
+
+
+def _detect_alembic_versions_ledger(root: Path, admit) -> Path | None:
+    """`_detect_alembic_versions` inside a derive (ADR-0181 approach 3).
+
+    Each conventional location is decided by an `lstat`: confirmed absence and
+    a regular file are not this candidate, and a present link ends the probe,
+    named not-a-file. The search prunes `_SKIP_DIRS` and dot-directories during
+    the walk rather than after it — the same directories survive — so a link
+    under a pruned directory is never recorded.
+    """
+    for c in (root / "alembic" / "versions", root / "migrations" / "versions"):
+        kind = _present_kind(c, "fixed", admit)
+        if kind == "omitted":
+            return None
+        if kind == "dir" and _has_migration(root, c, "fixed"):
+            return c
+    found: list[Path] = []
+    for directory, children, files in _retained_source_walk(root, root):
+        children[:] = [n for n in children if n not in _SKIP_DIRS and not n.startswith(".")]
+        found.extend(Path(directory) / n for n in children + files if n == "versions")
+    for d in sorted(found):
+        if _present_kind(d, "listed", admit) == "dir" and _has_migration(root, d, "listed"):
+            return d
+    return None
 
 
 def _detect_alembic_versions(root: Path) -> Path | None:
     """Locate the Alembic migration `versions/` dir: the two conventional
     locations, then a bounded search skipping VCS/venv dirs."""
     admit = _retained_source_resolver(root)
+    if ledger_active():
+        return _detect_alembic_versions_ledger(root, admit)
     for c in (root / "alembic" / "versions", root / "migrations" / "versions"):
         if admit(c) is not None and c.is_dir() and _has_migration(root, c):
             return c
@@ -1634,15 +1848,18 @@ def _scan_alembic_timeline(root: Path, unparsed=None):
         return [], {}, ""
     sources: dict = {}
     nodes: dict = {}          # rev -> (downs, message)
-    for py in sorted(versions.glob("*.py")):
+    if ledger_active():
+        entries = [p for p in list_input_dir(versions, "listed") or ()
+                   if p.name.endswith(".py")]
+    else:
+        entries = sorted(versions.glob("*.py"))
+    for py in entries:
         if py.name.startswith("__"):
             continue
-        raw = _safe_read_bytes(root, py, [])
+        raw, tree = _parsed_source(root, py)
         if raw is None:
             continue
-        try:
-            tree = ast.parse(raw.decode("utf-8", errors="replace"))
-        except _PARSE_FAILED:
+        if tree is None:
             if unparsed is not None:
                 unparsed.append(_rel(root, py))
                 sources[_rel(root, py)] = _sha256_hex(raw)
@@ -1786,7 +2003,9 @@ def extract_python_data_model(root: Path, docs_dir: str) -> tuple[str, dict]:
         residuals.append(_DJANGO_IMPLICIT_PK)
     if sqlmodel_rows or django_rows:
         residuals.append(_INHERITED_FIELDS_RESIDUAL)
-    if unparsed:
+    if unparsed and not ledger_active():
+        # Inside a derive an unparsed source is a ledger omission, named once
+        # by core's Omissions section (ADR-0181).
         residuals.append(_unparsed_residual(set(unparsed)))
     if residuals:
         out += ["## Residuals", ""] + [f"- {line}" for line in residuals] + [""]
@@ -1816,7 +2035,8 @@ _PYTHON_MARKERS = ("pyproject.toml", "requirements.txt", "setup.py")
 
 
 def _detect_python(root: Path) -> bool:
-    return any((root / rel).exists() for rel in _PYTHON_MARKERS)
+    # Markers decide presence through the core helper (ADR-0181 approach 3).
+    return any(marker_exists(root / rel) for rel in _PYTHON_MARKERS)
 
 
 #: Empty: the core's marker scan prunes no directory from this pack's own
@@ -1832,7 +2052,7 @@ def detect(root: Path) -> DetectResult:
     `_PYTHON_MARKERS`, so an ambiguous multi-match can report the marker rather
     than only the pack.
     """
-    hits = tuple(rel for rel in _PYTHON_MARKERS if (root / rel).exists())
+    hits = tuple(rel for rel in _PYTHON_MARKERS if marker_exists(root / rel))
     return DetectResult(matched=bool(hits), markers=hits)
 
 

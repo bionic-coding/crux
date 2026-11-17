@@ -35,7 +35,7 @@ path; any other cause is the environment lane naming it. Write mode never
 reads the output, because it overwrites it, so it replaces a corrupt one.
 Every refusal leaves every output byte-unchanged and creates none.
 
-[^file]: rule:path-attributable-read-failure-is-a-document-finding
+[^file]: rule:unreadable-file-outside-a-descriptive-map-is-a-document-finding
 [^process]: rule:process-level-read-failure-is-an-environment-failure
 [^absence]: rule:absence-is-confirmed-by-enoent-or-enotdir
 [^unlistable]: rule:unlistable-input-directory-is-an-environment-failure
@@ -45,7 +45,6 @@ Every refusal leaves every output byte-unchanged and creates none.
 from __future__ import annotations
 
 import argparse
-import glob
 import json
 import sys
 from pathlib import Path
@@ -53,25 +52,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import adr_frontmatter  # noqa: E402
+import bionic_config  # noqa: E402
 import input_lanes  # noqa: E402
-
-
-def _tree_name(root) -> str:
-    """Resolve the tree directory via bionic_config, the resolver the rollup and lineage use.
-
-    It raises on a configuration it cannot resolve; `main` maps that to exit 2.
-    """
-    _PATH = Path(__file__).resolve().parent / "bionic_config.py"
-    import importlib.util as _ilu
-    import sys as _sys
-    _key = "_bionic_config"
-    _m = _sys.modules.get(_key)
-    if _m is None:
-        _s = _ilu.spec_from_file_location(_key, _PATH)
-        _m = _ilu.module_from_spec(_s)
-        _s.loader.exec_module(_m)
-        _sys.modules[_key] = _m   # cache so class identity holds across calls
-    return _m.resolve_tree_name(root)
 
 
 def _load(paths, texts: dict[Path, str]) -> list[dict]:
@@ -132,7 +114,9 @@ def render(active: list[dict], archived: list[dict]) -> str:
 
 
 def build(root: Path) -> tuple[Path, str]:
-    adrs = root / _tree_name(root) / "adrs"
+    # Raises BionicConfigError on a configuration it cannot resolve; `main`
+    # maps that to exit 2.
+    adrs = root / bionic_config.resolve_tree_name(root) / "adrs"
     rel_of = adr_frontmatter.repo_relative(root)
     try:
         present = input_lanes.directory_exists(adrs)
@@ -199,7 +183,8 @@ def main(argv=None) -> int:
         print(json.dumps({"drift": drift, "path": rel}, sort_keys=True))
         return 1 if drift else 0
     try:
-        path.write_text(want, encoding="utf-8")
+        # Atomic: a failed write leaves adrs/index.md byte-unchanged.
+        adr_frontmatter.write_text_atomically(path, want)
     except OSError as exc:
         # A failed write is no input finding: exit 2 on stderr, never a traceback.
         sys.stderr.write(f"generate-adr-index: could not write {rel}: {type(exc).__name__}: {exc}\n")

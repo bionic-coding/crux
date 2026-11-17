@@ -151,11 +151,21 @@ Shared exit-code semantics (the same contract `verify-code-docs`, CHK-CODE-4, CH
 
 **Shallow clones.** A tree that has published a clause migration needs full Git history. In a shallow clone (the default `actions/checkout` depth of 1 in CI, for example) the governing readers (summaries, doctrine, rules catalog, arch and reviews index) refuse with `history-unavailable`. Set `fetch-depth: 0` in CI, or run `git fetch --unshallow` locally. Report such a refusal as REFUSAL, never as drift.
 
-### 3. The one roster exception — `derive-arch.py --dry-run` exit 2
+### 3. The one roster exception — `derive-arch.py --dry-run`
 
-`derive-arch.py --dry-run` has a third lane the others do not: **exit 2, and stderr says which of two lanes it is** (copy the CHK-ARCH-1 distinction exactly).
+`derive-arch.py --dry-run` carries lanes the other gates do not. Read its exit code and payload as follows; the `derive-arch` skill states the full contract.
 
-- **Crash lane** — a missing dependency or unhandled exception. Verdict **CRASH**; surface stderr; fix the environment.
+**Exit 1 has three channels, and only one is drift.**
+
+- **Drift** — a non-empty `drift` list. Verdict **DRIFT**; the fix is the third-column regenerator.
+- **Strict gate** — a non-empty `strict_failures` list, beside `"clean": true` and an empty `drift` list when the spine itself is in sync. This gate runs without `--strict`, so each entry comes from the tree manifest's `arch.require`. An entry fails when the required concern's recorded verdict is not `populated`, or when its recorded `omissions` list in `<docs_dir>/arch/_meta/coverage.json` is not empty, which the gate refuses even for a `populated` concern. Verdict **BROKEN**, never DRIFT: report each entry's concern, verdict and omitted inputs. **Do not name the regenerator as the remedy** — a re-derive writes identical bytes and clears nothing. The remedy is to establish the precondition the verdict names, repair the omitted inputs, or amend `arch.require`; each is a user decision.
+- **Document lane** — a payload whose only key is `validation_errors`, one `{"file", "error"}` entry per input the derive could not use for a reason the file causes (a permission refusal, a listed entry that vanished, or a content failure in the decision index). Nothing was compared, so there is no drift verdict. Verdict **BROKEN**; the fix is to repair each named file, then re-run the gate.
+
+**An omission outside the strict gate never changes the verdict.** A concern that `arch.require` does not name may carry a non-empty `omissions` list at exit 0. Report the gate clean and name the omitted-input count beside it, as a warning rides beside a clean verdict.
+
+**Exit 2 means no verdict, and stderr says which of two lanes it is** (copy the CHK-ARCH-1 distinction exactly).
+
+- **Environment lane** — a missing dependency, an unhandled exception, or an input failure the host determines (an input directory that cannot be listed, a FIFO or device where an input should be, an I/O error, a parser out of memory). stdout is empty; for an input failure stderr carries `derive-arch: environment failure: ...` lines. Verdict **CRASH**; surface stderr; fix the environment.
 - **Deliberate refusal** — stderr names `StaleProjectionInput`. A spine file that projects a gated artifact declined because that artifact is not what its own regenerator produces. Nothing was written. This is **not a crash and not arch drift.** Verdict **REFUSAL**: report the capability failure, name the stale input from stderr, and recommend *that input's* own regenerator (`validate-catalog.py` for the skill catalog, `generate-adr-index.py` for the ADR index) followed by a re-derive. **Do NOT recommend re-deriving arch as the fix** — a re-derive reads the same stale input and refuses again.
 
 ### 4. Report one table

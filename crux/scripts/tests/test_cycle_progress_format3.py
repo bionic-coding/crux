@@ -272,9 +272,11 @@ class RenderUnchangedTests(unittest.TestCase):
     def test_every_committed_cycle_record_renders_unchanged(self):
         directory = REPO_ROOT / TREE / 'cycles'
         require_dev_surface(self, directory, 'the committed cycle records')
-        # Version-3 records are the new format and have no frozen rendering to equal.
-        sources = sorted(p.parent for p in directory.glob('CYC-*/cycle.json')
-                         if json.loads(p.read_text(encoding='utf-8')).get('schema_version') != 3)
+        # Version-3 records and pilot records are newer formats and have no frozen rendering to equal.
+        def frozen_format(path):
+            record = json.loads(path.read_text(encoding='utf-8'))
+            return record.get('schema_version') != 3 and record.get('format') != 'crux.cycle.vNext'
+        sources = sorted(p.parent for p in directory.glob('CYC-*/cycle.json') if frozen_format(p))
         # The reader lists at most 60 cycles, so compare in batches of 60.
         results = [self.compare(sources[n:n + 60], live=True) for n in range(0, len(sources), 60)]
         self.assertEqual(sum(r[0] for r in results), len(sources))

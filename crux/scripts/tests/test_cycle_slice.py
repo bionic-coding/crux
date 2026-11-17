@@ -45,7 +45,7 @@ def version_two(path):
     delivery, the history revision stamps) and sets schema_version 2. Other test modules import this
     helper when a test asserts version-2 behavior on purpose."""
     raw = json.loads(Path(path).read_text())
-    for key in ('revision', 'operations', 'results_dir', 'phase_names'):
+    for key in ('revision', 'operations', 'results_dir', 'phase_names', 'testing_policy', 'local_checks'):
         raw.pop(key, None)
     for entry in raw.get('assignments', []):
         for key in (*cycle_ops.ASSIGNMENT_V3_FIELDS, 'mode', 'delivery_token', 'previous_results', 'invocation_snapshot', 'invocation_history',
@@ -559,8 +559,11 @@ class CompatibilityTests(SliceBase):
         records = sorted(root.glob('*/cycle.json'))
         self.assertTrue(records)
         for path in records:
+            doc = json.loads(path.read_text())
+            if doc.get('format') == 'crux.cycle.vNext':
+                continue  # an opt-in pilot record has its own format and reader
             with self.subTest(path=path.parent.name):
-                validate(json.loads(path.read_text()))
+                validate(doc)
 
     def test_recovery_actions_validate_against_the_operation_schema(self):
         self.prepare()

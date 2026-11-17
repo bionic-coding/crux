@@ -14,10 +14,24 @@ same deferral conditions, and `commit_paths` is the shared step both use.
 
     {"changed": bool, "commit": SHA|None, "paths": [...], "message": str|None, "deferred": REASON|None}
 
+`paths` names only the files the commit changed, read from the commit itself. With no commit it names
+the files that wait to be committed, and it is empty when nothing waits. The writer still commits by
+directory, so the queue history directory's unchanged item files never appear in `paths`.
+
 `deferred` names why no commit was made: ``not-a-git-repository``, ``operation-in-progress`` (merge,
 rebase, cherry-pick or revert), ``index-locked``, ``full-suite-running`` or ``commit-failed``. A
 deferral is not a failure: the record stays on disk and the next `commit-record` commits it. A repeat
 with nothing to commit is a no-op (``changed`` false, no ``deferred``).
+
+A path git ignores is never staged or committed. `commit_paths` asks `ignored_paths.ignored` about
+the paths it is given, drops every path it reports, and commits the rest as before. When it drops
+any path, its result also carries ``commit_skipped: "tree-ignored"`` and ``skipped_paths``, the
+dropped paths, and ``paths`` names only the paths it kept. ``deferred`` stays null for this cause,
+because a deferral promises a later commit and an ignored path never gets one. A tracked path is one
+the user's own git does not ignore; for a tracked tree the result carries neither key. One limit:
+`commit_paths` receives directory paths, and `git add` skips an ignored file inside a named directory
+that is not itself ignored without an error, so ``skipped_paths`` lists only the named paths the
+predicate reports.
 
 The full-suite lock is `<git-common-dir>/crux/full-suite.lock`, held by `tools/test-suite.py` for the
 whole run. A direct `parallel_suite.py --shared-evidence` run of a registered checkout suite holds the
@@ -152,24 +166,39 @@ def commit_paths(cfg, paths, message):
     """Commit `paths` alone with `git commit --only`, under the record commit's deferral conditions.
 
     `message` is a string or a callable that returns one; it is called only when there is something to commit.
-    Returns the result described in the module docstring. The caller holds whatever lock guards `paths`."""
-    base = {'changed': False, 'commit': None, 'paths': paths, 'message': None, 'deferred': None}
+    Returns the result described in the module docstring. The caller holds whatever lock guards `paths`.
+    Paths `ignored_paths.ignored` reports are dropped and named in `skipped_paths`."""
+    from ignored_paths import ignored
+    skipped = ignored(cfg.repo_root, paths)
+    extra = {}
+    if skipped:
+        extra = {'commit_skipped': 'tree-ignored', 'skipped_paths': [path for path in paths if path in skipped]}
+        paths = [path for path in paths if path not in skipped]
+    base = {'changed': False, 'commit': None, 'paths': paths, 'message': None, 'deferred': None, **extra}
+    if skipped and not paths:
+        return base
     files = pending_files(cfg, paths)
     if files is None:
         return {**base, 'deferred': 'not-a-git-repository', 'detail': 'git cannot find a work tree here'}
     if not files:
-        return base
+        return {**base, 'paths': []}
     found = deferral(cfg)
     if found:
-        return {**base, 'deferred': found[0], 'detail': found[1], 'pending': files}
+        return {**base, 'paths': files, 'deferred': found[0], 'detail': found[1], 'pending': files}
     text = message() if callable(message) else message
     code, _, err = git(cfg.repo_root, 'add', '--', *paths)
     if code == 0:
         code, _, err = git(cfg.repo_root, 'commit', '--only', '--no-verify', '-m', text, '--', *paths)
     if code != 0:
-        return {**base, 'deferred': 'commit-failed', 'detail': err.strip()[:300], 'pending': files}
+        return {**base, 'paths': files, 'deferred': 'commit-failed', 'detail': err.strip()[:300], 'pending': files}
     _, head, _ = git(cfg.repo_root, 'rev-parse', 'HEAD')
-    return {**base, 'changed': True, 'commit': head.strip(), 'message': text}
+    return {**base, 'paths': committed_paths(cfg), 'changed': True, 'commit': head.strip(), 'message': text}
+
+
+def committed_paths(cfg):
+    """The paths the HEAD commit changed, which is what a commit result reports in `paths`."""
+    code, out, _ = git(cfg.repo_root, 'diff-tree', '--root', '--no-commit-id', '--name-only', '-r', '-z', 'HEAD')
+    return [path for path in out.split('\0') if path] if code == 0 else []
 
 
 def commit_record(repo_root, cycle_id, label=None, include_queue=False):

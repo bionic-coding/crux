@@ -1,7 +1,8 @@
 # ADR-0130 clause 2 hostile form for an `.xcconfig`: workspace data and
-# xcconfig files keep the core 2 MB bound, and a breach renders `oversize`.
+# xcconfig files keep the core 2 MB bound, and a breach renders an
+# `over-cap (oversize)` omission.
 # `Config/Big.xcconfig` is materialized one byte past the bound: it renders
-# one `oversize` line naming it, is never read, and the derive exits 0.
+# one omission line naming it, is never read, and the derive exits 0.
 # `Config/AtBound.xcconfig` is exactly 2 MB of comment lines: it is read
 # and renders nothing, so the bound sits at 2 MB and not below it.
 # `Config/Small.xcconfig` is the reader control: its conditioned key
@@ -24,11 +25,13 @@ rows:
   module-graph:
     - "| `App/Main.swift` | `App` | classic Sources build phase | — |"
 
-residuals:
-  - class: oversize
-    path: Config/Big.xcconfig
-    kind: "xcconfig exceeds the 2 MB bound and is not read"
+omissions:
+  - path: Config/Big.xcconfig
+    reason: over-cap
+    kind: oversize
     count: 1
+
+residuals:
   - class: conditional-setting
     path: Config/Small.xcconfig
     kind: "SWIFT_VERSION[sdk=iphoneos*]"

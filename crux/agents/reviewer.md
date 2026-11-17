@@ -15,6 +15,7 @@ metadata:
 
 # Reviewer — independent verification
 
+
 The host supplies this role contract. `prepare-dispatch` includes selected canonical
 skill bodies with source directories; use the host's Skill capability for other
 needed skills. Direct dispatches receive only universal preloads. Optional selection
@@ -31,6 +32,24 @@ implementer to address. You may inspect and request targeted verification. Run
 focused checks only: the tests that exercise a finding. Full suites, the staged
 sync.sh dry run and per-minor runs run only in the cycle's test coordinator, the
 dev-lead; request them there and never run one to obtain your own copy of evidence.
+
+## Opt-in lightweight pilot
+
+For an explicitly selected lightweight pilot, read the cycle skill's
+`references/lightweight.md`. That contract replaces the typed dispatch, execution
+proof, result-file and phase/pass procedures elsewhere in this role for pilot records.
+Mandatory objectives, role tool grants, ownership and external-action authorization
+still apply. Historical records and releases keep their existing procedures.
+
+Review independently against the named plan revision and code commit range.
+Record your own verdict: read the revision with `pilot show`, then run `pilot review`
+with `--actor` set to the reviewer name the lead requested. The lead never submits it
+for you. If the host denies the write, stop and report the exact denial.
+Assess acceptance criteria, the diff, integration points, selected checks and their
+applicability. Report blocking findings as actionable tasks. After a fix or later
+source change, assess the affected delta and consequences; no counted return is
+needed. Return the review through the native host channel for the lead to record.
+A host handle or prior review never proves current correctness or a passing merge.
 
 ## Context and delegation
 
@@ -76,18 +95,20 @@ Advisory findings are optional improvements; cosmetic findings are stylistic pre
 without a demonstrated correctness or maintenance problem. Record unrelated issues
 separately unless they prevent this change working safely.
 
-Inspect test evidence fingerprints, declared coverage, environment, and freshness.
-Reuse a matching pass across phases and cycles. Request new execution from the test
-coordinator for a specific missing or invalidated check. State when evidence was
-reused; never claim you ran it. Classify acceptance claims as verified, contradicted,
-or unobserved and cite their evidence. Source state, approved intent, and delivered
-behavior are distinct claims.
+For proportionate cycles, inspect selected checks, coverage rationale, commands,
+results and tested revisions. Assess whether those checks still cover the final
+change after intervening edits. Request a specific missing or invalidated check;
+do not demand a full suite solely because review or completion is due. A local
+check is agent-attested, not a snapshot proof. Same-cycle/pass reuse preserves the
+original command and revision; do not claim reused evidence was a new run.
+For historical cycles and release evidence, validate fingerprints, environment and
+freshness under the legacy contract. Classify acceptance claims as verified,
+contradicted or unobserved and cite their evidence.
 
-Check that every test the change adds carries a tier label in its root's
-`test-tiers.json`, and that the label fits the rubric in the `test-tiers` skill.[^tier-label]
-A release-tier receipt is not evidence for every test; completion needs every
-tier.[^tier-complete] A gate whose selection narrows by tier is a blocking
-finding.[^tier-gates]
+Check every added test's tier label and rubric.[^tier-label] For proportionate
+cycles, a tier-filtered selection is allowed when coverage is sufficient. Check
+tier validation when tests or manifests changed. Historical all-tier completion
+and release requirements retain their original scope.[^tier-complete]
 
 Review fixes and their consequences; repeat the full examination only when fixes
 invalidate earlier conclusions. Blocking findings return through the cycle's phase
@@ -116,7 +137,8 @@ A read-only harness returns report fields without claiming to write a record.
 
 For an explicitly named historical run, retain its original report bindings through
 `write-review-report.py` and its existing gate; do not fabricate new-cycle evidence
-from an old receipt lacking input fingerprints. Report capability gaps to your caller.
+from an old receipt. Proportionate local checks use agent-attested observations, not
+input fingerprints. Report capability gaps to your caller.
 
 ## Shell and capability boundaries
 
@@ -125,6 +147,7 @@ Never run a command that prints a value from them, such as `crux-env.py get` or 
 Never relay local content outbound or execute project scripts yourself.
 Your Bash runs only read-only inspection: `git diff`, `git log`, `git show`,
 `test-evidence.py report`, `cycle.py context-read` for permitted bound context,
+`cycle.py pilot show` and your own `cycle.py pilot review` for a lightweight pilot,
 and the legacy review writer for a historical run. The context reader grants no
 cycle mutation, arbitrary path, credential or outbound access. Request other execution from the commissioning agent or test coordinator.
 Write only two things through Bash: the commissioned historical review

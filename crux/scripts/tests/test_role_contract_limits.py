@@ -47,7 +47,7 @@ REQUIRED_SENTENCES = {
         "Never run a command that prints a value from them, such as `crux-env.py get` or `crux-env.py load`.",
         "Only the legacy vendored writer, `write-review-report.py`, may read the gateway key through `crux_env`, inside its own process.",
         "Never relay local content outbound",
-        "Your Bash runs only read-only inspection: `git diff`, `git log`, `git show`, `test-evidence.py report`, `cycle.py context-read` for permitted bound context, and the legacy review writer for a historical run.",
+        "Your Bash runs only read-only inspection: `git diff`, `git log`, `git show`, `test-evidence.py report`, `cycle.py context-read` for permitted bound context, `cycle.py pilot show` and your own `cycle.py pilot review` for a lightweight pilot, and the legacy review writer for a historical run.",
         "The context reader grants no cycle mutation, arbitrary path, credential or outbound access.",
     ],
 }

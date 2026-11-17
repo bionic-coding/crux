@@ -587,12 +587,17 @@ def _listing(root, segments, n, budget=None):
     cannot be listed. A `DirEntry` answers `is_file(follow_symlinks=False)`
     and `is_symlink()` from the listing itself where the host reports the
     entry type, and never follows a symlink. The completed listing charges
-    `budget` its entry count (L1) before it is used."""
+    `budget` its entry count (L1) before it is used.
+
+    Under an active input ledger only ENOENT or ENOTDIR is `_UNLISTABLE`; a
+    directory that cannot be listed for any other cause is the environment
+    failure naming it (`swift_prune.listing_failure`, ADR-0181 approach 7)."""
     path = root if n == 0 else _prefix_string(root, segments, n)
     try:
         with os.scandir(path) as entries:
             names = MappingProxyType({e.name: e for e in entries})
-    except OSError:
+    except OSError as exc:
+        swift_prune.listing_failure(path, exc)
         return _UNLISTABLE
     charge_excluded(budget, len(names))
     return names
@@ -640,14 +645,19 @@ def _listed_names_live(root: Path, segments, budget=None) -> bool:
     For a reference whose every segment `_plain_segment` accepts, each
     parent is the prefix string `has_symlink_component`'s walk builds, one
     segment longer per step, so the walk's own work is linear in the
-    components. Any other reference walks `pathlib` joins, as before."""
+    components. Any other reference walks `pathlib` joins, as before.
+
+    Under an active input ledger a parent that cannot be listed for a cause
+    other than ENOENT or ENOTDIR is the environment failure naming it
+    (`swift_prune.listing_failure`, ADR-0181 approach 7)."""
     plain = all(_plain_segment(seg) for seg in segments)
     current = root
     for i, seg in enumerate(segments):
         try:
             with os.scandir(current) as entries:
                 names = {e.name for e in entries}
-        except OSError:
+        except OSError as exc:
+            swift_prune.listing_failure(current, exc)
             return False
         charge_excluded(budget, len(names))
         if seg not in names:

@@ -28,7 +28,12 @@ repository-relative path (exit 1);[^file] any other cause is the environment
 lane naming it (exit 2, nothing on stdout).[^process] Every refusal leaves
 every output byte-unchanged and creates none.
 
-[^file]: rule:path-attributable-read-failure-is-a-document-finding
+THE ADRS DIRECTORY. Its presence is decided before any read, in write and
+`--dry-run`: a confirmed-absent directory exits 2 naming it and "not found",
+and one whose presence cannot be determined, or that is not a directory, takes
+the environment lane. No lineage is proposed for a missing input directory.
+
+[^file]: rule:unreadable-file-outside-a-descriptive-map-is-a-document-finding
 [^process]: rule:process-level-read-failure-is-an-environment-failure
 [^absence]: rule:absence-is-confirmed-by-enoent-or-enotdir
 """
@@ -37,7 +42,6 @@ from __future__ import annotations
 import argparse
 import difflib
 import json
-import glob
 import re
 import sys
 from pathlib import Path
@@ -45,6 +49,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import adr_frontmatter  # noqa: E402
+import bionic_config  # noqa: E402
 import input_lanes  # noqa: E402
 
 try:
@@ -52,21 +57,6 @@ try:
 except ImportError:
     sys.stderr.write("generate-lineage.py requires PyYAML — run via `uv run` (PEP 723 supplies it).\n")
     raise SystemExit(2)
-
-
-def _tree_name(root) -> str:
-    """Resolve the tree directory via bionic_config, falling back to the default."""
-    _PATH = Path(__file__).resolve().parent / "bionic_config.py"
-    import importlib.util as _ilu
-    import sys as _sys
-    _key = "_bionic_config"
-    _m = _sys.modules.get(_key)
-    if _m is None:
-        _s = _ilu.spec_from_file_location(_key, _PATH)
-        _m = _ilu.module_from_spec(_s)
-        _s.loader.exec_module(_m)
-        _sys.modules[_key] = _m   # cache so class identity holds across calls
-    return _m.resolve_tree_name(root)
 
 
 def _load_adrs(adrs_dir: Path, rel=None) -> list[dict]:
@@ -150,10 +140,31 @@ def main(argv: list[str]) -> int:
     args = ap.parse_args(argv)
 
     root = Path(args.repo_root)
-    adrs_dir = root / _tree_name(root) / "adrs"
-    target = adrs_dir / "lineage.md"
     try:
-        recs = _load_adrs(adrs_dir, adr_frontmatter.repo_relative(root))
+        adrs_dir = root / bionic_config.resolve_tree_name(root) / "adrs"
+    except bionic_config.BionicConfigError as exc:
+        # A configuration the resolver refuses: exit 2, nothing on stdout.
+        sys.stderr.write(f"generate-lineage: {type(exc).__name__}: {exc}\n")
+        return 2
+    target = adrs_dir / "lineage.md"
+    rel_of = adr_frontmatter.repo_relative(root)
+    # The adrs directory is a required input, decided before any read in
+    # every mode (ADR-0181 point 9). A confirmed absence is "not found";
+    # a path that exists and is not a directory, or whose presence cannot be
+    # determined, is the environment lane. Either way nothing is written and
+    # no lineage is proposed.[^absence]
+    try:
+        present = input_lanes.directory_exists(adrs_dir)
+    except OSError as exc:
+        return input_lanes.emit_environment_failure(
+            input_lanes.EnvironmentLaneError(
+                [input_lanes.environment_reason(rel_of(adrs_dir), exc)]),
+            "generate-lineage", sys.stderr)
+    if not present:
+        sys.stderr.write(f"generate-lineage: {rel_of(adrs_dir)} not found\n")
+        return 2
+    try:
+        recs = _load_adrs(adrs_dir, rel_of)
     except adr_frontmatter.FenceValidationError as exc:
         return adr_frontmatter.print_validation_errors(
             exc.errors, "generate-lineage", sys.stdout, sys.stderr)
@@ -201,7 +212,8 @@ def main(argv: list[str]) -> int:
         return 1
 
     try:
-        target.write_text(generated, encoding="utf-8")
+        # Atomic: a failed write leaves lineage.md byte-unchanged.
+        adr_frontmatter.write_text_atomically(target, generated)
     except OSError as exc:
         # A failed write is no input finding: exit 2 on stderr, never a traceback.
         sys.stderr.write(f"generate-lineage: could not write {rel}: {type(exc).__name__}: {exc}\n")

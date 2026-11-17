@@ -106,7 +106,7 @@ export type CycleView = {
   // The record's version, and its revision (null on versions 1 and 2). assignments holds the open
   // attempts only. classification_count is how many route classifications the record holds, uncapped;
   // their details stay in the record and in inspect. exception is the owner exception text, when the record has one.
-  schema_version: 1 | 2 | 3; revision: number | null
+  schema_version: 1 | 2 | 3 | 'crux.cycle.vNext'; revision: number | null
   assignments: AssignmentView[]; classification_count: number; exception: string | null
   title: string; type: string; status: string; phase: string; pass: number; pass_limit: number
   phases: string[]; tasks: {id: string; phase: string; description: string; status: string}[]
@@ -124,7 +124,7 @@ export type CycleView = {
 // the started cycle is not among the reader's cycles.
 export type QueueItemView = {
   id: string; title: string; state: 'pending' | 'held' | 'starting' | 'started'; suggested_type: string
-  cycle: string | null; cycle_status: 'active' | 'paused' | 'completed' | 'abandoned' | 'shortcut' | 'missing' | null
+  cycle: string | null; cycle_status: 'active' | 'paused' | 'reviewed' | 'completed' | 'abandoned' | 'shortcut' | 'missing' | null
 }
 export type QueueView =
   | {ok: true; items: QueueItemView[]; authorization: {kind: 'next' | 'next-n' | 'queue'; remaining: string[]} | null}
@@ -394,14 +394,18 @@ const CYCLE_PHASES: Record<string, string[]> = {
   refactor: ['plan','build','test','review','reflect'], 'quick-fix': ['build','test','review','reflect'],
   simplify: ['plan','build','test','review','reflect'],
   release: ['plan','release','reflect'],
+  pilot: ['planning','working','reviewing','reviewed','completed'],
 }
+// A pilot read by a crux from before the `completed` state names four phases.
+const PILOT_BEFORE_COMPLETED = ['planning','working','reviewing','reviewed']
 // A release cycle made from a list has the one phase `release`; one recorded earlier keeps three.
 const LISTED_RELEASE = ['release']
 const verifyOf = (phases: string[]): string[] => phases.map(p => p === 'test' ? 'verify' : p)
 // A sequence is the type's `test` sequence or its `verify` sequence, never a mix of the two.
 const sequenceOk = (kind: string, phases: string[]): boolean =>
   phases.join(',') === CYCLE_PHASES[kind]!.join(',') || phases.join(',') === verifyOf(CYCLE_PHASES[kind]!).join(',') ||
-  (kind === 'release' && phases.join(',') === LISTED_RELEASE.join(','))
+  (kind === 'release' && phases.join(',') === LISTED_RELEASE.join(',')) ||
+  (kind === 'pilot' && phases.join(',') === PILOT_BEFORE_COMPLETED.join(','))
 function cycleObject(value: unknown, keys: string[]): Obj {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return bad()
   const o = value as Obj
@@ -434,7 +438,7 @@ function parseQueue(value: unknown): QueueView | null {
     return {
       id:str(i.id,QUEUE_ID),title:free(i.title),state,suggested_type:str(i.suggested_type,/^[a-z][a-z-]{1,30}$/),
       cycle:started?str(i.cycle,CYCLE_ID):i.cycle===null?null:bad(),
-      cycle_status:started?oneOf(i.cycle_status,['active','paused','completed','abandoned','shortcut','missing'] as const):i.cycle_status===null?null:bad(),
+      cycle_status:started?oneOf(i.cycle_status,['active','paused','reviewed','completed','abandoned','shortcut','missing'] as const):i.cycle_status===null?null:bad(),
     }
   })
   const authorization=orNull(q.authorization,v=>{
@@ -473,13 +477,15 @@ function parseCycles(doc: unknown): Parsed {
     if (!sequenceOk(kind,phases)) return bad()
     const pass=int(c.pass), limit=int(c.pass_limit)
     if (pass<1 || pass>limit) return bad()
+    // A pilot is completed exactly when it stands on its completed phase.
+    if (kind==='pilot' && (c.status==='completed') !== (c.phase==='completed')) return bad()
     return {
       id:str(c.id,/^(?:[A-Z][A-Z0-9]{1,9}-)?CYC-[0-9]{4,}$/),
-      schema_version:c.schema_version===1||c.schema_version===2||c.schema_version===3?c.schema_version:bad(),revision:orNull(c.revision,v=>int(v,4102444800)),
+      schema_version:kind==='pilot'?(c.schema_version==='crux.cycle.vNext'?c.schema_version:bad()):c.schema_version===1||c.schema_version===2||c.schema_version===3?c.schema_version:bad(),revision:orNull(c.revision,v=>int(v,4102444800)),
       assignments:arr(c.assignments,CYCLE_MAX_ASSIGNMENTS).map(assignment),classification_count:int(c.classification_count),
       exception:orNull(c.exception,v=>{const s=free(v);return countPoints(s)>CYCLE_MAX_EXCEPTION?bad():s}),
       title:free(c.title),type:kind,
-      status:oneOf(c.status,['active','paused','completed','abandoned','shortcut']),phase:oneOf(c.phase,phases),
+      status:oneOf(c.status,kind==='pilot'?['active','paused','reviewed','completed','abandoned']:['active','paused','completed','abandoned','shortcut']),phase:oneOf(c.phase,phases),
       pass,pass_limit:limit,phases,
       tasks:arr(c.tasks,500).map(v=>{const t=cycleObject(v,['id','phase','description','status']);return {id:free(t.id),phase:oneOf(t.phase,phases),description:free(t.description),status:oneOf(t.status,['pending','active','done','blocked'])}}),
       returns:arr(c.returns,20).map(v=>{const r=cycleObject(v,['pass','phase','reason']);return {pass:int(r.pass),phase:oneOf(r.phase,['plan','build','test','verify','review','release','reflect']),reason:free(r.reason)}}),
@@ -598,7 +604,7 @@ export function answer(p: Parsed): string {
       const open = v.cycles.filter(isOpen)
       const closed = v.cycles.filter(c => !isOpen(c))
       // A listed release has one phase and no loop limit, so it names no pass or limit.
-      const cyclePass = (c: CycleView) => c.type === 'release' && c.phases.join(',') === LISTED_RELEASE.join(',') ? '' : ` pass ${c.pass} limit ${c.pass_limit}`
+      const cyclePass = (c: CycleView) => c.type === 'pilot' || (c.type === 'release' && c.phases.join(',') === LISTED_RELEASE.join(',')) ? '' : ` pass ${c.pass} limit ${c.pass_limit}`
       const cycleBlock = (c: CycleView) => {
         lines.push(`cycle ${c.id} type ${c.type} status ${c.status} phase ${c.phase}${cyclePass(c)}`)
         lines.push(`tasks done ${c.tasks.filter(t=>t.status==='done').length} total ${c.tasks.length} returns ${c.returns.length} approval-waits ${c.waits.length}`)

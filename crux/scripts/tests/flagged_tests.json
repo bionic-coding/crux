@@ -35,6 +35,48 @@
       "class": "harness",
       "reason": "runs web-to-markdown.py through `uv run --script`; the staged full suite on Python 3.14 failed with uv `cause: No such file or directory` (a uv script environment missing from the cache). Listed by method because the class skips without uv.",
       "origin": "TE-91e2ef3a8bff44fbbdd71b1a7f2da6d8"
+    },
+    {
+      "test": "test_bionic_config.InaccessibleConfigTests.test_an_unsearchable_root_refuses_naming_the_config",
+      "class": "cross-minor",
+      "reason": "probes a config tier in a repo root without search permission. Before the probe confirmed absence by ENOENT or ENOTDIR, Python 3.14's pathlib predicates read the EACCES as an absent .bionic.yml and 3.13's re-raised a bare PermissionError, so the result depended on the minor. Listed by method because the class's tests skip at euid 0.",
+      "origin": "TE-cf0e218a8a04429392e1c080aec5d21e"
+    },
+    {
+      "test": "test_generate_reviews_index.InputLaneMinorTestCase.test_an_unsearchable_adrs_is_an_environment_error_naming_the_reviews_directory",
+      "class": "cross-minor",
+      "reason": "runs the regenerator with adrs at mode 000, so the lstat of adrs/reviews fails EACCES. Python 3.13's Path.is_symlink raises PermissionError there and Python 3.14's answers False, so the segment walk gave a different reason on each minor until it classified the lstat errno itself. The test asserts the one reason on every minor: 'refusing to read .../adrs/reviews: the reviews directory cannot be examined (PermissionError: EACCES), so its presence cannot be confirmed; it is not read as an absent surface'. Listed by method because the test skips at euid 0.",
+      "origin": "20e7c68f1d581d037bb0012f17612436b8626354"
+    },
+    {
+      "test": "test_generate_reviews_index.InputLaneMinorTestCase.test_an_unsearchable_tree_directory_is_an_environment_error_naming_the_adrs_directory",
+      "class": "cross-minor",
+      "reason": "runs the regenerator with the tree directory at mode 000, so the lstat of adrs fails EACCES. Python 3.13's Path.is_symlink raises PermissionError there and Python 3.14's answers False, so 3.13 printed a bare PermissionError and 3.14 refused naming adrs/reviews. The test asserts the one reason on every minor: 'refusing to read .../adrs: the adrs directory cannot be examined (PermissionError: EACCES), so its presence cannot be confirmed; it is not read as an absent surface'. Listed by method because the test skips at euid 0.",
+      "origin": "394cc018d22bd63b663f820f52d31a19483847ed"
+    },
+    {
+      "test": "test_generate_reviews_index.InputLaneMinorTestCase.test_an_unsearchable_summaries_directory_is_a_document_finding_naming_the_resolver",
+      "class": "cross-minor",
+      "reason": "runs the regenerator with adrs/summaries at mode 000. Before the surface and resolver presence were decided by an errno-classified stat, Python 3.13's is_symlink raised PermissionError and Python 3.14's pathlib predicates read the resolver as absent, so the result depended on the minor. Listed by method because the test skips at euid 0.",
+      "origin": "20e7c68f1d581d037bb0012f17612436b8626354"
+    },
+    {
+      "test": "test_generate_reviews_index.InputLaneMinorTestCase.test_a_locator_under_an_unsearchable_directory_is_a_document_refusal",
+      "class": "cross-minor",
+      "reason": "probes a path locator under a directory at mode 000. Before presence was decided by path_state, Python 3.13's exists() raised PermissionError ('cannot be resolved as a path') and Python 3.14's returned False ('no surface in the tree'), so the refusal text depended on the minor. Listed by method because the test skips at euid 0.",
+      "origin": "f8c8612bc16dcf8a6f5e202aad7bcb69bbdf3228"
+    },
+    {
+      "test": "test_generate_reviews_index.InputLaneMinorTestCase.test_an_overlong_locator_component_is_a_document_refusal_on_every_platform",
+      "class": "cross-minor",
+      "reason": "probes a path locator whose one component is 258 bytes through path_state, which replaced a pathlib predicate whose answer under an unsearchable directory differed by minor. The over-long answer itself differs by platform (ENAMETOOLONG on Linux, ENOENT on macOS APFS), and the approved decision lists this test cross-minor so the staged per-minor run exercises the locator probe on each supported Python.",
+      "origin": "f8c8612bc16dcf8a6f5e202aad7bcb69bbdf3228"
+    },
+    {
+      "test": "test_generate_reviews_index.InputLaneMinorTestCase.test_an_unsearchable_reviews_directory_names_its_entries_in_the_document_lane",
+      "class": "cross-minor",
+      "reason": "runs the regenerator over a reviews directory at mode 0644. Before each entry was classified by one lstat, Python 3.13's is_symlink raised PermissionError (exit 2) and Python 3.14's predicates answered False, reaching the non-regular-file refusal, so the result depended on the minor. Listed by method because the test skips at euid 0.",
+      "origin": "20e7c68f1d581d037bb0012f17612436b8626354"
     }
   ]
 }

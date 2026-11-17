@@ -35,6 +35,8 @@ the ambient checkout.
 from __future__ import annotations
 
 import ast
+import contextlib
+import glob
 import importlib
 import json
 import os
@@ -44,6 +46,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
@@ -436,6 +439,81 @@ class ReportedNeverRecordedTests(_Repo):
                     [f["concern"] for f in CORE.strict_failures([rec], strict=True)],
                     [f["concern"] for f in CORE.strict_failures([bare], strict=True)],
                 )
+
+
+# ─────────────── the manifest builder reads no input ───────────────
+
+
+class _InputRead(Exception):
+    """Raised by the tripwire when the code under it reaches the file system."""
+
+
+class ManifestBuilderReadsNoInputTests(unittest.TestCase):
+    """rule:provenance-manifest-selects-no-recognizable-input: the builder takes
+    the spine hash, the pins, the declared globs and the hashes the extractors
+    returned, and parses no input. The tripwire replaces the entry points a read or a glob
+    resolution goes through; `Path.open`, `Path.read_text`, `Path.read_bytes`
+    and `Path.exists` reach `io.open` or `os.stat`, so they trip it too."""
+
+    TRIPPED = (
+        "builtins.open", "io.open", "os.open", "os.stat", "os.lstat",
+        "os.listdir", "os.scandir", "os.walk", "glob.glob", "glob.iglob",
+        "pathlib.Path.glob", "pathlib.Path.rglob", "pathlib.Path.iterdir",
+    )
+
+    def _tripwire(self) -> contextlib.ExitStack:
+        stack = contextlib.ExitStack()
+        for target in self.TRIPPED:
+            stack.enter_context(mock.patch(
+                target, side_effect=_InputRead(f"{target} was called")))
+        return stack
+
+    def test_the_builder_opens_no_file_and_resolves_no_glob(self):
+        with tempfile.TemporaryDirectory() as t:
+            # Real files the supplied names and globs WOULD reach if read.
+            root = Path(t).resolve()
+            (root / "src").mkdir()
+            (root / "src" / "a.py").write_text("x = 1\n", encoding="utf-8")
+            source = str(root / "src" / "a.py")
+            declared = {"api-surface": [str(root / "src" / "*.py")]}
+            pins = {"parser:yaml": "6.0"}
+            # The guarded call runs first, so no earlier call in this test can
+            # fill a cache that would hide a read from the tripwire.
+            with self._tripwire():
+                guarded = CORE._synthesize_manifest(
+                    "aa" * 32, {source: "0" * 64}, declared, pins)
+            # The same call without the tripwire: the tripwire changed no byte.
+            expected = CORE._synthesize_manifest(
+                "aa" * 32, {source: "0" * 64}, declared, pins)
+        self.assertEqual(guarded, expected)
+        doc = json.loads(guarded)
+        # The supplied values arrive unresolved and unread.
+        self.assertEqual(doc["sources"], {source: "0" * 64})
+        self.assertEqual(doc["declared_sources"], declared)
+        self.assertEqual(doc["spine_hash"], "sha256:" + "aa" * 32)
+        self.assertEqual(doc["tool_pins"], CORE.TOOL_PINS | pins)
+
+    def test_the_tripwire_fires_on_a_read_and_on_a_glob_resolution(self):
+        """Positive control for the test above: each way of reaching an input
+        raises under the tripwire, so a builder that started reading would."""
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t).resolve()
+            path = root / "a.py"
+            path.write_text("x = 1\n", encoding="utf-8")
+            reads = {
+                "open": lambda: open(path, encoding="utf-8"),
+                "read_text": path.read_text,
+                "read_bytes": path.read_bytes,
+                "exists": path.exists,
+                "os.open": lambda: os.open(path, os.O_RDONLY),
+                "listdir": lambda: os.listdir(root),
+                "Path.glob": lambda: list(root.glob("*.py")),
+                "glob.glob": lambda: glob.glob(str(root / "*.py")),
+            }
+            for name, read in reads.items():
+                with self.subTest(read=name), self._tripwire():
+                    with self.assertRaises(_InputRead):
+                        read()
 
 
 # ─────────────── the manifest records the declared source set ───────────────

@@ -28,6 +28,18 @@ test('the parser accepts the document with and without queue', () => {
   expect(parse(doc([cycleRow(1)], {ok: false, error: 'bad file'})).ok).toBe(true)
 })
 
+test('the parser accepts a started item whose pilot is reviewed or completed', () => {
+  const ok = (items: unknown[]) => ({ok: true, items, authorization: null})
+  for (const status of ['reviewed', 'completed', 'active', 'paused', 'abandoned', 'missing']) {
+    const p = parse(doc([cycleRow(1)], ok([qItem(1, 'started', {cycle: 'CYC-0001', cycle_status: status})])))
+    expect(p.ok).toBe(true)
+  }
+  // A reviewed item awaits finish: it is neither upcoming nor finished in the text answer.
+  const reviewed = text(doc([cycleRow(1)], ok([qItem(1, 'started', {cycle: 'CYC-0001', cycle_status: 'reviewed'})])))
+  expect(reviewed).toContain('queue queued 0')
+  expect(reviewed).not.toContain('Q-0001')
+})
+
 test('the parser rejects a malformed queue', () => {
   const ok = (items: unknown[], auth: unknown = null) => ({ok: true, items, authorization: auth})
   expect(parse(doc([], ok([qItem(1, 'bogus')]))).ok).toBe(false)

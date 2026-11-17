@@ -12,7 +12,9 @@ Stdlib only. Run:
 
 from __future__ import annotations
 
+import errno
 import importlib.util
+import io
 import json
 import os
 import shutil
@@ -20,6 +22,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -137,6 +140,42 @@ class _Harness(unittest.TestCase):
 
     def write(self, name: str, text: str) -> None:
         (self.reviews / name).write_text(text, encoding="utf-8")
+
+    def index_bytes(self) -> bytes | None:
+        """The on-disk index bytes, or None when no index exists."""
+        index = self.reviews / "index.md"
+        return index.read_bytes() if index.exists() else None
+
+    def assert_resolver_finding(self, result, *fragments) -> str:
+        """The resolver's DOCUMENT lane: exit 1, one finding naming resolver.json.
+
+        Asserts the exit, that the one `validation_errors` entry names
+        `bionic/adrs/summaries/resolver.json`, every reason fragment, no
+        absolute path in the reason, empty `orphan_rows` in `--dry-run`, and
+        no shared authority refusal on stderr. Returns the reason.
+        """
+        self.assertEqual(result.returncode, 1, (result.stdout, result.stderr))
+        payload = json.loads(result.stdout)
+        errors = payload["validation_errors"]
+        self.assertEqual([e["file"] for e in errors], [RESOLVER_FILE], errors)
+        for fragment in fragments:
+            self.assertIn(fragment, errors[0]["error"])
+        self.assertNotIn(str(self.root), errors[0]["error"])
+        if "drift" in payload:
+            self.assertEqual((payload["drift"], payload["orphan_rows"]), (False, []))
+        else:
+            self.assertIsNone(payload["written"])
+        self.assertNotIn("migration-", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        return errors[0]["error"]
+
+
+#: The resolver's `validation_errors` file key in every harness tree.
+RESOLVER_FILE = str(Path("bionic/adrs/summaries/resolver.json"))
+
+#: A well-shaped resolver carrying the one slug the harness reports cite.
+GOOD_RESOLVER = json.dumps({"slugs": {"some-slug": "ADR-0001/some-slug"},
+                            "retired_slugs": {}})
 
 
 class RemovedSkillHistoryTestCase(_Harness):
@@ -1231,15 +1270,28 @@ class ResolverSizeBoundTestCase(_Harness):
         self.assert_resolved()
 
     def test_one_byte_over_the_bound_is_refused_by_name(self):
-        self._resolver(pad_to=_load_script().RESOLVER_LIMIT + 1)
+        """Intended evidence 6: the declared cap is a DOCUMENT finding.
+
+        Single-fault control: the same document padded to exactly the bound
+        builds.
+        """
+        limit = _load_script().RESOLVER_LIMIT
+        self._resolver(pad_to=limit + 1)
         self._report_citing(self.LIVE)
-        r = self.run_cli()
-        self.assertEqual(r.returncode, 2)
-        self.assertIn("exceeds", r.stderr)
-        self.assertIn(str(_load_script().RESOLVER_LIMIT), r.stderr)
-        # The unit too, derived the way the message derives it -- so moving the
-        # constant cannot leave a correct number beside a stale unit.
-        self.assertIn(f"{_load_script().RESOLVER_LIMIT // (1024 * 1024)} MiB", r.stderr)
+        for args in ((), ("--dry-run",)):
+            with self.subTest(args=args):
+                r = self.run_cli(*args)
+                # The unit too, derived the way the message derives it -- so
+                # moving the constant cannot leave a correct number beside a
+                # stale unit.
+                self.assert_resolver_finding(
+                    r, "exceeds", str(limit), f"{limit // (1024 * 1024)} MiB",
+                    "regenerate it with summarize-adrs.py")
+                self.assertIn("exceeds", r.stderr)
+                self.assertIsNone(self.index_bytes())
+        # POSITIVE CONTROL: the same document at exactly the bound builds.
+        self._resolver(pad_to=limit)
+        self.assert_resolved()
 
     def test_an_oversized_resolver_leaves_the_index_bytes_untouched(self):
         self._resolver(pad_to=1000)
@@ -1247,7 +1299,7 @@ class ResolverSizeBoundTestCase(_Harness):
         self.assertEqual(self.run_cli().returncode, 0)
         before = (self.reviews / "index.md").read_bytes()
         self._resolver(pad_to=_load_script().RESOLVER_LIMIT + 1)
-        self.assertEqual(self.run_cli().returncode, 2)
+        self.assert_resolver_finding(self.run_cli(), "exceeds")
         self.assertEqual((self.reviews / "index.md").read_bytes(), before)
 
     def test_a_retired_slug_still_counts_as_existing(self):
@@ -1263,17 +1315,25 @@ class ResolverSizeBoundTestCase(_Harness):
         self.assertIn("no surface in the tree", r.stdout + r.stderr)
 
     def test_malformed_resolvers_are_refused_by_name_at_the_new_bound(self):
-        """Raising the threshold weakened no other refusal."""
+        """Raising the threshold weakened no other refusal.
+
+        Intended evidence 8, the unparseable and empty bodies. Single-fault
+        control: a well-shaped body on the same fixture builds.
+        """
         self._report_citing(self.LIVE)
-        for body, needle in (('{"slugs":', "does not parse as JSON"),
+        for body, needle in (('{"slugs":', "does not parse as JSON (JSONDecodeError)"),
                              ('["a"]', "at its top level"),
                              ('{"slugs":[],"retired_slugs":{}}', "is a map keyed by rule slug"),
-                             ('', "does not parse as JSON")):
+                             ('', "does not parse as JSON (JSONDecodeError)")):
             with self.subTest(body=body[:20]):
                 self._resolver(body=body)
                 r = self.run_cli()
-                self.assertEqual(r.returncode, 2)
+                self.assert_resolver_finding(r, needle)
                 self.assertIn(needle, r.stderr)
+                self.assertIsNone(self.index_bytes())
+        # POSITIVE CONTROL: a well-shaped body builds.
+        self._resolver()
+        self.assert_resolved()
 
 
 class LocatorProbeTestCase(_Harness):
@@ -1475,10 +1535,12 @@ class HandleSurfaceTestCase(_Harness):
     took the graceful-degradation branch and answered True — a handle that
     names nothing resolved clean.
 
-    Every case drives `main` through the CLI, asserts the ENVIRONMENT lane
-    (exit 2, EMPTY stdout, the surface named on stderr, no traceback), asserts
-    the outside target is byte-identical afterwards, and carries a paired
-    positive control repairing exactly the one fixture property under test.
+    Every surface case drives `main` through the CLI, asserts the ENVIRONMENT
+    lane (exit 2, EMPTY stdout, the surface named on stderr, no traceback),
+    asserts the outside target is byte-identical afterwards, and carries a
+    paired positive control repairing exactly the one fixture property under
+    test. The resolver's own shapes take the DOCUMENT lane instead: exit 1,
+    one `validation_errors` entry naming resolver.json.
     """
 
     OUTSIDE_BODY = "OUTSIDE TARGET — must never be read through.\n"
@@ -1583,25 +1645,53 @@ class HandleSurfaceTestCase(_Harness):
     # file name: six different broken shapes all name `resolver.json`, so that
     # assertion alone would pass on a script that had collapsed them into one
     # message and lost the reason a reader needs to repair the checkout.
+    #
+    # Each is a DOCUMENT finding naming `bionic/adrs/summaries/resolver.json`:
+    # the resolver is a file input, and regenerating it repairs it. Each method
+    # carries a single-fault control on its own fixture: the broken resolver
+    # replaced by a well-shaped one, and the index builds.
 
-    def test_a_resolver_that_is_a_directory_is_an_environment_error(self):
+    def assert_document(self, result, *fragments) -> None:
+        self.assert_resolver_finding(result, *fragments)
+        self.assertIn(RESOLVER_FILE, result.stderr)
+        self.assertIsNone(self.index_bytes())
+        self.assertEqual(self.target.read_text(encoding="utf-8"),
+                         self.OUTSIDE_BODY)
+
+    def assert_control_builds(self) -> None:
+        """Replace whatever stands at resolver.json with a well-shaped file."""
+        path = self.resolver_dir() / "resolver.json"
+        if path.is_dir() and not path.is_symlink():
+            path.rmdir()
+        elif path.exists() or path.is_symlink():
+            path.unlink()
+        path.write_text(GOOD_RESOLVER, encoding="utf-8")
+        result = self.run_cli("--today", "2026-12-31")
+        self.assertEqual(result.returncode, 0, (result.stdout, result.stderr))
+
+    def test_a_resolver_that_is_a_directory_is_a_document_finding(self):
+        """Intended evidence 3, the directory case."""
         (self.resolver_dir() / "resolver.json").mkdir()
         self.record("rule:some-slug")
-        self.assert_environment(self.run_probe(), "resolver.json",
-                                "not a regular file")
+        self.assert_document(self.run_probe(), "not a regular file",
+                             "regenerate it with summarize-adrs.py")
+        # POSITIVE CONTROL: a well-shaped file in its place builds.
+        self.assert_control_builds()
 
-    def test_a_resolver_that_is_a_fifo_is_an_environment_error(self):
+    def test_a_resolver_that_is_a_fifo_is_a_document_finding(self):
+        """Intended evidence 3, the FIFO case, where the platform allows one."""
         path = self.resolver_dir() / "resolver.json"
         try:
             os.mkfifo(path)
         except (AttributeError, OSError, NotImplementedError) as exc:
             self.skipTest(f"os.mkfifo unavailable on this platform: {exc}")
         self.record("rule:some-slug")
-        self.assert_environment(self.run_probe(), "resolver.json",
-                                "not a regular file")
+        self.assert_document(self.run_probe(), "not a regular file")
+        # POSITIVE CONTROL: a well-shaped file in its place builds.
+        self.assert_control_builds()
 
-    def test_an_oversize_resolver_is_an_environment_error(self):
-        """Oversize is still an environment error; the threshold moved, not the lane.
+    def test_an_oversize_resolver_is_a_document_finding(self):
+        """Oversize is a declared-cap DOCUMENT finding; the threshold did not move.
 
         The fixture is sized from `RESOLVER_LIMIT` rather than from a literal,
         so it tracks the bound instead of pinning a number that a justified
@@ -1618,38 +1708,43 @@ class HandleSurfaceTestCase(_Harness):
         self.assertGreater(path.stat().st_size, limit,
                            "the fixture must exceed the bound or it tests nothing")
         self.record("rule:some-slug")
-        self.assert_environment(self.run_probe(), "resolver.json",
-                                f"{limit // (1024 * 1024)} MiB")
+        self.assert_document(self.run_probe(), f"{limit // (1024 * 1024)} MiB")
+        # POSITIVE CONTROL: a well-shaped file in its place builds.
+        self.assert_control_builds()
 
-    def test_a_resolver_whose_top_level_is_a_list_is_an_environment_error(self):
+    def test_a_resolver_whose_top_level_is_a_list_is_a_document_finding(self):
         (self.resolver_dir() / "resolver.json").write_text(
             '["some-slug"]', encoding="utf-8")
         self.record("rule:some-slug")
-        self.assert_environment(self.run_probe(), "resolver.json",
-                                "at its top level")
+        self.assert_document(self.run_probe(), "at its top level")
+        # POSITIVE CONTROL: a well-shaped file in its place builds.
+        self.assert_control_builds()
 
-    def test_a_resolver_whose_slugs_key_is_a_string_is_an_environment_error(self):
+    def test_a_resolver_whose_slugs_key_is_a_string_is_a_document_finding(self):
         (self.resolver_dir() / "resolver.json").write_text(
             '{"slugs": "some-slug"}', encoding="utf-8")
         self.record("rule:some-slug")
-        self.assert_environment(self.run_probe(), "resolver.json",
-                                "is a map keyed by rule slug")
+        self.assert_document(self.run_probe(), "is a map keyed by rule slug")
+        # POSITIVE CONTROL: a well-shaped file in its place builds.
+        self.assert_control_builds()
 
-    def test_a_present_but_unparseable_resolver_is_an_environment_error(self):
+    def test_a_present_but_unparseable_resolver_is_a_document_finding(self):
         (self.resolver_dir() / "resolver.json").write_text(
             "{not json at all", encoding="utf-8")
         self.record("rule:some-slug")
-        self.assert_environment(self.run_probe(), "resolver.json",
-                                "does not parse as JSON")
+        self.assert_document(self.run_probe(), "does not parse as JSON")
+        # POSITIVE CONTROL: a well-shaped file in its place builds.
+        self.assert_control_builds()
 
-    def test_a_deeply_nested_resolver_is_an_environment_error_naming_the_file(self):
+    def test_a_deeply_nested_resolver_is_a_document_finding_naming_the_file(self):
         """A `RecursionError` is a PARSE failure, not a crash.
 
         Deep nesting is valid JSON that `json.loads` cannot build. Uncaught it
         left `main` through the generic handler — exit 2 with EMPTY stdout, the
         lane the exit conventions reserve for a crash — and named no file, so a
-        reader had nothing to open. Caught beside the two value errors, it
-        takes the same environment lane and names `resolver.json`.
+        reader had nothing to open. Caught beside the value error, it takes
+        the parse refusal's DOCUMENT lane and names `resolver.json`.
+        Intended evidence 8, the RecursionError body.
         """
         # The probe runs under `sys.executable`, so the depth that overflows
         # this interpreter's decoder is the depth that overflows the probe's.
@@ -1659,8 +1754,10 @@ class HandleSurfaceTestCase(_Harness):
             json.loads(payload)
         (self.resolver_dir() / "resolver.json").write_text(payload, encoding="utf-8")
         self.record("rule:some-slug")
-        self.assert_environment(self.run_probe(), "resolver.json",
-                                "does not parse as JSON (RecursionError)")
+        self.assert_document(self.run_probe(),
+                             "does not parse as JSON (RecursionError)")
+        # POSITIVE CONTROL: a well-shaped file in its place builds.
+        self.assert_control_builds()
 
     def test_a_non_directory_at_the_summaries_surface_is_refused(self):
         """A regular FILE at `adrs/summaries` is not an absent ledger.
@@ -2143,6 +2240,947 @@ class WriterLaneTestCase(_Harness):
     def test_a_writable_reviews_directory_is_the_control(self):
         self.write("2026-09-07.md", _report("2026-09-07", ["adr-review-a"], []))
         self.assertEqual(self.run_cli("--today", "2026-12-31").returncode, 0)
+
+
+class _OsProxy:
+    """The `os` module with one `lstat` stubbed, for the regenerator's own calls.
+
+    Patched onto the loaded regenerator as its `os` global, so only the
+    regenerator's own `os.lstat` calls see the stub: `os.path.realpath` and
+    `input_lanes` keep the real module.
+    """
+
+    def __init__(self, fail_on: Path, code: int) -> None:
+        # `main` resolves the repository root, so compare resolved paths.
+        self._fail_on = os.fspath(Path(fail_on).resolve())
+        self._code = code
+
+    def lstat(self, path, *args, **kwargs):
+        if os.fspath(path) == self._fail_on:
+            raise OSError(self._code, os.strerror(self._code), os.fspath(path))
+        return os.lstat(path, *args, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(os, name)
+
+
+class _InputLaneHarness(_Harness):
+    """Shared fixtures for the input-lane cases of the reviews-index IDR.
+
+    Every refusal asserts its lane with a content discriminator and pairs with
+    a positive control on the same fixture. Every permission-based case skips
+    at effective uid 0, where a mode bit refuses nothing.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.tree = self.root / "bionic"
+        self.write("2026-09-07.md", _lifecycle(
+            "2026-09-07", findings=["adr-review-alpha"]))
+
+    def require_permissions(self) -> None:
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            self.skipTest("running as root: a mode bit refuses nothing")
+
+    def lock(self, path: Path, mode: int = 0o000) -> None:
+        path.chmod(mode)
+        self.addCleanup(path.chmod, 0o755)
+
+    def record(self, locator: str) -> None:
+        self.write("2026-09-08.md", _lifecycle(
+            "2026-09-08", records=[("2026-09-07", "adr-review-alpha", 1,
+                                    "resolved", locator)]))
+
+    def assert_environment(self, result, *fragments) -> None:
+        self.assertEqual(result.returncode, 2, (result.stdout, result.stderr))
+        self.assertEqual(result.stdout, "")
+        self.assertNotIn("Traceback", result.stderr)
+        for fragment in fragments:
+            self.assertIn(fragment, result.stderr)
+
+    def assert_built(self) -> None:
+        result = self.run_cli("--today", "2026-12-31")
+        self.assertEqual(result.returncode, 0, (result.stdout, result.stderr))
+        self.assertEqual(json.loads(result.stdout)["written"],
+                         str(Path("bionic/adrs/reviews/index.md")))
+
+    def run_main(self, module, *args):
+        """`main` in-process, so a stub inside the regenerator is in effect."""
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            code = module.main(["--repo-root", str(self.root), "--today",
+                                "2026-12-31", *args])
+        return code, out.getvalue(), err.getvalue()
+
+
+class InputLaneMinorTestCase(_InputLaneHarness):
+    """Cases whose outcome before the change depended on the Python minor.
+
+    Python 3.13's pathlib predicates raised PermissionError under an
+    unsearchable parent and Python 3.14's answered False, so each case below
+    took a different branch by minor before presence was decided by an
+    errno-classified `stat`. They are release tier and listed cross-minor in
+    flagged_tests.json, so the staged per-minor run exercises Python 3.14.
+    """
+
+    def unexaminable_reason(self, segment: Path, subject: str) -> str:
+        """The one stderr line for a walk segment whose `lstat` fails EACCES."""
+        return (f"generate-reviews-index: OSError: refusing to read {segment}: the "
+                f"{subject} cannot be examined (PermissionError: EACCES), so its "
+                "presence cannot be confirmed; it is not read as an absent surface\n")
+
+    def assert_one_reason(self, result, segment: Path, subject: str) -> None:
+        """The full reason text, the same on every supported minor."""
+        self.assert_environment(result)
+        self.assertEqual(result.stderr, self.unexaminable_reason(segment, subject))
+        self.assertNotIn("PermissionError: [Errno", result.stderr)
+        self.assertNotIn("surface_absent", result.stderr)
+
+    # Intended evidence 1: an unsearchable `adrs`.
+    def test_an_unsearchable_adrs_is_an_environment_error_naming_the_reviews_directory(self):
+        """`adrs` at mode 000: the `lstat` of `adrs/reviews` fails EACCES.
+
+        Python 3.13's `is_symlink()` raised PermissionError here and 3.14's
+        answered False, so the reason text depended on the minor until the
+        segment walk classified the `lstat` errno itself.
+        """
+        self.require_permissions()
+        adrs = self.tree / "adrs"
+        self.lock(adrs)
+        reviews = self.root.resolve() / "bionic" / "adrs" / "reviews"
+        for args in ((), ("--dry-run",)):
+            with self.subTest(args=args):
+                result = self.run_cli("--today", "2026-12-31", *args)
+                self.assert_one_reason(result, reviews, "reviews directory")
+        # POSITIVE CONTROL: the same fixture with `adrs` searchable builds.
+        adrs.chmod(0o755)
+        self.assert_built()
+
+    # The paired segment: an unsearchable tree directory.
+    def test_an_unsearchable_tree_directory_is_an_environment_error_naming_the_adrs_directory(self):
+        """The tree directory at mode 000: the `lstat` of `adrs` fails EACCES.
+
+        The walk's first segment, paired with the case above. Both minors name
+        the adrs directory with one reason.
+        """
+        self.require_permissions()
+        self.lock(self.tree)
+        adrs = self.root.resolve() / "bionic" / "adrs"
+        for args in ((), ("--dry-run",)):
+            with self.subTest(args=args):
+                result = self.run_cli("--today", "2026-12-31", *args)
+                self.assert_one_reason(result, adrs, "adrs directory")
+        # POSITIVE CONTROL: the same fixture with the tree searchable builds.
+        self.tree.chmod(0o755)
+        self.assert_built()
+
+    # Intended evidence 4 of the input-lanes IDR; intended evidence 1 of the
+    # resolver-reader-lanes IDR: an unsearchable `adrs/summaries`.
+    def test_an_unsearchable_summaries_directory_is_a_document_finding_naming_the_resolver(self):
+        """The stat of resolver.json fails EACCES: a DOCUMENT finding naming it.
+
+        The reason carries `document_reason`'s text and the stat suffix that
+        names search permission on the holding directory, with no absolute
+        path. Single-fault control: `adrs/summaries` at mode 755, and the
+        handle resolves and the index builds.
+        """
+        self.require_permissions()
+        summaries = self.tree / "adrs" / "summaries"
+        summaries.mkdir(parents=True)
+        (summaries / "resolver.json").write_text(
+            json.dumps({"slugs": {"a-real-rule": "ADR-0001/a-real-rule"},
+                        "retired_slugs": {}}), encoding="utf-8")
+        self.record("rule:a-real-rule")
+        self.assert_built()
+        before = self.index_bytes()
+        self.lock(summaries)
+        for args in ((), ("--dry-run",)):
+            with self.subTest(args=args):
+                result = self.run_cli("--today", "2026-12-31", *args)
+                reason = self.assert_resolver_finding(
+                    result, "EACCES", "search permission",
+                    str(Path("bionic/adrs/summaries")))
+                self.assertNotIn(str(self.root), reason)
+                self.assertNotIn(str(self.root), result.stdout)
+                self.assertEqual(self.index_bytes(), before)
+        # POSITIVE CONTROL: searchable, with a readable resolver carrying the
+        # slug, the handle resolves.
+        summaries.chmod(0o755)
+        self.assert_built()
+
+    # Intended evidence 6: a path locator under an unsearchable directory.
+    def test_a_locator_under_an_unsearchable_directory_is_a_document_refusal(self):
+        self.require_permissions()
+        locked = self.root / "locked"
+        locked.mkdir()
+        (locked / "enacting.md").write_text("the enacting change\n", encoding="utf-8")
+        self.record("locked/enacting.md")
+        self.lock(locked)
+        result = self.run_cli("--today", "2026-12-31", "--dry-run")
+        self.assertEqual(result.returncode, 1, (result.stdout, result.stderr))
+        errors = json.loads(result.stdout)["validation_errors"]
+        self.assertEqual(len(errors), 1, errors)
+        self.assertEqual(errors[0]["file"], str(Path("bionic/adrs/reviews")))
+        self.assertIn("cannot be resolved as a path", errors[0]["error"])
+        self.assertNotIn("is no surface in the tree", errors[0]["error"])
+        # POSITIVE CONTROL: the same locator under a searchable directory.
+        locked.chmod(0o755)
+        self.assert_built()
+
+    # Intended evidence 15: an over-long locator component.
+    def test_an_overlong_locator_component_is_a_document_refusal_on_every_platform(self):
+        # 86 three-byte characters: 258 bytes, past Linux's 255-byte NAME_MAX
+        # (ENAMETOOLONG). macOS APFS counts characters, so the same component
+        # reads as ENOENT there and takes the "no surface" refusal. Both are
+        # the document lane.
+        component = "€" * 86
+        self.assertEqual(len(component.encode("utf-8")), 258)
+        self.record(component)
+        result = self.run_cli("--today", "2026-12-31", "--dry-run")
+        self.assertEqual(result.returncode, 1, (result.stdout, result.stderr))
+        errors = json.loads(result.stdout)["validation_errors"]
+        self.assertEqual(len(errors), 1, errors)
+        self.assertNotIn(str(self.root), errors[0]["error"])
+        # POSITIVE CONTROL: the same record with the component one character
+        # shorter, 85 three-byte characters or 255 bytes, at Linux's NAME_MAX
+        # and within APFS's limit, naming a real file. It resolves and the
+        # index builds, so the refusal above is the component's length and
+        # not the fixture. The 258-byte name itself cannot be created on Linux.
+        control = "€" * 85
+        self.assertEqual(len(control.encode("utf-8")), 255)
+        (self.root / control).write_text("the enacting change\n", encoding="utf-8")
+        self.record(control)
+        self.assert_built()
+
+    def test_a_locator_stat_failure_takes_its_lane_by_cause(self):
+        """Intended evidence 15, stubbed: ENAMETOOLONG is the document lane,
+        EIO the environment lane naming the redacted locator."""
+        (self.root / "enacting.md").write_text("the enacting change\n", encoding="utf-8")
+        self.record("enacting.md")
+        module = _load_script()
+        target = os.fspath((self.root / "enacting.md").resolve())
+        real = module.input_lanes.path_state
+
+        def stubbed(code):
+            def path_state(path, follow=True):
+                if os.fspath(path) == target:
+                    raise OSError(code, os.strerror(code), os.fspath(path))
+                return real(path, follow)
+            return path_state
+
+        with patch.object(module.input_lanes, "path_state", stubbed(errno.ENAMETOOLONG)):
+            code, out, err = self.run_main(module, "--dry-run")
+        self.assertEqual(code, 1, (out, err))
+        errors = json.loads(out)["validation_errors"]
+        self.assertIn("cannot be resolved as a path", errors[0]["error"])
+
+        with patch.object(module.input_lanes, "path_state", stubbed(errno.EIO)):
+            code, out, err = self.run_main(module, "--dry-run")
+        self.assertEqual(code, 2, (out, err))
+        self.assertEqual(out, "")
+        self.assertIn("'enacting.md'", err)
+        self.assertIn("EIO", err)
+
+        # POSITIVE CONTROL: unstubbed, the locator names an existing file.
+        code, out, err = self.run_main(module)
+        self.assertEqual(code, 0, (out, err))
+
+    # Intended evidence 17: a readable but unsearchable reviews directory.
+    def test_an_unsearchable_reviews_directory_names_its_entries_in_the_document_lane(self):
+        self.require_permissions()
+        self.write("index.md", EMPTY_INDEX)
+        before = (self.reviews / "index.md").read_bytes()
+        self.lock(self.reviews, 0o644)
+        result = self.run_cli("--today", "2026-12-31", "--dry-run")
+        self.assertEqual(result.returncode, 1, (result.stdout, result.stderr))
+        errors = json.loads(result.stdout)["validation_errors"]
+        # ONE FINDING PER ENTRY, in sorted name order: the report carries
+        # `document_reason` and the index carries `output_reason`.
+        self.assertEqual([e["file"] for e in errors],
+                         [str(Path("bionic/adrs/reviews/2026-09-07.md")),
+                          str(Path("bionic/adrs/reviews/index.md"))], errors)
+        self.assertIn("could not be read (EACCES", errors[0]["error"])
+        self.assertNotIn("remove the path and rerun", errors[0]["error"])
+        self.assertIn("could not be read (EACCES", errors[1]["error"])
+        self.assertIn("remove the path and rerun the regenerator", errors[1]["error"])
+        for entry in errors:
+            self.assertNotIn(str(self.root), entry["error"])
+        self.reviews.chmod(0o755)
+        self.assertEqual((self.reviews / "index.md").read_bytes(), before)
+
+        # The index alone: its finding carries `output_reason`.
+        (self.reviews / "2026-09-07.md").unlink()
+        self.reviews.chmod(0o644)
+        result = self.run_cli("--today", "2026-12-31", "--dry-run")
+        self.assertEqual(result.returncode, 1, (result.stdout, result.stderr))
+        errors = json.loads(result.stdout)["validation_errors"]
+        self.assertEqual(errors[0]["file"], str(Path("bionic/adrs/reviews/index.md")))
+        self.assertIn("could not be read (EACCES", errors[0]["error"])
+        self.assertIn("remove the path and rerun the regenerator", errors[0]["error"])
+
+        # POSITIVE CONTROL: the same directory searchable builds clean.
+        self.reviews.chmod(0o755)
+        self.assert_built()
+
+    def test_an_entry_lstat_failure_outside_the_closed_list_is_an_environment_error(self):
+        """Intended evidence 17, stubbed: EIO on one entry's `lstat`."""
+        module = _load_script()
+        entry = self.reviews / "2026-09-07.md"
+        with patch.object(module, "os", _OsProxy(entry, errno.EIO)):
+            code, out, err = self.run_main(module, "--dry-run")
+        self.assertEqual(code, 2, (out, err))
+        self.assertEqual(out, "")
+        self.assertIn("2026-09-07.md", err)
+        self.assertIn("EIO", err)
+        # POSITIVE CONTROL: unstubbed, the same fixture builds.
+        code, out, err = self.run_main(module)
+        self.assertEqual(code, 0, (out, err))
+
+
+class InputLaneTestCase(_InputLaneHarness):
+    """Cases whose outcome before the change was the same on both minors."""
+
+    # Intended evidence 2: a non-directory at the reviews path.
+    def test_a_regular_file_at_the_reviews_path_is_an_environment_error(self):
+        shutil.rmtree(self.reviews)
+        self.reviews.write_text("not a directory\n", encoding="utf-8")
+        for args in ((), ("--dry-run",)):
+            with self.subTest(args=args):
+                result = self.run_cli(*args)
+                self.assert_environment(result, str(Path("adrs") / "reviews"),
+                                        "is not a directory")
+        self.assertEqual(self.reviews.read_text(encoding="utf-8"), "not a directory\n")
+        # POSITIVE CONTROL: a directory holding one valid report builds clean.
+        self.reviews.unlink()
+        self.reviews.mkdir()
+        self.write("2026-09-07.md", _lifecycle("2026-09-07", findings=["adr-review-alpha"]))
+        self.assert_built()
+
+    def test_a_regular_file_at_adrs_is_not_reported_as_an_absent_surface(self):
+        """Architect nit anthropic_top:F5: the observed outcome for this fixture.
+
+        ENOTDIR from the ancestor confirms the reviews directory absent, so
+        the absent branch runs `_review_history`, whose shared migration
+        reader refuses the regular file at `adrs` (exit 2). The documented
+        limit, a misplaced file reported as surface_absent, does not arise
+        end to end for this fixture. The refusal is pinned by its code, so
+        an unrelated exception reaching main's generic handler cannot pass.
+        The confirmed-absent control is
+        `ReviewsIndexTestCase.test_a_missing_reviews_directory_reports_surface_absent_not_a_clean_gate`,
+        which stays unchanged.
+        """
+        shutil.rmtree(self.tree / "adrs")
+        (self.tree / "adrs").write_text("not a directory\n", encoding="utf-8")
+        result = self.run_cli("--dry-run")
+        self.assertEqual(result.returncode, 2, (result.stdout, result.stderr))
+        self.assertEqual(result.stdout, "")
+        self.assertNotIn("surface_absent", result.stdout + result.stderr)
+        self.assertIn("migration-symlink-refused", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        # POSITIVE CONTROL: the same tree builds once adrs is a directory.
+        (self.tree / "adrs").unlink()
+        (self.tree / "adrs" / "reviews").mkdir(parents=True)
+        self.write("2026-09-07.md", _lifecycle(
+            "2026-09-07", findings=["adr-review-alpha"]))
+        self.assert_built()
+
+    # Intended evidence 3: an unlistable reviews directory.
+    def test_an_unlistable_reviews_directory_is_an_environment_error(self):
+        self.require_permissions()
+        self.lock(self.reviews)
+        result = self.run_cli("--today", "2026-12-31", "--dry-run")
+        self.assert_environment(result, str(Path("adrs") / "reviews"), "cannot be listed")
+        # POSITIVE CONTROL.
+        self.reviews.chmod(0o755)
+        self.assert_built()
+
+    # Intended evidence 5: an unlistable ADR archive tier.
+    def test_an_unlistable_adr_archive_is_an_environment_error_naming_it(self):
+        self.require_permissions()
+        archive = self.tree / "adrs" / "archive"
+        archive.mkdir()
+        (archive / "ADR-9999-retired.md").write_text("retired\n", encoding="utf-8")
+        self.record("ADR-9999")
+        self.lock(archive)
+        self.assert_environment(self.run_cli("--today", "2026-12-31", "--dry-run"),
+                                "archive", "cannot be listed")
+        # POSITIVE CONTROL: a readable archive resolves the handle.
+        archive.chmod(0o755)
+        self.assert_built()
+
+    # Intended evidence 16, with architect nits openai_top:F2 and anthropic_top:F1.
+    def _removed_skill_fixture(self):
+        old = "crux/skills/review-decisions/SKILL.md"
+        raw = (SCRIPT.parent / "tests/fixtures/legacy_workflow/skills/review-decisions/"
+               "SKILL.md.fixture").read_bytes()
+        archive = self.root / "crux/box/history/review-decisions.md"
+        archive.parent.mkdir(parents=True)
+        archive.write_bytes(raw)
+        self.record(old)
+        module = _load_script()
+
+        def history(root, *, with_paths=False):
+            return ({}, {old}) if with_paths else {}
+
+        return old, archive, module, history
+
+    def test_an_archive_stat_failure_takes_its_lane_by_cause_through_the_probe(self):
+        old, archive, module, history = self._removed_skill_fixture()
+        target = os.fspath(archive.resolve())
+        real = module.input_lanes.path_state
+
+        def stubbed(code):
+            def path_state(path, follow=True):
+                if os.fspath(path) == target:
+                    raise OSError(code, os.strerror(code), os.fspath(path))
+                return real(path, follow)
+            return path_state
+
+        with patch.object(module, "_review_history", history):
+            probe = module._locator_probe(self.root, "bionic/adrs/reviews", self.tree)
+            with patch.object(module.input_lanes, "path_state", stubbed(errno.EIO)):
+                with self.assertRaises(OSError) as raised:
+                    probe(old)
+            self.assertNotIsInstance(raised.exception, module.ReviewsError)
+            self.assertIn("crux/box/history/review-decisions.md", str(raised.exception))
+            with patch.object(module.input_lanes, "path_state", stubbed(errno.EACCES)):
+                with self.assertRaises(module.ReviewsError) as raised:
+                    probe(old)
+            self.assertEqual(raised.exception.file, "crux/box/history/review-decisions.md")
+            self.assertIn("grant this process read permission", raised.exception.problem)
+            # POSITIVE CONTROL: unstubbed, the archived locator answers True.
+            self.assertTrue(probe(old))
+
+    def test_an_archive_read_failure_takes_its_lane_by_cause_through_main(self):
+        self.require_permissions()
+        old, archive, module, history = self._removed_skill_fixture()
+        with patch.object(module, "_review_history", history):
+            # A successful stat and an EACCES read.
+            self.lock(archive)
+            code, out, err = self.run_main(module, "--dry-run")
+            self.assertEqual(code, 1, (out, err))
+            errors = json.loads(out)["validation_errors"]
+            self.assertEqual(errors, [{"file": "crux/box/history/review-decisions.md",
+                                       "error": errors[0]["error"]}])
+            self.assertIn("could not be read (EACCES", errors[0]["error"])
+            self.assertNotIn(str(self.root), errors[0]["error"])
+            archive.chmod(0o644)
+
+            target = os.fspath(archive.resolve())
+            real = module.input_lanes.path_state
+
+            def eio(path, follow=True):
+                if os.fspath(path) == target:
+                    raise OSError(errno.EIO, os.strerror(errno.EIO), os.fspath(path))
+                return real(path, follow)
+
+            with patch.object(module.input_lanes, "path_state", eio):
+                code, out, err = self.run_main(module, "--dry-run")
+            self.assertEqual(code, 2, (out, err))
+            self.assertEqual(out, "")
+            self.assertIn("crux/box/history/review-decisions.md", err)
+
+            # POSITIVE CONTROL: unstubbed and readable, the locator resolves.
+            code, out, err = self.run_main(module)
+            self.assertEqual(code, 0, (out, err))
+
+    # Intended evidence 18, with architect nit openai_top:F1.
+    def test_a_surface_lstat_failure_outside_the_closed_list_is_an_environment_error(self):
+        archive = self.tree / "adrs" / "archive"
+        archive.mkdir()
+        (archive / "ADR-9999-retired.md").write_text("retired\n", encoding="utf-8")
+        self.record("ADR-9999")
+        module = _load_script()
+        with patch.object(module, "os", _OsProxy(archive, errno.EIO)):
+            code, out, err = self.run_main(module, "--dry-run")
+        self.assertEqual(code, 2, (out, err))
+        self.assertEqual(out, "")
+        self.assertIn("adrs archive directory", err)
+        self.assertIn(str(Path("adrs") / "archive"), err)
+        # POSITIVE CONTROL: unstubbed, the handle resolves.
+        code, out, err = self.run_main(module)
+        self.assertEqual(code, 0, (out, err))
+
+    def test_a_parent_lstat_failure_in_the_absent_branch_names_parent_and_surface(self):
+        # `observations` is absent, so `_surface` examines its parent, the tree.
+        self.record("OBS-9999")
+        module = _load_script()
+        with patch.object(module, "os", _OsProxy(self.tree, errno.EIO)):
+            code, out, err = self.run_main(module, "--dry-run")
+        self.assertEqual(code, 2, (out, err))
+        self.assertEqual(out, "")
+        self.assertIn("observations directory", err)
+        self.assertIn("its parent", err)
+        self.assertIn("EIO", err)
+        # POSITIVE CONTROL: unstubbed, the absent tier holds no match, which
+        # is the document refusal for a handle naming nothing.
+        code, out, err = self.run_main(module, "--dry-run")
+        self.assertEqual(code, 1, (out, err))
+        self.assertIn("is no surface in the tree", out)
+
+
+class _ReadStub:
+    """`_read_untranslated` with one path's read stubbed to raise `exc`."""
+
+    def __init__(self, module, fail_on: Path, exc: BaseException) -> None:
+        self._real = module._read_untranslated
+        self._fail_on = os.fspath(Path(fail_on).resolve())
+        self._exc = exc
+
+    def __call__(self, path):
+        if os.fspath(Path(path).resolve()) == self._fail_on:
+            raise self._exc
+        return self._real(path)
+
+
+class CollectionTestCase(_InputLaneHarness):
+    """IDR reviews-index-input-lanes approaches 7 to 9: per-input collection,
+    first-finding corpus refusals and the classified output read."""
+
+    BAD_UTF8 = b"---\ntype: adr-review\ndate: 2026-09-04\n\xff\xfe\n---\n"
+
+    def assert_findings(self, result, files) -> list[dict]:
+        self.assertEqual(result.returncode, 1, (result.stdout, result.stderr))
+        errors = json.loads(result.stdout)["validation_errors"]
+        self.assertEqual([e["file"] for e in errors],
+                         [str(Path("bionic/adrs/reviews") / f) for f in files], errors)
+        for entry in errors:
+            self.assertNotIn(str(self.root), entry["error"])
+            self.assertNotIn(str(self.root), entry["file"])
+        return errors
+
+    # Intended evidence 8: every per-input finding in one payload.
+    def test_four_broken_reports_are_each_named_in_one_payload(self):
+        self.require_permissions()
+        self.write("2026-09-01.md", "no frontmatter here\n")
+        self.write("2026-09-02.md", _report("2026-09-02", [], []).replace(
+            "type: adr-review", "type: memo"))
+        self.write("2026-09-03.md", _lifecycle("2026-09-03"))
+        self.lock(self.reviews / "2026-09-03.md")
+        (self.reviews / "2026-09-04.md").write_bytes(self.BAD_UTF8)
+        files = ["2026-09-01.md", "2026-09-02.md", "2026-09-03.md", "2026-09-04.md"]
+        for args in (("--dry-run",), ()):
+            with self.subTest(args=args):
+                result = self.run_cli("--today", "2026-12-31", *args)
+                errors = self.assert_findings(result, files)
+                self.assertIn("no frontmatter block", errors[0]["error"])
+                self.assertIn("frontmatter `type`", errors[1]["error"])
+                self.assertIn("could not be read (EACCES", errors[2]["error"])
+                self.assertIn("is not valid UTF-8", errors[3]["error"])
+                payload = json.loads(result.stdout)
+                if args:
+                    self.assertEqual((payload["drift"], payload["orphan_rows"]), (False, []))
+                else:
+                    self.assertIsNone(payload["written"])
+                # One stderr line per finding, and no traceback.
+                self.assertEqual(result.stderr.count("generate-reviews-index: "), 4,
+                                 result.stderr)
+                self.assertNotIn("Traceback", result.stderr)
+                self.assertFalse((self.reviews / "index.md").exists())
+        # POSITIVE CONTROL: the same corpus repaired builds clean.
+        self.write("2026-09-01.md", _lifecycle("2026-09-01"))
+        self.write("2026-09-02.md", _lifecycle("2026-09-02"))
+        (self.reviews / "2026-09-03.md").chmod(0o644)
+        self.write("2026-09-04.md", _lifecycle("2026-09-04"))
+        self.assert_built()
+
+    # Intended evidence 9: an environment failure takes precedence.
+    def test_a_report_read_failure_outside_the_closed_list_takes_precedence(self):
+        self.write("2026-09-01.md", _report("2026-09-01", [], []).replace(
+            "type: adr-review", "type: memo"))
+        module = _load_script()
+        target = self.reviews / "2026-09-07.md"
+        for exc in (OSError(errno.EIO, os.strerror(errno.EIO), os.fspath(target)),
+                    MemoryError()):
+            with self.subTest(exc=type(exc).__name__), \
+                    patch.object(module, "_read_untranslated", _ReadStub(module, target, exc)):
+                code, out, err = self.run_main(module, "--dry-run")
+            self.assertEqual(code, 2, (out, err))
+            self.assertEqual(out, "")
+            self.assertIn("environment failure", err)
+            self.assertIn("2026-09-07.md", err)
+            self.assertIn("document finding met in the same run", err)
+            self.assertIn("2026-09-01.md", err)
+        # POSITIVE CONTROL: without the stub, the document fault alone, exit 1.
+        code, out, err = self.run_main(module, "--dry-run")
+        self.assertEqual(code, 1, (out, err))
+        errors = json.loads(out)["validation_errors"]
+        self.assertEqual([e["file"] for e in errors],
+                         [str(Path("bionic/adrs/reviews/2026-09-01.md"))])
+
+    # Intended evidence 10: corpus refusals stay first-finding.
+    def test_a_corpus_refusal_yields_exactly_one_finding_naming_the_directory(self):
+        # Two slugs, each defined by two reports: two corpus faults, one finding.
+        self.write("2026-09-07.md", _lifecycle(
+            "2026-09-07", findings=["adr-review-alpha", "adr-review-beta"]))
+        self.write("2026-09-08.md", _lifecycle(
+            "2026-09-08", findings=["adr-review-alpha", "adr-review-beta"]))
+        result = self.run_cli("--today", "2026-12-31", "--dry-run")
+        self.assertEqual(result.returncode, 1, (result.stdout, result.stderr))
+        errors = json.loads(result.stdout)["validation_errors"]
+        self.assertEqual(len(errors), 1, errors)
+        self.assertEqual(errors[0]["file"], str(Path("bionic/adrs/reviews")))
+        self.assertIn("is defined twice", errors[0]["error"])
+        # POSITIVE CONTROL: distinct ids across the two dates build clean.
+        self.write("2026-09-08.md", _lifecycle(
+            "2026-09-08", findings=["adr-review-gamma", "adr-review-delta"]))
+        self.assert_built()
+
+    def test_a_per_input_finding_precludes_the_corpus_checks(self):
+        """Approach 8: the corpus checks run only after a clean collect."""
+        self.write("2026-09-08.md", _lifecycle(
+            "2026-09-08", findings=["adr-review-alpha"]))
+        self.write("2026-09-09.md", "no frontmatter here\n")
+        result = self.run_cli("--today", "2026-12-31", "--dry-run")
+        self.assert_findings(result, ["2026-09-09.md"])
+        self.assertNotIn("is defined twice", result.stdout)
+        # POSITIVE CONTROL: with the per-input fault repaired, the corpus
+        # refusal the fixture carries is the one finding.
+        self.write("2026-09-09.md", _lifecycle("2026-09-09"))
+        result = self.run_cli("--today", "2026-12-31", "--dry-run")
+        self.assert_findings(result, [""])
+        self.assertIn("is defined twice", result.stdout)
+
+    # Intended evidence 11: the output read, by cause.
+    def test_an_unreadable_index_is_an_output_finding_and_eio_an_environment_error(self):
+        self.require_permissions()
+        self.assert_built()
+        index = self.reviews / "index.md"
+        before = index.read_bytes()
+        self.lock(index)
+        for args in (("--dry-run",), ()):
+            with self.subTest(args=args):
+                result = self.run_cli("--today", "2026-12-31", *args)
+                errors = self.assert_findings(result, ["index.md"])
+                self.assertIn("could not be read (EACCES", errors[0]["error"])
+                self.assertIn("remove the path and rerun the regenerator",
+                              errors[0]["error"])
+        index.chmod(0o644)
+        self.assertEqual(index.read_bytes(), before)
+        module = _load_script()
+        exc = OSError(errno.EIO, os.strerror(errno.EIO), os.fspath(index))
+        for args in (("--dry-run",), ()):
+            with self.subTest(args=args), \
+                    patch.object(module, "_read_untranslated", _ReadStub(module, index, exc)):
+                code, out, err = self.run_main(module, *args)
+            self.assertEqual(code, 2, (out, err))
+            self.assertEqual(out, "")
+            self.assertIn(str(Path("bionic/adrs/reviews/index.md")), err)
+            self.assertIn("EIO", err)
+        self.assertEqual(index.read_bytes(), before)
+        # POSITIVE CONTROL: the readable index builds clean, in both modes.
+        code, out, err = self.run_main(module, "--dry-run")
+        self.assertEqual((code, json.loads(out)["drift"]), (0, False), err)
+        self.assert_built()
+
+    # Intended evidence 19: an undecodable index.
+    def test_an_undecodable_index_is_an_output_finding_in_both_modes(self):
+        self.assert_built()
+        index = self.reviews / "index.md"
+        text = index.read_text(encoding="utf-8")
+        undecodable = text.encode("utf-8") + b"\xff\xfe\n"
+        index.write_bytes(undecodable)
+        for args in (("--dry-run",), ()):
+            with self.subTest(args=args):
+                result = self.run_cli("--today", "2026-12-31", *args)
+                errors = self.assert_findings(result, ["index.md"])
+                self.assertIn("is not valid UTF-8", errors[0]["error"])
+                self.assertIn("remove the path and rerun the regenerator",
+                              errors[0]["error"])
+                self.assertEqual(index.read_bytes(), undecodable)
+        # POSITIVE CONTROL: the same index re-encoded as UTF-8 builds clean.
+        index.write_bytes(text.encode("utf-8"))
+        result = self.run_cli("--today", "2026-12-31", "--dry-run")
+        self.assertEqual(result.returncode, 0, (result.stdout, result.stderr))
+        self.assertFalse(json.loads(result.stdout)["drift"])
+        self.assert_built()
+
+
+class _ResolverOpenStub:
+    """`Path.open` with the open of one path stubbed.
+
+    `exc` raises at the open itself; `read_exc` returns a handle whose
+    `read` raises it, so the failure lands after a successful open. Every
+    other path opens for real.
+    """
+
+    def __init__(self, fail_on: Path, *, exc: BaseException | None = None,
+                 read_exc: BaseException | None = None) -> None:
+        self._real = Path.open
+        self._fail_on = os.fspath(Path(fail_on).resolve())
+        self._exc = exc
+        self._read_exc = read_exc
+
+    def install(self):
+        stub = self
+
+        def open_(path, *args, **kwargs):
+            if os.fspath(Path(path).resolve()) == stub._fail_on:
+                if stub._exc is not None:
+                    raise stub._exc
+                return _FailingHandle(stub._read_exc)
+            return stub._real(path, *args, **kwargs)
+
+        return patch.object(Path, "open", open_)
+
+
+class _FailingHandle:
+    def __init__(self, exc: BaseException) -> None:
+        self._exc = exc
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        return False
+
+    def read(self, *args):
+        raise self._exc
+
+
+class ResolverLaneTestCase(_InputLaneHarness):
+    """IDR resolver-reader-lanes: the resolver read's lanes, its seed and its order.
+
+    Each refusal asserts its lane, the file it names and its reason fragment.
+    A single-fault row pairs, in the same method on the same fixture, with a
+    control that repairs the one property and builds. The two-fault rows say
+    which control they carry: the collection row repairs both faults and
+    builds; the two precedence rows remove only the environment fault and
+    assert the resolver's document finding alone, exit 1.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.summaries = self.tree / "adrs" / "summaries"
+        self.summaries.mkdir(parents=True)
+        self.resolver = self.summaries / "resolver.json"
+        self.resolver.write_text(GOOD_RESOLVER, encoding="utf-8")
+        self.record("rule:some-slug")
+
+    def assert_main_built(self, module) -> None:
+        code, out, err = self.run_main(module)
+        self.assertEqual(code, 0, (out, err))
+        self.assertEqual(json.loads(out)["written"],
+                         str(Path("bionic/adrs/reviews/index.md")))
+
+    def assert_main_environment(self, module, *fragments) -> str:
+        code, out, err = self.run_main(module, "--dry-run")
+        self.assertEqual(code, 2, (out, err))
+        self.assertEqual(out, "")
+        self.assertIn("resolver.json", err)
+        for fragment in fragments:
+            self.assertIn(fragment, err)
+        self.assertNotIn("Traceback", err)
+        self.assertIsNone(self.index_bytes())
+        return err
+
+    # Intended evidence 2, with architect nits openai_top:F1 and anthropic_top:F3.
+    def test_a_resolver_stat_failure_outside_the_closed_list_is_an_environment_error(self):
+        """EIO at `_surface`'s lstat, then at `path_state`'s stat: exit 2.
+
+        Single-fault control: the same fixture unstubbed builds.
+        """
+        module = _load_script()
+        with patch.object(module, "os", _OsProxy(self.resolver, errno.EIO)):
+            self.assert_main_environment(module, "EIO")
+        target = os.fspath(self.resolver.resolve())
+        real = module.input_lanes.path_state
+
+        def eio(path, follow=True):
+            if os.fspath(path) == target:
+                raise OSError(errno.EIO, os.strerror(errno.EIO), os.fspath(path))
+            return real(path, follow)
+
+        with patch.object(module.input_lanes, "path_state", eio):
+            err = self.assert_main_environment(module, "EIO")
+        self.assertIn("presence cannot be confirmed", err)
+        # POSITIVE CONTROL: unstubbed, the same fixture builds.
+        self.assert_main_built(module)
+
+    # Intended evidence 4.
+    def test_an_unreadable_resolver_in_a_searchable_directory_is_a_document_finding(self):
+        """resolver.json at mode 000: the open fails EACCES, a document finding.
+
+        Single-fault control: mode 644 builds.
+        """
+        self.require_permissions()
+        self.lock(self.resolver)
+        for args in ((), ("--dry-run",)):
+            with self.subTest(args=args):
+                reason = self.assert_resolver_finding(
+                    self.run_cli("--today", "2026-12-31", *args),
+                    "EACCES", "grant this process read permission")
+                self.assertNotIn("search permission", reason)
+                self.assertIsNone(self.index_bytes())
+        # POSITIVE CONTROL: readable, the handle resolves and the index builds.
+        self.resolver.chmod(0o644)
+        self.assert_built()
+
+    # Intended evidence 5, with architect nit openai_top:F1.
+    def test_a_resolver_open_failure_outside_the_closed_list_is_an_environment_error(self):
+        """EIO at the open, and ENOENT after a stat that saw a regular file.
+
+        ENOENT at the open is never confirmed absence: exit 2 naming
+        resolver.json as present at its stat and gone at its open, never
+        exit 0 with the handle answered True. Single-fault control: unstubbed
+        builds.
+        """
+        module = _load_script()
+        for code_, fragment in ((errno.EIO, "EIO"),
+                                (errno.ENOENT, "present at its stat and is gone at its open")):
+            exc = OSError(code_, os.strerror(code_), os.fspath(self.resolver))
+            with self.subTest(errno=errno.errorcode[code_]), \
+                    _ResolverOpenStub(self.resolver, exc=exc).install():
+                self.assert_main_environment(module, fragment)
+        # POSITIVE CONTROL: unstubbed, the same fixture builds.
+        self.assert_main_built(module)
+
+    # Architect nit openai_top:F1 and anthropic_top:F3: memory exhaustion.
+    def test_memory_exhaustion_reading_the_resolver_is_an_environment_error(self):
+        """MemoryError while reading resolver.json: exit 2 naming it.
+
+        Single-fault control: unstubbed builds.
+        """
+        module = _load_script()
+        with _ResolverOpenStub(self.resolver, read_exc=MemoryError()).install():
+            self.assert_main_environment(module, "MemoryError")
+        # POSITIVE CONTROL: unstubbed, the same fixture builds.
+        self.assert_main_built(module)
+
+    # Intended evidence 7.
+    def test_a_resolver_that_is_not_utf8_is_a_document_finding(self):
+        """Bytes that are not UTF-8: a document finding asking for re-encoding.
+
+        Single-fault control: the same document re-encoded as UTF-8 builds.
+        """
+        document = json.dumps({"slugs": {"some-slug": "ADR-0001/café"},
+                               "retired_slugs": {}}, ensure_ascii=False)
+        self.resolver.write_bytes(document.encode("latin-1"))
+        for args in ((), ("--dry-run",)):
+            with self.subTest(args=args):
+                self.assert_resolver_finding(
+                    self.run_cli("--today", "2026-12-31", *args),
+                    "is not valid UTF-8", "re-encode the file as UTF-8")
+                self.assertIsNone(self.index_bytes())
+        # POSITIVE CONTROL: the same document re-encoded builds.
+        self.resolver.write_bytes(document.encode("utf-8"))
+        self.assert_built()
+
+    # Intended evidence 9.
+    def test_each_resolver_shape_fault_is_a_document_finding(self):
+        """A top-level list, a string `slugs`, a list `retired_slugs` and a
+        malformed `historical_slugs` row each name resolver.json.
+
+        Single-fault control: a well-shaped body on the same fixture builds.
+        """
+        for body, fragment in (
+                ('["some-slug"]', "is a list at its top level"),
+                ('{"slugs": "some-slug"}', "`slugs` is a str"),
+                ('{"slugs": {}, "retired_slugs": []}', "`retired_slugs` is a list"),
+                ('{"slugs": {}, "retired_slugs": {}, "historical_slugs": '
+                 '{"x": {"source_handle": "ADR-0001/x"}}}', "historical_slugs rows")):
+            with self.subTest(body=body[:30]):
+                self.resolver.write_text(body, encoding="utf-8")
+                self.assert_resolver_finding(
+                    self.run_cli("--today", "2026-12-31", "--dry-run"),
+                    fragment, "regenerate it with summarize-adrs.py")
+                self.assertIsNone(self.index_bytes())
+        # POSITIVE CONTROL: a well-shaped body builds.
+        self.resolver.write_text(GOOD_RESOLVER, encoding="utf-8")
+        self.assert_built()
+
+    # Intended evidence 10, with architect nit anthropic_top:F2.
+    def test_a_resolver_finding_and_a_report_finding_are_named_in_one_run(self):
+        """Two document faults, one run, the resolver's finding first.
+
+        The run makes no authority read and evaluates no locator. Two-fault
+        control: both faults repaired, the index builds.
+        """
+        self.resolver.write_text("{not json", encoding="utf-8")
+        self.write("2026-09-09.md", "no frontmatter here\n")
+        for args in ((), ("--dry-run",)):
+            with self.subTest(args=args):
+                result = self.run_cli("--today", "2026-12-31", *args)
+                self.assertEqual(result.returncode, 1, (result.stdout, result.stderr))
+                errors = json.loads(result.stdout)["validation_errors"]
+                self.assertEqual([e["file"] for e in errors],
+                                 [RESOLVER_FILE,
+                                  str(Path("bionic/adrs/reviews/2026-09-09.md"))], errors)
+                self.assertIn("does not parse as JSON", errors[0]["error"])
+                self.assertIn("no frontmatter block", errors[1]["error"])
+                self.assertNotIn("migration-", result.stderr)
+                self.assertIsNone(self.index_bytes())
+        module = _load_script()
+        with patch.object(module, "_review_history",
+                          side_effect=AssertionError("an authority read ran")), \
+                patch.object(module, "_locator_probe",
+                             side_effect=AssertionError("a probe was built")):
+            code, out, err = self.run_main(module, "--dry-run")
+        self.assertEqual(code, 1, (out, err))
+        self.assertEqual(len(json.loads(out)["validation_errors"]), 2)
+        # POSITIVE CONTROL: both faults repaired, the index builds.
+        self.resolver.write_text(GOOD_RESOLVER, encoding="utf-8")
+        self.write("2026-09-09.md", _lifecycle("2026-09-09"))
+        self.assert_built()
+
+    # Intended evidence 11, with architect nit openai_top:F2.
+    def test_an_entry_environment_failure_names_the_resolver_finding_met(self):
+        """An unparseable resolver and a report whose lstat fails EIO: exit 2.
+
+        Stderr names the environment failure at the entry and the resolver's
+        document finding the same run met. Control: the same fixture without
+        the stub exits 1 with the resolver's finding.
+        """
+        self.resolver.write_text("{not json", encoding="utf-8")
+        entry = self.reviews / "2026-09-07.md"
+        module = _load_script()
+        with patch.object(module, "os", _OsProxy(entry, errno.EIO)):
+            code, out, err = self.run_main(module, "--dry-run")
+        self.assertEqual(code, 2, (out, err))
+        self.assertEqual(out, "")
+        self.assertIn("environment failure", err)
+        self.assertIn("2026-09-07.md", err)
+        self.assertIn("EIO", err)
+        self.assertIn("document finding met in the same run: "
+                      f"{RESOLVER_FILE}", err)
+        # CONTROL: without the stub, the resolver's finding alone, exit 1.
+        code, out, err = self.run_main(module, "--dry-run")
+        self.assertEqual(code, 1, (out, err))
+        self.assertEqual([e["file"] for e in json.loads(out)["validation_errors"]],
+                         [RESOLVER_FILE])
+
+    # Intended evidence 13, with architect nit openai_top:F2.
+    def test_a_listing_failure_names_the_resolver_finding_met(self):
+        """An unparseable resolver and an unlistable reviews directory: exit 2.
+
+        Stderr names the listing failure at the reviews directory and the
+        resolver's document finding. Control: the same fixture without the
+        stub exits 1 with the resolver's finding.
+        """
+        self.resolver.write_text("{not json", encoding="utf-8")
+        module = _load_script()
+        target = os.fspath(self.reviews.resolve())
+        real = module.input_lanes.list_directory
+
+        def eacces(path, *args, **kwargs):
+            if os.fspath(Path(path).resolve()) == target:
+                raise OSError(errno.EACCES, os.strerror(errno.EACCES), os.fspath(path))
+            return real(path, *args, **kwargs)
+
+        with patch.object(module.input_lanes, "list_directory", eacces):
+            code, out, err = self.run_main(module, "--dry-run")
+        self.assertEqual(code, 2, (out, err))
+        self.assertEqual(out, "")
+        self.assertIn("environment failure", err)
+        self.assertIn(str(Path("adrs") / "reviews"), err)
+        self.assertIn("cannot be listed", err)
+        self.assertIn("document finding met in the same run: "
+                      f"{RESOLVER_FILE}", err)
+        # CONTROL: without the stub, the resolver's finding alone, exit 1.
+        code, out, err = self.run_main(module, "--dry-run")
+        self.assertEqual(code, 1, (out, err))
+        self.assertEqual([e["file"] for e in json.loads(out)["validation_errors"]],
+                         [RESOLVER_FILE])
 
 
 if __name__ == "__main__":

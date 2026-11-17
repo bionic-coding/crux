@@ -62,12 +62,20 @@ from ..core import (
     _mermaid,
     _node_ids,
     _norm_path,
+    _omit,
     _rel,
     _render_openapi,
     _safe_read_bytes,
     _sha256_hex,
     _singularize,
     _split_top_level,
+    decode_input,
+    input_kind,
+    ledger_active,
+    list_input_dir,
+    marker_exists,
+    parsing,
+    record_scan_cap,
 )
 
 
@@ -289,7 +297,12 @@ def _walk_ex_files(root: Path):
     """Yield contained `.ex` files (NOT `.exs`) under `root`, skipping VCS/vendor
     + dot dirs. `os.walk(followlinks=False)` never descends a symlinked dir; dir
     and file names are codepoint-sorted so an aggregate-cap truncation selects a
-    stable, locale-independent prefix (ADR-0069 point 6)."""
+    stable, locale-independent prefix (ADR-0069 point 6).
+
+    Inside a derive (ADR-0181) the shared walk classifies every listing, and
+    every `.ex` entry is yielded — a file link included — so the shared reader
+    names what it cannot read rather than this filter dropping it."""
+    ledger = ledger_active()
     for dirpath, dirnames, filenames in _retained_source_walk(root, root):
         dirnames[:] = sorted(
             d for d in dirnames if d not in _SKIP_DIRS and not d.startswith(".")
@@ -297,7 +310,7 @@ def _walk_ex_files(root: Path):
         for fn in sorted(filenames):
             if fn.endswith(".ex"):
                 p = Path(dirpath) / fn
-                if _contained(root, p):
+                if ledger or _contained(root, p):
                     yield p
 
 
@@ -307,11 +320,80 @@ def _has_ex_sources(root: Path) -> bool:
     return False
 
 
+# ── the input seam (ADR-0181) ────────────────────────────────────────────────
+# Inside a derive every read, listing, presence gate, decode and parse in this
+# pack goes through core's shared readers, so an input the pack cannot describe
+# is named in the concern's Omissions section, refused, or fails the
+# environment lane — never dropped in silence. Outside a derive
+# (`ledger_active()` False) each site keeps the predicate and the read it
+# always had, so a direct extractor call returns what it always returned.
+#
+# The tree-sitter span decodes below (`_ts_call_name`, `_ts_string`,
+# `_ts_alias`, `_ts_atom`, `_ts_keywords`, `_mig_bool`, `_mig_default`,
+# `_parse_elixir_migration`) are not input decode sites: inside a derive every
+# byte buffer they slice has already passed `decode_input`'s strict decode, so
+# a node's byte span decodes with no replacement.
+
+
+def _scan_cap(cap_hit_files: bool, root: Path, walk, loop: str) -> None:
+    """Record the aggregate scan cap a loop over `walk` hit (ADR-0181 approach
+    8): a counted over-cap omission naming the cap and every source the loop
+    skipped — the one in hand plus the rest of the sorted walk. `loop` names
+    the scanning function, so the three loops under one cap stay three
+    records (nit F5). Outside a derive this counts nothing and records
+    nothing."""
+    if not ledger_active():
+        return
+    skipped = 1 + sum(1 for _ in walk)
+    record_scan_cap("_MAX_SCAN_FILES" if cap_hit_files else "_MAX_SCAN_BYTES",
+                    root, skipped, loop)
+
+
+def _present_kind(path: Path, origin: str, admit) -> str:
+    """`core.input_kind` of `path`, with a path the retained-evidence resolver
+    prunes read as absent. Only called under an active ledger.
+
+    `input_kind` classifies by `lstat` before `admit` runs, because `admit`
+    follows links and answers None for an unreadable component: asked first,
+    it would hide a link or a permission failure as absence."""
+    kind = input_kind(path, origin)
+    if kind in ("file", "dir") and admit(path) is None:
+        return "absent"
+    return kind
+
+
+def _parse_bytes(path: Path, raw: bytes):
+    """`_elixir_parse` bounded by `core.parsing` (ADR-0181 approach 6): inside
+    a derive a content failure names the source unparseable and answers None,
+    and a `MemoryError` is the environment lane naming it. Outside a derive
+    the parse is unguarded, as it always was."""
+    with parsing(path, legacy=()) as outcome:
+        tree = _elixir_parse(raw)
+    return None if outcome.failed else tree
+
+
+def _scrub_or_none(path: Path, text: str, blank_strings: bool = False):
+    """`_scrub_elixir_comments`, with a scrub that cannot close a construct
+    (`_ElixirScrubBail`) or recurses too deep answered None.
+
+    Inside a derive the bail is an unparseable omission of kind `scrub-bail`
+    (ADR-0181 approach 9), named once by core's Omissions section; outside one
+    the caller names it in its legacy residual line, as before."""
+    with parsing(path, (_ElixirScrubBail, RecursionError), kind="scrub-bail") as outcome:
+        scrubbed = _scrub_elixir_comments(text, blank_strings=blank_strings)
+    return None if outcome.failed else scrubbed
+
+
 def _scan_ex_files(root: Path):
     """Enumerate `.ex` sources (sorted, contained, size-bounded) with aggregate
     file/byte caps (ADR-0069 point 6). Returns (entries, sources, residuals):
     entries is [(repo-rel path, decoded text)]; every read file is hashed into
-    `sources` (drift rule — even a schema-less `.ex` shapes the negative result)."""
+    `sources` (drift rule — even a schema-less `.ex` shapes the negative result).
+
+    Inside a derive (ADR-0181) every entry is strict UTF-8: a source that does
+    not decode is named undecodable and is no entry, but it was read, so it
+    stays hashed in `sources`. The aggregate cap is a counted over-cap
+    omission, and the oversize and cap residual lines give way to the ledger."""
     root = Path(root)
     entries: list = []
     sources: dict = {}
@@ -320,18 +402,28 @@ def _scan_ex_files(root: Path):
     n_files = 0
     n_bytes = 0
     capped = False
-    for p in _walk_ex_files(root):
+    ledger = ledger_active()
+    walk = _walk_ex_files(root)
+    for p in walk:
         if n_files >= _MAX_SCAN_FILES or n_bytes >= _MAX_SCAN_BYTES:
             capped = True
+            _scan_cap(n_files >= _MAX_SCAN_FILES, root, walk, "elixir._scan_ex_files")
             break
-        raw = _safe_read_bytes(root, p, oversize)
+        raw = _safe_read_bytes(root, p, oversize, origin="listed")
         if raw is None:
             continue
         rel = _rel(root, p)
         sources[rel] = _sha256_hex(raw)
-        entries.append((rel, raw.decode("utf-8", errors="replace")))
         n_files += 1
         n_bytes += len(raw)
+        text = decode_input(p, raw)
+        if text is None:
+            continue                       # named undecodable inside a derive only.
+        entries.append((rel, text))
+    if ledger:
+        # Inside a derive the oversize sources and the cap are ledger
+        # omissions, named once by core's Omissions section (ADR-0181).
+        return entries, sources, residuals
     if oversize:
         residuals.append("Skipped for exceeding the 2 MB bound: "
                          + ", ".join(f"`{_cell(p)}`" for p in sorted(oversize)))
@@ -346,18 +438,28 @@ def _scan_ex_files(root: Path):
 def _elixir_scan_contains(root: Path, regex) -> bool:
     """True when a contained `.ex` file matches `regex` on raw text — BOUNDED by
     the aggregate file/byte caps (ADR-0069 point 6). A marker past the cap
-    degrades that probe to the stub, the same tradeoff the extractor makes."""
+    degrades that probe to the stub, the same tradeoff the extractor makes.
+
+    Inside a derive (ADR-0181) the cap is a counted over-cap omission naming
+    every source the scan skipped, and a source that does not decode is named
+    undecodable and not searched."""
     root = Path(root)
     n_files = n_bytes = 0
-    for p in _walk_ex_files(root):
+    walk = _walk_ex_files(root)
+    for p in walk:
         if n_files >= _MAX_SCAN_FILES or n_bytes >= _MAX_SCAN_BYTES:
+            _scan_cap(n_files >= _MAX_SCAN_FILES, root, walk,
+                      "elixir._elixir_scan_contains")
             break
-        raw = _safe_read_bytes(root, p, [])
+        raw = _safe_read_bytes(root, p, [], origin="listed")
         if raw is None:
             continue
         n_files += 1
         n_bytes += len(raw)
-        if regex.search(raw.decode("utf-8", errors="replace")):
+        text = decode_input(p, raw)
+        if text is None:
+            continue
+        if regex.search(text):
             return True
     return False
 
@@ -365,10 +467,32 @@ def _elixir_scan_contains(root: Path, regex) -> bool:
 # ── api-surface: committed OpenAPI first, then a static Phoenix router parse ──
 
 def _elixir_openapi_path(root: Path):
+    if ledger_active():
+        return _elixir_openapi_path_ledger(Path(root))
     for c in _OPENAPI_CANDIDATES:
         p = Path(root) / c
         if p.is_file() and _contained(Path(root), p):
             return p
+    return None
+
+
+def _elixir_openapi_path_ledger(root: Path):
+    """`_elixir_openapi_path`'s candidate probe inside a derive (ADR-0181
+    approach 3). Each candidate is decided by an `lstat`: confirmed absence is
+    'not this candidate'; a regular file is the document; a link or a
+    directory where the document is expected ends the probe, named
+    not-a-file, so a later candidate is not read in its place."""
+    admit = _retained_source_resolver(root)
+    for c in _OPENAPI_CANDIDATES:
+        p = root / c
+        kind = _present_kind(p, "fixed", admit)
+        if kind == "file":
+            return p
+        if kind == "omitted":
+            return None
+        if kind == "dir":
+            _omit(p, "not-a-file", "directory")
+            return None
     return None
 
 
@@ -387,9 +511,17 @@ def extract_elixir_api_surface_openapi(root: Path, docs_dir: str) -> tuple[str, 
     if raw is None:
         return _canon(["# API surface", "", NO_EXTRACTOR.rstrip("\n")]), {}
     sources = {_rel(root, spec): _sha256_hex(raw)}
-    try:
-        doc = json.loads(raw.decode("utf-8"))
-    except Exception:
+    # Inside a derive the decode and the parse go through the shared readers,
+    # so a document that does not decode or parse is named (ADR-0181) rather
+    # than stubbing in silence. Outside one this is the strict decode and the
+    # broad handler it always was.
+    ledger = ledger_active()
+    text = decode_input(spec, raw) if ledger else None
+    if ledger and text is None:
+        return _canon(["# API surface", "", NO_EXTRACTOR.rstrip("\n")]), sources
+    with parsing(spec, Exception) as parsed:
+        doc = json.loads(text if text is not None else raw.decode("utf-8"))
+    if parsed.failed:
         return _canon(["# API surface", "", NO_EXTRACTOR.rstrip("\n")]), sources
     md = _render_openapi(doc, f"_Derived from `{_cell(_rel(root, spec))}`._")
     if md is None:
@@ -631,24 +763,41 @@ def _elixir_router_files(root: Path) -> list:
     the second half moved, from a pattern over the file's text to the parse-tree
     predicate above — and the single-primary rule stops being wrong once the
     entrypoint is no longer a candidate.
+
+    Inside a derive (ADR-0181) the `router.ex` walk prunes the skipped and
+    dot directories before descent rather than after, which selects the same
+    files, so the shared walk classifies only the listings the filter keeps;
+    each `router.ex` is classified by `core.input_kind`, so a link is named
+    not-a-file and is no candidate. The `.ex` scan's cap is a counted over-cap
+    omission, and a candidate that does not decode or parse is named and is
+    no router.
     """
     root = Path(root)
+    ledger = ledger_active()
     found: list = []
     seen: set = set()
-    for p in sorted(Path(directory) / name
-                    for directory, _children, files in _retained_source_walk(root, root)
-                    for name in files if name == "router.ex"):
+    named: list = []
+    for directory, children, files in _retained_source_walk(root, root):
+        if ledger:
+            children[:] = sorted(
+                d for d in children if d not in _SKIP_DIRS and not d.startswith("."))
+        named += [Path(directory) / name for name in files if name == "router.ex"]
+    for p in sorted(named):
         rel = p.relative_to(root).parts
         if any(part in _SKIP_DIRS or part.startswith(".") for part in rel):
             continue
-        if _contained(root, p) and p.resolve() not in seen:
+        present = (input_kind(p, "listed") == "file") if ledger else _contained(root, p)
+        if present and p.resolve() not in seen:
             found.append(p)
             seen.add(p.resolve())
     n_files = n_bytes = 0
-    for p in _walk_ex_files(root):
+    walk = _walk_ex_files(root)
+    for p in walk:
         if n_files >= _MAX_SCAN_FILES or n_bytes >= _MAX_SCAN_BYTES:
+            _scan_cap(n_files >= _MAX_SCAN_FILES, root, walk,
+                      "elixir._elixir_router_files")
             break
-        raw = _safe_read_bytes(root, p, [])
+        raw = _safe_read_bytes(root, p, [], origin="listed")
         if raw is None:
             continue
         n_files += 1
@@ -662,7 +811,13 @@ def _elixir_router_files(root: Path) -> list:
         # files is not fully parsed to find one router.
         if _PHOENIX_ROUTER_ALIAS.encode() not in raw:
             continue
-        if _elixir_declares_phoenix_router(raw):
+        if decode_input(p, raw) is None:
+            continue                       # named undecodable inside a derive only.
+        with parsing(p, legacy=()) as outcome:
+            declares = _elixir_declares_phoenix_router(raw)
+        if outcome.failed:
+            continue
+        if declares:
             found.append(p)
             seen.add(p.resolve())
     return sorted(found, key=lambda p: _rel(root, p))
@@ -916,12 +1071,21 @@ def extract_elixir_api_surface_router(root: Path, docs_dir: str) -> tuple[str, d
     if not files:
         return _canon(["# API surface", "", NO_EXTRACTOR.rstrip("\n")]), {}
     primary = files[0]
-    raw = _safe_read_bytes(root, primary, [])
+    raw = _safe_read_bytes(root, primary, [], origin="listed")
     if raw is None:
         return _canon(["# API surface", "", NO_EXTRACTOR.rstrip("\n")]), {}
     sources = {_rel(root, primary): _sha256_hex(raw)}
-    rows, residuals, pipelines = _parse_elixir_router(raw)
     unmerged = _elixir_unmerged_routers(root, files)
+    # Inside a derive a primary router that does not decode or parse is named
+    # (ADR-0181) and the concern stubs; it stays hashed. Outside one neither
+    # check fires: the decode is the replacement decode and the parse is
+    # unguarded, as they always were.
+    rows: list = []
+    if decode_input(primary, raw) is not None:
+        with parsing(primary, legacy=()) as outcome:
+            rows, residuals, pipelines = _parse_elixir_router(raw)
+        if outcome.failed:
+            rows = []
     if not rows:
         out = ["# API surface", "", NO_EXTRACTOR.rstrip("\n")]
         if unmerged:
@@ -1169,9 +1333,13 @@ def extract_elixir_data_model(root: Path, docs_dir: str) -> tuple[str, dict]:
     embedded_count = 0
     bail_residuals: list = []
     for rel, text in entries:
-        try:
+        # A scrub bail is an unparseable omission of kind `scrub-bail` inside
+        # a derive (ADR-0181 approach 9), named by core's Omissions section;
+        # the residual line below names it only outside one.
+        with parsing(root / rel, (_ElixirScrubBail, RecursionError),
+                     kind="scrub-bail") as outcome:
             schemas = _parse_elixir_schemas(text)
-        except (_ElixirScrubBail, RecursionError):
+        if outcome.failed:
             bail_residuals.append(rel)
             continue
         for sch in schemas:
@@ -1239,7 +1407,7 @@ def extract_elixir_data_model(root: Path, docs_dir: str) -> tuple[str, dict]:
     if any(sch["timestamps_residual"] for sch in table_schemas):
         res.append("A non-bare `timestamps(...)` call was not expanded to "
                    "inserted_at/updated_at (a named residual).")
-    if bail_residuals:
+    if bail_residuals and not ledger_active():
         res.append("Files whose comment/sigil/heredoc scrub bailed (hashed, not "
                    "parsed): "
                    + ", ".join(f"`{_cell(r)}`" for r in sorted(bail_residuals)) + ".")
@@ -1249,13 +1417,36 @@ def extract_elixir_data_model(root: Path, docs_dir: str) -> tuple[str, dict]:
 
 
 def _elixir_migrations_dir(root: Path):
+    """The fixed `priv/repo/migrations/` directory, or None.
+
+    Inside a derive (ADR-0181 approach 3) the gate is an `lstat`: confirmed
+    absence, or a regular file where the directory is expected, is no input,
+    and a link is named not-a-file. Outside one it is the `is_dir()`
+    predicate the gate always was."""
     d = Path(root) / "priv" / "repo" / "migrations"
-    return d if _retained_source_resolver(root)(d) is not None and d.is_dir() else None
+    admit = _retained_source_resolver(root)
+    if ledger_active():
+        return d if _present_kind(d, "fixed", admit) == "dir" else None
+    return d if admit(d) is not None and d.is_dir() else None
+
+
+def _elixir_migration_files(d: Path) -> list:
+    """The `*.exs` entries of the migrations directory, sorted.
+
+    Inside a derive the directory is listed through `list_input_dir`, so an
+    unlistable one is an environment failure (ADR-0177) rather than no
+    migrations, and every `.exs` entry is kept — a link or a directory
+    included — so the shared reader names what it cannot read. Outside one it
+    is the glob it always was."""
+    if ledger_active():
+        return sorted(p for p in list_input_dir(d, "fixed") or ()
+                      if p.name.endswith(".exs"))
+    return sorted(d.glob("*.exs"))
 
 
 def _detect_elixir_migrations(root: Path) -> bool:
     d = _elixir_migrations_dir(Path(root))
-    return d is not None and any(d.glob("*.exs"))
+    return d is not None and bool(_elixir_migration_files(d))
 
 
 # ── the Ecto migration reader (U-E2) ─────────────────────────────────────────
@@ -1496,18 +1687,26 @@ def extract_elixir_migrations(root: Path, docs_dir: str) -> tuple[str, dict]:
     statements: list = []
     unreadable_files: list = []
     error_files: list = []
-    for p in sorted(d.glob("*.exs")):
-        raw = _safe_read_bytes(root, p, [])
+    ledger = ledger_active()
+    for p in _elixir_migration_files(d):
+        raw = _safe_read_bytes(root, p, [], origin="listed")
         if raw is None:
             continue
         rel = _rel(root, p)
         sources[rel] = _sha256_hex(raw)
-        try:
+        if decode_input(p, raw) is None:
+            continue                       # named undecodable inside a derive only.
+        # Inside a derive a migration that does not parse is named unparseable
+        # (ADR-0181) and is not also listed in the syntax-error residual line;
+        # outside one a `RecursionError` keeps that line, as it always did.
+        with parsing(p, legacy=(RecursionError,)) as outcome:
             parsed, unreadable = _parse_elixir_migration(raw)
-        except RecursionError:                    # belt and braces; the walk is flat
-            error_files.append(rel)
+            has_error = _elixir_parse(raw).root_node.has_error
+        if outcome.failed:
+            if not ledger:
+                error_files.append(rel)    # belt and braces; the walk is flat
             continue
-        if _elixir_parse(raw).root_node.has_error:
+        if has_error:
             error_files.append(rel)
         if unreadable:
             unreadable_files.append(rel)
@@ -1669,15 +1868,16 @@ def extract_elixir_module_graph(root: Path, docs_dir: str) -> tuple[str, dict]:
     root = Path(root)
     entries, sources, scan_residuals = _scan_ex_files(root)
     if not entries:
-        return _canon(["# Module graph", "", NO_EXTRACTOR.rstrip("\n")]), {}
+        # `sources` is empty here outside a derive; inside one it holds any
+        # source read and named undecodable, which stays hashed (ADR-0181).
+        return _canon(["# Module graph", "", NO_EXTRACTOR.rstrip("\n")]), sources
 
     index: set = set()
     parsed: list = []          # (rel, scrubbed, modules)
     bail_residuals: list = []
     for rel, text in entries:
-        try:
-            scrubbed = _scrub_elixir_comments(text, blank_strings=True)
-        except (_ElixirScrubBail, RecursionError):
+        scrubbed = _scrub_or_none(root / rel, text, blank_strings=True)
+        if scrubbed is None:
             bail_residuals.append(rel)
             continue
         mods = _ELIXIR_DEFMODULE_RE.findall(scrubbed)
@@ -1728,7 +1928,8 @@ def extract_elixir_module_graph(root: Path, docs_dir: str) -> tuple[str, dict]:
         notes.append("Nested `defmodule` definitions attributed to the enclosing "
                      "module (a named residual): "
                      + ", ".join(f"`{_cell(r)}`" for r in sorted(nested_files)) + ".")
-    if bail_residuals:
+    if bail_residuals and not ledger_active():
+        # Inside a derive a bailed scrub is a ledger omission (ADR-0181).
         notes.append("Files whose comment/sigil/heredoc scrub bailed (hashed, not "
                      "parsed): "
                      + ", ".join(f"`{_cell(r)}`" for r in sorted(bail_residuals)) + ".")
@@ -1749,8 +1950,11 @@ def detect(root: Path) -> DetectResult:
     returned — `(root / "mix.exs").exists()`; `markers` names the repo-relative
     marker paths that fired, sorted, so an ambiguous multi-match verdict can cite
     them. Empty when nothing fired.
+
+    The marker's presence is decided through `core.marker_exists` (ADR-0181
+    approach 3): with no active ledger it is the `exists()` predicate it was.
     """
-    markers = tuple(sorted(m for m in ("mix.exs",) if (Path(root) / m).exists()))
+    markers = tuple(sorted(m for m in ("mix.exs",) if marker_exists(Path(root) / m)))
     return DetectResult(matched=bool(markers), markers=markers)
 
 

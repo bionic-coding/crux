@@ -12,9 +12,8 @@
 # the end of the string, a low surrogate alone, a high surrogate followed by
 # a `\U` escape that is not a low surrogate, and a reversed pair. Each is a
 # grammar failure (ADR-0130:188, "any other grammar failure"), so each
-# renders `project-unreadable` `malformed` in the existing template, the same
-# verdict the same code point spelled as UTF-8 bytes already gets as
-# `undecodable`. No U+FFFD is fabricated and no part of the name renders.
+# renders an `unparseable (malformed)` omission, the same refusal the same
+# code point spelled as UTF-8 bytes already gets as `undecodable`. No U+FFFD is fabricated and no part of the name renders.
 exit_code: 0
 
 rows:
@@ -32,21 +31,19 @@ absent:
     - "| `Reversed.xcodeproj` | app |"
     - "`project-unreadable` `Pair.xcodeproj"
 
-residuals:
-  - class: project-unreadable
-    path: LoneHigh.xcodeproj/project.pbxproj
-    kind: malformed
-  - class: project-unreadable
-    path: LoneLow.xcodeproj/project.pbxproj
-    kind: malformed
-  - class: project-unreadable
-    path: HighNonLow.xcodeproj/project.pbxproj
-    kind: malformed
-  - class: project-unreadable
-    path: Reversed.xcodeproj/project.pbxproj
-    kind: malformed
-  # One bullet in module-graph and one in api-surface, the two concerns
+omissions:
+  # One line in module-graph and one in api-surface, the two concerns
   # that read the project: the refusal is not repeated within a concern.
-  - class: project-unreadable
-    path: LoneHigh.xcodeproj/project.pbxproj
+  - path: LoneHigh.xcodeproj/project.pbxproj
+    reason: unparseable
+    kind: malformed
     count: 2
+  - path: LoneLow.xcodeproj/project.pbxproj
+    reason: unparseable
+    kind: malformed
+  - path: HighNonLow.xcodeproj/project.pbxproj
+    reason: unparseable
+    kind: malformed
+  - path: Reversed.xcodeproj/project.pbxproj
+    reason: unparseable
+    kind: malformed

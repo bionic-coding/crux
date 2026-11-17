@@ -35,4 +35,9 @@ _Canonical topological order; the revision id breaks ties at equal depth._
 
 - A SQLModel `Relationship()` attribute is an ORM-level link rather than a column, so it is not a row here. The foreign-key column it travels with is.
 - Field inheritance is resolved WITHIN one module. A model whose base class is imported from another module renders only the fields it declares itself, because resolving the base would mean deciding which of several same-named classes across the repository the import meant.
-- Source(s) Python's parser refused — malformed, or nested past the parser's own limits (hashed, not parsed): `backend/app/api/deps.py`.
+
+## Omissions
+
+_Recognizable inputs this map does not describe:_
+
+- `backend/app/api/deps.py` — unparseable (unparseable)

@@ -1,5 +1,6 @@
 # ADR-0130 clause 17 hostile form: project.pbxproj materialized one byte
-# past the 16 MiB bound -- `oversize`, never read, never parsed. Swift
+# past the 16 MiB bound -- an `over-cap (oversize)` omission, never read,
+# never parsed. Swift
 # entities elsewhere in the tree still render. The companion "admitted,
 # exactly 16 MiB" positive case is `50-hostile-oversize-at-bound/`, which
 # uses `kind: padded`. This fixture's `kind: oversize` writes a sparse,
@@ -14,9 +15,7 @@ rows:
   data-model:
     - "| `Model` | struct | public |"
 
-residuals:
-  - class: oversize
-    path: App.xcodeproj/project.pbxproj
-    kind: null
-    first_line: null
-    last_line: null
+omissions:
+  - path: App.xcodeproj/project.pbxproj
+    reason: over-cap
+    kind: oversize

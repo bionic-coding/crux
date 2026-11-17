@@ -294,13 +294,17 @@ class EvidenceTests(unittest.TestCase):
     def test_broad_suite_evidence_survives_real_cycle_attachment(self):
         import subprocess
         from suite_evidence import INPUTS, runtime_exclusions
-        from cycle_workflow import create, mutate, check_tests, tree
+        from cycle_workflow import create, mutate, check_tests, tree, save
         subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
         docs = self.root / "bionic"
         docs.mkdir()
         (docs / "manifest.yml").write_text('schema_version: "5"\nconcerns_enabled: [adrs]\nadr:\n  next_number: 1\n')
         (docs / "objectives.md").write_text("Preserve useful evidence")
         cycle = create(self.root, "quick-fix", "Fix", "Correct behavior", ["input.txt"], ["Works"], "builder", "tester")
+        # Preserve the historical snapshot attachment contract, rather than the new local-check policy.
+        cycle.pop("testing_policy")
+        cycle.pop("local_checks")
+        save(tree(self.root), cycle)
         cycle = mutate(self.root, cycle["id"], "checks", checks=["unit"])
         cycle = mutate(self.root, cycle["id"], "coverage", coverage={
             "affected": ["Broad suite evidence survives cycle bookkeeping attachment"],

@@ -177,6 +177,18 @@
       ],
       "n_entities": 747,
       "n_sources": 169,
+      "omissions": [
+        {
+          "kind": "symbolic-link",
+          "path": "Plugins/GenerateDoccReference/GenerateCommon",
+          "reason": "not-a-file"
+        },
+        {
+          "kind": "symbolic-link",
+          "path": "Plugins/GenerateManual/GenerateCommon",
+          "reason": "not-a-file"
+        }
+      ],
       "verdict": "populated"
     },
     {
@@ -356,6 +368,18 @@
       ],
       "n_entities": 647,
       "n_sources": 170,
+      "omissions": [
+        {
+          "kind": "symbolic-link",
+          "path": "Plugins/GenerateDoccReference/GenerateCommon",
+          "reason": "not-a-file"
+        },
+        {
+          "kind": "symbolic-link",
+          "path": "Plugins/GenerateManual/GenerateCommon",
+          "reason": "not-a-file"
+        }
+      ],
       "verdict": "populated"
     },
     {
@@ -535,6 +559,18 @@
       ],
       "n_entities": 28,
       "n_sources": 170,
+      "omissions": [
+        {
+          "kind": "symbolic-link",
+          "path": "Plugins/GenerateDoccReference/GenerateCommon",
+          "reason": "not-a-file"
+        },
+        {
+          "kind": "symbolic-link",
+          "path": "Plugins/GenerateManual/GenerateCommon",
+          "reason": "not-a-file"
+        }
+      ],
       "verdict": "populated"
     },
     {
@@ -543,6 +579,7 @@
       "extractor": "stub",
       "found": "no matching input",
       "inputs_found": [],
+      "omissions": [],
       "stub_reason": "precondition_missing",
       "verdict": "stubbed"
     }

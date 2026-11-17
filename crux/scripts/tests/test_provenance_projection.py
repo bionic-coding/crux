@@ -374,7 +374,10 @@ class UnreadableDirectoryTests(_Base):
         for args in (("--dry-run",), ()):
             rc, out, err = self.t.run(SA, *args)
             self.assertEqual(rc, 2, (args, out))
-            self.assertIn("declares `provenance` in its input_domain", err)
+            # The input census names the reader's own refusal, in its lane,
+            # before the declared-domain check reads the directory.
+            self.assertIn("refusing to read adrs/provenance: the provenance directory is a symlink",
+                          err)
             rc, out, err = self.t.run(CD, *args)
             self.assertEqual(rc, 2, (args, out))
             self.assertIn("provenance", err)

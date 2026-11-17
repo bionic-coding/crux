@@ -46,7 +46,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 
-from ..core import _cell, _retained_source_filter
+from ..core import _LANE_RAISES, _cell, _retained_source_filter
 from . import swift_pbxproj, swift_prune
 from .swift_xcinputs import (UNRESOLVED_DIR, CollectionBudget, DirectoryVerdicts, ResidualSink,
                              WorkBoundExceeded, charge, charge_excluded, contained,
@@ -856,11 +856,14 @@ def _list_item_line(doc, obj_id, field_name, wanted_id):
 def _sorted_entries(dir_path, budget=None):
     """`dir_path`'s entries sorted by name, or none when it cannot be listed.
     The completed listing charges `budget` its entry count (L1) before it is
-    walked."""
+    walked. Under an active input ledger only ENOENT or ENOTDIR lists as
+    none; a directory that cannot be listed for any other cause is the
+    environment failure naming it (`swift_prune.listing_failure`)."""
     try:
         with os.scandir(dir_path) as entries:
             listed = sorted(entries, key=lambda e: e.name)
-    except OSError:
+    except OSError as exc:
+        swift_prune.listing_failure(dir_path, exc)
         return []
     charge_excluded(budget, len(listed))
     return listed
@@ -1927,11 +1930,17 @@ def read_projects(root, reads, manifests, workspace_facts=None, collection=None)
             # Every reader above keeps its own refusal; this boundary only
             # makes sure a refusal can never render as `malformed`.
             break
+        except MemoryError as exc:
+            # ADR-0181 point 3: under a derive, the environment failure
+            # naming this project file; never `malformed`.
+            swift_prune.per_file_lane(root / pbxproj_rel, exc)
+        except _LANE_RAISES:
+            raise
         except Exception:
             # ADR-0130 clause 2, last bullet: no content of a project
-            # file ever makes the deriver exit 2. Every exception a
-            # per-file step raises -- RecursionError and MemoryError
-            # included -- is caught at THIS file's boundary; the bundle
+            # file ever makes the deriver exit 2. Every other exception a
+            # per-file step raises -- RecursionError included -- is caught
+            # at THIS file's boundary; the bundle
             # renders one `project-unreadable`/`malformed` residual and the
             # derive continues with the next bundle. Reached only when a
             # pathological form defeats a narrower guard upstream (the
@@ -1968,6 +1977,10 @@ def read_projects(root, reads, manifests, workspace_facts=None, collection=None)
             target_deps.extend(edges)
             for klass, path, span, detail in dep_res:
                 residuals.append((klass, path, _residual_ranges(span), detail))
+        except MemoryError as exc:
+            swift_prune.per_file_lane(root / p.pbxproj_rel, exc)
+        except _LANE_RAISES:
+            raise
         except Exception:
             residuals.append(("project-unreadable", p.pbxproj_rel, None, "malformed"))
             continue

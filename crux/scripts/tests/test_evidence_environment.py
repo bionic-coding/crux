@@ -80,8 +80,11 @@ class CrossEnvironmentTests(EnvironmentBase):
         self.assertNotEqual(core["environment"]["distributions"], tools["environment"]["distributions"])
         (self.root / "bionic").mkdir()
         (self.root / "bionic/manifest.yml").write_text('schema_version: "5"\nconcerns_enabled: [adrs]\n')
-        from cycle_workflow import create, mutate
+        from cycle_workflow import create, mutate, save, tree
         doc = create(self.root, "quick-fix", "Fix", "Outcome", ["input.txt"], ["works"], "builder", "tester")
+        # This test validates legacy reusable receipts, not new local observations.
+        doc.pop("testing_policy"); doc.pop("local_checks")
+        save(tree(self.root), doc)
         doc = mutate(self.root, doc["id"], "advance")
         doc = mutate(self.root, doc["id"], "checks", checks=["core", "tools"])
         mutate(self.root, doc["id"], "coverage", coverage={
@@ -297,6 +300,18 @@ class RefusalTests(EnvironmentBase):
         registered = dict(self.declaration(), inputs=["input.txt", "pyproject.toml", "uv.lock", "extra.txt"])
         with patch("suite_evidence.registered_declaration", return_value=registered):
             self.assertRefuses(record["id"], "differs from the registered declaration")
+        with patch("suite_evidence.registered_declaration", return_value=self.declaration()):
+            self.assertEqual(validate_evidence(self.root, record["id"])["id"], record["id"])
+
+    def test_the_differs_refusal_names_the_differing_top_level_keys(self):
+        record = self.run_core()
+        projected = dict(self.declaration(), input_projections={"CHANGELOG.md": ["changelog-citations:rule:demo"]})
+        with patch("suite_evidence.registered_declaration", return_value=projected):
+            self.assertRefuses(record["id"], r"differs from the registered declaration of core \(differs in: input_projections\)$")
+        widened = dict(projected, inputs=["input.txt", "pyproject.toml", "uv.lock", "extra.txt"])
+        with patch("suite_evidence.registered_declaration", return_value=widened):
+            self.assertRefuses(record["id"], r"\(differs in: input_projections, inputs\)$")
+        # Positive control: an equal registration names no difference and validates.
         with patch("suite_evidence.registered_declaration", return_value=self.declaration()):
             self.assertEqual(validate_evidence(self.root, record["id"])["id"], record["id"])
 

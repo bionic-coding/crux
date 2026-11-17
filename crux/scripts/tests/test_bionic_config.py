@@ -13,6 +13,7 @@ uses a fresh tempdir as the repo root — never this repo's real root.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -638,6 +639,94 @@ class RetiredArchConfidenceThresholdTests(unittest.TestCase):
             payload = json.loads(proc.stdout)
             self.assertNotIn("arch_confidence_threshold", payload)
             self.assertEqual(payload["docs_dir"], "bionic")
+
+
+# ─────────── a config tier whose presence cannot be determined (A5) ──────────
+
+
+class InaccessibleConfigTests(BionicConfigTestCase):
+    """A config tier is absent only when lstat fails with ENOENT or ENOTDIR.
+
+    THE DEFECT. `_select_config_file` probed each tier with pathlib predicates.
+    With the repo root at mode 600 (readable, not searchable) the probe of
+    `.bionic.yml` fails with EACCES. On 3.14 the predicates swallowed it, so
+    the configured file read as absent and resolution fell through to
+    discovery; on 3.13 they re-raised a bare `PermissionError`. Either way the
+    configured `docs_dir` was not what resolved, and the result depended on the
+    interpreter minor, so the unit test is on the flagged list as cross-minor.
+
+    Each refusal runs on the fixture its positive control just passed on. A
+    root process searches a mode-600 directory, so each test skips at euid 0.
+    """
+
+    def lock_root(self) -> None:
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            self.skipTest("running as root: a mode-600 directory is still searchable")
+        self.root.chmod(0o600)
+        self.addCleanup(self.root.chmod, 0o700)
+
+    def snapshot(self) -> dict:
+        return {str(p.relative_to(self.root)): p.read_bytes()
+                for p in sorted(self.root.rglob("*")) if p.is_file()}
+
+    def test_an_unsearchable_root_refuses_naming_the_config(self):
+        self.write(".bionic.yml", self.valid(docs_dir="docs", prefix="BIO"))
+        # POSITIVE CONTROL: the same root, searchable, resolves the configured tree.
+        self.root.chmod(0o700)
+        cfg = load_config(self.root)
+        self.assertEqual(cfg.source, ".bionic.yml")
+        self.assertEqual(cfg.docs_dir, "docs")
+        self.assertEqual(cfg.artifact_prefix, "BIO")
+
+        self.lock_root()
+        with self.assertRaises(BionicConfigError) as cm:
+            load_config(self.root)
+        message = str(cm.exception)
+        self.assertIn(".bionic.yml", message)
+        self.assertIn("EACCES", message)
+        self.assertIn("not treated as absent", message)
+
+    def test_generate_adr_index_refuses_an_unsearchable_root(self):
+        self.write(".bionic.yml", 'config_version: "1"\ndocs_dir: bionic\n')
+        adrs = self.root / "bionic" / "adrs"
+        adrs.mkdir(parents=True)
+        (self.root / "bionic" / "manifest.yml").write_text(
+            'schema_version: "5"\nconcerns_enabled: [adrs]\n', encoding="utf-8")
+        (adrs / "ADR-0001-fixture-1.md").write_text(
+            "---\nid: ADR-0001\ntitle: \"Decision 1\"\nstatus: Accepted\n"
+            "date: 2026-09-16\nproposed_date: 2026-09-15\naccepted_date: 2026-09-16\n"
+            "supersedes: []\namends: []\nsuperseded_by: null\ntags: [fixture]\n---\n\n"
+            "# ADR-0001\n\nBody.\n", encoding="utf-8")
+        script = SCRIPTS_DIR / "generate-adr-index.py"
+
+        def run(*args):
+            return subprocess.run(
+                [sys.executable, str(script), "--repo-root", str(self.root), *args],
+                capture_output=True, text=True, timeout=120)
+
+        # POSITIVE CONTROL: the searchable root writes the index, then reports no drift.
+        for args in ((), ("--dry-run",)):
+            r = run(*args)
+            self.assertEqual(r.returncode, 0, f"control {args}: {r.stdout!r} {r.stderr!r}")
+        self.assertIn("ADR-0001", (adrs / "index.md").read_text(encoding="utf-8"))
+        before = self.snapshot()
+
+        self.lock_root()
+        results = []
+        try:
+            for args in ((), ("--dry-run",)):
+                results.append((args, run(*args)))
+        finally:
+            self.root.chmod(0o700)
+        for args, r in results:
+            with self.subTest(args=args):
+                ctx = f"{args}: rc={r.returncode} out={r.stdout!r} err={r.stderr!r}"
+                self.assertEqual(r.returncode, 2, ctx)
+                self.assertEqual(r.stdout, "", ctx)
+                self.assertIn(".bionic.yml", r.stderr, ctx)
+                self.assertIn("EACCES", r.stderr, ctx)
+                self.assertNotIn("Traceback", r.stderr, ctx)
+        self.assertEqual(self.snapshot(), before, "a file under the root changed")
 
 
 if __name__ == "__main__":

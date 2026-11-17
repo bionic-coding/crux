@@ -57,6 +57,17 @@ and report drift/write status as JSON.
 Determinism is the contract: every artifact sorts its rows/keys and contains
 no timestamps, so a byte-for-byte re-run is always clean.
 
+Before any authority proof, build or output read, the input census
+(`sp.input_census`) examines the declared inputs once. A listed input the
+process cannot stat, open, read or decode for a cause attributable to its path
+is a `validation_errors` finding naming it (exit 1), and one run names every
+such input. A cause in the process or host, an input directory that cannot be
+listed, and a dangling link at an optional file take the environment lane
+(exit 2, stdout empty, stderr naming each failure and each finding). A build
+read that fails after a clean census is classified the same way. The
+--dry-run read of each output runs after that decision: an absent output reads
+as empty, and a failed read is a finding or an environment failure naming it.
+
 Writes are atomic and fail-closed: each artifact is written to <path>.tmp
 and os.replace()d into place; a symlinked target or tmp path, and any
 intermediate directory resolving outside the validated tree dir, are
@@ -82,8 +93,11 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import input_lanes  # noqa: E402
 import summaries_projection as sp  # noqa: E402
 from untrusted import MESSAGE_LIMIT, redact  # noqa: E402
+
+SCRIPT = "summarize-adrs"
 
 
 def _atomic_write_text(path: Path, body: str, *, contained_under: Path) -> None:
@@ -250,7 +264,14 @@ def _load_summary_inputs(root: Path, manifest: dict, *, _prepared=None) -> tuple
     view = migration.authority_view(root) if _prepared is None else _prepared['view']
     adrs = sp.adrs_dir(root)
     concerns = manifest.get("concerns_enabled") or []
-    if not adrs.is_dir() and not ("adrs" not in concerns and "observations" in concerns):
+    try:
+        # Absent only on ENOENT or ENOTDIR; an undeterminable directory, or a
+        # regular file at its path, is the unlistable-directory case.
+        present = input_lanes.directory_exists(adrs)
+    except OSError as exc:
+        raise input_lanes.EnvironmentLaneError(
+            [input_lanes.environment_reason(sp.InputCensus(root).rel(adrs), exc)]) from exc
+    if not present and not ("adrs" not in concerns and "observations" in concerns):
         raise FileNotFoundError(f"{adrs} not found")
     summaries = adrs / "summaries"
     declared = sp.declared_input_domain(summaries)
@@ -313,17 +334,17 @@ def _read_phase(root: Path) -> dict[Path, str] | int:
     # --dry-run identical — when it names a member outside the known set or
     # names `observations` while this build cannot read that source. A gate
     # that cannot read a declared source must never report clean.
+    #
+    # The input census runs before both: it examines the declared inputs once
+    # and refuses in the lane each failed read takes, so one run names every
+    # unreadable input before any authority proof or build reads one.
     try:
+        sp.input_census(root, driver=SCRIPT).refuse()
         manifest = sp.read_manifest(root)
         refusal = sp.declared_domain_refusal(
             root, manifest, sp.adrs_dir(root) / "summaries")
-    except sp.GovernsValidationError as exc:
-        print(json.dumps({"validation_errors": exc.problems}, sort_keys=True))
-        return 1
     except Exception as exc:
-        sys.stderr.write(f"summarize-adrs: {type(exc).__name__}: {exc}\n")
-        _print_remedy(exc)
-        return 2
+        return _refusal_exit(root, exc)
     if refusal is not None:
         sys.stderr.write(f"summarize-adrs: refusing to rewrite: {refusal}\n")
         _print_remedy(refusal)    # a migration refusal's remedy rides on the reason
@@ -331,14 +352,52 @@ def _read_phase(root: Path) -> dict[Path, str] | int:
 
     try:
         wanted = build(root, manifest=manifest)
-    except sp.GovernsValidationError as exc:
+    except Exception as exc:
+        return _refusal_exit(root, exc)
+    return wanted
+
+
+def _refusal_exit(root: Path, exc: Exception) -> int:
+    """Report an exception from the read phase in its lane and return the exit code.
+
+    An OSError naming a path beneath the documentation tree, raised after a
+    clean census, goes through the census's classifier first, so a late
+    path-attributable failure is a finding naming the input rather than an
+    unclassified crash. A dangling link at an optional file takes the
+    environment lane. Every other exception keeps its present report.
+    """
+    if isinstance(exc, OSError):
+        exc = sp.late_input_failure(root, exc) or exc
+    if isinstance(exc, input_lanes.DanglingOptionalLinkError):
+        exc = input_lanes.EnvironmentLaneError([str(exc)])
+    if isinstance(exc, input_lanes.EnvironmentLaneError):
+        return input_lanes.emit_environment_failure(exc, SCRIPT, sys.stderr)
+    if isinstance(exc, sp.GovernsValidationError):
         print(json.dumps({"validation_errors": exc.problems}, sort_keys=True))
         return 1
-    except Exception as exc:
-        sys.stderr.write(f"summarize-adrs: {type(exc).__name__}: {exc}\n")
-        _print_remedy(exc)
-        return 2
-    return wanted
+    sys.stderr.write(f"summarize-adrs: {type(exc).__name__}: {exc}\n")
+    _print_remedy(exc)
+    return 2
+
+
+def _read_outputs(root: Path, wanted: dict[Path, str]) -> dict[Path, str]:
+    """Each output's present text, read only after the input decision.
+
+    An output whose absence is confirmed reads as empty. A path-attributable
+    failed read is a finding naming the output; any other failure takes the
+    environment lane. Every output is tried before the census refuses, so one
+    run names each.
+    """
+    census = sp.InputCensus(root)
+    have: dict[Path, str] = {}
+    for path in sorted(wanted):
+        try:
+            have[path] = ("" if input_lanes.path_state(path) is None
+                          else path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, MemoryError) as exc:
+            census.classify(path, exc, output=True)
+    census.refuse()
+    return have
 
 
 def _print_remedy(exc) -> None:
@@ -370,10 +429,14 @@ def main(argv=None) -> int:
         return wanted
 
     if args.dry_run:
+        try:
+            present = _read_outputs(root, wanted)
+        except Exception as exc:
+            return _refusal_exit(root, exc)
         drifted = []
         for path in sorted(wanted):
             want = wanted[path]
-            have = path.read_text(encoding="utf-8") if path.exists() else ""
+            have = present[path]
             if have != want:
                 drifted.append(str(path.relative_to(root)))
         print(json.dumps({"drift": bool(drifted), "paths": drifted}, sort_keys=True))

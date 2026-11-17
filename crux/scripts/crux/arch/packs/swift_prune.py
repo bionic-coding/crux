@@ -19,12 +19,19 @@ directory the rule prunes is:
   container suffixes (`*.xcodeproj`, `*.xcworkspace`), whose contents the
   walk lists without descending.
 
+It also holds the two input-lane helpers every Swift module shares
+(ADR-0181): `per_file_lane`, which a per-file boundary calls on a lane
+exception, and `listing_failure`, which a Swift reader's own `scandir`
+calls on an `OSError`.
+
 Imports only crux's own core module.
 """
 
 from __future__ import annotations
 
-from ..core import _SKIP_DIRS, _dir_excluded
+import errno
+
+from ..core import _SKIP_DIRS, _dir_excluded, _environment_failure, ledger_active
 
 #: Directory names and `*`-suffix patterns the core's marker scan and every
 #: Swift walk never descend into: three vendored-dependency directories, one
@@ -88,3 +95,30 @@ def pruned_path(segments, *, container: bool = False) -> bool:
         if pruned_name(s):
             return True
     return False
+
+
+# ═════════════════════ the input lanes (ADR-0181, ADR-0177) ═════════════════════
+
+def per_file_lane(path, exc: BaseException):
+    """Re-raise a lane exception (`core._LANE_RAISES`) a Swift per-file
+    boundary caught before its broad handler.
+
+    Under an active input ledger a `MemoryError` becomes the environment
+    failure naming `path` (ADR-0181 point 3; ADR-0130 clause 2). Every other
+    lane exception, and a `MemoryError` with no active ledger, is re-raised
+    as it came, so no boundary swallows one."""
+    if isinstance(exc, MemoryError) and ledger_active():
+        _environment_failure(path, exc)
+    raise exc
+
+
+def listing_failure(path, exc: OSError) -> None:
+    """Route an `OSError` from a Swift reader's own `scandir` of `path`.
+
+    Returns when the caller keeps its previous answer: with no active ledger,
+    and for ENOENT or ENOTDIR, which are absence. Every other failure under an
+    active ledger is a directory that cannot be listed, the environment
+    failure naming it (ADR-0177/unlistable-input-directory-is-an-environment-failure)."""
+    if not ledger_active() or exc.errno in (errno.ENOENT, errno.ENOTDIR):
+        return
+    _environment_failure(path, exc)

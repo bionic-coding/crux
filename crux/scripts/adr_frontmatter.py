@@ -31,6 +31,9 @@ index, and cannot create an output that did not exist. `generate-index-rollup.py
 reads its output before validating, to locate the region it owns; that read has
 no side effect, and its write still follows validation.
 
+The three generators also write their outputs through `write_text_atomically`,
+so a failed write leaves the existing output byte-unchanged.
+
 Stdlib only. Importers are the three generators named above, four other
 readers of ADR frontmatter — `adr-precouncil.py`, `implementation_migration.py`,
 `migration_disposition.py` and `observation_admission.py` — and the tests under
@@ -39,10 +42,13 @@ readers of ADR frontmatter — `adr-precouncil.py`, `implementation_migration.py
 
 from __future__ import annotations
 
+import errno as _errno
 import fnmatch as _fnmatch
 import os as _os
 import re
+import stat as _stat
 import sys as _sys
+import tempfile as _tempfile
 from pathlib import Path
 
 _sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -230,6 +236,45 @@ def validated_adr_texts(adrs_dir: Path, rel, *, include_archive: bool = True) ->
 def validated_adr_paths(adrs_dir: Path, rel, *, include_archive: bool = True) -> list[Path]:
     """`adr_paths`, after refusing the whole run on any finding (see `validated_adr_texts`)."""
     return sorted(validated_adr_texts(adrs_dir, rel, include_archive=include_archive), key=str)
+
+
+#: The mode a newly created output gets when no target exists to copy it from.
+NEW_FILE_MODE = 0o644
+
+
+def write_text_atomically(path, text: str) -> None:
+    """Write `text` to `path` through a temporary file in the same directory.
+
+    The three ADR generators write through this one helper, so a write that
+    fails part-way leaves the existing output byte-unchanged and leaves no
+    temporary file behind. The temporary file takes the existing target's
+    permission bits before the replace, because `mkstemp` creates 0600 and
+    `os.replace` carries that mode onto the target. A target whose absence is
+    confirmed (ENOENT or ENOTDIR)[^absence] gets `NEW_FILE_MODE`; any other
+    `stat` failure raises to the caller. The text is written as UTF-8 with no
+    newline translation. Any failure unlinks the temporary file and re-raises.
+
+    [^absence]: rule:absence-is-confirmed-by-enoent-or-enotdir
+    """
+    path = Path(path)
+    try:
+        mode = _stat.S_IMODE(_os.stat(path).st_mode)
+    except OSError as exc:
+        if exc.errno not in (_errno.ENOENT, _errno.ENOTDIR):
+            raise
+        mode = NEW_FILE_MODE
+    fd, tmp = _tempfile.mkstemp(dir=str(path.parent), prefix=path.name + ".", suffix=".tmp")
+    try:
+        with _os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
+            _os.fchmod(fh.fileno(), mode)
+            fh.write(text)
+        _os.replace(tmp, path)
+    except BaseException:
+        try:
+            _os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def print_validation_errors(errors: list[dict], script: str, out, err) -> int:

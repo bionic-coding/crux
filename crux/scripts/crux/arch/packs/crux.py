@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 from pathlib import Path
 
 from ..core import (
@@ -58,6 +59,13 @@ from ..core import (
     _safe_read_bytes,
     _sha256_hex,
     _skills_catalog_projection,
+    decode_input,
+    input_dir_present,
+    input_kind,
+    ledger_active,
+    list_input_dir,
+    marker_exists,
+    parsing,
 )
 
 
@@ -72,7 +80,13 @@ def extract_data_model(root: Path, docs_dir: str) -> tuple[str, dict]:
            "_Derived from the project's schemas, manifest, and skill metadata contract._", ""]
 
     schemas_dir = root / "crux" / "schemas"
-    schema_paths = sorted(schemas_dir.glob("*.json")) if schemas_dir.exists() else []
+    # Inside a derive the listing goes through the shared reader (ADR-0181):
+    # an unlistable schema directory is an environment failure, never empty.
+    if ledger_active():
+        schema_paths = [p for p in list_input_dir(schemas_dir, "fixed") or ()
+                        if p.name.endswith(".json")]
+    else:
+        schema_paths = sorted(schemas_dir.glob("*.json")) if schemas_dir.exists() else []
     if not schema_paths:
         return _canon([out[0], "", NO_EXTRACTOR.rstrip("\n")]), sources
 
@@ -83,46 +97,29 @@ def extract_data_model(root: Path, docs_dir: str) -> tuple[str, dict]:
         # repository, which lowers the exposure but not the rule: `_rel` below
         # raises on a path resolving outside the root, so an ungated read is a
         # crash as well as an off-root read.
-        raw = _safe_read_bytes(root, sp, [])
+        raw = _safe_read_bytes(root, sp, [], origin="listed")
         if raw is None:
             continue
         sources[_rel(root, sp)] = _sha256_hex(raw)
-        try:
-            doc = json.loads(raw.decode("utf-8"))
-        except Exception:
+        # Inside a derive a schema that fails to decode or parse stays hashed and
+        # is named in the Omissions section (ADR-0181) instead of being skipped
+        # in silence — the skip this pack used to take after a parse failure.
+        text = decode_input(sp, raw) if ledger_active() else None
+        if ledger_active() and text is None:
             continue
-        # Every value below is repository-controlled — it is whatever the JSON
-        # Schema file says — and all three land in written markdown, so all
-        # three are escaped at the render.
-        #
-        # The heading takes `_prose_cell` rather than `_cell`: a schema `title`
-        # is prose, and a backtick in it is legitimate inline code (the same
-        # call `_prose_cell` documents for skill descriptions). What matters for
-        # a heading is that newline and carriage return are FLATTENED, because
-        # every structural markdown injection needs line-start position — a
-        # title of "Book\n# Owned" was rendering a second H1, "Book\n```" an
-        # unclosed fence that swallowed the rest of the file, and "Book\n[^x]:"
-        # a real footnote definition.
-        name = _prose_cell(doc.get("title") or sp.stem)
-        props = doc.get("properties", {})
-        required = set(doc.get("required", []))
-        out += [f"### {name}", "",
-                f"_source: `{_cell(_rel(root, sp))}`_", "",
-                "| field | type | required |", "|---|---|---|"]
-        for field in sorted(props):
-            spec = props[field]
-            typ = spec.get("type", spec.get("$ref", spec.get("enum", "—")))
-            # `_cell` per element, NOT over the joined string: the ` \| `
-            # separator is a deliberate literal, and escaping after the join
-            # would turn its backslash into `\\` and free the pipe it was
-            # escaping — the ordering trap `_cell`'s own docstring names.
-            if isinstance(typ, list):
-                typ = " \\| ".join(_cell(t) for t in typ)
-            else:
-                typ = _cell(typ)
-            req = "yes" if field in required else "no"
-            out.append(f"| `{_cell(field)}` | {typ} | {req} |")
-        out.append("")
+        with parsing(sp, Exception) as parsed:
+            doc = json.loads(text if text is not None else raw.decode("utf-8"))
+        if parsed.failed:
+            continue
+        # JSON that parses into a shape the render cannot read (a list, a
+        # non-object property) is unparseable inside a derive. A direct call
+        # raises as it always did.
+        with parsing(sp, (TypeError, AttributeError, KeyError, ValueError),
+                     legacy=()) as shaped:
+            lines = _schema_lines(root, sp, doc)
+        if shaped.failed:
+            continue
+        out += lines
 
     # Manifest shape. The arch uses only the top-level KEY NAMES, so provenance is
     # hashed over that derived subset — NOT the whole file. This is accurate (records
@@ -134,9 +131,19 @@ def extract_data_model(root: Path, docs_dir: str) -> tuple[str, dict]:
     # crashed in `_rel` — loud, but a crash rather than a refusal, and only after
     # the whole target was already resident.
     man = root / docs_dir / "manifest.yml"
-    man_raw = _safe_read_bytes(root, man, []) if man.exists() else None
-    if man_raw is not None:
-        man_text = man_raw.decode("utf-8", errors="replace")
+    # Inside a derive the gate is the fixed-origin read itself (ADR-0181): a
+    # confirmed-absent manifest is no input, a link or directory at the path is
+    # named not-a-file, and an undecodable one is named undecodable.
+    if ledger_active():
+        man_raw = _safe_read_bytes(root, man, [], origin="fixed")
+    else:
+        man_raw = _safe_read_bytes(root, man, []) if man.exists() else None
+    man_text = decode_input(man, man_raw) if man_raw is not None else None
+    if man_raw is not None and man_text is None:
+        # Read and omitted for its content: hashed as the empty key list a
+        # manifest with no readable key has always hashed to.
+        sources[_rel(root, man)] = _sha256_hex(b"")
+    if man_text is not None:
         # A REAL PARSE, not a pattern read (ADR-0097 part 3). PyYAML is the
         # parser: the stdlib has none, and `derive-arch.py` pins PyYAML in its
         # PEP 723 block for exactly this reason.
@@ -175,9 +182,11 @@ def extract_data_model(root: Path, docs_dir: str) -> tuple[str, dict]:
                 "parser, and `derive-arch.py` pins PyYAML in its PEP 723 block"
             ) from exc
 
-        try:
+        # Inside a derive a manifest that does not parse is named unparseable
+        # and its shape is not rendered; a direct call keeps the empty key list.
+        with parsing(man, Exception) as parsed:
             man_doc = yaml.safe_load(man_text)
-        except Exception:
+        if parsed.failed:
             man_doc = None
         top = man_doc.keys() if isinstance(man_doc, dict) else ()
         keys = sorted(str(k) for k in top)
@@ -185,6 +194,7 @@ def extract_data_model(root: Path, docs_dir: str) -> tuple[str, dict]:
         # The PROVENANCE hash is over the raw parsed keys — it records what was
         # read, and escaping before hashing would record what was rendered.
         sources[_rel(root, man)] = _sha256_hex(",".join(keys).encode("utf-8"))
+    if man_text is not None and not (parsed.failed and ledger_active()):
         # Escaped at the RENDER, like every other repository-controlled value in
         # this pack. The pattern this reader replaced was `^([a-z_]+)\s*:`, and
         # its character class was the only thing keeping a newline out of this
@@ -202,28 +212,82 @@ def extract_data_model(root: Path, docs_dir: str) -> tuple[str, dict]:
     skills_dir = root / "crux" / "skills"
     meta_keys: set = set()
     n_skills = 0
-    if skills_dir.exists():
-        for sk in sorted(skills_dir.glob("*/SKILL.md")):
-            # The worst of the two ungated sites, and the reason both are gone.
-            # This result is never hashed, so `_rel`'s incidental ValueError
-            # never fired and an off-root symlink here was COMPLETELY SILENT: a
-            # `crux/skills/*/SKILL.md` pointing at a 2 GB file outside the root
-            # was read whole, measured at 4.33 GB RSS, and the derive exited on
-            # its ordinary drift verdict with no warning and no residual. Same
-            # gate as the sibling read in `extract_api_surface`, same decode.
-            raw = _safe_read_bytes(root, sk, [])
-            if raw is None:
-                continue
-            fm = _frontmatter(raw.decode("utf-8", errors="replace"))
-            md = fm.get("metadata") or {}
-            if isinstance(md, dict):
-                meta_keys |= set(md.keys())
-            n_skills += 1
+    for sk in _skill_files(skills_dir):
+        # The worst of the two ungated sites, and the reason both are gone.
+        # This result is never hashed, so `_rel`'s incidental ValueError
+        # never fired and an off-root symlink here was COMPLETELY SILENT: a
+        # `crux/skills/*/SKILL.md` pointing at a 2 GB file outside the root
+        # was read whole, measured at 4.33 GB RSS, and the derive exited on
+        # its ordinary drift verdict with no warning and no residual. Same
+        # gate as the sibling read in `extract_api_surface`, same decode.
+        raw = _safe_read_bytes(root, sk, [], origin="fixed")
+        if raw is None:
+            continue
+        text = decode_input(sk, raw)
+        if text is None:
+            continue
+        fm = _frontmatter(text)
+        md = fm.get("metadata") or {}
+        if isinstance(md, dict):
+            meta_keys |= set(md.keys())
+        n_skills += 1
     if meta_keys:
         out += ["## Skill metadata contract", "",
                 f"_union of `metadata.*` keys across {n_skills} skills:_", "",
                 ", ".join(f"`{_cell(k)}`" for k in sorted(meta_keys)), ""]
     return _canon(out), sources
+
+
+def _schema_lines(root: Path, sp: Path, doc) -> list[str]:
+    """One JSON Schema's entity section. Raises on a shape it cannot read, so
+    the caller's `parsing` block names the schema rather than half-render it."""
+    # Every value below is repository-controlled — it is whatever the JSON
+    # Schema file says — and all three land in written markdown, so all
+    # three are escaped at the render.
+    #
+    # The heading takes `_prose_cell` rather than `_cell`: a schema `title`
+    # is prose, and a backtick in it is legitimate inline code (the same
+    # call `_prose_cell` documents for skill descriptions). What matters for
+    # a heading is that newline and carriage return are FLATTENED, because
+    # every structural markdown injection needs line-start position — a
+    # title of "Book\n# Owned" was rendering a second H1, "Book\n```" an
+    # unclosed fence that swallowed the rest of the file, and "Book\n[^x]:"
+    # a real footnote definition.
+    name = _prose_cell(doc.get("title") or sp.stem)
+    props = doc.get("properties", {})
+    required = set(doc.get("required", []))
+    out = [f"### {name}", "",
+            f"_source: `{_cell(_rel(root, sp))}`_", "",
+            "| field | type | required |", "|---|---|---|"]
+    for field in sorted(props):
+        spec = props[field]
+        typ = spec.get("type", spec.get("$ref", spec.get("enum", "—")))
+        # `_cell` per element, NOT over the joined string: the ` \| `
+        # separator is a deliberate literal, and escaping after the join
+        # would turn its backslash into `\\` and free the pipe it was
+        # escaping — the ordering trap `_cell`'s own docstring names.
+        if isinstance(typ, list):
+            typ = " \\| ".join(_cell(t) for t in typ)
+        else:
+            typ = _cell(typ)
+        req = "yes" if field in required else "no"
+        out.append(f"| `{_cell(field)}` | {typ} | {req} |")
+    out.append("")
+    return out
+
+def _skill_files(skills_dir: Path) -> list[Path]:
+    """Every `crux/skills/<name>/SKILL.md` candidate, sorted.
+
+    Inside a derive the skills directory is listed through the shared reader
+    (ADR-0181): each entry is classified by `lstat`, a link is named
+    not-a-file, and the candidate is read with origin `fixed`, so a skill
+    directory without a SKILL.md is no input. Without a derive this is the
+    glob it always was.
+    """
+    if not ledger_active():
+        return sorted(skills_dir.glob("*/SKILL.md")) if skills_dir.exists() else []
+    return [child / "SKILL.md" for child in list_input_dir(skills_dir, "fixed") or ()
+            if input_kind(child, "listed") == "dir"]
 
 
 def _cli_verbs(source: str) -> set[str]:
@@ -264,7 +328,26 @@ def _cli_verbs(source: str) -> set[str]:
         # verb set it could read, and an unreadable CLI contributes no verbs.
         # The empty answer is the honest stub here, as it is at
         # `packs/python.py::_setup_py_pkg_name`.
+        #
+        # `MemoryError` no longer joins them (ADR-0181 point 3): it escapes,
+        # and inside a derive `_cli_verbs_at`'s `parsing` block names it as an
+        # environment failure.
         return set()
+    return _verbs_in(tree)
+
+
+def _cli_verbs_at(cli: Path, source: str) -> set[str]:
+    """`_cli_verbs` inside the shared parse boundary: a CLI that does not parse
+    is named unparseable inside a derive (ADR-0181) and contributes no verbs."""
+    with parsing(cli) as parsed:
+        tree = ast.parse(source)
+    if parsed.failed:
+        return set()
+    return _verbs_in(tree)
+
+
+def _verbs_in(tree: ast.AST) -> set[str]:
+    """Every literal `add_parser("<verb>")` first argument in `tree`."""
     out: set[str] = set()
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
@@ -307,7 +390,7 @@ def extract_api_surface(root: Path, docs_dir: str) -> tuple[str, dict]:
     """
     sources: dict = {}
     skills_dir = root / "crux" / "skills"
-    skill_paths = sorted(skills_dir.glob("*/SKILL.md")) if skills_dir.exists() else []
+    skill_paths = _skill_files(skills_dir)
 
     projected = _skills_catalog_projection(root)
     if projected is not None:
@@ -324,7 +407,7 @@ def extract_api_surface(root: Path, docs_dir: str) -> tuple[str, dict]:
         # outcome that clause forbids. This is a glob and a hash, never a parse,
         # so "which skills exist" still has exactly one answerer (clause 1).
         for sk in skill_paths:
-            raw = _safe_read_bytes(root, sk, [])
+            raw = _safe_read_bytes(root, sk, [], origin="fixed")
             if raw is None:
                 continue
             sources[_rel(root, sk)] = _sha256_hex(raw)
@@ -335,11 +418,16 @@ def extract_api_surface(root: Path, docs_dir: str) -> tuple[str, dict]:
         for sk in skill_paths:
             # One gated read serves both the hash and the frontmatter parse, so
             # this branch acquires no second way into the file.
-            raw = _safe_read_bytes(root, sk, [])
+            raw = _safe_read_bytes(root, sk, [], origin="fixed")
             if raw is None:
                 continue
-            fm = _frontmatter(raw.decode("utf-8", errors="replace"))
+            # Hashed before the decode, so a SKILL.md omitted as undecodable
+            # stays in the provenance ledger (ADR-0181).
             sources[_rel(root, sk)] = _sha256_hex(raw)
+            text = decode_input(sk, raw)
+            if text is None:
+                continue
+            fm = _frontmatter(text)
             pairs.append((str(fm.get("name", sk.parent.name)),
                           str(fm.get("description", ""))))
 
@@ -379,10 +467,14 @@ def extract_api_surface(root: Path, docs_dir: str) -> tuple[str, dict]:
     out.append("")
 
     cli = root / "crux" / "scripts" / "crux-env.py"
-    cli_raw = _safe_read_bytes(root, cli, []) if cli.exists() else None
+    if ledger_active():
+        cli_raw = _safe_read_bytes(root, cli, [], origin="fixed")
+    else:
+        cli_raw = _safe_read_bytes(root, cli, []) if cli.exists() else None
     if cli_raw is not None:
         sources[_rel(root, cli)] = _sha256_hex(cli_raw)
-        verbs = sorted(_cli_verbs(cli_raw.decode("utf-8", errors="replace")))
+        cli_text = decode_input(cli, cli_raw)
+        verbs = sorted(_cli_verbs_at(cli, cli_text)) if cli_text is not None else []
         if verbs:
             # Same escape and the same reason as the manifest keys above. The
             # pattern this reader replaced required `[a-z-]+`; the parse takes
@@ -404,13 +496,15 @@ def extract_module_graph(root: Path, docs_dir: str) -> tuple[str, dict]:
     byte-identical (ADR-0066 point 3); the parameterized engine is
     `_extract_module_graph`, shared with the Python pack's probe."""
     pkg = root / "crux" / "scripts" / "crux"
-    if not pkg.exists():
+    if not input_dir_present(pkg, "fixed", legacy=os.path.exists):
         return _canon(["# Module graph", "", NO_EXTRACTOR.rstrip("\n")]), {}
     return _extract_module_graph(root, pkg, "crux")
 
 
 def _detect_crux(root: Path) -> bool:
-    return (root / "crux" / "skills").exists() and (root / "crux" / "schemas").exists()
+    # Markers decide presence through the core helper (ADR-0181 approach 3).
+    return (marker_exists(root / "crux" / "skills")
+            and marker_exists(root / "crux" / "schemas"))
 
 
 #: Empty: the core's marker scan prunes no directory from this pack's own
@@ -428,7 +522,7 @@ def detect(root: Path) -> DetectResult:
     rather than only the pack that fired.
     """
     hits = tuple(
-        rel for rel in ("crux/schemas", "crux/skills") if (root / rel).exists()
+        rel for rel in ("crux/schemas", "crux/skills") if marker_exists(root / rel)
     )
     return DetectResult(matched=len(hits) == 2, markers=hits)
 

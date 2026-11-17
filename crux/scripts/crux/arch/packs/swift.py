@@ -55,6 +55,7 @@ depend on a wheel only this pack declares.
 from __future__ import annotations
 
 import bisect
+import errno
 import os
 import re
 from dataclasses import dataclass, field, replace
@@ -64,8 +65,21 @@ from typing import NamedTuple
 from . import swift_generators, swift_prune, swift_xcinputs, swift_xcode
 
 from ..core import (
+    _ACTIVE_CONCERN,
+    _ACTIVE_LEDGER,
+    _LANE_RAISES,
+    _document_finding,
+    _environment_failure,
+    _is_link,
+    _omit,
     _retained_source_filter,
     _retained_source_walk,
+    decode_input,
+    input_kind,
+    ledger_active,
+    list_input_dir,
+    marker_exists,
+    record_scan_cap,
     DetectResult,
     InputClass,
     Probe,
@@ -378,6 +392,12 @@ def detect(root: Path) -> DetectResult:
     would still read through it, so every check here goes through
     `Path.is_symlink()` first).
 
+    Under an active input ledger (ADR-0181 approach 3) the root is listed
+    through `core.list_input_dir`, a link is told by `core._is_link`, and
+    each marker's presence and type by `core.marker_exists`, so an
+    unlistable root or a marker the host cannot stat is the environment
+    lane. With no active ledger each answers as the predicate it replaces.
+
     The Tuist form is presence-only too: `Project.swift` or
     `Workspace.swift` beside `Tuist.swift` or `Tuist/Config.swift`. The
     XcodeGen form is the one marker that reads content: `project.yml` is
@@ -389,19 +409,19 @@ def detect(root: Path) -> DetectResult:
     """
     held = _retained_source_filter(root)
     markers: list[str] = []
-    for entry in sorted(root.iterdir()) if root.is_dir() else []:
-        if entry.is_symlink() or held(entry):
+    for entry in list_input_dir(root, "fixed") or ():
+        if _is_link(entry) or held(entry):
             continue
         name = entry.name
-        if name == "Package.swift" and entry.is_file():
+        if name == "Package.swift" and marker_exists(entry, "file"):
             markers.append(name)
-        elif name.endswith(".xcodeproj") and entry.is_dir():
+        elif name.endswith(".xcodeproj") and marker_exists(entry, "dir"):
             pbx = entry / "project.pbxproj"
-            if pbx.is_file() and not pbx.is_symlink():
+            if marker_exists(pbx, "file") and not _is_link(pbx):
                 markers.append(name)
-        elif name.endswith(".xcworkspace") and entry.is_dir():
+        elif name.endswith(".xcworkspace") and marker_exists(entry, "dir"):
             contents = entry / "contents.xcworkspacedata"
-            if contents.is_file() and not contents.is_symlink():
+            if marker_exists(contents, "file") and not _is_link(contents):
                 markers.append(name)
     # The Tuist and XcodeGen forms (ADR-0130 clause 13): each check performs
     # its own containment/symlink/FIFO-safe read (`swift_generators.
@@ -409,7 +429,7 @@ def detect(root: Path) -> DetectResult:
     # latter), so no additional guard is needed here. Root-level only, same
     # as every other marker above -- a nested generator manifest names a
     # missing-input residual inside `_project_facts`, never a stack marker.
-    if root.is_dir():
+    if marker_exists(root, "dir"):
         tuist = swift_generators.check_tuist(root, "")
         if tuist.qualifies and tuist.manifest:
             markers.append(tuist.manifest)
@@ -454,6 +474,35 @@ def _swift_walk(root: Path):
         yield dirp, rel_dir, normal, excluded, sorted(filenames)
 
 
+def _bundle_member(bundle: Path, member: str) -> tuple[bool, bool] | None:
+    """`(present, regular)` for the entry `member` inside the Xcode bundle
+    directory `bundle` the walk listed, or None when `bundle` is no bundle
+    to look inside.
+
+    With no active input ledger these are the predicates the census used: a
+    symlinked bundle is None, `present` is `os.path.lexists`, and `regular`
+    is a regular file that is not a symlink. Under an active ledger
+    (ADR-0181 approaches 3 and 7) the bundle is classified by `lstat` with
+    origin `listed`: a link is a not-a-file omission and None, and a FIFO
+    or device the environment lane. The bundle is then listed through
+    `core.list_input_dir`, so one that cannot be listed is the environment
+    failure naming it and never renders `missing-input`. `present` is the
+    member's name in that listing, and `regular` its own `lstat`."""
+    if not ledger_active():
+        if bundle.is_symlink():
+            return None
+        cand = bundle / member
+        return os.path.lexists(cand), cand.is_file() and not cand.is_symlink()
+    if input_kind(bundle, "listed") != "dir":
+        return None
+    entries = list_input_dir(bundle, "listed")
+    if entries is None:
+        return None
+    if not any(e.name == member for e in entries):
+        return False, False
+    return True, input_kind(bundle / member, "listed") == "file"
+
+
 def detect_containers(root: Path) -> tuple[str, ...]:
     """Every Swift container marker the walk reaches, sorted, repo-
     relative: every `Package.swift` and every `*.xcodeproj` directory holding
@@ -469,15 +518,24 @@ def detect_containers(root: Path) -> tuple[str, ...]:
             # `_swift_walk` lists an excluded directory without descending
             # into it; checking a file through a symlinked one would follow
             # it (clause 4), so the symlink check stays here.
-            if d.endswith(".xcodeproj") and not (dirp / d).is_symlink():
-                cand = dirp / d / "project.pbxproj"
-                if cand.is_file() and not cand.is_symlink():
+            if d.endswith(".xcodeproj"):
+                member = _bundle_member(dirp / d, "project.pbxproj")
+                if member is not None and member[1]:
                     found.append((f"{rel_dir}/{d}" if rel_dir else d))
         if "Package.swift" in filenames:
             p = dirp / "Package.swift"
-            if p.is_file() and not p.is_symlink():
+            if _regular_listed(p):
                 found.append((f"{rel_dir}/Package.swift" if rel_dir else "Package.swift"))
     return tuple(sorted(found))
+
+
+def _regular_listed(p: Path) -> bool:
+    """True when the listed entry `p` is a regular file that is not a
+    symlink: `core.input_kind`'s `lstat` under an active input ledger, the
+    two predicates it replaces with none."""
+    if not ledger_active():
+        return p.is_file() and not p.is_symlink()
+    return input_kind(p, "listed") == "file"
 
 
 def verify_parser_load() -> None:
@@ -642,7 +700,8 @@ class ProjectReads(NamedTuple):
     residuals: tuple = ()
 
 
-def _project_candidates(root: Path):
+def _project_candidates(root: Path, project_globs: tuple = _PBXPROJ_GLOBS + (
+        "*.xcworkspace/contents.xcworkspacedata",)):
     """One `_swift_walk` pass collecting every project-input candidate this
     pack's reader might consume, plus the `*.xcodeproj` bundle census
     (ADR-0130 clause 1). Returns `(pbxproj_paths, workspace_paths,
@@ -658,7 +717,15 @@ def _project_candidates(root: Path):
     own `O_NOFOLLOW` contained-read check is what determines the precise
     refusal kind (`not-regular` for a symlink, FIFO or device) -- this walk
     only decides whether a read is attempted, never why one was refused.
+
+    `project_globs` is the calling concern's project-input glob set: a
+    bundle kind it names no member of is not looked inside, so under an
+    active input ledger (`_bundle_member`) a concern records no omission for
+    a bundle that holds none of its inputs. With no ledger the census reads
+    the same predicates whatever the globs.
     """
+    want_pbxproj = any(g.endswith("project.pbxproj") for g in project_globs)
+    want_workspace = any(g.endswith("contents.xcworkspacedata") for g in project_globs)
     pbxproj: list[Path] = []
     workspace: list[Path] = []
     xcconfig: list[Path] = []
@@ -666,18 +733,19 @@ def _project_candidates(root: Path):
     bundles: list[tuple[str, bool, bool]] = []
     for dirp, rel_dir, _normal, excluded, filenames in _swift_walk(root):
         for d in excluded:
-            if d.endswith(".xcodeproj") and not (dirp / d).is_symlink():
+            if d.endswith(".xcodeproj") and want_pbxproj:
+                member = _bundle_member(dirp / d, "project.pbxproj")
+                if member is None:
+                    continue
+                present, regular = member
                 bundle_rel = f"{rel_dir}/{d}" if rel_dir else d
-                cand = dirp / d / "project.pbxproj"
-                present = os.path.lexists(cand)
-                regular = cand.is_file() and not cand.is_symlink()
                 bundles.append((bundle_rel, present, regular))
                 if present:
-                    pbxproj.append(cand)
-            elif d.endswith(".xcworkspace") and not (dirp / d).is_symlink():
-                cand = dirp / d / "contents.xcworkspacedata"
-                if os.path.lexists(cand):
-                    workspace.append(cand)
+                    pbxproj.append(dirp / d / "project.pbxproj")
+            elif d.endswith(".xcworkspace") and want_workspace:
+                member = _bundle_member(dirp / d, "contents.xcworkspacedata")
+                if member is not None and member[0]:
+                    workspace.append(dirp / d / "contents.xcworkspacedata")
         for f in filenames:
             if f.endswith(".xcconfig"):
                 xcconfig.append(dirp / f)
@@ -724,12 +792,24 @@ def _scan(root: Path, concern: str, with_manifests: bool = True):
     the same split, but its refusal reason lands on `project_reads`
     (never on the generic `residuals`), so `_project_facts` is the one
     place that line renders.
+
+    Under an active input ledger (ADR-0181) every candidate is read with
+    origin `listed`, and the shared reader takes each refusal's lane itself:
+    a link or a directory is a not-a-file omission, an over-bound file an
+    over-cap omission, a permission failure a document finding, and a FIFO,
+    device or other host failure the environment lane. So no refusal renders
+    a residual line or lands on `project_reads.refusals`, and no read refused
+    for a host cause renders a location-less `parse-error` (ADR-0129 clause
+    2). The aggregate cap keeps listing past itself without reading and
+    records one counted over-cap omission (`core.record_scan_cap`) in place
+    of its `scan-cap` line.
     """
+    led = ledger_active()
     swift_candidates = [p for p in _walk_swift_files(root)
                         if with_manifests or p.name != "Package.swift"]
     project_globs = _PROJECT_INPUT_GLOBS.get(concern, ())
     pbx, ws, cfg, yml, bundles = (
-        _project_candidates(root) if project_globs else ((), (), (), (), ())
+        _project_candidates(root, project_globs) if project_globs else ((), (), (), (), ())
     )
     project_candidates: list[Path] = []
     if any(g.endswith("project.pbxproj") for g in project_globs):
@@ -755,6 +835,10 @@ def _scan(root: Path, concern: str, with_manifests: bool = True):
         rel = _rel_str(root, p)
         is_project = p in project_paths
         if n >= _MAX_SCAN_FILES or total_bytes >= _MAX_SCAN_BYTES:
+            if led:
+                cap = "_MAX_SCAN_FILES" if n >= _MAX_SCAN_FILES else "_MAX_SCAN_BYTES"
+                record_scan_cap(cap, root, total - n, "_scan")
+                break
             detail = (f"the {concern} scan stopped at the aggregate file or byte cap; "
                       f"{total - n} file(s) from here on are not read")
             if is_project:
@@ -766,11 +850,15 @@ def _scan(root: Path, concern: str, with_manifests: bool = True):
         if is_project:
             refusal: list = []
             if p.name == "project.pbxproj":
-                raw = _safe_read_bytes(root, p, oversize, max_bytes=_MAX_PBXPROJ_BYTES, refusal=refusal)
+                raw = _safe_read_bytes(root, p, oversize, max_bytes=_MAX_PBXPROJ_BYTES, refusal=refusal,
+                                       origin="listed")
             else:
-                raw = _safe_read_bytes(root, p, oversize, refusal=refusal)
+                raw = _safe_read_bytes(root, p, oversize, refusal=refusal, origin="listed")
         else:
-            raw = _safe_read_bytes(root, p, oversize)
+            raw = _safe_read_bytes(root, p, oversize, origin="listed")
+        if raw is None and led:
+            # The shared reader recorded the refusal's lane (see above).
+            continue
         if raw is not None:
             sources[rel] = _sha256_hex(raw)
             total_bytes += len(raw)
@@ -918,12 +1006,36 @@ class _OutputBudget:
         return True
 
 
+def _ledger_decode_paths() -> tuple[set, set]:
+    """`(undecoded, parse_failed)`: the escaped paths of the Swift sources
+    and manifests the active concern's input ledger omits, in the two sets
+    `concern_decode_verdict` reads from `parse-error` and `oversize` lines.
+
+    Under an active ledger those whole-input lines no longer render
+    (`_ledger_residuals`), so the verdict reads the same inputs from the
+    ledger: an over-cap, not-a-file, undecodable or unparseable Swift input
+    was not decoded, and the last two were read and hashed but yielded no
+    parse tree. Both sets are empty with no active ledger or concern."""
+    ledger, concern = _ACTIVE_LEDGER.get(), _ACTIVE_CONCERN.get()
+    undecoded: set = set()
+    parse_failed: set = set()
+    if ledger is None or concern is None:
+        return undecoded, parse_failed
+    for record in ledger.omissions(concern):
+        path = record.get("path")
+        if path is None or not path.endswith(".swift"):
+            continue
+        undecoded.add(_cell(path))
+        if record["reason"] in ("undecodable", "unparseable"):
+            parse_failed.add(_cell(path))
+    return undecoded, parse_failed
+
+
 def _decode_counts(keys, sources: dict) -> tuple[int, bool]:
     """`(undecoded inputs, no input decoded)` over the full, deduplicated
     residual set, by the rule `concern_decode_verdict` applies to the
-    rendered lines (ADR-0129 clause 7)."""
-    undecoded = set()
-    parse_failed = set()
+    rendered lines (ADR-0129 clause 7), and the active ledger's omissions."""
+    undecoded, parse_failed = _ledger_decode_paths()
     for path, klass, _ranges, detail in keys:
         flat = str(detail).replace("\r", " ").replace("\n", " ")
         if klass == "oversize" or (klass == "parse-error" and flat.endswith(_UNDECODED_DETAILS)):
@@ -1826,13 +1938,17 @@ def _stray_errors(root_node, skip: frozenset) -> list[_StrayError]:
 def _parse_file(rel: str, raw: bytes) -> FileFacts:
     """One Swift source file's facts, behind the per-file boundary.
 
-    Every step catches `Exception`, which covers `RecursionError` and
-    `MemoryError`. A failed step renders one `parse-error` naming the step and
-    the derive continues. The caller has already hashed the bytes.
+    Every step catches `Exception`, which covers `RecursionError`. A failed
+    step renders one `parse-error` naming the step and the derive continues.
+    The caller has already hashed the bytes. A lane exception
+    (`core._LANE_RAISES`, a `MemoryError` among them) passes through each
+    step's boundary to `_analyse`, which names the file (ADR-0181 point 3).
     """
     facts = FileFacts(path=rel, name_budget=_NAME_BUDGET_FACTOR * len(raw) + _NAME_BUDGET_FLOOR)
     try:
         tree = _parse(raw)
+    except _LANE_RAISES:
+        raise
     except Exception:  # noqa: BLE001 — the per-file boundary is deliberately broad.
         facts.residuals.append(("parse-error", None, "location none; effect step parse failed"))
         return facts
@@ -1860,6 +1976,8 @@ def _parse_file(rel: str, raw: bytes) -> FileFacts:
                 facts.residuals.append(("scan-cap", [(span[0], span[0])], _ERROR_BUDGET_DETAIL))
                 break
             facts.residuals.append(("parse-error", [span], f"location {location}; effect {effect}"))
+    except _LANE_RAISES:
+        raise
     except Exception:  # noqa: BLE001 — the per-file boundary is deliberately broad.
         facts.residuals.append(("parse-error", None, f"location none; effect step {step} failed"))
     return facts
@@ -2385,10 +2503,13 @@ class _ManifestReader:
 
 
 def _read_manifest(root: Path, manifest: Path, raw: bytes) -> ManifestFacts:
-    """One manifest's literal facts, behind the per-file boundary."""
+    """One manifest's literal facts, behind the per-file boundary. A lane
+    exception (`core._LANE_RAISES`) passes through to `_analyse`."""
     reader = _ManifestReader(root, manifest, raw)
     try:
         tree = _parse(raw)
+    except _LANE_RAISES:
+        raise
     except Exception:  # noqa: BLE001 — the per-file boundary is deliberately broad.
         reader.facts.residuals.append(("parse-error", None, "location none; effect step parse failed"))
         return reader.facts
@@ -2399,6 +2520,8 @@ def _read_manifest(root: Path, manifest: Path, raw: bytes) -> ManifestFacts:
             location, effect = _classify_error(err, raw, labels)
             reader.facts.residuals.append(("parse-error", [_error_span(err.node)],
                                            f"location {location}; effect {effect}"))
+    except _LANE_RAISES:
+        raise
     except Exception:  # noqa: BLE001 — the per-file boundary is deliberately broad.
         reader.facts.residuals.append(("parse-error", None, "location none; effect step manifest failed"))
     return reader.facts
@@ -2607,11 +2730,24 @@ def _workspace_facts_list(root: Path, reads: "ProjectReads",
         ws_dir = rel[: -len(suffix)] if rel.endswith(suffix) else ""
         try:
             facts.append(swift_xcinputs.read_workspace(root, ws_dir, raw, budget))
+        except MemoryError as exc:
+            # ADR-0181 point 3: under a derive, the environment failure
+            # naming the workspace file.
+            swift_prune.per_file_lane(root / rel, exc)
+        except _LANE_RAISES:
+            raise
         except Exception as exc:
             # The per-file boundary (ADR-0130 clause 2): no workspace content
             # exits 2. An OS error is `read-failed`; anything else the grammar
             # did not anticipate is `malformed`. The exception text never
-            # renders.
+            # renders. Under an active input ledger an OS error takes its
+            # lane by cause instead (ADR-0181 approach 3): a permission
+            # failure is a document finding, any other the environment lane.
+            if isinstance(exc, OSError) and ledger_active():
+                if exc.errno not in (errno.EACCES, errno.EPERM):
+                    _environment_failure(root / rel, exc)
+                _document_finding(root / rel, exc)
+                continue
             kind = "read-failed" if isinstance(exc, OSError) else "malformed"
             facts.append(swift_xcinputs.WorkspaceFacts(
                 path=rel, refs=(),
@@ -2771,20 +2907,37 @@ class _Analysis:
 
 
 def _analyse(root: Path, concern: str, with_manifests: bool) -> _Analysis:
+    """The concern's scan, then each Swift source and manifest parsed once
+    per derive (`_cached`).
+
+    Under an active input ledger (ADR-0181 approach 5) each read is decoded
+    as strict UTF-8 first: an undecodable file is an undecodable omission,
+    stays hashed in `sources` and is not parsed, so no map describes
+    replacement-decoded names. A `MemoryError` at a per-file boundary is the
+    environment failure naming the file (`swift_prune.per_file_lane`); with
+    no active ledger it is re-raised."""
     root = Path(root)
     reads, project_reads, sources, residuals = _scan(root, concern, with_manifests)
     files: list = []
     manifests: list = []
+    led = ledger_active()
     for path, raw in reads:
         rel = _rel_str(root, path)
         digest = sources[rel]
+        if led and decode_input(path, raw) is None:
+            continue
+        try:
+            if path.name == "Package.swift":
+                mf = _cached("manifests", root, rel, digest, lambda: _read_manifest(root, path, raw))
+                mf = _resolve_manifest_path_deps(root, mf)
+            else:
+                ff = _cached("files", root, rel, digest, lambda: _parse_file(rel, raw))
+        except MemoryError as exc:
+            swift_prune.per_file_lane(path, exc)
         if path.name == "Package.swift":
-            mf = _cached("manifests", root, rel, digest, lambda: _read_manifest(root, path, raw))
-            mf = _resolve_manifest_path_deps(root, mf)
             manifests.append(mf)
             residuals.extend((c, rel, r, d) for c, r, d in mf.residuals)
         else:
-            ff = _cached("files", root, rel, digest, lambda: _parse_file(rel, raw))
             files.append(ff)
             residuals.extend((c, rel, r, d) for c, r, d in ff.residuals)
     return _Analysis(sources=sources, residuals=residuals, files=files, manifests=manifests,
@@ -2940,8 +3093,55 @@ def _macro_residuals(files: list, concern: str) -> list:
     return out
 
 
+#: The location-less `parse-error` detail of a Swift source or manifest that
+#: yielded no parse tree: a whole-input residual (ADR-0181 point 4).
+_PARSE_FAILED_DETAIL = "location none; effect step parse failed"
+
+#: The `project-unreadable` kinds whose omission reason is not `unparseable`.
+#: Every other content kind (`unsupported-format`, `malformed`, `too-deep`,
+#: `entity-declaration`) is an input that yields no parse (ADR-0181 point 2).
+_UNREADABLE_REASONS = {"undecodable": "undecodable", "not-regular": "not-a-file"}
+
+
+def _ledger_residuals(residuals) -> list:
+    """`residuals` less its whole-input lines, each recorded in the active
+    input ledger instead (ADR-0181 approach 9); `residuals` unchanged with
+    no active ledger.
+
+    A whole-input line is location-less and names the input itself. Each
+    keeps its kind: `missing-input` is an absent omission, an `oversize`
+    line an over-cap one, a `project-unreadable` content kind an
+    undecodable, not-a-file or unparseable one, and a Swift input's `parse
+    failed` line an unparseable one. Every located line (a `missing-input`
+    line naming a reference inside a project file among them), every
+    interpretive residual, `read-failed` (which the shared reader's lanes
+    leave no cause for under a ledger) and every `scan-cap` line stays where
+    it is."""
+    ledger = _ACTIVE_LEDGER.get()
+    if ledger is None:
+        return list(residuals)
+    kept = []
+    for entry in residuals:
+        klass, path, ranges, detail = entry
+        target = ledger.root / path
+        if klass == "parse-error" and ranges is None and detail == _PARSE_FAILED_DETAIL:
+            _omit(target, "unparseable")
+        elif klass == "missing-input" and ranges is None:
+            _omit(target, "absent", "missing-input")
+        elif klass == "oversize" and ranges is None:
+            _omit(target, "over-cap", "oversize")
+        elif klass == "project-unreadable" and ranges is None and detail != "read-failed":
+            _omit(target, _UNREADABLE_REASONS.get(detail, "unparseable"), detail)
+        else:
+            kept.append(entry)
+    return kept
+
+
 def _render_residual_block(residuals: list, budget: "_OutputBudget", sources: dict) -> list:
     """Residual bullets, sorted by (path, class, first range), under `## Residuals`.
+
+    Under an active input ledger the whole-input lines are recorded as
+    omissions first (`_ledger_residuals`) and do not render here.
 
     The bullets are deduplicated and sorted first, then built and charged to
     `budget` one at a time, so the ones that render are a prefix of that
@@ -2950,7 +3150,7 @@ def _render_residual_block(residuals: list, budget: "_OutputBudget", sources: di
     bullet set decide which of its two templates."""
     bullets = []
     seen = set()
-    for klass, path, ranges, detail in residuals:
+    for klass, path, ranges, detail in _ledger_residuals(residuals):
         ranges = None if ranges is None else _merge_ranges(ranges)
         key = (path, klass, tuple(ranges or ()), detail)
         if key in seen:
@@ -3462,7 +3662,9 @@ def _residual_entries(content: str):
 def concern_decode_verdict(concern: str, content: str, sources: dict) -> "Verdict | None":
     """`parse_failed` exactly when the concern names at least one declared
     Swift input that was not decoded and no input was decoded (ADR-0129
-    clause 7). A pure function of the rendered content and the source map.
+    clause 7). A pure function of the rendered content, the source map and
+    the active input ledger's omissions, where the whole-input lines it once
+    read are recorded (`_ledger_decode_paths`).
 
     A concern whose output bound tripped may not render the `parse-error`
     lines this reads. Its bound line then says itself when no input was
@@ -3477,8 +3679,7 @@ def concern_decode_verdict(concern: str, content: str, sources: dict) -> "Verdic
                 expected="at least one Swift source or `Package.swift` that yields a parse tree",
                 found=f"{int(capped.group(1))} declared input(s) present and none decoded",
             )
-    undecoded = set()
-    parse_failed = set()
+    undecoded, parse_failed = _ledger_decode_paths()
     for klass, path, detail in entries:
         if klass == "oversize" or (klass == "parse-error" and detail.endswith(_UNDECODED_DETAILS)):
             undecoded.add(path)

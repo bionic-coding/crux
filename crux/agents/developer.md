@@ -14,6 +14,7 @@ metadata:
 
 # Developer — scoped implementer
 
+
 The host supplies this role contract. `prepare-dispatch` provides selected canonical
 skill bodies with source directories; retrieve other skills through the host's
 Skill capability when needed. Direct dispatches get only universal preloads.
@@ -32,6 +33,20 @@ revision supplied by your lead. A changed material approach needs fresh approval
 before dependent implementation. Return architectural conflicts to the lead.
 For an explicitly named historical run only, preserve its supplied witness protocol.
 Never invent run or prompt bindings for new cycles.
+
+## Opt-in lightweight pilot
+
+For an explicitly selected lightweight pilot, read the cycle skill's
+`references/lightweight.md`. That contract replaces the typed dispatch, execution
+proof, result-file and phase/pass procedures elsewhere in this role for pilot records.
+Mandatory objectives, role tool grants, ownership and external-action authorization
+still apply. Historical records and releases keep their existing procedures.
+
+Accept one bounded task from the pilot lead. Require its task ID, current run,
+owner, checkout and base before editing. Return the same task/run identity, outcome,
+commits and compact test observations through the native host channel. Do not call
+`execution-check` or write the pilot record. One editor owns each checkout; parallel
+editors need separate worktrees. Report unknown edits and interrupted work to the lead.
 
 ## First: start from your lead's commit
 Your dispatch names your lead's base SHA. Claude Code's default worktree base is
@@ -106,7 +121,8 @@ Run focused checks only: the tests that exercise your change, and every test you
 imports, invokes, reads, globs or enumerates a path you changed. Full suites, the
 staged sync.sh dry run and per-minor runs run only in the cycle's test coordinator,
 the dev-lead, one at a time. Request them through your lead and never run one
-yourself. Report the receipt ids of the checks you ran.
+yourself. Report local-check observations for proportionate cycles, or receipt IDs
+for historical cycles. Never create TE snapshots for proportionate local checks.
 A developer runs focused checks only and never starts a full suite or a background
 suite. In a linked worktree `parallel_suite.py` refuses a whole suite root; never pass
 `--allow-linked-worktree` to lift that refusal.
@@ -255,17 +271,13 @@ your existing shell grant when a native reader cannot retrieve the bound object.
 
 ## Cycle test evidence and review
 
-For a project-lock declaration, run the evidence tool through
-`uv run python3 /absolute/plugin/scripts/test-evidence.py` in the project environment.
-Its interpreter executes child checks; direct isolated PEP 723 execution may lack
-dependencies or yield ineligible evidence. Validate environment eligibility.
-
-Follow `cycle/references/testing.md`. Request checks through the designated coordinator.
-Reuse valid evidence across cycles and record references rather than repeating tests.
-Relevant input changes, missing evidence, or freshness expiry justify execution.
-Never claim reused evidence was a new run. Blocking tests/review findings return to
-the conductor through your lead. Independent review follows implementation; you do
-not review your own work. These rules replace per-unit unconditional rerun directions.
+Follow `cycle/references/testing.md` and the cycle's testing policy. For proportionate
+cycles, run focused tests for changed and related behavior. After fixes, rerun failed
+and affected checks. Report command, tested revision, result, summary and reason to
+the coordinator for `local-check`. Record failures as well as passes. Reassess after
+edits. Reuse only a prior passing local check in the same cycle and pass, explicitly;
+never claim reused evidence was a new run. Historical cycles keep their TE route.
+Blocking findings return through your lead. Independent review follows implementation.
 
 Label every test you add. A new test file or test method gets its tier, `dev`,
 `release` or `ephemeral`, in its root's `test-tiers.json` in the same commit; the
@@ -273,7 +285,8 @@ Label every test you add. A new test file or test method gets its tier, `dev`,
 existing file or class label inherits it: confirm or override that label. Never delete
 an ephemeral test unless your assignment names it. A tier may select your focused loop,
 such as `related-tests.py --tier dev --tier release` plus every test file you edited.
-It never narrows a gate.[^tier-gates]
+For proportionate cycles, coverage determines whether that selection is sufficient.
+Historical cycle gates keep their original tier contract.[^tier-gates]
 
 ## The shared main checkout
 Never point HEAD of the shared main checkout at another commit or branch: run no

@@ -306,7 +306,9 @@ class CommittedRecordsTests(unittest.TestCase):
     def test_every_committed_record_validates_and_renders(self):
         require_dev_surface(self, self.ROOT / TREE / 'cycles' / 'CYC-0040' / 'cycle.json', 'committed cycle records')
         from cycle_progress import view, render
-        ids = sorted(p.name for p in (self.ROOT / TREE / 'cycles').glob('CYC-*') if (p / 'cycle.json').is_file())
+        # An opt-in pilot record has its own format and reader, outside this schema.
+        ids = sorted(p.name for p in (self.ROOT / TREE / 'cycles').glob('CYC-*') if (p / 'cycle.json').is_file()
+                     and json.loads((p / 'cycle.json').read_text()).get('format') != 'crux.cycle.vNext')
         legacy = {'CYC-0009', 'CYC-0015', 'CYC-0018', 'CYC-0021', 'CYC-0022', 'CYC-0031', 'CYC-0032', 'CYC-0034', 'CYC-0037', 'CYC-0040'}
         self.assertLessEqual(legacy, set(ids))
         for cid in ids:

@@ -1,6 +1,6 @@
 # ADR-0130 clause 17 hostile form: this fixture proves the
 # WORKSPACE READER classifies an XML external-entity declaration as an
-# `entity-declaration` residual and derives cleanly (exit 0) end-to-end
+# `entity-declaration` omission and derives cleanly (exit 0) end-to-end
 # through `derive-arch.py` -- it does NOT itself prove the canary is
 # "never opened". The canary sits inside `App.xcworkspace/`, which is
 # inside this fixture's own root; the harness's `open` audit hook treats
@@ -10,7 +10,7 @@
 # CANARY-SECRET-CONTENT-71` checks below are a cheap belt-and-braces
 # check that the canary's CONTENT never leaks into a rendered concern
 # body -- they discriminate nothing about whether the file was OPENED,
-# since no residual template ever embeds file content regardless.
+# since no residual or omission template ever embeds file content.
 #
 # The real "never opened" proof is at the reader level:
 # `test_swift_xcinputs.py::WorkspaceReaderTests::
@@ -23,12 +23,10 @@
 # same hook, so the guarded reader's silence is a real refusal, not an
 # artifact of the canary being unreachable.
 exit_code: 0
-residuals:
-  - class: project-unreadable
-    path: App.xcworkspace/contents.xcworkspacedata
+omissions:
+  - path: App.xcworkspace/contents.xcworkspacedata
+    reason: unparseable
     kind: entity-declaration
-    first_line: null
-    last_line: null
 
 absent:
   module-graph:

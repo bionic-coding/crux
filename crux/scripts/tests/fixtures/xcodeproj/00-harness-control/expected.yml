@@ -1,16 +1,18 @@
 # Harness control: Swift-package-only inputs, with no Xcode project,
 # workspace or generator manifest. The schema is in the module docstring of
 # xcode_fixture_harness.py. The control exercises the harness's materialize
-# machinery with a dangling symlink and a FIFO. The Swift walk lists files
-# by name, not by file type, so the pack declares both as inputs. It
-# reports each as a `parse-error` residual (`effect step read failed`), and
-# the derive neither hangs nor crashes.
+# machinery with a dangling symlink. The Swift walk lists files by name, not
+# by file type, so the pack declares it as an input; the shared reader
+# refuses the link, and the data-model, api-surface and module-graph concerns
+# each name it once in their Omissions section as
+# `not-a-file (symbolic-link)`. No `parse-error` bullet renders for it. The
+# derive neither hangs nor crashes. A FIFO among the walked inputs is an
+# environment failure under ADR-0181 (exit 2), so the control no longer
+# carries one; fixture 36 holds the FIFO case.
 materialize:
   - path: Sources/Core/Link.swift
     kind: symlink
     target: ../../nowhere/Missing.swift
-  - path: Sources/Core/Trap.swift
-    kind: fifo
 
 exit_code: 0
 
@@ -19,10 +21,14 @@ rows:
     - "| `Core` | `Package.swift` | library"
   data-model:
     - "| `Widget` | struct | public |"
-    - "`parse-error` `Sources/Core/Link.swift`"
-    - "`parse-error` `Sources/Core/Trap.swift`"
+
+omissions:
+  - path: Sources/Core/Link.swift
+    reason: not-a-file
+    kind: symbolic-link
+    count: 3
 
 absent:
   data-model:
-    - "| `Trap`"
     - "| `Link`"
+    - "`parse-error` `Sources/Core/Link.swift`"

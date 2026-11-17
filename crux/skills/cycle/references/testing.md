@@ -1,4 +1,62 @@
-# Shared test evidence
+# Cycle testing
+
+## Proportionate local checks
+
+New non-release cycles use `testing_policy: proportionate`. During development,
+run focused tests for changed behavior and related callers, dependencies, fixtures,
+and integration points. After fixes, rerun failed and affected checks. Before a PR,
+select checks according to the change's scope and risk; broad shared changes can
+justify full suites. A phase boundary or cycle type never requires a full suite.
+
+Declare selected Build and Verify checks and their coverage rationale. Record actual
+results with `cycle.py local-check`, including the command, tested revision, result,
+summary and reason. The tested revision is agent-attested; the writer does not run
+the command or prove that the tested bytes equal the current checkout. After edits,
+reassess applicability and rerun affected checks. The latest selected failure blocks.
+Explicit reuse references a prior passing local check in the same cycle and pass;
+it preserves the original command and revision. Do not create TE snapshots or reuse
+results across cycles for this policy. Independent review assesses both selection
+and applicability to the final change. Comprehensive PR CI remains the integration
+backstop, not a reason to ignore known local failures.
+
+Historical cycles without this policy retain the legacy TE evidence contract.
+Release artifact checks, staged checks, smoke checks and full PR CI remain unchanged.
+
+Keep one dev-lead as test coordinator for shared or broad checks. Developers and
+reviewers run focused checks; avoid duplicate broad runs. Do not edit inputs while
+checks run. Select related tests by behavior and dependency reach; a directory scan
+alone does not require its entire suite. New regression tests alone do not establish
+coverage of existing behavior. If automated tests do not apply, explain why and
+record a verifiable inspection or smoke check.
+
+Use `checks --phase build` for Build and `checks` for Verify; each replaces its set.
+Use `coverage` for affected behavior, selected checks and omitted checks. The same
+local observation can satisfy both phases without a new execution. Record failures
+as well as passes. Missing or failed selected checks block progression.
+
+```bash
+uv run /abs/plugin-root/scripts/cycle.py local-check CYC-0001 --check-id parser \
+  --command 'python3 -m unittest tests.test_parser' --result passed \
+  --summary 'Parser and caller cases pass' --tested-revision COMMIT \
+  --reason 'Changed parser behavior and callers'
+uv run /abs/plugin-root/scripts/cycle.py local-check CYC-0001 --check-id parser \
+  --reuse LC-ID --summary 'Still applicable to the final change' \
+  --reason 'Subsequent edits affect only unrelated prose'
+```
+
+Run the example check in the project's selected environment with its interpreter and dependencies.
+Record the actual command used. Reuse omits command, result and tested revision.
+It cannot hide a newer failure.
+Tier labels still apply to every new test. Run the tier check when tests or their
+manifests change. Tiers help select local checks; they never replace coverage judgment.
+`related-tests.py` can suggest candidates, and `parallel_suite.py --failed-from`
+can rerun failures. Neither tool proves selection is sufficient. No new runner is needed.
+
+## Legacy cycles and release evidence
+
+The remaining TE reference applies to historical cycles without `testing_policy`
+and to release evidence. Its mandatory suite and snapshot rules do not apply to
+proportionate local checks. Keep historical records and release receipts intact.
 
 Test evidence belongs to the repository and is reusable across phases and cycles.
 Before running a check, look for valid passing evidence. Execute only when inputs
@@ -349,6 +407,10 @@ uv run python3 "${CRUX_PLUGIN_ROOT}/scripts/test-evidence.py" run --repo-root . 
 uv run python3 "${CRUX_PLUGIN_ROOT}/scripts/test-evidence.py" validate --repo-root . --evidence-id TE-ID
 uv run python3 "${CRUX_PLUGIN_ROOT}/scripts/test-evidence.py" report --repo-root . --evidence-id TE-ID
 ```
+
+`run` and `lookup` print the receipt without its input snapshot and environment, a
+few kilobytes, plus the stored receipt path. The stored receipt keeps every field;
+`validate` or `--full` prints it whole.
 
 The runner reuses a valid pass and coordinates matching execution. After a failure,
 use `--retry-reason TEXT` only when a new attempt is justified. Attach its evidence

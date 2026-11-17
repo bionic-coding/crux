@@ -221,7 +221,7 @@ class AdoptRefused(CycleError):
 
 
 def adopt(repo, subject):
-    """Write proposal metadata (origin legacy-adoption) for a HEAD-tracked legacy Proposed ADR; allocates nothing.
+    """Write proposal metadata (origin legacy-adoption) for a HEAD-tracked, or git-ignored, legacy Proposed ADR; allocates nothing.
 
     Changes no ADR byte and grants no approval: acceptance still needs council approval of the exact bytes and,
     under council-and-human, an owner capture."""
@@ -246,11 +246,14 @@ def adopt(repo, subject):
         if not isinstance(front.get('governs'), list) or not front['governs']:
             raise AdoptRefused('adopt-missing-governs', 'the frontmatter lacks a non-empty governs list; edit it while Proposed, then adopt')
         relative = path.relative_to(cfg.repo_root).as_posix()
-        shown = subprocess.run(['git', '-C', str(cfg.repo_root), 'show', f'HEAD:{relative}'], capture_output=True)
-        if shown.returncode != 0:
-            raise AdoptRefused('adopt-not-tracked-at-head', f'{relative} is not tracked at HEAD')
-        if shown.stdout != data:
-            raise AdoptRefused('adopt-differs-from-head', f'{relative} differs from its bytes at HEAD; commit or restore it first')
+        from ignored_paths import ignored
+        # A path git ignores has no HEAD bytes to compare; adopted_sha256 still binds the bytes adopted.
+        if relative not in ignored(cfg.repo_root, [relative]):
+            shown = subprocess.run(['git', '-C', str(cfg.repo_root), 'show', f'HEAD:{relative}'], capture_output=True)
+            if shown.returncode != 0:
+                raise AdoptRefused('adopt-not-tracked-at-head', f'{relative} is not tracked at HEAD')
+            if shown.stdout != data:
+                raise AdoptRefused('adopt-differs-from-head', f'{relative} differs from its bytes at HEAD; commit or restore it first')
         if contained(cfg.docs_root, f'adrs/proposals/{identity}.json').exists():
             raise AdoptRefused('adopt-metadata-exists', f'adrs/proposals/{identity}.json already exists')
         if contained(cfg.docs_root, f'adrs/provenance/{identity}.yaml').exists():

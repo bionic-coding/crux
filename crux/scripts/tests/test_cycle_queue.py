@@ -1403,5 +1403,345 @@ class OriginTests(Base):
         self.assertEqual(load(self.repo, queued['id'])['history'][0]['queue']['item'], 'Q-0001')
 
 
+
+class PilotReconcileTests(Base):
+    """`queue reconcile` associates a pending item with the reviewed pilot that completed it."""
+
+    def setUp(self):
+        super().setUp()
+        self.git('init', '-q')
+        self.git('add', '.')
+        self.git('commit', '-qm', 'baseline')
+        self.first = self.add('First')
+        self.second = self.add('Second')
+        self.authorize('queue')
+        self.pilot = self.reviewed_pilot(f'{self.first}: do the first item')
+        self.assessment = self.repo.parent / f'{self.repo.name}-assessment.json'
+        self.addCleanup(lambda: self.assessment.unlink(missing_ok=True))
+        self.assess({'outcome': 'src/a.py holds the delivered value', 'acceptance': [{'criterion': 0, 'evidence': 'focused check passed'}]})
+
+    def git(self, *args):
+        return subprocess.run(['git', '-C', str(self.repo), *args], check=True, capture_output=True, text=True).stdout.strip()
+
+    def assess(self, value):
+        self.assessment.write_text(json.dumps(value))
+
+    def reviewed_pilot(self, title, review=True):
+        import cycle_pilot
+        from types import SimpleNamespace
+        spec = {'goal': 'Deliver the value', 'scope': ['src'], 'acceptance': ['value is two'],
+                'verification': {'checks': [{'id': 'focused', 'rationale': 'the value'}], 'gaps': 'none beyond PR CI'},
+                'council': {'needed': False, 'reason': 'bounded'}, 'tasks': [{'id': 'build', 'description': 'Set the value', 'owner': 'worker'}]}
+        doc = cycle_pilot.create(self.repo, title, 'lead', spec)
+        (self.repo / 'src/a.py').write_text(f"x = '{doc['id']}'\n")
+        self.git('add', 'src/a.py'); self.git('commit', '-qm', 'set the value')
+        head = self.git('rev-parse', 'HEAD')
+
+        def write(actor, action, **kwargs):
+            current = cycle_pilot.load_pilot(self.repo, doc['id'])
+            return cycle_pilot.mutate(self.repo, doc['id'], actor, current['revision'], action, SimpleNamespace(**kwargs))
+        write('lead', 'batch', value={'tasks': [{'task': 'build', 'owner': 'worker', 'run': 1, 'status': 'done', 'summary': 'value set'}],
+                                      'checks': [{'check_id': 'focused', 'executed_command': 'python -m unittest', 'tested_revision': head,
+                                                  'result': 'passed', 'summary': 'passed', 'reason': 'the value'}]})
+        if review:
+            write('lead', 'review-start', reviewer='independent')
+            write('independent', 'review', value={
+                'reviewer': 'independent', 'plan_revision': 1, 'base_commit': doc['base_commit'], 'head_commit': head, 'verdict': 'approve',
+                'blocking': [], 'acceptance': [{'criterion': 0, 'met': True, 'evidence': 'asserted'}], 'test_selection': 'focused covers it', 'summary': 'done'})
+        self.git('add', 'notes'); self.git('commit', '-qm', 'records')
+        return doc['id']
+
+    def reconcile(self, item=None, pilot=None, actor='lead'):
+        return self.cli('reconcile', item or self.first, '--pilot', pilot or self.pilot, '--actor', actor, '--file', str(self.assessment))
+
+    def queue_bytes(self):
+        return (self.repo / 'notes/queue/cycles.yaml').read_bytes()
+
+    def pilot_bytes(self, pilot=None):
+        return (self.repo / f'notes/cycles/{pilot or self.pilot}/cycle.json').read_bytes()
+
+    def test_reconcile_starts_the_item_under_the_pilot_and_keeps_everything_else(self):
+        before = self.queue_doc()
+        cycles = sorted(p.name for p in (self.repo / 'notes/cycles').iterdir() if p.is_dir())
+        self.assertIn(f'{self.first} pending', self.ok('list')['items'][0])
+        code, result = self.reconcile()
+        self.assertEqual(code, 0, result)
+        self.assertEqual({k: result[k] for k in ('reconciled', 'cycle', 'disposition', 'completed', 'merged', 'ci', 'repeated')},
+                         {'reconciled': self.first, 'cycle': self.pilot, 'disposition': 'reviewed', 'completed': False, 'merged': False, 'ci': 'unknown', 'repeated': False})
+        self.assertTrue(result['queue_commit']['changed'], result['queue_commit'])
+        after = self.queue_doc()
+        item = after['items'][0]
+        self.assertEqual((item['id'], item['state'], item['cycle']), (self.first, 'started', self.pilot))
+        for key in ('title', 'outcome', 'scope', 'acceptance', 'suggested_type', 'added_at'):
+            self.assertEqual(item[key], before['items'][0][key])
+        # The authorization keeps its words and scope; it records the captured item as started, as a legacy start does.
+        self.assertEqual({**after['authorization'], 'started': []}, {**before['authorization'], 'started': []})
+        self.assertEqual(after['authorization']['started'], [self.first])
+        self.assertEqual(after['authorization_history'], before['authorization_history'])
+        self.assertEqual(after['items'][1], before['items'][1])
+        self.assertEqual(after['next_number'], before['next_number'])
+        self.assertEqual(sorted(p.name for p in (self.repo / 'notes/cycles').iterdir() if p.is_dir()), cycles, 'reconcile allocated a cycle')
+        binding = json.loads(self.pilot_bytes())['queue']
+        self.assertEqual((binding['item'], binding['token']), (self.first, item['start_token']))
+        self.assertEqual(binding['assessment']['acceptance'], [{'criterion': 0, 'evidence': 'focused check passed'}])
+        # Reviewed is not completed: the item stays open in the short list and is not archivable.
+        listed = self.ok('list')
+        self.assertIn(f'{self.first} {self.pilot} reviewed', listed['items'][0])
+        self.assertEqual(listed['closed'], 0)
+        self.assertEqual(self.ok('show', self.first)['item']['cycle_status'], 'reviewed')
+        self.assertEqual(self.ok('archive', '--dry-run')['items'], [])
+        # A queue binding makes no review read as current: a later change to the reviewed path shows as such.
+        import cycle_pilot
+        (self.repo / 'src/a.py').write_text('x = 0\n')
+        self.git('add', '.'); self.git('commit', '-qm', 'later change to the reviewed path')
+        self.assertFalse(cycle_pilot.review_current(self.repo, cycle_pilot.load_pilot(self.repo, self.pilot)))
+        # The queue views report the same separate facts as pilot show, so a reader sees that finish would refuse.
+        for shown in (self.ok('show', self.first)['item'], self.ok('list', '--full')['items'][0]):
+            facts = shown['pilot']
+            self.assertEqual((shown['cycle_status'], facts['review']['verdict'], facts['review_applicable'], facts['completed']),
+                             ('reviewed', 'approve', False, False))
+            self.assertIn('reviewed paths changed after the reviewed head: src/a.py', facts['applicability'])
+            self.assertEqual(facts['delivery'], {'pr': None, 'ci': 'unknown', 'merge': 'unmerged', 'commit': None})
+        self.assertNotIn('pilot', self.ok('show', self.second)['item'])
+        self.assertIn('(awaiting finish)', self.ok('list')['items'][0])
+
+    def test_repeating_reconcile_writes_and_commits_nothing(self):
+        self.assertEqual(self.reconcile()[0], 0)
+        self.git('add', 'notes'); self.git('commit', '-qm', 'pilot binding')
+        queue, pilot, head = self.queue_bytes(), self.pilot_bytes(), self.git('rev-parse', 'HEAD')
+        for _ in range(2):
+            code, result = self.reconcile()
+            self.assertEqual((code, result['repeated'], result['disposition']), (0, True, 'reviewed'), result)
+            self.assertNotIn('queue_commit', result)
+        self.assertEqual((self.queue_bytes(), self.pilot_bytes(), self.git('rev-parse', 'HEAD')), (queue, pilot, head))
+        self.assertEqual(self.git('status', '--porcelain'), '')
+
+    def test_interrupted_reconcile_is_finished_by_repeating_it(self):
+        queue = self.queue_bytes()
+        with patch.object(cycle_queue, 'write_queue', side_effect=Crash()):
+            with self.assertRaises(Crash):
+                self.reconcile()
+        token = json.loads(self.pilot_bytes())['queue']['token']
+        self.assertEqual(self.queue_bytes(), queue)
+        code, result = self.reconcile()
+        self.assertEqual((code, result['repeated']), (0, False), result)
+        self.assertEqual(self.queue_doc()['items'][0]['start_token'], token, 'the repeat drew a second token')
+
+    def test_refusals_change_neither_the_queue_nor_the_pilot(self):
+        unreviewed = self.reviewed_pilot(f'{self.first}: not reviewed', review=False)
+        unrelated = self.reviewed_pilot('Q-9999: another item')
+        held = self.add('Held', (), 'quick-fix', '--held', '--reason', 'waiting')
+        cases = (
+            ('unreviewed pilot', dict(pilot=unreviewed), None, 'is active; reconcile needs its recorded approving review'),
+            ('pilot names another item', dict(pilot=unrelated), None, f'names no {self.first}'),
+            ('actor is not the lead', dict(actor='independent'), None, 'only the recorded lead'),
+            ('held item', dict(item=held), None, 'applies only to a pending item'),
+            ('missing criterion', {}, {'outcome': 'x', 'acceptance': []}, 'one entry with evidence for each'),
+            ('empty evidence', {}, {'outcome': 'x', 'acceptance': [{'criterion': 0, 'evidence': ' '}]}, 'one entry with evidence for each'),
+            ('no outcome', {}, {'acceptance': [{'criterion': 0, 'evidence': 'e'}]}, 'exactly outcome and acceptance'),
+        )
+        good = json.loads(self.assessment.read_text())
+        for label, kwargs, assessment, message in cases:
+            with self.subTest(case=label):
+                self.assess(assessment or good)
+                queue, pilot = self.queue_bytes(), self.pilot_bytes(kwargs.get('pilot'))
+                code, result = self.reconcile(**kwargs)
+                self.assertEqual(code, 1, result)
+                self.assertIn(message, result['error'])
+                self.assertEqual((self.queue_bytes(), self.pilot_bytes(kwargs.get('pilot'))), (queue, pilot))
+        # Positive control: the same fixture with the valid inputs is accepted.
+        self.assess(good)
+        self.assertEqual(self.reconcile()[0], 0)
+        code, result = self.reconcile(item=self.second)
+        self.assertEqual(code, 1)
+        self.assertIn(f'names no {self.second}', result['error'])
+
+    def pilot_write(self, action, pilot=None, actor='lead', **kwargs):
+        import cycle_pilot
+        from types import SimpleNamespace
+        record = cycle_pilot.load_pilot(self.repo, pilot or self.pilot)
+        return cycle_pilot.mutate(self.repo, record['id'], actor, record['revision'], action, SimpleNamespace(**kwargs))
+
+    def commit_records(self):
+        self.git('add', 'notes'); self.git('commit', '-qm', 'records', '--allow-empty')
+
+    def test_completed_pilot_satisfies_dependencies_and_reviewed_does_not(self):
+        dependent = self.add('Dependent', (self.first,))
+        self.ok('move', dependent, '--position', '2')
+        self.authorize('queue')
+        self.assertEqual(self.reconcile()[0], 0)
+        # Reviewed, awaiting finish: the queue reports the cycle as in progress and starts nothing.
+        waiting = self.ok('list')['next']
+        self.assertEqual((waiting['item'], waiting['stop']), (self.first, 'in-progress'), waiting)
+        self.assertIn('reviewed', waiting['detail'])
+        code, result = self.start()
+        self.assertEqual((code, result['outcome'], result['status']), (0, 'in-progress', 'reviewed'), result)
+        # Finish completes it with no PR, CI or merge; the dependency is then satisfied.
+        finished = self.pilot_write('finish', summary='done')
+        self.assertEqual((finished['state'], finished['delivery']['merge'], finished['delivery']['ci'], finished['delivery']['pr']),
+                         ('completed', 'unmerged', 'unknown', None))
+        self.assertEqual(self.ok('show', self.first)['item']['cycle_status'], 'completed')
+        shown = self.ok('show', dependent)['item']['dependencies']
+        self.assertEqual([(d['id'], d['cycle_status'], d['satisfied']) for d in shown], [(self.first, 'completed', True)])
+        after = self.ok('list')['next']
+        self.assertEqual((after['item'], after['startable']), (dependent, True), after)
+        self.assertEqual(self.reconcile()[1]['completed'], True)
+
+    def test_completed_pilot_item_archives_and_archival_replays(self):
+        self.assertEqual(self.reconcile()[0], 0)
+        self.pilot_write('finish', summary='done')
+        # An uncommitted record is not archived yet; nothing is lost and the sweep is repeatable.
+        self.assertEqual(self.ok('archive', '--dry-run')['items'], [])
+        self.commit_records()
+        token = self.queue_doc()['items'][0]['start_token']
+        self.assertEqual(self.ok('archive', '--dry-run')['items'], [self.first])
+        archived = self.ok('archive', '--migrate')
+        self.assertEqual(archived['items'], [self.first])
+        history = json.loads((self.repo / f'notes/queue/history/items/{self.first}.json').read_text())
+        self.assertEqual((history['item']['cycle'], history['provenance']), (self.pilot, {'cycle': self.pilot, 'start_token': token}))
+        self.assertEqual([i['id'] for i in self.queue_doc()['items']], [self.second])
+        queue, record = self.queue_bytes(), (self.repo / f'notes/queue/history/items/{self.first}.json').read_bytes()
+        again = self.ok('archive')
+        self.assertEqual(again['items'], [])
+        self.assertEqual((self.queue_bytes(), (self.repo / f'notes/queue/history/items/{self.first}.json').read_bytes()), (queue, record))
+        shown = self.ok('show', self.first)['item']
+        self.assertEqual((shown['cycle'], shown['cycle_status']), (self.pilot, 'completed'))
+        # Reconcile and finish stay harmless after archival.
+        code, result = self.reconcile()
+        self.assertEqual((code, result['repeated'], result['completed']), (0, True, True), result)
+        self.assertEqual(self.queue_bytes(), queue)
+        self.assertEqual(self.pilot_write('finish', summary='again')['state'], 'completed')
+
+    def test_reopening_an_archived_pilot_duplicates_no_item_and_keeps_the_archive_readable(self):
+        dependent = self.add('Dependent', (self.first,))
+        self.ok('move', dependent, '--position', '2')
+        self.authorize('queue')
+        self.assertEqual(self.reconcile()[0], 0)
+        self.pilot_write('finish', summary='done')
+        self.commit_records()
+        self.assertEqual(self.ok('archive', '--migrate')['items'], [self.first])
+        code, started = self.start()
+        self.assertEqual((code, started['item']), (0, dependent), started)
+        ids = [i['id'] for i in self.ok('list', '--full')['items']]
+        self.pilot_write('reopen', reason='CI failed after delivery', owner_instruction='Reopen it for the repair.',
+                         value=[{'id': 'repair', 'description': 'Repair the failure'}])
+        # The archived item stays archived and readable; the dependent's started cycle is untouched.
+        full = self.ok('list', '--full')
+        self.assertEqual([i['id'] for i in full['items']], ids, 'reopening duplicated or dropped a queue item')
+        by = {i['id']: i for i in full['items']}
+        self.assertEqual((by[self.first]['cycle'], by[self.first]['cycle_status']), (self.pilot, 'active'))
+        self.assertEqual((by[dependent]['state'], by[dependent]['cycle']), ('started', started['cycle']))
+        self.assertTrue((self.repo / f'notes/queue/history/items/{self.first}.json').is_file())
+        self.assertEqual(self.ok('archive')['items'], [])
+
+
+class PilotStartTests(Base):
+    """`queue start-next --pilot` starts the head item as a pilot only when explicitly selected."""
+
+    PLAN = {'verification': {'checks': [{'id': 'focused', 'rationale': 'the value'}], 'gaps': 'none beyond PR CI'},
+            'council': {'needed': False, 'reason': 'bounded'}, 'tasks': [{'id': 'build', 'description': 'Set the value'}]}
+
+    def setUp(self):
+        super().setUp()
+        subprocess.run(['git', '-C', str(self.repo), 'init', '-q'], check=True)
+        subprocess.run(['git', '-C', str(self.repo), 'add', '.'], check=True)
+        subprocess.run(['git', '-C', str(self.repo), 'commit', '-qm', 'baseline'], check=True, capture_output=True)
+        self.plan = self.repo.parent / f'{self.repo.name}-plan.json'
+        self.addCleanup(lambda: self.plan.unlink(missing_ok=True))
+        self.plan.write_text(json.dumps(self.PLAN))
+        self.first = self.add('First')
+        self.second = self.add('Second')
+        self.authorize('queue')
+
+    def pilot_start(self, *extra):
+        return self.cli('start-next', '--pilot', '--lead', 'lead', '--plan', str(self.plan), *extra)
+
+    def record(self, identity):
+        return json.loads((self.repo / 'notes/cycles' / identity / 'cycle.json').read_text())
+
+    def test_explicit_pilot_start_binds_the_item_and_keeps_the_queue_rules(self):
+        code, result = self.pilot_start()
+        self.assertEqual(code, 0, result)
+        self.assertEqual((result['outcome'], result['item'], result['format'], result['status']), ('started', self.first, 'pilot', 'active'))
+        self.assertTrue(result['record_commit']['changed'], result['record_commit'])
+        record = self.record(result['cycle'])
+        item = self.queue_doc()['items'][0]
+        self.assertEqual(record['format'], 'crux.cycle.vNext')
+        self.assertEqual((record['queue']['item'], record['queue']['token'], record['queue']['origin']), (self.first, item['start_token'], 'start'))
+        self.assertEqual((record['title'], record['lead'], record['plan']['scope'], record['plan']['acceptance']),
+                         (f'{self.first}: First', 'lead', ['src'], ['it works']))
+        self.assertEqual((item['state'], item['cycle']), ('started', result['cycle']))
+        self.assertEqual(self.queue_doc()['authorization']['started'], [self.first])
+        dirty = subprocess.run(['git', '-C', str(self.repo), 'status', '--porcelain'], capture_output=True, text=True).stdout.split('\n')
+        self.assertEqual([line for line in dirty if line and not line.endswith('.lock')], [], 'the start left the queue or the record uncommitted')
+        # The running pilot holds the queue exactly as a running typed cycle does.
+        code, again = self.pilot_start()
+        self.assertEqual((code, again['outcome'], again['cycle']), (0, 'in-progress', result['cycle']), again)
+        self.assertEqual(self.cycle_dirs(), [result['cycle']])
+
+    def test_an_ordinary_start_still_creates_a_typed_cycle(self):
+        code, result = self.start()
+        self.assertEqual((code, result['outcome']), (0, 'started'), result)
+        self.assertNotIn('format', self.record(result['cycle']))
+        self.assertIn('schema_version', self.record(result['cycle']))
+
+    def test_a_crash_after_the_pilot_is_created_is_adopted_and_allocates_nothing(self):
+        real, calls = cycle_queue.write_queue, []
+
+        def crash_on_second(cfg, doc):
+            calls.append(1)
+            if len(calls) == 2:
+                raise Crash()
+            return real(cfg, doc)
+        with patch.object(cycle_queue, 'write_queue', side_effect=crash_on_second):
+            with self.assertRaises(Crash):
+                self.pilot_start()
+        created = self.cycle_dirs()
+        self.assertEqual(len(created), 1)
+        self.assertEqual(self.queue_doc()['items'][0]['state'], 'starting')
+        for attempt in (self.start, self.pilot_start):  # a plain retry adopts it too: the record carries the token
+            code, result = attempt()
+            self.assertEqual(code, 0, result)
+            self.assertIn(result['outcome'], ('adopted', 'in-progress'))
+            self.assertEqual((result['cycle'], self.cycle_dirs()), (created[0], created))
+        self.assertEqual(self.queue_doc()['authorization']['started'], [self.first])
+
+    def test_a_crash_before_the_pilot_is_created_retries_to_exactly_one_cycle(self):
+        import cycle_pilot
+        with patch.object(cycle_pilot, 'create', side_effect=Crash()):
+            with self.assertRaises(Crash):
+                self.pilot_start()
+        self.assertEqual((self.cycle_dirs(), self.queue_doc()['items'][0]['state']), ([], 'starting'))
+        code, result = self.pilot_start()
+        self.assertEqual((code, result['outcome'], result['item']), (0, 'started', self.first), result)
+        self.assertEqual(self.cycle_dirs(), [result['cycle']])
+        self.assertEqual(self.pilot_start()[1]['outcome'], 'in-progress')
+        self.assertEqual(len(self.cycle_dirs()), 1)
+
+    def test_refused_pilot_starts_leave_the_item_pending_and_burn_no_id(self):
+        before = (self.repo / 'notes/queue/cycles.yaml').read_bytes()
+        cases = [('unknown plan key', {**self.PLAN, 'goal': 'mine'}, [], 'holds exactly verification, council and tasks'),
+                 ('invalid plan', {**self.PLAN, 'tasks': [{'id': 'Bad Id', 'description': 'x'}]}, [], 'task ids use lowercase'),
+                 ('no lead', self.PLAN, None, '--pilot requires --lead and --plan')]
+        for label, plan, argv, message in cases:
+            with self.subTest(case=label):
+                self.plan.write_text(json.dumps(plan))
+                code, result = self.cli('start-next', '--pilot') if argv is None else self.pilot_start()
+                self.assertEqual(code, 1, result)
+                self.assertIn(message, result['error'])
+                self.assertEqual(((self.repo / 'notes/queue/cycles.yaml').read_bytes(), self.cycle_dirs()), (before, []))
+        code, result = self.cli('start-next', '--lead', 'lead')
+        self.assertIn('apply only with --pilot', result['error'])
+        self.plan.write_text(json.dumps(self.PLAN))
+        code, result = self.pilot_start()
+        self.assertEqual((code, result['cycle']), (0, 'CYC-0001'), 'a refused start burned a cycle id')
+
+    def test_pilot_start_keeps_authorization_and_dependency_stops(self):
+        self.ok('revoke', '--reason', 'pause')
+        code, result = self.pilot_start()
+        self.assertEqual((code, result['stop']['reason']), (1, 'not-authorized'), result)
+        self.assertEqual(self.cycle_dirs(), [])
+
+
 if __name__ == '__main__':
     unittest.main()

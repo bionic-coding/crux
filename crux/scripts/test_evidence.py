@@ -1668,8 +1668,69 @@ def reuse_eligibility(root, evidence_id, *, source_root=None, directory=None):
     return {"eligible": False, "reasons": [refusal_reason(root, evidence_id, record, found)]}
 
 
-def validate_evidence(repo_root, evidence_id, check_id=None, *, source_root=None):
-    """The receipt must be the current valid passing result for its declaration on the subject."""
+def _under(path, prefixes):
+    return any(path == prefix or path.startswith(prefix + "/") for prefix in prefixes)
+
+
+def _git_names(root, *args):
+    """The paths ``git diff --name-only`` reports, or None when git cannot answer."""
+    result = subprocess.run(["git", "diff", "--name-only", "-z", *args], cwd=root, capture_output=True)
+    if result.returncode != 0:
+        return None
+    return [os.fsdecode(name) for name in result.stdout.split(b"\0") if name]
+
+
+def _differs_only_in_bookkeeping(root, record, current, bookkeeping):
+    """Whether every difference between the receipt's inputs and the current ones lies under ``bookkeeping``.
+
+    The stored per-file snapshot answers for file contents and for the set of selected files. For a
+    git_tracked declaration the fingerprint also binds the index inventory and HEAD's tree, which the
+    receipt does not store: the commits since the receipt's revision, and the index against HEAD now, must
+    change nothing outside ``bookkeeping``. The index as it stood when the check ran is not retained; a
+    change staged then and unstaged since, with identical file contents, is not seen (a stated limit)."""
+    stored = record.get("snapshot", {}).get("inputs")
+    if not isinstance(stored, dict) or record.get("lock_sha256") != current.get("lock_sha256"):
+        return False
+    def outside(files):
+        return {name: entry for name, entry in files.items() if not _under(name, bookkeeping)}
+    if outside(stored) != outside(current["inputs"]):
+        return False
+    if not record["declaration"].get("git_tracked", False):
+        return True
+    revision = record.get("revision")
+    if not isinstance(revision, str) or not re.fullmatch(r"[0-9a-f]{40}", revision):
+        return False
+    for names in (_git_names(root, revision, "HEAD"), _git_names(root, "--cached", "HEAD")):
+        if names is None or any(not _under(name, bookkeeping) for name in names):
+            return False
+    return True
+
+
+def _passes_but_for_bookkeeping(root, record, found, bookkeeping, source_root):
+    """The receipt would be the current valid pass if the paths under ``bookkeeping`` were left out."""
+    if not bookkeeping or record["status"] != "passed" or found["record"] is not None:
+        return False
+    if any(item["id"] == record["id"] for item in found["ignored"]):
+        return False
+    if not _differs_only_in_bookkeeping(Path(root).resolve(), record, found["snapshot"], bookkeeping):
+        return False
+    declaration = normalize(record["declaration"])
+    requirement = effective_requirement(declaration, Path(root).resolve())
+    if environment_problems(requirement, record, _context(Path(root).resolve(), source_root)):
+        return False
+    if _log_state_scoped(storage(root, source_root), record) != "ok":
+        return False
+    freshness = requirement["freshness_seconds"]
+    return freshness is None or time.time() - record["finished_at"] < freshness
+
+
+def validate_evidence(repo_root, evidence_id, check_id=None, *, source_root=None, bookkeeping=()):
+    """The receipt must be the current valid passing result for its declaration on the subject.
+
+    ``bookkeeping`` lists repository-relative directories whose changes do not count against this receipt,
+    such as a cycle's own record directory, which the cycle writer rewrites after the receipt is recorded.
+    The registered checkout suites leave those records out of their declared inputs; this lets a
+    hand-declared ``git_tracked`` check be judged the same way without changing its declaration."""
     if not isinstance(evidence_id, str) or not re.fullmatch(r"TE-[0-9a-f]{32}", evidence_id):
         raise EvidenceError("invalid evidence ID")
     record = _read_scoped(storage(repo_root, source_root) / (evidence_id + ".json"))
@@ -1686,9 +1747,14 @@ def validate_evidence(repo_root, evidence_id, check_id=None, *, source_root=None
     except ImportError:
         registered = None
     if registered is not None and normalize(registered) != declaration:
-        raise EvidenceError("the receipt's declaration differs from the registered declaration of " + declaration["check_id"])
+        current = normalize(registered)
+        keys = sorted(key for key in set(current) | set(declaration) if current.get(key) != declaration.get(key))
+        raise EvidenceError("the receipt's declaration differs from the registered declaration of "
+                            + declaration["check_id"] + " (differs in: " + ", ".join(keys) + ")")
     found = lookup(repo_root, declaration, source_root=source_root)
     if found["state"] != "passed" or found["record"]["id"] != evidence_id:
+        if _passes_but_for_bookkeeping(repo_root, record, found, tuple(p.rstrip("/") for p in bookkeeping), source_root):
+            return record
         raise EvidenceError("evidence is not the current valid passing result: " + refusal_reason(repo_root, evidence_id, record, found))
     return record
 

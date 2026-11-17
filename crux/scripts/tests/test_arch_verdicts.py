@@ -944,30 +944,34 @@ class CruxCliVerbReaderTests(unittest.TestCase):
             ast.parse(source)            # the fixture really does trigger it
         self.assertEqual(self._verbs(source), set())
 
-    def test_a_memory_error_drops_rather_than_aborting_the_derive(self):
-        """The parser's OTHER refusal on valid source, and the same lane.
+    def test_a_memory_error_escapes_the_reader(self):
+        """The parser's OTHER refusal on valid source takes the environment lane.
 
         100 KB of unary minus overflows the parser stack and raises
-        `MemoryError`, not `RecursionError` — two classes from one cause, which
-        is why the shared `_PARSE_FAILED` tuple names four and not two.
+        `MemoryError`. ADR-0181 point 3 makes a `MemoryError` while parsing an
+        environment failure, so no handler swallows it: it escapes this reader,
+        and inside a derive `parsing(path)` names the input (exit 2).
         """
         source = "sub.add_parser('init')\nx = " + "-" * 100000 + "1\n"
         self.assertLess(len(source.encode("utf-8")), core._MAX_FILE_BYTES)
         with self.assertRaises(MemoryError):
             ast.parse(source)            # the fixture really does trigger it
-        self.assertEqual(self._verbs(source), set())
+        with self.assertRaises(MemoryError):
+            self._verbs(source)
 
     def test_the_reader_catches_the_shared_parse_failure_tuple(self):
-        """The four classes are named ONCE, in `core`, and this reader binds
-        that name rather than a copy of it.
+        """The content-failure classes are named ONCE, in `core`, and this
+        reader binds that name rather than a copy of it.
 
         The five python-pack parse sites and this one are the same contract;
         two tuples would let one narrow without the other noticing, which is
-        how this reader came to catch `SyntaxError` alone.
+        how this reader came to catch `SyntaxError` alone. `MemoryError` left
+        the tuple under ADR-0181: it is an environment failure.
         """
-        for cls in (SyntaxError, ValueError, RecursionError, MemoryError):
+        for cls in (SyntaxError, ValueError, RecursionError):
             with self.subTest(cls=cls.__name__):
                 self.assertIn(cls, core._PARSE_FAILED)
+        self.assertNotIn(MemoryError, core._PARSE_FAILED)
 
 
 class CruxPackRenderEscapingTests(unittest.TestCase):

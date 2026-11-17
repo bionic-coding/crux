@@ -19,6 +19,7 @@
       ],
       "n_entities": 340,
       "n_sources": 11,
+      "omissions": [],
       "verdict": "populated"
     },
     {
@@ -44,6 +45,7 @@
       ],
       "n_entities": 109,
       "n_sources": 16,
+      "omissions": [],
       "verdict": "populated"
     },
     {
@@ -52,6 +54,7 @@
       "extractor": "stub",
       "found": "16 candidate packages \u2014 _sphinx_13448_workaround, accounts, aggregator, blog, checklists, contact, dashboard, djangoproject, docs, foundation, fundraising, legacy, members, releases, svntogit, tracdb",
       "inputs_found": [],
+      "omissions": [],
       "stub_reason": "ambiguous_package",
       "verdict": "stubbed"
     },
@@ -61,6 +64,7 @@
       "extractor": "stub",
       "found": "no matching input",
       "inputs_found": [],
+      "omissions": [],
       "stub_reason": "precondition_missing",
       "verdict": "stubbed"
     }

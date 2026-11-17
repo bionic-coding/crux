@@ -80,6 +80,23 @@ def validated_view(record):
     return out
 
 
+# The receipt fields ``run`` and ``lookup`` leave out of their default output. The input snapshot of a
+# full-suite receipt is about a megabyte; the stored receipt keeps every field.
+SUMMARY_OMITTED = ("snapshot", "environment")
+
+
+def receipt_summary(record, repo_root, source_root):
+    """The receipt as ``run`` and ``lookup`` print it by default: every field except ``SUMMARY_OMITTED``,
+    plus ``receipt``, the stored path, and ``full_record``, how to print the omitted fields."""
+    if not isinstance(record, dict):
+        return record
+    out = {key: value for key, value in record.items() if key not in SUMMARY_OMITTED}
+    if record.get("id"):
+        out["receipt"] = str(storage(repo_root, source_root) / f"{record['id']}.json")
+        out["full_record"] = f"test-evidence.py validate --evidence-id {record['id']}, or rerun with --full"
+    return out
+
+
 def report_summary(complete, eligible):
     """The block ``report`` prints first: what ran, its result, from which source revision, and both verdicts."""
     record = complete.get("record") if isinstance(complete.get("record"), dict) else {}
@@ -123,6 +140,9 @@ def main():
     parser.add_argument("--requirement", help="declare: a requirement as a JSON object; it replaces the preset's default")
     parser.add_argument("--output", type=Path, help="declare: write the declaration here instead of stdout")
     parser.add_argument("--plan-test-evidence", action="store_true", help="registered: look the evidence up and execute nothing")
+    parser.add_argument("--full", action="store_true",
+                        help="run, lookup: print the whole receipt, including its input snapshot and environment; "
+                             "the default prints a summary of a few kilobytes and the stored receipt keeps every field")
     args = parser.parse_args()
     try:
         declaration = json.loads(args.check.read_text()) if args.check is not None and args.action in ("run", "lookup") else None
@@ -173,9 +193,12 @@ def main():
             if args.action == "run":
                 result = execute(args.repo_root, declaration, args.retry_reason, source_root=args.source_root)
                 passed = result["evidence"]["status"] == "passed"
+                if not args.full:
+                    result = {**result, "evidence": receipt_summary(result["evidence"], args.repo_root, args.source_root)}
             else:
                 found = lookup(args.repo_root, declaration, source_root=args.source_root)
-                result = {"state": found["state"], "record": found["record"], "earlier_failures": found["earlier_failures"],
+                record = found["record"] if args.full else receipt_summary(found["record"], args.repo_root, args.source_root)
+                result = {"state": found["state"], "record": record, "earlier_failures": found["earlier_failures"],
                           "ignored": found["ignored"], "fingerprint": found["snapshot"]["fingerprint"], "store": found["store"]}
                 passed = found["state"] == "passed"
         print(json.dumps(result, indent=2))

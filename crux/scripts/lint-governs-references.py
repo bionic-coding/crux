@@ -242,6 +242,21 @@ JSON contract (stdout; findings and refusals sorted for determinism):
 
 Exit codes: 0 clean · 1 findings, refusals, an empty scope, or a
 validation error (JSON on stdout) · 2 crash (stderr).
+
+Input lanes. Before the authority proof or the projection reads an input, the
+input census (`summaries_projection.input_census`, driver
+`lint-governs-references`) examines the declared inputs once. An input whose
+read fails for a cause attributable to its path is a `validation_errors`
+finding naming it (exit 1). A cause in the process or host, an input directory
+that cannot be listed, and a dangling link at an optional file take the
+environment lane: exit 2, stdout empty, stderr naming each failing input and
+every finding the same run met. A read beneath the documentation tree that
+fails after a clean census is classified the same way. The scan's own probes
+follow the same rule: a default scan root whose presence cannot be determined,
+or a regular file at a scan root, and a directory the walk cannot list, take
+the environment lane naming the directory, with the walk's refusals named on
+stderr beside it. A failed read of one scanned file stays a refusal row (exit
+1); this gate is not an enrolled regenerator, so that row is a stated limit.
 """
 
 from __future__ import annotations
@@ -261,7 +276,10 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import summaries_projection as sp  # noqa: E402
 import implementation_migration as migration  # noqa: E402
+import input_lanes  # noqa: E402
 import operation_log as oplog  # noqa: E402  (the one owner of the operations log's file names)
+
+SCRIPT = "lint-governs-references"
 
 # The shared bound-and-redact helper, reached through the module that already
 # binds it by path. Every token this linter echoes into a CI log comes out of
@@ -393,6 +411,19 @@ def _refusal(path: Path | str, reason: str) -> dict:
     return {"path": str(path), "reason": reason, "detail": _REFUSAL_DETAIL[reason]}
 
 
+def _scan_failure(label: str, exc: BaseException) -> str:
+    """One environment-lane stderr line naming `label`, with no absolute path.
+
+    An OSError's own text carries the path it failed on, which is absolute; this
+    names the errno and its description instead, beside the repository-relative label.
+    """
+    if isinstance(exc, OSError) and exc.errno is not None:
+        detail = f"{errno.errorcode.get(exc.errno, exc.errno)}: {exc.strerror or 'no detail'}"
+    else:
+        detail = redact(exc, quoted=False)
+    return f"{label}: {type(exc).__name__}: {detail}"
+
+
 def _contained(root_resolved: Path, candidate_resolved: Path) -> bool:
     """True iff `candidate_resolved` is under `root_resolved` — both already
     fully resolved; `commonpath`, never `startswith`."""
@@ -456,9 +487,21 @@ class _Scope:
         if top.is_symlink():
             self.refusals.append(_refusal(top, "symlink_root"))
             return
-        if not top.is_dir():
-            return
-        for dirpath, dirnames, filenames in os.walk(top, followlinks=False):
+        # Decided by the operating system's answer, never by `is_dir()`, which
+        # reads a root it cannot stat as absent. A confirmed-absent root has
+        # nothing to scan; a root whose presence cannot be determined, or a
+        # regular file at it, takes the environment lane naming the directory.
+        try:
+            if not input_lanes.directory_exists(top):
+                return
+        except OSError as exc:
+            raise input_lanes.EnvironmentLaneError(
+                [_scan_failure(self.shown(top), exc)]) from None
+        # A directory the walk cannot list is recorded and named after the walk,
+        # never skipped: `os.walk` alone drops it and reports a clean scan.
+        unlisted: list[OSError] = []
+        for dirpath, dirnames, filenames in os.walk(top, onerror=unlisted.append,
+                                                    followlinks=False):
             here = Path(dirpath)
             dirnames[:] = sorted(
                 d for d in dirnames
@@ -471,7 +514,26 @@ class _Scope:
                     continue
                 self.admit(p)
                 if self.overflow:
-                    return
+                    break
+            if self.overflow:
+                break
+        if unlisted:
+            raise input_lanes.EnvironmentLaneError(
+                [_scan_failure(
+                    self.shown(Path(os.fsdecode(exc.filename)) if exc.filename else top), exc)
+                 for exc in unlisted],
+                [{"file": self.shown(Path(r["path"])), "error": f"{r['reason']}: {r['detail']}"}
+                 for r in self.refusals])
+
+    def shown(self, path: Path) -> str:
+        """`path` as an environment-lane line names it: relative to the repository
+        when it lies beneath it, so the text carries no absolute path."""
+        for base in (self.root, Path(os.path.abspath(self.root))):
+            try:
+                return str(Path(os.path.abspath(path)).relative_to(base))
+            except ValueError:
+                continue
+        return redact(path, quoted=False)
 
     def _metadata(self, path: Path):
         from admission_source_io import SourceIOExcluded
@@ -741,6 +803,20 @@ def catalog_collisions(tree_slugs: dict[str, str], catalog: dict[str, str],
     return out
 
 
+def _scan_root_present(scope: _Scope, path: Path) -> bool:
+    """Whether the default scan root `path` exists, a symbolic link included.
+
+    False only when its `lstat` confirms absence. A root whose presence cannot
+    be determined takes the environment lane naming it, rather than dropping
+    out of the scan as `exists()` drops it.
+    """
+    try:
+        return input_lanes.path_state(path, follow=False) is not None
+    except OSError as exc:
+        raise input_lanes.EnvironmentLaneError(
+            [_scan_failure(scope.shown(path), exc)]) from None
+
+
 def resolve_scope(root: Path, extra: list[str], *, _source_io=None) -> tuple[list[Path], list[Path], list[dict]]:
     """`(files, roots, refusals)` for the run. With `extra` empty, the default
     scope (both roots, prefix exclusions applied). Otherwise each `--path`
@@ -751,7 +827,7 @@ def resolve_scope(root: Path, extra: list[str], *, _source_io=None) -> tuple[lis
     root = root.resolve()
     scope = _Scope(root)
     if not extra:
-        roots = [r for r in default_scan_roots(root) if r.exists() or r.is_symlink()]
+        roots = [r for r in default_scan_roots(root) if _scan_root_present(scope, r)]
         excluded = excluded_paths(root)
         for r in roots:
             scope.walk(r, excluded)
@@ -1197,6 +1273,10 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     root = Path(args.repo_root).resolve()
     try:
+        # The input census runs first: it examines the declared inputs once and
+        # refuses in the lane each failed read takes, so one run names every
+        # unreadable input before the authority proof or the projection reads one.
+        sp.input_census(root, driver=SCRIPT).refuse()
         resolver, overlay = _lint_projection(root)
         records = overlay["records"]
         slugs, retired_slugs = overlay["slugs"], overlay["retired_slugs"]
@@ -1269,7 +1349,22 @@ def main(argv=None) -> int:
     except sp.GovernsValidationError as exc:
         print(json.dumps({"validation_errors": exc.problems}, sort_keys=True))
         return 1
+    except input_lanes.EnvironmentLaneError as exc:
+        return input_lanes.emit_environment_failure(exc, SCRIPT, sys.stderr)
+    except input_lanes.DanglingOptionalLinkError as exc:
+        return input_lanes.emit_environment_failure(
+            input_lanes.EnvironmentLaneError([str(exc)]), SCRIPT, sys.stderr)
     except Exception as exc:
+        # anthropic_top:F1: an OSError naming a path beneath the documentation
+        # tree, raised after a clean census, goes through the census's classifier
+        # before this catch-all, so a late path-attributable failure is a finding
+        # naming the input and any other cause takes the environment lane.
+        late = sp.late_input_failure(root, exc) if isinstance(exc, OSError) else None
+        if isinstance(late, input_lanes.EnvironmentLaneError):
+            return input_lanes.emit_environment_failure(late, SCRIPT, sys.stderr)
+        if isinstance(late, sp.GovernsValidationError):
+            print(json.dumps({"validation_errors": late.problems}, sort_keys=True))
+            return 1
         sys.stderr.write(f"lint-governs-references: {type(exc).__name__}: {exc}\n")
         return 2
     # A present-but-unusable catalog is reported rather than silently treated as

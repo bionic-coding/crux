@@ -276,14 +276,17 @@ def _convene_legacy(repo, purpose, subject, question, *, cycle_id=None, progress
     import secret_scan
     if secret_scan.scan_text(json.dumps(record),exact=locals().get('exact',[])):
         record.update(outcome='could-not-run',reason='output-secret-scan',seats=[])
-    record['record_sha256']=digest(encoded(record))
     output=directory/f"council-{attempt['id']}.json"
+    mark_uncommitted(cfg.repo_root,record,[attempt_path,output,*event_paths])
+    record['record_sha256']=digest(encoded(record))
     atomic(output,record)
     attempt.update(status='finished',record=output.relative_to(cfg.docs_root).as_posix(),finished_at=now())
     atomic(attempt_path,attempt)
     if on_claim:commit_evidence(cfg.repo_root,[attempt_path,output,*event_paths],'Record exact council result')
     attempt_lock.close()
-    return {'record':output.relative_to(cfg.docs_root).as_posix(),'outcome':record['outcome'],'attempt':attempt_path.relative_to(cfg.docs_root).as_posix()}
+    result={'record':output.relative_to(cfg.docs_root).as_posix(),'outcome':record['outcome'],'attempt':attempt_path.relative_to(cfg.docs_root).as_posix()}
+    if record.get('evidence_uncommitted'):result['evidence_uncommitted']=record['evidence_uncommitted']
+    return result
 
 
 # Prospective modes are additive. No historical runner or receipt is reinterpreted.
@@ -293,7 +296,7 @@ def validate_mode_record(record,*,purpose,subject,subject_sha256,cycle_id=None,p
     policy.verify_seal(record)
     required={'format','id','purpose','logical_id','subject','subject_sha256','cycle_id','at','attempt',
               'policy','outcome','seats','passes','architect','binding_failures','reason','record_sha256'}
-    if set(record)-required-{'readiness','review_bundle_sha256','call_evidence','checkpoint_failure'} or not required<=set(record):
+    if set(record)-required-{'readiness','review_bundle_sha256','call_evidence','checkpoint_failure','evidence_uncommitted'} or not required<=set(record):
         raise CycleError('invalid mode-aware council record shape')
     if (record['purpose']!=purpose or record['subject']!=subject or record['subject_sha256']!=subject_sha256 or
         record['outcome']!='approved' or policy.evaluate(record)!='approved'):
@@ -544,13 +547,44 @@ def council_rounds(rows,read_record):
     return out
 
 
+def council_drop_env():
+    """The names no council git child inherits: the gateway key, crux env-file names and git redirects."""
+    from council_records import GIT_REDIRECT_VARS,_secret_names
+    return frozenset(_secret_names())|frozenset(GIT_REDIRECT_VARS)
+
+
+def ignored_evidence(repo,paths):
+    """The repository-relative evidence paths git ignores, decided by ignored_paths.ignored."""
+    from ignored_paths import ignored
+    root=Path(repo).resolve()
+    try:rels=[Path(p).relative_to(root).as_posix() for p in paths]
+    except ValueError:return frozenset()
+    return ignored(root,rels,drop_env=council_drop_env())
+
+
+EVIDENCE_UNCOMMITTED='tree-ignored'
+
+
+def mark_uncommitted(repo,record,paths):
+    """Set evidence_uncommitted before sealing when git ignores any path of the attempt's evidence set."""
+    if ignored_evidence(repo,paths):record['evidence_uncommitted']=EVIDENCE_UNCOMMITTED
+    return record
+
+
 def commit_evidence(repo,paths,message):
-    """Commit only owning-writer evidence before permitting dispatch."""
+    """Commit only owning-writer evidence before permitting dispatch.
+
+    A path git ignores is dropped, never staged; the dropped paths are returned. When no path
+    remains no git command runs. A failed stage or commit of a remaining path still refuses."""
     from council_records import git
     rels=[str(Path(p).relative_to(Path(repo).resolve())) for p in paths]
-    if git(repo,'add','--',*rels).returncode:raise CycleError('cannot stage council execution trace')
-    result=git(repo,'commit','--only','-qm',message,'--',*rels)
-    if result.returncode:raise CycleError('cannot commit council execution trace; no reviewer dispatched')
+    skipped=ignored_evidence(repo,paths)
+    rels=[r for r in rels if Path(r).as_posix() not in skipped]
+    if rels:
+        if git(repo,'add','--',*rels).returncode:raise CycleError('cannot stage council execution trace')
+        result=git(repo,'commit','--only','-qm',message,'--',*rels)
+        if result.returncode:raise CycleError('cannot commit council execution trace; no reviewer dispatched')
+    return sorted(skipped)
 
 
 def begin_mode(repo,purpose,subject,question,*,cycle_id=None,identity=None,progress=None,extension=None,models=None,expected_subject_sha256=None,expected_delta=None,
@@ -614,10 +648,11 @@ def begin_mode(repo,purpose,subject,question,*,cycle_id=None,identity=None,progr
 
 def base_record(cfg,attempt_path,attempt):
     import council_policy as policy
-    return {'format':policy.RECORD,'id':attempt['id'],'purpose':attempt['purpose'],'logical_id':attempt['logical_id'],
+    record={'format':policy.RECORD,'id':attempt['id'],'purpose':attempt['purpose'],'logical_id':attempt['logical_id'],
         'subject':attempt['subject'],'subject_sha256':attempt['subject_sha256'],'cycle_id':attempt['cycle_id'],'at':now(),
         'attempt':attempt_path.relative_to(cfg.docs_root).as_posix(),'policy':attempt['policy'],'outcome':'changes-required',
         'seats':[],'passes':[],'architect':None,'binding_failures':[],'reason':None}
+    return mark_uncommitted(cfg.repo_root,record,[attempt_path,attempt_path.with_name('council-'+attempt['id']+'.json')])
 
 
 def acquire_attempt_lock(path):
@@ -720,12 +755,14 @@ def _finish_mode_owned(cfg,attempt_path,attempt,record):
     if secret_scan.scan_text(json.dumps(record)):
         record.update(outcome='could-not-run',reason='output-secret-scan',seats=[],passes=[])
     output=attempt_path.with_name('council-'+attempt['id']+'.json')
+    mark_uncommitted(cfg.repo_root,record,[output,attempt_path,*event_paths])
     sealed=policy.seal(record);validate_mode_schema(sealed,'cycle-council');atomic(output,sealed)
     attempt.update(status='finished',record=output.relative_to(cfg.docs_root).as_posix(),finished_at=now())
     atomic(attempt_path,attempt)
     commit_evidence(cfg.repo_root,[output,attempt_path,*event_paths],'Record exact council result')
     result={'record':output.relative_to(cfg.docs_root).as_posix(),'outcome':record['outcome'],
             'attempt':attempt_path.relative_to(cfg.docs_root).as_posix()}
+    if record.get('evidence_uncommitted'):result['evidence_uncommitted']=record['evidence_uncommitted']
     if awaiting_architect(record):
         result.update(outcome='awaiting-architect',next_command=architect_command(cfg.repo_root,result['record']))
     return result
@@ -983,9 +1020,12 @@ def terminal_evidence_committed(cfg,path,row):
     from council_records import git
     paths=[path]
     if row.get('record'):paths.append(contained(cfg.docs_root,row['record']))
+    skipped=ignored_evidence(cfg.repo_root,paths)
     for source in paths:
         relative=source.relative_to(cfg.repo_root).as_posix()
         data=policy.checked_bytes(cfg.repo_root,relative)
+        # An ignored path is ready once its bytes read; git keeps no copy to compare.
+        if relative in skipped:continue
         committed=git(cfg.repo_root,'show','HEAD:'+relative)
         if committed.returncode or committed.stdout!=data:return False
     return True
@@ -1014,6 +1054,7 @@ def await_attempt(repo,attempt,timeout=1800):
                 record=policy.read_json(repo,(cfg.docs_root/row['record']).relative_to(cfg.repo_root).as_posix())
                 result['outcome']='awaiting-architect' if awaiting_architect(record) else record.get('outcome',status)
                 if result['outcome']=='awaiting-architect':result['next_command']=architect_command(cfg.repo_root,row['record'])
+                if record.get('evidence_uncommitted'):result['evidence_uncommitted']=record['evidence_uncommitted']
             return result
         if status not in {'finished','failed','interrupted'} and observed['flock']=='not-held' and not row.get('harness'):
             return {'attempt':attempt,'status':status,'outcome':'recovery-required','ownership':observed}

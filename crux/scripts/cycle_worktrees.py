@@ -86,6 +86,14 @@ def open_owners(repo_root):
             if path.is_symlink() or not path.resolve().is_relative_to(root):raise ValueError('ownership record is a symlink or outside the tree')
             doc=json.loads(path.read_text())
             if not isinstance(doc,dict):raise ValueError('ownership record is not an object')
+            if doc.get('format') == 'crux.cycle.vNext':
+                from cycle_pilot import validate
+                validate(doc)
+                for task in doc['tasks']:
+                    if task['status'] == 'working' and task['kind'] == 'implementation':
+                        owners.append({'cycle': doc['id'], 'assignment': task['owner'], 'task': task['id'],
+                                       'result_path': task['checkout']})
+                continue
             if doc.get('status') in {'completed','abandoned','shortcut'}:continue
             if doc.get('status') not in {'active','paused'} or not isinstance(doc.get('assignments',[]),list):
                 raise ValueError('ownership state is unknown')
@@ -101,6 +109,13 @@ def open_owners(repo_root):
 
 
 def ownership_reason(repo_root,row,tip_tasks,owners,problems):
+    from cycle_runtime import claim_of, RuntimeRefusal
+    try:
+        claim = claim_of(repo_root, row['path'])
+        if claim:
+            return f"held by pilot {claim.get('cycle', 'unknown')}/{claim.get('task', 'unknown')}: recorded checkout claim"
+    except RuntimeRefusal as exc:
+        return str(exc)
     if problems:return '; '.join(problems)
     worktree=Path(row['path']).resolve()
     for owner in owners:

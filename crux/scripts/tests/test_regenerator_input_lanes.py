@@ -40,6 +40,7 @@ import os
 import re
 import shutil
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -489,6 +490,96 @@ class RollupHostFileProcessLevelTests(RollupHostFileTestCase):
         self.assertEqual(self.outputs(), before)
 
 
+class RollupWriteFailureTests(RollupHostFileTestCase):
+    """A2: a failed write of the host file exits 2 and leaves it byte-unchanged.
+
+    The fixture's index carries `## ADRs (0)`, so it is stale and a write is due.
+    """
+
+    WRITE_REFUSAL = "generate-index-rollup.py: could not write bionic/index.md: "
+
+    def test_an_unwritable_tree_directory_refuses_the_write_and_keeps_the_index(self):
+        skip_if_root(self)
+        before = self.index.read_bytes()
+        present = tree_files(self.root)
+        self.docs.chmod(0o555)
+        self.addCleanup(self.docs.chmod, 0o755)
+        r = self.run_gen(ROLLUP)
+        ctx = f"rc={r.returncode} out={r.stdout!r} err={r.stderr!r}"
+        self.assertEqual(r.returncode, 2, ctx)
+        self.assertEqual(r.stdout, b"", ctx)
+        self.assertIn(self.WRITE_REFUSAL.encode("utf-8"), r.stderr, ctx)
+        self.assertIn(b"PermissionError", r.stderr, ctx)
+        self.assertNotIn(b"Traceback", r.stderr, ctx)
+        self.assertEqual(self.index.read_bytes(), before, "the host file changed")
+        self.assertEqual(tree_files(self.root), present, "a file appeared")
+        # POSITIVE CONTROL: the same fixture at mode 755 rewrites the region.
+        self.docs.chmod(0o755)
+        r = self.run_gen(ROLLUP)
+        self.assertEqual(r.returncode, 0, f"control: {r.stdout!r} {r.stderr!r}")
+        self.assertEqual(self.payload(r), {"written": self.rel_index, "region": "## ADRs"})
+        self.assertIn("## ADRs (3)", self.index.read_text(encoding="utf-8"))
+        self.assertEqual(tree_files(self.root), present, "the control left a file behind")
+
+    def test_a_failed_replace_keeps_the_index_and_leaves_no_temporary_file(self):
+        rollup = load_script(ROLLUP)
+        argv = ["--repo-root", str(self.root)]
+        before = self.index.read_bytes()
+        present = tree_files(self.root)
+        # Fault injection on the os-level replace call only, never a guard.
+        with mock.patch("os.replace",
+                        side_effect=OSError(errno.ENOSPC, "No space left on device")):
+            rc, out, err = run_main(rollup.main, argv)
+        self.assertEqual(rc, 2, err)
+        self.assertEqual(out, "")
+        self.assertIn(self.WRITE_REFUSAL + "OSError: [Errno 28] No space left on device", err)
+        self.assertEqual(self.index.read_bytes(), before, "the host file changed")
+        self.assertEqual(tree_files(self.root), present, "a temporary file remained")
+        # POSITIVE CONTROL: unpatched, the same fixture rewrites the region.
+        rc, out, err = run_main(rollup.main, argv)
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(json.loads(out), {"written": self.rel_index, "region": "## ADRs"})
+        self.assertIn("## ADRs (3)", self.index.read_text(encoding="utf-8"))
+        self.assertEqual(tree_files(self.root), present, "the control left a file behind")
+
+    def test_a_rewritten_index_keeps_its_mode(self):
+        self.index.chmod(0o640)
+        r = self.run_gen(ROLLUP)
+        self.assertEqual(r.returncode, 0, f"{r.stdout!r} {r.stderr!r}")
+        self.assertIn("## ADRs (3)", self.index.read_text(encoding="utf-8"))
+        self.assertEqual(self.index.stat().st_mode & 0o777, 0o640)
+
+
+class WriteTextAtomicallyTests(unittest.TestCase):
+    """The shared write helper's absent-target and unstat-able-target branches."""
+
+    def setUp(self) -> None:
+        tmp = self.enterContext(tempfile.TemporaryDirectory())
+        self.dir = Path(tmp) / "out"
+        self.dir.mkdir()
+        self.target = self.dir / "index.md"
+
+    def test_a_new_file_gets_mode_644_and_the_exact_text(self):
+        old = os.umask(0o077)
+        self.addCleanup(os.umask, old)
+        adr_frontmatter.write_text_atomically(self.target, "a\r\nb\n")
+        self.assertEqual(self.target.read_bytes(), b"a\r\nb\n")
+        self.assertEqual(self.target.stat().st_mode & 0o777, 0o644)
+        self.assertEqual(sorted(p.name for p in self.dir.iterdir()), ["index.md"])
+
+    def test_a_target_that_cannot_be_stat_raises_and_writes_nothing(self):
+        skip_if_root(self)
+        self.dir.chmod(0o000)
+        self.addCleanup(self.dir.chmod, 0o755)
+        with self.assertRaises(PermissionError):
+            adr_frontmatter.write_text_atomically(self.target, "text\n")
+        self.dir.chmod(0o755)
+        self.assertEqual(list(self.dir.iterdir()), [], "a refused write created a file")
+        # POSITIVE CONTROL: the same directory at mode 755 accepts the write.
+        adr_frontmatter.write_text_atomically(self.target, "text\n")
+        self.assertEqual(self.target.read_text(encoding="utf-8"), "text\n")
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # generate-adr-index.py: its adrs directory and its tree configuration
 # ═══════════════════════════════════════════════════════════════════════════
@@ -770,6 +861,202 @@ class AdrOutputWriteModeTests(AdrOutputReadTestCase):
             self.assertTrue(output.is_dir(), ctx)
             self.assertEqual(tree_files(self.root), present, f"a file appeared — {ctx}")
             output.rmdir()
+
+
+class AdrOutputWriteFailureTests(AdrOutputReadTestCase):
+    """A2: a failed write of adrs/index.md or lineage.md exits 2 and keeps the output.
+
+    Each case first writes the output, then makes it stale, so a write is due.
+    """
+
+    STALE = b"stale output\n"
+
+    def refusal(self, script: str) -> str:
+        return f"{script.removesuffix('.py')}: could not write "
+
+    def test_an_unwritable_adrs_directory_refuses_the_write_and_keeps_the_output(self):
+        skip_if_root(self)
+        for script, output in self.each_output():
+            self.control(script, output)
+            output.write_bytes(self.STALE)
+            present = tree_files(self.root)
+            self.adrs.chmod(0o555)
+            self.addCleanup(self.adrs.chmod, 0o755)
+            r = self.run_gen(script)
+            ctx = f"rc={r.returncode} out={r.stdout!r} err={r.stderr!r}"
+            self.assertEqual(r.returncode, 2, ctx)
+            self.assertEqual(r.stdout, b"", ctx)
+            self.assertIn((self.refusal(script) + self.rel(output) + ": PermissionError")
+                          .encode("utf-8"), r.stderr, ctx)
+            self.assertNotIn(b"Traceback", r.stderr, ctx)
+            self.assertEqual(output.read_bytes(), self.STALE, f"the output changed — {ctx}")
+            self.assertEqual(tree_files(self.root), present, f"a file appeared — {ctx}")
+            # POSITIVE CONTROL: the same fixture at mode 755 rewrites the output.
+            self.adrs.chmod(0o755)
+            r = self.run_gen(script)
+            self.assertEqual(r.returncode, 0, f"control: {r.stdout!r} {r.stderr!r}")
+            self.assertIn("ADR-0003", output.read_text(encoding="utf-8"))
+            self.assertEqual(tree_files(self.root), present, "the control left a file behind")
+
+    def test_a_failed_replace_keeps_the_output_and_leaves_no_temporary_file(self):
+        for script, output in self.each_output():
+            self.control(script, output)
+            output.write_bytes(self.STALE)
+            generator = load_script(script)
+            argv = ["--repo-root", str(self.root)]
+            present = tree_files(self.root)
+            # Fault injection on the os-level replace call only, never a guard.
+            with mock.patch("os.replace",
+                            side_effect=OSError(errno.ENOSPC, "No space left on device")):
+                rc, out, err = run_main(generator.main, argv)
+            self.assertEqual(rc, 2, err)
+            self.assertEqual(out, "")
+            self.assertIn(self.refusal(script) + self.rel(output)
+                          + ": OSError: [Errno 28] No space left on device", err)
+            self.assertEqual(output.read_bytes(), self.STALE, "the output changed")
+            self.assertEqual(tree_files(self.root), present, "a temporary file remained")
+            # POSITIVE CONTROL: unpatched, the same fixture rewrites the output.
+            rc, out, err = run_main(generator.main, argv)
+            self.assertEqual(rc, 0, err)
+            self.assertEqual(json.loads(out)["written"], self.rel(output))
+            self.assertIn("ADR-0003", output.read_text(encoding="utf-8"))
+            self.assertEqual(tree_files(self.root), present, "the control left a file behind")
+
+    def test_a_new_output_gets_mode_644_and_a_rewritten_one_keeps_its_mode(self):
+        old = os.umask(0o077)
+        self.addCleanup(os.umask, old)
+        for script, output in self.each_output():
+            if output.exists():
+                output.unlink()
+            r = self.run_gen(script)
+            self.assertEqual(r.returncode, 0, f"{r.stdout!r} {r.stderr!r}")
+            self.assertIn("ADR-0003", output.read_text(encoding="utf-8"))
+            self.assertEqual(output.stat().st_mode & 0o777, 0o644)
+            # An existing output's mode is kept across a rewrite.
+            output.write_bytes(self.STALE)
+            output.chmod(0o640)
+            r = self.run_gen(script)
+            self.assertEqual(r.returncode, 0, f"{r.stdout!r} {r.stderr!r}")
+            self.assertIn("ADR-0003", output.read_text(encoding="utf-8"))
+            self.assertEqual(output.stat().st_mode & 0o777, 0o640)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# The tree configuration through the rollup and the lineage
+# ═══════════════════════════════════════════════════════════════════════════
+
+class RollupLineageConfigurationTests(AdrFenceTestCase):
+    """A .bionic.yml the resolver refuses exits 2, never a traceback."""
+
+    SCRIPTS = (ROLLUP, "generate-lineage.py")
+
+    def test_a_malformed_configuration_exits_two_without_a_traceback(self):
+        config = self.root / ".bionic.yml"
+        for script in self.SCRIPTS:
+            with self.subTest(script=script):
+                # POSITIVE CONTROL: the well-formed configuration resolves and writes.
+                for mode, args in ADR_MODES:
+                    r = self.run_gen(script, *args)
+                    self.assertEqual(r.returncode, 0,
+                                     f"control {mode}: {r.stdout!r} {r.stderr!r}")
+                good = config.read_bytes()
+                config.write_text('config_version: "1"\ndocs_dir: [bionic\n', encoding="utf-8")
+                try:
+                    before = self.outputs()
+                    present = tree_files(self.root)
+                    for mode, args in ADR_MODES:
+                        r = self.run_gen(script, *args)
+                        ctx = f"{mode}: rc={r.returncode} out={r.stdout!r} err={r.stderr!r}"
+                        self.assertEqual(r.returncode, 2, ctx)
+                        self.assertEqual(r.stdout, b"", ctx)
+                        self.assertIn(b"BionicConfigError", r.stderr, ctx)
+                        self.assertIn(b".bionic.yml", r.stderr, ctx)
+                        self.assertNotIn(b"Traceback", r.stderr, ctx)
+                        self.assertEqual(self.outputs(), before, f"an output changed — {ctx}")
+                        self.assertEqual(tree_files(self.root), present,
+                                         f"a file appeared — {ctx}")
+                finally:
+                    config.write_bytes(good)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# generate-lineage.py: its adrs directory (FU-A7)
+# ═══════════════════════════════════════════════════════════════════════════
+
+LINEAGE = "generate-lineage.py"
+
+
+class LineageAdrsDirectoryTests(AdrFenceTestCase):
+    """The adrs directory is a required input: decided before any read, in every mode."""
+
+    def control(self) -> None:
+        """POSITIVE CONTROL: write lists ADR-0003, and --dry-run then reports no drift."""
+        r = self.run_gen(LINEAGE)
+        self.assertEqual(r.returncode, 0, f"control write: {r.stdout!r} {r.stderr!r}")
+        self.assertIn("ADR-0003", (self.adrs / "lineage.md").read_text(encoding="utf-8"))
+        r = self.run_gen(LINEAGE, "--dry-run")
+        self.assertEqual(r.returncode, 0, f"control dry-run: {r.stdout!r} {r.stderr!r}")
+        self.assertFalse(self.payload(r)["drift"])
+
+    def watched(self) -> list[Path]:
+        return [self.adrs / "index.md", self.adrs / "lineage.md", self.docs / "index.md",
+                self.adrs, self.docs]
+
+    def assert_refused(self, *named: str, absent: str | None = None) -> None:
+        """Exit 2 in every mode, nothing on stdout, nothing changed or created."""
+        before = snapshot(self.watched())
+        present = tree_files(self.root)
+        for mode, args in ADR_MODES:
+            with self.subTest(mode=mode):
+                r = self.run_gen(LINEAGE, *args)
+                ctx = f"{mode}: rc={r.returncode} out={r.stdout!r} err={r.stderr!r}"
+                self.assertEqual(r.returncode, 2, ctx)
+                self.assertEqual(r.stdout, b"", ctx)
+                self.assertNotIn(b"Traceback", r.stderr, ctx)
+                for text in named:
+                    self.assertIn(text.encode("utf-8"), r.stderr, ctx)
+                if absent is not None:
+                    self.assertNotIn(absent.encode("utf-8"), r.stderr, ctx)
+                self.assertEqual(snapshot(self.watched()), before, f"an output changed — {ctx}")
+                self.assertEqual(tree_files(self.root), present, f"a file appeared — {ctx}")
+
+    def test_positive_control_a_present_adrs_directory_is_lined_up(self):
+        self.assertTrue(self.adrs.is_dir(), "the fixture has no adrs directory")
+        self.control()
+
+    def test_a_confirmed_absent_adrs_directory_exits_two_not_found(self):
+        self.control()
+        shutil.rmtree(self.adrs)
+        self.assert_refused("generate-lineage: bionic/adrs not found")
+        self.assertFalse(self.adrs.exists(), "a refusal created the absent adrs directory")
+
+    def test_a_regular_file_at_the_adrs_path_is_an_environment_failure(self):
+        self.control()
+        shutil.rmtree(self.adrs)
+        self.adrs.write_text("not a directory\n", encoding="utf-8")
+        self.assert_refused("environment failure: bionic/adrs:",
+                            "exists and is not a directory", absent="not found")
+
+    def test_an_unsearchable_tree_directory_is_an_environment_failure(self):
+        self.control()
+        skip_if_root(self)
+        before = snapshot(self.watched())
+        present = tree_files(self.root)
+        self.docs.chmod(0o600)
+        self.addCleanup(self.docs.chmod, 0o755)
+        for mode, args in ADR_MODES:
+            with self.subTest(mode=mode):
+                r = self.run_gen(LINEAGE, *args)
+                ctx = f"{mode}: rc={r.returncode} out={r.stdout!r} err={r.stderr!r}"
+                self.assertEqual(r.returncode, 2, ctx)
+                self.assertEqual(r.stdout, b"", ctx)
+                self.assertNotIn(b"Traceback", r.stderr, ctx)
+                self.assertIn(b"environment failure: bionic/adrs:", r.stderr, ctx)
+                self.assertIn(b"PermissionError", r.stderr, ctx)
+                self.assertNotIn(b"not found", r.stderr, ctx)
+        self.docs.chmod(0o755)
+        self.assertEqual(snapshot(self.watched()), before, "an output changed")
+        self.assertEqual(tree_files(self.root), present, "a file appeared")
 
 
 # ═══════════════════════════════════════════════════════════════════════════

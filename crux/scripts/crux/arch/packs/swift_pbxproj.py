@@ -44,8 +44,9 @@ belongs to the workspace XML reader (`swift_xcinputs`, ADR-0130 clause 11). A ca
 module's pure grammar with `_safe_read_bytes` to get the full per-file
 boundary the clause describes: `_safe_read_bytes`'s OS-level refusals map to
 `not-regular`/`read-failed`, and this module's own catch-all (below) covers
-every exception a parse step can raise, `RecursionError` and `MemoryError`
-included, as `malformed`.
+every other exception a parse step can raise, `RecursionError` included, as
+`malformed`. A `MemoryError` passes through to the caller's per-file
+boundary, which names the file in the environment lane (ADR-0181 point 3).
 
 An `objectVersion` outside the fixture-pinned set `{56, 76, 77}` does NOT
 refuse the read (ADR-0130 clause 4: "reading proceeds"). It sets
@@ -59,9 +60,9 @@ stack. An explicit stack of parse frames stands in for recursion, so a
 hostile deeply-nested fixture is refused by the 64-level bound of ADR-0130
 clause 2 (checked BEFORE each descent, i.e. before a new frame is pushed)
 rather than by `RecursionError` — and if something in a parse step still raises anyway
-(`RecursionError`, `MemoryError`, or anything else), `read_pbxproj`'s own
-try/except is the final backstop, classifying it `malformed` rather than
-letting it escape.
+(`RecursionError`, or anything else but a `MemoryError`), `read_pbxproj`'s
+own try/except is the final backstop, classifying it `malformed` rather
+than letting it escape.
 
 Names come from FIELDS, never from `/* ... */` comments: a comment is
 whitespace to this tokenizer, skipped before any token is produced, and
@@ -87,6 +88,13 @@ it, not as a refusal this module performs.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+
+#: The lane exceptions `read_pbxproj`'s catch-all re-raises first (ADR-0181
+#: point 3; the core's `_LANE_RAISES`). This module touches no file, so of
+#: the core's two only `MemoryError` can arise here; the name is the one the
+#: broad-handler rule reads. Kept local so the module still imports nothing
+#: but the standard library.
+_LANE_RAISES = (MemoryError,)
 
 #: The closed set of `project-unreadable` kinds this module can itself
 #: produce (see module docstring for the other three).
@@ -736,7 +744,11 @@ def read_pbxproj(raw: bytes) -> "PbxprojDocument | PbxprojRefusal":
         )
     except _GrammarError as exc:
         return PbxprojRefusal("project-unreadable", exc.kind)
-    except (RecursionError, MemoryError):
+    except _LANE_RAISES:
+        # ADR-0181 point 3: a `MemoryError` is no content refusal; the
+        # caller's per-file boundary names the file in the environment lane.
+        raise
+    except RecursionError:
         return PbxprojRefusal("project-unreadable", "malformed")
     except Exception:
         # The catch-all backstop (module docstring): any other parse-step

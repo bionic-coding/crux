@@ -30,6 +30,28 @@
     "release"
   ],
   "properties": {
+    "testing_policy": {"enum": ["proportionate"]},
+    "local_checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "at", "check_id", "pass", "command", "tested_revision", "result", "summary", "reason", "use"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^LC-[0-9a-f]{32}$"},
+          "at": {"type": "string", "minLength": 1},
+          "check_id": {"type": "string", "minLength": 1},
+          "pass": {"type": "integer", "minimum": 1},
+          "command": {"type": "string", "minLength": 1},
+          "tested_revision": {"type": "string", "minLength": 1},
+          "result": {"enum": ["passed", "failed"]},
+          "summary": {"type": "string", "minLength": 1},
+          "reason": {"type": "string", "minLength": 1},
+          "use": {"enum": ["executed", "reused"]},
+          "reused_from": {"type": "string", "pattern": "^LC-[0-9a-f]{32}$"}
+        }
+      }
+    },
     "schema_version": {
       "enum": [
         1,
@@ -165,6 +187,29 @@
           "items": {
             "type": "string",
             "minLength": 1
+          }
+        },
+        "stale_verification": {
+          "type": "array",
+          "description": "Optional. One record per applied acceptance change that flagged a verification entry or added a criterion. Only the acceptance-change writer adds a record; the plan command keeps or clears the field. Absence means nothing to reconcile.",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["capture", "entries", "added"],
+            "properties": {
+              "capture": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["path", "sha256"],
+                "properties": {
+                  "path": {"type": "string", "minLength": 1},
+                  "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+                }
+              },
+              "entries": {"type": "array", "items": {"type": "string", "minLength": 1}},
+              "added": {"type": "array", "items": {"type": "integer", "minimum": 0}}
+            }
           }
         },
         "tasks": {
@@ -376,11 +421,11 @@
                   },
                   "before": {
                     "type": "string",
-                    "pattern": "^TE-[0-9a-f]{32}$"
+                    "pattern": "^(TE|LC)-[0-9a-f]{32}$"
                   },
                   "after": {
                     "type": "string",
-                    "pattern": "^TE-[0-9a-f]{32}$"
+                    "pattern": "^(TE|LC)-[0-9a-f]{32}$"
                   },
                   "review": {
                     "type": "object",

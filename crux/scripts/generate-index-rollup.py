@@ -53,7 +53,7 @@ lane.[^unlistable] Every input is tried before the run exits, and a run that
 takes exit 2 names every finding it met on stderr.[^precedence] Every refusal
 leaves every output byte-unchanged and creates none.
 
-[^file]: rule:path-attributable-read-failure-is-a-document-finding
+[^file]: rule:unreadable-file-outside-a-descriptive-map-is-a-document-finding
 [^process]: rule:process-level-read-failure-is-an-environment-failure
 [^absence]: rule:absence-is-confirmed-by-enoent-or-enotdir
 [^unlistable]: rule:unlistable-input-directory-is-an-environment-failure
@@ -64,7 +64,6 @@ from __future__ import annotations
 import argparse
 import difflib
 import json
-import glob
 import re
 import sys
 from pathlib import Path
@@ -72,6 +71,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import adr_frontmatter  # noqa: E402
+import bionic_config  # noqa: E402
 import input_lanes  # noqa: E402
 
 try:
@@ -89,21 +89,6 @@ SECTION_RE = re.compile(r"^## ADRs \(\d+\)\n.*?(?=^## |\Z)", re.M | re.S)
 #: The finding for a host file that carries no section for the rollup to own.
 MISSING_SECTION = ("has no '## ADRs (N)' section — add the heading, for example "
                    "'## ADRs (0)', where the rollup belongs")
-
-
-def _tree_name(root) -> str:
-    """Resolve the tree directory via bionic_config, falling back to the default."""
-    _PATH = Path(__file__).resolve().parent / "bionic_config.py"
-    import importlib.util as _ilu
-    import sys as _sys
-    _key = "_bionic_config"
-    _m = _sys.modules.get(_key)
-    if _m is None:
-        _s = _ilu.spec_from_file_location(_key, _PATH)
-        _m = _ilu.module_from_spec(_s)
-        _s.loader.exec_module(_m)
-        _sys.modules[_key] = _m   # cache so class identity holds across calls
-    return _m.resolve_tree_name(root)
 
 
 def load_adrs(adrs_dir: Path, rel=None) -> list[dict]:
@@ -205,7 +190,12 @@ def main(argv: list[str]) -> int:
     args = ap.parse_args(argv)
 
     root = Path(args.repo_root)
-    tree = _tree_name(root)
+    try:
+        tree = bionic_config.resolve_tree_name(root)
+    except bionic_config.BionicConfigError as exc:
+        # A configuration the resolver refuses: exit 2, nothing on stdout.
+        sys.stderr.write(f"generate-index-rollup.py: {type(exc).__name__}: {exc}\n")
+        return 2
     index = root / tree / "index.md"
     adrs_dir = root / tree / "adrs"
     rel_of = adr_frontmatter.repo_relative(root)
@@ -269,7 +259,15 @@ def main(argv: list[str]) -> int:
         return 1
 
     if have != want:
-        index.write_text(current[: m.start()] + want + current[m.end():], encoding="utf-8")
+        try:
+            adr_frontmatter.write_text_atomically(
+                index, current[: m.start()] + want + current[m.end():])
+        except OSError as exc:
+            # A failed write is no input finding: exit 2 on stderr, never a
+            # traceback. The atomic replace leaves index.md byte-unchanged.
+            sys.stderr.write(f"generate-index-rollup.py: could not write {rel}: "
+                             f"{type(exc).__name__}: {exc}\n")
+            return 2
         print(json.dumps({"written": rel, "region": "## ADRs"}, sort_keys=True))
         return 0
     print(json.dumps({"written": None, "region": "## ADRs"}, sort_keys=True))

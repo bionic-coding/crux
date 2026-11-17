@@ -15,6 +15,13 @@
       ],
       "n_entities": 12,
       "n_sources": 7,
+      "omissions": [
+        {
+          "kind": "unparseable",
+          "path": "backend/app/api/deps.py",
+          "reason": "unparseable"
+        }
+      ],
       "verdict": "populated"
     },
     {
@@ -32,6 +39,13 @@
       ],
       "n_entities": 23,
       "n_sources": 8,
+      "omissions": [
+        {
+          "kind": "unparseable",
+          "path": "backend/app/api/deps.py",
+          "reason": "unparseable"
+        }
+      ],
       "verdict": "populated"
     },
     {
@@ -66,6 +80,7 @@
       ],
       "n_entities": 36,
       "n_sources": 25,
+      "omissions": [],
       "verdict": "populated"
     },
     {
@@ -74,6 +89,7 @@
       "extractor": "stub",
       "found": "no matching input",
       "inputs_found": [],
+      "omissions": [],
       "stub_reason": "precondition_missing",
       "verdict": "stubbed"
     }

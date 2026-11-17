@@ -52,8 +52,10 @@ class ActualArgvTests(unittest.TestCase):
         log = (self.store / record["output"]).read_text()
         self.assertIn("requested 1,", log)
         self.assertIn("timings weights.json (1 entries)", log)
-        self.assertEqual(record["environment"]["implementation"], "cpython")
-        self.assertEqual(record["environment"]["version_info"][:2], list(sys.version_info[:2]))
+        # The CLI's default output omits the environment; the stored receipt keeps it.
+        environment = json.loads((self.store / f"{record['id']}.json").read_text())["environment"]
+        self.assertEqual(environment["implementation"], "cpython")
+        self.assertEqual(environment["version_info"][:2], list(sys.version_info[:2]))
         validate_evidence(self.root, record["id"], "actual-argv")
 
     def test_fresh_generic_cli_executes_requested_records_workers_and_timings(self):

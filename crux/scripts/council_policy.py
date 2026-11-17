@@ -346,12 +346,14 @@ def disposition(repo,record_path,value):
     import secret_scan
     if secret_scan.scan_text(json.dumps(row)):raise CycleError('architect disposition output secret scan refused')
     updated=seal(row)
+    result={'record':record_path,'outcome':row['outcome']}
+    if row.get('evidence_uncommitted'):result['evidence_uncommitted']=row['evidence_uncommitted']
     if encoded(updated)==path.read_bytes():
-        return {'record':record_path,'outcome':row['outcome']}
+        return result
     if row['outcome'] == 'approved':
         from cycle_council_events import validate_current
         validate_current(repo, row, record_path=record_path)
     atomic(path,updated)
     from cycle_council import commit_evidence
     commit_evidence(cfg.repo_root,[path],'Record exact architect council disposition')
-    return {'record':record_path,'outcome':row['outcome']}
+    return result

@@ -15,7 +15,7 @@ from pathlib import Path
 import re
 import stat
 
-from secret_scan import check_secret_location, scan_text
+from secret_scan import check_secret_location, is_env_name, scan_text
 
 
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
@@ -64,10 +64,10 @@ def _plain(name: str) -> bool:
 
 def _forbidden(path: Path) -> bool:
     # Do not consult HOME, CRUX_HOME or any credential store to decide this.
+    # Env names use the one rule in secret_scan, which admits only `.env.example`.
     parts = [p.casefold() for p in path.parts]
     return (any(p in FORBIDDEN_PARTS for p in parts)
-            or any(p == '.env' or p.startswith('.env.') or p.endswith('.env') or p == '.envrc'
-                   for p in parts)
+            or any(is_env_name(p) for p in path.parts)
             or path.name.casefold() in FORBIDDEN_NAMES
             or path.suffix.casefold() in {'.key', '.pem', '.p12', '.pfx', '.keychain', '.keychain-db'})
 

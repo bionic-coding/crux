@@ -20,7 +20,12 @@ class IntegrationTests(unittest.TestCase):
         (self.root/'bionic/manifest.yml').write_text('schema_version: "5"\nconcerns_enabled: [adrs]\n')
         (self.root/'src/a.txt').write_text('good')
         (self.root/'dist/release.txt').write_text('artifact')
-    def create(self,kind):return create(self.root,kind,'Fix','Outcome',['src','dist'],['correct'],'builder','tester')
+    def create(self,kind):
+        # This suite tests legacy reusable receipts, not new local observations.
+        doc=create(self.root,kind,'Fix','Outcome',['src','dist'],['correct'],'builder','tester')
+        doc.pop('testing_policy'); doc.pop('local_checks')
+        save(tree(self.root),doc)
+        return doc
     def apply(self,doc,action,**args):
         updated=mutate(self.root,doc['id'],action,**args)
         if action=='checks':

@@ -646,13 +646,46 @@ class InterpreterOverlayTests(unittest.TestCase):
             and not counter.match(line[2:])
         ]
 
+    @staticmethod
+    def _without_declared_omissions(rel: str, text: str, paths: list[str]) -> list[str]:
+        """`text`'s lines with every omission of a declared path taken out.
+
+        A declared source a minor refuses is an omission on that minor (ADR-0181),
+        and its record spans lines that do not name the path: the Omissions
+        heading and intro, and the braces and `kind`/`reason` keys of a
+        `coverage.json` record. Both sides are normalized the same way, so an
+        omission of an UNDECLARED path survives and is still reported stray.
+        """
+        if rel.endswith(".json"):
+            data = json.loads(text)
+            for record in data.get("concerns", []):
+                if "omissions" in record:
+                    record["omissions"] = [o for o in record["omissions"]
+                                           if o.get("path") not in paths]
+            return json.dumps(data, indent=2, sort_keys=True).splitlines()
+        lines = text.splitlines()
+        if "## Omissions" not in lines:
+            return lines
+        head = lines.index("## Omissions")
+        entries = [l for l in lines[head + 1:] if l.startswith("- ")]
+        kept = [l for l in entries if not any(f"`{p}`" in l for p in paths)]
+        if kept:
+            return lines[:head + 1] + [l for l in lines[head + 1:] if l in kept
+                                       or not l.startswith("- ")]
+        body = lines[:head]
+        while body and not body[-1].strip():
+            body.pop()
+        return body
+
     def test_an_overlay_differs_only_on_lines_naming_a_declared_path(self):
         """Every changed line names a declared source, or is an `n_sources` count."""
         for path in self.overlays:
             version, name, rel = self._split(path)
             paths = self.dc.INTERPRETER_DELTAS[version][name]["paths"]
-            base = (GOLDEN / name / rel).read_text(encoding="utf-8").splitlines()
-            over = path.read_text(encoding="utf-8").splitlines()
+            base = self._without_declared_omissions(
+                rel, (GOLDEN / name / rel).read_text(encoding="utf-8"), paths)
+            over = self._without_declared_omissions(
+                rel, path.read_text(encoding="utf-8"), paths)
             with self.subTest(overlay=str(path.relative_to(CORPUS_DIR))):
                 self.assertEqual(self._stray(base, over, paths), [],
                                  "overlay moves a line no declared path explains")
@@ -663,6 +696,29 @@ class InterpreterOverlayTests(unittest.TestCase):
         over = ["| User | e-mail |", '  "n_sources": 6,']
         self.assertEqual(self._stray(base, over, ["backend/app/api/deps.py"]),
                          ["- | User | email |", "+ | User | e-mail |"])
+
+    def test_a_declared_omission_is_explained_and_an_undeclared_one_is_not(self):
+        """The omission normalization removes only a declared path's record."""
+        declared = ["backend/app/api/deps.py"]
+        md = ("- prose\n\n## Omissions\n\n"
+              "_Recognizable inputs this map does not describe:_\n\n"
+              "- `{}` — unparseable (unparseable)\n")
+        cov = json.dumps({"concerns": [{"omissions": [
+            {"kind": "unparseable", "path": "{}", "reason": "unparseable"}]}]},
+            indent=2, sort_keys=True)
+        clean_md = ["- prose"]
+        clean_cov = json.dumps({"concerns": [{"omissions": []}]},
+                               indent=2, sort_keys=True).splitlines()
+        norm = self._without_declared_omissions
+        self.assertEqual(norm("data-model.md", md.format(declared[0]), declared), clean_md)
+        self.assertEqual(norm("_meta/coverage.json", cov.replace("{}", declared[0]), declared),
+                         clean_cov)
+        other = "backend/app/other.py"
+        self.assertNotEqual(self._stray(clean_md, norm("data-model.md", md.format(other),
+                                                       declared), declared), [])
+        self.assertNotEqual(self._stray(clean_cov, norm("_meta/coverage.json",
+                                                        cov.replace("{}", other), declared),
+                                        declared), [])
 
     def test_coverage_overlays_keep_every_verdict_and_entity_count(self):
         """The delta is a hashing and residual change, never an extraction one."""

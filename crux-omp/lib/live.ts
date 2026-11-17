@@ -306,7 +306,7 @@ function buildActiveOrPausedCycleCard(c: CycleView, label: string, innerWidth: n
         span(`${c.id} `, { bold: true }),
         span(drawn(c.title), { bold: true }),
         // A listed release cycle has the one phase release and no pass limit to draw.
-        span(c.type === 'release' && c.phases.join(',') === 'release'
+        span(c.type === 'pilot' || c.type === 'release' && c.phases.join(',') === 'release'
           ? `  [${c.type}]`
           : `  [${c.type} \u{00B7} ${LOOP_GLYPH} pass ${c.pass}/${c.pass_limit}]`, { color: 'permission' }),
       ],

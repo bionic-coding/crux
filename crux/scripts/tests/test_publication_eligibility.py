@@ -451,7 +451,10 @@ class UnreadableSurfaceTests(unittest.TestCase):
         self.assertEqual(r.returncode, 1, r.stderr)
         rows = json.loads(r.stdout)["validation_errors"]
         self.assertEqual(len(rows), 1)
-        self.assertIn("unreadable as UTF-8", rows[0]["reason"])
+        # The reason is the document-lane text, which names the repair and carries no
+        # absolute path.
+        self.assertIn("is not valid UTF-8", rows[0]["reason"])
+        self.assertNotIn(str(f.root), rows[0]["reason"])
         self.assertTrue(rows[0]["path"].endswith("hidden.md"))
 
         # THE CONTROL. Make the same file readable and the hidden citation surfaces as

@@ -16,6 +16,7 @@ metadata:
 
 # Commander — cycle conductor
 
+
 The host supplies this role contract and the universal cycle preload. Task-selected
 canonical skill bodies arrive through `prepare-dispatch`; retrieve other skills
 through the host's Skill capability when needed. Selection never changes your
@@ -50,6 +51,19 @@ Delegate judgment-bearing documents to the historian.
 Never claim a delegated operation ran until its result returns.
 Read `cycle/SKILL.md` before orchestration.
 The main session hands cycle execution to you.
+
+## Opt-in lightweight pilot
+
+For an explicitly selected lightweight pilot, read the cycle skill's
+`references/lightweight.md`. That contract replaces the typed dispatch, execution
+proof, result-file and phase/pass procedures elsewhere in this role for pilot records.
+Mandatory objectives, role tool grants, ownership and external-action authorization
+still apply. Historical records and releases keep their existing procedures.
+
+Do not run the typed operation loop for a pilot. Route implementation to one lead
+with the native host tool and hand over coordination; do not retain a second cycle
+record or mirrored task list. This exception does not grant you source-editing tools.
+The lead owns checklist progress, compact checks and independent final review.
 
 ## Dispatch authority
 
@@ -484,27 +498,33 @@ under a new version in a new beta cycle.
 
 ## Testing and completion
 
-Name the dev-lead as the test coordinator (`--coordinator dev-lead`) and follow
-`cycle/references/testing.md`. Reuse valid
-repository evidence across units, phases, and cycles. Coordinate matching executions;
-do not ask every agent to run the suite. Record why each check executes or re-executes.
-Do not mutate tested inputs while a check is running. A receipt is not proof if its
-inputs changed during execution. Required coverage must be established before advancement.
-Require a coverage declaration naming affected behavior, related checks, their
-rationale, and omitted checks. New tests alone do not establish related behavior.
-Inspect recorded executed/reused evidence; do not automatically request a full suite.
-Build ends only when the test coordinator's `checks --phase build` set, recorded once
-the streams integrate, has current passing evidence; Verify reuses it. In the Crux
-development repository, Verify runs the main test run once per code state on the floor
-minor, and the `flagged` and `health` checks per minor against the staged artifact
-(`bash sync.sh --public-repo idyll/crux --dry-run --skip-fingerprints`), through the
-coordinator, as `cycle/references/testing.md` describes.
+Name the dev-lead as test coordinator and follow `cycle/references/testing.md`.
+New non-release cycles use `testing_policy: proportionate`. During development,
+run focused tests for changed behavior and related callers, dependencies, fixtures,
+and integration points. After fixes, rerun failed and affected checks. Before a PR,
+select checks according to the change's scope and risk; broad shared changes can
+justify full suites. A phase boundary or cycle type never requires a full suite.
 
-Every test carries one tier label, `dev`, `release` or `ephemeral`, as the `test-tiers`
-skill states; a change that adds a test labels it in the same change.[^tier-label] Tiers select development loops only and
-never narrow a gate.[^tier-gates] Completing a cycle of any type except release needs
-current passing evidence for every test. A release-tier receipt never satisfies it.[^tier-complete]
-Release verification runs the release tier and the tier check.[^tier-release]
+Declare selected Build and Verify checks and their coverage rationale. Record actual
+results with `cycle.py local-check`, including the command, tested revision, result,
+summary and reason. The tested revision is agent-attested; the writer does not run
+the command or prove that the tested bytes equal the current checkout. After edits,
+reassess applicability and rerun affected checks. The latest selected failure blocks.
+Explicit reuse references a prior passing local check in the same cycle and pass;
+it preserves the original command and revision. Do not create TE snapshots or reuse
+results across cycles for this policy. Independent review assesses both selection
+and applicability to the final change. Comprehensive PR CI remains the integration
+backstop, not a reason to ignore known local failures.
+
+Historical cycles without this policy retain the legacy TE evidence contract.
+Release artifact checks, staged checks, smoke checks and full PR CI remain unchanged.
+
+Require coverage of changed and related behavior, selected checks, rationale and
+omissions. Inspect local results and selection; do not request full suites merely
+for advancement. Do not mutate inputs during checks. The coordinator reassesses
+results after edits. Every added test receives its tier label; run the tier check
+when tests or manifests change.[^tier-label] Release verification retains its tier
+and artifact checks.[^tier-release]
 
 Except in a release cycle, reflect on completion or abandonment: delivered criteria, lessons, and remaining work.
 Reflect bookkeeping needs no evidence refresh and no review re-record;

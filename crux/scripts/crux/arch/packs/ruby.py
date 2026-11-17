@@ -78,9 +78,17 @@ from ..core import (
     _norm_path,
     _rel,
     _render_openapi,
+    _omit,
     _safe_read_bytes,
     _sha256_hex,
     _singularize,
+    decode_input,
+    input_dir_present,
+    input_kind,
+    ledger_active,
+    list_input_dir,
+    marker_exists,
+    parsing,
 )
 
 # ─────────────────────── ruby stack pack (ADR-0067) ─────────────────────────
@@ -169,10 +177,75 @@ def _rb_constant(root_dir: Path, path: Path) -> str:
     return "::".join(_camelize(s) for s in rel.parts)
 
 
+# ── the input seam (ADR-0181) ────────────────────────────────────────────────
+# Inside a derive every read, listing, presence gate, decode and parse in this
+# pack goes through core's shared readers, so an input the pack cannot describe
+# is named in the concern's Omissions section, refused, or fails the
+# environment lane — never dropped in silence. Outside a derive
+# (`ledger_active()` False) each site keeps the predicate and the read it
+# always had, so a direct extractor call returns what it always returned.
+
+
+def _present_kind(path: Path, origin: str, admit) -> str:
+    """`core.input_kind` of `path`, with a path the retained-evidence resolver
+    prunes read as absent. Only called under an active ledger.
+
+    `input_kind` classifies by `lstat` before `admit` runs, because `admit`
+    follows links and answers None for an unreadable component: asked first,
+    it would hide a link or a permission failure as absence."""
+    kind = input_kind(path, origin)
+    if kind in ("file", "dir") and admit(path) is None:
+        return "absent"
+    return kind
+
+
+def _named_dir_present(root: Path, path: Path) -> bool:
+    """Is the autoload directory a config file names present? Only called
+    under an active ledger.
+
+    The path is tree content's, so its origin is `named` (ADR-0181 approach
+    3): an absent directory, or a regular file where it is expected, is an
+    absent omission and a link is not-a-file. A string that interpolates
+    (`"#{root}/x"`) or leaves the repository names no static path in it, so
+    it is no input, as it was none before."""
+    if "#{" in str(path):
+        return False
+    r, p = os.path.abspath(root), os.path.abspath(path)
+    try:
+        if os.path.commonpath([r, p]) != r:
+            return False
+    except ValueError:
+        return False
+    return input_dir_present(path, "named")
+
+
+def _fixed_file_present(root: Path, path: Path) -> bool:
+    """A detector's presence gate for one fixed-origin file.
+
+    Inside a derive the gate is the fixed-origin read (ADR-0181 approach 3):
+    confirmed absence is no input, a link or a directory is named not-a-file,
+    and a permission failure is a document finding. Outside one it is the
+    `is_file()` predicate the detector always used."""
+    if ledger_active():
+        return _safe_read_bytes(Path(root), path, [], origin="fixed") is not None
+    return path.is_file()
+
+
 def _walk_rb_dir(root: Path, base: Path):
     """Yield contained `.rb` files under `base` (skips VCS/vendor + dot dirs and
     file symlinks that escape the root). `os.walk` does not follow directory
-    symlinks (followlinks defaults to False)."""
+    symlinks (followlinks defaults to False).
+
+    Inside a derive the shared walk classifies `base` and every listing, and
+    every `.rb` entry is yielded — a file link included — so the shared reader
+    names what it cannot read rather than this filter dropping it."""
+    if ledger_active():
+        for dirpath, dirnames, filenames in _retained_source_walk(root, base):
+            dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS and not d.startswith(".")]
+            for fn in sorted(filenames):
+                if fn.endswith(".rb"):
+                    yield Path(dirpath) / fn
+        return
     if _retained_source_resolver(root)(base) is None or not base.is_dir():
         return
     for dirpath, dirnames, filenames in _retained_source_walk(root, base):
@@ -202,10 +275,16 @@ class RubySources(NamedTuple):
 
 def _find_rails_root(root: Path) -> Path | None:
     """The Rails root: the dir carrying `config/application.rb`, or `bin/rails`
-    plus an `app/` (point 4). v1 checks the repo root only."""
-    if (root / "config" / "application.rb").is_file():
+    plus an `app/` (point 4). v1 checks the repo root only.
+
+    The three tests are markers that place the Rails root, decided through
+    `core.marker_exists` (ADR-0181 approach 3): with no active ledger they are
+    the `is_file()`/`is_dir()` predicates they were. `config/application.rb`
+    is also an input; its read in `_autoload_roots` names a link or an
+    unreadable file."""
+    if marker_exists(root / "config" / "application.rb", "file"):
         return root
-    if (root / "bin" / "rails").is_file() and (root / "app").is_dir():
+    if marker_exists(root / "bin" / "rails", "file") and marker_exists(root / "app", "dir"):
         return root
     return None
 
@@ -223,29 +302,49 @@ def _autoload_roots(root: Path, rails_root: Path) -> tuple:
     # `autoload_paths`/`eager_load_paths` can be set in config/application.rb OR
     # in a per-environment file (config/environments/*.rb) — point 3 requires the
     # environment-file sibling to be honored, not silently defaulted past.
-    cfg_files = [rails_root / "config" / "application.rb"]
+    ledger = ledger_active()
+    cfg_files = [(rails_root / "config" / "application.rb", "fixed")]
     env_dir = rails_root / "config" / "environments"
-    if admit(env_dir) is not None and env_dir.is_dir():
-        cfg_files += sorted(p for p in env_dir.glob("*.rb"))
-    for cfg in cfg_files:
-        if admit(cfg) is None or not cfg.is_file():
-            continue
-        raw = _safe_read_bytes(root, cfg, oversize)
+    if ledger:
+        # The environment directory is listed through `list_input_dir`, so an
+        # unlistable one is an environment failure rather than no files.
+        if _present_kind(env_dir, "fixed", admit) == "dir":
+            cfg_files += [(p, "listed") for p in list_input_dir(env_dir, "fixed") or ()
+                          if p.name.endswith(".rb")]
+    elif admit(env_dir) is not None and env_dir.is_dir():
+        cfg_files += [(p, "listed") for p in sorted(env_dir.glob("*.rb"))]
+    for cfg, origin in cfg_files:
+        if ledger:
+            # The read is the presence gate: confirmed absence of the fixed
+            # file is no input; a link or directory is named not-a-file.
+            raw = _safe_read_bytes(root, cfg, oversize, origin=origin)
+        else:
+            if admit(cfg) is None or not cfg.is_file():
+                continue
+            raw = _safe_read_bytes(root, cfg, oversize)
         if raw is None:
             continue
-        text = _scrub_ruby_comments(raw.decode("utf-8", errors="replace"))
+        text = decode_input(cfg, raw)
+        if text is None:
+            continue
+        text = _scrub_ruby_comments(text)
         for m in _AUTOLOAD_ASSIGN.finditer(text):
             rhs = m.group(1).strip()
             strings = _RB_PATH_STRING.findall(rhs)
             residue = re.sub(r"[\[\]{}(),\s]", "", _RB_PATH_STRING.sub("", rhs))
             if strings and not residue:
                 for s in strings:
-                    cand = admit(rails_root / s)
-                    if cand is not None and cand.is_dir():
+                    named = rails_root / s
+                    if ledger and not _named_dir_present(root, named):
+                        continue
+                    cand = admit(named)
+                    if cand is not None and (ledger or cand.is_dir()):
                         literal_dirs.append(cand)
             else:
                 nonliteral = True
-    if oversize:
+    if oversize and not ledger:
+        # Inside a derive an oversize config file is a ledger omission, named
+        # once by core's Omissions section (ADR-0181).
         residuals.append(
             "A Rails config file exceeded the 2 MB bound and was not scanned for "
             "autoload roots: " + ", ".join(f"`{_cell(_rel(root, p))}`" for p in sorted(oversize)))
@@ -256,10 +355,19 @@ def _autoload_roots(root: Path, rails_root: Path) -> tuple:
             "residual); the conventional `app/*` + `lib` set is used."
         )
     app = rails_root / "app"
-    roots: list = sorted(d for d in app.iterdir() if admit(d) is not None and d.is_dir()) if admit(app) is not None and app.is_dir() else []
     lib = rails_root / "lib"
-    if admit(lib) is not None and lib.is_dir():
-        roots.append(lib)
+    if ledger:
+        # `app/` is listed through `list_input_dir` and each child classified
+        # by `lstat`: a link under `app/` is named not-a-file, never followed.
+        roots: list = [d for d in (list_input_dir(app, "fixed") or ()
+                                   if _present_kind(app, "fixed", admit) == "dir" else ())
+                       if _present_kind(d, "listed", admit) == "dir"]
+        if _present_kind(lib, "fixed", admit) == "dir":
+            roots.append(lib)
+    else:
+        roots = sorted(d for d in app.iterdir() if admit(d) is not None and d.is_dir()) if admit(app) is not None and app.is_dir() else []
+        if admit(lib) is not None and lib.is_dir():
+            roots.append(lib)
     roots += literal_dirs
     seen: set = set()
     uniq: list = []
@@ -285,14 +393,25 @@ def detect_ruby_sources(root: Path) -> RubySources:
         roots, residuals = _autoload_roots(root, rails_root)
     else:
         lib = root / "lib"
-        if lib.is_dir():
+        if input_dir_present(lib, "fixed", legacy=os.path.isdir):
             rails_root, roots = root, [lib]
         else:
             roots = []
     entries: list = []
     seen: set = set()
+    ledger = ledger_active()
     for idx, root_dir in enumerate(roots):
         for p in _walk_rb_dir(root, root_dir):
+            if ledger:
+                # The reader decides size and kind, and names what it refuses
+                # (ADR-0181): no size filter here, and no final-component
+                # resolve, so a link is not dropped as a duplicate of its
+                # target. Overlapping roots still list one file once.
+                key = Path(os.path.realpath(p.parent)) / p.name
+                if key not in seen:
+                    seen.add(key)
+                    entries.append((idx, root_dir, p))
+                continue
             try:
                 size = p.stat().st_size
             except OSError:
@@ -335,10 +454,16 @@ def extract_ruby_module_graph(root: Path, docs_dir: str) -> tuple[str, dict]:
     file_texts: list = []     # (constant, path, raw_text)
     ordered = sorted(src.entries, key=lambda e: (e[0], _rel(root, e[2])))
     for root_index, root_dir, path in ordered:
-        raw = _safe_read_bytes(root, path, [])
+        raw = _safe_read_bytes(root, path, [], origin="listed")
         if raw is None:
             continue
         sources[_rel(root, path)] = _sha256_hex(raw)      # hash every scanned .rb.
+        # Inside a derive an undecodable source is named and is no node: read
+        # and omitted for its content, it stays hashed (ADR-0181 point 5).
+        # Outside one the decode replaces bad bytes, as it always did.
+        text = decode_input(path, raw)
+        if text is None:
+            continue
         const = _rb_constant(root_dir, path)
         if not const:
             continue
@@ -347,7 +472,7 @@ def extract_ruby_module_graph(root: Path, docs_dir: str) -> tuple[str, dict]:
             continue
         index[const] = (root_index, path)
         reverse[path.resolve()] = const
-        file_texts.append((const, path, raw.decode("utf-8", errors="replace")))
+        file_texts.append((const, path, text))
 
     edges: set = set()
     for const, path, text in file_texts:
@@ -403,7 +528,9 @@ def extract_ruby_module_graph(root: Path, docs_dir: str) -> tuple[str, dict]:
             out.append(f"- `{_cell(const)}` — shadowed file `{_cell(relp)}`")
         out.append("")
     notes = list(src.residuals) + graph_residuals
-    if src.oversize:
+    if src.oversize and not ledger_active():
+        # Inside a derive an oversize source is a ledger omission, named once
+        # by core's Omissions section (ADR-0181); `src.oversize` stays empty.
         notes.append("Skipped for exceeding the 2 MB bound: "
                      + ", ".join(f"`{_cell(p)}`" for p in sorted(src.oversize)))
     if notes:
@@ -415,10 +542,32 @@ def extract_ruby_module_graph(root: Path, docs_dir: str) -> tuple[str, dict]:
 
 
 def _ruby_openapi_path(root: Path) -> Path | None:
+    if ledger_active():
+        return _ruby_openapi_path_ledger(root)
     for c in _OPENAPI_CANDIDATES:
         p = root / c
         if p.is_file() and _contained(root, p):
             return p
+    return None
+
+
+def _ruby_openapi_path_ledger(root: Path) -> Path | None:
+    """`_ruby_openapi_path`'s candidate probe inside a derive (ADR-0181
+    approach 3). Each candidate is decided by an `lstat`: confirmed absence is
+    'not this candidate'; a regular file is the document; a link or a
+    directory where the document is expected ends the probe, named
+    not-a-file, so a later candidate is not read in its place."""
+    admit = _retained_source_resolver(root)
+    for c in _OPENAPI_CANDIDATES:
+        p = root / c
+        kind = _present_kind(p, "fixed", admit)
+        if kind == "file":
+            return p
+        if kind == "omitted":
+            return None
+        if kind == "dir":
+            _omit(p, "not-a-file", "directory")
+            return None
     return None
 
 
@@ -437,9 +586,16 @@ def extract_ruby_api_surface_openapi(root: Path, docs_dir: str) -> tuple[str, di
     if raw is None:
         return _canon(["# API surface", "", NO_EXTRACTOR.rstrip("\n")]), {}
     sources = {_rel(root, spec): _sha256_hex(raw)}
-    try:
-        doc = json.loads(raw.decode("utf-8"))
-    except Exception:
+    # Inside a derive the decode and the parse go through the shared readers,
+    # so a document that does not decode or parse is named (ADR-0181) rather
+    # than stubbing in silence. Outside one this is the strict decode and the
+    # broad handler it always was.
+    text = decode_input(spec, raw) if ledger_active() else None
+    if ledger_active() and text is None:
+        return _canon(["# API surface", "", NO_EXTRACTOR.rstrip("\n")]), sources
+    with parsing(spec, Exception) as parsed:
+        doc = json.loads(text if text is not None else raw.decode("utf-8"))
+    if parsed.failed:
         return _canon(["# API surface", "", NO_EXTRACTOR.rstrip("\n")]), sources
     md = _render_openapi(doc, f"_Derived from `{_cell(_rel(root, spec))}`._")
     if md is None:
@@ -557,7 +713,34 @@ def _parse_rails_routes_dump(text: str) -> tuple:
 
 def _ruby_routes_artifact_path(root: Path) -> Path | None:
     p = Path(root) / "arch-inputs" / "routes.txt"
+    if ledger_active():
+        # Decided by an `lstat` (ADR-0181 approach 3): a link is named
+        # not-a-file by `input_kind`, a directory here, and neither is read.
+        kind = _present_kind(p, "fixed", _retained_source_resolver(Path(root)))
+        if kind == "dir":
+            _omit(p, "not-a-file", "directory")
+        return p if kind == "file" else None
     return p if p.is_file() and _contained(Path(root), p) else None
+
+
+def _routes_dump_text(root: Path, p: Path, oversize: list | None = None):
+    """`(raw, text)` for the routes dump: `raw` None when it was not read,
+    `text` None when it was read and did not decode (named inside a derive).
+    Outside a derive the decode replaces bad bytes, as both sites did."""
+    raw = _safe_read_bytes(root, p, [] if oversize is None else oversize)
+    if raw is None:
+        return None, None
+    return raw, decode_input(p, raw)
+
+
+def _routes_dump_rows(p: Path, text: str) -> tuple:
+    """`_parse_rails_routes_dump` with its no-record answer named inside a
+    derive: a dump carrying no record separator is unparseable (ADR-0181),
+    where the detector used to fall through to the next rung in silence."""
+    rows, parsed = _parse_rails_routes_dump(text)
+    if not parsed:
+        _omit(p, "unparseable")
+    return rows, parsed
 
 
 def _detect_ruby_routes_artifact(root: Path) -> bool:
@@ -583,15 +766,21 @@ def _detect_ruby_routes_artifact(root: Path) -> bool:
     `parse_failed` branch clause 1 has not landed. `RoutesArtifactUnreadableResidualTests`
     pins that behaviour, so the day `parse_failed` becomes reachable, a failing
     assertion is already waiting.
+
+    Inside a derive (ADR-0181) the dump is no longer passed over in silence: a
+    dump that does not decode is named undecodable and one with no record
+    separator is named unparseable in the concern's Omissions section, and
+    the chain still continues to the next rung. Outside a derive nothing here
+    changed.
     """
     root = Path(root)
     p = _ruby_routes_artifact_path(root)
     if p is None:
         return False
-    raw = _safe_read_bytes(root, p, [])
-    if raw is None:
+    raw, text = _routes_dump_text(root, p)
+    if text is None:
         return False
-    _rows, parsed = _parse_rails_routes_dump(raw.decode("utf-8", errors="replace"))
+    _rows, parsed = _routes_dump_rows(p, text)
     return parsed
 
 
@@ -609,11 +798,13 @@ def extract_ruby_api_surface_routes_artifact(root: Path, docs_dir: str) -> tuple
     if dump is None:
         return _canon(["# API surface", "", NO_EXTRACTOR.rstrip("\n")]), {}
     oversize: list = []
-    raw = _safe_read_bytes(root, dump, oversize)
+    raw, text = _routes_dump_text(root, dump, oversize)
     if raw is None:
         return _canon(["# API surface", "", NO_EXTRACTOR.rstrip("\n")]), {}
     sources = {_rel(root, dump): _sha256_hex(raw)}
-    rows, parsed = _parse_rails_routes_dump(raw.decode("utf-8", errors="replace"))
+    if text is None:
+        return _canon(["# API surface", "", NO_EXTRACTOR.rstrip("\n")]), sources
+    rows, parsed = _routes_dump_rows(dump, text)
     if not parsed or not rows:
         return _canon(["# API surface", "", NO_EXTRACTOR.rstrip("\n")]), sources
     out = ["# API surface", "",
@@ -1110,7 +1301,7 @@ def _parse_routes_tree(raw: bytes) -> tuple:
 def _detect_ruby_routes(root: Path) -> bool:
     root = Path(root)
     rr = _find_rails_root(root) or root
-    return (rr / "config" / "routes.rb").is_file()
+    return _fixed_file_present(root, rr / "config" / "routes.rb")
 
 
 def extract_ruby_api_surface_routes(root: Path, docs_dir: str) -> tuple[str, dict]:
@@ -1131,7 +1322,17 @@ def extract_ruby_api_surface_routes(root: Path, docs_dir: str) -> tuple[str, dic
     if raw is None:
         return _canon(["# API surface", "", NO_EXTRACTOR.rstrip("\n")]), {}
     sources = {_rel(root, routes): _sha256_hex(raw)}
-    rows, residuals = _parse_routes_tree(raw)
+    # The tree-sitter parse reads bytes, but the slices it renders are text:
+    # inside a derive a file that is not UTF-8 is named undecodable and not
+    # described (ADR-0181 approach 5). Outside one `decode_input` never
+    # answers None. The parse is bounded by `parsing()`, which names a
+    # content failure inside a derive and changes nothing outside one.
+    if decode_input(routes, raw) is None:
+        return _canon(["# API surface", "", NO_EXTRACTOR.rstrip("\n")]), sources
+    with parsing(routes, legacy=()) as parsed:
+        rows, residuals = _parse_routes_tree(raw)
+    if parsed.failed:
+        return _canon(["# API surface", "", NO_EXTRACTOR.rstrip("\n")]), sources
     if not rows:
         return _canon(["# API surface", "", NO_EXTRACTOR.rstrip("\n")]), sources
     out = ["# API surface", "",
@@ -1240,7 +1441,7 @@ def _build_fk_map(fks: list) -> tuple:
 
 
 def _detect_ruby_schema_rb(root: Path) -> bool:
-    return (Path(root) / "db" / "schema.rb").is_file()
+    return _fixed_file_present(Path(root), Path(root) / "db" / "schema.rb")
 
 
 def extract_ruby_data_model(root: Path, docs_dir: str) -> tuple[str, dict]:
@@ -1254,7 +1455,11 @@ def extract_ruby_data_model(root: Path, docs_dir: str) -> tuple[str, dict]:
     if raw is None:
         return _canon(["# Data model", "", NO_EXTRACTOR.rstrip("\n")]), {}
     sources = {_rel(root, schema): _sha256_hex(raw)}
-    tables, fks = _parse_schema(raw.decode("utf-8", errors="replace"))
+    text = decode_input(schema, raw)
+    if text is None:
+        # Named undecodable inside a derive (ADR-0181); never None outside.
+        return _canon(["# Data model", "", NO_EXTRACTOR.rstrip("\n")]), sources
+    tables, fks = _parse_schema(text)
     if not tables:
         return _canon(["# Data model", "", NO_EXTRACTOR.rstrip("\n")]), sources
     fk_map, inferred = _build_fk_map(fks)
@@ -1299,7 +1504,8 @@ def extract_ruby_data_model(root: Path, docs_dir: str) -> tuple[str, dict]:
         res.append("An `add_foreign_key` without an explicit `column:` infers the "
                    "referencing column as `<referenced_singular>_id`, which "
                    "mis-attributes a non-conventional FK column (a named residual).")
-    if oversize:
+    if oversize and not ledger_active():
+        # Inside a derive an oversize schema is a ledger omission (ADR-0181).
         res.append("Skipped for exceeding the 2 MB bound: "
                    + ", ".join(f"`{_cell(p)}`" for p in sorted(oversize)))
     if res:
@@ -1347,9 +1553,14 @@ def detect(root: Path) -> DetectResult:
     match can be rendered naming each candidate AND its marker (clause 6)."""
     root = Path(root)
     markers: list[str] = []
-    if (root / "Gemfile").exists():
+    # Markers decide presence through the core helpers (ADR-0181 approach 3):
+    # inside a derive an unlistable root is an environment failure rather
+    # than no gemspec; outside one `list_input_dir` is the sorted listing the
+    # glob was, `[]` when the root cannot be listed.
+    if marker_exists(root / "Gemfile"):
         markers.append("Gemfile")
-    markers += [p.name for p in root.glob("*.gemspec")]
+    markers += [p.name for p in list_input_dir(root, "fixed") or ()
+                if p.name.endswith(".gemspec")]
     markers.sort()
     return DetectResult(matched=bool(markers), markers=tuple(markers))
 

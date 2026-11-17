@@ -199,6 +199,82 @@ def queue_lines(sio, cfg, statuses):
     return lines
 
 
+PILOT_FORMAT = 'crux.cycle.vNext'
+PILOT_PHASES = ['planning', 'working', 'reviewing', 'reviewed', 'completed']
+# The closed sets the dashboards' validator accepts for a pilot row and for a started queue item.
+# tools/tests/test_crux_mods_parity.py holds them equal to crux-mods/hooks/lib/view.ts.
+PILOT_STATUSES = ['active', 'paused', 'reviewed', 'completed', 'abandoned']
+QUEUE_CYCLE_STATUSES = ['active', 'paused', 'reviewed', 'completed', 'abandoned', 'shortcut', 'missing']
+
+
+def unreadable_pilot(identity, exc, modified_s):
+    """A row for a pilot record the reader cannot interpret, in the dashboards' closed vocabulary.
+
+    The title and the blocker say that the record is unreadable and why. `paused` is the status
+    that asks for attention; nothing else about the cycle is claimed."""
+    reason = clean(str(exc) or type(exc).__name__, 300)
+    return {'id': identity, 'title': 'Unreadable cycle record', 'type': 'pilot', 'status': 'paused',
+            'phase': 'planning', 'pass': 1, 'pass_limit': 1, 'phases': PILOT_PHASES[:], 'tasks': [], 'returns': [], 'waits': [],
+            'blocker': clean(f'This record cannot be read: {reason}. The other cycles are shown.', 1000), 'reflection': None,
+            'modified_s': modified_s, 'schema_version': PILOT_FORMAT, 'revision': None, 'assignments': [],
+            'classification_count': 0, 'exception': None, 'started_s': modified_s, 'ended_s': None, 'paused_s': 0,
+            'open_started_s': modified_s, 'basis': 'derived', 'phase_times': []}
+
+
+def pilot_view(doc, repo, modified_s):
+    """Adapt the explicit pilot format without inventing passes or merge completion.
+
+    Pass fields are compatibility placeholders; renderers suppress them for type pilot.
+    Timing is creation-to-observation wall time, not inferred active work time.
+    """
+    if not ID.fullmatch(doc.get('id', '')) or doc.get('state') not in {*PILOT_PHASES, 'paused', 'abandoned'}:
+        raise CycleError('invalid pilot cycle')
+    if type(doc.get('revision')) is not int or doc['revision'] < 1:
+        raise CycleError('invalid pilot revision')
+    state = doc['state']
+    phase = doc.get('resume_state', 'working') if state in {'paused', 'abandoned'} else state
+    if phase not in PILOT_PHASES:
+        raise CycleError('invalid pilot phase')
+    from cycle_pilot import blockers
+    blocker = '; '.join(clean(b) for b in blockers(doc))
+    # One source for the review, applicability and delivery facts: the writer's own status function.
+    from cycle_pilot import status_facts
+    facts = status_facts(repo, doc)
+    status = state if state in {'paused', 'abandoned', 'reviewed', 'completed'} else 'active'
+    assert status in PILOT_STATUSES
+    if state == 'reviewed' and facts['review_applicable'] is False:
+        blocker = '; '.join(filter(None, [blocker, 'Recorded review no longer covers the final change (' + facts['applicability'] + '); independent delta review needed']))
+    tasks = []
+    for task in doc['tasks'][:500]:
+        if task['status'] not in {'pending', 'working', 'blocked', 'done'}:
+            raise CycleError('invalid pilot task')
+        description = f"{task['description']} [{task['owner']} run {task['run']}]"
+        tasks.append({'id': clean(task['id']), 'phase': 'reviewing' if task.get('kind') == 'review' else 'working',
+                      'description': clean(description), 'status': 'active' if task['status'] == 'working' else task['status']})
+    delivery = doc['delivery']
+    if delivery['ci'] not in {'unknown', 'pending', 'passed', 'failed'} or delivery['merge'] not in {'unmerged', 'merged'}:
+        raise CycleError('invalid pilot delivery')
+    delivery_text = f"Delivery, recorded separately: PR: {delivery.get('pr') or 'none'}; CI: {delivery['ci']}; merge: {delivery['merge']}"
+    if delivery.get('published'):
+        delivery_text += f"; published: {delivery['published']}"
+    if state == 'completed':
+        delivery_text = 'Completed. ' + delivery_text
+    elif state == 'reviewed':
+        delivery_text = ('Reviewed; awaiting finish. ' if facts['review_applicable'] else 'Reviewed; the review no longer covers the final change. ') + delivery_text
+    if facts['reopened']:
+        delivery_text = f"Reopened {facts['reopened']} time(s). " + delivery_text
+    created = _epoch(doc['created_at'])
+    ended = _epoch(doc['updated_at']) if state in {'abandoned', 'completed'} else None
+    return {'id': doc['id'], 'title': clean(doc['title']), 'type': 'pilot', 'status': status,
+            'phase': phase, 'pass': 1, 'pass_limit': 1, 'phases': PILOT_PHASES[:],
+            'tasks': tasks, 'returns': [], 'waits': [], 'blocker': clean(blocker, 1000) or None,
+            'reflection': clean(delivery_text, 1000), 'modified_s': modified_s,
+            'schema_version': PILOT_FORMAT, 'revision': doc['revision'], 'assignments': [],
+            'classification_count': 0, 'exception': None, 'started_s': created, 'ended_s': ended,
+            'paused_s': 0, 'open_started_s': None if ended is not None else created,
+            'basis': 'derived', 'phase_times': []}
+
+
 def view(repo, identity=None, now=None, activity=False):
     """The cycle-progress document.
 
@@ -230,6 +306,18 @@ def _view(sio, identity=None, now=None, activity=False):
     for path in paths:
         contained(cfg.docs_root,path.relative_to(cfg.docs_root))
         doc=json.loads(sio.read_text(path,max_bytes=MAX_CYCLE_RECORD_BYTES))
+        if isinstance(doc,dict) and doc.get('format') == PILOT_FORMAT:
+            modified=int(sio.metadata(path)['st_mtime_ns']//1_000_000_000)
+            try:
+                if doc.get('id') != path.parent.name:
+                    raise CycleError('invalid pilot cycle identity')
+                cycles.append(pilot_view(doc, sio.root, modified))
+            except (CycleError,KeyError,TypeError,ValueError,AttributeError) as exc:
+                # One unreadable pilot record must not blank the dashboard. An explicit request for
+                # that record still fails; a listing shows the others and names this one.
+                if identity or not ID.fullmatch(path.parent.name):raise
+                cycles.append(unreadable_pilot(path.parent.name, exc, modified))
+            continue
         docs.append(doc)
         if not ID.fullmatch(doc['id']) or doc['id']!=path.parent.name or doc['type'] not in PHASES or doc['phase'] not in phases_of(doc):raise CycleError('invalid cycle')
         if type(doc['pass']) is not int or type(doc['pass_limit']) is not int or not 1<=doc['pass']<=doc['pass_limit']<=1_000_000:raise CycleError('invalid cycle pass')
@@ -316,7 +404,7 @@ def render(document):
     lines=[]
     for c in document['cycles']:
         # A listed release cycle has one phase and no pass limit to show.
-        position=f"{c['phase'].title()} · {c['status']}" if c['type']=='release' and c['phases']==['release'] else f"Pass {c['pass']} of {c['pass_limit']} · {c['phase'].title()} · {c['status']}"
+        position=f"{c['phase'].title()} · {c['status']}" if c['type']=='pilot' or (c['type']=='release' and c['phases']==['release']) else f"Pass {c['pass']} of {c['pass_limit']} · {c['phase'].title()} · {c['status']}"
         if c.get('revision') is not None:position+=f" · revision {c['revision']}"
         lines.extend([f"{c['id']} {c['title']} [{c['type']}]",position, ' → '.join(p.title() for p in c['phases'])])
         end=c['ended_s'] if c['ended_s'] is not None else document['now_s']
@@ -328,6 +416,8 @@ def render(document):
         if live and c.get('activity'):lines.append('  Activity: '+clean(cycle_activity.summary_line(c['activity'])))
         runs=(getattr(document,'run_lines',None) or {}).get(c['id'])
         if runs:lines.extend(runs())
+        if c['type'] == 'pilot':
+            lines.append(f"  Tasks {sum(t['status'] == 'done' for t in c['tasks'])}/{len(c['tasks'])} done")
         lines.extend(_task_lines(c,live))
         lines.extend(f"  superseded {t['phase']:7} {t['description']} (superseded by {t['superseded_by']})" for t in (getattr(document,'superseded_tasks',None) or {}).get(c['id'],[]))
         lines.extend(f"  Return after pass {r['pass']} ({r['phase']}): {r['reason']}" for r in c['returns'])
@@ -337,7 +427,7 @@ def render(document):
         for name,rows in councils.items():lines.extend(council_lines(name,rows))
         if c.get('exception'):lines.append('  Owner exception: '+c['exception'])
         if c['waits']:lines.append('  Awaiting approval: '+', '.join(c['waits']))
-        if c['blocker']:lines.append('  Paused: '+c['blocker'])
+        if c['blocker']:lines.append(('  Blocked: ' if c['type']=='pilot' else '  Paused: ')+c['blocker'])
         if c['reflection']:lines.append('  Outcome: '+c['reflection'])
     lines.extend(getattr(document,'queue_lines',None) or [])
     return '\n'.join(lines) or 'No cycles.'

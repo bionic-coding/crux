@@ -13,6 +13,7 @@ metadata:
 
 # Dev-lead — implementation lead
 
+
 The host supplies this role contract and the universal cycle preload. Selected
 canonical skill bodies arrive through `prepare-dispatch` with source directories.
 Retrieve other skills through the host's Skill capability when needed. Direct
@@ -28,6 +29,23 @@ integrate them on main. You own developer dispatch and integration for every str
 the task you are dispatched for.
 Run `inspect`, then the action it returns. Keep bounded work proportional: implement a
 small unit yourself, with independent review commissioned by your caller.
+
+## Opt-in lightweight pilot
+
+For an explicitly selected lightweight pilot, read the cycle skill's
+`references/lightweight.md`. That contract replaces the typed dispatch, execution
+proof, result-file and phase/pass procedures elsewhere in this role for pilot records.
+Mandatory objectives, role tool grants, ownership and external-action authorization
+still apply. Historical records and releases keep their existing procedures.
+
+As the pilot lead, own the plan, record and integration. Implement directly or use
+native host dispatch for bounded tasks with an owner, checkout, dependencies and run
+number. Include the objectives and relevant plan context in assignments. You update
+the record, except the review verdict: name the reviewer with `review-start` and let it
+submit its own report. Never submit a verdict for it. After the approving review, run
+`pilot finish`; do not hold a finished cycle open for a PR, CI or a merge. Persist milestones; commit with normal checkpoints and at handoff
+or completion. Commission an independent reviewer. Do not add a commander layer,
+per-operation commits, source inventories or a cycle-wide retry counter.
 
 ## Mission and objectives
 
@@ -335,50 +353,29 @@ implementation choice needs no lifecycle transition of the earlier record.
 - **Capability-gap reflex:** Doing something manually for the third time, about to say "I can't," or wishing for a tool that doesn't exist? That's a capability gap — invoke the `forge-skill` skill to author or revise a project-local skill that closes it. If you lack either the Skill tool or file-write access, report the gap to your lead instead of working around it.
 
 ## Testing
-Run project-lock checks through `uv run python3 /absolute/plugin/scripts/test-evidence.py`.
+For historical cycles and release evidence, run project-lock checks through
+`uv run python3 /absolute/plugin/scripts/test-evidence.py`.
 The runner's interpreter executes child checks. Direct PEP 723 execution can lack
 project packages or produce ineligible evidence; validate the recorded environment.
 
-Read `cycle/references/testing.md`. You are the cycle's test coordinator when you
-are dispatched for the task that runs the full checks, or when you are the cycle's
-one dev-lead. Full suites, the staged dry run and per-minor runs run only in the test
-coordinator, one at a time. Dispatched for any other task, you run focused checks
-only, as developers and reviewers do. Reuse
-matching repository-owned evidence across units, phases, and cycles. Execute checks
-only for missing evidence, changed relevant inputs, or explicit freshness expiry.
-Record the reason for each execution. A failed result remains visible; unchanged
-input retries need a stated reason. Coordinate matching executions already running.
-Declare affected behavior and integration points, related checks and rationale,
-and omitted checks through the coordinator. Build checks include, besides focused
-tests, every test that imports, invokes, reads, globs or enumerates a changed path;
-when a test enumerates a directory holding a changed path, select its suite. New
-regression tests alone do not prove related behavior; uncertain reach calls for
-conservative coverage. The coordinator records the complete set once the streams
-integrate with `checks --phase build`, and Build ends only when each has current
-passing evidence. A known Verify acceptance failure returns immediately to the
-conductor, before Review.
-Declare cycle checks with `test-evidence.py declare --preset`; never hand-list the
-shared bookkeeping exclusions. In the Crux development repository, run the
-`drift-gates` preset at Verify as a required check and the `journal-index` preset on a
-Verify task. Those presets run scripts that exist only there; in another project,
-declare the project's own checks with the `whole-tree` preset and its test command.
-Document any other exclusion, with its reason, in coverage. In the Crux development
-repository, Verify runs the main test run once per code state on the floor minor, and
-the `flagged` and `health` checks per minor against the staged artifact
-(`bash sync.sh --public-repo idyll/crux --dry-run --skip-fingerprints`), as
-`cycle/references/testing.md` describes.
+Read `cycle/references/testing.md` and follow the record's testing policy.
+For proportionate cycles, coordinate broad checks once after integrating relevant
+work. Other dev-leads, developers and reviewers run focused checks. Declare affected
+behavior, related checks, coverage rationale and omissions. Select by behavioral
+reach and risk; a directory enumeration alone does not require a whole suite.
+Record actual local results with `cycle.py local-check`; record failures too.
+Reassess applicability after edits and rerun failed or affected checks. Explicit
+reuse is limited to a prior passing result in the same cycle and pass. Never fabricate a run.
+Build ends when selected checks pass. Verify selects sufficient checks for PR
+confidence; neither phase automatically runs all suites or staged release checks.
+Historical cycles and release checks retain the legacy TE route in the reference.
 
-Every test carries one tier label, `dev`, `release` or `ephemeral`, in its root's
-`test-tiers.json`; the `test-tiers` skill states the format and the rubric. A unit that
-adds a test file or test method labels it in the same change. Each developer
-dispatch says so.[^tier-label] Tiers narrow only a development loop: a unit's focused
-checks, fix-step reruns and reviewer probes. Never narrow a gate by tier.[^tier-gates]
-The Build-exit run covers every test, and a release-tier receipt never satisfies Build
-exit or completion.[^tier-complete] Run the tier check before the Build-exit full suites,
-so a labelling fault costs no full rerun.
+Every added test file or method receives a tier label in the same change.[^tier-label]
+State this in developer assignments. Run the tier check when tests or manifests change.
+Tiers can select local checks; coverage and review determine sufficiency.
 
 Choose checks that establish the required outcome and relevant failure modes. When
-input dependencies are uncertain, fingerprint conservatively. A full suite is required
+input dependencies are uncertain, investigate related behavior and broaden checks as needed. A full suite is required
 only when necessary to establish coverage, not automatically at every phase boundary.
 Separate correctness checks from statistical performance experiments and justify cost.
 Never claim that prose instructions or a passing component test prove an unobserved
@@ -481,8 +478,8 @@ Replay bookkeeping without repeating an external act. Regeneration proves no rel
 ## Verification and integration
 
 Before marking a unit done, establish valid evidence for checks that bear on it,
-including every test that imports, invokes, reads, globs or enumerates its inputs. Reuse matching
-results through the coordinator. Unknown reach requires conservative coverage, not
+including related callers and integration points. For proportionate cycles, record local
+checks and reassess their applicability through the coordinator. Unknown reach requires conservative coverage, not
 an unsupported claim. Do not rerun merely because a unit was integrated or reviewed.
 
 Coordinate mutations with testing so evidence describes the actual tested inputs.

@@ -19,6 +19,11 @@
     "test-evidence": "Test evidence: receipts, reuse, the registry, the parallel suite driver, the flagged list and test tiers"
   },
   "files": {
+    "test_cycle_pilot.py": {"tier": "dev"},
+    "test_cycle_progress_pilot.py": {"tier": "dev"},
+    "test_cycle_local_checks.py": {
+      "tier": "dev"
+    },
     "test_admission_source_io.py": {
       "tier": "release",
       "area": "cycle-engine"
@@ -140,6 +145,30 @@
     "test_arch_facts.py": {
       "tier": "dev"
     },
+    "test_arch_input_failures_core.py": {
+      "tier": "dev"
+    },
+    "test_arch_input_failures_crux.py": {
+      "tier": "dev"
+    },
+    "test_arch_input_failures_decision_index.py": {
+      "tier": "dev"
+    },
+    "test_arch_input_failures_elixir.py": {
+      "tier": "dev"
+    },
+    "test_arch_input_failures_node.py": {
+      "tier": "dev"
+    },
+    "test_arch_input_failures_python.py": {
+      "tier": "dev"
+    },
+    "test_arch_input_failures_ruby.py": {
+      "tier": "dev"
+    },
+    "test_arch_input_failures_swift.py": {
+      "tier": "dev"
+    },
     "test_arch_migration_authority.py": {
       "tier": "dev"
     },
@@ -242,6 +271,10 @@
         "SchemaVersionGateTests": {
           "tier": "release",
           "area": "config-and-env"
+        },
+        "InaccessibleConfigTests.test_an_unsearchable_root_refuses_naming_the_config": {
+          "tier": "release",
+          "area": "config-and-env"
         }
       }
     },
@@ -314,6 +347,9 @@
     "test_codex_agent_health.py": {
       "tier": "release",
       "area": "catalogs-and-projections"
+    },
+    "test_compile_doctrine_input_lanes.py": {
+      "tier": "dev"
     },
     "test_council_aggregation.py": {
       "tier": "dev",
@@ -675,6 +711,9 @@
     "test_cycle_fast_operations.py": {
       "tier": "release",
       "area": "decisions-classifier"
+    },
+    "test_cycle_fix_attribution.py": {
+      "tier": "dev"
     },
     "test_cycle_fix_metrics.py": {
       "tier": "dev"
@@ -1204,6 +1243,10 @@
         "ContainmentTestCase": {
           "tier": "release",
           "area": "docs-tree-maintenance"
+        },
+        "InputLaneMinorTestCase": {
+          "tier": "release",
+          "area": "docs-tree-maintenance"
         }
       }
     },
@@ -1232,6 +1275,10 @@
           "area": "catalogs-and-projections"
         },
         "CliContractTests": {
+          "tier": "release",
+          "area": "catalogs-and-projections"
+        },
+        "CatalogNameTests.test_the_refusal_reaches_the_command_line_without_a_traceback": {
           "tier": "release",
           "area": "catalogs-and-projections"
         }
@@ -1269,6 +1316,9 @@
     "test_golden_diff_classify.py": {
       "tier": "dev"
     },
+    "test_governs_gates_input_lanes.py": {
+      "tier": "dev"
+    },
     "test_governs_reader_tolerance.py": {
       "tier": "dev"
     },
@@ -1296,6 +1346,31 @@
     },
     "test_historical_replacement_resolution.py": {
       "tier": "dev"
+    },
+    "test_ignored_docs_tree.py": {
+      "tier": "dev",
+      "overrides": {
+        "IgnoredTreeCouncilTests": {
+          "tier": "release",
+          "area": "council"
+        },
+        "TrackedTreeCouncilTests": {
+          "tier": "release",
+          "area": "council"
+        },
+        "IgnoredTreeDevCycleTests": {
+          "tier": "release",
+          "area": "cycle-engine"
+        },
+        "TrackedTreeCycleWriterTests": {
+          "tier": "release",
+          "area": "cycle-engine"
+        },
+        "IgnoredTreeAdrTests": {
+          "tier": "release",
+          "area": "adr-lifecycle"
+        }
+      }
     },
     "test_implementation_approval_retirement_persistence.py": {
       "tier": "dev"
@@ -1402,11 +1477,6 @@
     "test_init_docs_defaults.py": {
       "tier": "dev",
       "overrides": {
-        "InstallDocsSkillsProseTests": {
-          "tier": "ephemeral",
-          "reason": "Pins agent-read install-docs-skills wording and guards removed detection text that no program parses, so it fails the value rule; it stays only because the root file CHANGELOG.md names this class",
-          "retire_when": "CHANGELOG.md no longer names InstallDocsSkillsProseTests"
-        },
         "ManifestTemplateTests": {
           "tier": "release",
           "area": "docs-tree-maintenance"
@@ -1697,7 +1767,7 @@
     "test_pb0150_provenance_postcondition.py": {
       "tier": "ephemeral",
       "reason": "Verified once that the PB-0150 cycle's live rule citations resolve and its promotion path builds; the cycle is closed and the test pins that record",
-      "retire_when": "the five live ADR-0150 slugs and ADR-0151's two live slugs, guidance-rules-keep-resolving and accepting-cycle-requests-promotion, have left the resolver's live slugs map, or the PB-0150 record is archived",
+      "retire_when": "the five live ADR-0150 slugs and ADR-0151's two live slugs, guidance-rules-keep-resolving and accepting-cycle-requests-promotion, have left the resolver's live slugs map; the run directory bionic/promptbooks/runs/PB-0150-treat-council-added-adr-text-as-guidance/ is never archived, so archiving the PB-0150 book does not meet this condition",
       "overrides": {
         "AcceptHookTests": {
           "tier": "dev"
@@ -1858,6 +1928,9 @@
     "test_read_news.py": {
       "tier": "dev"
     },
+    "test_receipt_interpretation.py": {
+      "tier": "dev"
+    },
     "test_record_numbers.py": {
       "tier": "dev",
       "overrides": {
@@ -1882,11 +1955,6 @@
     },
     "test_recover_state_source_io.py": {
       "tier": "dev"
-    },
-    "test_reflex_blocks.py": {
-      "tier": "ephemeral",
-      "reason": "Duplicates the role-skill pairing test, which fails when the commander preloads forge-skill without the write-tree grants; it stays only because the root file CHANGELOG.md names this module",
-      "retire_when": "CHANGELOG.md no longer names test_reflex_blocks"
     },
     "test_regenerator_input_lanes.py": {
       "tier": "dev"
@@ -1919,11 +1987,6 @@
           "area": "test-evidence"
         }
       }
-    },
-    "test_release_content_gate_contract.py": {
-      "tier": "ephemeral",
-      "reason": "Pins the gate prose of the legacy promptbook templates, which agents read and no program parses, so it fails the value rule; it stays only because the root file CHANGELOG.md names this module",
-      "retire_when": "CHANGELOG.md no longer names test_release_content_gate_contract.py"
     },
     "test_release_prep_projection.py": {
       "tier": "release",
@@ -2028,6 +2091,9 @@
       "tier": "dev"
     },
     "test_rule_slug_prose_surfaces.py": {
+      "tier": "dev"
+    },
+    "test_rules_catalog_input_lanes.py": {
       "tier": "dev"
     },
     "test_run_council.py": {
@@ -2162,6 +2228,12 @@
       "tier": "dev"
     },
     "test_summaries_source_io.py": {
+      "tier": "dev"
+    },
+    "test_summarize_adrs_census_members.py": {
+      "tier": "dev"
+    },
+    "test_summarize_adrs_input_lanes.py": {
       "tier": "dev"
     },
     "test_survey.py": {

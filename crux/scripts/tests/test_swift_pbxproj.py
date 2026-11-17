@@ -12,8 +12,8 @@ Three parts, in the order the grammar is built:
     fixture-pinned set {56, 76, 77} -> `unsupported-project-form` (reading
     proceeds per ADR-0130 clause 4), the four of the seven
     `project-unreadable` kinds this module can itself produce, and the per-file parse boundary that
-    catches every exception — `RecursionError` and `MemoryError` included —
-    and classifies it `malformed`.
+    catches every exception but `MemoryError` — `RecursionError` included —
+    and classifies it `malformed`; a `MemoryError` passes through.
   * A stdlib-only import check: `swift_pbxproj.py`'s own top-level imports,
     outside the standard library, must be empty.
 
@@ -372,17 +372,17 @@ class DocumentModelTests(unittest.TestCase):
         with self.assertRaises(RecursionError):
             recurse(0)
 
-    def test_memory_error_during_parse_is_malformed(self):
+    def test_memory_error_during_parse_passes_through(self):
+        # ADR-0181 point 3: no handler swallows a `MemoryError`; the caller's
+        # per-file boundary names the file in the environment lane.
         import unittest.mock as mock
 
         def _bomb(*a, **kw):
             raise MemoryError("seeded")
 
         with mock.patch.object(swift_pbxproj, "_tokenize", side_effect=_bomb):
-            result = swift_pbxproj.read_pbxproj(_wrap(_ONE_OBJECT_BODY))
-        self.assertIsInstance(result, swift_pbxproj.PbxprojRefusal)
-        self.assertEqual(result.residual_class, "project-unreadable")
-        self.assertEqual(result.kind, "malformed")
+            with self.assertRaises(MemoryError):
+                swift_pbxproj.read_pbxproj(_wrap(_ONE_OBJECT_BODY))
 
     def test_closed_kind_set(self):
         # This module can itself only ever emit four of the seven closed

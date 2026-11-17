@@ -25,13 +25,15 @@ PROPOSAL_KEYS = {'cycle_id', 'plan_revision', 'remove', 'move', 'add'}
 
 
 class OwnerDecisionError(CycleError):
-    def __init__(self, code):
+    """A refusal code, plus optional detail fields the CLI prints beside it (field, missing, recovery)."""
+    def __init__(self, code, **detail):
         self.code = code
-        super().__init__(code)
+        self.detail = detail
+        super().__init__(code + (' ' + json.dumps(detail, sort_keys=True) if detail else ''))
 
 
-def fail(code):
-    raise OwnerDecisionError(code)
+def fail(code, **detail):
+    raise OwnerDecisionError(code, **detail)
 
 
 def _plain(value):
@@ -76,8 +78,10 @@ def _binding(value):
 
 def _request(value, extra, *, operation=False):
     keys = set(BINDING) | set(extra) | ({'op_id'} if operation else set())
-    if not isinstance(value, dict) or set(value) != keys:
-        fail('invalid-request-fields')
+    if not isinstance(value, dict):
+        fail('invalid-request-fields', expected='one JSON object')
+    if set(value) != keys:
+        fail('invalid-request-fields', missing=sorted(keys - set(value)), unknown=sorted(set(value) - keys))
     _binding(value)
     if operation and (not isinstance(value['op_id'], str) or not re.fullmatch('[A-Za-z0-9._-]{8,64}', value['op_id'])):
         fail('invalid-operation-id')
@@ -96,8 +100,12 @@ def _root(value):
 def _active(cfg, value):
     if value['cycle_id'] is not None:
         doc = load(cfg.repo_root, value['cycle_id'])
+        if doc['status'] == 'paused':
+            fail('cycle-not-active', status='paused',
+                 recovery=f"resume the cycle first (cycle.py resume {value['cycle_id']} --reason TEXT), "
+                          'then repeat this request unchanged')
         if doc['status'] != 'active':
-            fail('cycle-not-active')
+            fail('cycle-not-active', status=doc['status'])
         if doc['type'] == 'release':
             fail('owner-decisions-unavailable-for-release')
         return doc
@@ -453,6 +461,49 @@ def _changed_acceptance(cfg, doc, proposal):
     return kept + added
 
 
+_CRITERION_LABEL = re.compile(r'^\s*criterion\s+(\d+)\b', re.IGNORECASE)
+
+
+def _criterion_label(entry):
+    """The zero-based criterion index a verification entry is labelled with, or None when it is unlabelled.
+
+    The head is the text before the first colon. It is labelled N only when it starts with `Criterion N`
+    and the rest of the head names no other integer and no second criterion word."""
+    head = entry.split(':', 1)[0]
+    match = _CRITERION_LABEL.match(head)
+    if match is None:
+        return None
+    rest = head[match.end():]
+    if re.search(r'\b\d+\b', rest) or re.search(r'criteri', rest, re.IGNORECASE):
+        return None
+    return int(match.group(1))
+
+
+def stale_verification_record(before, after, added_count, verification, capture):
+    """The stale_verification record one acceptance change adds, or None when it flags nothing.
+
+    A labelled entry is unaffected when its criterion keeps its index and text. An unlabelled entry
+    is affected when the change removes or moves a criterion, which is when the kept prefix differs.
+    The writer flags entries; it never rewrites, reorders or removes one."""
+    if not verification:
+        return None
+    shifted = after[:len(before)] != before
+    entries = []
+    for entry in verification:
+        label = _criterion_label(entry)
+        if label is None:
+            affected = shifted
+        else:
+            affected = not (label < len(before) and label < len(after) and before[label] == after[label])
+        if affected:
+            entries.append(entry)
+    # The added criteria are the change's tail: the list is the kept criteria, then the added ones.
+    added = list(range(len(after) - added_count, len(after)))
+    if not entries and not added:
+        return None
+    return {'capture': {'path': capture['path'], 'sha256': capture['sha256']}, 'entries': entries, 'added': added}
+
+
 def _apply_acceptance(cfg, request):
     capture = resolve_capture(cfg, request)
     if capture['disposition'] != 'approve':
@@ -471,9 +522,15 @@ def _apply_acceptance(cfg, request):
     raw = path.read_bytes()
     if digest(raw) != capture['subject_sha256']:
         fail('stale-presented-subject')
-    acceptance = _changed_acceptance(cfg, doc, _proposal(raw))
+    proposal = _proposal(raw)
+    acceptance = _changed_acceptance(cfg, doc, proposal)
     plan = plan_file_of(doc)
+    flagged = stale_verification_record(doc['plan']['acceptance'], acceptance, len(proposal['add']),
+                                        doc['plan']['verification'], ref)
     plan['acceptance'] = acceptance
+    if flagged is not None:
+        # The same save carries the flag, so the agent reconciles the verification before leaving the phase.
+        plan['stale_verification'] = [*plan.get('stale_verification', []), flagged]
     reason = (f"owner acceptance-change capture {ref['path']} sha256 {ref['sha256']} "
               f"applied to {capture['subject']}")
     revise_plan(cfg, doc, plan, reason)
@@ -501,9 +558,20 @@ def validate_applied_idr(cfg, path, *, purpose, subject, subject_sha256, cycle_i
     return capture
 
 
+def _apply_fields(request):
+    """Refuse a capture or approval of the wrong type by name, before any reader indexes it."""
+    if 'capture' in request and not isinstance(request['capture'], dict):
+        fail('invalid-capture-field', field='capture',
+             expected='the reference object {path, sha256} that owner-decision capture returned')
+    if 'approval' in request and not (isinstance(request['approval'], str) and request['approval'].strip()):
+        fail('invalid-approval-field', field='approval',
+             expected='the documentation-relative path string of the council approval record')
+
+
 def apply(repo, request):
     if not isinstance(request, dict):
-        fail('invalid-request-fields')
+        fail('invalid-request-fields', expected='one JSON object')
+    _apply_fields(request)
     if request.get('purpose') == 'idr':
         with locked(repo) as (cfg, _):
             return _apply_idr(cfg, request)

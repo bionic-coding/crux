@@ -427,6 +427,19 @@ def plan_failure(cfg, doc, job, repo_root=None):
     in_return = doc['phase'] in RETURN_PHASES and doc['pass'] < doc['pass_limit']
     if kind == 'check':
         routes = (['return'] if in_return else []) + ['agent-assessment']
+        if doc.get('testing_policy') == 'proportionate' and doc['type'] != 'release':
+            from cycle_workflow import local_check
+            observed = local_check(doc, detail)
+            if observed['check_id'] != job.subject or observed['result'] != 'failed':
+                return None
+            summary = {'check_id': observed['check_id'], 'command': observed['command'],
+                       'result': observed['result'], 'tested_revision': observed['tested_revision'],
+                       'summary': observed['summary']}
+            state = {'trigger': {'kind': 'check-failed'}, 'check': bounded(job.subject, MAX_PATH_CHARS),
+                     'summary': {key: bounded(value, MAX_FINDING_CHARS) for key, value in summary.items()},
+                     'phase': doc['phase'], 'pass': doc['pass']}
+            source = {**state, 'check': job.subject, 'summary': summary}
+            return sourced(Plan(state, routes, digest({'pass': doc['pass'], 'phase': doc['phase'], 'observation': observed})), source)
         refs = sorted((r['evidence_id'], r['use']) for r in doc['evidence'] if r['check_id'] == job.subject and r['pass'] == doc['pass'])
         state = {'trigger': {'kind': 'check-failed'}, 'check': bounded(job.subject, MAX_PATH_CHARS),
                  'summary': check_summary(repo_root, detail) if repo_root is not None else None, 'phase': doc['phase'], 'pass': doc['pass']}

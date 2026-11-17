@@ -56,10 +56,11 @@ import cycle_hosts
 import cycle_dispatch
 import cycle_execution
 import cycle_local_skills
+import cycle_runtime
 from cycle_workflow import (
     ASSIGNMENT_V3_FIELDS, CHECK_PHASES, CLOSED, OPEN, PHASES, CycleError, LinkedWorktree, atomic_bytes, check_coverage, check_references, check_tests, contained, event,
     legacy, listed, load, locked, main_checkout, now, path_class, phases_of, read_retained, requirements, resolve_commit, run_git, save,
-    source_fingerprint, tree, updated_task, v3_fields, dependency_satisfied,
+    source_fingerprint, tree, updated_task, v3_fields, dependency_satisfied, proportionate, check_current_evidence, local_check,
     council_state, latest_idr, withdraw_decision, withdrawn_names, adr_dependency_problems,
 )
 
@@ -339,7 +340,11 @@ def refresh_advice(repo_root, cycle_id, request):
                 jobs.append(cycle_classify.Job('failure-routing', assignment['task'],
                                                f'delivery:{assignment["id"]}/{assignment["attempt"]}'))
             elif request.get('evidence_id'):
-                failed = cycle_classify.receipt_record(repo_root, request['evidence_id'])
+                if proportionate(doc):
+                    observed = local_check(doc, request['evidence_id'])
+                    failed = {'status': observed['result'], 'declaration': {'check_id': observed['check_id']}}
+                else:
+                    failed = cycle_classify.receipt_record(repo_root, request['evidence_id'])
                 if failed.get('status') != 'failed':
                     raise Refused([failure('failure-evidence-required', 'failure advice needs a recorded failed check')])
                 jobs.append(cycle_classify.Job('failure-routing', failed['declaration']['check_id'],
@@ -477,7 +482,7 @@ def selection_mutation(repo_root, cycle_id, request, prior, deadline):
     from test_evidence import call_scope
     op = request['op']
     if not cycle_advisory.provider_requests_allowed():
-        with locked(repo_root) as (cfg, _), call_scope():
+        with locked(repo_root) as (cfg, _), cycle_runtime.admission(repo_root, op == 'prepare-dispatch'), call_scope():
             doc = load(repo_root, cycle_id)
             if (found := replay(cfg, doc, request)) is not None:
                 return found
@@ -526,7 +531,7 @@ def selection_mutation(repo_root, cycle_id, request, prior, deadline):
     classification_fields(diagnostics, cycle_classify.safely(cycle_classify.focused_tests, repo_root, cycle_id,
                                                              decisions_deadline=deadline))
     try:
-        with locked(repo_root) as (cfg, _), call_scope():
+        with locked(repo_root) as (cfg, _), cycle_runtime.admission(repo_root, op == 'prepare-dispatch'), call_scope():
             doc = load(repo_root, cycle_id)
             if (replayed := replay(cfg, doc, request)) is not None:
                 return replayed
@@ -565,7 +570,7 @@ def mutate(repo_root, cycle_id, request, *, decisions_deadline=None):
     prior = PRELOOKUP[op](repo_root, cycle_id) if op in PRELOOKUP else None
     if op in ('prepare-dispatch', 'advance'):
         return selection_mutation(repo_root, cycle_id, request, prior, decisions_deadline)
-    with locked(repo_root) as (cfg, _), call_scope():
+    with locked(repo_root) as (cfg, _), cycle_runtime.admission(repo_root, op in ('attach-execution', 'release-continue', 'execution-check')), call_scope():
         doc = load(repo_root, cycle_id)
         replayed = replay(cfg, doc, request)
         if replayed is not None:
@@ -1134,6 +1139,8 @@ def dispatch_validation(cfg, doc, request, role):
 def prepare_dispatch(cfg, doc, request, *, resolved_role=None, context=None, continuation=None):
     role = resolved_role or request.get('role')
     task, entry, base = dispatch_validation(cfg, doc, request, role)
+    if role in EDITING_ROLES and editing_task(task) and targets_main_checkout({'host': request['host'], 'role': role}):
+        cycle_runtime.require_unclaimed(cfg.repo_root, cfg.repo_root)
     initial_spec = continuation if continuation is not None else cycle_hosts.continuation_spec(cfg, doc, request, role)
     host, mode, ident = request['host'], request.get('mode'), request.get('assignment')
     staged = cycle_dispatch.staged(cfg, doc, request)
@@ -1296,6 +1303,8 @@ def execution_check_proof(cfg, doc, request):
     started = entry.get('execution_started')
     try:
         root = cycle_execution.checkout(cfg, request.get('checkout'))
+        if entry['role'] in EDITING_ROLES and editing_task(task_entry(doc, entry['task'])):
+            cycle_runtime.require_unclaimed(cfg.repo_root, root)
         expected = {'delivery_token': entry.get('delivery_token'), 'checkout': str(root)}
         if started != expected:
             sealed = cycle_execution.resume_start(cfg, doc, entry, root) if entry.get('resume_seal') else None
@@ -1668,7 +1677,7 @@ def deliver(cfg, doc, request):
             updated = updated_task(cfg, doc, task, {'state': 'done', 'commits': full, 'evidence': evidence,
                                                     'stage': request.get('stage'), 'note': request.get('note')})
         except CycleError as exc:
-            errors.append(failure('task-refused', str(exc), field='outcome', observed=outcome))
+            errors.append(failure(getattr(exc, 'code', 'task-refused'), str(exc), field='outcome', observed=outcome))
     if errors:
         raise Refused(errors)
     execution_observation = observe_execution(cfg, doc, entry, delivery_commits=full)
@@ -1906,6 +1915,14 @@ def phase_checks(doc):
 
 def missing_checks(cfg, doc):
     """Required checks with no current-pass evidence ref, or whose latest ref no longer validates."""
+    if proportionate(doc):
+        missing = []
+        for check in phase_checks(doc):
+            try:
+                check_current_evidence(cfg, doc, [check])
+            except CycleError:
+                missing.append(check)
+        return missing
     from test_evidence import validate_evidence
     missing = []
     for check in phase_checks(doc):
@@ -1940,6 +1957,8 @@ def check_declaration(cfg, check):
 
 def reusable_receipts(cfg, doc):
     """{check_id: {check_id, evidence_id}} for each missing check that has a passing receipt on the current inputs."""
+    if proportionate(doc):
+        return {}
     from test_evidence import lookup
     found = {}
     for check in missing_checks(cfg, doc):
@@ -1958,6 +1977,8 @@ def attach_reusable(cfg, doc, chosen):
     """Attach each chosen receipt to `doc` as a reused ref, exactly as the low-level evidence action records one.
 
     Returns the checks attached. A receipt that no longer validates raises evidence-changed."""
+    if proportionate(doc):
+        return []
     from test_evidence import digest as evidence_digest, normalize, validate_evidence
     attached = []
     for check in missing_checks(cfg, doc):
@@ -2016,6 +2037,10 @@ def declaration_routes(cfg, doc, name):
     """The low-level commands that record what an unmet Verify (Test on records created before the rename) or Review requirement still lacks.
 
     The caller authors the declaration or report; these routes name only where it goes."""
+    if name == 'stale-verification':
+        # An acceptance change flagged verification entries; the plan command reconciles them and clears the flag.
+        return [lowlevel(cfg, ['plan', doc['id']], 'reconcile the flagged verification entries: revise them in a plan '
+                         'file that sets stale_verification to [], then pass it with --file and a --reason', ['--file', '--reason'])]
     if doc['phase'] not in (*CHECK_PHASES, 'review', 'reflect'):
         return []
     if name == 'tests':
@@ -2045,9 +2070,14 @@ def requirement_error(cfg, doc, item):
     if name in ('build-checks', 'tests'):
         recovery += declaration_routes(cfg, doc, name)
         for check in missing_checks(cfg, doc):
-            recovery.append(lowlevel(cfg, ['evidence', doc['id'], '--check-id', check],
-                                     f'run {check}, then attach its passing receipt', ['--evidence-id', '--use']))
-    elif name == 'reduction':
+            if proportionate(doc):
+                recovery.append(lowlevel(cfg, ['local-check', doc['id'], '--check-id', check],
+                                         f'run the selected check {check} and record its observed result; assess related changes before reuse',
+                                         ['--command', '--result', '--tested-revision', '--summary', '--reason']))
+            else:
+                recovery.append(lowlevel(cfg, ['evidence', doc['id'], '--check-id', check],
+                                         f'run {check}, then attach its passing receipt', ['--evidence-id', '--use']))
+    elif name in ('reduction', 'stale-verification'):
         recovery = declaration_routes(cfg, doc, name)
     elif name == 'review' and review_requests_changes(cfg, doc):
         recovery = return_routes(cfg, doc)
@@ -2439,7 +2469,8 @@ def defer_route(cfg, doc, row):
                     f"record the queue entry for the work removed with IDR {row['name']}; the entry keeps the reason and the council attempt history", ['--note'])
 
 
-SUMMARY_FIELDS = ('revision', 'status', 'phase', 'pass', 'pass_limit', 'activity', 'unmet', 'actions', 'problems', 'record', 'focused_suggestions', 'advisory_unavailable')
+SUMMARY_FIELDS = ('revision', 'status', 'phase', 'pass', 'pass_limit', 'activity', 'unmet', 'actions', 'problems', 'record', 'focused_suggestions', 'advisory_unavailable',
+                  'reusable_evidence')
 SUMMARY_ATTEMPT = ('id', 'task', 'role', 'attempt', 'state', 'observation', 'liveness', 'last_activity', 'problem', 'recovery')
 SUMMARY_ACTION = ('request', 'argv', 'caller_fills', 'purpose', 'agent', 'handler', 'classification',
                   'retained_report', 'assessment', 'criterion_options', 'recovery', 'omissions', 'unresolved')
@@ -2736,7 +2767,10 @@ def inspect_state(repo_root, cycle_id, request):
                 for item in blocking:
                     actions += [a for a in item['recovery'] if 'request' in a and a['request']['op'] == 'finish']
         for item in out['unmet']['next']:
-            for route in declaration_routes(cfg, doc, item['requirement']):
+            routes = (requirement_error(cfg, doc, item)['recovery']
+                      if proportionate(doc) and item['requirement'] in ('build-checks', 'tests')
+                      else declaration_routes(cfg, doc, item['requirement']))
+            for route in routes:
                 if route not in actions:
                     actions.append(route)
         if review_requests_changes(cfg, doc):

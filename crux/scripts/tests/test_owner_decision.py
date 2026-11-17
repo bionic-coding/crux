@@ -253,6 +253,50 @@ class OwnerDecisionTests(unittest.TestCase):
             self.application(approved)
         self.assertEqual(self.capture(shown)['capture'], approved['capture'])
 
+    def cli(self, action, request):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = cycle.main(['--repo-root', str(self.repo), 'owner-decision', action, '--json', json.dumps(request)])
+        return code, json.loads(out.getvalue())
+
+    def test_paused_capture_refusal_names_resume_as_the_recovery(self):
+        shown = self.presentation()
+        # Positive control: the same request is captured while the cycle is active.
+        code, active = self.cli('capture', self.capture_request(shown, 'capture-active-1'))
+        self.assertEqual(code, 0, active)
+        mutate(self.repo, self.doc['id'], 'pause', reason='test owner pause')
+        code, paused = self.cli('capture', self.capture_request(shown, 'capture-paused-1', supersedes=active['capture']))
+        self.assertEqual(code, 1, paused)
+        error = paused['error']
+        self.assertEqual((error['code'], error['status']), ('cycle-not-active', 'paused'))
+        self.assertIn(f"cycle.py resume {self.doc['id']} --reason", error['recovery'])
+        self.assertIn('repeat this request', error['recovery'])
+
+    def test_present_refusal_names_the_missing_and_unknown_fields(self):
+        request = {**self.binding, 'op_id': 'present-fields-1', 'question': 'Approve the shown revision?'}
+        # Positive control: the complete request is presented.
+        code, shown = self.cli('present', request)
+        self.assertEqual(code, 0, shown)
+        broken = {key: value for key, value in request.items() if key != 'question'}
+        broken['questions'] = 'misspelled'
+        code, refused = self.cli('present', broken)
+        self.assertEqual(code, 1, refused)
+        self.assertEqual(refused['error'], {'code': 'invalid-request-fields', 'missing': ['question'], 'unknown': ['questions']})
+
+    def test_idr_apply_refuses_a_capture_that_is_not_a_reference_object(self):
+        captured = self.capture()
+        for name, value in {'path string': captured['capture']['path'], 'list': [captured['capture']['path']]}.items():
+            with self.subTest(name):
+                code, refused = self.cli('apply', {**self.binding, 'capture': value})
+                self.assertEqual(code, 1, refused)
+                self.assertEqual(refused['error']['code'], 'invalid-capture-field')
+                self.assertEqual(refused['error']['field'], 'capture')
+                self.assertIn('{path, sha256}', refused['error']['expected'])
+        # Positive control: the reference object capture returned applies.
+        code, applied = self.cli('apply', {**self.binding, 'capture': captured['capture']})
+        self.assertEqual(code, 0, applied)
+        self.assertTrue(applied['applied'])
+
     def test_nonartifact_presentation_path_is_never_read(self):
         shown = self.presentation()
         ref = {'path': 'secrets/.env', 'sha256': '0' * 64}
@@ -371,6 +415,25 @@ class OwnerAdrTests(unittest.TestCase):
         self.assertEqual(receipt['standing'], 'binding')
         from summaries_projection import collect_records
         self.assertEqual(len(collect_records(self.docs / 'adrs')), 1)
+
+    def test_adr_apply_refuses_an_approval_or_capture_of_the_wrong_type_naming_the_field(self):
+        """CYC-0155 friction F1: an approval object crashed apply with a TypeError and wrote nothing."""
+        approved = self.capture()
+        cases = {'approval object': ('approval', {'path': self.approval, 'sha256': '0' * 64}, 'invalid-approval-field'),
+                 'approval empty': ('approval', '', 'invalid-approval-field'),
+                 'capture path string': ('capture', approved['capture']['path'], 'invalid-capture-field')}
+        for name, (field, value, code) in cases.items():
+            with self.subTest(name):
+                request = {**self.binding, 'capture': approved['capture'], 'approval': self.approval, field: value}
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    status = cycle.main(['--repo-root', str(self.repo), 'owner-decision', 'apply', '--json', json.dumps(request)])
+                refused = json.loads(out.getvalue())
+                self.assertEqual(status, 1, refused)
+                self.assertEqual((refused['error']['code'], refused['error']['field']), (code, field))
+                self.assertEqual(dp.frontmatter((self.docs / self.subject).read_text())[0]['status'], 'Proposed')
+        # Positive control: the path string approval and the reference object capture apply.
+        self.assertTrue(self.application(approved)['applied'])
 
     def test_recovery_projection_uses_operation_source_io_for_all_proofs(self):
         _, current = self._interrupted_reapproval()

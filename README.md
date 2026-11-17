@@ -1,4 +1,4 @@
-<!-- generated-from: README.md@sha256:db47af632d2476a149657838254b65287c41dfe2b6de26bb29da998539edbdc5; model: claude-sonnet-5.5; date: 2026-11-11 --> <!-- basis: prompt=sha256:3dfd5eaea94cde6cc35357464ff498d7d011e87ea511a391b899be1890defb1c; generator=sha256:d2d44f3a11572159ec1b22a4a9537a90b0365ccb4f8195f8470672c0dfff676d; model-config=sha256:06075846e4ca64277efd40deeac6c59eb3204ff8c833667deb89a87a175aa36d -->
+<!-- generated-from: README.md@sha256:8a356a058824a192dd5d4a142d7587d331be8306980a5352e32e2b5a165e61ae; model: claude-sonnet-5.5; date: 2026-11-16 --> <!-- basis: prompt=sha256:3dfd5eaea94cde6cc35357464ff498d7d011e87ea511a391b899be1890defb1c; generator=sha256:d2d44f3a11572159ec1b22a4a9537a90b0365ccb4f8195f8470672c0dfff676d; model-config=sha256:06075846e4ca64277efd40deeac6c59eb3204ff8c833667deb89a87a175aa36d -->
 # Crux
 
 An Agentic Harness plugin that maintains a `./bionic/` tree inside any software project — so that Claude can navigate, query, and update project knowledge without anyone having to remember where things go. Everything runs locally — no server, no accounts, no background service: just skills, scripts, and your repo.
@@ -493,4 +493,4 @@ or credentials never silently change the mode or model.
 
 ## License & status
 
-MIT licensed (see [LICENSE](./LICENSE)). v5.5.1 — see [CHANGELOG.md](./CHANGELOG.md) for the per-release breakdown. Issues welcome; the public repo is regenerated on every release, so pull requests there cannot be merged.
+MIT licensed (see [LICENSE](./LICENSE)). v5.8.1 — see [CHANGELOG.md](./CHANGELOG.md) for the per-release breakdown. Issues welcome; the public repo is regenerated on every release, so pull requests there cannot be merged.

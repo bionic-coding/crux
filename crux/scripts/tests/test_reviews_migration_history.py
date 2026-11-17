@@ -50,8 +50,15 @@ class LegacyHistoryMaps(unittest.TestCase):
             resolver = Path(temporary) / "resolver.json"
             for malformed in ([], None, "history", 1):
                 resolver.write_text(json.dumps({"historical_slugs": malformed}))
-                with self.subTest(value=malformed), self.assertRaises(OSError):
-                    driver._resolver_slugs(resolver)
+                with self.subTest(value=malformed):
+                    with self.assertRaises(driver.ReviewsError) as raised:
+                        driver._resolver_slugs(resolver)
+                    self.assertEqual(raised.exception.file, "adrs/summaries/resolver.json")
+                    self.assertIn("`historical_slugs` is a", raised.exception.problem)
+                    self.assertIn("is a map keyed by rule slug", raised.exception.problem)
+            # POSITIVE CONTROL: a well-shaped document returns the maps.
+            resolver.write_text(json.dumps({"historical_slugs": {}}))
+            self.assertEqual(driver._resolver_slugs(resolver)["historical_slugs"], {})
 
     def test_historical_map_rows_are_evidence_references_not_rule_payloads(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -59,8 +66,18 @@ class LegacyHistoryMaps(unittest.TestCase):
             for row in (None, [], "ADR-0001/rule", {"rule": "An invented obligation."},
                         {"source_handle": "ADR-0001/history"}):
                 resolver.write_text(json.dumps({"historical_slugs": {"history": row}}))
-                with self.subTest(row=row), self.assertRaises(OSError):
-                    driver._resolver_slugs(resolver)
+                with self.subTest(row=row):
+                    with self.assertRaises(driver.ReviewsError) as raised:
+                        driver._resolver_slugs(resolver)
+                    self.assertEqual(raised.exception.file, "adrs/summaries/resolver.json")
+                    self.assertIn("historical_slugs rows", raised.exception.problem)
+            # POSITIVE CONTROL: a well-shaped row returns the maps.
+            well = {"source_handle": "ADR-0001/history", "source_identity": "a" * 64,
+                    "destination": {"source_adr": "ADR-0001", "clause_sha256": "b" * 64},
+                    "replacements": []}
+            resolver.write_text(json.dumps({"historical_slugs": {"history": well}}))
+            self.assertEqual(driver._resolver_slugs(resolver)["historical_slugs"],
+                             {"history": well})
 
 
 class PublishedHistory(unittest.TestCase):
@@ -79,7 +96,7 @@ class PublishedHistory(unittest.TestCase):
     def test_historical_locator_resolves_mixed_source_not_live_replacement(self):
         before = fixtures.snapshot(self.root)
         self.assertTrue(driver._handle_exists("rule:rotation", self.tree))
-        path, text, _, _ = driver.build(self.root)
+        path, text, _, _, _ = driver.build(self.root)
         self.assertIn("resolved", text)
         self.assertEqual(path, self.reviews / "index.md")
         self.assertEqual(fixtures.snapshot(self.root), before)
@@ -109,9 +126,16 @@ class PublishedHistory(unittest.TestCase):
             data = json.loads(original)
             data["historical_slugs"]["rotation"]["destination"]["source_adr"] = "ADR-9999"
             resolver.write_text(json.dumps(data)); before = fixtures.snapshot(self.root)
-            with self.assertRaises((OSError, migration.Refused)):
+            # The forged destination fails the row shape check before any
+            # authority read, so it is the resolver's document finding.
+            with self.assertRaises(driver.ReviewsError) as raised:
                 driver._handle_exists("rule:rotation", self.tree)
+            self.assertEqual(raised.exception.file, "docs/adrs/summaries/resolver.json")
+            self.assertIn("historical_slugs rows", raised.exception.problem)
             self.assertEqual(fixtures.snapshot(self.root), before)
+            # POSITIVE CONTROL: the restored bytes answer True.
+            resolver.write_bytes(original)
+            self.assertTrue(driver._handle_exists("rule:rotation", self.tree))
         finally: resolver.write_bytes(original)
 
     def test_missing_historical_source_is_refusal_not_existing_replacement(self):

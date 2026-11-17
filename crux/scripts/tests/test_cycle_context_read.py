@@ -186,6 +186,36 @@ class ContextReadTests(SliceBase):
             response = reader.read_context(tree(self.repo), raw, 'result:bound/1')
             self.assertEqual(response['error']['code'], 'forbidden-path')
 
+    def test_env_example_basename_is_admitted_and_every_other_env_name_refuses(self):
+        # The env-name rule is the single rule in secret_scan: only the exact basename
+        # `.env.example`, in any letter case, is not an env file.
+        reader = self.reader()
+        for name in ['.env.example', '.ENV.EXAMPLE', 'config/.Env.Example']:
+            path = self.write(name, 'API_KEY=\n')
+            raw = load(self.repo, self.cid)
+            raw['assignments'] = [{'id': 'bound', 'attempt': 1, 'result_path': str(path)}]
+            response = reader.read_context(tree(self.repo), raw, 'result:bound/1')
+            self.assertNotIn('error', response, name)
+            self.assertEqual(response['text'], 'API_KEY=\n', name)
+            path.unlink()
+        for name in ['.env', '.env.local', 'prod.env', '.envrc', '.env.example.local', '.env.examples',
+                     '.env/.env.example']:
+            path = self.write(name, 'API_KEY=\n')
+            raw = load(self.repo, self.cid)
+            raw['assignments'] = [{'id': 'bound', 'attempt': 1, 'result_path': str(path)}]
+            response = reader.read_context(tree(self.repo), raw, 'result:bound/1')
+            self.assertEqual(response['error']['code'], 'forbidden-path', name)
+            self.assertNotIn('text', response)
+            shutil.rmtree(self.repo / '.env') if name.startswith('.env/') else path.unlink()
+
+    def test_env_example_content_is_still_secret_scanned(self):
+        path = self.write('.env.example', 'API_KEY=ghp_' + 'a' * 36 + '\n')
+        raw = load(self.repo, self.cid)
+        raw['assignments'] = [{'id': 'bound', 'attempt': 1, 'result_path': str(path)}]
+        response = self.reader().read_context(tree(self.repo), raw, 'result:bound/1')
+        self.assertEqual(response['error']['code'], 'secret-detected', response)
+        self.assertNotIn('text', response)
+
     def test_secret_scans_entire_object_before_returning_any_page(self):
         path, ref = self.result('Public opening.\n' + 'x' * 20000 + '\nghp_' + 'a' * 36)
         response = self.assert_refused(ref, 'secret-detected', '--limit', 100)

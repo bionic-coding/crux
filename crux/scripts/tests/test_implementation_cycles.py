@@ -377,10 +377,18 @@ class WriterFixture:
 
 
 
+#: Every prototype directory, held for the worker's lifetime. An `atexit` registration
+#: alone is not a lasting reference: a test that forks a `multiprocessing` child runs
+#: `atexit._clear()` in the child, which drops it, and the child's finalizer then
+#: removes the parent's directory from the shared filesystem.
+_PROTOTYPE_DIRS = []
+
+
 @functools.lru_cache(maxsize=None)
 def _writer_prototype(kind, combined, migration, environment, cwd):
     """One built WriterFixture per worker, environment and construction; tests copy it."""
     temp = tempfile.TemporaryDirectory()
+    _PROTOTYPE_DIRS.append(temp)
     atexit.register(temp.cleanup)
     return WriterFixture(Path(temp.name) / "repo", kind, combined, migration)
 

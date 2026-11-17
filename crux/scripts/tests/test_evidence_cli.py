@@ -74,7 +74,7 @@ class CliTests(unittest.TestCase):
         """A passing receipt whose stored execution reason is inputs-changed, and which lookup reuses."""
         self.run_cli("run", "--check", str(self.check))
         (self.root / "input.txt").write_text("two")
-        code, ran, _ = self.run_cli("run", "--check", str(self.check))
+        code, ran, _ = self.run_cli("run", "--check", str(self.check), "--full")
         self.assertEqual((code, ran["evidence"]["status"], ran["evidence"]["reason"]), (0, "passed", "inputs-changed"))
         return ran["evidence"]
 
@@ -104,6 +104,36 @@ class CliTests(unittest.TestCase):
         (self.root / "input.txt").write_text("three")
         code, report, _ = self.run_cli("report", "--evidence-id", receipt["id"])
         self.assertEqual((code, report["summary"]["status"], report["summary"]["reuse_eligible"]), (1, "passed", False))
+
+    def test_run_and_lookup_print_a_bounded_summary_and_full_prints_the_whole_receipt(self):
+        # CYC-0160: a full-suite receipt's input snapshot is about a megabyte, and run printed all of it.
+        tree = self.root / "tree"
+        for index in range(3000):
+            path = tree / f"d{index % 30}" / f"input_{index:05d}_with_a_long_enough_name.py"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(str(index))
+        self.check.write_text(json.dumps({"check_id": "unit", "command": ["python", "-c", "print('ok')"],
+                                          "inputs": ["input.txt", "tree"], "environment": []}))
+        bound = 8 * 1024
+        for action in ("run", "lookup"):
+            with self.subTest(action=action):
+                done = subprocess.run([sys.executable, str(SCRIPT), "--repo-root", str(self.root), action, "--check", str(self.check)],
+                                      capture_output=True, text=True)
+                self.assertEqual(done.returncode, 0, done.stderr)
+                self.assertLess(len(done.stdout.encode()), bound)
+                printed = json.loads(done.stdout)
+                summary = printed["evidence"] if action == "run" else printed["record"]
+                self.assertNotIn("snapshot", summary)
+                self.assertEqual(summary["status"], "passed")
+                stored = json.loads(Path(summary["receipt"]).read_text())
+                self.assertGreater(len(json.dumps(stored["snapshot"]).encode()), bound * 10)
+                self.assertEqual({k: v for k, v in stored.items() if k not in ("snapshot", "environment")},
+                                 {k: v for k, v in summary.items() if k not in ("receipt", "full_record")})
+        done = subprocess.run([sys.executable, str(SCRIPT), "--repo-root", str(self.root), "run", "--check", str(self.check), "--full"],
+                              capture_output=True, text=True)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        full = json.loads(done.stdout)["evidence"]
+        self.assertEqual(full, json.loads(Path(summary["receipt"]).read_text()))
 
     def test_a_missing_receipt_is_a_usage_failure_not_a_crash(self):
         code, report, _ = self.run_cli("report", "--evidence-id", "TE-" + "0" * 32)

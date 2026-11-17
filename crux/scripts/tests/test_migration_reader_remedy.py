@@ -63,7 +63,9 @@ class ReaderRemedyTests(unittest.TestCase):
 
     def test_compile_doctrine_prints_the_remedy(self):
         module = load("compile-doctrine")
-        with mock.patch.object(module, "build", side_effect=refusal()):
+        with mock.patch.object(module, "build", side_effect=refusal()), \
+             mock.patch.object(module.sp, "input_census",
+                               return_value=mock.Mock(refuse=lambda: None)):
             code, out, err = self.run_main(module, ["--dry-run", "--repo-root", self.root])
         self.assertEqual(code, 2)
         self.assertEqual(out, "")
@@ -74,6 +76,8 @@ class ReaderRemedyTests(unittest.TestCase):
         module = load("summarize-adrs")
         with mock.patch.object(module, "build", side_effect=refusal(
                 "migration-symlink-refused", migration.SYMLINK_SOURCE_REMEDY)), \
+             mock.patch.object(module.sp, "input_census",
+                               return_value=mock.Mock(refuse=lambda: None)), \
              mock.patch.object(module.sp, "read_manifest", return_value={}), \
              mock.patch.object(module.sp, "declared_domain_refusal", return_value=None):
             code, out, err = self.run_main(module, ["--dry-run", "--repo-root", self.root])

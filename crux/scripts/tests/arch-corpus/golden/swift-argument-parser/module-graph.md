@@ -366,3 +366,10 @@ _None._
 - `parse-error` `Tests/ArgumentParserUnitTests/NameSpecificationTests.swift` lines 1-273 — location top level; effect no enclosing declaration
 - `parse-error` `Tests/ArgumentParserUnitTests/SplitArgumentTests.swift` lines 25-793 — location top level; effect no enclosing declaration
 - `parse-error` `Tests/ArgumentParserUnitTests/UsageGenerationTests.swift` lines 18-247 — location top level; effect no enclosing declaration
+
+## Omissions
+
+_Recognizable inputs this map does not describe:_
+
+- `Plugins/GenerateDoccReference/GenerateCommon` — not-a-file (symbolic-link)
+- `Plugins/GenerateManual/GenerateCommon` — not-a-file (symbolic-link)

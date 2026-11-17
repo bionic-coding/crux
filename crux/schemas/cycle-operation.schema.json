@@ -80,7 +80,7 @@
           "task_id": {"type": "string", "minLength": 1},
           "role": {"type": "string", "minLength": 1},
           "assignment": {"type": "string", "minLength": 1},
-          "evidence_id": {"type": "string", "pattern": "^TE-[0-9a-f]{32}$"}
+          "evidence_id": {"type": "string", "pattern": "^(TE|LC)-[0-9a-f]{32}$"}
         }
       }
     },

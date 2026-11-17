@@ -31,9 +31,14 @@ absence.
 A run that meets an environment-lane failure takes that lane, and its stderr
 names every document-lane finding the same run met.[^precedence]
 
+AN OPTIONAL FILE NAMED BY PATH, such as a manifest or a ledger, is absent only
+when both its `stat` and its `lstat` fail with ENOENT or ENOTDIR. A symbolic
+link whose target is missing is not confirmed absent: `optional_file_state`
+raises `DanglingOptionalLinkError`, which takes the environment lane.
+
 Stdlib only.
 
-[^file]: rule:path-attributable-read-failure-is-a-document-finding
+[^file]: rule:unreadable-file-outside-a-descriptive-map-is-a-document-finding
 [^process]: rule:process-level-read-failure-is-an-environment-failure
 [^absence]: rule:absence-is-confirmed-by-enoent-or-enotdir
 [^unlistable]: rule:unlistable-input-directory-is-an-environment-failure
@@ -163,6 +168,78 @@ def path_state(path, follow: bool = True) -> os.stat_result | None:
         if exc.errno in ABSENCE_ERRNOS:
             return None
         raise
+
+
+class DanglingOptionalLinkError(Exception):
+    """An optional file named by path is a symbolic link whose target is missing.
+
+    Its `stat` fails with ENOENT or ENOTDIR, so a reader that decided by the
+    `stat` alone would confirm the file absent. Its `lstat` succeeds, so the
+    link itself exists, and the reader declines to confirm absence. The cause
+    lies outside the closed path-attributable list, because the file was never
+    listed, so the failure takes the environment lane.[^process] This is not an
+    `OSError`: `is_path_attributable` returns False for it, and no
+    `except OSError` handler reads it as absence.
+
+    `name` is the path as the caller reports it, relative to the repository,
+    so the text carries no absolute path.
+    """
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+        super().__init__(
+            f"{name}: is a symbolic link whose target is missing, so the file's "
+            "absence cannot be confirmed — restore the link's target, or remove "
+            "the link if the file should be absent")
+
+
+def optional_file_state(path, *, name: str | None = None) -> os.stat_result | None:
+    """The `stat` result for the optional file `path`, or None when its absence is confirmed.
+
+    Returns None only when `os.stat` fails with ENOENT or ENOTDIR and
+    `os.lstat` of the same path also fails with ENOENT or ENOTDIR.[^absence]
+    When the `stat` fails that way and the `lstat` succeeds, the path is a
+    symbolic link whose target is missing: this raises
+    `DanglingOptionalLinkError` naming `name`. Every other `stat` failure is
+    re-raised for the caller to classify with `is_path_attributable`.
+
+    An existing path that is a directory raises `IsADirectoryError` (EISDIR,
+    the document lane). Another existing kind that is not a regular file — a
+    FIFO, a socket or a device — raises an `OSError` that carries no errno,
+    which takes the environment lane. A regular file returns its `stat`
+    result.
+
+    `name` is how the path is reported; it defaults to `path` itself.
+    """
+    shown = os.fspath(path) if name is None else name
+    try:
+        st = os.stat(path)
+    except OSError as exc:
+        if exc.errno not in ABSENCE_ERRNOS:
+            raise
+        try:
+            os.lstat(path)
+        except OSError as lexc:
+            if lexc.errno in ABSENCE_ERRNOS:
+                return None
+            raise
+        raise DanglingOptionalLinkError(shown) from None
+    if stat.S_ISDIR(st.st_mode):
+        raise IsADirectoryError(errno.EISDIR, "is a directory, not the expected file", shown)
+    if not stat.S_ISREG(st.st_mode):
+        raise OSError(f"{shown}: is a {file_kind(st.st_mode)}, not a regular file")
+    return st
+
+
+def file_kind(mode: int) -> str:
+    """A reader's name for the file kind `mode` describes."""
+    for test, kind in ((stat.S_ISREG, "regular file"), (stat.S_ISDIR, "directory"),
+                       (stat.S_ISLNK, "symbolic link"), (stat.S_ISFIFO, "FIFO"),
+                       (stat.S_ISSOCK, "socket"), (stat.S_ISCHR, "character device"),
+                       (stat.S_ISBLK, "block device")):
+        if test(mode):
+            return kind
+    return "file of unknown kind"
 
 
 def list_directory(path) -> list[str]:

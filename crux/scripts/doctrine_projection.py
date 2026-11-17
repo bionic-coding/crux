@@ -231,7 +231,10 @@ def read_invariants(root: Path, *, _source_io=None) -> list[dict]:
     options = {} if _source_io is None else {"_source_io": _source_io}
     inv_dir = invariants_dir(root, **options)
     out: list[dict] = []
-    if not sp._source_is_dir(inv_dir, _source_io):
+    # Unseamed, the strict listing decides: a confirmed-absent directory
+    # yields nothing, and an unlistable directory, or a regular file at its
+    # path, raises naming it rather than reading as an empty ledger.
+    if _source_io is not None and not sp._source_is_dir(inv_dir, _source_io):
         return out
     for path in sorted(sp._source_glob(inv_dir, "*.md", _source_io)):
         if not sp._source_is_file(path, _source_io):
@@ -505,9 +508,28 @@ def read_reconciliations(root: Path, *, _source_io=None) -> list[dict]:
     """
     options = {} if _source_io is None else {"_source_io": _source_io}
     path = reconciliations_path(root, **options)
-    if not sp._source_is_file(path, _source_io):
+    if _source_io is not None:
+        if not sp._source_is_file(path, _source_io):
+            return []
+    elif _ledger_state(path) is None:
         return []
     return parse_reconciliations(sp._source_text(path, _source_io))
+
+
+#: How the ledger is named in a refusal: relative to the documentation tree,
+#: so the text carries no absolute path.
+_LEDGER_NAME = f"adrs/{DOCTRINE_DIRNAME}/{RECONCILIATIONS_FILENAME}"
+
+
+def _ledger_state(path: Path):
+    """The ledger's `stat` result, or None when its absence is confirmed.
+
+    Absent only when both its stat and its lstat confirm it: a dangling link
+    at the ledger raises `input_lanes.DanglingOptionalLinkError` rather than
+    reading as an empty ledger, a directory raises IsADirectoryError, and
+    every other failure raises naming the ledger.
+    """
+    return sp._input_lanes().optional_file_state(path, name=_LEDGER_NAME)
 
 
 def parse_reconciliations(text: str) -> list[dict]:
@@ -604,7 +626,10 @@ def reconciliations_sha256(root: Path, *, _source_io=None) -> str | None:
     """SHA-256 of the reconciliation ledger's raw bytes; None when absent."""
     options = {} if _source_io is None else {"_source_io": _source_io}
     path = reconciliations_path(root, **options)
-    if not sp._source_is_file(path, _source_io):
+    if _source_io is not None:
+        if not sp._source_is_file(path, _source_io):
+            return None
+    elif _ledger_state(path) is None:
         return None
     raw = path.read_bytes() if _source_io is None else _source_io.read_bytes(path)
     return hashlib.sha256(raw).hexdigest()
@@ -1296,7 +1321,15 @@ def _load_doctrine_inputs(root: Path, manifest: dict, *, _prepared=None) -> tupl
         "doctrine declared observations input unavailable")
     adrs = sp.adrs_dir(root); tree = sp.resolve_tree(root)
     concerns = manifest.get("concerns_enabled") or []
-    if not adrs.is_dir() and not ("adrs" not in concerns and "observations" in concerns):
+    lanes = sp._input_lanes()
+    try:
+        # Absent only on ENOENT or ENOTDIR; an undeterminable directory, or a
+        # regular file at its path, is the unlistable-directory case.
+        present = lanes.directory_exists(adrs)
+    except OSError as exc:
+        raise lanes.EnvironmentLaneError(
+            [lanes.environment_reason(sp.InputCensus(root).rel(adrs), exc)]) from exc
+    if not present and not ("adrs" not in concerns and "observations" in concerns):
         raise FileNotFoundError(f"{adrs} not found")
     gf = sp.governs_from(manifest); observations = sp.observations_source(root, manifest)
     records = sp.collect_records(adrs, governs_from=gf, observations=observations)
@@ -1307,7 +1340,8 @@ def _load_doctrine_inputs(root: Path, manifest: dict, *, _prepared=None) -> tupl
                                             persisted_edges=persisted)
     invariants = read_invariants(root)
     ledger_path = reconciliations_path(root)
-    ledger_text = ledger_path.read_bytes().decode("utf-8") if ledger_path.is_file() else None
+    ledger_text = (ledger_path.read_bytes().decode("utf-8")
+                   if _ledger_state(ledger_path) is not None else None)
     reconciliations = parse_reconciliations(ledger_text) if ledger_text is not None else []
     bindings = {source: {key: sorted(value) for key, value in binding.items()} for source, binding
                 in sp.read_run_bindings(sp.runs_dir(root), repo_root=root).items()}

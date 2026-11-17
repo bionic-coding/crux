@@ -311,9 +311,13 @@ def fix_completion(cycle: dict, task: dict) -> str:
                   f'`{cli} --fix-observation PATH`.']
     else:
         before = f'recorded: {fix["before"]}' if fix.get('before') else 'not yet recorded'
-        lines += [f'1. The fix-before receipt that recorded the failure ({before}): `{cli} --fix-before TE-ID`.',
-                  f'2. The fix commit, recorded on the task: `{cli} --commit SHA`.',
-                  f'3. The fix-after receipt: the current passing receipt for the same check id: `{cli} --fix-after TE-ID`.']
+        ident = 'LC-ID' if cycle.get('testing_policy') == 'proportionate' else 'TE-ID'
+        first = 'local observation' if ident == 'LC-ID' else 'receipt'
+        after = 'latest passing local observation' if ident == 'LC-ID' else 'current passing receipt'
+        lines += [f'1. The fix-before {first} that recorded the failure ({before}): `{cli} --fix-before {ident}`.',
+                  f'2. The fix commit, recorded on the task: `{cli} --commit SHA`. A records-only fix, whose edits lie '
+                  f'only under this cycle\'s directory, records the commit-record commit that holds them.',
+                  f'3. The fix-after {first}: the {after} for the same check id: `{cli} --fix-after {ident}`.']
     lines.append('4. Current evidence for every required check after the fix commit: rerun only the checks whose inputs '
                  'the fix changed, and reuse the others.')
     if task['phase'] == 'review':
@@ -364,6 +368,17 @@ LOCAL_SKILL_REPORT = ('When you use a project-local skill, add one line Local-Sk
                       'the cycle records the use when it completes.')
 
 
+def op_request_facts(engine: str | None, cycle: str, assignment: str, attempt: int) -> list[str]:
+    """The exact invocations of commit-record and execution-check, which are op requests and not subcommands."""
+    script = engine or 'cycle.py'
+    check = json.dumps({'op': 'execution-check', 'op_id': '<fresh id>', 'assignment': assignment, 'attempt': attempt,
+                        'checkout': '<absolute checkout path>'}, separators=(',', ':'))
+    return ['- commit-record and execution-check are op requests, not cycle.py subcommands. Run them exactly so:',
+            f"  uv run {script} op {cycle} --json '{{\"op\":\"commit-record\"}}'",
+            f"  uv run {script} op {cycle} --json '{check}'",
+            '  Before a source commit, add "edited_paths" (the staged paths) to the execution-check request.']
+
+
 def preamble(*, cycle: str, task: str, assignment: str, attempt: int, objectives: str,
              result_path: str, base: str, task_commits: list[str], engine: str | None = None,
              isolated: dict | None = None, delivery_token: str | None = None, role: str | None = None,
@@ -397,7 +412,9 @@ def preamble(*, cycle: str, task: str, assignment: str, attempt: int, objectives
         *placement,
         '- Commits already on HEAD for this task:',
         prior,
-        f'- End every commit message for this task with a final trailer paragraph, separated from the body by one blank line, that holds `Cycle-Task: {task}` and any other trailer, such as `Co-Authored-By:`, on adjacent lines.',
+        f'- End every commit message for this task that changes paths outside this cycle\'s directory with a final trailer paragraph, separated from the body by one blank line, that holds `Cycle-Task: {task}` and any other trailer, such as `Co-Authored-By:`, on adjacent lines.',
+        '- Files under this cycle\'s directory are cycle records. Commit them through commit-record, with no trailer, and list the commit-record commit in your delivery. When another writer commit swept the file first, list the commit that recorded it (`git log -1 -- PATH`).',
+        *op_request_facts(engine, cycle, assignment, attempt),
         *([f'- {LOCAL_SKILL_REPORT}'] if local_skill_report else []),
         f'- Write your result to {result_path}.',
         '- Its first two lines must be exactly:',

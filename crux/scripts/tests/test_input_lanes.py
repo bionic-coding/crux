@@ -161,5 +161,74 @@ class ReasonTests(LaneHelperTestCase):
         self.assertIn("rerun the regenerator", reason)
 
 
+class OptionalFileStateTests(LaneHelperTestCase):
+    """An optional file named by path: absent only when stat AND lstat confirm it."""
+
+    def test_a_regular_file_returns_its_stat(self):
+        st = input_lanes.optional_file_state(self.file)
+        self.assertIsNotNone(st)
+        self.assertTrue(stat.S_ISREG(st.st_mode))
+
+    def test_an_absent_file_and_an_ancestor_that_is_a_file_are_confirmed_absent(self):
+        self.assertIsNone(input_lanes.optional_file_state(self.dir / "missing.yml"))
+        self.assertIsNone(input_lanes.optional_file_state(self.file / "child.yml"))
+
+    def test_a_dangling_link_is_not_confirmed_absent(self):
+        link = self.dir / "ledger.yml"
+        target = self.dir / "target.yml"
+        target.write_text("a: 1\n", encoding="utf-8")
+        link.symlink_to(target)
+        # POSITIVE CONTROL: with its target present, the link reads as the file.
+        self.assertIsNotNone(input_lanes.optional_file_state(link, name="bionic/ledger.yml"))
+        target.unlink()
+        with self.assertRaises(input_lanes.DanglingOptionalLinkError) as cm:
+            input_lanes.optional_file_state(link, name="bionic/ledger.yml")
+        exc = cm.exception
+        self.assertNotIsInstance(exc, OSError)
+        self.assertFalse(input_lanes.is_path_attributable(exc))
+        self.assertIn("bionic/ledger.yml", str(exc))
+        self.assertIn("symbolic link", str(exc))
+        self.assertNotIn(str(self.root), str(exc))
+        self.assertNotIn(str(self.root.resolve()), str(exc))
+
+    def test_a_symbolic_link_loop_raises_eloop_for_the_document_lane(self):
+        loop = self.dir / "loop.yml"
+        loop.symlink_to(loop)
+        with self.assertRaises(OSError) as cm:
+            input_lanes.optional_file_state(loop)
+        self.assertEqual(cm.exception.errno, errno.ELOOP)
+        self.assertTrue(input_lanes.is_path_attributable(cm.exception))
+
+    def test_a_directory_at_the_path_raises_eisdir_for_the_document_lane(self):
+        with self.assertRaises(IsADirectoryError) as cm:
+            input_lanes.optional_file_state(self.dir, name="bionic/inputs")
+        self.assertEqual(cm.exception.errno, errno.EISDIR)
+        self.assertEqual(cm.exception.filename, "bionic/inputs")
+        self.assertTrue(input_lanes.is_path_attributable(cm.exception))
+
+    def test_a_mode_000_file_still_has_a_state_and_its_read_is_refused(self):
+        self.lock(self.file, 0o000)
+        self.assertIsNotNone(input_lanes.optional_file_state(self.file))
+        with self.assertRaises(PermissionError):
+            self.file.read_bytes()
+
+    def test_a_file_under_an_unsearchable_parent_raises_rather_than_reading_as_absent(self):
+        # POSITIVE CONTROL: searchable, the same file has a state.
+        self.assertIsNotNone(input_lanes.optional_file_state(self.file))
+        self.lock(self.dir, 0o600)
+        with self.assertRaises(PermissionError) as cm:
+            input_lanes.optional_file_state(self.file)
+        self.assertEqual(cm.exception.errno, errno.EACCES)
+
+    def test_a_fifo_is_an_environment_lane_error_and_is_never_opened(self):
+        fifo = self.dir / "pipe.yml"
+        os.mkfifo(fifo)
+        with self.assertRaises(OSError) as cm:
+            input_lanes.optional_file_state(fifo, name="bionic/pipe.yml")
+        self.assertIsNone(cm.exception.errno)
+        self.assertIn("FIFO", str(cm.exception))
+        self.assertFalse(input_lanes.is_path_attributable(cm.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

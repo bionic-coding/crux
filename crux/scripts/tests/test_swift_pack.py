@@ -1897,7 +1897,7 @@ class PerFileBoundaryTests(unittest.TestCase):
 
     def test_each_exception_class_renders_one_parse_error_and_the_derive_continues(self):
         from unittest import mock
-        for exc in (RecursionError("deep"), MemoryError(), ValueError("x")):
+        for exc in (RecursionError("deep"), ValueError("x")):
             with self.subTest(exc=type(exc).__name__):
                 self.swift._CACHE.update(root=None, files={}, manifests={})
                 with mock.patch.object(self.swift, "_parse", self._raise_on_bad(exc)):
@@ -1907,6 +1907,15 @@ class PerFileBoundaryTests(unittest.TestCase):
                                             "location none; effect step parse failed")})
                 self.assertIn("| `Good` | struct |", md)
                 self.assertEqual(sorted(sources), ["Bad.swift", "Good.swift"])
+
+    def test_a_memory_error_passes_the_boundary_with_no_ledger(self):
+        # ADR-0181 point 3: no per-file boundary swallows a `MemoryError`;
+        # under a derive it is the environment failure naming the file
+        # (`test_arch_input_failures_swift.MemoryErrorTests`).
+        from unittest import mock
+        with mock.patch.object(self.swift, "_parse", self._raise_on_bad(MemoryError())):
+            with self.assertRaises(MemoryError):
+                self.swift.extract_data_model(self.root, "bionic")
 
     def test_a_failed_walk_after_the_parse_names_the_walk_step(self):
         from unittest import mock
@@ -1945,7 +1954,7 @@ class PerFileBoundaryTests(unittest.TestCase):
         (self.root / "Package.swift").write_text('let package = Package(name: "P", targets: [])\n')
 
         def boom(self_reader, tree):
-            raise MemoryError()
+            raise RecursionError("deep")
 
         with mock.patch.object(self.swift._ManifestReader, "read", boom):
             md, sources = self.swift.extract_module_graph(self.root, "bionic")
@@ -2199,7 +2208,9 @@ class RegisteredDerivePathTests(_SwiftTree):
     def test_parse_failed_when_no_declared_input_decodes(self):
         from unittest import mock
         self.write("Sources/Core/A.swift", "public struct A {}\n")
-        with mock.patch.object(self.swift, "_parse", side_effect=MemoryError()):
+        # A content failure: the input is an unparseable omission, and the
+        # verdict reads it from the ledger (ADR-0181).
+        with mock.patch.object(self.swift, "_parse", side_effect=RecursionError("deep")):
             v = self.verdicts()
         self.assertEqual((v["data-model"]["verdict"], v["data-model"]["stub_reason"]),
                          ("stubbed", "parse_failed"))
@@ -3632,9 +3643,10 @@ def _harness():
 
 class XcodeFixtureTests(unittest.TestCase):
     """The data-driven Xcode-fixture harness (ADR-0130 clause 17): every case
-    under `fixtures/xcodeproj/<case>/` runs through a real derive. See
-    `xcode_fixture_harness.py`'s module docstring for the `expected.yml`
-    schema every fixture is authored against."""
+    under `fixtures/xcodeproj/<case>/` runs through a real derive, through the
+    unpatched harness. See `xcode_fixture_harness.py`'s module docstring for
+    the `expected.yml` schema every fixture is authored against; a whole input
+    the derive omits is named under its `omissions:` key."""
 
     def test_every_fixture_case(self):
         h = _harness()
