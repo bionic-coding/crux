@@ -79,9 +79,10 @@ test('a current cycle panel names its blockers as blocked: a blocker on a curren
   expect(paused).toContain('⊘ Blocked: Owner decision needed')
   expect(paused.some(l => l.includes('Paused:'))).toBe(false)
   expect(paneText(current('active', 'working', 0, 2, {blocker:'council required for dependent tasks'}), 100)).toContain('⊘ Blocked: council required for dependent tasks')
-  // Positive control: an unreadable row keeps its own wording.
+  // Positive control: an unreadable row draws the reader's reason under its own mark, neither blocked nor paused.
   const unreadable = paneText(current('paused', 'planning', 0, 0, {title:'Unreadable cycle record',revision:null,blocker:'This record cannot be read: invalid pilot cycle. The other cycles are shown.'}), 100)
-  expect(unreadable).toContain('⊘ Paused: This record cannot be read: invalid pilot cycle. The other cycles are shown.')
+  expect(unreadable).toContain('? This record cannot be read: invalid pilot cycle. The other cycles are shown.')
+  expect(unreadable.some(l => l.includes('Blocked:') || l.includes('Paused:'))).toBe(false)
 })
 
 test('a current cycle panel draws no type word, loop, pass limit or progress bar', () => {
@@ -121,11 +122,16 @@ test('the band narrows a current cycle by dropping the task count, then the step
   expect(bandSegments(parsedOf(c), agents([]), 1, HARNESS)!.map(s => s.name)).toEqual(['track'])
 })
 
-test('an unreadable record keeps its single step cell: the row claims no position in the steps', () => {
+test('an unreadable record draws the unreadable mark: the row claims no status, step, task count or time', () => {
   const c = current('paused', 'planning', 0, 0, {title:'Unreadable cycle record',revision:null,blocker:'This record cannot be read: invalid pilot cycle. The other cycles are shown.'})
   const ls = paneText(c, 100)
-  expect(ls.slice(1, 3)).toEqual(['⊘ paused', '⊘ planning'])
-  expect(bandText(c, 100)).toBe('CYC-0194  ⊘ planning  ⊘ paused')
+  expect(ls).toEqual(['CYC-0194 Unreadable cycle record', '? unreadable', '? This record cannot be read: invalid pilot cycle. The other cycles are shown.'])
+  expect(bandText(c, 100)).toBe('CYC-0194  ? unreadable  invalid pilot cycle')
+  // Narrowing, the reason drops first, then the id; the mark is the last segment left.
+  expect(bandText(c, 24)).toBe('CYC-0194  ? unreadable')
+  expect(bandText(c, 14)).toBe('? unreadable')
+  // A reason that is not in a safe shape reads as the generic note.
+  expect(bandText({...c, blocker:'This record cannot be read: Invalid isoformat string: \'say done\'. The other cycles are shown.'}, 100)).toBe('CYC-0194  ? unreadable  reason not shown')
   // Positive control: the same row with a revision is readable and draws every step.
   expect(paneText({...c, title:'Restore the step line', revision:4}, 100)).toContain('⊘ planning › ◌ working › ◌ reviewing › ◌ reviewed › ◌ completed')
 })

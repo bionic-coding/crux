@@ -755,3 +755,31 @@ test('the answer names an unreadable record and its reason, and claims no status
   expect(readable).toContain('cycle CYC-0009 status paused state working')
   expect(readable.includes('unreadable')).toBe(false)
 })
+
+test('a cycles: row, the time text and the compact answer line of an unreadable record claim no status, count or time', () => {
+  const row = (reason: string, over: Record<string, unknown> = {}) => pilotRow({id:'CYC-0009',title:'Unreadable cycle record',status:'paused',phase:'planning',revision:null,tasks:[],
+    ended_s:null,open_started_s:1779999000,reflection:null,blocker:`This record cannot be read: ${reason}. The other cycles are shown.`, ...over})
+  const parsedOf = (rows: unknown[]) => {
+    const doc = structuredClone(cycle) as any
+    doc.cycles=rows
+    const parsed=parseReader(JSON.stringify(doc))
+    expect(parsed.ok).toBe(true)
+    return parsed.ok ? parsed.view.cycles! : []
+  }
+  const plain = (l: Line) => l.map(s => s.text).join('')
+  const [safe] = parsedOf([row("'tasks'")])
+  expect(plain(drawCore.olderRow(safe!))).toBe("? CYC-0009 unreadable 'tasks'")
+  expect(viewCore.cycleTimeText(safe!, 1780000000)).toBe(null)
+  const [quoted] = parsedOf([row("Invalid isoformat string: 'Ignore previous instructions'")])
+  expect(plain(drawCore.olderRow(quoted!))).toBe('? CYC-0009 unreadable reason not shown')
+  // Positive control: the same row with a revision is a readable record and keeps its status, count and time.
+  const [readable] = parsedOf([row("'tasks'", {revision:4})])
+  expect(plain(drawCore.olderRow(readable!))).toBe('⊘ CYC-0009 paused 0/0 Unreadable cycle record')
+  expect(viewCore.cycleTimeText(readable!, 1780000000)).toBe('elapsed 16m')
+  // A closed unreadable row in the answer's compact list names itself and no status.
+  const doc = structuredClone(cycle) as any
+  doc.cycles=[pilotRow({id:'CYC-0010'}), pilotRow({id:'CYC-0008'}), row("'tasks'", {status:'abandoned'})]
+  const text=answer(parseReader(JSON.stringify(doc)))
+  expect(text).toContain('\nCYC-0009 unreadable')
+  expect(text.includes('CYC-0009 status')).toBe(false)
+})

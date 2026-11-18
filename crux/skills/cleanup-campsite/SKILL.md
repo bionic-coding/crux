@@ -225,12 +225,15 @@ The id is not reused. This stub exists so a future reader finds the reasoning in
 
 #### CLN-ADR-5 — consider architectural decision migration
 
-- **Reads:** `docs/adrs/reviews/*.md`, taking the newest valid filename date; skip the derived index and future dates.
-- **Looks for:** no historical review, or a newest review older than `adr_review_due_days` (default 7).
+- **Reads:** two date sources, and takes the newest valid date that is not in the future across both sources.
+  - **Dated reviews:** `docs/adrs/reviews/*.md` whose filename is an ISO calendar date. Skip the derived `index.md` and every other filename.
+  - **Validated migration activations:** each entry in `publications` from the pipeline's `authority-view.py state` run. Its date is the commit date of its `publication_commit`: `git -C <repo-root> show -s --format=%cs <publication_commit>`. When `state` did not exit 0, no activation qualifies and the dated reviews decide alone.
+- **Excludes:** every migration record that `state` does not report. Files under `docs/adrs/migrations/` in `packages/`, `candidates/`, `approvals/`, `receipts/`, `records/`, `queues/` and `exceptions/` are drafts or evidence, and an unlisted `*.publication.json` names an unactivated package. Their presence and dates show no activation.
+- **Looks for:** neither a dated review nor a validated activation, or a newest date older than `adr_review_due_days` (default 7).
 - **Stable id:** `cleanup-CLN-ADR-5-due`.
 - **Category:** `adr-review`. **Severity:** P2.
 - **Proposed action:** "Consider a `migrate-adrs` session against current objectives."
-- **Actor boundary:** suggest only. This nudge forces no pass, report or measurement, writes no historical report and invokes no migration.
+- **Actor boundary:** suggest only. This nudge forces no pass, report or measurement, writes no historical report and invokes no migration. Reading the activation dates runs no migration command.
 
 #### CLN-ADR-6 — open promotion requests
 
@@ -384,11 +387,11 @@ These code paths are not exercised by the smoke test and should be exercised in 
 #### CLN-DRIFT-1 — weekly drift audit of committed main
 
 - **Existence gate:** runs only in a checkout that carries `tools/drift-audit.py`, which is the Crux source checkout. Elsewhere it silently skips.
-- **Reads:** `crux-drift-audit.json` in the directory that `git rev-parse --git-common-dir` names. `tools/drift-audit.py` writes it after each run that produced a verdict; the file is local and untracked.
-- **Looks for:** the file is missing, or its `audited_at` is more than 7 days before `${NOW}`.
+- **Reads:** `crux-drift-audit.json` in the directory that `git rev-parse --git-common-dir` names. `tools/drift-audit.py` writes it after each audit of `main` that produced a verdict; the file is local and untracked.
+- **Looks for:** the file is missing or unreadable, its `branch` is not `main`, or its `audited_at` is missing or more than 7 days before `${NOW}`. A record for another branch counts as no audit of `main`; an older tool version wrote such records.
 - **Stable id:** `cleanup-CLN-DRIFT-1-due` (singleton).
 - **Category:** `whats-next-stale`. **Severity:** P2.
-- **Proposed action:** "Run `uv run tools/drift-audit.py`, the weekly drift audit of committed `main`; the last run was <N> days ago (or never). File each finding as a queue item."
+- **Proposed action:** "Run `uv run tools/drift-audit.py`, the weekly drift audit of committed `main`; the last run was <N> days ago (or no audit of `main` is recorded). File each finding as a queue item."
 - **Actor boundary:** proposes only. Cleanup never runs the audit, and the finding blocks no cycle or release.
 
 ### 4. Sort, cap, build the body

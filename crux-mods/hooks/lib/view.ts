@@ -419,22 +419,30 @@ export const isOpenCycle = (c: CycleView): boolean => c.status === 'active' || c
 
 // The row the reader emits for a record it cannot read (cycle_progress.unreadable_pilot): a current-format
 // row with no revision, the fixed title and a blocker of the fixed form below. A readable current record
-// always has a revision, so the three together never match one.
-const UNREADABLE_TITLE = 'Unreadable cycle record'
-const UNREADABLE_HEAD = 'This record cannot be read: '
-const UNREADABLE_TAIL = '. The other cycles are shown.'
+// always has a revision, so the three together never match one. The row's status, phase, tasks and
+// times are placeholders the closed vocabulary requires, and no view draws them. The three strings
+// equal cycle_progress.py's UNREADABLE_TITLE, UNREADABLE_HEAD and UNREADABLE_TAIL; the parity test
+// holds them equal and feeds a real unreadable record from the reader through every view.
+export const UNREADABLE_TITLE = 'Unreadable cycle record'
+export const UNREADABLE_HEAD = 'This record cannot be read: '
+export const UNREADABLE_TAIL = '. The other cycles are shown.'
 export const isUnreadableCycle = (c: CycleView): boolean =>
   c.type === 'pilot' && c.revision === null && c.title === UNREADABLE_TITLE &&
   c.blocker !== null && c.blocker.startsWith(UNREADABLE_HEAD) && c.blocker.endsWith(UNREADABLE_TAIL)
 // The reasons the text answer repeats. The reason is the reader's exception text, which can quote record
 // bytes, and the answer never carries free text from a record. These shapes carry none: the reader's own
 // fixed messages (lower-case words), a missing key the reader asked for, and a JSON decoder position.
-// Any other reason reads `not-shown`; the pane draws the full reason.
+// Any other reason reads `not-shown` in the answer and `reason not shown` in the one-line views (the
+// bands and a `cycles:` row); the pane's panel draws the full reason.
 const SAFE_REASONS = [/^[a-z][a-z ]{0,79}$/, /^'[a-z_]{1,40}'$/, /^[A-Z][A-Za-z ,'\\]{0,60}: line [0-9]{1,9} column [0-9]{1,9} \(char [0-9]{1,12}\)$/]
-export function unreadableReason(c: CycleView): string {
+// An unreadable row's reason when it has a safe shape, else null.
+export function safeUnreadableReason(c: CycleView): string | null {
   const reason = c.blocker === null ? '' : c.blocker.slice(UNREADABLE_HEAD.length, c.blocker.length - UNREADABLE_TAIL.length)
-  return SAFE_REASONS.some(r => r.test(reason)) ? reason : 'not-shown'
+  return SAFE_REASONS.some(r => r.test(reason)) ? reason : null
 }
+export const unreadableReason = (c: CycleView): string => safeUnreadableReason(c) ?? 'not-shown'
+// The reason a one-line view draws beside the unreadable mark.
+export const unreadableNote = (c: CycleView): string => safeUnreadableReason(c) ?? 'reason not shown'
 
 // Active cycles first, then every other cycle; each group by cycle number, highest first. Never by
 // time or by the order the reader listed them. Shared by every surface that draws the list.
@@ -664,7 +672,7 @@ export function answer(p: Parsed): string {
       if (latest !== undefined) cycleBlock(latest)
       if (rest.length > 0) {
         lines.push('cycles:')
-        for (const c of rest.slice(0, MAX_ANSWER_CYCLES)) lines.push(`${c.id}${cycleKind(c)} status ${c.status}${cyclePass(c)}`)
+        for (const c of rest.slice(0, MAX_ANSWER_CYCLES)) lines.push(isUnreadableCycle(c) ? `${c.id} unreadable` : `${c.id}${cycleKind(c)} status ${c.status}${cyclePass(c)}`)
         if (rest.length > MAX_ANSWER_CYCLES) lines.push(`+${rest.length - MAX_ANSWER_CYCLES} more`)
       }
       // Keep every admitted queue ID even when cycle details reach their limit.
@@ -776,7 +784,9 @@ export const cycleElapsed = (c: CycleView, now: Time): string | null => interval
 // The time the cycle waited, when it waited at all.
 export const cyclePaused = (c: CycleView): string | null => (c.paused_s <= 0 ? null : c.paused_s < 60 ? '<1m' : interval(0, c.paused_s))
 // The text of both: `elapsed 1h02m`, then ` paused 5m` when non-zero, and ` (derived)` for an older record.
+// An unreadable row's times are placeholders, so it has no time text.
 export const cycleTimeText = (c: CycleView, now: Time): string | null => {
+  if (isUnreadableCycle(c)) return null
   const elapsed = cycleElapsed(c, now)
   if (elapsed === null) return null
   const paused = cyclePaused(c)

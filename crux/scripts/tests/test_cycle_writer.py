@@ -289,6 +289,29 @@ class PilotTests(unittest.TestCase):
         self.assertEqual(attempt['outcome'], 'done')
         self.assertNotIn('commit', attempt)
 
+    def test_squash_integration_refusal_names_the_route_that_admits_review(self):
+        checkout, head = self.worktree_done()
+        self.git('merge', '-q', '--squash', 'unit'); self.git('commit', '-qm', 'squash the unit')
+        self.assertEqual((self.repo / 'src/value.py').read_text(), 'value = 2\n')
+        before = self.record_bytes()
+        # The ancestry check still refuses: the squash commit does not contain the recorded commit.
+        with self.assertRaisesRegex(CycleError, rf'which this checkout does not contain; integrate it first.*'
+                                    rf'squash merge or cherry-pick.*`git diff {head[:12]} HEAD`.*'
+                                    r'`task CYC-\d{4} --task build --owner OWNER --run 2 --status working`.*'
+                                    r'`--run 2 --status done`'):
+            self.apply('review-start', reviewer='independent')
+        self.assertEqual(self.record_bytes(), before, 'a refused review-start wrote the record')
+        self.assertEqual(self.git('diff', head, 'HEAD', '--', 'src'), '', 'HEAD does not hold the squashed change')
+        # The route the refusal names: reassign at the next run in this checkout and record completion there.
+        self.task(owner='lead', run=2, summary='squash-integrated in the review checkout')
+        self.assertEqual(self.doc['tasks'][0]['checkout'], str(self.repo.resolve()))
+        self.task('done', owner='lead', run=2, summary='verified the squash commit holds the change')
+        self.assertNotIn('commit', self.doc['tasks'][0]['attempts'][-1])
+        self.apply('review-start', reviewer='independent')
+        self.assertEqual(self.doc['state'], 'reviewing')
+        self.as_actor('independent', 'review', value=self.report())
+        self.assertEqual(pilot.reviewed_paths(self.repo, self.doc), ['src/value.py'])
+
     def test_review_start_refuses_a_removed_worktree_whose_recorded_commit_is_unmerged(self):
         checkout, head = self.worktree_done()
         self.git('worktree', 'remove', str(checkout))
@@ -361,6 +384,145 @@ class PilotTests(unittest.TestCase):
         self.git('worktree', 'remove', str(checkout))
         self.apply('review-start', reviewer='independent')
         self.assertEqual(self.doc['state'], 'reviewing')
+
+    # -- direct completion binds an explicit linked checkout ----------------------------
+
+    def worktree_commit(self, checkout):
+        """A linked worktree at `checkout` on branch unit, holding one commit the lead checkout lacks."""
+        self.git('worktree', 'add', '-qb', 'unit', str(checkout), 'HEAD')
+        (checkout / 'src/value.py').write_text('value = 2\n')
+        self.git('add', 'src/value.py', cwd=checkout); self.git('commit', '-qm', 'the change, in the worktree', cwd=checkout)
+        return self.git('rev-parse', 'HEAD', cwd=checkout)
+
+    def direct_done(self, via, checkout):
+        entry = {'task': 'build', 'owner': 'worker', 'run': 1, 'status': 'done', 'checkout': checkout, 'summary': 'done directly'}
+        if via == 'batch':
+            return self.apply('batch', value={'tasks': [entry]})
+        return self.apply('task', **entry)
+
+    def test_direct_completion_in_a_linked_worktree_records_its_checkout_and_commit(self):
+        for via in ('task', 'batch'):
+            with self.subTest(via=via):
+                self.setUp()
+                checkout = Path(self.temp.name) / 'unit'
+                head = self.worktree_commit(checkout)
+                revision = self.doc['revision']
+                self.direct_done(via, str(checkout))
+                task = self.doc['tasks'][0]
+                self.assertEqual(self.doc['revision'], revision + 1, 'direct completion took more than one write')
+                self.assertEqual((task['status'], len(task['attempts'])), ('done', 1))
+                attempt = task['attempts'][0]
+                self.assertEqual((attempt['outcome'], attempt['checkout'], attempt['commit']), ('done', str(checkout.resolve()), head))
+                self.assertEqual(self.claims(), {}, 'one-write completion left a checkout claim')
+                self.check()
+                # After cleanup the recorded commit is judged: unintegrated refuses, integrated admits.
+                self.git('worktree', 'remove', str(checkout))
+                before = self.record_bytes()
+                with self.assertRaisesRegex(CycleError, rf'^review-start: task build finished in .*unit at commit {head[:12]}, '
+                                            'which this checkout does not contain; integrate it first'):
+                    self.apply('review-start', reviewer='independent')
+                self.assertEqual(self.record_bytes(), before, 'a refused review-start wrote the record')
+                self.git('merge', '-q', '--ff-only', 'unit')
+                self.apply('review-start', reviewer='independent')
+                self.assertEqual(self.doc['review_request']['head_commit'], head)
+
+    def test_direct_completion_in_the_lead_checkout_records_no_checkout(self):
+        for via, checkout in (('task', None), ('task', 'lead'), ('batch', None), ('batch', 'lead')):
+            with self.subTest(via=via, checkout=checkout):
+                self.setUp()
+                self.commit_file('src/value.py', 'value = 2\n', 'correct value')
+                self.direct_done(via, str(self.repo) if checkout else None)
+                attempt = self.doc['tasks'][0]['attempts'][-1]
+                self.assertEqual((attempt['outcome'], attempt['checkout']), ('done', None))
+                self.assertNotIn('commit', attempt)
+                self.check()
+                self.apply('review-start', reviewer='independent')
+                self.assertEqual(self.doc['state'], 'reviewing')
+
+    def test_direct_completion_refuses_a_checkout_it_cannot_bind(self):
+        other = Path(self.temp.name) / 'other'
+        other.mkdir()
+        self.git('init', '-q', cwd=other)
+        (other / 'f').write_text('x\n')
+        self.git('add', 'f', cwd=other)
+        self.git('-c', 'user.email=t@example.invalid', '-c', 'user.name=T', 'commit', '-qm', 'other', cwd=other)
+        checkout = Path(self.temp.name) / 'unit'
+        self.worktree_commit(checkout)
+        cases = {'missing': (str(Path(self.temp.name) / 'gone'), 'whose HEAD commit cannot be read'),
+                 'subdirectory': (str(checkout / 'src'), 'is not a Git worktree root'),
+                 'another repository': (str(other), 'task checkout must belong to this Git repository')}
+        for via in ('task', 'batch'):
+            for name, (path, message) in cases.items():
+                with self.subTest(via=via, case=name):
+                    before, claims = self.record_bytes(), self.claims()
+                    with self.assertRaisesRegex(CycleError, message):
+                        self.direct_done(via, path)
+                    self.assertEqual((self.record_bytes(), self.claims()), (before, claims), 'a refused write changed the record or claims')
+
+    # -- the supplied directory must be Git's worktree root -----------------------------
+
+    def nested_worktree(self):
+        """A linked worktree nested inside the lead checkout, assigned to the task, with one commit."""
+        (self.repo / '.gitignore').write_text('.worktrees/\n')
+        self.git('add', '.gitignore'); self.git('commit', '-qm', 'ignore nested worktrees')
+        checkout = self.repo / '.worktrees' / 'unit'
+        self.git('worktree', 'add', '-qb', 'unit', str(checkout), 'HEAD')
+        self.task(checkout=str(checkout))
+        (checkout / 'src/value.py').write_text('value = 2\n')
+        self.git('add', 'src/value.py', cwd=checkout); self.git('commit', '-qm', 'the change, in the nested worktree', cwd=checkout)
+        return checkout, self.git('rev-parse', 'HEAD', cwd=checkout)
+
+    def test_a_nested_worktree_that_lost_its_git_link_is_refused(self):
+        checkout, head = self.nested_worktree()
+        (checkout / '.git').unlink()
+        self.assertEqual(self.git('rev-parse', '--show-toplevel', cwd=checkout), str(self.repo.resolve()),
+                         'the fixture failed to make Git resolve the directory to the enclosing checkout')
+        for via in ('task', 'batch'):
+            with self.subTest(via=via):
+                before, claims = self.record_bytes(), self.claims()
+                self.assertIn(str(checkout.resolve()), claims)
+                entry = {'task': 'build', 'owner': 'worker', 'run': 1, 'status': 'done', 'summary': 'done'}
+                with self.assertRaisesRegex(CycleError, r'task result: .*unit is not a Git worktree root: Git resolves it to '
+                                            r'the enclosing worktree .*repo.*git worktree repair'):
+                    self.apply('batch', value={'tasks': [entry]}) if via == 'batch' else self.apply('task', **entry)
+                self.assertEqual((self.record_bytes(), self.claims()), (before, claims), 'a refused write changed the record or claims')
+        # Positive control: once the link is restored the result binds the worktree's own commit.
+        subprocess.run(['git', '-C', str(self.repo), 'worktree', 'repair', str(checkout)], capture_output=True)
+        self.task('done')
+        self.assertEqual(self.doc['tasks'][0]['attempts'][-1]['commit'], head)
+
+    def test_direct_completion_from_a_nested_worktree_that_lost_its_git_link_is_refused(self):
+        (self.repo / '.gitignore').write_text('.worktrees/\n')
+        self.git('add', '.gitignore'); self.git('commit', '-qm', 'ignore nested worktrees')
+        checkout = self.repo / '.worktrees' / 'unit'
+        self.worktree_commit(checkout)
+        (checkout / '.git').unlink()
+        for via in ('task', 'batch'):
+            with self.subTest(via=via):
+                before, claims = self.record_bytes(), self.claims()
+                with self.assertRaisesRegex(CycleError, r'.*unit is not a Git worktree root'):
+                    self.direct_done(via, str(checkout))
+                self.assertEqual((self.record_bytes(), self.claims()), (before, claims))
+
+    def test_review_start_refuses_a_live_checkout_that_is_no_worktree_root(self):
+        checkout, head = self.nested_worktree()
+        self.task('done'); self.check()
+        self.git('merge', '-q', '--ff-only', 'unit')
+        for recorded in (True, False):
+            with self.subTest(recorded_commit=recorded):
+                if not recorded:
+                    self.drop_recorded_commit()
+                (checkout / '.git').unlink()
+                before = self.record_bytes()
+                with self.assertRaisesRegex(CycleError, r'^review-start: task build ran in .*unit, which is not a Git worktree root: '
+                                            r'Git resolves it to the enclosing worktree .*git worktree repair'):
+                    self.apply('review-start', reviewer='independent')
+                self.assertEqual(self.record_bytes(), before, 'a refused review-start wrote the record')
+                # Positive control: the restored link lets review-start read the worktree's own HEAD, which is integrated.
+                subprocess.run(['git', '-C', str(self.repo), 'worktree', 'repair', str(checkout)], capture_output=True)
+                self.apply('review-start', reviewer='independent')
+                self.assertEqual(self.doc['state'], 'reviewing')
+                self.doc = json.loads(pilot.path_of(self.repo, self.doc['id']).read_text())
 
     def test_a_rewritten_request_head_names_review_start(self):
         self.implemented()
@@ -784,6 +946,82 @@ os._exit(0)
         self.apply('resume', reason='owner resumed', reconcile='Checked Git status/diff and observed worker still owns run one')
         self.assertEqual(self.doc['state'], 'working')
         self.assertEqual(self.doc['tasks'][0]['run'], 1)
+
+    # -- a plan revision keeps a pause and withdraws an open review request -----------------
+
+    def test_a_plan_revision_on_a_paused_cycle_keeps_the_pause_until_resume(self):
+        self.task()
+        self.task('blocked', summary='worker hit an unknown')
+        self.apply('pause', reason='owner decision needed')
+        revised = {**deepcopy(self.doc['plan']), 'acceptance': ['value equals two', 'caller reads two']}
+        self.apply('plan', value=revised, reason='owner adds a criterion', owner_approval='Add the caller criterion.')
+        # The owner's words are recorded while paused, and the pause and its blocker stay.
+        self.assertEqual((self.doc['state'], self.doc['plan']['revision']), ('paused', 2))
+        self.assertEqual(self.doc['blockers'], ['owner decision needed'])
+        self.assertEqual(self.doc['history'][-1]['owner_approval'], 'Add the caller criterion.')
+        before = self.record_bytes()
+        with self.assertRaisesRegex(CycleError, 'resume before assigning work'):
+            self.task(run=2, summary='reassign after the revision')
+        with self.assertRaisesRegex(CycleError, 'resume before recording a new run'):
+            self.task('done', run=2, summary='completed without an assignment')
+        self.assertEqual(self.record_bytes(), before, 'a refused task write wrote the record')
+        self.apply('resume', reason='owner answered', reconcile='Checked Git status, diff and the record')
+        # A revised plan resumes in planning, as an unpaused revision would, and a task write starts work.
+        self.assertEqual((self.doc['state'], self.doc['blockers']), ('planning', []))
+        self.assertNotIn('resume_state', self.doc)
+        self.task(run=2, summary='reassign after the revision')
+        self.assertEqual(self.doc['state'], 'working')
+
+    def test_a_paused_cycle_still_accepts_the_result_of_a_running_task(self):
+        self.task()
+        self.apply('pause', reason='owner stopped work')
+        self.task('done', summary='worker finished after the pause')
+        self.assertEqual((self.doc['state'], self.doc['tasks'][0]['status']), ('paused', 'done'))
+
+    def test_a_finding_scope_addition_on_a_paused_cycle_keeps_the_pause(self):
+        self.implemented()
+        self.apply('review', value=self.report(verdict='changes-required', blocking=['fix the caller in lib/caller.py'],
+                                               acceptance=[{'criterion': 0, 'met': False, 'evidence': 'caller still reads one'}]))
+        finding = self.doc['review']['finding_tasks'][0]
+        self.apply('pause', reason='waiting on the owner')
+        revised = {**deepcopy(self.doc['plan']), 'scope': ['src', 'lib/caller.py']}
+        self.apply('plan', value=revised, reason='finding names the caller', owner_approval=None, finding=finding, criterion=0)
+        self.assertEqual((self.doc['state'], self.doc['blockers']), ('paused', ['waiting on the owner']))
+        self.assertEqual(self.doc['plan']['scope'], ['src', 'lib/caller.py'])
+        self.apply('resume', reason='go on', reconcile='Checked Git status, diff and the record')
+        self.assertEqual(self.doc['state'], 'planning')
+
+    def test_a_plan_revision_withdraws_the_open_review_request_into_history(self):
+        import cycle_progress
+        self.implemented()
+        self.apply('review-start', reviewer='independent')
+        request = deepcopy(self.doc['review_request'])
+        revised = {**deepcopy(self.doc['plan']), 'goal': 'Return the corrected value to every caller'}
+        self.apply('plan', value=revised, reason='clarify the goal', owner_approval=None)
+        self.assertEqual(self.doc['state'], 'planning')
+        self.assertNotIn('review_request', self.doc)
+        # The withdrawn request stays in the record, on the plan revision that withdrew it.
+        self.assertEqual(self.doc['history'][-1]['review_request'], request)
+        with self.assertRaisesRegex(CycleError, 'no review is requested'):
+            self.as_actor('independent', 'review', value=self.report())
+        self.apply('abandon', reason='superseded')
+        self.assertEqual(cycle_progress.stopped_state(self.doc), 'working')
+
+    def test_a_plan_revision_while_paused_in_review_resumes_in_planning(self):
+        import cycle_progress
+        self.implemented()
+        self.apply('review-start', reviewer='independent')
+        self.apply('pause', reason='owner decision needed')
+        revised = {**deepcopy(self.doc['plan']), 'goal': 'Return the corrected value to every caller'}
+        self.apply('plan', value=revised, reason='clarify the goal', owner_approval=None)
+        self.assertEqual((self.doc['state'], self.doc.get('resume_state')), ('paused', 'planning'))
+        self.assertNotIn('review_request', self.doc)
+        self.assertEqual(self.doc['history'][-1]['review_request']['reviewer'], 'independent')
+        with self.assertRaisesRegex(CycleError, 'resume before review'):
+            self.apply('review-start', reviewer='independent')
+        # Abandoning from the pause names the step a resume would have returned to, not the withdrawn review.
+        abandoned = pilot.mutate(self.repo, self.doc['id'], 'lead', self.doc['revision'], 'abandon', SimpleNamespace(reason='stop'))
+        self.assertEqual(cycle_progress.stopped_state(abandoned), 'planning')
 
     def test_review_blocks_self_review_dirty_source_and_failed_selection(self):
         self.implemented()

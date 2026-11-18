@@ -12,7 +12,7 @@
 import type { Agents, AssignmentView, Council, CycleView, Escalation, Gate, Parsed, Prompt, QueueItemView, QueueView, ReaderView, RunView, Time } from './view.ts'
 import {
   COUNCIL_KINDS, ESCALATION_NOTE, MAX_SHOWN_RUNS, QUIET, ROUTE_ACTIONS, RUN_STATUS, STATES, bandRun, counted, currentEscalation,
-  currentPrompt, cycleTimeText, escalationText, isOpenCycle, isUnreadableCycle, laneCells, lastRunAge, openElapsed, promptBounds, promptSpan, runAxis, runTimes, safeText, stallIdle,
+  currentPrompt, cycleTimeText, escalationText, isOpenCycle, isUnreadableCycle, unreadableNote, laneCells, lastRunAge, openElapsed, promptBounds, promptSpan, runAxis, runTimes, safeText, stallIdle,
 } from './view.ts'
 import { ELLIPSIS, MAX_WIDTH, cells, drawingWidth, fit, head, wrap } from './width.ts'
 import { QUEUE_COLLAPSED_ROWS, queueControl } from './queue.ts'
@@ -758,15 +758,19 @@ function trackCell(c: CycleView, i: number): Line {
 // The current phase's index in the track.
 const currentPhase = (c: CycleView): number => Math.max(0, c.phases.indexOf(c.phase))
 
+// An unreadable record's mark, in place of a status and a step: the row's status and step are the
+// reader's placeholders. Every view of the row draws this one mark.
+export const unreadableMark = (): Line => [span(UNKNOWN, { color: 'warning', bold: true }), span(' '), span('unreadable', { color: 'warning', bold: true })]
+
 // The compact track: a glyph per phase, and the current phase's glyph and word. The band draws it too.
-// An unreadable current record draws its one step cell.
-export const compactTrack = (c: CycleView): Line => isCurrent(c) && !hasSteps(c) ? trackCell(c, currentPhase(c)) : joined(c.phases.map((_, i) => (i === currentPhase(c) ? trackCell(c, i) : trackCell(c, i).slice(0, 1))), ' ')
+// An unreadable current record draws the unreadable mark.
+export const compactTrack = (c: CycleView): Line => isCurrent(c) && !hasSteps(c) ? unreadableMark() : joined(c.phases.map((_, i) => (i === currentPhase(c) ? trackCell(c, i) : trackCell(c, i).slice(0, 1))), ' ')
 
 // The phase track: a glyph and word per phase when that fits n cells; else the compact track; else
 // the current phase alone. The current phase never drops out. The crux-omp card draws a current
 // record's steps with it.
 export function cycleTrack(c: CycleView, n: number): Line {
-  if (isCurrent(c) && !hasSteps(c)) return fitLine(trackCell(c, currentPhase(c)), n)
+  if (isCurrent(c) && !hasSteps(c)) return fitLine(unreadableMark(), n)
   const full = joined(c.phases.map((_, i) => trackCell(c, i)), ` ${TRACK_SEP} `)
   if (lineCells(full) <= n) return full
   const compact = compactTrack(c)
@@ -825,6 +829,11 @@ export function recordLines(c: CycleView): Line[] {
 
 // The lines of one cycle's panel at inner width n. The panel fits each line.
 function cycleLines(c: CycleView, n: number, now: Time): Line[] {
+  // An unreadable record: its id and title, the unreadable mark and the reader's full reason. No
+  // status, step, task count, time or revision: the row's values for those are placeholders.
+  if (isUnreadableCycle(c)) {
+    return [[span(`${c.id} ${drawn(c.title)}`, { bold: true })], unreadableMark(), [span(UNKNOWN, { color: 'warning' }), span(` ${drawn(c.blocker ?? '')}`, { color: 'warning' })]]
+  }
   const done = c.tasks.filter(t => t.status === 'done').length
   const count = taskCount(c)
   // The slot also names the loop limit, except for a listed release cycle, which has one phase and
@@ -895,6 +904,8 @@ export const clampPage = (page: number, pages: number): number => Math.min(Math.
 // One closed cycle in one line: status glyph and word, id, type (a historical cycle only), done/total tasks and the title last,
 // which the fit cuts first.
 export function olderRow(c: CycleView): Line {
+  // An unreadable record's row: the mark, the id and the reason in a safe shape, never a status or a count.
+  if (isUnreadableCycle(c)) return [span(UNKNOWN, { color: 'warning', bold: true }), span(' '), span(c.id, { bold: true }), span(' '), span('unreadable', { color: 'warning' }), span(` ${unreadableNote(c)}`, { dim: true })]
   const done = c.tasks.filter(t => t.status === 'done').length
   return [
     statusGlyph(c), span(' '), span(c.id, { bold: true }), span(' '), ...(isCurrent(c) ? [] : [...typeWord(c), span(' ')]),
@@ -1186,6 +1197,15 @@ function fitSegments(items: BandItem[], w: number): Segment[] {
 // A current record's band is its id, its steps and its task count: the current step's glyph and word
 // state its status, and a paused or abandoned cycle adds that one word, which outlasts the id.
 function cycleBandItems(c: CycleView): BandItem[] {
+  // An unreadable record's band: its id, the unreadable mark and the reason in a safe shape. The
+  // reason drops first, then the id; the mark is the last segment left.
+  if (isUnreadableCycle(c)) {
+    return [
+      { name: 'id', order: 0, rank: 2, line: [span(c.id, { bold: true })] },
+      { name: 'status', order: 1, rank: 1, line: unreadableMark() },
+      { name: 'reason', order: 2, rank: 3, line: [span(unreadableNote(c), { dim: true })] },
+    ]
+  }
   const status: BandItem[] = !hasSteps(c)
     ? [{ name: 'status', order: 4, rank: 3, line: statusMark(c), short: [statusGlyph(c)], shortRank: 4 }]
     : stepStatusWord(c).length > 0 ? [{ name: 'status', order: 4, rank: 1.5, line: stepStatusWord(c) }] : []

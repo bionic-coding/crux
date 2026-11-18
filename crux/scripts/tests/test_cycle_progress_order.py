@@ -42,6 +42,27 @@ class OrderTests(Base):
         self.assertEqual(self.ids(),['ACME-CYC-0013','CYC-0010','ACME-CYC-0009'])
 
 
+class LargeTreeTests(Base):
+    """A tree of more than 200 records lists every open cycle and the most recent closed ones."""
+    def fill(self,count):
+        # The oldest record is paused and the second active, so a plain newest-first cut drops the paused one.
+        self.put('CYC-0001','paused',1);self.put('CYC-0002','active',1)
+        for n in range(3,count+1):self.put(f'CYC-{n:04d}','completed',1)
+    def test_more_than_200_records_list_open_cycles_and_recent_closed_ones(self):
+        self.fill(205)
+        document=view(self.root)
+        ids=[c['id'] for c in document['cycles']]
+        self.assertEqual(len(ids),60)
+        self.assertEqual(ids[:1],['CYC-0002'])
+        self.assertIn('CYC-0001',ids)
+        self.assertEqual(ids[1:59],[f'CYC-{n:04d}' for n in range(205,147,-1)])
+        self.assertEqual(ids[59],'CYC-0001')
+        self.assertIn('CYC-0205',render(document))
+    def test_200_records_keep_the_newest_first_cut(self):
+        self.fill(200)
+        self.assertEqual(self.ids(),['CYC-0002']+[f'CYC-{n:04d}' for n in range(200,141,-1)])
+
+
 class ApprovalTests(Base):
     def test_superseded_revisions_render_no_stale_wait_lines(self):
         # Minimized from CYC-0012: nine unapproved revisions of one decision, the last approved.

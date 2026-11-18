@@ -157,8 +157,8 @@ and applicability. `blocking` lists unresolved findings. Optional fields are
 | Command | Purpose |
 | --- | --- |
 | `create --title T --lead L (--plan FILE \| --goal G --scope S --acceptance A)` | Allocate a cycle. `--follows CYC` links a follow-up; `--release-list` starts a release record. |
-| `plan ID --file FILE --reason TEXT` | Revise the plan. An acceptance change needs the owner's actual words through `--owner-approval`; so does a scope change, except a path added with `--finding TASK --criterion N` as stated above. |
-| `task ID --task TASK --owner OWNER --run N --status STATUS` | Record assignment or progress with the current owner and run. Statuses are `working`, `blocked` and `done`. Supply checkout and outcome where relevant. A result needs `--summary`. A pending task can record `done` directly. |
+| `plan ID --file FILE --reason TEXT` | Revise the plan. An acceptance change needs the owner's actual words through `--owner-approval`; so does a scope change, except a path added with `--finding TASK --criterion N` as stated above. A revision returns the cycle to `planning` and moves an open review request into its history entry; request review again afterwards. On a paused cycle it records the change and keeps the pause and its blocker. |
+| `task ID --task TASK --owner OWNER --run N --status STATUS` | Record assignment or progress with the current owner and run. Statuses are `working`, `blocked` and `done`. Supply checkout and outcome where relevant. A result needs `--summary`. A pending task can record `done` directly; `--checkout` names the linked worktree that holds its work. |
 | `batch ID --file FILE` | Record several task updates and check observations as one validated write. |
 | `check ID --file FILE` | Record a compact observation: check ID, actual command, result, summary, tested revision and rationale. This command records rather than executes. |
 | `review-start ID --reviewer NAME` | The lead requests review from one named independent reviewer, after committing the final code and recording the selected checks. |
@@ -167,7 +167,7 @@ and applicability. `blocking` lists unresolved findings. Optional fields are
 | `delivery ID --file FILE` | Record observed `pr`, `ci`, `merge`, `commit` and `published` facts. They never complete or reopen a cycle. |
 | `recover ID` | Reconcile this cycle's checkout claims with its record after an interrupted write. It changes nothing else and is safe to repeat. |
 | `reopen ID --reason TEXT --owner-instruction TEXT --file TASKS` | Reopen a completed cycle for a related repair, on the owner's actual instruction. `TASKS` is a JSON list of repair task definitions. |
-| `pause ID --reason TEXT`, `resume ID --reason TEXT --reconcile TEXT`, `abandon ID --reason TEXT` | Record a stop, a reconciled continuation, or abandonment. |
+| `pause ID --reason TEXT`, `resume ID --reason TEXT --reconcile TEXT`, `abandon ID --reason TEXT` | Record a stop, a reconciled continuation, or abandonment. A paused cycle leaves its pause only through `resume`, which returns it to the state it paused from, or to `planning` after a plan revision. While paused it refuses a new task run and accepts a running task's result. |
 | `council-subject ID` | Freeze the plan subject and return its path, identity and invocation guidance; this does not convene council. |
 | `council ID --record PATH --response TEXT` | Record an approved council result for the exact plan and the response to its findings. |
 | `status [ID]` | Show progress; read-only. It also shows historical records. |
@@ -246,7 +246,25 @@ write also refuses a head that lacks the code committed when review was requeste
 HEAD: integrate it first. A task marked done from a linked worktree records that
 worktree's HEAD commit on its attempt, and `review-start` refuses while HEAD lacks that
 commit, even after the worktree is removed; a record without a captured commit skips a
-checkout that no longer exists. A lead commit to new paths after `review-start`,
+checkout that no longer exists. A pending or blocked task completed directly with
+`--checkout` naming a linked worktree records that worktree and its commit the same way.
+
+A squash merge or cherry-pick integrates the work under new commit IDs, so HEAD never
+contains the recorded commit and `review-start` keeps refusing. The ancestry check stays;
+the refusal names the route. First verify that HEAD holds the change:
+`git diff COMMIT HEAD` on the task's paths shows only work committed after the squash.
+Then reassign the task in the review checkout at the next run,
+`task ID --task TASK --owner OWNER --run N --status working`, and record completion
+there with `--status done` at the same run. That attempt ran in the review checkout, so
+`review-start` judges it and admits the review.
+
+The writer and `review-start` read a checkout's HEAD only when Git names that directory
+as its own worktree root. A nested worktree that lost its `.git` link is refused; run
+`git worktree repair PATH` from the main checkout to restore the link. Git 2.54 restores
+the link but still prints `error: unable to locate repository; .git file broken` and exits
+1. Verify the repair instead of trusting that exit status:
+`git -C PATH rev-parse --show-toplevel` prints PATH itself, and a second
+`git worktree repair PATH` exits 0 with no output. A lead commit to new paths after `review-start`,
 with no recorded task work, passes admission as it passes `finish`. When
 implementation work was recorded after the request, it refuses a report after which any
 code changed. An implementation task added or run again after the approval also makes

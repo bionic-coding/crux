@@ -244,6 +244,9 @@
     "test_assessment_worked_report.py": {
       "tier": "dev"
     },
+    "test_audit_docs_journal_links.py": {
+      "tier": "dev"
+    },
     "test_authority_internal_memos.py": {
       "tier": "dev"
     },
@@ -344,6 +347,9 @@
       "tier": "dev"
     },
     "test_claude_compat.py": {
+      "tier": "dev"
+    },
+    "test_cleanup_adr_review_due.py": {
       "tier": "dev"
     },
     "test_code_doc_callers.py": {

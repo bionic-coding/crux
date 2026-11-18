@@ -893,7 +893,10 @@ def task_update(repo, doc, args, claims):
         elif args.run != task['run'] + 1:
             raise CycleError(f"invalid transition: a result for {task['status']} task {task['id']} names run {task['run'] + 1}, the next run; {named}")
         else:
-            # Direct completion: a pending or blocked task records its result in one write.
+            # Direct completion: a pending or blocked task records its result in one write. It starts a run, as an
+            # assignment does, so a paused cycle refuses it; a running task's own result is still accepted.
+            if doc['state'] == 'paused':
+                raise CycleError('resume before recording a new run; a paused cycle accepts only the result of a running task')
             _startable(doc, task)
             if args.status == 'done':
                 _adr_dependencies_met(repo, doc, task)
@@ -902,9 +905,17 @@ def task_update(repo, doc, args, claims):
                 if (claim.get('cycle'), claim.get('task')) == (doc['id'], task['id']):
                     del claims[checkout]
             moment = now()
+            attempt = {'run': args.run, 'owner': args.owner, 'checkout': None, 'started_at': moment,
+                       'ended_at': moment, 'outcome': args.status, 'summary': summary}
+            linked = getattr(args, 'checkout', None)
+            if (args.status == 'done' and task['kind'] == 'implementation' and linked
+                    and Path(linked).resolve() != Path(repo).resolve()):
+                # Work finished in a linked worktree is bound to that worktree and its commit, as at working to done.
+                attempt['checkout'] = _linked_checkout(repo, linked)
+                _record_commit(repo, attempt)
+                task['checkout'] = attempt['checkout']
             task.update(owner=args.owner, run=args.run, status=args.status, summary=summary)
-            task['attempts'].append({'run': args.run, 'owner': args.owner, 'checkout': None, 'started_at': moment,
-                                     'ended_at': moment, 'outcome': args.status, 'summary': summary})
+            task['attempts'].append(attempt)
     if doc['state'] == 'planning':
         doc['state'] = 'working'
 
@@ -980,16 +991,46 @@ def request_review(repo, doc, reviewer):
 COMMIT_ID = re.compile(r'[0-9a-f]{40}(?:[0-9a-f]{24})?')
 
 
+def _own_worktree(checkout, subject):
+    """Git's worktree root for `checkout` when it is `checkout` itself, or None when it is no directory or no Git checkout.
+
+    Git reads HEAD from the nearest enclosing worktree. A worktree nested inside another checkout whose `.git` link
+    file is missing therefore reports the enclosing checkout's HEAD, so a directory Git resolves to another root
+    refuses. `subject` opens the refusal."""
+    path = Path(checkout)
+    if not path.is_dir():
+        return None
+    try:
+        root = runtime.checkout_root(path)
+    except runtime.RuntimeRefusal:
+        return None
+    if root != path.resolve():
+        raise CycleError(f'{subject} is not a Git worktree root: Git resolves it to the enclosing worktree {root}, whose HEAD '
+                         f'is not this checkout\'s. When it is a linked worktree that lost its .git link, restore the link with '
+                         f'`git worktree repair {path}` from the main checkout; otherwise name the worktree root')
+    return root
+
+
+def _linked_checkout(repo, checkout):
+    """The worktree root a direct completion names, refused when it belongs to another repository."""
+    root = _own_worktree(checkout, f'task result: {checkout}')
+    if root is not None and runtime.common_directory(root) != runtime.common_directory(repo):
+        raise CycleError('task checkout must belong to this Git repository')
+    return str(root if root is not None else Path(checkout).resolve())
+
+
 def _record_commit(repo, attempt):
     """Bind a done attempt that ran in another checkout to that checkout's HEAD commit.
 
     Review-start judges the recorded commit after the worktree is gone. A checkout whose HEAD cannot
-    be read refuses the result, so removing a worktree before recording its result cannot unbind the work."""
+    be read refuses the result, so removing a worktree before recording its result cannot unbind the work.
+    A directory Git does not identify as its own worktree root refuses too, so an enclosing HEAD is never bound."""
     checkout = attempt.get('checkout')
     if not checkout or Path(checkout).resolve() == Path(repo).resolve():
         return
-    result = subprocess.run(['git', '-C', checkout, 'rev-parse', '--verify', '--quiet', 'HEAD^{commit}'],
-                            capture_output=True, text=True) if Path(checkout).is_dir() else None
+    root = _own_worktree(checkout, f'task result: {checkout}')
+    result = subprocess.run(['git', '-C', str(root), 'rev-parse', '--verify', '--quiet', 'HEAD^{commit}'],
+                            capture_output=True, text=True) if root is not None else None
     head = result.stdout.strip() if result is not None and result.returncode == 0 else ''
     if not COMMIT_ID.fullmatch(head):
         raise CycleError(f'task result: the attempt ran in {checkout}, whose HEAD commit cannot be read; record the result '
@@ -1003,8 +1044,9 @@ def _work_integrated(repo, doc):
     Review admission takes the request head as the cycle's change, so work done in a linked worktree
     must be integrated first. A done attempt that recorded its commit is judged by that commit whether
     or not the worktree still exists: a commit this repository no longer holds, or one HEAD does not
-    contain, refuses. While the worktree exists its live HEAD must also be contained, as before. A record
-    with no captured commit skips a checkout that no longer exists or is no Git checkout."""
+    contain, refuses. While the worktree exists its live HEAD must also be contained, as before, and a
+    directory Git does not identify as its own worktree root refuses. A record with no captured commit
+    skips a checkout that no longer exists or is no Git checkout."""
     here = Path(repo).resolve()
     for task in doc['tasks']:
         if task['kind'] != 'implementation':
@@ -1018,17 +1060,34 @@ def _work_integrated(repo, doc):
             label = recorded[:12] if isinstance(recorded, str) else 'unreadable'
             if not isinstance(recorded, str) or not COMMIT_ID.fullmatch(recorded) or _commit(repo, recorded) is None:
                 raise CycleError(f"review-start: task {task['id']} finished in {checkout} at commit {label}, which this repository "
-                                 'no longer holds; restore and integrate that work, or revise the plan when it is abandoned')
+                                 'no longer holds; restore and integrate that work, or revise the plan when it is abandoned'
+                                 + _copied_route(doc, task, None))
             if not _is_ancestor(repo, recorded, 'HEAD'):
                 raise CycleError(f"review-start: task {task['id']} finished in {checkout} at commit {label}, which this checkout "
-                                 'does not contain; integrate it first, or revise the plan when its work is abandoned')
-        result = subprocess.run(['git', '-C', str(checkout), 'rev-parse', 'HEAD'], capture_output=True, text=True) if checkout.is_dir() else None
+                                 'does not contain; integrate it first, or revise the plan when its work is abandoned'
+                                 + _copied_route(doc, task, label))
+        root = _own_worktree(checkout, f"review-start: task {task['id']} ran in {checkout}, which")
+        result = subprocess.run(['git', '-C', str(root), 'rev-parse', 'HEAD'], capture_output=True, text=True) if root is not None else None
         if result is None or result.returncode or not result.stdout.strip():
             continue
         head = result.stdout.strip()
         if not _is_ancestor(repo, head, 'HEAD'):
             raise CycleError(f"review-start: task {task['id']} ran in {checkout}, whose HEAD {head[:12]} this checkout does not contain; "
-                             'integrate it first, or remove that worktree when its work is abandoned')
+                             'integrate it first, or remove that worktree when its work is abandoned'
+                             + _copied_route(doc, task, head[:12]))
+
+
+def _copied_route(doc, task, commit):
+    """The refusal's route for work a squash merge or cherry-pick integrated under new commit IDs.
+
+    The ancestry check cannot see copied work, so the lead verifies the content and records the
+    task's completion in the review checkout at the next run; review-start then judges that attempt."""
+    verify = (f'`git diff {commit} HEAD` on the task\'s paths shows only later work' if commit
+              else "the task's paths at HEAD hold the change")
+    run = task['run'] + 1
+    return (f'. When a squash merge or cherry-pick already integrated it, verify that HEAD holds the change ({verify}), '
+            f"reassign the task in this checkout at the next run with `task {doc['id']} --task {task['id']} --owner OWNER "
+            f'--run {run} --status working`, and record completion there with `--run {run} --status done`')
 
 
 def _implementers(doc):
@@ -1354,6 +1413,11 @@ def mutate(repo, identity, actor, expected, action, args):
                      'owner_approval': args.owner_approval, 'at': now()}
             if extension:
                 entry['scope_extension'] = extension
+            # A revision supersedes an open review request: the request moves into this history entry, so the
+            # record keeps it and no reader takes the cycle for one still in review.
+            withdrawn = doc.pop('review_request', None)
+            if withdrawn:
+                entry['review_request'] = withdrawn
             doc['history'].append(entry)
             proposed.setdefault('scrutiny', default_scrutiny(repo))
             doc['plan'] = {'revision': doc['plan']['revision'] + 1, **proposed}
@@ -1371,7 +1435,13 @@ def mutate(repo, identity, actor, expected, action, args):
                 if any(t['id'] in old and old[t['id']]['run'] > 0 and t.get('kind', old[t['id']]['kind']) != old[t['id']]['kind'] for t in definitions):
                     raise CycleError('retain the kind of started tasks to preserve implementation author history')
                 doc['tasks'] = [{**old[t['id']], **t} if t['id'] in old else _task(t, doc['lead'], council_needed(doc)) for t in definitions]
-            doc['state'] = 'planning'
+            # A revised plan returns the cycle to planning. A paused cycle stays paused with its blocker, and only
+            # resume returns it, to planning; owner words and finding scope additions are recorded while paused.
+            if doc['state'] == 'paused':
+                doc['resume_state'] = 'planning'
+            else:
+                doc.pop('resume_state', None)  # an earlier writer could leave one behind on an unpaused cycle
+                doc['state'] = 'planning'
         elif action == 'review-start':
             request_review(repo, doc, args.reviewer)
         elif action == 'review':

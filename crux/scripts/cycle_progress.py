@@ -148,19 +148,37 @@ PILOT_STATUSES = ['active', 'paused', 'reviewed', 'completed', 'abandoned']
 QUEUE_CYCLE_STATUSES = ['active', 'paused', 'reviewed', 'completed', 'abandoned', 'shortcut', 'missing']
 
 
+# The fixed wording of the row for an unreadable record. The dashboards recognise that row by these
+# three strings and a null revision (crux-mods/hooks/lib/view.ts isUnreadableCycle), so a change here
+# alone would draw the row's placeholders as facts. tools/tests/test_crux_mods_parity.py holds them equal.
+UNREADABLE_TITLE = 'Unreadable cycle record'
+UNREADABLE_HEAD = 'This record cannot be read: '
+UNREADABLE_TAIL = '. The other cycles are shown.'
+
+
 def unreadable_pilot(identity, exc, modified_s, fmt=None):
     """A row for a record of either format the reader cannot interpret, in the dashboards' closed vocabulary.
 
-    The title and the blocker say that the record is unreadable and why. `paused` is the status
-    that asks for attention; nothing else about the cycle is claimed. The row carries the pilot
-    vocabulary because the dashboards accept it for any record whose format is unknown."""
+    The title and the blocker say that the record is unreadable and why. The status, phase, task list
+    and times are placeholders the closed vocabulary requires; every view recognises the row
+    (is_unreadable) and draws none of them. The row carries the pilot vocabulary because the
+    dashboards accept it for any record whose format is unknown."""
     reason = clean(str(exc) or type(exc).__name__, 300)
-    return {'id': identity, 'title': 'Unreadable cycle record', 'type': 'pilot', 'status': 'paused',
+    return {'id': identity, 'title': UNREADABLE_TITLE, 'type': 'pilot', 'status': 'paused',
             'phase': 'planning', 'pass': 1, 'pass_limit': 1, 'phases': PILOT_PHASES[:], 'tasks': [], 'returns': [], 'waits': [],
-            'blocker': clean(f'This record cannot be read: {reason}. The other cycles are shown.', 1000), 'reflection': None,
+            'blocker': clean(f'{UNREADABLE_HEAD}{reason}{UNREADABLE_TAIL}', 1000), 'reflection': None,
             'modified_s': modified_s, 'schema_version': fmt if fmt in WRITER_FORMATS else WRITER_FORMATS[0], 'revision': None, 'assignments': [],
             'classification_count': 0, 'exception': None, 'started_s': modified_s, 'ended_s': None, 'paused_s': 0,
             'open_started_s': modified_s, 'basis': 'derived', 'phase_times': []}
+
+
+def is_unreadable(c):
+    """Whether a cycle row is the unreadable_pilot row: the same test view.ts isUnreadableCycle makes.
+
+    A readable current record always has a revision, so the fixed title and blocker never match one."""
+    blocker = c.get('blocker') or ''
+    return (c.get('type') == 'pilot' and c.get('revision') is None and c.get('title') == UNREADABLE_TITLE
+            and blocker.startswith(UNREADABLE_HEAD) and blocker.endswith(UNREADABLE_TAIL))
 
 
 def stopped_state(doc):
@@ -170,14 +188,25 @@ def stopped_state(doc):
     writer leaves them: the state a paused cycle paused from; an open review request (reviewing); an
     approving review no later plan revision or reopening followed (reviewed); any started task
     (working); else planning. A plan revision after tasks started reads working, although the writer
-    had returned the cycle to planning."""
-    if doc.get('resume_state') in PILOT_PHASES:
-        return doc['resume_state']
-    if doc.get('review_request'):
-        return 'reviewing'
+    had returned the cycle to planning.
+
+    An earlier writer kept the review request, and the state a paused cycle paused from, across a plan
+    revision. A request naming an earlier plan revision is therefore no open request, and a held
+    reviewing or reviewed state that a later plan revision superseded is ignored."""
+    current = (doc.get('plan') or {}).get('revision')
+    request = doc.get('review_request') or {}
+    requested = bool(request) and request.get('plan_revision', current) == current
     review = doc.get('review') or {}
     later = [entry.get('at', '') for entry in doc.get('history') or [] if entry.get('kind') in ('plan', 'reopen')]
-    if review.get('verdict') == 'approve' and all(at < review.get('at', '') for at in later):
+    review_current = review.get('plan_revision', current) == current
+    approved = review.get('verdict') == 'approve' and review_current and all(at < review.get('at', '') for at in later)
+    held = doc.get('resume_state')
+    superseded = (held == 'reviewing' and bool(request) and not requested) or (held == 'reviewed' and not review_current)
+    if held in PILOT_PHASES and not superseded:
+        return held
+    if requested:
+        return 'reviewing'
+    if approved:
         return 'reviewed'
     return 'working' if any(task.get('run', 0) > 0 for task in doc['tasks']) else 'planning'
 
@@ -258,7 +287,6 @@ def _view(sio, identity=None, now=None):
     directory=contained(cfg.docs_root,'cycles')
     if identity and not ID.fullmatch(identity):raise CycleError('invalid cycle identity')
     paths=[contained(directory,f'{identity}/cycle.json')] if identity else [folder/'cycle.json' for folder in sio.glob(directory,'*') if sio.kind(folder)=='directory' and sio.kind(folder/'cycle.json')=='file']
-    if len(paths)>200:raise CycleError('too many cycles for dashboard; use an explicit cycle')
     now_s=int(time.time() if now is None else now)
     moment=datetime.fromtimestamp(now_s,timezone.utc)
     cycles=[];rounds={};superseded={}
@@ -302,10 +330,17 @@ def _view(sio, identity=None, now=None):
         rounds[doc['id']]=councils_of(sio,cfg,doc)
     # Active cycles first, then every other cycle; each group by cycle number, highest first.
     cycles.sort(key=lambda c:(c['status']!='active',-cycle_number(c['id'])))
+    # The queue labels its started items from every record read, not only the rows shown.
+    statuses={c['id']:c['status'] for c in cycles}
+    if len(paths)>200:
+        # A large tree keeps every open cycle, then fills the dashboards' 60 rows with the most
+        # recent closed ones; the sort order stands. Smaller trees keep the plain newest-first cut.
+        closed=[c['id'] for c in cycles if c['status'] in cycle_history.CLOSED]
+        keep=set(closed[:max(0,60-(len(cycles)-len(closed)))])
+        cycles=[c for c in cycles if c['status'] not in cycle_history.CLOSED or c['id'] in keep]
     document=Document({'format':'crux.cycle-progress','format_version':FORMAT_VERSION,'ok':True,'docs_dir':cfg.docs_dir,'now_s':now_s,'cycles':cycles[:60]})
     # The queue rides in the JSON as `queue` (null without a queue file or with an explicit identity)
     # and as text lines for `render`.
-    statuses={c['id']:c['status'] for c in cycles}
     document['queue']=None if identity else queue_view(sio,cfg,statuses)
     document.queue_lines=None if identity else queue_lines(sio,cfg,statuses)
     root=sio.root
@@ -357,6 +392,10 @@ def _task_lines(c, show_attempts):
 def render(document):
     lines=[]
     for c in document['cycles']:
+        if is_unreadable(c):
+            # The record names itself and why it cannot be read; its status, step, tasks and time are placeholders.
+            lines.extend([f"{c['id']} {c['title']}", '  '+c['blocker']])
+            continue
         # A listed release cycle has one phase and no pass limit to show.
         position=f"{c['phase'].title()} · {c['status']}" if c['type']=='pilot' or (c['type']=='release' and c['phases']==['release']) else f"Pass {c['pass']} of {c['pass_limit']} · {c['phase'].title()} · {c['status']}"
         if c.get('revision') is not None:position+=f" · revision {c['revision']}"

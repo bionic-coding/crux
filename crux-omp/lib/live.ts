@@ -2,9 +2,9 @@
 // Builds a real-time parent -> child subagent tree across sessions, detects active tool calls and
 // task batches, and flags potentially blocked or long-running agents without mutating host state.
 import type { Block, Line, Span } from '../../crux-mods/hooks/lib/draw.ts'
-import { BAR_OFF, BAR_ON, LOOP_GLYPH, STATE_GLYPHS, TRACK_SEP, compactTrack, cycleTrack, drawn, fitLine, joined, lineCells, olderLines, olderRow, queueBlock, recordLines, revisionLine, stepStatusWord } from '../../crux-mods/hooks/lib/draw.ts'
+import { BAR_OFF, BAR_ON, LOOP_GLYPH, STATE_GLYPHS, TRACK_SEP, compactTrack, cycleTrack, drawn, fitLine, joined, lineCells, olderLines, olderRow, queueBlock, recordLines, revisionLine, stepStatusWord, unreadableMark } from '../../crux-mods/hooks/lib/draw.ts'
 import type { CycleView, QueueView } from '../../crux-mods/hooks/lib/view.ts'
-import { cycleTimeText, isOpenCycle, isUnreadableCycle } from '../../crux-mods/hooks/lib/view.ts'
+import { cycleTimeText, isOpenCycle, isUnreadableCycle, unreadableNote } from '../../crux-mods/hooks/lib/view.ts'
 import { cells } from '../../crux-mods/hooks/lib/width.ts'
 
 export type SubagentStatus = 'running' | 'idle' | 'blocked' | 'done' | 'error'
@@ -302,6 +302,14 @@ export function buildLiveActivitySection(live: LiveRuntimeSnapshot, innerWidth: 
 }
 
 function buildActiveOrPausedCycleCard(c: CycleView, label: string, innerWidth: number, nowS: number | null): Line[] {
+  // An unreadable record's card: the unreadable mark, its id and title, and the reader's full reason.
+  // No status badge, step, task count or time: the row's values for those are placeholders.
+  if (isUnreadableCycle(c)) {
+    return [
+      fitLine([...unreadableMark(), span(': '), span(`${c.id} `, { bold: true }), span(drawn(c.title), { bold: true })], innerWidth),
+      fitLine([span('! ', { color: 'error', bold: true }), span(drawn(c.blocker ?? ''), { color: 'error' })], innerWidth),
+    ]
+  }
   const badge = CYCLE_BADGE[c.status] ?? { glyph: '?', label: c.status.toUpperCase(), color: 'warning' as const }
   const done = c.tasks.filter(t => t.status === 'done').length
   const timeText = cycleTimeText(c, nowS)
@@ -634,8 +642,13 @@ export function buildOmpBandLine(cycles: readonly CycleView[], nowS: number | nu
     // A readable current record draws its id and its steps, whose current glyph and word state the
     // status; a paused or abandoned cycle adds that word. Its blockers are not always a pause, so they
     // read `blocked`. A historical record draws its badge, type and phase.
-    const steps = latest.type === 'pilot' && !isUnreadableCycle(latest)
-    parts.push(steps
+    const unreadable = isUnreadableCycle(latest)
+    const steps = latest.type === 'pilot' && !unreadable
+    // An unreadable record draws its id, the unreadable mark and the reason in a safe shape, and no
+    // status, step, task count or blocker: the row's values for those are placeholders.
+    parts.push(unreadable
+      ? [span(latest.id, { bold: true }), span(' '), ...unreadableMark()]
+      : steps
       ? [
           span(latest.id, { bold: true }), span(' '), ...compactTrack(latest),
           ...(stepStatusWord(latest).length > 0 ? [span(' '), ...stepStatusWord(latest)] : []),
@@ -648,7 +661,9 @@ export function buildOmpBandLine(cycles: readonly CycleView[], nowS: number | nu
           span(` \u{00B7} ${latest.phase}`, { color: PHASE_COLORS[latest.phase] ?? 'text', bold: latest.status === 'active' }),
           span(` (${done}/${latest.tasks.length})`, { dim: true }),
         ])
-    if (latest.blocker !== null) {
+    if (unreadable) {
+      parts.push([span(unreadableNote(latest), { dim: true })])
+    } else if (latest.blocker !== null) {
       parts.push([span(`! ${steps ? 'blocked' : 'paused'}: ${drawn(latest.blocker, 28)}`, { color: 'warning', bold: true })])
     } else if (latest.waits.length > 0) {
       parts.push([span(`! awaiting: ${drawn(latest.waits[0]!, 24)}`, { color: 'warning', bold: true })])

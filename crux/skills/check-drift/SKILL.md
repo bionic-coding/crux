@@ -47,7 +47,8 @@ Report it if a reader asks what the run wrote; do not report the run as having w
 
 A cycle selects only the gates its change touches, so no fixed roster runs in every cycle.
 In the Crux development repository, `tools/drift-audit.py` runs this whole roster once a week
-on the commit local `main` names, outside every cycle and release.
+on the commit local `main` names, outside every cycle and release. Its `--help` names the
+manual recovery after a SIGKILL, which leaves its temporary checkout behind.
 
 Do **not** use this skill for:
 - Regenerating anything — this skill is read-only. Run the recommended regenerator yourself.

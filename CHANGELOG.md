@@ -1,4 +1,4 @@
-<!-- generated-from: CHANGELOG.md@sha256:388382b64d3fa880e16f5291ac11dad1b98e13bd6504e294b90d119c769f0f7a; model: claude-sonnet-5.5; date: 2026-11-18 -->
+<!-- generated-from: CHANGELOG.md@sha256:663799d508d16de48e53e342a9833d05160a58ea62b15a63ed7d72fc1e675cf5; model: claude-sonnet-5.5; date: 2026-11-18 -->
 # Changelog
 
 All notable changes to crux. The format roughly follows [Keep a Changelog](https://keepachangelog.com/) and the project adheres to [Semantic Versioning](https://semver.org/).
@@ -10,6 +10,28 @@ All notable changes to crux. The format roughly follows [Keep a Changelog](https
 ### Changed
 
 ### Fixed
+
+### Removed
+
+## [6.0.4] — 2026-11-18
+
+### Added
+
+### Changed
+
+### Fixed
+
+- `cycle.py status` and the dashboards now list cycles in a tree of any size. Trees with more than 200 cycle records used to fail with `run-invalid` ("Dashboard unavailable: reader-failed:run-invalid"). They now show open and paused cycles first, then fill the dashboards' 60 rows with the most recent closed cycles. Queued items still read every record, and trees of 200 records or fewer, and explicit cycle ids, behave as before.
+- The decision-migration reminder in `cleanup-campsite` now dates the last decision review from dated review reports and from validated migration activations, meaning publications that `authority-view.py state` reports, dated by their publication commit. Before, only dated reports counted, so a tree that published an owner-approved migration after its last report got the reminder every week. Drafts, candidates, approvals and other unactivated records still count for nothing, future dates still anchor nothing, the `adr_review_due_days` threshold is unchanged, a tree with neither source still gets the reminder, and the rule remains a suggestion.
+- The docs audit's journal link check now resolves ADR links written as `[[adrs/ADR-NNNN]]` by id, against both the current and archived decision folders. Before, it reported every such link as dangling because decision files carry a slug, which raised 31 warnings on the development repository's journal. A slugged ADR link still needs its exact file in either folder, other `adrs/` targets still resolve by exact path, and an id with no matching decision still dangles.
+- A plan revision on a paused cycle now keeps the cycle paused with its blocker. Before, `plan` moved the cycle to `planning`, which ended the pause without `resume`, kept the blocker and accepted a new task run. `plan --owner-approval` and `plan --finding` still record on a paused cycle, only `resume` leaves the pause (returning the cycle to `planning` after a revision), and a paused cycle now refuses a task's direct completion, as it already refused an assignment, while still accepting the result of a running task.
+- A plan revision now moves an open review request into its history entry. Before, the request stayed on the record, so a cycle abandoned after the revision showed "Reviewing · abandoned" in `cycle.py status` and the dashboards. The status reader now ignores a review request, or a paused-from `reviewing` or `reviewed` state, that names an earlier plan revision, so existing records with a stale request show the step they actually stopped in.
+- Completing a pending or blocked implementation task directly with `--checkout` naming a linked worktree now records that worktree and its HEAD commit, in both `task` and `batch`. Before, `--checkout` was ignored and no checkout was recorded, so `review-start` could admit the work after the worktree was removed even if the lead's checkout lacked it. Direct completion is still one write and leaves no checkout claim, tasks completed in the lead's checkout record as before, and naming a missing directory, a directory of another repository or a subdirectory of a worktree is refused.
+- The cycle writer and `review-start` now read a checkout's HEAD only when Git names that directory as its own worktree root. Before, a worktree nested inside the lead's checkout whose `.git` link file had been deleted made Git read the enclosing checkout's HEAD, so a done result recorded the wrong HEAD and `review-start` admitted unintegrated work. Both now refuse and point to `git worktree repair PATH`, which restores the link, and a refused `task` or `batch` write leaves the cycle record and checkout claims unchanged.
+- The weekly drift audit (development repository only) no longer leaves its temporary checkout and running gates behind when stopped. On SIGTERM, SIGHUP, Ctrl-C or the one-hour timeout it now kills its whole process group and removes its own worktree, registration and temporary directory. Before, a timeout killed only `uv` and left the gates running against a deleted checkout, and SIGTERM or SIGHUP skipped cleanup. Cleanup no longer runs `git worktree prune`, so another checkout's stale registration survives an audit, and `--help` describes manual recovery after SIGKILL.
+- An audit of another branch no longer silences the weekly drift-audit reminder for `main` (development repository only). `--branch X` still prints its verdict, but only an audit of `main` that produced a verdict writes the last-audit record. The `cleanup-campsite` drift reminder now treats a record whose `branch` is not `main` as no audit of `main`, keeping its seven-day cadence and reminder-only behaviour.
+- When a squash merge or cherry-pick had already integrated a linked-worktree task, `review-start` refused with advice to "integrate it first". The ancestry check is unchanged, but the refusal now names the supported route: verify that HEAD holds the change with `git diff COMMIT HEAD` on the task's paths, reassign the task in the review checkout at the next run with `--status working`, then record `--status done` there so `review-start` admits the review. The cycle reference now documents this route, and also how to verify a link that `git worktree repair` restored while printing an error and exiting 1.
+- An unreadable cycle record (truncated JSON, an unknown format, or a current record with missing keys) now reads as unreadable in every view. Before, `cycle.py status`, the bands and the `cycles:` row showed placeholder values such as "Planning · paused", "Tasks 0/0 done" and an elapsed time as if they were facts. `cycle.py status` now prints the record's id, title and reason, while the shared pane, bands, `cycles:` row, crux-omp card and OMP band draw `? unreadable` with no status, step, task count or time. Bands and the row show the reason only when it quotes no record text, otherwise `reason not shown`, and the text answer keeps its `not-shown` fallback. A parity test now keeps the wording identical between the Python reader and the TypeScript views, using real malformed records, so a change on one side alone fails it.
 
 ### Removed
 

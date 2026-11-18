@@ -96,6 +96,38 @@ class PilotProgressTests(unittest.TestCase):
         with self.assertRaisesRegex(Exception,'invalid pilot cycle'):
             view(self.root,'CYC-0100')
 
+    def test_status_names_an_unreadable_record_and_claims_no_state_tasks_or_time(self):
+        # Truncated JSON, an unknown format and a current format with missing keys: each row carries the
+        # fixed title, head and tail, and the listing draws its id, title and reason and nothing else.
+        import cycle_progress
+        self.save()
+        broken={'CYC-0002':'{"format": "crux.cycle.v1", "id": "CYC-0002", "state": "work',
+                'CYC-0003':json.dumps({'format':'crux.cycle.v9','id':'CYC-0003','state':'working'}),
+                'CYC-0004':json.dumps({'format':'crux.cycle.v1','id':'CYC-0004','revision':1,'state':'working','title':'T'})}
+        for identity,text in broken.items():
+            path=self.root/'bionic/cycles'/identity/'cycle.json'
+            path.parent.mkdir(parents=True);path.write_text(text)
+        out=view(self.root)
+        rows={c['id']:c for c in out['cycles']}
+        blocks={}
+        for line in render(out).splitlines():
+            if line.startswith('CYC-'):ident=line.split(' ',1)[0];blocks[ident]=line
+            else:blocks[ident]+='\n'+line
+        for identity in broken:
+            with self.subTest(identity=identity):
+                row=rows[identity]
+                self.assertTrue(cycle_progress.is_unreadable(row))
+                self.assertEqual(row['title'],cycle_progress.UNREADABLE_TITLE)
+                self.assertTrue(row['blocker'].startswith('This record cannot be read: '),row['blocker'])
+                self.assertTrue(row['blocker'].endswith('. The other cycles are shown.'),row['blocker'])
+                self.assertEqual(blocks[identity],f"{identity} Unreadable cycle record\n  {row['blocker']}")
+                for placeholder in ('paused','Planning','Tasks','Elapsed','0/0'):
+                    self.assertNotIn(placeholder,blocks[identity])
+        # Positive control: the readable record in the same listing keeps its state, tasks and time.
+        self.assertFalse(cycle_progress.is_unreadable(rows['CYC-0099']))
+        for shown in ('Working · active','Tasks 0/1 done','Elapsed'):
+            self.assertIn(shown,blocks['CYC-0099'])
+
     def test_the_committed_completed_pilot_records_render(self):
         """The record shapes that blanked the dashboard: CYC-0165 to CYC-0167, completed."""
         tree=Path(__file__).resolve().parents[3]/'bionic/cycles'
@@ -129,6 +161,16 @@ class PilotProgressTests(unittest.TestCase):
             ('a review that required changes',{'review':{'verdict':'changes-required','at':'2026-11-16T00:05:00+00:00'}},'working'),
             ('no task started',{'tasks':[{**self.doc['tasks'][0],'run':0,'status':'pending'}]},'planning'),
             ('a started task',{},'working'),
+        ]
+        # Records an earlier writer left: a plan revision kept the review request or the pause state it superseded.
+        revised={**self.doc['plan'],'revision':2}
+        stale_request={'reviewer':'r','plan_revision':1,'head_commit':'0'*40,'at':'2026-11-16T00:04:00+00:00'}
+        cases+=[
+            ('a review request a plan revision superseded',{'plan':revised,'review_request':stale_request},'working'),
+            ('paused in reviewing, then a plan revision',{'plan':revised,'resume_state':'reviewing','review_request':stale_request},'working'),
+            ('paused in reviewed, then a plan revision',{'plan':revised,'resume_state':'reviewed','review':{**approve,'plan_revision':1}},'working'),
+            ('a review request for the current revision',{'plan':revised,'review_request':{**stale_request,'plan_revision':2}},'reviewing'),
+            ('paused in planning after a plan revision',{'plan':revised,'resume_state':'planning'},'planning'),
         ]
         base=copy.deepcopy(self.doc);base['tasks'][0]['status']='done'
         for name,over,step in cases:

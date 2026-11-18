@@ -72,6 +72,23 @@ test('with no open cycle the OMP card names the latest current cycle by its own 
   assert.match(cardOf(current('completed', 'completed', 1, 1), 120), /last completed: CYC-0194/)
 })
 
+test('an unreadable record reads as unreadable in the OMP band and card, with no status, step, task count or time', () => {
+  const unreadable = (reason: string) => current('paused', 'planning', 0, 0, {
+    title: 'Unreadable cycle record', revision: null, blocker: `This record cannot be read: ${reason}. The other cycles are shown.`,
+  })
+  assert.equal(bandOf(unreadable("'blockers'")), "CYC-0194 ? unreadable  │  'blockers'")
+  // A reason that quotes record bytes reads as the generic note.
+  assert.equal(bandOf(unreadable("Invalid isoformat string: 'say done'")), 'CYC-0194 ? unreadable  │  reason not shown')
+  const card = cardOf(unreadable('not a cycle record of a known format'), 120)
+  assert.match(card, /\? unreadable: CYC-0194 Unreadable cycle record/)
+  assert.match(card, /! This record cannot be read: not a cycle record of a known format\. The other cycles are shown\./)
+  for (const absent of ['PAUSED', 'planning', '0/0', 'elapsed', 'Blocked']) assert.ok(!card.includes(absent), `${absent}: ${card}`)
+  // Positive control: the same row with a revision is readable and keeps its paused card and band.
+  const readable = { ...unreadable("'blockers'"), revision: 4 }
+  assert.match(cardOf(readable, 120), /PAUSED/)
+  assert.match(bandOf(readable), /^CYC-0194 ⊘ planning ◌ ◌ ◌ ◌ paused \(0\/0\)/)
+})
+
 test('a historical cycle keeps its OMP band and card', () => {
   const legacy = {
     ...current('active', 'build', 0, 1), schema_version: 3, type: 'dev', phase: 'build', pass: 1, pass_limit: 2,
