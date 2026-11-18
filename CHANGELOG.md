@@ -1,4 +1,4 @@
-<!-- generated-from: CHANGELOG.md@sha256:405a270575a13d0c29143e48c989bb679150a52f953227944849d3b2d6ca3572; model: claude-sonnet-5.5; date: 2026-11-16 -->
+<!-- generated-from: CHANGELOG.md@sha256:388382b64d3fa880e16f5291ac11dad1b98e13bd6504e294b90d119c769f0f7a; model: claude-sonnet-5.5; date: 2026-11-18 -->
 # Changelog
 
 All notable changes to crux. The format roughly follows [Keep a Changelog](https://keepachangelog.com/) and the project adheres to [Semantic Versioning](https://semver.org/).
@@ -12,6 +12,93 @@ All notable changes to crux. The format roughly follows [Keep a Changelog](https
 ### Fixed
 
 ### Removed
+
+## [6.0.3] — 2026-11-18
+
+### Added
+
+- A development-only weekly drift audit in the development repository runs the full drift roster against the commit that local `main` points to. It works in a temporary checkout, prints the commit ID and the findings, then removes the checkout. No cycle or release command runs it, and a cleanup reminder appears when the last audit is more than seven days old.
+
+### Changed
+
+### Fixed
+
+- The dashboards draw the steps of a current-format cycle again. The cycle panel shows one line under the title with every step from planning to completed: done steps get a check, the current step gets the cycle's status glyph, and later steps show as pending. On narrower widths the line falls back to one glyph per step plus the current step's word, then to the current step alone. The band and the crux-omp card and band draw the same steps. The one-line forms now state the status only once, so `CYC-0193  ✓ completed  ✓ completed  1/1 tasks` reads `CYC-0193  ✓ ✓ ✓ ✓ ✓ completed  1/1 tasks`, and a paused or abandoned cycle adds that one word. A paused cycle marks the step it paused in, and an abandoned cycle marks the step it stopped in with ✗, now read from the record instead of assumed to be `working`. A current record's blockers read `Blocked` instead of `Paused`. crux-omp shows its task count without a progress bar and names a closed cycle by its own status. Historical records render as before.
+- Removing a linked worktree before its work was integrated no longer lets `review-start` proceed without that work. A task marked done from a linked worktree now records the worktree's HEAD commit on its attempt as `commit`. `review-start` refuses if the review checkout's HEAD lacks that commit, or if the repository no longer holds it, whether or not the worktree still exists. A done result from a worktree whose HEAD cannot be read is refused, and a record with no captured commit keeps the earlier rule. The cycle-record schema gains the optional attempt key `commit`, so a writer from an earlier plugin version refuses to write a record that carries it.
+
+### Removed
+
+## [6.0.2] — 2026-11-18
+
+### Added
+
+- **A reviewer's blocking finding can add the path it names to a cycle's scope, without the owner's words.** `cycle.py plan --finding TASK --criterion N` admits the scope addition when `TASK` is a blocking finding that the cycle's requested independent reviewer recorded for this cycle, `N` is a criterion of the current plan, every added path appears in the finding, no scope entry is removed and acceptance is unchanged. The plan history records the finding, the criterion and the added paths, and the next review judges whether the criterion requires the fix. Every other scope or acceptance change still needs `plan --owner-approval`. A changes-required review now stores the task ids of its blocking findings as `finding_tasks`.
+- A task can name in `adr_dependencies` an ADR that another cycle or route proposed. The task starts once that ADR's file states Accepted and, where its `acceptance_format` requires an acceptance receipt, the receipt validates against the file. An `acceptance_format` other than `crux.adr-acceptance.v1` refuses the task, and an ADR with no `acceptance_format` is read by its status alone. Previously a task could depend only on an ADR proposed by its own cycle.
+
+### Changed
+
+- **The `review` write now admits a report under the same reviewed-path rule that `finish` applies.** It used to refuse a report whenever any code changed after the reviewed head, so serial cycles on one branch each had to include the next cycle's commits in their review range. A later commit now refuses the report only when it changes a path that the range from the cycle base to the reviewed head changed, and the refusal names that path. The reviewed head must hold the code committed when review was requested, and if implementation work was recorded after the request, any later code change still refuses the report. The reviewed range still includes other cycles' commits made after the cycle's base. `review-start` refuses while finished work recorded in another existing checkout holds a HEAD that the lead's checkout does not contain. When the commit at which review was requested has left the history of HEAD, the refusal names `review-start`.
+- `queue show` and `queue list --full` now report `position` as the item's place among unstarted items, and null for a started item. They used to report an index into the history-augmented view, so the same item could read 1 in `show` and 110 in `--full`.
+- `queue list --full` rows no longer carry per-item history facts, and an archived item's row omits its outcome, scope, acceptance and references and sets `archived`. `queue show` still gives all of them. The current queue's full list shrinks from about 695 KB to 118 KB.
+
+### Fixed
+
+- **`decision-policy.py propose`, `decision-policy.py accept` and `adr-precouncil.py rules` run again when launched by path with `uv run`.** In 6.0.0 and 6.0.1 they failed with `ModuleNotFoundError: No module named 'httpx'` in a tree with the observations concern enabled. The rule-handle collision check reads the survey receipts, which pulled in the `crux` package's top-level import, and that import in turn loaded the council and the LLM caller. The package now imports no subpackage at load time, and `crux.llm` and the council names still resolve on first use. A new test in the development repository runs every script that declares PEP 723 dependencies in its own isolated environment from an empty directory, runs its `--help`, and imports every module it can reach. The test found the same failure chain reachable from `adr-provenance.py`, `check-governs-coverage.py`, `signoff-backfill.py`, `signoff-reconciliation.py`, `visualize-cycle-progress.py`, `visualize-run-progress.py` and the `summaries_projection.py` and `doctrine_projection.py` entry points, and all are fixed.
+- The OMP dashboard now draws a reviewed cycle awaiting its finish as a current cycle, and its queue item takes the running glyph. It used to draw such a cycle in no group and give its item the pending glyph. The text answer and the shared pane now also count a reviewed cycle as open.
+- The `/crux-dashboard` text answer now names a cycle record the reader cannot read as `cycle <id> unreadable reason <reason>`. It used to print the record as `status paused` with a time taken from the file's modification time.
+- The `release.py prepare` advisory no longer says the preflight executes the main run when only the tier check lacks a receipt. In 6.0.0 and 6.0.1 it said so, and `verify` then reused both suite receipts and executed only the tier check. The advisories now name `release.py verify` and the cycle's selected checks instead of a Verify phase.
+- The refusal of a checkout that another cycle holds now names `cycle.py recover` for the holding cycle.
+- The refusals of an ADR drafted or recorded in a reviewed cycle now say that a plan revision returns the cycle to planning.
+- The cycle instructions now match the actual behavior. A cycle created with a full plan stays in `planning` until its first task write, and a plan revision returns it there. After a plan revision every selected check reads `missing` until a `batch` of `reuse` entries or a new run records it again. The lead, not the reviewer, runs `review-start`. The commander lists the `type-unsupported` queue stop. The references give the path of `parallel_suite.py`, the record commit message, and the scope of `related-tests.py` for an instruction file.
+
+### Removed
+
+## [6.0.1] — 2026-11-17
+
+### Added
+
+### Changed
+
+- **OpenAI models move to GPT-6.2 Astra and GPT-6.2 Sol.** Codex apex agents now select `gpt-6.2-astra` and Codex flagship agents select `gpt-6.2-sol`, both at high effort. The Codex reviewer now runs `gpt-6.2-astra` at medium effort, replacing its earlier Sol override at `xhigh`. The OpenCode `sol-latest` alias resolves to `openrouter/openai/gpt-6.2-sol`. The router registry (now 6.0.0) registers `gpt-6.2-astra`, `gpt-6.2-sol` and `gpt-6.2-sol-low`, moves the `openai_top` seat and the default council's OpenAI seat to them, and removes `gpt-6-astra`, `gpt-6.1-sol` and `gpt-6.1-sol-low` without an alias, so a caller naming a removed key gets an error. Both models support reasoning efforts low, medium, high, xhigh and max; Astra costs $8 input and $40 output per 1M tokens, Sol $2 and $10. Terra and all other providers are unchanged. Regenerate and reinstall your Codex, OpenCode or OMP agents to pick up the new models.
+
+### Fixed
+
+### Removed
+
+## [6.0.0] — 2026-11-17
+
+### Added
+
+- `cycle.py` has top-level writer commands: `create`, `show`, `plan`, `task`, `batch`, `check`, `review-start`, `review`, `delivery`, `finish`, `reopen`, `recover`, `pause`, `resume`, `abandon`, `council-subject` and `council`. `cycle.py pilot SUB` stays as an alias of `SUB`.
+- A cycle has seven states: `planning`, `working`, `reviewing`, `reviewed`, `completed`, `paused` and `abandoned`. It has no type, phases, pass limit or reflection step. A blocking finding becomes a task in the same cycle, and the reviewer reassesses the changed work.
+- A completed cycle records a summary of its outcome, lessons and remaining work. An abandoned cycle records its reason.
+- A task can name `adr_dependencies`. The writer refuses to start or finish the task until each named ADR is Accepted.
+- `decision-policy.py propose` and `accept` refuse an ADR whose rule handle has the slug of a live rule, of a retired rule or of a rule the same ADR retires. `propose` refuses before it allocates a number, and `accept` leaves the ADR unchanged. `adr-precouncil.py rules` reports the same collisions.
+
+### Changed
+
+- **Breaking: this is a major version.** The `cycle.py` commands and the cycle record format changed incompatibly. The typed cycle engine is removed, and one cycle workflow replaces it: one lead, checks selected by scope and risk, and an independent review that the reviewer files itself. `finish` completes a cycle. PR, CI, merge and publication are delivery facts recorded with `delivery`; none completes or reopens a cycle. A completed cycle reopens only through `reopen` with the owner's instruction, and otherwise a linked cycle created with `create --follows` repairs it.
+- Two accepted decisions define the workflow. The first states its rules. The second restates two of those rules, the named stops and the progress view, under new handles that no retired rule uses.
+- One engine now runs ordinary cycles. `cycle.py queue start-next` starts every non-release queue item as a `crux.cycle.v1` record, and `--pilot` has no further effect. Authorization, dependencies, recovery of an interrupted start, completion and archival work as before.
+- The lightweight pilot is the default workflow, and the guides describe it as the one workflow. Existing pilot records stay readable and are not rewritten.
+- A release item starts a `crux.cycle.v1` record of kind `release` with the fixed beta or official step list. The release tool advances and completes it, and its ledger remains the authority for artifacts, authorization, verification, smoke, tags and duplicate publication. The ordinary `task`, `finish` and `reopen` commands refuse a release record. Replaying a record changes nothing.
+- A cycle-origin ADR is proposed with `decision-policy.py propose --origin cycle --cycle CYC-NNNN`. Its proposal metadata records the cycle and the true provenance, with a null creation approval. Council still approves the exact draft, and the configured acceptance policy still applies.
+- Historical cycle records and typed release cycles are now read without the retired engine, and `cycle.py status` shows them.
+- The standalone `micro-crux.md` guide describes `crux.cycle.v1` records instead of the typed cycle manual. Its example record passes the writer's validation.
+- The instruction files are shorter. The cycle skill fell from 1052 lines to 263, the commander role from 612 to 298 and the dev-lead role from 506 to 260. Specialist contracts moved into task references that a role reads when its task reaches them.
+- The dashboards and `cycle.py status` render a current record as its state and tasks, without a phase chain.
+
+### Fixed
+
+### Removed
+
+- Every typed `cycle.py` command (`op`, `advance`, `assignment`, `task-add`, `plan-details`, `checks`, `local-check`, `decision`, `approve-decision`, `return`, `change-type`, `extend`, `reflect`, `owner-decision`, `context-read`, `await`, `friction`, `shortcut`, `defer` and the rest) exits 1 with the code `command-retired` and names its replacement. Cycle types, phases, passes, pass limits, returns, the Reflect step, dispatch invocations, execution proofs, delivery tokens and per-operation record commits are gone from the workflow.
+- The typed engine's modules and its operation schema are deleted: eighteen cycle modules, the owner-approval module and the cycle operation schema. A placeholder module that the cutover kept for the running engine was removed last.
+- `cycle.py status --activity` is removed.
+- The `--cycle` option of the public-docs generator, a tool in the development repository, is removed. Generation takes no cycle and sends no optional relevance questions.
+- The council whose only purpose was permission to draft a cycle-origin ADR is retired, and so is the implementation-decision council. Convening a council with the purpose `idr` or `adr-creation` refuses with a message that names the replacement. Plan councils run through `council-subject`, `cycle-council.py --purpose consultation` and `council`.
+- `release-continue` and fixed-list release continuation are removed. Release steps run through the release tool.
+- `cycle.py create` and `queue start-next` no longer check the git identity, Python minors and `node` before writing, and the `environment-prerequisite` stop is gone. A start without a git identity saves the cycle record and the queue file and defers its commit.
 
 ## [5.8.1] — 2026-11-16
 

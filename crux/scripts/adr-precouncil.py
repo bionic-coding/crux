@@ -13,6 +13,11 @@ Subcommand `rules --repo-root R --adr PATH`:
   name, minus the draft's own handles. Emits a reconciliation table skeleton
   for the Consequences section, and an advisory when the draft amends plus
   supersedes more than three ADRs. `--json` emits the same data as JSON.
+  It also reports each rule-handle collision: a draft handle whose slug equals
+  a live slug, a retired slug, or the slug of a handle the draft itself
+  retires. The live and retired slugs come from the ADR corpus itself, as the
+  summaries regenerator collects it, not from the derived resolver.
+  `decision-policy.py propose` and `accept` refuse the same collisions.
 
 The rules come from `<docs_dir>/adrs/summaries/resolver.json` (rule text, source
 ADR) and `rule-table.md` (domain per handle), resolved through the configured
@@ -22,8 +27,9 @@ Subcommand `challenge`:
   Prints the shared challenge instruction, the council operating assumptions and
   the one-round findings sentence: the brief for one fresh-agent challenge.
 
-Exit: 0 report produced (advisory or not) · 1 malformed draft frontmatter ·
-      2 environment error (missing tree, resolver or rule table), message on stderr.
+Exit: 0 report produced (advisory or not), collisions included · 1 malformed
+      draft frontmatter · 2 environment error (missing tree, resolver or rule
+      table, or a decision corpus the collision check cannot read), message on stderr.
 """
 
 from __future__ import annotations
@@ -121,10 +127,21 @@ def collect(fm: dict, resolver: dict, domains: dict) -> list[dict]:
     return rows
 
 
-def render(fm: dict, rows: list[dict], advisory: str | None) -> str:
+def collisions(root: Path, fm: dict) -> list[dict]:
+    try:
+        return sp.corpus_handle_collisions(root, fm.get("governs") or [], own_adr=str(fm["id"]))
+    except (ValueError, OSError) as exc:
+        raise Environment(f"the collision check cannot read the decision corpus: {exc}")
+
+
+def render(fm: dict, rows: list[dict], advisory: str | None, found: list[dict] = ()) -> str:
     out = [f"# Pre-council rules for {fm['id']}", ""]
     if advisory:
         out += [f"Advisory: {advisory}", ""]
+    if found:
+        out += ["Rule-handle collisions (propose and accept refuse these; rename the handle):", ""]
+        out += [f"- {line}" for line in sp.describe_handle_collisions(found).split("; ")]
+        out.append("")
     if not rows:
         out.append("No live rules to reconcile.")
         return "\n".join(out) + "\n"
@@ -143,6 +160,7 @@ def cmd_rules(args) -> int:
         fm = read_draft(Path(args.adr))
         count = len(id_list(fm, "amends")) + len(id_list(fm, "supersedes"))
         resolver, domains = load_rules(root)
+        found = collisions(root, fm)
     except Malformed as exc:
         sys.stderr.write(f"adr-precouncil: malformed draft frontmatter: {exc}\n")
         return 1
@@ -155,9 +173,10 @@ def cmd_rules(args) -> int:
         advisory = (f"this draft amends plus supersedes {count}, more than three ADRs: "
                     "split it, narrow it, or declare in one line why it stays whole.")
     if args.json:
-        print(json.dumps({"adr": fm["id"], "advisory": advisory, "rules": rows}, indent=2))
+        print(json.dumps({"adr": fm["id"], "advisory": advisory, "rules": rows,
+                          "collisions": found}, indent=2))
     else:
-        sys.stdout.write(render(fm, rows, advisory))
+        sys.stdout.write(render(fm, rows, advisory, found))
     return 0
 
 

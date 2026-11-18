@@ -909,12 +909,12 @@ _PANE = "ui.render{component=Pane}"
 # hand from `crux-mods/hooks/lib/draw.ts` (bandSegments, docked, runLines, idleLines, mini). A
 # book that changes a drawn part edits this list and the manifest's notes together.
 LIVE_PARTS = [
-    (_BAND, "the current cycle type, phase and pass limit"),
-    (_PANE, "cycle phases, task progress, returns, approval waits and outcome"),
+    (_BAND, "the current cycle's id and steps, a status glyph per step, and the word paused or abandoned when it applies; a historical cycle also shows its type, phase and pass limit"),
+    (_PANE, "cycle steps or phases, each with its status glyph, task progress, approval waits and outcome; a historical cycle also shows its returns"),
     (_PANE, "the queue card: the count of queued items, whether the queue is authorized, and each upcoming or recently finished item"),
     (_PANE, "the `cycles:` list: the closed cycles after the latest as one-line rows, ten to a page, with the page number and the `n` and `p` keys that turn the page"),
     (_PANE, "a cycle's elapsed time, and its paused time when there is any"),
-    (_PANE, "an open cycle's open attempts: each one's id, role, attempt number, state and observation, its liveness shown as unknown, and a mark on a reservation whose dispatch is unresolved"),
+    (_PANE, "a historical open cycle's open attempts: each one's id, role, attempt number, state and observation, its liveness shown as unknown, and a mark on a reservation whose dispatch is unresolved"),
     (_PANE, "a cycle's classification count, its owner exception and its record revision"),
     (_BAND, "the book and run of the run whose run file changed last"),
     (_BAND, "the prompt strip: one glyph per prompt, with `|` between modules"),

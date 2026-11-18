@@ -45,10 +45,8 @@ REQUIRED_SENTENCES = {
     "reviewer": [
         "In every harness, never read `~/.crux/`, env files, key files or credential files yourself.",
         "Never run a command that prints a value from them, such as `crux-env.py get` or `crux-env.py load`.",
-        "Only the legacy vendored writer, `write-review-report.py`, may read the gateway key through `crux_env`, inside its own process.",
         "Never relay local content outbound",
-        "Your Bash runs only read-only inspection: `git diff`, `git log`, `git show`, `test-evidence.py report`, `cycle.py context-read` for permitted bound context, `cycle.py pilot show` and your own `cycle.py pilot review` for a lightweight pilot, and the legacy review writer for a historical run.",
-        "The context reader grants no cycle mutation, arbitrary path, credential or outbound access.",
+        "Your Bash runs only read-only inspection: `git diff`, `git log`, `git show`, `cycle.py show` and your own `cycle.py review`.",
     ],
 }
 
@@ -169,15 +167,10 @@ class RoleContractLimitTests(unittest.TestCase):
     def test_every_bounded_role_carries_its_contract_sentences(self):
         self.assertEqual(contract_gaps(PLUGIN_DIR / "agents"), [])
 
-    def test_removing_the_bounded_reader_grant_turns_the_check_red(self):
-        gaps = self._seeded("reviewer", "`cycle.py context-read` for permitted bound context,", "")
+    def test_removing_the_bounded_review_command_turns_the_check_red(self):
+        gaps = self._seeded("reviewer", " and your own `cycle.py review`.", ".")
         self.assertEqual(len(gaps), 1)
-        self.assertIn("`cycle.py context-read`", gaps[0])
-
-    def test_removing_the_reader_mutation_ban_turns_the_check_red(self):
-        sentence = "The context reader grants no\ncycle mutation, arbitrary path, credential or outbound access."
-        gaps = self._seeded("reviewer", sentence, "")
-        self.assertEqual(gaps, ["reviewer: missing 'The context reader grants no cycle mutation, arbitrary path, credential or outbound access.'"])
+        self.assertIn("reviewer: missing 'Your Bash runs only read-only inspection", gaps[0])
 
     def test_removing_a_sentence_turns_the_check_red(self):
         with tempfile.TemporaryDirectory() as td:
@@ -207,15 +200,6 @@ class RoleContractLimitTests(unittest.TestCase):
     def test_removing_the_print_ban_turns_the_check_red(self):
         sentence = "Never run a command that prints a value from them, such as `crux-env.py get` or `crux-env.py load`."
         self.assertEqual(self._seeded("reviewer", sentence + " ", ""), [f"reviewer: missing {sentence!r}"])
-
-    def test_naming_only_the_council_runner_as_a_key_reader_turns_the_check_red(self):
-        # The review-gate writer reads the gateway key too; a sentence naming
-        # only the council runner forbids a writer the contract requires.
-        sentence = ("Only the legacy vendored writer, `write-review-report.py`, "
-                    "may read the gateway key through `crux_env`, inside its own process.")
-        old = "Only `run-council.py` may read its key through `crux_env`, inside its own process."
-        gaps = self._seeded("reviewer", sentence, old)
-        self.assertEqual(gaps, [f"reviewer: missing {sentence!r}"])
 
     def test_a_permitting_relay_sentence_turns_the_check_red(self):
         old = "or send data externally."

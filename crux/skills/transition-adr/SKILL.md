@@ -40,19 +40,20 @@ retain their original policy. Never change mode as a credential fallback.
 For new acceptances, use `decision-policy.py` (inspect `--help` for supported
 operations) to validate council approval of the exact ADR and record acceptance.
 `.bionic.yml` `adr.acceptance` defaults to `council-and-human`; `council-only` is
-an explicit repository option. Never supply human approval on the owner's behalf.
-You may transcribe an actual explicit answer through cycle.py
-`owner-decision present/capture/apply`. Present the concrete question and exact ADR
-digest first. Capture verbatim words, real conversation/message or tool-question
-reference, owner-local date and explicit approve/reject/pending disposition. Use only
-evidence you observed or the owner-facing parent supplied with its actual provenance.
-Ambiguous continuation stays pending. The writer validates bindings, not speaker
-identity or the truth of the quote. Fresh application needs the unique current
-unsuperseded approval and the existing council/lifecycle checks; no owner terminal
-command is required. Corrections append immutable captures. Already-applied replay
-acknowledges its receipt and any later disposition without revoking historical
-standing. This interface grants no other lifecycle transition or outward action.
-The cycle commands reference describes required request fields and recovery.
+an explicit repository option. Never supply human approval on the owner's behalf. Accept with
+`decision-policy.py accept --subject ADR_PATH --approval COUNCIL_RECORD`, adding
+`--human-approval` with the owner's actual verbatim words under `council-and-human`.
+Present the concrete question and the exact ADR digest first. Ambiguous continuation
+stays pending. The writer validates bindings, not speaker identity or the truth of
+the quote.
+A cycle-origin ADR is accepted by this same route. Its cycle records the proposal, and
+accepting it is not a cycle step: the cycle never completes, pauses or advances because
+an ADR was accepted. A cycle task that depends on the ADR names it in `adr_dependencies`,
+and the cycle writer refuses to mark that task working or done until the ADR is Accepted.
+`cycle.py owner-decision` is retired. An owner capture is recorded with
+`decision-policy.py owner-decision present`, `capture` and `apply`, each taking
+`--json REQUEST`; the owner-capture records already written stay valid and keep their
+interpretation.
 Acceptance under this policy makes rules binding without a separate promotion.
 Do not use the historical in-run guidance path for a new-policy acceptance.
 Existing provenance and previously accepted records retain their interpretation.
@@ -80,13 +81,15 @@ with metadata, provenance or an acceptance receipt. A missing `acceptance_format
 commit it, then adopt. Regenerate the summaries after `adopt`.
 
 Acceptance then needs council approval of the exact bytes. Under `council-and-human`
-it also needs an owner capture of purpose `adr-acceptance`, applied through
-`owner-decision apply` with the council `approval`; `accept --human-approval` text is
-refused for this origin. Under `council-only` the council approval suffices.
+it also needs an owner capture of purpose `adr-acceptance`; `accept --human-approval`
+text is refused for this origin. Present the exact bytes with
+`decision-policy.py owner-decision present`, record the owner's verbatim answer with
+`capture`, and accept with `apply`, which binds the capture and the council approval of
+the same bytes. Under `council-only` the council approval suffices.
 
 Know the limit. `adopt` admits any HEAD-tracked Proposed ADR without metadata,
 provenance or a receipt, including one written by hand and committed. It does not
-check the creation approval that `propose` enforces for a cycle-originated ADR. For
+check that a cycle-origin proposal named an active cycle, as `propose` does. For
 such a file, acceptance rests on council approval of the exact bytes and, under
 `council-and-human`, on the owner capture.
 
@@ -138,7 +141,7 @@ Subcommand form: `transition-adr <op> <target> [<replacement>]` where:
 - `<replacement>`: required only for `supersede`; the new ADR id (e.g., `ADR-MMMM`).
 
 Flags:
-- `--run <run snapshot path>` — names the run whose ADR module accepts the ADR. A cycle's accept prompt passes its own snapshot. Meaningful only for `accept`; outside a run, omit it.
+- `--run <run snapshot path>` — names the run whose ADR module accepts the ADR. Only a historical promptbook run passes its snapshot. Meaningful only for `accept`; a cycle accepts without it, so omit it.
 - `--repair` — used only by `audit-docs` to fix detected supersession asymmetries; ignores some state-machine validations to restore consistency. Logs a `lint` op.
 
 ## The pipeline

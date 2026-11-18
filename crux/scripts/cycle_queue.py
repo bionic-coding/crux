@@ -14,8 +14,9 @@ type, pass limit and stop points. A release item's optional `release_list` (beta
 or official) names the task list of the cycle it starts.
 
 Starting an item is a recoverable two-step write. `start_next` records an intent (state
-`starting` with a random token), calls `cycle_workflow.create` with that token as origin,
-then records the cycle id. A crash between the steps leaves the intent; the next call scans
+`starting` with a random token), calls `cycle_writer.create` with that token as the record's
+queue binding, then records the cycle id. A release item starts through `cycle_writer.create_release`
+the same way, with the version taken from its title or the current authorization. A crash between the steps leaves the intent; the next call scans
 the cycle records for the token and adopts the cycle, or cancels the intent when none carries it.
 
 Lock order is the queue lock (`<docs_dir>/queue/.lock`), then the cycles lock that `create`
@@ -33,7 +34,7 @@ Known limits:
 - The queue lock file is not gitignored by downstream trees, as the cycles lock is not.
 
 Commits: every mutating operation except `start-next` commits the queue and changed history
-(`cycle_commit.commit_queue`, `git commit --only`) after it writes, still inside the queue lock,
+(`commit_queue`, `git commit --only`) after it writes, still inside the queue lock,
 and returns the result as `queue_commit`. The commit defers with a reason under the record
 commit's conditions (a running full suite, a merge or rebase, an index lock, no repository); the
 queue change is saved either way. `start-next` that starts or adopts a cycle commits the queue file
@@ -61,16 +62,17 @@ import uuid
 from pathlib import Path
 
 from bionic_config import BionicConfigError
-import cycle_commit
-from cycle_workflow import CLOSED, CycleError, ID, PHASES, atomic_bytes, contained, create, load, now, tree, validate as validate_cycle
+from cycle_store import CLOSED, CycleError, ID, atomic_bytes, commit_paths, contained, git, now, tree
+import cycle_history
 
 FORMAT = 'crux.cycle-queue'
 QUEUE_ID = re.compile(r'^Q-[0-9]{4,}$')
 TYPE = re.compile(r'^[a-z][a-z-]{1,30}$')
 TOKEN = re.compile(r'^[0-9a-f]{32}$')
 DATE = re.compile(r'^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
-# An item whose suggested type is `auto` names none: the classifier selects the type when the item starts.
+# An item's suggested type is a recorded label; `auto` names none. Only `release` selects another start.
 AUTO_TYPE = 'auto'
+TYPES = ('dev', 'iterate', 'refactor', 'simplify', 'quick-fix', 'release', AUTO_TYPE)
 MAX_ITEMS = 500
 # The active snapshot shares this finite UTF-8 budget with the progress reader.
 MAX_QUEUE_BYTES = 2_000_000
@@ -88,6 +90,50 @@ ITEM_KEYS = ('id', 'title', 'outcome', 'suggested_type', 'scope', 'acceptance', 
 AUTH_KEYS = ('instruction', 'kind', 'count', 'scope', 'started', 'authorized_at', 'date')
 ENDED_KEYS = ('ended_at', 'ended', 'reason')
 TOP_KEYS = ('format', 'format_version', 'next_number', 'items', 'authorization', 'authorization_history')
+
+
+# -- cycle creation -------------------------------------------------------------------
+# Every item starts a crux.cycle.v1 record through the cycle writer; a release item's record carries its
+# fixed step list. A legacy typed (schema_version) record is only read, through cycle_history, the
+# read-only historical reader.
+
+def create(repo, title, lead, definition, queue):
+    """Create the cycle record for a queue start through the cycle writer."""
+    import cycle_writer
+    return cycle_writer.create(repo, title, lead, definition, queue=queue)
+
+
+def create_release(repo, release_list, version, title, goal, scope, acceptance, lead, queue):
+    """Create the release record for a queue start through the cycle writer."""
+    import cycle_writer
+    return cycle_writer.create_release(repo, release_list, version, title, goal, scope, acceptance, lead, queue=queue)
+
+
+# -- queue commits ----------------------------------------------------------------
+
+def queue_paths(cfg):
+    """Queue writer paths, including history left pending by a deferred commit."""
+    paths = []
+    queue = contained(cfg.docs_root, 'queue/cycles.yaml')
+    if queue.is_file() or queue.is_symlink():
+        paths.append(queue.relative_to(cfg.repo_root).as_posix())
+    history = contained(cfg.docs_root, 'queue/history/items')
+    if history.is_dir():
+        paths.extend(p.relative_to(cfg.repo_root).as_posix() for p in sorted(history.iterdir())
+                     if re.fullmatch(r'Q-[0-9]{4,}\.json', p.name) and p.is_file() and not p.is_symlink())
+    return paths
+
+
+def commit_queue(cfg, label):
+    """Commit the queue file alone after a queue write. The caller holds the queue lock.
+
+    Same result and deferral conditions as the cycle record commit (`cycle_store.commit_paths`); the message is `queue: <label>`."""
+    paths = queue_paths(cfg)
+    try:
+        return commit_paths(cfg, paths, f'queue: {label}')
+    except Exception as exc:  # the queue is already saved; the commit is the writer's follow-up
+        return {'changed': False, 'commit': None, 'paths': paths, 'message': None, 'deferred': 'commit-error',
+                'detail': f'{type(exc).__name__}: {exc}'[:300]}
 
 
 class QueueError(CycleError):
@@ -326,7 +372,7 @@ def _archive_items(repo, cfg, doc, dry_run=False, only_ids=None):
     """Validate candidates, persist immutable history, then remove them from the snapshot."""
     def committed(item):
         path = (cfg.docs_root / 'cycles' / item['cycle'] / 'cycle.json').relative_to(cfg.repo_root).as_posix()
-        code, out, _ = cycle_commit.git(cfg.repo_root, 'status', '--porcelain', '--untracked-files=all', '--', path)
+        code, out, _ = git(cfg.repo_root, 'status', '--porcelain', '--untracked-files=all', '--', path)
         # Non-git repositories remain supported; a dirty tracked cycle must commit first.
         return code != 0 or not out.strip()
 
@@ -390,7 +436,7 @@ def archive(repo, dry_run=False, migrate=False, only_if_items=False):
         work['format_version'] = 2
         write_queue(cfg, work)
         return {'ok': True, 'items': items, 'format_version': 2,
-                'queue_commit': cycle_commit.commit_queue(cfg, 'archive terminal items')}
+                'queue_commit': commit_queue(cfg, 'archive terminal items')}
 
 
 @contextmanager
@@ -593,8 +639,8 @@ def _check_fields(cfg, title, outcome, kind, scope, acceptance):
 
 def _legacy_status(repo, identity):
     try:
-        return load(repo, identity)['status']
-    except (CycleError, OSError, KeyError, ValueError):
+        return cycle_history.load_record(repo, identity)['status']
+    except (CycleError, OSError, KeyError, ValueError, TypeError):
         return 'missing'
 
 
@@ -607,8 +653,8 @@ def cycle_status(repo, identity):
     if status != 'missing':
         return status
     try:
-        import cycle_pilot
-        return cycle_pilot.queue_status(cycle_pilot.load_pilot(repo, identity))
+        import cycle_writer
+        return cycle_writer.queue_status(cycle_writer.load_pilot(repo, identity))
     except (CycleError, OSError, KeyError, ValueError, TypeError):
         return 'missing'
 
@@ -677,7 +723,7 @@ def decide(doc, statuses):
         elif shortcut:
             text += f"; {', '.join(shortcut)} closed as a shortcut with gaps, so the owner edits depends_on or removes the item"
         return _stop(reason, head['id'], text)
-    if head['suggested_type'] not in PHASES and head['suggested_type'] != AUTO_TYPE:
+    if head['suggested_type'] not in TYPES:
         return _stop('type-unsupported', head['id'], f"type {head['suggested_type']} is not a cycle type; edit the item's type")
     return ('go', head)
 
@@ -694,25 +740,51 @@ def _authorization_view(doc):
 def _pilot_facts(repo, doc):
     """For each started item whose cycle is a pilot: the recorded review, whether it still covers the
     final change, completion and the delivery facts, from the writer's own status function."""
-    import cycle_pilot
+    import cycle_writer
     facts = {}
     for item in doc['items']:
         if item['state'] == 'started':
             try:
-                found = cycle_pilot.status_facts(repo, cycle_pilot.load_pilot(repo, item['cycle']))
+                found = cycle_writer.status_facts(repo, cycle_writer.load_pilot(repo, item['cycle']))
             except (CycleError, OSError, KeyError, ValueError, TypeError):
                 continue  # a typed cycle, or a record `cycle_status` already reports as missing
             facts[item['cycle']] = {key: found[key] for key in ('review', 'review_applicable', 'applicability', 'completed', 'reopened', 'delivery')}
     return facts
 
 
-def _item_view(doc, item, position, statuses, facts=None):
+def _history_facts(repo, doc):
+    """For each started item whose cycle is a typed (legacy) record: the historical reader's bounded facts."""
+    found = {}
+    cfg = None
+    for item in doc['items']:
+        if item['state'] != 'started':
+            continue
+        try:
+            record = cycle_history.load_record(repo, item['cycle'])
+            cfg = cfg or tree(repo)
+            found[item['cycle']] = cycle_history.facts(record, lambda rel: json.loads(contained(cfg.docs_root, rel).read_text(encoding='utf-8')))
+        except (CycleError, OSError, KeyError, ValueError, TypeError):
+            continue  # a pilot cycle, or a record `cycle_status` already reports as missing
+    return found
+
+
+def _position(doc, item):
+    """An unstarted item's 1-based place among the unstarted items, in queue order; None once it has started."""
+    unstarted = [i['id'] for i in doc['items'] if i['state'] in UNSTARTED]
+    return unstarted.index(item['id']) + 1 if item['id'] in unstarted else None
+
+
+def _item_view(doc, item, statuses, facts=None, history=None, text=True):
+    """One item's view. `text=False` leaves out the outcome, scope, acceptance and references,
+    the text an archived item keeps in its immutable history entry for `queue show`."""
     by = {i['id']: i for i in doc['items']}
     auth = doc['authorization']
+    detail = {'outcome': item['outcome'], 'scope': item['scope'], 'acceptance': item['acceptance'],
+              'references': item.get('references', [])} if text else {}
     return {
         **({'pilot': facts[item['cycle']]} if facts and item['cycle'] in facts else {}),
-        'position': position, 'id': item['id'], 'title': item['title'], 'outcome': item['outcome'], 'type': item['suggested_type'],
-        'scope': item['scope'], 'acceptance': item['acceptance'], 'references': item.get('references', []),
+        **({'history': history[item['cycle']]} if history and item['cycle'] in history else {}),
+        'position': _position(doc, item), 'id': item['id'], 'title': item['title'], 'type': item['suggested_type'], **detail,
         'release_list': item.get('release_list', 'beta') if item['suggested_type'] == 'release' else None, 'state': item['state'], 'hold_reason': item['hold_reason'],
         'cycle': item['cycle'], 'cycle_status': statuses.get(item['cycle']) if item['state'] == 'started' else None,
         'in_scope': bool(auth and item['id'] in auth['scope']),
@@ -772,8 +844,10 @@ def list_view(repo, full=False):
     view_doc = _with_history(cfg, doc, full=full)
     statuses = _statuses(repo, view_doc)
     if full:
-        facts = _pilot_facts(repo, view_doc)
-        return {'ok': True, 'items': [_item_view(view_doc, i, n, statuses, facts) for n, i in enumerate(view_doc['items'], 1)],
+        # The rows leave per-item history facts, and an archived item's text, to `queue show`.
+        facts, active = _pilot_facts(repo, view_doc), {i['id'] for i in doc['items']}
+        return {'ok': True, 'items': [{**_item_view(view_doc, i, statuses, facts, text=i['id'] in active), 'archived': i['id'] not in active}
+                                      for i in view_doc['items']],
                 'authorization': _authorization_view(view_doc), 'authorization_history': doc['authorization_history'], 'next': _next_view(view_doc, statuses)}
     shown = [i for i in doc['items'] if _is_open(i, statuses)]
     return {'ok': True, 'items': [_line(view_doc, i, statuses) for i in shown], 'closed': len(doc['items']) - len(shown),
@@ -795,7 +869,8 @@ def show(repo, qid):
     doc = read_queue(cfg)
     view_doc = _with_history(cfg, doc, ids=[qid])
     item = _find(view_doc, qid)
-    return {'ok': True, 'item': _item_view(view_doc, item, view_doc['items'].index(item) + 1, _statuses(repo, view_doc), _pilot_facts(repo, view_doc))}
+    return {'ok': True, 'item': _item_view(view_doc, item, _statuses(repo, view_doc), _pilot_facts(repo, view_doc),
+                                           _history_facts(repo, view_doc))}
 
 
 # -- mutating operations --------------------------------------------------------------
@@ -824,7 +899,7 @@ def _mutate(repo, change, label):
             if archived != selected:
                 raise QueueError('archive candidates changed while preparing the mutation; retry')
         write_queue(cfg, work)
-        result['queue_commit'] = cycle_commit.commit_queue(cfg, label(result) if callable(label) else label)
+        result['queue_commit'] = commit_queue(cfg, label(result) if callable(label) else label)
         return result
 
 
@@ -834,7 +909,7 @@ def _unstarted(item, action):
 
 
 def _view_of(doc, item):
-    return {'ok': True, 'item': _item_view(doc, item, doc['items'].index(item) + 1, {})}
+    return {'ok': True, 'item': _item_view(doc, item, {})}
 
 
 def add(repo, title, outcome, kind, scope, acceptance, depends_on=None, position=None, held=False, reason=None, references=None, release_list=None):
@@ -850,8 +925,10 @@ def add(repo, title, outcome, kind, scope, acceptance, depends_on=None, position
     scope = split_scope(scope)
 
     def change(cfg, doc):
-        from cycle_hosts import release_scope
-        captured_scope = release_scope(cfg, scope, release_list or 'beta', capture=True) if kind == 'release' else scope
+        captured_scope = scope
+        if kind == 'release':
+            import cycle_writer
+            captured_scope = cycle_writer.release_scope(cfg, scope, release_list or 'beta', capture=True)
         _check_fields(cfg, title, outcome, kind, captured_scope, acceptance)
         _check_references(cfg, references or [])
         if len(doc['items']) >= MAX_ITEMS:
@@ -974,9 +1051,9 @@ def _assessment(item, value):
 
 
 def _reconciled_view(qid, record, repeated):
-    import cycle_pilot
+    import cycle_writer
     delivery = record['delivery']
-    return {'ok': True, 'reconciled': qid, 'cycle': record['id'], 'disposition': cycle_pilot.queue_status(record),
+    return {'ok': True, 'reconciled': qid, 'cycle': record['id'], 'disposition': cycle_writer.queue_status(record),
             'completed': record['state'] == 'completed', 'merged': delivery['merge'] == 'merged', 'ci': delivery['ci'],
             'repeated': repeated}
 
@@ -987,9 +1064,9 @@ def reconcile(repo, qid, pilot_id, actor, assessment):
     The pilot keeps its own identity and the item becomes started under it; the authorization and
     every other item are left as they are. The pilot record is bound first, so an interrupted call
     is finished by repeating it, and a repeat of a finished call writes and commits nothing."""
-    import cycle_pilot
+    import cycle_writer
     cfg = tree(repo)
-    record = cycle_pilot.load_pilot(repo, pilot_id)
+    record = cycle_writer.load_pilot(repo, pilot_id)
     queue = read_queue(cfg)
     current = next((i for i in queue['items'] if i['id'] == qid), None)
     if current is None and queue['format_version'] == 2 and _history_path(cfg, qid).is_file():
@@ -1003,16 +1080,16 @@ def reconcile(repo, qid, pilot_id, actor, assessment):
         item = _find(doc, qid)
         if item['state'] != 'pending':
             raise QueueError(f"{qid} is {item['state']}; reconcile applies only to a pending item")
-        record = cycle_pilot.load_pilot(repo, pilot_id)
-        status = cycle_pilot.queue_status(record)
+        record = cycle_writer.load_pilot(repo, pilot_id)
+        status = cycle_writer.queue_status(record)
         if status not in ('reviewed', 'completed'):
             raise QueueError(f'{pilot_id} is {status}; reconcile needs its recorded approving review')
         if not re.search(rf'(?<![A-Z0-9-]){re.escape(qid)}(?![0-9])', record['title'] + '\n' + record['plan']['goal']):
             raise QueueError(f'{pilot_id} names no {qid} in its title or goal; it is not recorded as work on this item')
-        if not cycle_pilot.reviewed_range_contained(repo, record):
+        if not cycle_writer.reviewed_range_contained(repo, record):
             raise QueueError(f"{pilot_id}'s reviewed head is not contained in HEAD")
         digest = _item_digest(item)
-        binding = cycle_pilot.bind_queue(repo, pilot_id, actor, {
+        binding = cycle_writer.bind_queue(repo, pilot_id, actor, {
             'item': qid, 'token': uuid.uuid4().hex, 'origin': 'reconcile', 'item_sha256': digest, 'review_head': record['review']['head_commit'],
             'assessment': _assessment(item, assessment), 'reconciled_at': now()})
         if binding['item_sha256'] != digest:
@@ -1023,7 +1100,7 @@ def reconcile(repo, qid, pilot_id, actor, assessment):
             auth['started'].append(qid)  # as a legacy start records it, so remaining() keeps its meaning
         doc['items'].remove(item)
         doc['items'].insert(sum(i['state'] not in UNSTARTED for i in doc['items']), item)
-        return _reconciled_view(qid, cycle_pilot.load_pilot(repo, pilot_id), False)
+        return _reconciled_view(qid, cycle_writer.load_pilot(repo, pilot_id), False)
 
     return _mutate(repo, change, f'reconcile {qid} with {pilot_id}')
 
@@ -1079,12 +1156,12 @@ def revoke(repo, reason):
 
 # -- start-next -------------------------------------------------------------------------
 
-PILOT_FORMAT = 'crux.cycle.vNext'
+WRITER_FORMATS = ('crux.cycle.vNext', 'crux.cycle.v1')
 
 
 def _origin(parsed):
     """The queue item and start token a parsed cycle record of either format carries, or None. No validation."""
-    if parsed.get('format') == PILOT_FORMAT:
+    if parsed.get('format') in WRITER_FORMATS:
         bound = parsed.get('queue')
         return {'item': bound.get('item'), 'token': bound.get('token')} if isinstance(bound, dict) else None
     history = parsed.get('history')
@@ -1093,22 +1170,23 @@ def _origin(parsed):
 
 
 def _record_status(parsed):
-    """Validate a parsed cycle record of either format and return the status a queue reader shows."""
-    if parsed.get('format') == PILOT_FORMAT:
-        import cycle_pilot
-        cycle_pilot.validate(parsed)
-        return cycle_pilot.queue_status(parsed)
-    validate_cycle(parsed)
-    return parsed['status']
+    """Validate a parsed cycle record of either format and return the status a queue reader shows.
+
+    A typed (legacy) record is checked by the read-only historical reader, not the typed engine's schema."""
+    if parsed.get('format') in WRITER_FORMATS:
+        import cycle_writer
+        cycle_writer.validate(parsed)
+        return cycle_writer.queue_status(parsed)
+    return cycle_history.status_of(parsed)
 
 
 def _record_terminal(parsed):
     """Validate a parsed cycle record and say whether its queue item is archivable. A pilot that
     completed stays archivable after an owner-authorized reopening, so reopening undoes no archival."""
     status = _record_status(parsed)
-    if parsed.get('format') == PILOT_FORMAT:
-        import cycle_pilot
-        return status == 'abandoned' or cycle_pilot.ever_completed(parsed)
+    if parsed.get('format') in WRITER_FORMATS:
+        import cycle_writer
+        return status == 'abandoned' or cycle_writer.ever_completed(parsed)
     return status in CLOSED
 
 
@@ -1170,42 +1248,91 @@ def _goal(item):
     return f"{item['outcome']}\n\nReferences (read before planning; read-only, not scope):\n{lines}"
 
 
-def _commit_start(repo, cycle_id, item_id):
-    """Commit the queue file and the started or adopted cycle's record together. The caller holds the queue
-    lock; the record commit takes the cycles lock, which is the documented lock order. Never raises."""
-    return cycle_commit.after_write(repo, cycle_id, f'start {item_id}', include_queue=True)
-
-
-def _commit_pilot_start(cfg, cycle_id, item_id):
-    """Commit the queue file and the new pilot record together. Never raises; the writes are already saved."""
+def _commit_writer_start(cfg, cycle_id, item_id):
+    """Commit the queue file and the new cycle record together. Never raises; the writes are already saved."""
     record = contained(cfg.docs_root, f'cycles/{cycle_id}/cycle.json').relative_to(cfg.repo_root).as_posix()
-    paths = cycle_commit.queue_paths(cfg) + [record]
+    paths = queue_paths(cfg) + [record]
     try:
-        return cycle_commit.commit_paths(cfg, paths, f'queue: start {item_id} as pilot {cycle_id}')
+        return commit_paths(cfg, paths, f'queue: start {item_id} as {cycle_id}')
     except Exception as exc:
         return {'changed': False, 'commit': None, 'paths': paths, 'message': None, 'deferred': 'commit-error',
                 'detail': f'{type(exc).__name__}: {exc}'[:300]}
 
 
 def _started(repo, cfg, outcome, item, found):
-    pilot = found.get('format') == PILOT_FORMAT
-    commit = _commit_pilot_start(cfg, found['id'], item['id']) if pilot else _commit_start(repo, found['id'], item['id'])
+    writer = found.get('format') in WRITER_FORMATS
     return {'ok': True, 'outcome': outcome, 'item': item['id'], 'cycle': found['id'], 'status': _record_status(found),
-            'format': 'pilot' if pilot else 'legacy', 'record_commit': commit}
+            'format': found['format'] if writer else 'legacy', 'record_commit': _commit_writer_start(cfg, found['id'], item['id'])}
 
 
-def _pilot_definition(item, plan):
-    """The pilot plan for a queue item: the item supplies goal, scope and acceptance; the lead supplies the rest."""
-    if not isinstance(plan, dict) or set(plan) != {'verification', 'council', 'tasks'}:
-        raise QueueError('a pilot start plan holds exactly verification, council and tasks; the queue item supplies goal, scope and acceptance')
-    return {'goal': _goal(item), 'scope': split_scope(item['scope']), 'acceptance': list(item['acceptance']), **plan}
+PLAN_KEYS = ('verification', 'council', 'tasks', 'scrutiny')
 
 
-def start_next(repo, implementer='dev-lead', coordinator='dev-lead', pilot=None):
+def definition_for(item, plan=None):
+    """The writer definition for a queue item: the item supplies goal, scope and acceptance.
+
+    An optional lead plan adds any of verification, council, tasks and scrutiny. Without one the
+    cycle starts in planning, and the lead records the rest with the writer's plan command."""
+    if plan is not None and (not isinstance(plan, dict) or set(plan) - set(PLAN_KEYS)):
+        raise QueueError('a start plan holds only ' + ', '.join(PLAN_KEYS) + '; the queue item supplies goal, scope and acceptance')
+    return {'goal': _goal(item), 'scope': split_scope(item['scope']), 'acceptance': list(item['acceptance']), **(plan or {})}
+
+
+RELEASE_VERSION = re.compile(r'(?<![0-9.])([0-9]+\.[0-9]+\.[0-9]+)(?!\.?[0-9])')
+
+
+def _release_version(doc, item):
+    """The version a release item publishes: the first X.Y.Z in its title, else in the current authorization."""
+    for source in (item['title'], (doc.get('authorization') or {}).get('instruction') or ''):
+        found = RELEASE_VERSION.search(source)
+        if found:
+            return found.group(1)
+    raise QueueError(f"{item['id']} is a release item and names no version: put the version, such as 1.2.3, in the item title "
+                     "(queue edit --title) before it starts")
+
+
+def _start_release(repo, cfg, doc, head, lead):
+    """A release item's record through the cycle writer: the same intent, create, adopt and commit as any start."""
+    import cycle_writer
+    version, release_list = _release_version(doc, head), head.get('release_list', 'beta')
+    # This item already carries the owner's frozen authority. Refuse an omission before the
+    # intent, token and history writes; never widen it here.
+    cycle_writer.release_scope(cfg, split_scope(head['scope']), release_list)
+    if doc['format_version'] == 2:
+        _archive_items(repo, cfg, doc)
+    head['state'], head['start_token'] = 'starting', uuid.uuid4().hex
+    write_queue(cfg, doc)
+    try:
+        created = create_release(repo, release_list, version, f"{head['id']}: {head['title']}", _goal(head), split_scope(head['scope']),
+                                 list(head['acceptance']), lead, {'item': head['id'], 'token': head['start_token']})
+    except Exception as exc:
+        return _failed_start(repo, cfg, doc, head, exc)
+    _adopt(doc, head, created)
+    write_queue(cfg, doc)
+    return _started(repo, cfg, 'started', head, created)
+
+
+def _failed_start(repo, cfg, doc, head, exc):
+    """After a create that raised: adopt the record it may have written, or cancel the intent and refuse."""
+    found = adoption_scan(cfg, head)
+    if found:
+        _adopt(doc, head, found)
+        write_queue(cfg, doc)
+        return _started(repo, cfg, 'adopted', head, found)
+    _cancel_intent(head)
+    write_queue(cfg, doc)
+    commit_queue(cfg, f"cancel start {head['id']}")
+    raise QueueError(f"the cycle for {head['id']} was not created: {exc}") from exc
+
+
+def start_next(repo, implementer='dev-lead', coordinator='dev-lead', lead=None, plan=None):
     """Start the head item when every rule allows it; otherwise return the open cycle or raise a QueueStop.
 
-    `pilot` is `{'lead': NAME, 'plan': DEFINITION}` when the caller explicitly selects the lightweight
-    pilot for this start. Without it the item starts a typed cycle, as every item did before."""
+    A non-release item starts a crux.cycle.v1 record through the cycle writer, led by `lead` (the
+    implementer when none is named). `plan` is an optional definition of verification, council, tasks
+    and scrutiny; without it the cycle starts in planning. The item's suggested type is a recorded
+    label: no classifier sizes it. A release item starts a release record with its fixed step list and
+    takes no plan."""
     with locked_queue(repo) as cfg:
         doc = read_queue(cfg)
         starting = next((i for i in doc['items'] if i['state'] == 'starting'), None)
@@ -1217,7 +1344,7 @@ def start_next(repo, implementer='dev-lead', coordinator='dev-lead', pilot=None)
                 return _started(repo, cfg, 'adopted', starting, found)
             _cancel_intent(starting)
             write_queue(cfg, doc)
-            cycle_commit.commit_queue(cfg, f"cancel start {starting['id']}")
+            commit_queue(cfg, f"cancel start {starting['id']}")
         view_doc = _with_history(cfg, doc)
         verdict = decide(view_doc, _statuses(repo, view_doc))
         if verdict[0] == 'in-progress':
@@ -1225,15 +1352,6 @@ def start_next(repo, implementer='dev-lead', coordinator='dev-lead', pilot=None)
         if verdict[0] == 'stop':
             raise QueueStop(verdict[1], verdict[2], verdict[3])
         head = verdict[1]
-        # Prerequisites refuse before the sizing request, the archive and the starting intent, so the item stays pending.
-        import cycle_prereqs
-        prereqs = cycle_prereqs.check(cfg.repo_root, split_scope(head['scope']))
-        if prereqs['missing']:
-            missing = prereqs['missing']
-            raise QueueStop('environment-prerequisite', head['id'],
-                            f"{head['id']} stays pending until the environment provides: "
-                            + '; '.join(f"{m['code']} ({m['observed']}): {m['fix']}" for m in missing),
-                            missing=missing)
         # Reserve room for the largest filesystem-supported cycle name and its
         # adoption fields before any archive, intent or new cycle is written.
         preview = deepcopy(doc)
@@ -1244,67 +1362,26 @@ def start_next(repo, implementer='dev-lead', coordinator='dev-lead', pilot=None)
         future['start_token'] = '0' * 32
         _adopt(preview, future, {'id': 'XXXXXXXXXX-CYC-' + '9' * 240})
         queue_bytes(preview)
-        if pilot is not None:
-            import cycle_pilot
-            if head['suggested_type'] == 'release':
-                raise QueueStop('type-unsupported', head['id'], f"{head['id']} is a release item; releases keep their fixed-list cycle and never start as a pilot")
-            title = f"{head['id']}: {head['title']}"
-            definition = _pilot_definition(head, pilot['plan'])
-            # Validate before the intent is written, so a refused definition leaves the item pending and burns no id.
-            cycle_pilot.check_definition(repo, title, pilot['lead'], definition)
-            if doc['format_version'] == 2:
-                _archive_items(repo, cfg, doc)
-            head['state'], head['start_token'] = 'starting', uuid.uuid4().hex
-            write_queue(cfg, doc)
-            try:
-                created = cycle_pilot.create(repo, title, pilot['lead'], definition, queue={'item': head['id'], 'token': head['start_token']})
-            except Exception as exc:
-                found = adoption_scan(cfg, head)
-                if found:
-                    _adopt(doc, head, found)
-                    write_queue(cfg, doc)
-                    return _started(repo, cfg, 'adopted', head, found)
-                _cancel_intent(head)
-                write_queue(cfg, doc)
-                cycle_commit.commit_queue(cfg, f"cancel start {head['id']}")
-                raise QueueError(f"the pilot for {head['id']} was not created: {exc}") from exc
-            _adopt(doc, head, created)
-            write_queue(cfg, doc)
-            return _started(repo, cfg, 'started', head, created)
-        import cycle_classify
-        # The work-sizing question runs before the claim, so a stop leaves the item pending. An item that names a
-        # type keeps it and records the answer as advisory; an `auto` item takes the permitted answer as its type.
-        sizing = cycle_classify.queue_sizing(repo, head['suggested_type'], head['title'], _goal(head), split_scope(head['scope']), list(head['acceptance']))
-        if sizing.stop:
-            raise QueueStop(sizing.stop[0], head['id'], sizing.stop[1])
-        kind = sizing.kind or head['suggested_type']
-        if kind == 'release':
-            from cycle_hosts import release_scope
-            # This item already carries the owner's frozen authority. Refuse an
-            # omission before intent/token/history writes; never widen it here.
-            release_scope(cfg, split_scope(head['scope']), head.get('release_list', 'beta'))
+        if head['suggested_type'] == 'release':
+            if plan is not None:
+                raise QueueError(f"{head['id']} is a release item; its fixed step list takes no start plan")
+            return _start_release(repo, cfg, doc, head, lead or implementer)
+        import cycle_writer
+        title, owner = f"{head['id']}: {head['title']}", lead or implementer
+        definition = definition_for(head, plan)
+        # Validate before the intent is written, so a refused definition leaves the item pending and burns no id.
+        cycle_writer.check_definition(repo, title, owner, definition)
         if doc['format_version'] == 2:
             _archive_items(repo, cfg, doc)
         head['state'], head['start_token'] = 'starting', uuid.uuid4().hex
         write_queue(cfg, doc)
         try:
-            created = create(repo, kind, head['title'], _goal(head), split_scope(head['scope']), list(head['acceptance']),
-                             implementer, coordinator, origin={'item': head['id'], 'token': head['start_token']},
-                             release_list=head.get('release_list', 'beta') if kind == 'release' else None, classification=sizing.classification)
+            created = create(repo, title, owner, definition, {'item': head['id'], 'token': head['start_token']})
         except Exception as exc:
-            found = adoption_scan(cfg, head)
-            if found:
-                _adopt(doc, head, found)
-                write_queue(cfg, doc)
-                return _started(repo, cfg, 'adopted', head, found)
-            _cancel_intent(head)
-            write_queue(cfg, doc)
-            cycle_commit.commit_queue(cfg, f"cancel start {head['id']}")
-            raise QueueError(f"the cycle for {head['id']} was not created: {exc}") from exc
+            return _failed_start(repo, cfg, doc, head, exc)
         _adopt(doc, head, created)
         write_queue(cfg, doc)
-        return {'ok': True, 'outcome': 'started', 'item': head['id'], 'cycle': created['id'], 'status': created['status'],
-                'record_commit': _commit_start(repo, created['id'], head['id'])}
+        return _started(repo, cfg, 'started', head, created)
 
 
 # -- command line ----------------------------------------------------------------------------
@@ -1337,14 +1414,9 @@ def dispatch(a):
     if op == 'revoke':
         return revoke(repo, a.reason)
     if op == 'start-next':
-        pilot = None
-        if a.pilot:
-            if not a.lead or not a.plan:
-                raise QueueError('--pilot requires --lead and --plan')
-            pilot = {'lead': a.lead, 'plan': json.loads(Path(a.plan).read_text(encoding='utf-8'))}
-        elif a.lead or a.plan:
-            raise QueueError('--lead and --plan apply only with --pilot')
-        return start_next(repo, a.implementer, a.coordinator, pilot)
+        # `--pilot` is an accepted no-op: every non-release start is the writer's start.
+        plan = json.loads(Path(a.plan).read_text(encoding='utf-8')) if getattr(a, 'plan', None) else None
+        return start_next(repo, a.implementer, a.coordinator, getattr(a, 'lead', None), plan)
     raise QueueError(f'unknown queue operation {op}')
 
 

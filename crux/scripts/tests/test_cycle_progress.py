@@ -1,4 +1,6 @@
-"""Cycle visualization uses guarded reads and distinct cycle semantics."""
+"""Cycle visualization uses guarded reads and distinct cycle semantics.
+
+Every legacy record here is a frozen fixture (_cycle_fixtures) changed as JSON; no typed-engine code runs."""
 import importlib.util
 import io
 import math
@@ -10,9 +12,11 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from cycle_workflow import create,mutate,CycleError
+sys.path.insert(0,str(Path(__file__).resolve().parent))
+from cycle_store import CycleError
 from cycle_progress import view,render
 from admission_source_io import SourceIORefusal
+from _cycle_fixtures import fresh, put
 
 
 class ProgressTests(unittest.TestCase):
@@ -21,39 +25,31 @@ class ProgressTests(unittest.TestCase):
         (self.root/'bionic').mkdir();(self.root/'src').mkdir()
         (self.root/'bionic/manifest.yml').write_text('schema_version: "5"\nconcerns_enabled: [adrs]\n')
     def test_cycle_phases_passes_and_history(self):
-        doc=create(self.root,'quick-fix','Fix','Correct behavior',['src'],['passes'],'builder','tester')
+        cid=put(self.root,fresh('quick-fix'),'CYC-0001')
         output=view(self.root)
         c=output['cycles'][0]
         self.assertEqual(output['format'],'crux.cycle-progress');self.assertEqual(c['phases'],['build','verify','review','reflect'])
         self.assertEqual(c['pass_limit'],1);self.assertIn('Pass 1 of 1',render(output))
-        mutate(self.root,doc['id'],'pause',reason='needs owner')
+        put(self.root,fresh('quick-fix-paused'),cid)
         self.assertEqual(view(self.root)['cycles'][0]['blocker'],'needs owner')
     def test_a_listed_release_cycle_shows_one_phase_and_no_pass_limit(self):
-        doc=create(self.root,'release','Ship','Goal',['src'],['published'],'builder','tester',release_list='beta')
-        output=view(self.root,doc['id']);c=output['cycles'][0]
+        cid=put(self.root,fresh('release'),'CYC-0001')
+        output=view(self.root,cid);c=output['cycles'][0]
         self.assertEqual((c['type'],c['phases'],c['pass'],c['pass_limit']),('release',['release'],1,1))
         text=render(output)
         self.assertNotIn('Pass 1 of 1',text);self.assertNotIn(' of ',text.splitlines()[1]);self.assertIn('Release · active',text)
         self.assertEqual(len(c['tasks']),6)
     def test_a_legacy_release_cycle_keeps_its_phases_and_pass_limit(self):
-        doc=create(self.root,'release','Old','Goal',['src'],['published'],'builder','tester',release_list='beta')
-        path=self.root/'bionic/cycles'/doc['id']/'cycle.json'
-        record=json.loads(path.read_text());record.pop('release_list');record.update(phase='plan',pass_limit=2)
+        record=fresh('release');record.pop('release_list');record.update(phase='plan',pass_limit=2)
         record['plan']['tasks']=[{'id':p,'phase':p,'description':p,'depends_on':[],'status':'pending','expected_evidence':['x']} for p in ('plan','release','reflect')]
-        path.write_text(json.dumps(record))
-        output=view(self.root,doc['id']);c=output['cycles'][0]
+        cid=put(self.root,record,'CYC-0001')
+        output=view(self.root,cid);c=output['cycles'][0]
         self.assertEqual((c['phases'],c['pass_limit']),(['plan','release','reflect'],2))
         self.assertIn('Pass 1 of 2 · Plan',render(output))
-    def test_new_history_events_record_the_resulting_status(self):
-        doc=create(self.root,'quick-fix','Fix','Correct behavior',['src'],['passes'],'builder','tester')
-        mutate(self.root,doc['id'],'pause',reason='needs owner')
-        mutate(self.root,doc['id'],'resume',reason='owner answered')
-        history=json.loads((self.root/'bionic/cycles'/doc['id']/'cycle.json').read_text())['history']
-        self.assertEqual([(e['action'],e['status']) for e in history],[('created','active'),('pause','paused'),('resume','active')])
     def test_format_2_carries_elapsed_fields_for_every_type(self):
-        for kind in ('dev','iterate','refactor','quick-fix','release'):
+        for n,kind in enumerate(('dev','iterate','refactor','quick-fix','release'),1):
             with self.subTest(kind=kind):
-                doc=create(self.root,kind,'T '+kind,'Goal',['src'],['passes'],'builder','tester',release_list='beta' if kind=='release' else None)
+                doc=fresh(kind);doc['id']=put(self.root,doc,f'CYC-{n:04d}')
                 created=math.ceil(datetime.fromisoformat(doc['created_at']).timestamp())
                 a=view(self.root,doc['id'],now=created+90)
                 b=view(self.root,doc['id'],now=created+4000)
@@ -65,40 +61,37 @@ class ProgressTests(unittest.TestCase):
                 self.assertEqual(b['cycles'][0]['phase_times'][0]['active_s'],4000)
                 self.assertIn('Elapsed 1m',render(a));self.assertIn('Elapsed 1h06m',render(b))
     def test_paused_time_is_reported_for_old_records_without_status(self):
-        doc=create(self.root,'dev','Old','Goal',['src'],['passes'],'builder','tester')
-        mutate(self.root,doc['id'],'pause',reason='wait')
-        path=self.root/'bionic/cycles'/doc['id']/'cycle.json'
-        record=json.loads(path.read_text());base=math.ceil(datetime.fromisoformat(record['created_at']).timestamp())
-        for e in record['history']:e.pop('status')
-        record['history'][1]['at']=datetime.fromtimestamp(base+10,timezone.utc).isoformat()
-        path.write_text(json.dumps(record))
-        c=view(self.root,doc['id'],now=base+70)['cycles'][0]
+        record=fresh('dev');base=math.ceil(datetime.fromisoformat(record['created_at']).timestamp())
+        # A dev cycle paused 10 s after creation, as the typed engine wrote it, with the per-event status an old record lacks.
+        record.update(status='paused',blocker={'evidence':[],'next_step':'resolve blocker','reason':'wait'})
+        record['history'].append({'action':'pause','at':datetime.fromtimestamp(base+10,timezone.utc).isoformat(),'pass':1,'phase':record['phase'],'reason':'wait','revision':2})
+        for e in record['history']:e.pop('status',None)
+        cid=put(self.root,record,'CYC-0001')
+        c=view(self.root,cid,now=base+70)['cycles'][0]
         self.assertEqual((c['paused_s'],c['status'],c['basis']),(60,'paused','recorded'))
-        self.assertIn('paused 1m',render(view(self.root,doc['id'],now=base+70)))
+        self.assertIn('paused 1m',render(view(self.root,cid,now=base+70)))
     def test_outside_symlink_config_is_refused(self):
         other=Path(self.temp.name).parent/'cycle-reader-outside.yml'
         other.write_text('config_version: "1"\ndocs_dir: bionic\n');self.addCleanup(other.unlink)
         (self.root/'.bionic.yml').symlink_to(other)
         with self.assertRaises(SourceIORefusal):view(self.root)
     def test_dashboard_entry_automatically_selects_cycles(self):
-        create(self.root,'iterate','Fix','Correct behavior',['src'],['passes'],'builder','tester')
+        put(self.root,fresh('iterate'),'CYC-0001')
         path=Path(__file__).resolve().parents[1]/'visualize-run-progress.py'
         spec=importlib.util.spec_from_file_location('cycle_dashboard_legacy',path);mod=importlib.util.module_from_spec(spec);sys.modules[spec.name]=mod;spec.loader.exec_module(mod)
         output=io.StringIO()
         with redirect_stdout(output):code=mod.main(['--json','--project-root',str(self.root)])
         self.assertEqual(code,0);self.assertEqual(json.loads(output.getvalue())['format'],'crux.cycle-progress')
     def test_symlink_cycle_record_refused(self):
-        doc=create(self.root,'iterate','Fix','Correct behavior',['src'],['passes'],'builder','tester')
-        path=self.root/'bionic/cycles'/doc['id']/'cycle.json';data=path.read_text();path.unlink()
+        cid=put(self.root,fresh('iterate'),'CYC-0001')
+        path=self.root/'bionic/cycles'/cid/'cycle.json';data=path.read_text();path.unlink()
         other=self.root/'other.json';other.write_text(data);path.symlink_to(other)
         with self.assertRaises((CycleError,SourceIORefusal)):view(self.root)
 
     def large_record(self, payload_bytes):
-        from cycle_workflow import event, save, tree
-        doc=create(self.root,'quick-fix','Large','Retain context',['src'],['renders'],'builder','tester')
-        event(doc,'fixture-retained-context',context='x'*payload_bytes)
-        save(tree(self.root),doc)
-        return doc['id']
+        doc=fresh('quick-fix')
+        doc['history'].append({'action':'fixture-retained-context','at':doc['updated_at'],'pass':1,'phase':'build','revision':2,'status':'active','context':'x'*payload_bytes})
+        return put(self.root,doc,'CYC-0001')
 
     def test_cycle_record_read_accepts_retained_context_above_two_megabytes(self):
         cid=self.large_record(2_400_000)
@@ -125,11 +118,7 @@ class LoadedCycleCapTests(unittest.TestCase):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup);self.root=Path(self.temp.name)
         (self.root/'bionic').mkdir();(self.root/'src').mkdir()
         (self.root/'bionic/manifest.yml').write_text('schema_version: "5"\nconcerns_enabled: [adrs]\n')
-        seed=create(self.root,'quick-fix','Seed','Goal',['src'],['passes'],'builder','tester')
-        folder=self.root/'bionic/cycles'/seed['id']
-        self.seed=json.loads((folder/'cycle.json').read_text())
-        for f in folder.iterdir():f.unlink()
-        folder.rmdir()
+        self.seed=fresh('quick-fix')
     def put(self,n,**fields):
         doc=json.loads(json.dumps(self.seed));doc['id']=f'CYC-{n:04d}';doc['status']='completed';doc.update(fields)
         d=self.root/'bionic/cycles'/doc['id'];d.mkdir(parents=True);(d/'cycle.json').write_text(json.dumps(doc))
@@ -160,17 +149,17 @@ class QueueDocumentTests(unittest.TestCase):
         import cycle_queue
         return cycle_queue.add(self.root,title,'Outcome','iterate',['src'],['ok'])['item']['id']
     def test_queue_is_null_without_a_queue_file_and_for_an_explicit_id(self):
-        doc=create(self.root,'quick-fix','Fix','Goal',['src'],['ok'],'builder','tester')
+        cid=put(self.root,fresh('quick-fix'),'CYC-0001')
         self.assertIsNone(view(self.root)['queue'])
         self.add()
-        self.assertIsNone(view(self.root,doc['id'])['queue'])
-        self.assertEqual(view(self.root,doc['id'])['format_version'],5)
+        self.assertIsNone(view(self.root,cid)['queue'])
+        self.assertEqual(view(self.root,cid)['format_version'],5)
     def test_a_valid_queue_gives_bounded_cleaned_items_with_status_and_authorization(self):
         import cycle_queue
         ids=[self.add(str(n)+'x'*190) for n in range(12)]
         path=self.root/'bionic/queue/cycles.yaml'
         doc=cycle_queue.parse_queue(path.read_text())
-        first=create(self.root,'quick-fix','Fix','Goal',['src'],['ok'],'builder','tester')
+        first={'id':put(self.root,fresh('quick-fix'),'CYC-0001')}
         doc['items'][0].update(state='started',cycle=first['id'],started_at='2026-01-01T00:00:00+00:00',start_token='a'*32)
         doc['items'][2]['state']='held';doc['items'][2]['hold_reason']='wait'
         doc['items'][1].update(state='started',cycle='CYC-9999',started_at='2026-01-01T00:00:00+00:00',start_token='b'*32)
@@ -216,13 +205,13 @@ class QueueDocumentTests(unittest.TestCase):
     def test_no_authorization_gives_null(self):
         self.add();self.assertIsNone(view(self.root)['queue']['authorization'])
     def test_an_invalid_queue_gives_ok_false_while_cycles_render(self):
-        create(self.root,'quick-fix','Fix','Goal',['src'],['ok'],'builder','tester')
+        put(self.root,fresh('quick-fix'),'CYC-0001')
         (self.root/'bionic/queue').mkdir();(self.root/'bionic/queue/cycles.yaml').write_text('format: wrong\n')
         out=view(self.root)
         self.assertFalse(out['queue']['ok']);self.assertLessEqual(len(out['queue']['error']),300);self.assertEqual(set(out['queue']),{'ok','error'})
         self.assertEqual(len(out['cycles']),1)
     def test_the_text_render_is_unchanged_and_omits_the_queue_key(self):
-        create(self.root,'quick-fix','Fix','Goal',['src'],['ok'],'builder','tester')
+        put(self.root,fresh('quick-fix'),'CYC-0001')
         self.add('Queued thing')
         text=render(view(self.root))
         self.assertIn('Queued requests\n  1. Q-0001 pending Queued thing',text)

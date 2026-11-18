@@ -1,0 +1,32 @@
+{
+  "advisory": [
+    "bionic/journal and bionic/log are in recorded scope but the range 29c4384fd..HEAD writes no journal or log entry. That is expected before finish; confirm the finish-time bookkeeping (log-work / op log) lands before the cycle closes."
+  ],
+  "at": "2026-11-16T23:44:55.523419+00:00",
+  "basis_sha256": "c4f5e23589261554cbbadbf7da3c3a7922cc4b5f5a52e03a1ad1d752fe91a66d",
+  "basis_version": 4,
+  "blocking": [],
+  "cosmetic": [],
+  "evidence": [
+    "Scrutiny focused: a generated-file regeneration with no behavior change.",
+    "verified: git diff --stat 29c4384fd..HEAD outside bionic/cycles lists only crux/box/micro-crux.md and micro-crux.md (3+/3- each); every other path in the range is CYC-0171/CYC-0172 cycle bookkeeping.",
+    "verified: git show 9cdb566a8 changes exactly three lines per file, the provenance digests of crux/scripts/cycle_pilot.py, cycle_queue.py and cycle_runtime.py; both files move from blob 64b7b7393 to the identical blob 1f7ddf814.",
+    "verified: sha256 of git show HEAD:crux/scripts/{cycle_pilot,cycle_queue,cycle_runtime}.py equals the new digests; the same bytes exist at base 29c4384fd.",
+    "verified (recorded, agent-attested): LC-fb7fa43c generate-micro-crux.py --dry-run passed at 9cdb566a8 (changed [], drift false).",
+    "verified (recorded, agent-attested): LC-704dfb97 test_micro_crux_contracts on 3.13.14, 12 OK; LC-66a22972 on 3.14.9, 12 OK, at 9cdb566a8.",
+    "applicability: no source path changed after 9cdb566a8, so the three recorded checks still cover the final change.",
+    "limit: the reviewer did not execute the dry-run; the evidence is the recorded local check. Retained report cycles/CYC-0172/results/review-attempt-1.md."
+  ],
+  "input_sha256": "c25ec8ee1868d8d817580572c6db0f140e2cfaebd61fce2d3488fcb21380bcfe",
+  "pass": 1,
+  "rationale": "Focused scrutiny: a generated-file regeneration with no behavior change and no trust boundary. The diff is confined to the two generated outputs, the changed lines are exactly the provenance digests of the three CYC-0170 sources, those digests match the source bytes at HEAD, and the recorded dry-run and per-minor contract checks ran at the reviewed commit with no later source edits. Both acceptance criteria are met.",
+  "reviewer": "reviewer (claude-code, Claude Opus 5.5), CYC-0172 review attempt 1",
+  "scope": [
+    "crux/box/micro-crux.md",
+    "micro-crux.md",
+    "bionic/journal",
+    "bionic/log"
+  ],
+  "scrutiny": "standard",
+  "verdict": "approve"
+}

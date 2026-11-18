@@ -631,7 +631,7 @@ def log_excluded_paths(tree: Path, *, _source_io=None) -> list[Path]:
 
 def excluded_paths(root: Path, *, _source_io=None) -> frozenset[Path]:
     """The absolute (joined, unresolved) prefix exclusions for `root`."""
-    from cycle_workflow import ID as cycle_id
+    from cycle_store import ID as cycle_id
     tree = sp.resolve_tree(root) if _source_io is None else sp.resolve_tree(root, _source_io=_source_io)
     plugin = root / "crux"
     # A cycle directory holds dated execution state, decisions and evidence.

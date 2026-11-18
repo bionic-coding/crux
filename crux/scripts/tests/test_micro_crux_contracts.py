@@ -12,7 +12,7 @@ import sys
 import tempfile
 import unittest
 
-from _dev_surface import TREE_AGENTS_MD, require_dev_surface
+from _dev_surface import require_dev_surface
 
 SCRIPTS = Path(__file__).resolve().parents[1]
 ROOT = SCRIPTS.parents[1]
@@ -83,8 +83,7 @@ class MicroCruxContractTests(unittest.TestCase):
 
     def test_all_manifest_fields_in_canonical_local_schema_are_preserved(self):
         import yaml
-        require_dev_surface(self, TREE_AGENTS_MD, "operational tree AGENTS.md")
-        local = self.gen.section(TREE_AGENTS_MD.read_text(), "## 7.")
+        local = self.gen.section((self.plugin / "references/manifest.md").read_text(), "## 7.")
         expected = yaml.safe_load(re.search(r"```yaml\n(.*?)\n```", local, re.S).group(1))
         actual = yaml.safe_load(example(self.guide, "manifest-contract"))
         def keypaths(value, prefix=()):
@@ -92,38 +91,30 @@ class MicroCruxContractTests(unittest.TestCase):
         self.assertEqual(keypaths(expected), keypaths(actual))
 
     def test_operational_fields_match_local_canonical_tables(self):
-        require_dev_surface(self, TREE_AGENTS_MD, "operational tree AGENTS.md")
-        local = TREE_AGENTS_MD.read_text()
-        for heading in ("## 11.A.", "### 15.2", "### 17.1"):
-            expected = self.gen.section(local, heading)
-            rendered = self.gen.section(self.guide, self.gen.CONTRACTS[heading][0])
+        sources = {prefix: (path, heading_) for heading_, _, srcs in self.gen.CONTRACTS for path, prefix in srcs}
+        for prefix in ("## 11.A.", "### 15.2", "### 17.1"):
+            path, guide_heading = sources[prefix]
+            expected = self.gen.section((self.plugin / path).read_text(), prefix)
+            rendered = self.gen.section(self.guide, guide_heading)
+            heading = prefix
             fields = lambda text: re.findall(r"^\| `([^`]+)` \|", text, re.M)
             self.assertEqual(fields(expected), fields(rendered), heading)
 
-    def test_initial_cycle_and_permitted_updates_use_canonical_semantics(self):
-        from cycle_workflow import validate, replan, check_plan_file, updated_task, event
-        from types import SimpleNamespace
-        doc = json.loads(example(self.guide, "initial-cycle"))
+    def test_new_cycle_example_uses_the_cycle_writer_validation(self):
+        from cycle_store import CycleError
+        from cycle_writer import validate
+        doc = json.loads(example(self.guide, "cycle-record"))
         validate(doc)
-        previous = deepcopy(doc["plan"])
-        revised = deepcopy(previous)
-        revised["tasks"][0]["description"] += " Preserve sorting."
-        check_plan_file(revised)
-        cfg = SimpleNamespace(repo_root=ROOT, docs_root=ROOT / "bionic")
-        replan(cfg, previous, revised)
-        revised["revision"] = previous["revision"] + 1
-        event(doc, "plan-revised", previous=previous, reason="Clarify the expected behavior.")
-        doc["plan"] = revised
-        task = doc["plan"]["tasks"][0]
-        task.update(updated_task(cfg, doc, task, {"state": "active", "assignee": "implementer"}))
-        event(doc, "task-updated", task=task["id"], state="active", assignee="implementer")
-        validate(doc)
-        self.assertEqual(previous, doc["history"][-2]["previous"])
-        with self.assertRaises(ValueError):
-            updated_task(cfg, doc, doc["plan"]["tasks"][1], {"state": "done"})
+        self.assertEqual("crux.cycle.v1", doc["format"])
+        self.assertEqual("planning", doc["state"])
+        unplanned = deepcopy(doc)
+        unplanned["state"] = "working"
+        unplanned["tasks"] = []
+        with self.assertRaises(CycleError):
+            validate(unplanned)
         malformed = deepcopy(doc)
-        malformed["plan"]["tasks"][0]["depends_on"] = ["missing"]
-        with self.assertRaises(ValueError):
+        malformed["tasks"][0]["depends_on"] = ["missing"]
+        with self.assertRaises(CycleError):
             validate(malformed)
 
     def test_proposed_adr_and_sidecar_match_canonical_writer(self):

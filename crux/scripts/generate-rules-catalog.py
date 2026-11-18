@@ -100,7 +100,7 @@ CITATION_RE = re.compile(r"rule:([a-z][a-z0-9-]*)")
 # Shipped surfaces scanned for citations. `crux/catalog` is excluded so the projection
 # cannot feed on itself, and `crux/scripts/tests` because a fixture citation is test
 # data rather than a claim a reader acts on.
-SCAN_ROOTS = ("skills", "agents", "templates", "scripts")
+SCAN_ROOTS = ("skills", "agents", "templates", "scripts", "references")
 EXCLUDED_PARTS = ("tests", "catalog", "__pycache__")
 MAX_FILE_BYTES = 4 * 1024 * 1024  # the sibling lint's ceiling
 # The sibling lint's file-count ceiling, adopted for the same reason: an unbounded

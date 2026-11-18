@@ -7,7 +7,7 @@ import re
 import yaml
 from bionic_config import load_config,load_council_policy,validate_council_policy,validate_workflow_policy
 from council_records import git
-from cycle_workflow import CycleError,atomic,contained,digest,encoded,now,tree
+from cycle_store import CycleError,atomic,contained,digest,encoded,now,tree
 
 MODES=('lite','standard','strict')
 RIGOR={name:i for i,name in enumerate(MODES)}

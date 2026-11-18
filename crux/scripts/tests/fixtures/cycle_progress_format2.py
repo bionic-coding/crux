@@ -1,11 +1,15 @@
-"""Read-only, bounded cycle progress projection for terminal and dashboard."""
+"""Read-only, bounded cycle progress projection for terminal and dashboard.
+
+Frozen format-2 reader. Only its imports changed: the typed-engine modules are deleted, so the same primitives come from
+cycle_store and cycle_history.
+"""
 from __future__ import annotations
 import json
 from pathlib import Path
 import time
 from bionic_config import load_config, require_schema_version
-from cycle_workflow import PHASES, ID, contained, CycleError, phases_of
-from cycle_timing import cycle_timing
+from cycle_store import contained, CycleError
+from cycle_history import PHASES, ID, phases_of, cycle_timing
 from datetime import datetime, timezone
 
 

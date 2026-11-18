@@ -1,14 +1,14 @@
 """Cycle dashboard ordering (active first, numeric id descending) and the single approval line."""
 import json
 import os
-import shutil
 from pathlib import Path
 import sys
 import tempfile
 import unittest
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from cycle_workflow import create
+sys.path.insert(0,str(Path(__file__).resolve().parent))
 from cycle_progress import view,render
+from _cycle_fixtures import fresh
 
 
 def decision(name,approval,kind='idr',accepted=False):
@@ -20,9 +20,7 @@ class Base(unittest.TestCase):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup);self.root=Path(self.temp.name)
         (self.root/'bionic').mkdir();(self.root/'src').mkdir()
         (self.root/'bionic/manifest.yml').write_text('schema_version: "5"\nconcerns_enabled: [adrs]\n')
-        base=create(self.root,'iterate','Seed','Goal',['src'],['passes'],'builder','tester')
-        self.seed=json.loads((self.root/'bionic/cycles'/base['id']/'cycle.json').read_text())
-        shutil.rmtree(self.root/'bionic/cycles'/base['id'])
+        self.seed=fresh('iterate')
     def put(self,cid,status,mtime,decisions=None):
         doc=json.loads(json.dumps(self.seed));doc['id']=cid;doc['status']=status;doc['title']='T '+cid
         if decisions is not None:doc['decisions']=decisions

@@ -1,4 +1,4 @@
-<!-- generated-from: README.md@sha256:8a356a058824a192dd5d4a142d7587d331be8306980a5352e32e2b5a165e61ae; model: claude-sonnet-5.5; date: 2026-11-16 --> <!-- basis: prompt=sha256:3dfd5eaea94cde6cc35357464ff498d7d011e87ea511a391b899be1890defb1c; generator=sha256:d2d44f3a11572159ec1b22a4a9537a90b0365ccb4f8195f8470672c0dfff676d; model-config=sha256:06075846e4ca64277efd40deeac6c59eb3204ff8c833667deb89a87a175aa36d -->
+<!-- generated-from: README.md@sha256:78da73a556684f01e3c6dcc6d555f1c327a418bfd1557f16c4256cd5ef0a339c; model: claude-sonnet-5.5; date: 2026-11-18 --> <!-- basis: prompt=sha256:3dfd5eaea94cde6cc35357464ff498d7d011e87ea511a391b899be1890defb1c; generator=sha256:07585f4a994ef4a1633e854c6620c0128786f5ac2ef6be28ae448b4ced4c4af6; model-config=sha256:06075846e4ca64277efd40deeac6c59eb3204ff8c833667deb89a87a175aa36d -->
 # Crux
 
 An Agentic Harness plugin that maintains a `./bionic/` tree inside any software project — so that Claude can navigate, query, and update project knowledge without anyone having to remember where things go. Everything runs locally — no server, no accounts, no background service: just skills, scripts, and your repo.
@@ -16,25 +16,23 @@ crux installs through Claude Code's plugin marketplace. In any Claude Code sessi
 /plugin install crux@crux
 ```
 
-That's the whole flow. The second command installs the plugin named `crux` from the marketplace you just added (also named `crux`). Upgrades work the same way: re-run `/plugin install crux@crux` after `/plugin marketplace update crux` to pick up a new version. Installation does **not** touch your `./docs/` folder; you bootstrap that yourself. Restart the session so the plugin's skills and agents register, then say:
+That's the whole flow. The second command installs the plugin named `crux` from the marketplace you just added (also named `crux`). Install and upgrade work the same way: re-run `/plugin install crux@crux` after `/plugin marketplace update crux` to pick up a new version. Installation does **not** touch your `./docs/` folder; you bootstrap that yourself. Restart the session so the plugin's skills and agents register, then say:
 
 > **init docs**
 
-That bootstraps the seven-concern `bionic/` tree plus the default-on arch spine. It also seeds `bionic/AGENTS.md` (the operational schema the three supported harnesses share), `bionic/manifest.yml`, and the meta-ADR `ADR-0000`.
+That bootstraps the seven-concern `bionic/` tree plus the default-on arch spine, seeds `bionic/AGENTS.md` (the operational schema the three supported harnesses share), `bionic/manifest.yml`, and the meta-ADR `ADR-0000`.
 
-Optional, Claude Code only: `/plugin install crux-mods@crux` adds the run dashboard, a band above the prompt and a `/crux-dashboard` pane. See [USER_GUIDE.md](./USER_GUIDE.md), "crux-mods".
+Optional, Claude Code only: `/plugin install crux-mods@crux` adds the run dashboard, a band above the prompt and a `/crux-dashboard` pane. See `USER_GUIDE.md`, "crux-mods".
 
-Using Codex, OMP, or OpenCode instead? See [Other hosts](#other-hosts-codex-omp-and-opencode) below.
+Using Codex, OMP, or OpenCode instead? See [Other hosts](#other-hosts) below.
 
 ## About this repository
 
-This repository is **generated** from a private development repo on every release (see [`.generated`](./.generated)). Each release is a single squash commit. Please **file issues** here. Pull requests would be overwritten by the next release, so they cannot be merged.
+This repository is **generated** from a private development repo on every release (see the `.generated` file). Each release is a single squash commit. Please **file issues** rather than pull requests: PRs would be overwritten by the next release.
 
----
+## What crux gives you
 
-## What's in the box
-
-**57 skills** across seven concerns — plus a default-on, derived **arch** surface (the current-state architecture map, built on demand by `derive-arch`) and the default-on **observations** concern (what the code already does, evidenced and ratified rather than decided) — plus a **10-agent operator layer** (see **Agents** below), under a single naming convention with no `crux-` prefix.
+**57 skills** across seven concerns — plus a default-on, derived **arch** surface (the current-state architecture map, built on demand by `derive-arch`) and the default-on **observations** concern (what the code already does, evidenced and ratified rather than decided) — plus a **10-agent operator layer** (see **Agents** below), under a single naming convention — no `crux-` prefix.
 
 `crux/catalog/bundles.yml` records the bundle organization: docs suite, core agent-team, verification, infrastructure.
 
@@ -45,7 +43,7 @@ This repository is **generated** from a private development repo on every releas
 | `bionic/adrs/` | Architecture Decision Records — the "why" of every load-bearing decision | You decide; Claude writes. Frozen once Accepted |
 | `bionic/briefs/` | Pre-decision exploration documents | You author; Claude tracks |
 | `bionic/journal/` | Day-by-day record of work performed | Claude appends; you ask |
-| `bionic/cycles/` | Current plans, tasks, decisions, evidence, and pass history | Maintained by the cycle workflow |
+| `bionic/cycles/` | Current plans, tasks, check results, reviews, and completion summaries | Maintained by the cycle workflow |
 | `bionic/promptbooks/` | Historical plans and immutable run snapshots | Preserved |
 | `bionic/invariants/` | Pinned, executable statements of what must stay true, each backed by a real check | Machine proposes; **you ratify** |
 | `bionic/observations/` | Records of what the code already does, each evidenced by a `path:line-range` — described, not decided | You write via `propose-observation`; **you ratify**. No scan writes one |
@@ -67,39 +65,35 @@ A **cycle** is one trip around crux's development loop for a single feature or c
 
 > **"Start a cycle for &lt;feature&gt;. The goal is &lt;one paragraph&gt;."**
 
-Crux creates one cycle with a visible plan, tasks, phase, pass count, and evidence.
-There is no prompt minimum and no separate repeat run.
+Crux creates one cycle: one record with a visible plan, tasks, check results, an
+independent review, and a closing summary. A cycle has one lead and no type, phases or
+pass limit. It runs in seven states: `planning`, `working`, `reviewing`, `reviewed`,
+`completed`, `paused` and `abandoned`. A small fix has one task; a larger change has many.
 
-| Type | Sequence | Default pass limit |
-|---|---|---:|
-| dev — major changes | Plan → Build → Verify → Review → Reflect | 7 |
-| iterate — minor changes | Plan → Build → Verify → Review → Reflect | 2 |
-| refactor — nonfunctional improvements | Plan → Build → Verify → Review → Reflect | 7 |
-| simplify — remove complexity, keep behavior | Plan → Build → Verify → Review → Reflect | 3 |
-| quick-fix — bounded corrections | Build → Verify → Review → Reflect | 1 |
-| release — one fixed step list, beta or official | Release | none |
+The lead delegates through the host's agent tools and keeps the plan current. Focused
+checks run during development. Before completion the lead selects final checks by scope
+and risk, including the relevant drift gates, and records each observed result. A named
+independent reviewer records its own verdict. A blocking finding becomes a task in the
+same cycle, and the reviewer reassesses the changed work. A cycle completes when its
+agreed work, selected checks and review are complete. A pull request, CI,
+merge or publication is a separate fact; none completes or reopens a cycle. After a later
+failure you can have the cycle reopened, or start a linked cycle.
 
-The initial attempt counts toward the limit. Failed tests and blocking review findings
-return to Build in every type. Stalled progress pauses the cycle early;
-additional passes require human approval. A release has one phase and no pass limit; it runs a fixed step list, so no plan or review is authored.
+A cycle pauses when progress stalls, its scope changes materially, it needs your
+decision, or evidence contradicts its premise. A release item starts a cycle of kind
+release with a fixed step list.
 
-Dev requires a council-approved Implementation Decision Record (IDR). Simplify requires
-an approved selection IDR that names the proposals to build. Other types need an IDR
-for material implementation choices. ADRs can originate from a direct
-request, whiteboarding, or inbox processing. Inside a cycle, council must first justify
-creating an ADR. Draft approval is a separate council decision; acceptance also needs
-human approval by default. New-policy acceptance makes its rules binding.
+Council review is optional. Ask for one, or the lead convenes it for a consequential
+tradeoff. An ADR raised in a cycle is proposed with that cycle as its origin and needs
+no council to approve drafting it; council reviews the exact draft and acceptance still
+needs you by default. Configure review scrutiny and ADR acceptance in `.bionic.yml`. Review
+defaults to `standard`, with `focused` and `intensive` alternatives. Historical promptbooks
+remain readable; new work uses cycles. Cycle records written before this workflow stay
+read-only.
 
-Configure review scrutiny and ADR acceptance in `.bionic.yml`. Review defaults to
-`standard`, with `focused` and `intensive` alternatives. Every cycle has independent
-review, with specialists selected for actual risks. Tests reuse repository-owned
-passing evidence when relevant inputs and environment match, including across cycles.
-Historical promptbooks remain readable; new work uses cycles.
-
-Cycle requests go through Commander, who assigns implementation to Dev Lead and
-independent review to Reviewer. Dev Lead supplies each developer's base commit
-and owns integration. Before completion, new cycles record related-test coverage
-and committed implementation changes, unless you explicitly request uncommitted work.
+Cycle requests go through one lead: your session, or Commander when your session hands the
+cycle over. Dev Lead implements bounded work or assigns scoped units to developers, supplies
+each one's base commit and integrates their results. Reviewer reviews independently.
 
 ---
 
@@ -120,7 +114,7 @@ crux bundles a **role-based agent layer**: **ten** Claude Code subagents that *o
 | **night-gardener** | Overnight visionary/coach/co-CTO — reviews recent work, writes a morning note under `docs/garden/` (ideas, gaps, research, news) | push/merge, send externally, or self-install the routine |
 | **wayfinder** | Read-only reconnaissance — reads large/uncertain or external data ahead of the caller, judges fitness, returns a verdict + condensed digest so the primary spends its context only on proven-fit content | write, execute, delegate, or relay local content outbound |
 
-Two choices make the layer portable and safe. Agents are **self-contained** — the `superpowers`-style craft disciplines (TDD with its proof-mechanism, verification-before-completion, systematic debugging, two-stage review) are embedded in each agent's prompt rather than depending on separately-installed skills. And they're **first-class catalog citizens** — agent definitions are listed in the plugin's catalog and manifest exactly like skills. The agents register once the plugin is installed or upgraded and the session is restarted.
+Two choices make the layer portable and safe. Agents are **self-contained** — the `superpowers`-style craft disciplines (TDD with its proof-mechanism, verification-before-completion, systematic debugging, two-stage review) are embedded in each agent's prompt rather than depending on separately-installed skills. And they're **first-class catalog citizens** — agent frontmatter is regenerated into `catalog/agents.json` exactly like skills, with an `agents:` array in `plugin.json`. The agents register once the plugin is installed/upgraded to a version that ships `crux/agents/` and the session is restarted.
 
 Codex installs the same ten roles as namespaced `crux_*` agents. Each installed
 role pins its catalog model and reasoning effort. It also binds every declared
@@ -190,20 +184,18 @@ You never type a slash command — each skill is triggered by natural-language p
 ### Cycles and historical promptbooks
 | Skill | Say this / when | What it does |
 |---|---|---|
-| `cycle` | "start a cycle" / "quick fix" / "release" / "refactor" | Runs one task-sized cycle with type-specific phases, bounded returns, independent review, and reusable test evidence. |
+| `cycle` | "start a cycle" / "quick fix" / "release" / "refactor" | Runs one task-sized cycle: one lead, a plan, observed checks, independent review, and a closing summary. |
 | `cycle-status` | "show cycle status" / "watch the cycle" | Prints cycle progress read-only; `--watch` redraws it in a second terminal and `--json` prints the machine-readable document. |
-| `test-tiers` | "label the tests" / "check the test tiers" / "list the release tier" | Labels every test `dev`, `release` or `ephemeral` in a per-root `test-tiers.json`, checks the labels and lists a tier for any language's runner. Release verification runs the release tier; completing a cycle or merging a pull request still needs every test. |
-| `dev-cycle` | "develop this" | Compatibility alias for a dev cycle. |
-| `iterate` | "iterate on this" | Compatibility alias for an iterate cycle. |
-| `patch-cycle` | "patch this" | Routes to quick-fix or iterate according to scope. |
-| `fix-directly` | "just fix it" | Routes to a quick-fix cycle with slim testing, review, and reflection. |
+| `test-tiers` | "label the tests" / "check the test tiers" / "list the release tier" | Labels every test `dev`, `release` or `ephemeral` in a per-root `test-tiers.json`, checks the labels and lists a tier for any language's runner. Release verification runs the release tier; merging a pull request still needs every test. |
+| `dev-cycle` | "develop this" | Compatibility alias that routes to the cycle workflow. |
+| `iterate` | "iterate on this" | Compatibility alias that routes to the cycle workflow. |
+| `patch-cycle` | "patch this" | Compatibility alias that routes to the cycle workflow. |
+| `fix-directly` | "just fix it" | Compatibility alias that routes to the cycle workflow; a small fix is one task. |
 | `author-promptbook` | "new promptbook" | Routes new work to a cycle; preserves historical promptbook guidance. |
 | `run-promptbook` | "inspect this promptbook" / "advance this existing run" | Reads or finishes existing historical runs. New work uses cycles. |
 | `archive-promptbook` | "archive promptbook" | Archives a completed or deliberately abandoned historical book. |
 
-Choose dev for major changes, iterate for minor changes, refactor for nonfunctional improvements,
-simplify to remove complexity without losing behavior, quick-fix for bounded corrections, and
-release for publication work.
+Name the outcome; a cycle needs no type. Say "release cycle" for publication work.
 
 ### Invariants (pinned, executable truth — machine proposes, human ratifies)
 | Skill | Say this / when | What it does |
@@ -246,7 +238,7 @@ For ad-hoc decomposition, ask to whiteboard the goal or use your host's planning
 
 ---
 
-## Other hosts: Codex, OMP, and OpenCode
+## Other hosts
 
 ### Codex
 
@@ -289,14 +281,14 @@ OMP natively supports the Claude Code marketplace catalog for skills. Install th
 /marketplace install crux@crux
 ```
 
-Then say **"install the Crux agents in OMP"**. The `install-omp-agents` skill writes the ten projected `<role>.md` agents into `~/.omp/agent/agents/` by default (or `<repo>/.omp/agents/` with `--repo-root`), configuring per-role `@crux_<role>` model role selectors with OpenRouter fallbacks, `thinking-level`, `read-summarize: false` on retrieval roles, and native `tools`/`spawns` allowlists. Optional: load the `crux-omp` extension for the TUI run dashboard (see [OMP_INSTALL.md](./OMP_INSTALL.md)).
+Then say **"install the Crux agents in OMP"**. The `install-omp-agents` skill writes the ten projected `<role>.md` agents into `~/.omp/agent/agents/` by default (or `<repo>/.omp/agents/` with `--repo-root`), configuring per-role `@crux_<role>` model role selectors with OpenRouter fallbacks, `thinking-level`, `read-summarize: false` on retrieval roles, and native `tools`/`spawns` allowlists. Optional: load `crux-omp` (`omp -e ./crux-omp/index.ts`) for the TUI run dashboard.
 
 ### OpenCode (manual setup)
 
 See [OPENCODE.md](./OPENCODE.md) for complete machine-wide and project
 installation instructions for humans and agents.
 
-There is **no native Crux OpenCode marketplace package yet** — OpenCode support is a **manual, preview-grade setup** for now (a public OpenCode distribution channel is a deliberately deferred future decision). The steps below wire the full skill set and the 10-agent set into OpenCode 2.x from a public clone. Install OpenCode 2.x with `curl -fsSL https://opencode.ai/v2/install | bash`, which leaves a binary named `opencode`.
+There is **no native Crux OpenCode marketplace package yet** — OpenCode support is a **manual, preview-grade setup** for now (a public OpenCode distribution channel is a deliberately deferred future decision). The steps below wire the full skill set and the ten agents into OpenCode 2.x from a public clone. Install OpenCode 2.x with `curl -fsSL https://opencode.ai/v2/install | bash`, which leaves a binary named `opencode`.
 
 1. **Clone to a stable path** (the config below uses absolute paths, so pick a permanent home — moving it later breaks the setup):
 
@@ -390,7 +382,7 @@ See [USER_GUIDE.md → "Working with secrets and API keys"](./USER_GUIDE.md#work
 
 ### Optional: per-project configuration
 
-A repo can commit an optional `.bionic.yml` file at its root (distinct from the `~/.crux/` secrets directory — never put secrets in it). Besides the required `config_version: "1"`, optional keys can relocate the tree (`docs_dir`) or brand artifact ids with a prefix (`artifact_prefix: "CRX"`). It supersedes the legacy `.crux` file, which is still read for back-compat. Copy `crux/templates/bionic-yml.tmpl` to get started; see [USER_GUIDE.md → "Per-project configuration"](./USER_GUIDE.md#per-project-configuration-the-repo-root-bionicyml-file).
+A repo can commit an optional `.bionic.yml` file at its root (distinct from the `~/.crux/` secrets directory — never put secrets in it). Besides the required `config_version: "1"`, optional keys can relocate the tree (`docs_dir`) or brand artifact ids with a prefix (`artifact_prefix: "CRX"` prepends `CRX` to generated ids). It supersedes the legacy `.crux` file, which is still read for back-compat. Copy `crux/templates/bionic-yml.tmpl` to get started; see [USER_GUIDE.md → "Per-project configuration"](./USER_GUIDE.md#per-project-configuration-the-repo-root-bionicyml-file).
 
 ---
 
@@ -402,14 +394,14 @@ Skills are triggered by phrases routed through each skill's description. Say wha
 
 | Say this | …and Claude will |
 |---|---|
-| **"start a cycle for X"** | **Start a task-sized cycle with the appropriate type and pass limit.** |
-| "advance" / "next prompt" | Advance the active cycle when its phase evidence is satisfied; historical runs retain prompt advancement |
+| **"start a cycle for X"** | **Start a cycle: plan the work, delegate it, check it and review it independently.** |
+| "cycle status" | Show each cycle's state, tasks, blockers and review coverage; historical runs retain prompt advancement |
 | "propose an ADR for X" | Allocate the next ADR number, draft a `Proposed` decision record |
-| "accept ADR-NNNN" | Flip status to `Accepted` — body is now frozen forever |
+| "accept ADR-0007" | Flip status to `Accepted` — body is now frozen forever |
 | "process inbox" (after dropping anything in `docs/inbox/`) | Classify each dropped item + confirm + dispatch to the right skill (research → ingest, decision → ADR, exploration → brief, note → journal) |
 | "log work — fixed the X bug" | Append a categorized entry to `docs/journal/YYYY-MM.md` |
 | "new promptbook for X" | Route new work to a cycle |
-| "run the promptbook" | Inspect or finish an existing historical run; do not repeat a completed run |
+| "run this promptbook" | Inspect or finish an existing historical run; do not repeat a completed run |
 | "extract code docs" | Regenerate `docs/code/` from your source's docstrings |
 | "audit docs" | Run ~97 integrity checks across every enabled concern and auto-fix safe drift; `audit docs --migrate` migrates instruction files only and cannot upgrade older tree schemas — for an older-schema tree, run the pinned public `v3.23.2` procedure on a copy |
 | "what does X do?" / "why did we choose Y?" | Search `docs/`, return answers with citations |
@@ -418,11 +410,11 @@ Skills are triggered by phrases routed through each skill's description. Say wha
 
 Especially after large batches of writes, after a research refresh, or before a release. It catches dangling links, supersession asymmetries, missing index rows, and stale counters — and fixes the safe ones automatically.
 
-One rule is mechanical rather than prose: the `## ADRs (N)` rollup in `docs/index.md` is a pure function of your ADR frontmatter, so `crux/scripts/generate-index-rollup.py` regenerates it (`--dry-run` reports drift, exit 1). Prefer running it over hand-fixing that section. The rest of the rollups are still checked by `audit-docs` reading them — which is worth knowing, because a prose check that passes tells you an agent believed it walked everything, not that it did.
+One rule is now mechanical rather than prose: the `## ADRs (N)` rollup in `docs/index.md` is a pure function of your ADR frontmatter, so `crux/scripts/generate-index-rollup.py` regenerates it (`--dry-run` reports drift, exit 1). Prefer running it over hand-fixing that section. The rest of the rollups are still checked by `audit-docs` reading them — which is worth knowing, because a prose check that passes tells you an agent believed it walked everything, not that it did.
 
 ### 3. The append-only stuff really is append-only
 
-- **ADRs**: once Accepted, the body is immutable. To change a decision, write a new ADR that supersedes the old one (e.g. `"supersede ADR-NNNN with ADR-MMMM"`). Claude updates both ends of the link atomically.
+- **ADRs**: once Accepted, the body is immutable. To change a decision, write a new ADR that supersedes the old one (e.g. `"supersede ADR-0001 with ADR-0005"`). Claude updates both ends of the link atomically.
 - **`docs/code/`**: regenerated on every extract run. Hand-edits are blown away. If a docstring is wrong, fix it in the source.
 - **`docs/research/raw/`**: every fetched capture lives there forever, dated. Don't prune it — that's your audit chain when a synthesis page is challenged.
 - **`docs/journal/`**: chronological narrative. Don't reorder past entries.
@@ -441,10 +433,11 @@ Later, say **"refresh sources"** to re-fetch URLs and mark synthesis pages affec
 
 ### 5. Cycles preserve the plan and its changes
 
-Each cycle keeps its plan, tasks, decisions, evidence, and pass history in
+Each cycle keeps its plan, tasks, check results, review and completion summary in
 `bionic/cycles/<CYC-NNNN>/cycle.json`. Replanning preserves earlier plans and records
-why work returned. Pause and resume keep the same identity. Completed or abandoned
-cycles stay closed; follow-up work starts a new cycle.
+why the plan changed. Pause and resume keep the same identity. An abandoned cycle stays
+closed; a completed cycle reopens only on your instruction, and follow-up work can start
+a linked cycle.
 
 Historical promptbooks and their run snapshots retain their original interpretation.
 Do not rewrite them or create new repeat runs.
@@ -457,11 +450,15 @@ Do not rewrite them or create new repeat runs.
 
 If you spot something wrong — a stale page, a contradiction, a broken link — tell Claude. The whole point is that the bookkeeping is automated. Hand-edits to managed files can leak through audits and quietly desynchronize counters or indexes.
 
+### 8. What's in this repository
+
+- `crux/` — the plugin itself. What the marketplace (`/plugin install crux@crux`) distributes into your projects.
+- `crux-mods/` — the opt-in Claude Code mods plugin, released with crux at the same version.
+
 ---
 
 ## Where to go next
 
-- **[Crux guide](https://bionic-coding.com/crux/)** — installation and usage documentation.
 - **[USER_GUIDE.md](./USER_GUIDE.md)** — the deep human-facing guide. Mental model, phrase reference, secrets, troubleshooting.
 - **`bionic/AGENTS.md`** (after `init docs`) — the operational schema Claude reads. Authoritative.
 
@@ -474,7 +471,7 @@ council:
   mode: standard
   max_attempts: 7
   overrides:
-    idr: lite
+    adr: lite
 adr:
   acceptance: council-and-human
 ```
@@ -493,4 +490,4 @@ or credentials never silently change the mode or model.
 
 ## License & status
 
-MIT licensed (see [LICENSE](./LICENSE)). v5.8.1 — see [CHANGELOG.md](./CHANGELOG.md) for the per-release breakdown. Issues welcome; the public repo is regenerated on every release, so pull requests there cannot be merged.
+MIT licensed (see [LICENSE](./LICENSE)). v6.0.3 — see [CHANGELOG.md](./CHANGELOG.md) for the per-release breakdown. Issues welcome; the public repo is regenerated on every release, so pull requests there cannot be merged.

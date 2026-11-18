@@ -52,7 +52,7 @@ The consuming-project replay runs the current installed reader for a v2 basis, w
 per-file reader comparison.
 
 Profile digests and issued digests are sha256 over the canonical encoding
-`cycle_workflow.encoded`. A change to that encoding changes every computed profile
+`cycle_store.encoded`. A change to that encoding changes every computed profile
 digest and issued digest, and the tests that pin literal digests fail on it.
 
 `approve` refuses a new approval on an installed-support v1 basis. A recorded v1 basis

@@ -12,7 +12,7 @@ import uuid
 
 from council_assumptions import COUNCIL_OPERATING_ASSUMPTIONS,LITE_CHALLENGE_INSTRUCTION,ONE_ROUND_FINDINGS
 import council_policy as policy
-from cycle_workflow import CycleError,atomic,contained,digest,encoded,now,tree,locked
+from cycle_store import CycleError,atomic,contained,digest,encoded,now,tree,locked
 from cycle_council import begin_mode,base_record,finish_mode,commit_evidence,subject_path,logical_directory
 
 REQUEST='crux.native-council-request.v1'
@@ -109,6 +109,8 @@ def prepare(repo,purpose,subject,question,*,phase='challenge',attempt_path=None,
         cfg=tree(repo)
         if phase=='challenge':
             if attempt_path is not None:raise CycleError('challenge cannot replace an existing attempt')
+            from cycle_council import refuse_retired
+            refuse_retired(purpose)
             settings=policy.resolve(repo,purpose)
             if settings['mode']!='lite':raise CycleError('native dispatch requires explicitly selected Lite; no gateway fallback')
             bundle=None

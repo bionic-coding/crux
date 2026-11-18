@@ -42,7 +42,7 @@ EXPECTED_FILES = {f"{name}.md" for name in EXPECTED_SOURCE_NAMES}
 # fails here rather than passing through the projection untested.
 EXPECTED_MODEL_IDS = {
     "architect": "openrouter/anthropic/claude-opus-5.5",
-    "brainstormer": "openrouter/openai/gpt-6.1-sol",
+    "brainstormer": "openrouter/openai/gpt-6.2-sol",
     "commander": "openrouter/moonshotai/kimi-k3.1-pro",
     "dev-lead": "openrouter/z-ai/glm-5.3",
     "developer": "openrouter/deepseek/deepseek-v4.1-flash-1017",

@@ -1,552 +1,152 @@
 # Cycle testing
 
-## Proportionate local checks
+## Focused and selected checks
 
-New non-release cycles use `testing_policy: proportionate`. During development,
-run focused tests for changed behavior and related callers, dependencies, fixtures,
-and integration points. After fixes, rerun failed and affected checks. Before a PR,
-select checks according to the change's scope and risk; broad shared changes can
-justify full suites. A phase boundary or cycle type never requires a full suite.
+During development, run focused tests for changed behavior and for its callers,
+dependencies, fixtures and integration points. After a fix, rerun the failed and the
+affected checks. Before completion, the lead selects final checks by the change's scope
+and risk.[^scope] A phase boundary never requires a full suite, because a cycle has no
+phases.
 
-Declare selected Build and Verify checks and their coverage rationale. Record actual
-results with `cycle.py local-check`, including the command, tested revision, result,
-summary and reason. The tested revision is agent-attested; the writer does not run
-the command or prove that the tested bytes equal the current checkout. After edits,
-reassess applicability and rerun affected checks. The latest selected failure blocks.
-Explicit reuse references a prior passing local check in the same cycle and pass;
-it preserves the original command and revision. Do not create TE snapshots or reuse
-results across cycles for this policy. Independent review assesses both selection
-and applicability to the final change. Comprehensive PR CI remains the integration
-backstop, not a reason to ignore known local failures.
-
-Historical cycles without this policy retain the legacy TE evidence contract.
-Release artifact checks, staged checks, smoke checks and full PR CI remain unchanged.
-
-Keep one dev-lead as test coordinator for shared or broad checks. Developers and
-reviewers run focused checks; avoid duplicate broad runs. Do not edit inputs while
-checks run. Select related tests by behavior and dependency reach; a directory scan
-alone does not require its entire suite. New regression tests alone do not establish
-coverage of existing behavior. If automated tests do not apply, explain why and
-record a verifiable inspection or smoke check.
-
-Use `checks --phase build` for Build and `checks` for Verify; each replaces its set.
-Use `coverage` for affected behavior, selected checks and omitted checks. The same
-local observation can satisfy both phases without a new execution. Record failures
-as well as passes. Missing or failed selected checks block progression.
+Record each observation with `cycle.py check ID --file FILE`, or several with
+`cycle.py batch`. An observation holds the command, the result, the tested revision, a
+summary and the reason the check applies. A claim that a check passed cites such an
+observation.[^claims] The tested revision is agent-attested: the writer does not run the
+command and does not prove that the tested bytes equal the current checkout. Record
+failures as well as passes. The latest failure of a selected check blocks `finish`.
 
 ```bash
-uv run /abs/plugin-root/scripts/cycle.py local-check CYC-0001 --check-id parser \
-  --command 'python3 -m unittest tests.test_parser' --result passed \
-  --summary 'Parser and caller cases pass' --tested-revision COMMIT \
-  --reason 'Changed parser behavior and callers'
-uv run /abs/plugin-root/scripts/cycle.py local-check CYC-0001 --check-id parser \
-  --reuse LC-ID --summary 'Still applicable to the final change' \
-  --reason 'Subsequent edits affect only unrelated prose'
+uv run /abs/plugin-root/scripts/cycle.py --repo-root /abs/repo --compact check CYC-0123 --actor session-a --expect-revision 4 --file /abs/repo/check.json
 ```
 
-Run the example check in the project's selected environment with its interpreter and dependencies.
-Record the actual command used. Reuse omits command, result and tested revision.
-It cannot hide a newer failure.
-Tier labels still apply to every new test. Run the tier check when tests or their
-manifests change. Tiers help select local checks; they never replace coverage judgment.
-`related-tests.py` can suggest candidates, and `parallel_suite.py --failed-from`
-can rerun failures. Neither tool proves selection is sufficient. No new runner is needed.
+Run the example in the project's selected environment and record the command you
+actually used. A recorded observation is reused only explicitly, within its own cycle.
+It is never reused across cycles or after a later failure of the same check, and only
+while the final change leaves the inputs it checked as they were at its tested
+revision.[^reuse] After edits, reassess which observations still apply and rerun the
+others. The reviewer assesses the selection and its applicability to the final change.
+Comprehensive PR CI is the integration backstop; it does not excuse a known local failure.
 
-## Legacy cycles and release evidence
+One test coordinator runs any full suite the selected checks include. A dev-lead
+dispatched for another task, developers and reviewers run focused checks only.[^coordinator]
+Avoid duplicate broad runs and do not edit the inputs of a running check. A developer in
+a linked worktree runs focused checks only: `crux/scripts/tests/parallel_suite.py`
+refuses a whole suite root there with the code `focused-check-rule`.
 
-The remaining TE reference applies to historical cycles without `testing_policy`
-and to release evidence. Its mandatory suite and snapshot rules do not apply to
-proportionate local checks. Keep historical records and release receipts intact.
-
-Test evidence belongs to the repository and is reusable across phases and cycles.
-Before running a check, look for valid passing evidence. Execute only when inputs
-changed, evidence is missing, or an explicit freshness requirement expired. Record
-the reason. A failure remains visible; retry unchanged inputs only with a stated
-reason, such as infrastructure recovery or investigation of flakiness.
-
-One coordinator per cycle owns lookup and execution. Other agents request checks
-through it. The test coordinator is the dev-lead dispatched for the task that runs
-the full checks, and with one dev-lead it is that dev-lead. Full suites, the staged
-dry run and per-minor runs run only in the test coordinator, one at a time. A
-dev-lead dispatched for any other task, developers and reviewers run focused checks
-only: the tests that exercise their change or their finding. A task that runs the
-full checks depends on every implementing Build task, so its suites never run beside
-an editing dev-lead. Matching executions already running across cycles are awaited, not
-duplicated. Use the repository evidence runner and its supported check declaration
-format; consult its help rather than inventing records or claiming reused checks ran.
-
-Declare broad conservative input sets initially: source, tests, fixtures,
-configuration, dependencies, toolchain, and relevant environment identity. Never
-record secret values. Capture exact command, working-tree fingerprints, source
-revision for traceability, result, time, output reference, and freshness policy.
-Commit identity alone neither proves nor invalidates a result. A pre-existing
-Tester note without these inputs does not automatically satisfy the reuse contract.
-
-A matching pass is reused by reference. A relevant input change invalidates the
-affected check; uncertain dependency scope invalidates conservatively; bookkeeping
-follows Bookkeeping exclusions below. A phase change, review request, new commit, or new cycle alone is no reason to execute again.
-
-Evidence proves only its declared coverage. Packaging and installation checks
-bind the actual artifact. Deployment smoke checks run against the new deployment.
-External checks use explicit freshness requirements. Release reuses matching
-correctness evidence and produces only missing or invalidated evidence.
-
-In the Crux development repository, a release has no separate test step. The release verify step (`release.py verify`) is
-the only release step that runs the registered suites. For each suite it first looks up the
-full declaration without executing and reuses an eligible full pass. A current failing full
-receipt fails the step, with no fallback. Otherwise it executes that suite's release-tier
-declaration, which reads the same inputs and adds `--tier release`. Finish the prep (version surfaces,
-changelog, generated release documents and the prep commit) before the release verify step. A late
-change to anything a suite reads makes the release verify step execute that suite again; nothing
-refuses, and the release takes longer. The release command's prepare step prints an
-advisory naming the suites that the release verify step would execute, release-tier suites
-included. The advisory changes no verdict. The release verify step also runs the registered
-tier check, `checkout:test-tiers`.
-
-Every test runs in the main run once per code state on the floor minor (3.13): the checkout
-core suite and the checkout tools suite. A second run of those suites on the same code state
-adds no evidence. The staged artifact gets two short checks on every minor in
-`pyproject.toml` `[tool.crux] python-versions` (3.13 and 3.14): `flagged` runs the committed
-list of tests that can differ between interpreters or the packaged tree, and `health` compiles
-every staged `.py` file and imports every staged module. The failures they find at the release verify step cost
-a version bump, so a cycle that changes shipped paths runs them in its Verify phase. The test
-coordinator runs the sync.sh dry run once, after the last commit, on a clean tree:
-
-    bash sync.sh --public-repo idyll/crux --dry-run --skip-fingerprints
-
-The dry run stages the tree, runs the staged gates, and runs `flagged` and `health` on every
-minor through the evidence engine. The engine writes one receipt per minor and check to the
-durable store, so `release.py verify` reuses them while the staged inputs match.
-`--skip-fingerprints` skips only the check that `public/` matches its sources, because the
-release prep regenerates `public/` after Verify; `release.py prepare` still checks it. The
-command publishes nothing and takes no ledger. To look the receipts up without executing, add
-`--plan-test-evidence`. A cycle whose changes all fall outside the staged allowlist, such as the
-documentation tree alone, needs no staged run. Report the per-minor receipts as executed or
-reused, like any other check.
-
-Every cycle's Verify also declares the `drift-gates`, `governs-references` and `governs-coverage`
-checks (`test-evidence.py declare --preset governs-references|governs-coverage`; see "Declare
-cycle checks from presets" below). They read the decision records, which the main run does not.
-
-The main run keeps its receipts across these changes. A docs-tree decision-only commit
-(`adrs`, `arch`, `observations`, `research`, `briefs`, `index.md`, `manifest.yml` and
-`objectives.md`) leaves the main-run receipts reusable. A commit that touches the root
-instruction or guide documents or the kept docs entries (`AGENTS.md`, `invariants`, `code` and
-`promptbooks`) still runs the main run. A rerun of the main run on an unchanged code state needs
-`--retry-reason` and counts as a recovery execution, not as a second test.
-
-Report reused, newly executed, invalidated, retried, and awaited checks with their
-reasons. Do not impose a second full suite simply at integration, review, or release.
-The required coverage must be established, whether by valid reuse or execution.
-
-Declare affected behavior and integration points through `cycle.py coverage`.
-Select related tests, including checks that import, invoke, read, or enumerate
-changed inputs. Give each selected check a coverage rationale and explain omitted
-checks. New regression tests alone do not establish related behavior. If automated
-tests do not apply, explain why and declare an appropriate verifiable inspection
-or smoke check. Unknown reach needs conservative coverage, not an automatic full
-suite. Review examines this declaration alongside valid run/reuse evidence.
-
-Typed `advance` attaches a matching reusable receipt before it refuses a missing
-current-pass check. It revalidates the receipt against the current inputs under the
-cycle lock, so a source change since the lookup refuses rather than attaching a stale
-receipt. It never executes a check and never attaches a failure. Run a check through
-the test coordinator when no receipt matches.
-
-## Build checks
-
-Build declares the checks it must pass before it ends: `checks --phase build`,
-described in [commands.md](commands.md). Select, besides focused tests, every test
-that imports, invokes, reads, globs or enumerates a changed path. When a test
-enumerates a directory that holds a changed path, select the suite that contains that
-test. A test that builds a path from parts, such as `parent / "skills"`, reads every
-file below it. In the Crux development repository that means the two registered
-checkout suites. A developer unit in its own worktree runs focused checks only:
-there `parallel_suite.py` refuses a whole suite root with the code `focused-check-rule`
-unless `--allow-linked-worktree` is passed. The
-cycle's one test coordinator runs the suites once after the dev-lead integrates the
-done units on main, and is the only writer of `checks --phase build`. It records the complete
-union, because each call replaces the set. Verify reuses those receipts while their
-inputs are unchanged. A known failure found at Build stops the cycle in Build; do not
-carry it to Verify.
+Select related tests by behavior and dependency reach. Include every test that imports,
+invokes, reads, globs or enumerates a changed path. A test that enumerates a directory
+holding a changed path reads every file below it, so select the suite that contains it.
+A new regression test alone does not cover existing behavior. When automated tests do
+not apply, say why and record a verifiable inspection or smoke check. Name the checks
+you did not select and the gap that leaves in the plan's `verification.gaps`.
 
 In the Crux development repository two tools shorten a focused loop.
 `crux/scripts/related-tests.py PATH...` lists the test files under `crux/scripts/tests`
-and `tools/tests` that name a changed path by repository path, file name or module
-stem, with one hop through a script that reads a changed template or data file. Start
-the Build check selection from its list. `parallel_suite.py DIR --records
-FILE` records each outcome, and a later `parallel_suite.py DIR --failed-from FILE`
-reruns only the tests that failed or errored there; a file with no failure runs nothing
-and exits 0. Both take `--tier`: a focused loop may select `related-tests.py --tier dev
---tier release`, plus every test file the change edits, of any tier. A focused rerun is
-a development loop, not a receipt: the Build checks still need current passing evidence.
+and `tools/tests` that name a changed path, by repository path, file name or module
+stem, with one hop through a script that reads a changed template or data file.
+`crux/scripts/tests/parallel_suite.py DIR --records FILE` records each outcome, and a
+later run with `--failed-from FILE` reruns only the tests that failed or errored.
+`--select ID` runs only the named module, class or method. Both tools take `--tier`.
+Neither proves the selection is sufficient.
+
+For a root instruction file `related-tests.py` lists about half the suite: 209 of the
+451 test files in its two roots for `AGENTS.md`, reached through 38 scripts that read it. That list is no
+focused loop. Select the tests that read the edited text, and leave the broad run to the
+test coordinator's suite.
+
+## Final checks
+
+The final selected checks include the drift gates relevant to the change: at least each
+gate any of whose checked inputs the change adds, removes or edits. No fixed roster
+runs in every cycle.[^gates] In a project that adopts test tiers, they also include the
+tier check whenever the change adds, removes or edits a test or a tier manifest.
+The `check-drift` skill runs the whole drift roster (in the Crux development repository,
+its runner is `tools/run-drift-gates.py`), and `uv run python3 crux/scripts/test-tiers.py check` runs the tier
+check. Select a narrower gate when the change reaches only some of them, and record the
+reason with the observation.
+In the Crux development repository, `tools/drift-audit.py` runs the whole roster once a
+week on the commit local `main` names, outside every cycle and release.
+
+A completed cycle records a summary of its delivered outcome; no reflection step exists.[^summary]
+Completion requires the agreed tasks done, the selected checks passing and an approving
+review of the current plan revision.[^completion] Merging is a separate fact, recorded
+with `cycle.py delivery`.
 
 ## Test tiers
 
 Every test carries exactly one tier label in its root's `test-tiers.json`: `dev`,
-`release` or `ephemeral`.[^one] The `test-tiers` skill states the manifest, the check and
-the rubric. A change that adds a test file or test method labels it in the same
-change.[^label] An ephemeral test is labelled with a reason and an end condition, and
-stays until a change names it for removal.[^ephemeral]
+`release` or `ephemeral`.[^one] The `test-tiers` skill states the manifest, the check
+and the rubric. A change that adds a test file or test method labels it in the same
+change.[^label] An ephemeral test carries a reason and an end condition, and stays until
+a change names it for removal.[^ephemeral]
 
-Tiers select development loops only: a unit's focused checks, fix-step reruns and
-reviewer probes. No gate narrows by tier.[^gates] A unit gate still runs every test the
-change could reach, and the Build-exit run still runs every test. Completing a cycle of
-any type except release requires current passing evidence for every test. A release-tier
-receipt never satisfies it.[^complete] A release cycle completes on its fixed step list.
-Release verification establishes evidence for the release tier and runs the tier
-check.[^release] Merging a pull request requires every test to pass on its head.[^merge]
+Tiers select development loops: a unit's focused checks and reviewer probes. No gate
+narrows its test selection by tier.[^narrow] A full suite a cycle selects still runs every
+test. A release cycle completes on its fixed step list. Release verification establishes
+passing evidence for the release tier and runs the tier check.[^release] Merging a pull
+request requires every test to pass on its head.[^merge]
 
-In a project that adopts tiers, the tier check is a required check at Verify.[^verify]
-Declare it with the `test-tiers` preset, which applies in any project. Run it before the
-all-tests run, so a labelling fault costs no full rerun.
+In the Crux development repository the tier check covers all five roots
+(`crux/scripts/tests`, `tools/tests`, `crux-mods/tests`, `crux-opencode/tests` and
+`crux-omp/tests`). Every test the staged per-minor `flagged` list selects is in the
+release tier.[^flagged]
 
-In the Crux development repository the registered tier check is `checkout:test-tiers`.
-It checks all five roots (`crux/scripts/tests`, `tools/tests`, `crux-mods/tests`,
-`crux-opencode/tests` and `crux-omp/tests`). Build exit requires every registered
-`checkout:` check except the release-tier suites `checkout:unittest-release:...`, so the
-two full suites and `checkout:test-tiers`. Verify, Review and Reflect, and therefore
-`finish`, refuse unless both full suites and the tier check have current passing
-evidence. An input-changing edit in those phases reruns both full suites once for the new
-code state. Each Python manifest is an input of its own suite, so a label-only edit
-reruns that suite once. Every test the staged per-minor `flagged` list selects is in the
-release tier.[^flagged] The sync.sh dry run also checks each staged root's labels, then
-the release subset and area coverage of the staged roots together. The TypeScript gates still run every TypeScript test; their labels are checked, not used
-for selection.
+## Release verification
 
-Outside a plugin-authoring checkout the writer does not require Build checks. The
-instruction to declare them still applies, and the reviewer checks the declaration.
+In the Crux development repository a release has no separate test step. `release.py
+verify` is the only release step that runs the registered suites, through the evidence
+engine (`scripts/test-evidence.py`). For each suite it looks up the full declaration
+without executing and reuses an eligible full pass. A current failing full receipt fails
+the step. Otherwise it runs that suite's release-tier declaration. It also runs the
+registered tier check. Finish the release prep before this step: a late change to
+anything a suite reads makes the step run that suite again.
 
-## The lookup rule
+Every test runs in the main run once per code state on the floor minor (3.13). The
+staged artifact gets two short checks on every minor in `pyproject.toml`
+`[tool.crux] python-versions` (3.13 and 3.14): `flagged` runs the committed list of tests
+that can differ between interpreters or the packaged tree, and `health` compiles every
+staged `.py` file and imports every staged module. The test coordinator runs the staged
+dry run once, after the last commit, on a clean tree:
 
-One question decides every lookup, execution and validation: did this check run and
-pass, in an environment that satisfies its requirement, on the subject's relevant
-inputs? No caller re-probes its own process, so a receipt that ran in another
-interpreter validates in any process.
+    bash sync.sh --public-repo idyll/crux --dry-run --skip-fingerprints
 
-- **Inputs** are the declared files, the Git inventory and HEAD tree of a git-tracked
-  declaration, and the digest of the lock the requirement names. They decide the
-  receipt's fingerprint.
-- **Environment** is what the executing process reported before the entry started.
-  Python checks run through `test_evidence_capture.py`, which writes an identity file:
-  implementation, version, marker environment, flags, encodings, the distribution list
-  and a digest of each allowlisted variable. The engine records no pass without it.
-- A **requirement** names the interpreter implementation and minors, the packages (the
-  subject's `uv.lock` with group selection and the project included or excluded, or exact
-  pins), whether the check is isolated, the tools it invokes, the variables it registers,
-  and optional flag values and a freshness limit. A receipt satisfies it only when its
-  recorded package set equals the expected set exactly, with no allowance for pip,
-  setuptools or wheel. The expected set evaluates the lock export's markers offline
-  against the receipt's recorded marker environment. A recorded tool version must equal
-  the version found on this machine. The engine removes unregistered behavior variables
-  (`PYTHONPATH`, `PYTHONHASHSEED` and the rest of the interpreter set) from the child.
-  `sys.flags`, warning options and `-X` options must hold interpreter defaults, and the
-  encodings must be UTF-8. A check that is not registered validates against its own
-  recorded declaration, and its default requirement is the subject's locked project
-  environment.
-- **Candidates** are version-2 receipts with the same declaration and fingerprint. A
-  candidate counts when its environment satisfies the requirement. A pass also needs its
-  output log to match its sha256, but a sealed failure blocks even when its log is
-  missing. The newest counted candidate decides: reuse a pass unless `freshness_seconds`
-  expired, require `--retry-reason` to run again after a failure, and execute when no
-  candidate counts.
-- A failure from an environment that does not satisfy the requirement, an interrupted
-  receipt and any version-1 receipt neither pass nor block. Version-1 receipts are
-  history. Naming one to `validate` refuses with
-  `environment-not-comparable (schema_version 1)`.
-- The engine classifies a finished run. Exit 0 with unchanged inputs passes. A non-zero
-  exit, including every exit 2, and a death from a signal the engine did not send fail.
-  A SIGINT or SIGTERM the engine receives (it stops the child's process group), a launch
-  error, and `parallel_suite.py` exit 3 (its interpreter refusal, before any test) record
-  interrupted. When the engine itself dies, no receipt exists and the next lookup
-  executes.
-- A matching execution in progress is awaited, never duplicated.
-- A receipt that fails its seal stops the lookup and names the file. The operator moves
-  that file into the store's `quarantine/` subdirectory, which lookup does not read.
-  Nothing edits or deletes a receipt.
+The dry run stages the tree, runs the staged gates and runs `flagged` and `health` on
+every minor. Each run writes a receipt, which `release.py verify` reuses while the staged
+inputs match. `--skip-fingerprints` skips only the check that `public/` matches its
+sources, because the release prep regenerates `public/` after the cycle's checks;
+`release.py prepare` still checks it. The command publishes nothing and takes no ledger.
+A change whose paths all fall outside the staged allowlist, such as the documentation
+tree alone, needs no staged run.
 
-## Completeness and eligibility
+The main run keeps its receipts across a docs-tree decision-only commit (`adrs`, `arch`,
+`observations`, `research`, `briefs`, `index.md`, `manifest.yml` and `objectives.md`),
+which leaves the main-run receipts reusable. A commit that touches the root instruction
+or guide documents still runs the main run. A rerun of the main run on an unchanged code
+state needs `--retry-reason`.
 
-Two verdicts, and neither implies the other. A receipt is **complete** when it is
-present, its seal verifies, and its output log is present with the recorded sha256,
-computed on the decompressed bytes of a compressed copy. It is **eligible** when lookup
-would reuse it for the current inputs and environment. A complete version-1 receipt is
-ineligible, and an incomplete pass never counts.
-`test-evidence.py report --evidence-id ID [--directory DIR]` prints both verdicts and
-reads a retained directory without writing to it. Its output starts with a `summary` block:
-check id, status, command, source revision, `complete`, `reuse_eligible` and
-`execution_reason`. `validate` prints the stored reason as `execution_reason`, the reason
-the check ran, with `reuse_eligible` beside it.
+The evidence engine's receipts, lookup rule and declaration format describe release
+evidence only: read `test-evidence.py --help`. A cycle's own checks use `cycle.py check`.
+Release evidence lives in the durable store `<git-common-dir>/crux/test-evidence`.
+Evidence is not published in the release artifact.
 
-In the Crux development repository, release evidence lives in the durable store
-`<git-common-dir>/crux/test-evidence`, for checkout and staged suites alike. With
-`CRUX_TEST_EVIDENCE_DURABLE_ONLY=1` the engine refuses any other store. To retain a
-receipt and its log, call `test_evidence.retention_copy`. It scans the uncompressed
-bytes with the secret scan, withholds a matching file and records the withholding in its
-place, then gzips a log above 1 MiB.
+## Historical cycles
 
-## Evidence commands
+Historical cycles recorded under the typed engine carry their own evidence contract:
+test-evidence receipts attached with `cycle.py evidence`, phase gates and full-suite
+requirements. Their records and receipts stay intact and are read-only through
+`cycle.py status`; nothing in this reference applies to them.
 
-A JSON check declaration names `check_id`, `command` as an argument array, `inputs` as repository-relative
-paths/globs, optional `environment` variable names, an optional `requirement`, and an
-optional positive `freshness_seconds`. Include dependency lockfiles and tool config
-in inputs. Never put secrets in commands or declarations. For example:
-
-```json
-{
-  "check_id": "parser",
-  "command": ["python3", "-m", "unittest", "tests.test_parser"],
-  "inputs": ["src", "tests", "pyproject.toml", "uv.lock"],
-  "exclude_inputs": [],
-  "environment": []
-}
-```
-
-`exclude_inputs` is an optional list of repository-relative paths/globs removed
-from the declared inputs. Never exclude a file the check reads merely to obtain reuse;
-tests of cycle records must include those records. Record each exclusion's rationale
-in coverage.
-
-An untracked git-ignored file is not an input unless a declaration names it literally.
-
-Fresh generic execution preserves requested argv, including interpreter spelling,
-workers, records and timings. The normalized declaration supplies canonical identity;
-`executed_command` records actual argv. An explicit override must normalize to that
-same identity. Interpreter/environment, secret scanning and capture checks still apply.
-A reused receipt retains its original command and log and creates no new output.
-It promises no newly requested records file and is never a fictional execution.
-
-Commit source before costly checks whose inputs include Git inventory or HEAD-tree
-bindings. Staging/committing during their execution invalidates that observation.
-Changed index bindings can invalidate a same-byte precommit receipt; a file-equivalence
-audit preserves useful historical observations but cannot upgrade engine eligibility.
-
-### Declare cycle checks from presets
-
-Declare a cycle check with a preset; never hand-write a declaration that copies the
-shared exclusions. `declare` prints a concrete declaration, which the other commands
-take unchanged:
-
-```bash
-uv run python3 "${CRUX_PLUGIN_ROOT}/scripts/test-evidence.py" declare --repo-root . --preset drift-gates --check-id CYC-ID-drift-gates --output check.json
-```
-
-The engine runs as `uv run python3` in the project's environment, not with `--no-project`
-or `-p`. A Python check runs on the engine's own interpreter, and its default requirement
-is the project's locked environment, so that interpreter must meet the engine's Python
-floor (`requires-python >=3.11`). Project mode creates or syncs the project's
-environment, and writes `uv.lock` in a project that has none, as any `uv run` does.
-The engine exits 2 when that environment lacks PyYAML and the docs directory holds a
-migration batch (`adrs/migrations/*.yaml`) or a declaration carries a `changelog-citations:` projection.
-
-For checks declared against the project lock, resolve the selected plugin root and
-invoke even an installed runner as
-`uv run python3 "${CRUX_PLUGIN_ROOT}/scripts/test-evidence.py" run --repo-root . --check CHECK`.
-Invoking the evidence runner directly as a script uses its isolated PEP 723
-environment; child tests can then lack project packages or produce an ineligible
-receipt despite exit 0. Match the declaration's environment and validate eligibility.
-This evidence-runner requirement does not change the normal `uv run SCRIPT` contract
-for other Crux scripts.
-
-| Preset | Command | Inputs and exclusions |
-|---|---|---|
-| `whole-tree` | the caller's `--command JSON` | every Git-tracked file plus Crux's broad input list, minus the shared exclusions |
-| `drift-gates` | `tools/run-drift-gates.py --cycle-scope` | as `whole-tree` |
-| `mods-gate`, `opencode-gate`, `omp-gate` | that gate's script with `--phase dev` | only what that script reads: its plugin directory, the shared core under `crux-mods/hooks/lib` where it imports it, the gate script and its library, the decision records it checks and the root project files that uv, node and bun read; no tracked-file inventory, so a change elsewhere reuses the receipt. Refuses when the script is absent |
-| `release-metadata` | `tools/release-preflight.py --metadata` | the broad inputs of `whole-tree`; no release exclusion, no projection |
-| `journal-index` | `generate-journal-index.py --dry-run` | the journal directory, `crux/scripts` and `.bionic.yml`; no exclusions |
-| `test-tiers` | the shipped `test-tiers.py check`, with an `--expect-root` argument for each manifest present when declared | as `whole-tree`, plus each expected root directory, so an untracked new test file changes them; refuses when the project holds no manifest |
-
-Every preset except `whole-tree` and `test-tiers` runs a script at a fixed path in the
-Crux development repository, under `tools/` or `crux/scripts/`. In any other project it
-refuses as not applicable; do not copy or recreate those scripts. A consuming project declares its own
-checks with `whole-tree` and its own test command, for example `--preset whole-tree
---check-id CYC-ID-tests --command '["python", "-m", "unittest"]'`. Every Git-tracked
-file is an input, so a change to a tracked file invalidates the receipt. That
-project's checks also cover its version and changelog changes.
-
-`--requirement JSON` replaces the preset's requirement. The declaration carries the
-expanded exclusions and no preset field, so a receipt matches on its contents.
-
-Use `whole-tree` only for a command that reads none of the shared bookkeeping paths.
-A check that reads one declares its own inputs and keeps that path, with the reason in
-coverage. Any exclusion beyond the shared list is documented in coverage the same way;
-the shared list itself is never repeated by hand.
-
-### Bookkeeping exclusions
-
-A path is bookkeeping for a check in one of two cases. The check does not read it. Or
-it is an append-only record whose new entries cannot change the check's verdict and
-whose existing entries its writers never change. A gate whose verdict depends on every
-entry of such a record does not run in a check that excludes the record.
-
-`suite_evidence.runtime_exclusions` produces the one shared list. It holds these
-docs-relative names: `cycles`, `journal`, `log.md`, `log` (the operations-log directory),
-`inbox`, `garden`, `whats_next.md` and `queue`. Every receipt excludes the whole `log`
-directory except the `drift-gates` preset. That preset runs the summary gate, which reads the
-settled detail files, `summary.md` and the split's completion, transaction and kept files, so
-it keeps them as inputs. It fingerprints the names of the staged files and excludes the current
-month's detail file by the recording host's local date. The list adds the repository files
-listed under `evidence.bookkeeping_paths` in `.bionic.yml`. Each entry is a repository-relative regular file outside the docs
-directory, with no glob, no `..` and no symlink; a missing file is allowed. Before an
-entry joins the setting or a name joins the list, record a live-read audit showing that
-every preset command and registered suite reads it not at all, or only under the
-append-only case. `.bionic.yml` is itself an input, so a setting change reruns each
-check once.
-
-A journal entry, log append, queue edit, cycle-record write or configured-file edit,
-committed or not, therefore leaves the registered suites and every excluding preset
-valid. Reflect needs no evidence refresh for them, and no review re-record. A recorded
-review's source fingerprint excludes the same paths, so these writes leave the review
-bound. A change to any other file in plan scope unbinds the review. A cycle whose
-deliverable is one of these files gets no review binding on that file.
-
-```bash
-uv run python3 "${CRUX_PLUGIN_ROOT}/scripts/test-evidence.py" lookup --repo-root . --check check.json
-uv run python3 "${CRUX_PLUGIN_ROOT}/scripts/test-evidence.py" run --repo-root . --check check.json
-uv run python3 "${CRUX_PLUGIN_ROOT}/scripts/test-evidence.py" validate --repo-root . --evidence-id TE-ID
-uv run python3 "${CRUX_PLUGIN_ROOT}/scripts/test-evidence.py" report --repo-root . --evidence-id TE-ID
-```
-
-`run` and `lookup` print the receipt without its input snapshot and environment, a
-few kilobytes, plus the stored receipt path. The stored receipt keeps every field;
-`validate` or `--full` prints it whole.
-
-The runner reuses a valid pass and coordinates matching execution. After a failure,
-use `--retry-reason TEXT` only when a new attempt is justified. Attach its evidence
-ID through `cycle.py evidence`; use the returned disposition rather than inventing
-an execution. Repository records live under `<git-common-dir>/crux/test-evidence/` in Git
-repositories, or `.crux-test-evidence/` outside Git. `CRUX_TEST_EVIDENCE_STORE`
-can select an external store. Evidence is not published as part of the release artifact. Preserve diagnostic output according to the repository policy.
-
-A busy check lock whose holder left no usable record is identified with `lsof`. macOS ships it
-at `/usr/sbin/lsof`; on Linux it must be installed. Without it, the exit names the lock path
-and says the holder cannot be identified.
-
-## Evidence in the cycle record
-
-Outside a listed release cycle, the cycle record refers to a full check log only by its
-digest.[^small] An `evidence` attachment stores the check id, the receipt id, the pass,
-the use and the declaration digest; the log stays in the evidence store. An identical
-repeated attachment writes nothing and returns `changed: false`. Only a listed release
-cycle's record step copies the ledger, receipts and logs into the cycle.
-
-The reflection of a cycle other than a listed release cycle reports the committed size of
-its evidence.[^size] `finish` reports it as `evidence_size: {bytes, files, measure}`. The
-measure is the sum of the blob sizes that `git ls-tree -r -l` reports at the completion
-HEAD over `<docs_dir>/cycles/<id>/`; `files` counts those blobs. Bytes the finish itself
-writes are not yet committed, so they are not counted.
-
-## Release-neutral evidence
-
-This section describes the Crux development repository.
-
-A release changes version numbers and release documents, not software behavior. The
-registered suites therefore read through a registry in `suite_evidence.py` that keeps
-a release-only change from invalidating their receipts.
-
-- **Projections.** A suite fingerprints only the release-varying span of these files, so
-  a version bump leaves its receipt valid. In the checkout: the `version` of the four
-  plugin manifests, `[project].version` in `pyproject.toml`, the `crux` entry of
-  `uv.lock`, `reviewed_plugin_version` in the catalog guide, and the version in the
-  `README.md` footer. In the stage: the manifests, the `.generated` version, and the
-  `README.md` fingerprint line and footer. The kind set is closed.
-- **Exclusions.** A release document that no suite reads is excluded: `public/` from the
-  checkout suites, the staged `CHANGELOG.md` from the staged suites.
-- **CHANGELOG.md is projected in the checkout suites.** The checkout suites fingerprint
-  `CHANGELOG.md` through the migration citation rows: each occurrence of a batch's handle
-  or rule slug, with its partition and its release version and date. A release-only
-  change (a prepended section, a rewritten Unreleased section, a new footnote) leaves
-  those rows alone, so all four registered suites reuse their receipts. An edit to the
-  rows re-executes the two checkout suites. So does a corruption that hides them,
-  including non-UTF-8 bytes or an oversize file. The projection applies while every
-  migration batch that binds `CHANGELOG.md` is published. When no batch binds it, the
-  token set is empty, a binding batch is unpublished, or the token reader fails,
-  `CHANGELOG.md` stays a whole-file input of the checkout suites. The kind is the one
-  selecting kind of the closed set, `changelog-citations:<tokens>`, and it is the only
-  kind on its path.
-- **Forge logs are projected in the checkout suites.** The checkout suites fingerprint
-  each local skill root's `forge-log.md` through its preamble, the text before the first
-  line that begins `## [`. A `used` entry the engine commits lands below the preamble,
-  so it leaves both checkout receipts reusable. An edit to the preamble, or non-UTF-8
-  bytes, re-executes them. The kind is `forge-log-preamble`.
-- **What reuses.** A release-only change keeps the other receipts. An authored edit to
-  `README.md`, `USER_GUIDE.md` or any other source during release prep is a real change,
-  and the release verify step executes the suites that read it again.
-
-The metadata check covers what the suites no longer see. Every full preflight executes
-it (`tools/release-preflight.py --metadata`). In that repository, record the `release-metadata`
-preset at Verify when a cycle changes `CHANGELOG.md`, `public/` or a version surface, and when in
-doubt, because it takes seconds. Only `README.md` carries a footer projection.
-
-Audit every new projection or release exclusion before it joins the registry, in three
-legs:
-
-1. **Static search.** Find every suite module that names the path.
-2. **Traced run.** Trace `open()` across the suite on a synthetic release-only commit.
-3. **Differential run.** Corrupt each excluded file, and give each projected surface a
-   distinct sentinel, then run the suite.
-
-A path joins only when all three legs show no value reader and no relational reader in a
-suite that drops it. Otherwise it stays an input.
-
-## Drift gates and when a cycle runs them
-
-This section describes the Crux development repository, whose drift roster runs through
-`tools/run-drift-gates.py`. Another project runs the `check-drift` skill when it needs a
-drift report, and declares its own checks with `whole-tree`.
-
-Release verification runs every drift gate over a shipped surface: the catalogs, the
-rules catalog, the routing table and the other regenerated blocks. It leaves out five
-docs-tree gates: `summarize-adrs.py`, `compile-doctrine.py`, `generate-reviews-index.py`,
-`derive-arch.py` and `check_observations.py`. Each takes about three minutes over the
-decision tree, and a release reads the same tree its cycle already checked.
-
-Each cycle's Verify phase runs one check-drift step, made of two preset checks. The
-`drift-gates` preset is a required check. It runs the runner with `--cycle-scope`,
-which runs every roster gate except `generate-journal-index.py` and reports that gate
-under `skipped` with the reason `write-time`. The `journal-index` preset runs that one
-gate; record its receipt on a Verify-phase task, not as a required check. Together the
-two cover the whole roster at Verify. Reuse applies to both, so an unchanged tree runs
-nothing again.
-
-The journal index is not a required check because its only writer regenerates it on
-every journal write, and release verification still runs its gate. The Reflect journal
-entry therefore changes no required evidence. A journal month edited outside
-`log-work` after Verify drifts the index until release verification or an on-demand
-`check-drift` reports it.
-
-The five docs-tree gates stay in the roster, in `check-drift` and in the `drift-gates`
-preset; only the release run skips them. The runner reports them under `skipped` with
-the reason `cycle-time` and refuses when one is no longer declared. Their corroboration
-reads past log and journal entries, which the append-only case covers. A hand edit of
-a past entry after the last `drift-gates` execution is seen only by the next execution
-that a real input change triggers.
-
-A cycle whose changes add or modify a migration replay receipt or a prospective publication
-record runs `uv run "${CRUX_PLUGIN_ROOT}/scripts/migration-receipt.py" verify --repo-root .
---since <cycle base commit>` at its Verify phase. The command replays the prior reader for each
-receipt added or changed since that commit, with every receipt ignored, because a read trusts a
-committed receipt without replaying it. Record the command, its exit code and the commit it
-ran against as evidence. Release verification runs the same check from the previous release's
-source revision, so a receipt is proven when written, in its cycle, and once more before the
-first release that contains it. A cycle that changed no receipt or publication record has
-nothing to run.
-
-## Simplify reduction evidence
-
-A simplify cycle also records `reduction` in Verify, per area, bound to the current source
-fingerprint (see the commands reference). The fingerprint ignores untracked git-ignored files. A
-test run on other source does not satisfy it.
-
+[^scope]: rule:checks-follow-scope-and-risk
+[^claims]: rule:check-claims-cite-recorded-observations
+[^reuse]: rule:observations-are-reused-only-within-their-cycle
+[^coordinator]: rule:one-coordinator-runs-selected-full-suites
+[^gates]: rule:final-checks-include-relevant-gates
+[^summary]: rule:closure-records-a-summary
+[^completion]: rule:completion-needs-work-checks-and-review
 [^one]: rule:every-test-has-exactly-one-tier
 [^label]: rule:new-tests-are-labelled-in-the-same-change
 [^ephemeral]: rule:ephemeral-labels-carry-a-reason, rule:ephemeral-labels-carry-an-end-condition, rule:ephemeral-tests-leave-only-by-explicit-change
-[^gates]: rule:tiers-never-narrow-a-cycle-gate
-[^complete]: rule:completion-requires-every-tier
+[^narrow]: rule:tiers-never-narrow-a-cycle-gate
 [^release]: rule:release-verify-covers-the-release-tier, rule:release-verify-runs-the-tier-check
 [^merge]: rule:merge-requires-every-test-on-the-head
-[^verify]: rule:tier-check-is-required-at-verify
 [^flagged]: rule:staged-per-minor-tests-are-release-tier
-[^small]: rule:cycle-record-keeps-evidence-small
-[^size]: rule:reflection-reports-evidence-size

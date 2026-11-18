@@ -16,7 +16,7 @@ from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import adr_migration as m
 import summaries_projection as sp
-from cycle_workflow import CycleError,encoded,digest
+from cycle_store import CycleError,encoded,digest
 
 REPO=Path(__file__).resolve().parents[3]
 EXCEPTION='bionic/adrs/migrations/exceptions/adr-0160-initial-owner-override.json'

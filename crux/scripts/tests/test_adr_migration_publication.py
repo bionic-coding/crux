@@ -14,7 +14,7 @@ from test_adr_migration import MigrationFixture
 import adr_migration as m
 import implementation_migration as historical
 import summaries_projection as sp
-from cycle_workflow import CycleError, digest, encoded
+from cycle_store import CycleError, digest, encoded
 
 
 _REAL_RUN=subprocess.run

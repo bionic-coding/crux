@@ -9,6 +9,11 @@ The entry point for the canonical-AGENTS.md discovery and migration contract.
 `audit-docs` reports through `--dry-run` in plain mode and applies through
 `--migrate`; the logic lives in `instruction_migration.py`, shared by both.
 
+`--operational-schema` runs the second migration this entry point owns: it brings
+the tree's own `<docs_dir>/AGENTS.md` to the routing a fresh init writes. Unmodified
+template sections are refreshed, or removed where their contract moved to a task
+reference; sections the owner edited stay verbatim and are reported.
+
 The repo root comes from `--repo-root`, defaulting to the working directory —
 never from this file's own path, which names the plugin and never the project.
 
@@ -62,12 +67,64 @@ def _payload(root: Path, d, plan) -> dict:
     }
 
 
+def _tree_dir(root: Path) -> str:
+    """The configured documentation tree, through the shared config resolver."""
+    spec = importlib.util.spec_from_file_location("_bionic_config", _HERE / "bionic_config.py")
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules.setdefault("_bionic_config", mod)
+    spec.loader.exec_module(mod)
+    return mod.resolve_tree_name(root)
+
+
+def operational_schema(root: Path, migrate: bool, today: str | None = None) -> int:
+    """Bring `<docs_dir>/AGENTS.md` to the routing a fresh init writes.
+
+    Exit 0: nothing to change (dry run) or written with no section left for the
+    owner. Exit 1: changes pending (dry run), or owner-edited sections reported.
+    Exit 2: no readable regular schema file, or the plugin template is missing.
+    """
+    import datetime
+
+    plugin_root = _HERE.parent
+    try:
+        tree = _tree_dir(root)
+        target = root / tree / "AGENTS.md"
+        if target.is_symlink() or not target.is_file():
+            print(f"{target}: not a regular file", file=sys.stderr)
+            return 2
+        old = target.read_bytes()
+        template = (plugin_root / "templates" / "AGENTS.md.tmpl").read_text(encoding="utf-8")
+        shipped = im.load_shipped_sections(plugin_root / "references" / im.SHIPPED_SECTIONS_NAME)
+        moved = im.reference_section_keys(plugin_root)
+        text, report = im.plan_schema_upgrade(
+            old.decode("utf-8"), template, repo_name=root.name,
+            today=today or datetime.date.today().isoformat(), shipped=shipped, moved=moved)
+    except (im.CapabilityError, OSError, UnicodeDecodeError, ValueError) as exc:
+        print(f"cannot plan the operational-schema upgrade: {exc}", file=sys.stderr)
+        return 2
+    payload = {"schema": f"{tree}/AGENTS.md", **report}
+    if migrate and report["changed"]:
+        try:
+            im.write_schema(target, old, text.encode("utf-8"))
+        except (im.CapabilityError, OSError) as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        payload["applied"] = True
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    if migrate:
+        return 1 if report["preserved"] else 0
+    return 1 if report["changed"] or report["preserved"] else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--repo-root", default=".")
     ap.add_argument("--working-dir", default=None,
                     help="the directory a host would load instructions from; "
                          "decides which suppressors bear on a verdict")
+    ap.add_argument("--operational-schema", action="store_true",
+                    help="upgrade <docs_dir>/AGENTS.md to the current template's routing "
+                         "instead of migrating repository instruction files")
     mode = ap.add_mutually_exclusive_group()
     mode.add_argument("--dry-run", action="store_true", help="report only")
     mode.add_argument("--migrate", action="store_true", help="apply the plan")
@@ -77,6 +134,8 @@ def main(argv: list[str] | None = None) -> int:
     if not root.is_dir():
         print(f"repo root is not a directory: {root}", file=sys.stderr)
         return 2
+    if args.operational_schema:
+        return operational_schema(root, args.migrate)
 
     try:
         d = im.discover(root, denylist=im.load_denylist(root),

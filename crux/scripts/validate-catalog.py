@@ -2030,7 +2030,6 @@ DECISION_HANDLE_RE = re.compile(r"^ADR-[0-9]{4}/[a-z0-9]+(-[a-z0-9]+)*\Z")
 PRE_RULE_OVERRIDE_EXEMPTIONS: frozenset[tuple] = frozenset({
     ("architect", "flagship", "opencode", "opus-latest"),
     ("dev-lead", "flagship", "opencode", "glm-latest"),
-    ("reviewer", "apex", "codex", ("gpt-6.1-sol", "xhigh")),
     ("commander", "apex", "opencode", "kimi-latest"),
     ("reviewer", "apex", "opencode", "kimi-latest"),
     ("developer", "standard", "opencode", "deepseek-flash"),

@@ -661,3 +661,406 @@ class QuestionsDoNotRouteToWritersTests(unittest.TestCase):
         command to produce the lineage view, and the producer keeps it."""
         by_id = {e["id"]: (e.get("triggers") or []) for e in self._skills()}
         self.assertIn("show ADR lineage", by_id["link-adr-graph"])
+
+
+# --------------------------------------------------------------------------- task references
+
+MIGRATE = REPO_ROOT / "crux" / "scripts" / "migrate-instructions.py"
+RB, RE = grt.REF_BEGIN, grt.REF_END
+
+
+def _load_instruction_migration():
+    spec = importlib.util.spec_from_file_location(
+        "instruction_migration_under_test", REPO_ROOT / "crux" / "scripts" / "instruction_migration.py")
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod  # dataclasses resolve their module through sys.modules
+    spec.loader.exec_module(mod)
+    return mod
+
+
+im = _load_instruction_migration()
+
+REFERENCE = ('---\ntitle: Manifest schema\nread_when: Changing the manifest\nsections:\n'
+             '  - "§7"\n---\n\n# Manifest schema\n\nIntro.\n\n## 7. Manifest\n\nmanifest rules\n')
+
+
+class ReferenceRoutingRegionTests(unittest.TestCase):
+    """The §2.A region: one row per task reference, from its frontmatter."""
+
+    def _tree(self, root: Path, *, refs: bool = True, markers: bool = True) -> Path:
+        seed_authoring_probe(root, SCRIPT)
+        (root / ".bionic.yml").write_text('config_version: "1"\ndocs_dir: bionic\n', encoding="utf-8")
+        (root / "crux" / "catalog").mkdir(parents=True)
+        (root / "crux" / "catalog" / "skills.json").write_text(
+            json.dumps(RunEndToEndTestCase.SKILLS), encoding="utf-8")
+        if refs:
+            (root / "crux" / "references").mkdir()
+            (root / "crux" / "references" / "manifest.md").write_text(REFERENCE, encoding="utf-8")
+            skill_refs = root / "crux" / "skills" / "audit-docs" / "references"
+            skill_refs.mkdir(parents=True)
+            # A skill reference without routing frontmatter stays out of the table.
+            (skill_refs / "pitfalls.md").write_text("# Pitfalls\n", encoding="utf-8")
+        (root / "bionic").mkdir()
+        schema = root / "bionic" / "AGENTS.md"
+        region = f"{RB}\nSTALE\n{RE}\n" if markers else ""
+        schema.write_text(f"HEAD\n{B}\nx\n{E}\nMIDDLE\n{region}TAIL\n", encoding="utf-8")
+        return schema
+
+    def test_each_routed_reference_gets_one_row_and_outside_bytes_survive(self):
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            schema = self._tree(root)
+            code, payload = grt.run(root, dry_run=False)
+            self.assertEqual(code, 0)
+            self.assertEqual(payload["references"], ["references/manifest.md"])
+            text = schema.read_text(encoding="utf-8")
+            i, j = grt.find_region(text, "schema", RB, RE)
+            self.assertEqual(text[i:j], grt.build_reference_region(grt.discover_references(root)))
+            self.assertIn("| `${CRUX_PLUGIN_ROOT}/references/manifest.md` | Changing the manifest | §7 |",
+                          text[i:j])
+            self.assertNotIn("pitfalls", text)
+            self.assertTrue(text.startswith("HEAD\n") and text.endswith("\nTAIL\n"))
+            self.assertIn("\nMIDDLE\n", text)
+            self.assertEqual(grt.run(root, dry_run=True)[0], 0)
+
+    def test_a_changed_read_when_drifts(self):
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            self._tree(root)
+            grt.run(root, dry_run=False)
+            ref = root / "crux" / "references" / "manifest.md"
+            ref.write_text(REFERENCE.replace("Changing the manifest", "Editing the manifest"),
+                           encoding="utf-8")
+            code, payload = grt.run(root, dry_run=True)
+            self.assertEqual((code, payload["paths"]), (1, ["bionic/AGENTS.md"]))
+
+    def test_references_without_the_region_refuse(self):
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            schema = self._tree(root, markers=False)
+            before = schema.read_bytes()
+            with self.assertRaises(grt.RegenError):
+                grt.run(root, dry_run=False)
+            self.assertEqual(schema.read_bytes(), before)
+
+    def test_the_region_without_references_refuses(self):
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            self._tree(root, refs=False)
+            with self.assertRaises(grt.RegenError):
+                grt.run(root, dry_run=True)
+
+    def test_malformed_routing_frontmatter_refuses(self):
+        cases = {
+            "missing sections": "---\ntitle: T\nread_when: W\n---\n",
+            "unquoted section": '---\ntitle: T\nread_when: W\nsections:\n  - §7\n---\n',
+            "unknown key": '---\ntitle: T\nread_when: W\nowner: x\nsections:\n  - "§7"\n---\n',
+            "unclosed": '---\ntitle: T\nread_when: W\n',
+        }
+        for name, text in cases.items():
+            with self.subTest(case=name), self.assertRaises(grt.RegenError):
+                grt.parse_reference_frontmatter(text, name)
+        self.assertIsNone(grt.parse_reference_frontmatter("# No frontmatter\n", "plain"))
+
+    def test_the_shipped_references_are_all_routed_in_the_template(self):
+        """Every routed reference that ships appears once in the shipped template."""
+        template = (REPO_ROOT / "crux/templates/AGENTS.md.tmpl").read_text(encoding="utf-8")
+        i, j = grt.find_region(template, "template", RB, RE)
+        references = grt.discover_references(REPO_ROOT)
+        self.assertGreaterEqual(len(references), 10)
+        self.assertEqual(template[i:j], grt.build_reference_region(references))
+        for rel, _ in references:
+            self.assertEqual(template[i:j].count(f"`${{CRUX_PLUGIN_ROOT}}/{rel}`"), 1, rel)
+
+    def test_the_schema_files_route_the_cycle_workflow_to_its_skill(self):
+        """Section 11.E names the cycle skill; no routed reference claims a §11.E section."""
+        from _dev_surface import IS_STAGED_ARTIFACT, require_dev_surface
+        schemas = {"template": REPO_ROOT / "crux/templates/AGENTS.md.tmpl"}
+        if not IS_STAGED_ARTIFACT:  # the development repository's own copy; absent from a staged plugin
+            require_dev_surface(self, REPO_ROOT / "bionic/AGENTS.md", "bionic/AGENTS.md")
+            schemas["bionic"] = REPO_ROOT / "bionic/AGENTS.md"
+        for label, path in schemas.items():
+            text = path.read_text(encoding="utf-8")
+            with self.subTest(schema=label):
+                i = text.index("## 11.E. Current cycle workflow")
+                section = text[i:text.index("\n## ", i + 1)]
+                self.assertIn("`cycle` skill", section)
+                self.assertNotIn("§11.E", _region(text, "reference-routing"))
+        for rel, _ in grt.discover_references(REPO_ROOT):
+            self.assertFalse(Path(rel).name.startswith("cycle-"), rel)
+
+
+OLD_TEMPLATE = """# docs/AGENTS.md
+
+Operational schema for **{{repo_name}}**.
+
+## 1. What this is
+
+A tree.
+
+## 5. Index
+
+```
+# docs/{{repo_name}}
+
+_Last updated: {{today}}_
+```
+
+## 7. Manifest
+
+manifest rules[^m]
+
+## 9. Rules
+
+slug rules
+
+## 10. Skills
+
+<!-- BEGIN GENERATED: routing-table -->
+| old | table |
+<!-- END GENERATED: routing-table -->
+
+[^m]: rule:manifest-is-authoritative
+"""
+
+NEW_TEMPLATE = """# docs/AGENTS.md
+
+Operational schema for **{{repo_name}}**, with its task references (§2.A).
+
+## 1. What this is
+
+A tree.
+
+## 2.A. Task references
+
+Read a reference when its task applies.
+
+<!-- BEGIN GENERATED: reference-routing -->
+| `${CRUX_PLUGIN_ROOT}/references/manifest.md` | Changing the manifest | §7 |
+<!-- END GENERATED: reference-routing -->
+
+## 5. Index
+
+```
+# docs/{{repo_name}}
+
+_Last updated: {{today}}_
+```
+
+## 9. Rules
+
+slug rules
+
+## 10. Skills
+
+<!-- BEGIN GENERATED: routing-table -->
+| new | table |
+<!-- END GENERATED: routing-table -->
+"""
+
+
+def _render(template: str, name: str = "demo", today: str = "2026-01-02") -> str:
+    return template.replace("{{repo_name}}", name).replace("{{today}}", today)
+
+
+def _region(text: str, name: str) -> str:
+    begin, end = f"<!-- BEGIN GENERATED: {name} -->", f"<!-- END GENERATED: {name} -->"
+    i, j = grt.find_region(text, name, begin, end)
+    return text[i:j]
+
+
+class OperationalSchemaUpgradeTests(unittest.TestCase):
+    """An installed tree's AGENTS.md reaches the routing a fresh init writes."""
+
+    MOVED = {"2:7": "${CRUX_PLUGIN_ROOT}/references/manifest.md"}
+
+    def _upgrade(self, old: str, template: str = NEW_TEMPLATE):
+        shipped = im.template_section_digests(OLD_TEMPLATE)
+        return im.plan_schema_upgrade(old, template, repo_name="demo", today="2026-11-17",
+                                      shipped=shipped, moved=self.MOVED)
+
+    def test_an_unmodified_tree_upgrades_to_the_fresh_init_bytes(self):
+        text, report = self._upgrade(_render(OLD_TEMPLATE))
+        self.assertEqual(text, _render(NEW_TEMPLATE))
+        self.assertEqual(report["removed"], [{"heading": "## 7. Manifest",
+                                              "reference": self.MOVED["2:7"]}])
+        self.assertEqual(report["inserted"], ["## 2.A. Task references"])
+        self.assertEqual(report["preserved"], [])
+
+    def test_fresh_and_upgraded_routing_regions_are_identical(self):
+        fresh = _render(NEW_TEMPLATE)
+        edited = _render(OLD_TEMPLATE).replace("slug rules\n", "slug rules\n\nOur own slug note.\n")
+        upgraded, _ = self._upgrade(edited)
+        for name in ("routing-table", "reference-routing"):
+            self.assertEqual(_region(upgraded, name), _region(fresh, name), name)
+
+    def test_owner_text_inside_and_outside_moved_sections_is_preserved_and_reported(self):
+        old = (_render(OLD_TEMPLATE)
+               .replace("Operational schema for **demo**.\n",
+                        "Operational schema for **demo**.\n\nRead LOCAL.md first.\n")
+               .replace("manifest rules[^m]\n", "manifest rules[^m]\n\nWe pin journal.friction_line_from.\n")
+               .replace("## 9. Rules", "## 8.Z. House rules\n\nNo force pushes.\n\n## 9. Rules"))
+        text, report = self._upgrade(old)
+        for owned in ("Read LOCAL.md first.", "We pin journal.friction_line_from.",
+                      "## 8.Z. House rules\n\nNo force pushes.\n"):
+            self.assertIn(owned, text)
+        self.assertEqual(text.count("## 7. Manifest"), 1)
+        self.assertLess(text.index("## 7. Manifest"), text.index("## 8.Z. House rules"))
+        self.assertIn("[^m]: rule:manifest-is-authoritative", text)
+        reported = {p["heading"]: p["reference"] for p in report["preserved"]}
+        self.assertEqual(reported["## 7. Manifest"], self.MOVED["2:7"])
+        self.assertIn("# docs/AGENTS.md", reported)
+        self.assertIn("## 2.A. Task references", report["inserted"])
+
+    MOVED_HEADING = "### ADR state machine"
+    MOVED_REFERENCE = "${CRUX_PLUGIN_ROOT}/references/adrs.md"
+
+    def _tree_still_holding_a_moved_section(self, edit: str = ""):
+        """The shipped template, plus a section that moved to its reference."""
+        template = (REPO_ROOT / "crux/templates/AGENTS.md.tmpl").read_text(encoding="utf-8")
+        reference = (REPO_ROOT / "crux/references/adrs.md").read_text(encoding="utf-8")
+        start = reference.index(self.MOVED_HEADING)
+        moved_section = reference[start:reference.index("\n## ", start)].rstrip("\n")
+        fresh = _render(template)
+        self.assertNotIn(self.MOVED_HEADING, fresh)
+        anchor = "\n## 12. "
+        old = fresh.replace(anchor, "\n" + moved_section + edit + "\n" + anchor, 1)
+        self.assertNotEqual(old, fresh)
+        shipped = im.load_shipped_sections(REPO_ROOT / "crux/references" / im.SHIPPED_SECTIONS_NAME)
+        moved = im.reference_section_keys(REPO_ROOT / "crux")
+        text, report = im.plan_schema_upgrade(old, template, repo_name="demo", today="2026-01-02",
+                                              shipped=shipped, moved=moved)
+        return fresh, text, report
+
+    def test_an_unmodified_moved_section_moves_out_and_names_its_reference(self):
+        fresh, text, report = self._tree_still_holding_a_moved_section()
+        self.assertEqual(text, fresh)
+        self.assertEqual(
+            [r for r in report["removed"] if r["heading"] == self.MOVED_HEADING],
+            [{"heading": self.MOVED_HEADING, "reference": self.MOVED_REFERENCE}])
+
+    def test_owner_text_added_to_a_moved_cycle_section_is_kept_and_reported(self):
+        _, text, report = self._tree_still_holding_a_moved_section(
+            edit="\n\nOur ADRs also need the owner's initials.")
+        self.assertIn("Our ADRs also need the owner's initials.", text)
+        self.assertEqual(
+            {p["heading"]: p["reference"] for p in report["preserved"]}[self.MOVED_HEADING],
+            self.MOVED_REFERENCE)
+
+    SHIPPED_CYCLE_TEMPLATE = "6703a04bf4689c5460f46de9b339c8a8c992a7ad"
+
+    def _tree_holding_the_shipped_cycle_workflow(self, anchor: str = "", edit: str = ""):
+        """The last frozen-table template, with owner text optionally added after `anchor`."""
+        from _dev_surface import IS_STAGED_ARTIFACT
+        if IS_STAGED_ARTIFACT:
+            self.skipTest("template history is absent from a staged artifact")
+        shown = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "show", f"{self.SHIPPED_CYCLE_TEMPLATE}:crux/templates/AGENTS.md.tmpl"],
+            capture_output=True, text=True, check=False)
+        if shown.returncode:
+            self.skipTest("template history is unavailable in this checkout")
+        old = _render(shown.stdout)
+        self.assertIn("### Opt-in lightweight cycle pilot", old)
+        if anchor:
+            self.assertEqual(old.count(anchor), 1)
+            old = old.replace(anchor, anchor + edit)
+        template = (REPO_ROOT / "crux/templates/AGENTS.md.tmpl").read_text(encoding="utf-8")
+        shipped = im.load_shipped_sections(REPO_ROOT / "crux/references" / im.SHIPPED_SECTIONS_NAME)
+        moved = im.reference_section_keys(REPO_ROOT / "crux")
+        text, report = im.plan_schema_upgrade(old, template, repo_name="demo", today="2026-01-02",
+                                              shipped=shipped, moved=moved)
+        return _render(template), text, report
+
+    def test_the_old_cycle_workflow_subsections_upgrade_to_the_fresh_init_bytes(self):
+        fresh, text, report = self._tree_holding_the_shipped_cycle_workflow()
+        self.assertEqual(text, fresh)
+        self.assertEqual(report["preserved"], [])
+        removed = {r["heading"] for r in report["removed"]}
+        self.assertLessEqual({"### Opt-in lightweight cycle pilot", "### Standard cycle workflow"}, removed)
+
+    def test_owner_text_added_to_an_old_cycle_workflow_subsection_is_kept(self):
+        _, text, _ = self._tree_holding_the_shipped_cycle_workflow(
+            anchor="or author generic new promptbooks.",
+            edit="\n\nOur lead also initials every cycle record.")
+        self.assertIn("Our lead also initials every cycle record.", text)
+        self.assertIn("## 11.E. Current cycle workflow", text)
+
+    def test_upgrading_twice_changes_nothing(self):
+        once, _ = self._upgrade(_render(OLD_TEMPLATE))
+        twice, report = self._upgrade(once)
+        self.assertEqual(twice, once)
+        self.assertFalse(report["changed"])
+
+    def test_crlf_trees_stay_crlf(self):
+        text, _ = self._upgrade(_render(OLD_TEMPLATE).replace("\n", "\r\n"))
+        self.assertEqual(text, _render(NEW_TEMPLATE).replace("\n", "\r\n"))
+
+    def test_a_repo_name_that_also_appears_in_prose_still_matches_its_shipped_text(self):
+        """Init substituted the name at its template sites only; the name 'tree'
+        also appears in the template's own prose and must not defeat recognition."""
+        old = _render(OLD_TEMPLATE, name="tree")
+        text, report = im.plan_schema_upgrade(
+            old, NEW_TEMPLATE, repo_name="tree", today="2026-11-17",
+            shipped=im.template_section_digests(OLD_TEMPLATE), moved=self.MOVED)
+        self.assertEqual(text, _render(NEW_TEMPLATE, name="tree"))
+        self.assertEqual(report["preserved"], [])
+
+    def test_the_shipped_template_upgrades_a_tree_already_at_its_bytes_to_itself(self):
+        template = (REPO_ROOT / "crux/templates/AGENTS.md.tmpl").read_text(encoding="utf-8")
+        shipped = im.load_shipped_sections(REPO_ROOT / "crux/references" / im.SHIPPED_SECTIONS_NAME)
+        fresh = _render(template)
+        text, report = im.plan_schema_upgrade(fresh, template, repo_name="demo", today="2026-11-17",
+                                              shipped=shipped)
+        self.assertEqual(text, fresh)
+        self.assertFalse(report["changed"])
+        self.assertGreater(len(shipped), 100)
+
+
+class OperationalSchemaCommandTests(unittest.TestCase):
+    """`migrate-instructions.py --operational-schema` on a real temporary tree."""
+
+    def _run(self, root: Path, *flags: str) -> subprocess.CompletedProcess:
+        return subprocess.run([sys.executable, str(MIGRATE), "--repo-root", str(root),
+                               "--operational-schema", *flags],
+                              capture_output=True, text=True, check=False)
+
+    def _tree(self, root: Path, text: str) -> Path:
+        (root / ".bionic.yml").write_text('config_version: "1"\ndocs_dir: bionic\n', encoding="utf-8")
+        (root / "bionic").mkdir()
+        (root / "bionic" / "manifest.yml").write_text('schema_version: "5"\n', encoding="utf-8")
+        schema = root / "bionic" / "AGENTS.md"
+        schema.write_text(text, encoding="utf-8")
+        return schema
+
+    def test_dry_run_reports_and_migrate_writes_the_fresh_routing(self):
+        template = (REPO_ROOT / "crux/templates/AGENTS.md.tmpl").read_text(encoding="utf-8")
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t) / "demo"
+            root.mkdir()
+            fresh = _render(template)
+            # An installed tree that predates the task references: no §2.A section.
+            start = fresh.index("## 2.A. Task references")
+            old = fresh[:start] + fresh[fresh.index("## 3. Directory layout"):]
+            schema = self._tree(root, old + "\n## 99. Local\n\nOur own rule.\n")
+            dry = self._run(root, "--dry-run")
+            self.assertEqual(dry.returncode, 1, dry.stderr)
+            self.assertEqual(json.loads(dry.stdout)["inserted"], ["## 2.A. Task references"])
+            self.assertEqual(schema.read_text(encoding="utf-8"), old + "\n## 99. Local\n\nOur own rule.\n")
+            done = self._run(root, "--migrate")
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            text = schema.read_text(encoding="utf-8")
+            self.assertEqual(_region(text, "reference-routing"), _region(fresh, "reference-routing"))
+            self.assertIn("## 99. Local\n\nOur own rule.\n", text)
+            again = self._run(root, "--dry-run")
+            self.assertEqual(again.returncode, 0, again.stdout)
+
+    def test_a_symlinked_schema_is_refused(self):
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            schema = self._tree(root, "# docs/AGENTS.md\n")
+            real = root / "real.md"
+            schema.rename(real)
+            schema.symlink_to(real)
+            result = self._run(root, "--migrate")
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(real.read_text(encoding="utf-8"), "# docs/AGENTS.md\n")

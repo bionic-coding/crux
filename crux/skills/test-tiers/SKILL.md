@@ -51,14 +51,15 @@ that names it.[^leave]
 
 ## Where each tier runs
 
-Tiers can select local checks in cycles with `testing_policy: proportionate`.
-Selection must cover changed and related behavior; a tier label alone proves no coverage.
+Tiers can select the focused checks of a cycle. Selection must cover changed and
+related behavior; a tier label alone proves no coverage.
 
-- **Cycle completion.** Selected checks must pass, with coverage and independent review.
-  Scope and risk determine whether full suites are needed. Historical cycles without
-  the policy retain their all-tier completion contract.[^complete]
-- **Verify.** For proportionate cycles, run the tier check when tests or manifests change.
-  Historical cycles retain their required Verify tier check.[^verify]
+- **Cycle completion.** A cycle completes when its agreed tasks are done, its selected
+  checks pass and an approving independent review covers the final change.[^complete]
+  Scope and risk determine whether a full suite is among the selected checks.
+- **Final checks.** The selected final checks include the tier check whenever the
+  change adds, removes or edits a test or a tier manifest, and the drift gates the
+  change touches.[^final]
 - **Release verification.** It establishes passing evidence for every release-tier
   test[^release] and runs the tier check.[^release-check] Matching evidence is reused;
   otherwise only the release tier executes.
@@ -189,12 +190,8 @@ error still runs and fails. In the Crux development repository,
 1. Commit a `test-tiers.json` in each test root, with at least one area and a label for
    every test file.
 2. Classify with the rubric below. Record each area's release tests.
-3. Run the check until it exits 0, then declare it as a cycle check:
-   `uv run python3 "${CRUX_PLUGIN_ROOT}/scripts/test-evidence.py" declare --repo-root .
-   --preset test-tiers --check-id CYC-ID-test-tiers --output check.json`. The preset
-   refuses when the project holds no manifest. It records the present roots as
-   `--expect-root` arguments. Its inputs are those of `whole-tree` plus each expected
-   root directory, so a new untracked test file changes them.
+3. Run the check until it exits 0. A cycle records that run as a selected check with
+   `cycle.py check`, naming the command, result, tested revision and reason.
 4. Add the check and every runnable test to pull-request CI. Point the release
    verification at the release tier through `list`.
 5. Have someone who classified nothing review every release and ephemeral label and a
@@ -279,8 +276,8 @@ The reviewer of a change applies the value rule to every test the change adds.
 [^end]: rule:ephemeral-labels-carry-an-end-condition
 [^leave]: rule:ephemeral-tests-leave-only-by-explicit-change
 [^gates]: rule:tiers-never-narrow-a-cycle-gate
-[^complete]: rule:completion-requires-every-tier
-[^verify]: rule:tier-check-is-required-at-verify
+[^complete]: rule:completion-needs-work-checks-and-review
+[^final]: rule:final-checks-include-relevant-gates
 [^release]: rule:release-verify-covers-the-release-tier
 [^release-check]: rule:release-verify-runs-the-tier-check
 [^merge]: rule:merge-requires-every-test-on-the-head

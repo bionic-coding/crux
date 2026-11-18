@@ -1139,7 +1139,9 @@ class SplitterTests(unittest.TestCase):
             for alt in ctp.split_top_level_alternatives(c.get("pattern") or ""):
                 re.compile(alt)
                 n += 1
-        self.assertGreater(n, 100, "splitter produced too few fragments to be measuring anything")
+        # 56 fragments once the clauses of the sections that moved to task
+        # references left the manifest; the floor still proves the loop ran.
+        self.assertGreater(n, 40, "splitter produced too few fragments to be measuring anything")
 
 
 

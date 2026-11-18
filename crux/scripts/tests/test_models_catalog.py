@@ -172,15 +172,15 @@ class ShippedCatalogTests(unittest.TestCase):
         touching this test — which is the whole reason the alias table exists.
         """
         expected = {
-            "architect":      ("claude-opus-5-5", "opus-latest",    "gpt-6.1-sol",   "high"),
-            "brainstormer":   ("claude-opus-5-5", "sol-latest",    "gpt-6.1-sol",   "high"),
-            "commander":      ("claude-opus-5-5", "kimi-latest", "gpt-6-astra",   "high"),
-            "dev-lead":       ("claude-opus-5-5", "glm-latest",    "gpt-6.1-sol",   "high"),
+            "architect":      ("claude-opus-5-5", "opus-latest",    "gpt-6.2-sol",   "high"),
+            "brainstormer":   ("claude-opus-5-5", "sol-latest",    "gpt-6.2-sol",   "high"),
+            "commander":      ("claude-opus-5-5", "kimi-latest", "gpt-6.2-astra",   "high"),
+            "dev-lead":       ("claude-opus-5-5", "glm-latest",    "gpt-6.2-sol",   "high"),
             "developer":      ("claude-sonnet-5-5", "deepseek-flash", "gpt-6.1-terra", "high"),
             "historian":      ("claude-sonnet-5-5", "glm-latest",    "gpt-6.1-terra", "high"),
             "librarian":      ("claude-sonnet-5-5", "glm-latest",    "gpt-6.1-terra", "high"),
-            "night-gardener": ("claude-opus-5-5", "opus-latest", "gpt-6-astra",   "high"),
-            "reviewer":       ("claude-opus-5-5", "kimi-latest", "gpt-6.1-sol",   "xhigh"),
+            "night-gardener": ("claude-opus-5-5", "opus-latest", "gpt-6.2-astra",   "high"),
+            "reviewer":       ("claude-opus-5-5", "kimi-latest", "gpt-6.2-astra",   "medium"),
             "wayfinder":      ("claude-sonnet-5-5", "glm-latest",    "gpt-6.1-terra", "high"),
         }
         catalog = MC.load()
@@ -204,7 +204,7 @@ class ShippedCatalogTests(unittest.TestCase):
         """
         catalog = MC.load()
         self.assertEqual(catalog.aliases["opus-latest"], "openrouter/anthropic/claude-opus-5.5")
-        self.assertEqual(catalog.aliases["sol-latest"], "openrouter/openai/gpt-6.1-sol")
+        self.assertEqual(catalog.aliases["sol-latest"], "openrouter/openai/gpt-6.2-sol")
         self.assertNotIn("argon-latest", catalog.aliases)
         self.assertEqual(catalog.aliases["glm-latest"], "openrouter/z-ai/glm-5.3")
         self.assertEqual(catalog.aliases["kimi-latest"], "openrouter/moonshotai/kimi-k3.1-pro")
@@ -227,8 +227,8 @@ class ShippedCatalogTests(unittest.TestCase):
         # Apex and flagship both pin Opus 5.5 on Claude by full ID.
         self.assertEqual(apex.claude, "claude-opus-5-5")
         self.assertEqual(flagship.claude, "claude-opus-5-5")
-        self.assertEqual(apex.codex.model, "gpt-6-astra")
-        self.assertEqual(flagship.codex.model, "gpt-6.1-sol")
+        self.assertEqual(apex.codex.model, "gpt-6.2-astra")
+        self.assertEqual(flagship.codex.model, "gpt-6.2-sol")
         # Standard selects Terra by owner instruction, 2026-10-26.
         standard = catalog.levels["standard"]
         self.assertEqual(standard.codex.model, "gpt-6.1-terra")
@@ -244,10 +244,10 @@ class ShippedCatalogTests(unittest.TestCase):
         overrides = {name for name, row in catalog.agents.items() if row.codex is not None}
         self.assertEqual(overrides, {"reviewer"})
         expected = MC.CodexRuntime(
-            model="gpt-6.1-sol",
-            reasoning_effort="xhigh",
-            verified="2026-09-29",
-            source="OpenAI GPT-6.1 Sol model documentation and Codex 0.159.0 models_cache.json checked 2026-09-29, which lists `gpt-6.1-sol`",
+            model="gpt-6.2-astra",
+            reasoning_effort="medium",
+            verified="2026-11-17",
+            source="OpenAI GPT-6.2 Astra model documentation and Codex 0.169.1 models_cache.json checked 2026-11-17, which lists `gpt-6.2-astra`",
         )
         self.assertEqual(catalog.agents["reviewer"].codex, expected)
         self.assertEqual(catalog.resolve("reviewer").codex, expected)
@@ -365,7 +365,7 @@ class ClaudeOverrideResolutionTests(unittest.TestCase):
         self.assertEqual(catalog.levels["apex"].claude, "claude-opus-5-5")
         self.assertEqual(catalog.resolve("reviewer").claude, "claude-opus-5-5")
         self.assertEqual(catalog.resolve("reviewer").opencode, catalog.aliases["kimi-latest"])
-        self.assertEqual(catalog.resolve("reviewer").codex.model, "gpt-6.1-sol")
+        self.assertEqual(catalog.resolve("reviewer").codex.model, "gpt-6.2-astra")
 
     def test_removing_an_override_returns_the_agent_to_its_level_cell(self):
         # The same agent, with and without the key: the discriminating pair.
@@ -472,11 +472,11 @@ class FailClosedTests(unittest.TestCase):
                 tmp,
                 lambda text: text.replace(
                     "    codex:\n"
-                    "      model: gpt-6.1-sol\n"
-                    "      reasoning_effort: xhigh\n"
-                    '      verified: "2026-09-29"\n'
-                    '      source: "OpenAI GPT-6.1 Sol model documentation and Codex 0.159.0 models_cache.json checked 2026-09-29, which lists `gpt-6.1-sol`"',
-                    "    codex: gpt-6.1-sol",
+                    "      model: gpt-6.2-astra\n"
+                    "      reasoning_effort: medium\n"
+                    '      verified: "2026-11-17"\n'
+                    '      source: "OpenAI GPT-6.2 Astra model documentation and Codex 0.169.1 models_cache.json checked 2026-11-17, which lists `gpt-6.2-astra`"',
+                    "    codex: gpt-6.2-astra",
                     1,
                 ),
             )
@@ -489,7 +489,7 @@ class FailClosedTests(unittest.TestCase):
             tmp = Path(td)
             path = _catalog_copy(
                 tmp,
-                lambda text: text.replace("      reasoning_effort: xhigh", "      reasoning_effort: 4", 1),
+                lambda text: text.replace("      reasoning_effort: medium", "      reasoning_effort: 4", 1),
             )
             with self.assertRaises(MC.SpecViolation) as ctx:
                 MC.load(catalog_path=path, agents_dir=_agents_fixture(tmp))
@@ -502,12 +502,12 @@ class FailClosedTests(unittest.TestCase):
         # A partial override is refused before any level resolution, never
         # merged with the apex cell; the error names the keys it holds.
         verified_and_source = (
-            '      verified: "2026-09-29"\n'
-            '      source: "OpenAI GPT-6.1 Sol model documentation and Codex 0.159.0 '
-            'models_cache.json checked 2026-09-29, which lists `gpt-6.1-sol`"\n'
+            '      verified: "2026-11-17"\n'
+            '      source: "OpenAI GPT-6.2 Astra model documentation and Codex 0.169.1 '
+            'models_cache.json checked 2026-11-17, which lists `gpt-6.2-astra`"\n'
         )
         partials = {
-            "missing reasoning_effort": ("      reasoning_effort: xhigh\n", ""),
+            "missing reasoning_effort": ("      reasoning_effort: medium\n", ""),
             "model and reasoning_effort only": (verified_and_source, ""),
         }
         for label, (anchor, replacement) in partials.items():
@@ -611,7 +611,7 @@ class RuleFindingTests(unittest.TestCase):
 
     def test_shape_rejects_a_partial_agent_codex_override(self):
         raw = MC.load_raw()
-        raw["agents"]["reviewer"]["codex"] = {"model": "gpt-6.1-sol"}
+        raw["agents"]["reviewer"]["codex"] = {"model": "gpt-6.2-astra"}
         findings = MC.check_shape(raw)
         self.assertTrue(any(
             "agents.'reviewer'.codex key set must be exactly" in finding
@@ -621,10 +621,10 @@ class RuleFindingTests(unittest.TestCase):
     def test_shape_rejects_an_agent_codex_override_with_an_extra_field(self):
         raw = MC.load_raw()
         raw["agents"]["reviewer"]["codex"] = {
-            "model": "gpt-6.1-sol",
-            "reasoning_effort": "xhigh",
-            "verified": "2026-09-29",
-            "source": "OpenAI GPT-6.1 Sol model documentation and Codex 0.159.0 models_cache.json checked 2026-09-29, which lists `gpt-6.1-sol`",
+            "model": "gpt-6.2-astra",
+            "reasoning_effort": "medium",
+            "verified": "2026-11-17",
+            "source": "OpenAI GPT-6.2 Astra model documentation and Codex 0.169.1 models_cache.json checked 2026-11-17, which lists `gpt-6.2-astra`",
             "unexpected": "value",
         }
         findings = MC.check_shape(raw)

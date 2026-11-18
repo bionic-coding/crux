@@ -19,7 +19,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import adr_migration as m  # noqa: E402
 import council_policy as policy  # noqa: E402
-from cycle_workflow import CycleError, encoded  # noqa: E402
+from cycle_store import CycleError, encoded  # noqa: E402
 
 RECORD = 'bionic/cycles/CYC-0001/councils/decisions/x/council-1.json'
 SUBJECT_SHA = 'a' * 64

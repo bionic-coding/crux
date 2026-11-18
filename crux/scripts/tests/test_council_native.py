@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from cycle_workflow import CycleError,digest
+from cycle_store import CycleError,digest
 
 
 class NativeTests(unittest.TestCase):
@@ -204,7 +204,7 @@ class NativeTests(unittest.TestCase):
         import summaries_projection
         from council_native import prepare,ingest
         from council_policy import disposition
-        from cycle_workflow import tree
+        from cycle_store import tree
         (self.docs/'manifest.yml').write_text('schema_version: "5"\nconcerns_enabled: [adrs]\nadr:\n  next_number: 1\n')
         subject=dp.propose(self.root,{'title':'Native evidence','body':'# Decision\nPreserve exact proof.\n',
             'governs':[{'domain':'evidence','scope':'tree','rule':'Keep proof.','handle':'keep-proof'}]},origin='direct')['path']

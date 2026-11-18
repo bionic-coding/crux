@@ -1,0 +1,363 @@
+{
+  "assignments": [
+    {
+      "agent": "a8a22a46078d165c5",
+      "attempt": 1,
+      "base": "bfae7bf44edab6ab7d8545ff289c82f6ccc3b038",
+      "delivery": {
+        "commits": [],
+        "evidence": [],
+        "note": "Architect stopped before creating anything; no plan, ADR, IDR or council. Criterion 0 needs a new ADR amending ADR-0166: an Accepted ADR body is frozen and its acceptance receipt binds its bytes, and both amendment routes need another Accepted ADR. Caller directive forbids creating a new ADR without the owner. Owner chooses A, create the small amending ADR, or B, defer or change criterion 0. Scope gap: implementation_approval.py:283-297 also gates retires on Accepted and lies outside recorded scope.",
+        "outcome": "blocked",
+        "path": "cycles/CYC-0130/results/plan-attempt-1.md",
+        "sha256": "edc142b304a8b324e1d4f5f590f97fed0cd126031f50096137627262c5cbccb9",
+        "stage": null,
+        "stop": "owner-decision"
+      },
+      "delivery_token": "00e212fd90fb4516b0594edc461bcae1",
+      "ended_at": "2026-11-09T20:39:24.003327+00:00",
+      "execution": {
+        "checkout": "/Users/dev/Developer/idyll/crux-internal",
+        "execution_head": "3dd7a4abcc7c03c2044d87e94ec7789d5ce1369c",
+        "proof": {
+          "path": "cycles/CYC-0130/execution/1cb36367ad633aee9f8281c4cfbb7b730b12a91179db05f44d85d42736c59649.json",
+          "sha256": "1cb36367ad633aee9f8281c4cfbb7b730b12a91179db05f44d85d42736c59649"
+        },
+        "review_base": "bfae7bf44edab6ab7d8545ff289c82f6ccc3b038"
+      },
+      "execution_history": [
+        {
+          "checkout": "/Users/dev/Developer/idyll/crux-internal",
+          "execution_head": "bfae7bf44edab6ab7d8545ff289c82f6ccc3b038",
+          "proof": {
+            "path": "cycles/CYC-0130/execution/526f4d4e65324fc0c410d843c063cecbf8c4a733a5d47a71a100c773eaceaff3.json",
+            "sha256": "526f4d4e65324fc0c410d843c063cecbf8c4a733a5d47a71a100c773eaceaff3"
+          },
+          "review_base": "bfae7bf44edab6ab7d8545ff289c82f6ccc3b038"
+        },
+        {
+          "checkout": "/Users/dev/Developer/idyll/crux-internal",
+          "execution_head": "7d102b2508eb2e26f8c7a0754f6e35dd3cd3b63e",
+          "proof": {
+            "path": "cycles/CYC-0130/execution/379181ec2a510203ab8806904bc673885d26d84453aed1d9c35f1cb29a25c87a.json",
+            "sha256": "379181ec2a510203ab8806904bc673885d26d84453aed1d9c35f1cb29a25c87a"
+          },
+          "review_base": "bfae7bf44edab6ab7d8545ff289c82f6ccc3b038"
+        },
+        {
+          "checkout": "/Users/dev/Developer/idyll/crux-internal",
+          "execution_head": "cab977a923afdb72452f5407cb4e84e34bfbc495",
+          "proof": {
+            "path": "cycles/CYC-0130/execution/e7d17951e3b87b7c5f16571584fd2e164c73fb08935c0883ee6fae0265aa6ab5.json",
+            "sha256": "e7d17951e3b87b7c5f16571584fd2e164c73fb08935c0883ee6fae0265aa6ab5"
+          },
+          "review_base": "bfae7bf44edab6ab7d8545ff289c82f6ccc3b038"
+        }
+      ],
+      "execution_started": {
+        "checkout": "/Users/dev/Developer/idyll/crux-internal",
+        "delivery_token": "00e212fd90fb4516b0594edc461bcae1"
+      },
+      "host": "claude-code",
+      "id": "plan",
+      "invocation_snapshot": {
+        "path": "cycles/CYC-0130/invocations/73cec9bf1b6d81500cbdab007073219f529cfa43d058ec3e431690b315e3ff1c.json",
+        "sha256": "2b1378f847cf6e3f3e04bf4e4f866d6ca0038b6f15a37a9a842ae1885020dfce"
+      },
+      "last_seen": "2026-11-09T20:39:24.003327+00:00",
+      "mode": "blocking",
+      "note": null,
+      "result_path": "/private/var/folders/h6/2wjf_53s46zgcpb717zxt_tw0000gn/T/crux-results-CYC-0130-td07nlaf/plan-attempt-1.md",
+      "role": "architect",
+      "started_at": "2026-11-09T20:37:22.514201+00:00",
+      "state": "finished",
+      "task": "plan"
+    }
+  ],
+  "blocker": {
+    "evidence": [],
+    "next_step": "resolve blocker",
+    "reason": "Owner decision: criterion 0 needs a new ADR amending ADR-0166 (Accepted ADR bodies are frozen and receipt-bound; both amendment routes need another Accepted ADR). The caller directive bars creating a new ADR without the owner. Option A: create the one-rule amending ADR (retirement persists through deprecation and supersession), council, then owner acceptance. Option B: defer or change criterion 0. Plan attempt 1 result: cycles/CYC-0130/results/plan-attempt-1.md"
+  },
+  "completion": null,
+  "coordinator": "dev-lead",
+  "coverage": null,
+  "created_at": "2026-11-09T20:36:38.228162+00:00",
+  "decisions": [],
+  "evidence": [],
+  "extensions": [],
+  "goal": "A rule retired through an Accepted ADR's retires list stays retired after that ADR is deprecated, as the owner answered in CYC-0125 (\"Retirement persists (Recommended)\"); the summaries reader today stamps retired_by only while the retiring ADR is Accepted (crux/scripts/summaries_projection.py:1553-1587), so deprecation would bring the retired rules back. No deprecated or superseded ADR carries retires today, so nothing is live-affected yet.\n\nReferences (read before planning; read-only, not scope):\n- bionic/cycles/CYC-0125/evidence/build/owner-answers.md",
+  "history": [
+    {
+      "action": "created",
+      "at": "2026-11-09T20:36:38.228188+00:00",
+      "pass": 1,
+      "phase": "plan",
+      "queue": {
+        "item": "Q-0092",
+        "token": "f05f23e0d9db4c07b40c6faa98934065"
+      },
+      "revision": 1,
+      "status": "active"
+    },
+    {
+      "action": "prepare-dispatch",
+      "assignment": "plan",
+      "at": "2026-11-09T20:37:24.991505+00:00",
+      "attempt": 1,
+      "base": "bfae7bf44edab6ab7d8545ff289c82f6ccc3b038",
+      "host": "claude-code",
+      "invocation_snapshot": {
+        "path": "cycles/CYC-0130/invocations/73cec9bf1b6d81500cbdab007073219f529cfa43d058ec3e431690b315e3ff1c.json",
+        "sha256": "2b1378f847cf6e3f3e04bf4e4f866d6ca0038b6f15a37a9a842ae1885020dfce"
+      },
+      "mode": "blocking",
+      "op_id": "c130-plan-1",
+      "pass": 1,
+      "phase": "plan",
+      "revision": 2,
+      "role": "architect",
+      "status": "active",
+      "task": "plan"
+    },
+    {
+      "action": "attach-execution",
+      "assignment": "plan",
+      "at": "2026-11-09T20:37:45.610250+00:00",
+      "attempt": 1,
+      "handle": "a8a22a46078d165c5",
+      "op_id": "c130-plan-1-attach",
+      "pass": 1,
+      "phase": "plan",
+      "revision": 3,
+      "status": "active",
+      "task": "plan"
+    },
+    {
+      "action": "execution-check",
+      "assignment": "plan",
+      "at": "2026-11-09T20:37:51.767226+00:00",
+      "attempt": 1,
+      "execution_head": "cab977a923afdb72452f5407cb4e84e34bfbc495",
+      "op_id": "plan-a1-clean-start",
+      "pass": 1,
+      "phase": "plan",
+      "proof": {
+        "path": "cycles/CYC-0130/execution/e7d17951e3b87b7c5f16571584fd2e164c73fb08935c0883ee6fae0265aa6ab5.json",
+        "sha256": "e7d17951e3b87b7c5f16571584fd2e164c73fb08935c0883ee6fae0265aa6ab5"
+      },
+      "review_base": "bfae7bf44edab6ab7d8545ff289c82f6ccc3b038",
+      "revision": 4,
+      "status": "active",
+      "task": "plan"
+    },
+    {
+      "action": "deliver",
+      "assignment": "plan",
+      "at": "2026-11-09T20:39:24.003567+00:00",
+      "attempt": 1,
+      "op_id": "c130-plan-1-deliver",
+      "outcome": "blocked",
+      "pass": 1,
+      "phase": "plan",
+      "revision": 5,
+      "sha256": "edc142b304a8b324e1d4f5f590f97fed0cd126031f50096137627262c5cbccb9",
+      "status": "active",
+      "task": "plan"
+    },
+    {
+      "action": "pause",
+      "at": "2026-11-09T20:39:31.873872+00:00",
+      "pass": 1,
+      "phase": "plan",
+      "reason": "Owner decision: criterion 0 needs a new ADR amending ADR-0166 (Accepted ADR bodies are frozen and receipt-bound; both amendment routes need another Accepted ADR). The caller directive bars creating a new ADR without the owner. Option A: create the one-rule amending ADR (retirement persists through deprecation and supersession), council, then owner acceptance. Option B: defer or change criterion 0. Plan attempt 1 result: cycles/CYC-0130/results/plan-attempt-1.md",
+      "revision": 6,
+      "status": "paused"
+    },
+    {
+      "action": "reflect",
+      "at": "2026-11-09T23:19:03.972652+00:00",
+      "pass": 1,
+      "phase": "plan",
+      "revision": 7,
+      "status": "paused"
+    },
+    {
+      "action": "abandon",
+      "at": "2026-11-09T23:19:04.114804+00:00",
+      "pass": 1,
+      "phase": "plan",
+      "revision": 8,
+      "status": "abandoned"
+    }
+  ],
+  "id": "CYC-0130",
+  "implementers": [
+    "dev-lead"
+  ],
+  "operations": [
+    {
+      "at": "2026-11-09T20:37:24.991544+00:00",
+      "op": "prepare-dispatch",
+      "op_id": "c130-plan-1",
+      "request_sha256": "11bd0c977990b0c98abca1e16b6b7d98b443e50b6220a75f750127534b08bbc5",
+      "result": {
+        "assignment": "plan",
+        "attempt": 1,
+        "base": "bfae7bf44edab6ab7d8545ff289c82f6ccc3b038",
+        "delivery_token": "00e212fd90fb4516b0594edc461bcae1",
+        "execution": {
+          "checkout": "/Users/dev/Developer/idyll/crux-internal",
+          "execution_head": "bfae7bf44edab6ab7d8545ff289c82f6ccc3b038",
+          "proof": {
+            "path": "cycles/CYC-0130/execution/526f4d4e65324fc0c410d843c063cecbf8c4a733a5d47a71a100c773eaceaff3.json",
+            "sha256": "526f4d4e65324fc0c410d843c063cecbf8c4a733a5d47a71a100c773eaceaff3"
+          },
+          "review_base": "bfae7bf44edab6ab7d8545ff289c82f6ccc3b038"
+        },
+        "invocation_snapshot": {
+          "path": "cycles/CYC-0130/invocations/73cec9bf1b6d81500cbdab007073219f529cfa43d058ec3e431690b315e3ff1c.json",
+          "sha256": "2b1378f847cf6e3f3e04bf4e4f866d6ca0038b6f15a37a9a842ae1885020dfce"
+        },
+        "result_path": "/private/var/folders/h6/2wjf_53s46zgcpb717zxt_tw0000gn/T/crux-results-CYC-0130-td07nlaf/plan-attempt-1.md",
+        "revision": 2,
+        "task": "plan"
+      },
+      "revision": 2
+    },
+    {
+      "at": "2026-11-09T20:37:45.610290+00:00",
+      "op": "attach-execution",
+      "op_id": "c130-plan-1-attach",
+      "request_sha256": "0db81c57230034896616e8ebc98e625a691e452c2a76500af5a456b30edf2a52",
+      "result": {
+        "assignment": "plan",
+        "attempt": 1,
+        "execution": {
+          "checkout": "/Users/dev/Developer/idyll/crux-internal",
+          "execution_head": "7d102b2508eb2e26f8c7a0754f6e35dd3cd3b63e",
+          "proof": {
+            "path": "cycles/CYC-0130/execution/379181ec2a510203ab8806904bc673885d26d84453aed1d9c35f1cb29a25c87a.json",
+            "sha256": "379181ec2a510203ab8806904bc673885d26d84453aed1d9c35f1cb29a25c87a"
+          },
+          "review_base": "bfae7bf44edab6ab7d8545ff289c82f6ccc3b038"
+        },
+        "handle": "a8a22a46078d165c5",
+        "revision": 3,
+        "task": "plan"
+      },
+      "revision": 3
+    },
+    {
+      "at": "2026-11-09T20:37:51.767456+00:00",
+      "op": "execution-check",
+      "op_id": "plan-a1-clean-start",
+      "request_sha256": "de1af13e88c0edbea19b11cdd8c47096b96cb624a782e844fd683b0d11f3af19",
+      "result": {
+        "assignment": "plan",
+        "attempt": 1,
+        "execution": {
+          "checkout": "/Users/dev/Developer/idyll/crux-internal",
+          "execution_head": "cab977a923afdb72452f5407cb4e84e34bfbc495",
+          "proof": {
+            "path": "cycles/CYC-0130/execution/e7d17951e3b87b7c5f16571584fd2e164c73fb08935c0883ee6fae0265aa6ab5.json",
+            "sha256": "e7d17951e3b87b7c5f16571584fd2e164c73fb08935c0883ee6fae0265aa6ab5"
+          },
+          "review_base": "bfae7bf44edab6ab7d8545ff289c82f6ccc3b038"
+        },
+        "execution_observation": {
+          "current_head": "cab977a923afdb72452f5407cb4e84e34bfbc495",
+          "retained_proof_reused": false
+        },
+        "revision": 4,
+        "task": "plan"
+      },
+      "revision": 4
+    },
+    {
+      "at": "2026-11-09T20:39:24.003597+00:00",
+      "op": "deliver",
+      "op_id": "c130-plan-1-deliver",
+      "request_sha256": "9da64748a201b3984b846d112a60120e2218feee24c86d2f1636b22362daaa0a",
+      "result": {
+        "assignment": "plan",
+        "attempt": 1,
+        "execution": {
+          "checkout": "/Users/dev/Developer/idyll/crux-internal",
+          "execution_head": "3dd7a4abcc7c03c2044d87e94ec7789d5ce1369c",
+          "proof": {
+            "path": "cycles/CYC-0130/execution/1cb36367ad633aee9f8281c4cfbb7b730b12a91179db05f44d85d42736c59649.json",
+            "sha256": "1cb36367ad633aee9f8281c4cfbb7b730b12a91179db05f44d85d42736c59649"
+          },
+          "review_base": "bfae7bf44edab6ab7d8545ff289c82f6ccc3b038"
+        },
+        "outcome": "blocked",
+        "result_path": "/private/var/folders/h6/2wjf_53s46zgcpb717zxt_tw0000gn/T/crux-results-CYC-0130-td07nlaf/plan-attempt-1.md",
+        "retained": "cycles/CYC-0130/results/plan-attempt-1.md",
+        "revision": 5,
+        "sha256": "edc142b304a8b324e1d4f5f590f97fed0cd126031f50096137627262c5cbccb9",
+        "status": "blocked",
+        "task": "plan"
+      },
+      "revision": 5
+    }
+  ],
+  "pass": 1,
+  "pass_limit": 2,
+  "phase": "plan",
+  "phase_names": "verify",
+  "plan": {
+    "acceptance": [
+      "The architect records the rule (a new ADR or an amendment, council plus owner acceptance) that a retirement recorded by an Accepted ADR persists when that ADR is later deprecated, and states whether supersession behaves the same.",
+      "summaries_projection keeps retired_by for a handle retired by a since-deprecated ADR, with a test that deprecates a retiring ADR fixture and a positive control.",
+      "summaries, doctrine and rules.json regenerate clean; full suites pass."
+    ],
+    "constraints": [],
+    "revision": 1,
+    "scope": [
+      "crux/scripts/summaries_projection.py",
+      "crux/scripts/tests",
+      "bionic/adrs",
+      "bionic/AGENTS.md"
+    ],
+    "tasks": [
+      {
+        "assignee": "plan",
+        "depends_on": [],
+        "description": "Write the plan, and the IDR where the work needs one, and record them in this cycle",
+        "expected_evidence": [
+          "the recorded plan, and the IDR when one is required"
+        ],
+        "id": "plan",
+        "phase": "plan",
+        "result_path": "/private/var/folders/h6/2wjf_53s46zgcpb717zxt_tw0000gn/T/crux-results-CYC-0130-td07nlaf/plan-attempt-1.md",
+        "status": "blocked"
+      }
+    ],
+    "verification": []
+  },
+  "reflection": {
+    "lessons": [
+      "A paused started item blocks start-next for every other authorized item, including a release."
+    ],
+    "outcome": "Abandoned after Plan at the owner's instruction to put the work back in the queue behind the 5.4.0 beta release. Plan attempt 1 (results/plan-attempt-1.md) found the rule needs a new ADR amending ADR-0166 and that implementation_approval.py:283-297 also reads retirements, outside the item scope.",
+    "remaining": [
+      "Requeued as a new item carrying this cycle's plan result as a reference."
+    ]
+  },
+  "release": null,
+  "required_checks": [],
+  "results_dir": "/private/var/folders/h6/2wjf_53s46zgcpb717zxt_tw0000gn/T/crux-results-CYC-0130-td07nlaf",
+  "review_policy": {
+    "rationale": "repository default",
+    "risks": [],
+    "scrutiny": "standard"
+  },
+  "reviews": [],
+  "revision": 8,
+  "schema_version": 3,
+  "status": "abandoned",
+  "title": "Retirement persists when the retiring ADR is deprecated (owner answer, CYC-0125 carried (a))",
+  "type": "iterate",
+  "updated_at": "2026-11-09T23:19:04.115084+00:00"
+}

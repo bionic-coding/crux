@@ -106,7 +106,7 @@ export type CycleView = {
   // The record's version, and its revision (null on versions 1 and 2). assignments holds the open
   // attempts only. classification_count is how many route classifications the record holds, uncapped;
   // their details stay in the record and in inspect. exception is the owner exception text, when the record has one.
-  schema_version: 1 | 2 | 3 | 'crux.cycle.vNext'; revision: number | null
+  schema_version: 1 | 2 | 3 | 'crux.cycle.vNext' | 'crux.cycle.v1'; revision: number | null
   assignments: AssignmentView[]; classification_count: number; exception: string | null
   title: string; type: string; status: string; phase: string; pass: number; pass_limit: number
   phases: string[]; tasks: {id: string; phase: string; description: string; status: string}[]
@@ -413,6 +413,29 @@ function cycleObject(value: unknown, keys: string[]): Obj {
 }
 // The number in a cycle id, whatever artifact prefix precedes CYC. Ids are validated before this runs.
 const cycleNumber = (id: string): number => +id.slice(id.lastIndexOf('CYC-') + 4)
+// An open cycle is active, paused or reviewed: a reviewed cycle awaits its finish. Every surface that
+// splits open from closed cycles (the text answer, the shared pane, the crux-omp pane) uses this one test.
+export const isOpenCycle = (c: CycleView): boolean => c.status === 'active' || c.status === 'paused' || c.status === 'reviewed'
+
+// The row the reader emits for a record it cannot read (cycle_progress.unreadable_pilot): a current-format
+// row with no revision, the fixed title and a blocker of the fixed form below. A readable current record
+// always has a revision, so the three together never match one.
+const UNREADABLE_TITLE = 'Unreadable cycle record'
+const UNREADABLE_HEAD = 'This record cannot be read: '
+const UNREADABLE_TAIL = '. The other cycles are shown.'
+export const isUnreadableCycle = (c: CycleView): boolean =>
+  c.type === 'pilot' && c.revision === null && c.title === UNREADABLE_TITLE &&
+  c.blocker !== null && c.blocker.startsWith(UNREADABLE_HEAD) && c.blocker.endsWith(UNREADABLE_TAIL)
+// The reasons the text answer repeats. The reason is the reader's exception text, which can quote record
+// bytes, and the answer never carries free text from a record. These shapes carry none: the reader's own
+// fixed messages (lower-case words), a missing key the reader asked for, and a JSON decoder position.
+// Any other reason reads `not-shown`; the pane draws the full reason.
+const SAFE_REASONS = [/^[a-z][a-z ]{0,79}$/, /^'[a-z_]{1,40}'$/, /^[A-Z][A-Za-z ,'\\]{0,60}: line [0-9]{1,9} column [0-9]{1,9} \(char [0-9]{1,12}\)$/]
+export function unreadableReason(c: CycleView): string {
+  const reason = c.blocker === null ? '' : c.blocker.slice(UNREADABLE_HEAD.length, c.blocker.length - UNREADABLE_TAIL.length)
+  return SAFE_REASONS.some(r => r.test(reason)) ? reason : 'not-shown'
+}
+
 // Active cycles first, then every other cycle; each group by cycle number, highest first. Never by
 // time or by the order the reader listed them. Shared by every surface that draws the list.
 export function orderCycles(cycles: CycleView[]): CycleView[] {
@@ -481,7 +504,7 @@ function parseCycles(doc: unknown): Parsed {
     if (kind==='pilot' && (c.status==='completed') !== (c.phase==='completed')) return bad()
     return {
       id:str(c.id,/^(?:[A-Z][A-Z0-9]{1,9}-)?CYC-[0-9]{4,}$/),
-      schema_version:kind==='pilot'?(c.schema_version==='crux.cycle.vNext'?c.schema_version:bad()):c.schema_version===1||c.schema_version===2||c.schema_version===3?c.schema_version:bad(),revision:orNull(c.revision,v=>int(v,4102444800)),
+      schema_version:kind==='pilot'?(c.schema_version==='crux.cycle.vNext'||c.schema_version==='crux.cycle.v1'?c.schema_version:bad()):c.schema_version===1||c.schema_version===2||c.schema_version===3?c.schema_version:bad(),revision:orNull(c.revision,v=>int(v,4102444800)),
       assignments:arr(c.assignments,CYCLE_MAX_ASSIGNMENTS).map(assignment),classification_count:int(c.classification_count),
       exception:orNull(c.exception,v=>{const s=free(v);return countPoints(s)>CYCLE_MAX_EXCEPTION?bad():s}),
       title:free(c.title),type:kind,
@@ -590,7 +613,7 @@ function queueLines(q: QueueView): string[] {
 }
 
 // Prompt numbers and states, verdict tokens, gate results, counts, times, checked record
-// paths and closed status codes. Never a title, a tag, a summary line, or a fact that rests on
+// paths, closed status codes and an unreadable record's reason in a closed shape. Never a title, a tag, a summary line, or a fact that rests on
 // this session (the agent list, the stall) rather than on the reader.
 export function answer(p: Parsed): string {
   const lines: string[] = []
@@ -600,13 +623,21 @@ export function answer(p: Parsed): string {
     const v = p.view
     if (v.cycles !== undefined) {
       lines.push(`dashboard status ok cycles ${v.cycles.length}`)
-      const isOpen = (c: CycleView) => c.status === 'active' || c.status === 'paused'
+      const isOpen = isOpenCycle
       const open = v.cycles.filter(isOpen)
       const closed = v.cycles.filter(c => !isOpen(c))
-      // A listed release has one phase and no loop limit, so it names no pass or limit.
+      // A current record (the reader's type `pilot`) names its status and state and no type, pass or limit.
+      // A historical record keeps its type, phase and pass; a listed release has one phase and no loop limit.
       const cyclePass = (c: CycleView) => c.type === 'pilot' || (c.type === 'release' && c.phases.join(',') === LISTED_RELEASE.join(',')) ? '' : ` pass ${c.pass} limit ${c.pass_limit}`
+      const cycleKind = (c: CycleView) => c.type === 'pilot' ? '' : ` type ${c.type}`
       const cycleBlock = (c: CycleView) => {
-        lines.push(`cycle ${c.id} type ${c.type} status ${c.status} phase ${c.phase}${cyclePass(c)}`)
+        // An unreadable record names itself and its reason, and claims nothing else: its status,
+        // state, tasks and time are the reader's placeholders, not facts about the cycle.
+        if (isUnreadableCycle(c)) {
+          lines.push(`cycle ${c.id} unreadable reason ${unreadableReason(c)}`)
+          return
+        }
+        lines.push(c.type === 'pilot' ? `cycle ${c.id} status ${c.status} state ${c.phase}` : `cycle ${c.id} type ${c.type} status ${c.status} phase ${c.phase}${cyclePass(c)}`)
         lines.push(`tasks done ${c.tasks.filter(t=>t.status==='done').length} total ${c.tasks.length} returns ${c.returns.length} approval-waits ${c.waits.length}`)
         const time = cycleTimeText(c, v.now_s)
         if (time !== null) lines.push(`time ${time}`)
@@ -633,7 +664,7 @@ export function answer(p: Parsed): string {
       if (latest !== undefined) cycleBlock(latest)
       if (rest.length > 0) {
         lines.push('cycles:')
-        for (const c of rest.slice(0, MAX_ANSWER_CYCLES)) lines.push(`${c.id} type ${c.type} status ${c.status}${cyclePass(c)}`)
+        for (const c of rest.slice(0, MAX_ANSWER_CYCLES)) lines.push(`${c.id}${cycleKind(c)} status ${c.status}${cyclePass(c)}`)
         if (rest.length > MAX_ANSWER_CYCLES) lines.push(`+${rest.length - MAX_ANSWER_CYCLES} more`)
       }
       // Keep every admitted queue ID even when cycle details reach their limit.

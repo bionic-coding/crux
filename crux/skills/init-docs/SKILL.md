@@ -180,6 +180,10 @@ Add a `.gitkeep` file to each leaf directory that will otherwise be empty: `inbo
 - Read `${CRUX_PLUGIN_ROOT}/templates/AGENTS.md.tmpl`.
 - Substitute: `{{repo_name}}` → `${REPO_NAME}`, `{{today}}` → `${TODAY}`.
 - Write the result to `${REPO_ROOT}/${DOCS_DIR}/AGENTS.md`.
+- **Copy no task reference.** The template's §2.A table routes each specialist
+  contract to a task reference under `${CRUX_PLUGIN_ROOT}`; the tree reads them
+  from the installed plugin. An existing tree reaches the same routing through
+  `migrate-instructions.py --operational-schema` (`audit-docs --migrate`).
 - **Write no `CLAUDE.md` sibling.** A fresh tree carries one managed instruction
   filename; a second one would suppress it on a host reading the canonical name.
 - **Implementation Decisions need no init step.** Run-local Implementation

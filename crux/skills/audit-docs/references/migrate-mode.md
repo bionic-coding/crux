@@ -143,3 +143,35 @@ state, each inlined import line, each index blob and change, and each refusal.
 - About to move a losing `AGENTS.md` by hand with `mv` or `git mv` over another file.
   **NEVER.** Run the script; it never replaces an entry.
 - About to log one entry per migrated file. **One `schema` op per migration.**
+
+## The operational-schema upgrade (independent of tree schema)
+
+A tree copies its `<docs_dir>/AGENTS.md` from the plugin template once, at init.
+The template later moved its specialist contracts into task references that ship
+with the plugin, and it routes to them from a generated §2.A table. This upgrade
+brings an installed tree's copy to the routing a fresh init writes. It has no
+`schema_version` and changes no other file.
+
+```bash
+uv run "${CRUX_PLUGIN_ROOT}/scripts/migrate-instructions.py" --repo-root . --operational-schema --dry-run   # report only
+uv run "${CRUX_PLUGIN_ROOT}/scripts/migrate-instructions.py" --repo-root . --operational-schema --migrate   # perform
+```
+
+- A section whose text equals a shipped template version is unmodified. It is
+  replaced by the current template's section, or removed when its contract moved
+  to a task reference. The report lists it under `refreshed` or `removed`, with the
+  reference.
+- A section the owner edited, or added, stays verbatim and in place. The report
+  lists an edited template section under `preserved`, with the reference that now
+  holds a moved contract. Reconcile it with that reference, then delete it by hand.
+- A section the current template adds is inserted after the nearest preceding
+  section the tree keeps. Generated regions take the template's bytes.
+- A symlinked or non-regular schema file is refused, and a file that changed during
+  the run is not written.
+
+Exit codes: `0` nothing to do, or written with nothing preserved; `1` changes pending
+on a dry run, or edited sections reported; `2` an unreadable schema or plugin input.
+Show the dry-run report to the user before `--migrate`. Recognition covers every
+template version through the commit that `references/shipped-sections.json` records
+and the current template; a section copied from a version between them reads as
+edited and stays.

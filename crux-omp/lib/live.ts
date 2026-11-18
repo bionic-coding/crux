@@ -2,9 +2,9 @@
 // Builds a real-time parent -> child subagent tree across sessions, detects active tool calls and
 // task batches, and flags potentially blocked or long-running agents without mutating host state.
 import type { Block, Line, Span } from '../../crux-mods/hooks/lib/draw.ts'
-import { BAR_OFF, BAR_ON, LOOP_GLYPH, STATE_GLYPHS, TRACK_SEP, drawn, fitLine, joined, lineCells, olderLines, olderRow, queueBlock, recordLines, revisionLine } from '../../crux-mods/hooks/lib/draw.ts'
+import { BAR_OFF, BAR_ON, LOOP_GLYPH, STATE_GLYPHS, TRACK_SEP, compactTrack, cycleTrack, drawn, fitLine, joined, lineCells, olderLines, olderRow, queueBlock, recordLines, revisionLine, stepStatusWord } from '../../crux-mods/hooks/lib/draw.ts'
 import type { CycleView, QueueView } from '../../crux-mods/hooks/lib/view.ts'
-import { cycleTimeText } from '../../crux-mods/hooks/lib/view.ts'
+import { cycleTimeText, isOpenCycle, isUnreadableCycle } from '../../crux-mods/hooks/lib/view.ts'
 import { cells } from '../../crux-mods/hooks/lib/width.ts'
 
 export type SubagentStatus = 'running' | 'idle' | 'blocked' | 'done' | 'error'
@@ -191,9 +191,15 @@ const CYCLE_BADGE: Readonly<Record<string, { glyph: string; label: string; color
   completed: { glyph: STATE_GLYPHS.done ?? '\u{2713}', label: 'COMPLETED', color: 'success' },
   abandoned: { glyph: STATE_GLYPHS.blocked ?? '\u{2717}', label: 'ABANDONED', color: 'error' },
   shortcut: { glyph: STATE_GLYPHS.done ?? '\u{2713}', label: 'SHORTCUT', color: 'warning' },
+  // A reviewed cycle awaits its finish: open, drawn with the current cycles, in the shared pane's reviewed glyph and key.
+  reviewed: { glyph: STATE_GLYPHS.done ?? '\u{2713}', label: 'REVIEWED', color: 'success' },
 }
 
+// A current record (type `pilot`) draws its steps through the shared panel's track, which falls back
+// to a glyph per step and then to the current step alone as the width narrows. A historical record
+// draws its phase sequence, cut to the width.
 function phaseTrackLine(c: CycleView, width: number): Line {
+  if (c.type === 'pilot') return cycleTrack(c, width)
   const curIdx = c.phases.indexOf(c.phase)
   const cellsList: Line[] = c.phases.map((p, idx) => {
     if (c.status === 'completed' || idx < curIdx) {
@@ -306,9 +312,10 @@ function buildActiveOrPausedCycleCard(c: CycleView, label: string, innerWidth: n
         span(`${c.id} `, { bold: true }),
         span(drawn(c.title), { bold: true }),
         // A listed release cycle has the one phase release and no pass limit to draw.
-        span(c.type === 'pilot' || c.type === 'release' && c.phases.join(',') === 'release'
+        // A current record (type `pilot`) draws no type label: it has no type and no passes.
+        ...(c.type === 'pilot' ? [] : [span(c.type === 'release' && c.phases.join(',') === 'release'
           ? `  [${c.type}]`
-          : `  [${c.type} \u{00B7} ${LOOP_GLYPH} pass ${c.pass}/${c.pass_limit}]`, { color: 'permission' }),
+          : `  [${c.type} \u{00B7} ${LOOP_GLYPH} pass ${c.pass}/${c.pass_limit}]`, { color: 'permission' })]),
       ],
       innerWidth,
     ),
@@ -324,8 +331,9 @@ function buildActiveOrPausedCycleCard(c: CycleView, label: string, innerWidth: n
     ),
   ]
 
+  // A current record draws its task count with no progress bar, as the shared pane does.
   if (c.tasks.length > 0) {
-    lines.push(fitLine(progressBar(done, c.tasks.length, innerWidth), innerWidth))
+    lines.push(fitLine(c.type === 'pilot' ? [span(`${done}/${c.tasks.length} tasks`, { dim: true })] : progressBar(done, c.tasks.length, innerWidth), innerWidth))
   }
 
   // Highlight blockers, waits, and returns prominently
@@ -490,13 +498,13 @@ function buildCycleQueueCard(queue: CycleQueueView, cycles: readonly CycleView[]
     const glyph =
       st === 'completed' || st === 'shortcut'
         ? (STATE_GLYPHS.done ?? '\u{2713}')
-        : st === 'active' || st === 'starting'
+        : st === 'active' || st === 'reviewed' || st === 'starting'
           ? (STATE_GLYPHS.running ?? '\u{25B8}')
           : st === 'held'
             ? (STATE_GLYPHS.skipped ?? '\u{2298}')
             : (STATE_GLYPHS.pending ?? '\u{25CC}')
     const color: Span['color'] =
-      st === 'completed' ? 'success' : st === 'shortcut' ? 'warning' : st === 'active' || st === 'starting' ? 'claude' : st === 'held' ? 'warning' : 'subtle'
+      st === 'completed' ? 'success' : st === 'shortcut' ? 'warning' : st === 'active' || st === 'reviewed' || st === 'starting' ? 'claude' : st === 'held' ? 'warning' : 'subtle'
     const deps =
       item.dependsOn.length > 0
         ? ` after ${item.dependsOn
@@ -548,11 +556,12 @@ export function buildOmpCyclesPane(cycles: readonly CycleView[], nowS: number | 
     blocks.push(boxOf(buildLiveActivitySection(live, innerWidth), 'claude'))
   }
 
-  // 2. Partition cycles into Current (active), Paused (paused/waiting), and Previous (completed/abandoned/shortcut)
-  const activeCycles = cycles.filter(c => c.status === 'active')
-  const pausedCycles = cycles.filter(c => c.status === 'paused' || (c.status === 'active' && (c.blocker !== null || c.waits.length > 0)))
+  // 2. Partition cycles into Current (active or reviewed), Paused (paused/waiting) and Previous (every closed
+  // cycle). Open and closed split by the shared core's isOpenCycle, so every status lands in one group.
+  const activeCycles = cycles.filter(c => isOpenCycle(c) && c.status !== 'paused')
+  const pausedCycles = cycles.filter(c => c.status === 'paused' || (activeCycles.includes(c) && (c.blocker !== null || c.waits.length > 0)))
   const pureActive = activeCycles.filter(c => !pausedCycles.includes(c))
-  const previousCycles = cycles.filter(c => c.status === 'completed' || c.status === 'abandoned' || c.status === 'shortcut')
+  const previousCycles = cycles.filter(c => !isOpenCycle(c))
 
   if (pureActive.length > 0) {
     for (const c of pureActive.slice(0, 2)) {
@@ -577,7 +586,8 @@ export function buildOmpCyclesPane(cycles: readonly CycleView[], nowS: number | 
               [
                 span('\u{25CC} CURRENT CYCLE: ', { bold: true, color: 'subtle' }),
                 span('No active cycle in progress', { dim: true }),
-                ...(latest !== undefined ? [span(`  (last completed: ${latest.id} \u{2014} ${drawn(latest.title, Math.max(16, innerWidth - 48))})`, { dim: true })] : []),
+                // A current record names its own closed status; a historical record keeps `completed`.
+                ...(latest !== undefined ? [span(`  (last ${latest.type === 'pilot' && !isUnreadableCycle(latest) ? latest.status : 'completed'}: ${latest.id} \u{2014} ${drawn(latest.title, Math.max(16, innerWidth - 48))})`, { dim: true })] : []),
               ],
               innerWidth,
             ),
@@ -613,7 +623,7 @@ export function buildOmpCyclesPane(cycles: readonly CycleView[], nowS: number | 
 
 export function buildOmpBandLine(cycles: readonly CycleView[], nowS: number | null, live: LiveRuntimeSnapshot | undefined, width: number): Line | null {
   const parts: Line[] = []
-  const active = cycles.find(c => c.status === 'active')
+  const active = cycles.find(c => c.status === 'active' || c.status === 'reviewed')
   const paused = cycles.find(c => c.status === 'paused')
   const latest = active ?? paused ?? cycles[0]
 
@@ -621,15 +631,25 @@ export function buildOmpBandLine(cycles: readonly CycleView[], nowS: number | nu
     const badge = CYCLE_BADGE[latest.status] ?? { glyph: '?', label: latest.status, color: 'subtle' as const }
     const done = latest.tasks.filter(t => t.status === 'done').length
     const activeTask = latest.tasks.find(t => t.status === 'active')
-    parts.push([
-      span(badge.glyph, { color: badge.color, bold: true }),
-      span(` ${latest.id}`, { bold: true }),
-      span(` ${latest.type}`, { color: 'permission' }),
-      span(` \u{00B7} ${latest.phase}`, { color: PHASE_COLORS[latest.phase] ?? 'text', bold: latest.status === 'active' }),
-      span(` (${done}/${latest.tasks.length})`, { dim: true }),
-    ])
+    // A readable current record draws its id and its steps, whose current glyph and word state the
+    // status; a paused or abandoned cycle adds that word. Its blockers are not always a pause, so they
+    // read `blocked`. A historical record draws its badge, type and phase.
+    const steps = latest.type === 'pilot' && !isUnreadableCycle(latest)
+    parts.push(steps
+      ? [
+          span(latest.id, { bold: true }), span(' '), ...compactTrack(latest),
+          ...(stepStatusWord(latest).length > 0 ? [span(' '), ...stepStatusWord(latest)] : []),
+          span(` (${done}/${latest.tasks.length})`, { dim: true }),
+        ]
+      : [
+          span(badge.glyph, { color: badge.color, bold: true }),
+          span(` ${latest.id}`, { bold: true }),
+          ...(latest.type === 'pilot' ? [] : [span(` ${latest.type}`, { color: 'permission' })]),
+          span(` \u{00B7} ${latest.phase}`, { color: PHASE_COLORS[latest.phase] ?? 'text', bold: latest.status === 'active' }),
+          span(` (${done}/${latest.tasks.length})`, { dim: true }),
+        ])
     if (latest.blocker !== null) {
-      parts.push([span(`! paused: ${drawn(latest.blocker, 28)}`, { color: 'warning', bold: true })])
+      parts.push([span(`! ${steps ? 'blocked' : 'paused'}: ${drawn(latest.blocker, 28)}`, { color: 'warning', bold: true })])
     } else if (latest.waits.length > 0) {
       parts.push([span(`! awaiting: ${drawn(latest.waits[0]!, 24)}`, { color: 'warning', bold: true })])
     } else if (activeTask !== undefined) {

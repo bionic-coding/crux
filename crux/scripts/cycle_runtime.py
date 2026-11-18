@@ -8,6 +8,8 @@ import re
 import subprocess
 import tempfile
 
+WRITER_FORMATS = ('crux.cycle.vNext', 'crux.cycle.v1')
+
 
 class RuntimeRefusal(ValueError):
     pass
@@ -136,7 +138,7 @@ def admission(repo, enabled=True):
         else:
             yield
     except RuntimeRefusal as exc:
-        from cycle_workflow import CycleError
+        from cycle_store import CycleError
         raise CycleError(str(exc)) from exc
 
 
@@ -148,8 +150,8 @@ def require_unclaimed(repo, checkout):
 
 def legacy_holders(repo, docs_root, checkout):
     """Admission-only scan of current legacy editing assignments; historical records are skipped."""
-    from cycle_ops import targets_main_checkout
-    from cycle_workflow import main_checkout, tree
+    from cycle_history import edits_main_checkout
+    from cycle_store import main_checkout, tree
     repo = main_checkout(repo) or Path(repo)
     docs_root = tree(repo).docs_root
     wanted = checkout_root(checkout)
@@ -159,14 +161,14 @@ def legacy_holders(repo, docs_root, checkout):
             doc = json.loads(path.read_text())
         except (OSError, ValueError) as exc:
             raise RuntimeRefusal(f'cannot establish checkout ownership from {path}') from exc
-        if doc.get('format') == 'crux.cycle.vNext' or doc.get('status') not in ('active', 'paused'):
+        if doc.get('format') in WRITER_FORMATS or doc.get('status') not in ('active', 'paused'):
             continue
         tasks = {t['id']: t for t in doc.get('plan', {}).get('tasks', [])}
         for assignment in doc.get('assignments', []):
             task = tasks.get(assignment.get('task'), {})
             if (assignment.get('state') in ('reserved', 'running') and assignment.get('role') in ('developer', 'dev-lead')
                     and (task.get('phase') == 'build' or 'fix' in task)):
-                if targets_main_checkout(assignment):
+                if edits_main_checkout(assignment):
                     owned = checkout_root(repo)
                 else:
                     execution = assignment.get('execution') or {}

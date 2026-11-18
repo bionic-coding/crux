@@ -56,7 +56,7 @@ from pathlib import Path
 import json
 
 import adr_migration as m
-from cycle_workflow import CycleError, digest, encoded, tree
+from cycle_store import CycleError, digest, encoded, tree
 
 FORMAT = 'crux.migration-replay-receipt.v1'
 SCHEMA = 'migration-replay-receipt.schema.json'

@@ -492,8 +492,9 @@ def _stage(testcase):
 
 
 class ForgeLogProjectionTests(unittest.TestCase):
-    """CYC-0120 review A3: an engine-written forge-log entry keeps both checkout suite receipts reusable."""
+    """CYC-0120 review A3: a forge-log entry written after the preamble keeps both checkout suite receipts reusable."""
 
+    PREAMBLE = b"# Forge log\n\nprose\n\n"
     ENTRY = b"## [2026-11-08 07:20] used | probe-skill\nCYC-0001 review/1 reviewer report; ok\n\n"
 
     def setUp(self):
@@ -511,17 +512,14 @@ class ForgeLogProjectionTests(unittest.TestCase):
         return {check: te.snapshot(self.root, suite_evidence.registered_declaration(self.root, check, dev_root=self.root),
                                    source_root=self.root)["fingerprint"] for check in (CORE, TOOLS)}
 
-    def test_the_roots_equal_the_engine_roots(self):
-        import cycle_local_skills
-        self.assertEqual(suite_evidence.LOCAL_SKILL_ROOTS, cycle_local_skills.ALL_ROOTS)
-        self.assertEqual(suite_evidence.FORGE_LOGS, tuple(f"{root}/{cycle_local_skills.LOG_NAME}"
-                                                          for root in cycle_local_skills.ALL_ROOTS))
+    def test_the_forge_log_roots_are_the_local_skill_roots_the_suites_read(self):
+        self.assertEqual(suite_evidence.FORGE_LOGS, tuple(f"{root}/forge-log.md" for root in suite_evidence.LOCAL_SKILL_ROOTS))
+        self.assertLessEqual(set(suite_evidence.LOCAL_SKILL_ROOTS), set(suite_evidence.INPUTS))
 
     def test_an_inserted_entry_keeps_both_checkout_fingerprints_and_a_preamble_edit_moves_them(self):
-        import cycle_local_skills
         for path in suite_evidence.FORGE_LOGS:
             (self.root / path).parent.mkdir(parents=True, exist_ok=True)
-            (self.root / path).write_bytes(cycle_local_skills.NEW_LOG)
+            (self.root / path).write_bytes(self.PREAMBLE)
         self.vcs("init", "-q")
         self.vcs("add", "-A")
         self.vcs("commit", "-qm", "base")
@@ -529,7 +527,7 @@ class ForgeLogProjectionTests(unittest.TestCase):
         for path in suite_evidence.FORGE_LOGS:
             with self.subTest(path=path):
                 log = self.root / path
-                log.write_bytes(cycle_local_skills.insert(log.read_bytes(), self.ENTRY))
+                log.write_bytes(log.read_bytes() + self.ENTRY)
                 self.assertEqual(self.fingerprints(), before, "a worktree entry keeps the fingerprints")
                 self.vcs("add", path)
                 self.vcs("commit", "-qm", "entry")

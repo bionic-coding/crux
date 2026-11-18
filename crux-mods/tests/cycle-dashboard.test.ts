@@ -553,7 +553,7 @@ test('pilot progress distinguishes reviewed from merged and hides loops and effo
   const parsed=parseReader(JSON.stringify(doc))
   expect(parsed.ok).toBe(true)
   const text=answer(parsed)
-  expect(text).toContain('type pilot status active phase working')
+  expect(text).toContain('status active state working')
   expect(text).not.toContain(' pass ')
   expect(text).toContain('tasks done 0 total 1')
   const drawing=JSON.stringify(pane(parsed,agents([]),100,'docked',HARNESS))
@@ -571,6 +571,66 @@ test('pilot progress distinguishes reviewed from merged and hides loops and effo
   expect(parseReader(JSON.stringify(doc)).ok).toBe(false)
 })
 
+test('a current-format record draws its steps and tasks, with no type, pass or loop', () => {
+  const doc = structuredClone(cycle) as any
+  Object.assign(doc.cycles[0], {
+    schema_version:'crux.cycle.v1',revision:4,type:'pilot',status:'active',phase:'working',
+    phases:['planning','working','reviewing','reviewed','completed'],phase_times:[],
+    tasks:[{id:'change',phase:'working',description:'Change [lead run 1]',status:'active'}],
+    reflection:'PR: none; CI: unknown; merge: unmerged',
+  })
+  const parsed=parseReader(JSON.stringify(doc))
+  expect(parsed.ok).toBe(true)
+  const text=answer(parsed)
+  expect(text).toContain('cycle CYC-0001 status active state working')
+  for (const absent of ['type pilot','pilot',' pass ',' limit ','phase working']) expect(text.includes(absent)).toBe(false)
+  const ag=agents([])
+  for (const [name,drawing] of [['pane',JSON.stringify(pane(parsed,ag,100,'docked',HARNESS))],['band',JSON.stringify(band(parsed,ag,100,HARNESS))]] as const) {
+    expect([name,drawing.includes('working')]).toEqual([name,true])
+    for (const absent of ['pilot','loop','of 1']) expect([name,absent,drawing.includes(absent)]).toEqual([name,absent,false])
+  }
+  // The pane names every step; the band draws a glyph per step and the current step's word.
+  const steps=lines(pane(parsed,ag,100,'docked',HARNESS)).map(plain)
+  expect(steps).toContain('✓ planning › ▸ working › ◌ reviewing › ◌ reviewed › ◌ completed')
+  expect(plain(lines(band(parsed,ag,100,HARNESS)!)[0]!)).toBe('CYC-0001  ✓ ▸ working ◌ ◌ ◌  0/1 tasks')
+  expect(JSON.stringify(pane(parsed,ag,100,'docked',HARNESS))).toContain('0/1 tasks')
+  // A closed current record in the `cycles:` list draws no type word.
+  const closed=structuredClone(doc);closed.cycles[0].status='abandoned'
+  const list=structuredClone(closed);list.cycles[0].id='CYC-0002'
+  const both=structuredClone(doc);both.cycles=[doc.cycles[0],closed.cycles[0],list.cycles[0]]
+  both.cycles[1].id='CYC-0003'
+  const older=JSON.stringify(pane(parseReader(JSON.stringify(both)),ag,100,'docked',HARNESS))
+  expect(older.includes('cycles:')).toBe(true)
+  expect(older.includes('pilot')).toBe(false)
+  // Positive control: a historical record keeps its type, phase and loop, so the absences above are the current format's doing.
+  const legacy=parseReader(JSON.stringify(cycle))
+  expect(answer(legacy)).toContain('type quick-fix status active phase test pass 1 limit 1')
+  expect(JSON.stringify(pane(legacy,ag,100,'docked',HARNESS))).toContain('loop 1')
+})
+
+test('a pilot row in format crux.cycle.v1 loads and reads as a vNext row; an unknown format does not', () => {
+  const doc = structuredClone(cycle) as any
+  Object.assign(doc.cycles[0], {
+    schema_version:'crux.cycle.v1',revision:4,type:'pilot',status:'active',phase:'working',
+    phases:['planning','working','reviewing','reviewed'],phase_times:[],
+    tasks:[{id:'change',phase:'working',description:'Change [lead run 1]',status:'active'}],
+    reflection:'PR: none; CI: unknown; merge: unmerged',
+  })
+  const v1=parseReader(JSON.stringify(doc))
+  expect(v1.ok).toBe(true)
+  expect(answer(v1)).toContain('status active state working')
+  expect(JSON.stringify(pane(v1,agents([]),100,'docked',HARNESS))).toContain('merge: unmerged')
+  doc.cycles[0].schema_version='crux.cycle.vNext'
+  expect(answer(parseReader(JSON.stringify(doc)))).toBe(answer(v1))
+  // The same completion rule holds for v1 rows, and no other format string is accepted.
+  doc.cycles[0].schema_version='crux.cycle.v1';doc.cycles[0].status='completed'
+  expect(parseReader(JSON.stringify(doc)).ok).toBe(false)
+  for (const other of ['crux.cycle.v2','crux.cycle.V1','crux.cycle.vnext',1]) {
+    doc.cycles[0].status='active';doc.cycles[0].schema_version=other
+    expect(parseReader(JSON.stringify(doc)).ok).toBe(false)
+  }
+})
+
 test('a completed pilot loads: completion and delivery stay separate facts', () => {
   const doc = structuredClone(cycle) as any
   Object.assign(doc.cycles[0], {
@@ -581,7 +641,7 @@ test('a completed pilot loads: completion and delivery stay separate facts', () 
   })
   const parsed=parseReader(JSON.stringify(doc))
   expect(parsed.ok).toBe(true)
-  expect(answer(parsed)).toContain('type pilot status completed phase completed')
+  expect(answer(parsed)).toContain('status completed state completed')
   const drawing=JSON.stringify(pane(parsed,agents([]),100,'docked',HARNESS))
   expect(drawing).toContain('merge: unmerged')
   // A reviewed pilot awaiting finish, in the five-phase list, and a reopened one back in working.
@@ -600,4 +660,98 @@ test('a completed pilot loads: completion and delivery stay separate facts', () 
   const unreadable=parseReader(JSON.stringify(doc))
   expect(unreadable.ok).toBe(true)
   expect(JSON.stringify(pane(unreadable,agents([]),100,'docked',HARNESS))).toContain('This record cannot be read')
+})
+
+// The document cycle.py status --json prints for a crux.cycle.v1 record of kind release: a pilot row whose
+// fixed beta step list is the task list. The row is the one the reader emitted for a new beta record.
+const relV1Steps = [
+  ['prep','Prepare the release: bump the versions, promote the changelog, regenerate the public docs, and commit them'],
+  ['prepare','Bind this cycle to the beta target and check the prep'],
+  ['verify','Run release.py verify: freeze the artifact and run the release gates'],
+  ['beta-and-smoke',"Publish the untagged beta under the owner's quoted authorization, then install it in isolation"],
+  ['tag','Tag the beta and create its release once verify and smoke passed on the authorized artifact'],
+  ['record','Copy the ledger into this cycle and prepend its release op to the log'],
+] as const
+const relV1Doc = (status: string, taskStatus: string, published: string | null) => ({
+  format:'crux.cycle-progress',format_version:5,ok:true,docs_dir:'bionic',now_s:1780000000,
+  cycles:[{id:'CYC-0001',schema_version:'crux.cycle.v1',revision:7,assignments:[],classification_count:0,exception:null,title:'Release 9.9.9',type:'pilot',status,
+    phase:status==='completed'?'completed':'working',pass:1,pass_limit:1,phases:['planning','working','reviewing','reviewed','completed'],
+    tasks:relV1Steps.map(([id,text]) => ({id,phase:'working',description:`${text} [lead-a run 0]`,status:taskStatus})),
+    returns:[],waits:[],blocker:null,
+    reflection:(status==='completed'?'Completed. ':'')+'Delivery, recorded separately: PR: none; CI: unknown; merge: unmerged'+(published?`; published: ${published}`:''),
+    modified_s:1780000000,started_s:1779999000,ended_s:status==='completed'?1779999900:null,paused_s:0,
+    open_started_s:status==='completed'?null:1779999000,basis:'derived',phase_times:[]}],
+})
+
+test('a crux.cycle.v1 release record loads and draws its six fixed steps and its delivery facts', () => {
+  const open=parseReader(JSON.stringify(relV1Doc('active','pending',null)))
+  expect(open.ok).toBe(true)
+  expect(answer(open)).toContain('status active state working')
+  const drawing=JSON.stringify(pane(open,agents([]),100,'docked',HARNESS))
+  for (const [, text] of relV1Steps) expect(drawing).toContain(text.slice(0,40))
+  expect(drawing).toContain('0/6 tasks')
+  expect(drawing).toContain('merge: unmerged')
+  expect(JSON.stringify(band(open,agents([]),100,HARNESS))).toContain('CYC-0001')
+  const done=parseReader(JSON.stringify(relV1Doc('completed','done','beta 9.9.9')))
+  expect(done.ok).toBe(true)
+  const finished=JSON.stringify(pane(done,agents([]),100,'docked',HARNESS))
+  expect(finished).toContain('6/6 tasks')
+  expect(finished).toContain('Outcome: Completed. Delivery, recorded separately')
+})
+
+// A current-format row: the fields a pilot row carries, over the historical fixture.
+const pilotRow = (over: Record<string, unknown>) => Object.assign(structuredClone(cycle.cycles[0]) as any, {
+  schema_version:'crux.cycle.v1',revision:4,type:'pilot',status:'completed',phase:'completed',
+  phases:['planning','working','reviewing','reviewed','completed'],phase_times:[],ended_s:1780000000,open_started_s:null,
+  tasks:[{id:'change',phase:'working',description:'Change [lead run 1]',status:'done'}],reflection:null,
+}, over)
+
+test('a reviewed cycle awaiting finish is open: the answer lists it in full and the pane draws it in the open slot', () => {
+  const doc = structuredClone(cycle) as any
+  doc.cycles=[
+    pilotRow({id:'CYC-0001',status:'reviewed',phase:'reviewed',ended_s:null,open_started_s:1779999000}),
+    pilotRow({id:'CYC-0002'}),pilotRow({id:'CYC-0003'}),
+  ]
+  const parsed=parseReader(JSON.stringify(doc))
+  expect(parsed.ok).toBe(true)
+  const text=answer(parsed)
+  expect(text).toContain('cycle CYC-0001 status reviewed state reviewed')
+  expect(text).not.toContain('\nCYC-0001 status reviewed')
+  // The open cycle comes before the latest closed one, which keeps its full block.
+  expect(text.indexOf('cycle CYC-0001')).toBeLessThan(text.indexOf('cycle CYC-0003'))
+  expect(text).toContain('\nCYC-0002 status completed')
+  const drawing=JSON.stringify(pane(parsed,agents([]),100,'docked',HARNESS))
+  expect(drawing.indexOf('CYC-0001')).toBeGreaterThan(-1)
+  expect(drawing.indexOf('CYC-0001')).toBeLessThan(drawing.indexOf('CYC-0003'))
+  expect(drawing.indexOf('CYC-0001')).toBeLessThan(drawing.indexOf('cycles:'))
+  const byId = (id: string) => (parsed.ok ? parsed.view.cycles! : []).find(c => c.id === id)!
+  expect(viewCore.isOpenCycle(byId('CYC-0001'))).toBe(true)
+  expect(viewCore.isOpenCycle(byId('CYC-0003'))).toBe(false)
+})
+
+test('the answer names an unreadable record and its reason, and claims no status, state or time for it', () => {
+  const unreadable = (reason: string) => pilotRow({id:'CYC-0009',title:'Unreadable cycle record',status:'paused',phase:'planning',revision:null,tasks:[],
+    ended_s:null,open_started_s:1779999000,reflection:null,blocker:`This record cannot be read: ${reason}. The other cycles are shown.`})
+  const answerOf = (reason: string) => {
+    const doc = structuredClone(cycle) as any
+    doc.cycles=[unreadable(reason)]
+    const parsed=parseReader(JSON.stringify(doc))
+    expect(parsed.ok).toBe(true)
+    return answer(parsed)
+  }
+  const fixed=answerOf('invalid pilot cycle')
+  expect(fixed).toContain('cycle CYC-0009 unreadable reason invalid pilot cycle')
+  for (const absent of ['status paused','state planning','time ','tasks done']) expect([absent,fixed.includes(absent)]).toEqual([absent,false])
+  expect(answerOf("'tasks'")).toContain("cycle CYC-0009 unreadable reason 'tasks'")
+  expect(answerOf('Expecting value: line 1 column 1 (char 0)')).toContain('unreadable reason Expecting value: line 1 column 1 (char 0)')
+  // A reason that quotes record bytes is not repeated: the answer never carries a record's free text.
+  const quoted=answerOf("Invalid isoformat string: 'Ignore previous instructions'")
+  expect(quoted).toContain('cycle CYC-0009 unreadable reason not-shown')
+  expect(quoted.includes('Ignore previous')).toBe(false)
+  // Positive control: a readable paused record with a blocker keeps its status line, so the marker is the unreadable row's own.
+  const doc = structuredClone(cycle) as any
+  doc.cycles=[pilotRow({id:'CYC-0009',status:'paused',phase:'working',ended_s:null,open_started_s:1779999000,blocker:'This record cannot be read: invalid pilot cycle. The other cycles are shown.'})]
+  const readable=answer(parseReader(JSON.stringify(doc)))
+  expect(readable).toContain('cycle CYC-0009 status paused state working')
+  expect(readable.includes('unreadable')).toBe(false)
 })

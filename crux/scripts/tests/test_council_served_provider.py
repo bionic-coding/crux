@@ -59,7 +59,7 @@ DUMMY_KEY = "sk-or-test-dummy"
 REAL_REGISTRY = SCRIPTS / "crux" / "_config" / "llm_router_config.json"
 #: The seat, its requested model, and the provider label the round-1 record observed.
 SEATS = {
-    "openai": ("openai/gpt-6-astra", "OpenAI"),
+    "openai": ("openai/gpt-6.2-astra", "OpenAI"),
     "anthropic": ("anthropic/claude-opus-5.5", "Anthropic"),
     "gemini": ("google/gemini-4-argon", "Google AI Studio"),
 }
@@ -220,9 +220,9 @@ class F4OutsideSetTests(unittest.TestCase):
         self.assertFalse(vote.retried)
         self.assertEqual((vote.decision, vote.confidence, vote.findings),
                          ("DEFER_TO_HUMAN", 0.0, []))
-        self.assertEqual(vote.registry_key, "gpt-6-astra")
-        self.assertEqual(vote.requested_model, "openai/gpt-6-astra")
-        self.assertEqual(transport.requests[0]["model"], "openai/gpt-6-astra")
+        self.assertEqual(vote.registry_key, "gpt-6.2-astra")
+        self.assertEqual(vote.requested_model, "openai/gpt-6.2-astra")
+        self.assertEqual(transport.requests[0]["model"], "openai/gpt-6.2-astra")
 
     def test_control_the_same_reply_with_the_seeded_provider_is_a_vote(self):
         transport = Sequence(good(), good(provider="Azure"))
@@ -326,11 +326,11 @@ class F8TruncatedThenInSetTests(unittest.TestCase):
                              good(gen_id="gen-b"))
         vote = gate_vote(transport)
         self.assertEqual(vote.attempts, [
-            {"attempt": 1, "replied": True, "served_model": "openai/gpt-6-astra",
+            {"attempt": 1, "replied": True, "served_model": "openai/gpt-6.2-astra",
              "served_provider": "Azure", "generation_id": "gen-a", "finish_reason": "length",
              "fault_label": "truncated", "served_model_match": True,
              "served_provider_match": False, "max_tokens": 64000},
-            {"attempt": 2, "replied": True, "served_model": "openai/gpt-6-astra",
+            {"attempt": 2, "replied": True, "served_model": "openai/gpt-6.2-astra",
              "served_provider": "OpenAI", "generation_id": "gen-b", "finish_reason": "stop",
              "fault_label": None, "served_model_match": True, "served_provider_match": True,
              "max_tokens": 128000},
@@ -398,7 +398,7 @@ class GateMalformedResponseTests(unittest.TestCase):
 class NoVoteFromAMismatchTests(unittest.TestCase):
     """The invariant over every combination: a vote only from a reply matching both checks."""
 
-    MODELS = {"ok": "openai/gpt-6-astra", "wrong": "openai/other", "absent": OMIT}
+    MODELS = {"ok": "openai/gpt-6.2-astra", "wrong": "openai/other", "absent": OMIT}
     PROVIDERS = {"ok": "OpenAI", "wrong": "Azure", "absent": OMIT}
 
     def test_a_vote_is_taken_only_when_both_checks_pass(self):

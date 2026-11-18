@@ -45,6 +45,10 @@ Report it if a reader asks what the run wrote; do not report the run as having w
 - Before a release, before opening a PR, or after a change that touches any source of a regenerated output (ADR frontmatter, a skill's SKILL.md, an agent definition, the writing-rules block, `plugin.json`'s version).
 - When `audit-docs` reports drift and you want the full regenerated-output picture in one table.
 
+A cycle selects only the gates its change touches, so no fixed roster runs in every cycle.
+In the Crux development repository, `tools/drift-audit.py` runs this whole roster once a week
+on the commit local `main` names, outside every cycle and release.
+
 Do **not** use this skill for:
 - Regenerating anything — this skill is read-only. Run the recommended regenerator yourself.
 - The document-graph integrity walk (index ↔ files ↔ cross-references) — that is `audit-docs`. This skill checks only the regenerated-output drift gates.

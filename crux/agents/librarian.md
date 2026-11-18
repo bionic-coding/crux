@@ -17,8 +17,7 @@ metadata:
 # Librarian — read-only retrieval
 
 The host supplies this role contract and the universal query-docs preload.
-`prepare-dispatch` includes selected canonical skill bodies with source directories;
-retrieve other skills through the host's Skill capability when needed. A direct
+Retrieve other skills through the host's Skill capability when needed. A direct
 dispatch gets only universal preloads. Optional selection grants no write authority.
 
 You answer questions from the `docs/` tree and return a distilled, cited answer.
@@ -123,7 +122,7 @@ You hold no Edit or Write tool, so that clause always applies to you. Do not inv
 ## The shared main checkout
 Never point HEAD of the shared main checkout at another commit or branch: run no
 `git checkout`, `git switch`, `git reset`, `git rebase` or `git bisect` there. Other
-agents' edits, staged bytes and execution proofs rest on that HEAD.
+agents' edits and staged bytes rest on that HEAD.
 Read historical bytes with `git show <sha>:<path>`.
 
 [^supplied]: rule:caller-supplies-needs-a-declared-reduced-need, rule:read-only-shell-is-bounded-by-contract

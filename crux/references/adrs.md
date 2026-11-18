@@ -1,0 +1,145 @@
+---
+title: ADR records
+read_when: Proposing, accepting, transitioning, editing or auditing an ADR
+sections:
+  - "§4 adrs"
+  - "§11 ADR state machine"
+  - "§11.A"
+  - "§11.D"
+---
+
+# ADR records
+
+A task reference of the documentation tree's operational schema, `<docs_dir>/AGENTS.md`. Read it only when its task applies. Section numbers keep their `<docs_dir>/AGENTS.md` meaning: a citation of a section held here, such as `docs/AGENTS.md §11.A`, resolves to this file.
+
+### adrs (append-only history)
+- ADRs are **append-only**. Once an ADR leaves `Proposed`, its body is frozen — only the status frontmatter mutates.
+- Numbers `ADR-NNNN` (4-digit, zero-padded) are **never reused**. `manifest.yml` carries `adr.next_number`.
+- Skills: `propose-adr` (creates Proposed), `transition-adr` (state machine), `link-adr-graph` (regenerates the lineage view).
+- Triggers: "propose ADR", "accept ADR-NNNN", "deprecate ADR-NNNN", "supersede ADR-NNNN with ADR-MMMM", "show ADR lineage".
+- State machine: see §11 cross-concern rules and the meta-ADR that ships with `init-docs`.
+- `docs/adrs/lineage.md` is a **regenerated artifact** — `link-adr-graph` rewrites it wholly from ADR frontmatter on every run (Mermaid graph + lineage table + tag clusters); hand-edits are blown away. Same regenerative model as `docs/code/` and `docs/whats_next.md`.
+- **ADR migration.** `migrate-adrs` replaces periodic decision review. The architect uses objectives and doctrine to find candidates, then verifies source clauses, current standing, original rationale and dependencies. Queue pages default to five ADRs for presentation only; users may drill in or resume. Recommendations change no authority. Exact package approval and validated connected publication are separate acts. Historical bodies, reports, references and proof remain preserved.[^migration-assessment]
+- **Historical reviews surface.** `docs/adrs/reviews/` preserves dated decision-review reports unchanged. Only `reviews/index.md` regenerates. The index reads each report under its declared grammar, including original lifecycle, assessment and dispute semantics, and refuses unsupported or malformed reports. No new review pass or dated report is created. Use `migrate-adrs` for current assessment and approved clause migration. The reports stay excluded from ADR walks. Historical citations resolve with their standing and any successor.[^historical-reviews]
+
+
+- **Provenance records.** An ADR accepted inside a run has one record under `adrs/provenance/` holding the run, its `base_commit`, and each governs rule's standing and base_commit wording. A provenance record is distinct from a governs entry's `provenance` field, which says how the rule text was produced. A rule is `guidance` when the ADR did not carry it at the run's `base_commit`, so every rule of an ADR first proposed in the run is guidance. A rule the ADR carried there is `binding`. A binding rule edited in the run keeps its base_commit wording as its binding wording, and the edit is guidance. A binding rule edited in any governs field (rule, scope, domain, anchor, retires) carries an in-run edit. A rule the run deleted stays binding at its base_commit wording until the owner promotes the deletion. An in-run body passage's binding text is the ADR body at the record's `base_commit`, read from `base_path` at that commit. Projections read standing from the record, never from version-control history. Promotion of a historical record appends to it from the owner's own instruction and is never a gate. An ADR accepted under the configured acceptance policy binds its rules at acceptance, with no promotion.[^promote] A rule with no record binds at its current wording.
+- **Summaries projection (derived from `governs` blocks).** The input domain is the union of two sources: the `governs` blocks of every active (top-level, non-archived) ADR, and the `governs` blocks of every `ratified` observation record (§17; field set in §17.1). Both project into `<docs_dir>/adrs/summaries/` (rule table, resolver, implementation map, `_meta.json`) via `summarize-adrs.py` — a regenerated output on the `code/` model (never hand-edited), drift-gated by `summarize-adrs.py --dry-run` and CI `check-summaries.yml` (whose paths list covers `observations/**`). An observation in `observed`, `rejected`, `retired`, or `decided` projects no rule row; a `decided` record projects one resolver alias row per handle, naming its `decided_by` ADR and that ADR's handles. Observation handles are namespaced `OBS-NNNN/<rule-slug>` (§17.1), so the resolver holds one namespace with no collision across the two sources. `authority` is derived from `provenance`, never stored: `recovered` or `reconstructed` projects `descriptive`, `authored` projects `prescriptive`. The input hash covers the FULL active-ADR frontmatter AND the ratified observation records, plus the provenance records when any exist (`provenance_sha256`) — `_meta.json` (`schema: "7"`) records `input_domain` (the source ids the build read; `observations` appears iff the concern is enabled) and `observations_sha256`. The rule table's `## Rule standing` section renders the standing of each rule whose ADR has a provenance record. So any ADR frontmatter mutation (propose, accept, deprecate, supersede) drifts it, and so does any observation ratification, retirement, or ratified successor. `summarize-adrs.py` refuses — exit 2, nothing written, `--dry-run` included — to rewrite a projection whose declared `input_domain` names a source it cannot read. `propose-adr` and `transition-adr` therefore regenerate it, and then the doctrine projection, after every ADR write and transition. Every counter allocation regenerates the same two. Each skill commits the file it wrote and any counter bump before it regenerates, so the projection stays fresh rather than leaving drift for CI. The backfill machinery (§7) admits historic ADRs into this same projection through `signoff-backfill.py`, which re-derives it inside its own write set. A handle an active ADR's `governs` entry retires leaves the live rule rows and live resolver handles and appears in the rule table's `## Retired handles` roster, distinct from the `## Removed handles` roster (§11.A states the rule). The projection reads a third input: the frontmatter of every archived ADR that carries `retires` or is a policy host, read for its `retires` edges and lifecycle fields. Only a host that was once Accepted gives edges, so a retirement outlives its host's move to `adrs/archive/`.[^retirement-persists]
+
+- **The resolver's live, retired and historical maps.** Beside its handle rows, `adrs/summaries/resolver.json` carries `slugs` and `retired_slugs`. `slugs` maps a live rule slug to its one live handle. `retired_slugs` maps a retired slug to the sorted list of live handles that displaced it. An empty list still reserves that retired slug; membership, rather than a nonempty value, distinguishes the retired lane. Both maps are emitted on an empty corpus (`{}` each). A handle key carries exactly one `/`; these reserved map keys carry none. `summaries_projection.live_and_retired_slugs` retains its two-map return contract. Schema 7 retains `historical_slugs`, `historical_displacements` and `historical_clauses`. A historical slug reserves its original handle and exact source identity, names its historical destination, and references live architectural replacement handles. Historical displacement records preserve the original source displacer separately from any current replacement. They carry source identity, clause digest and publication provenance, never governing rule text. Historical clauses can retain body-only evidence without inventing a governs handle. Live, retired, historical, removed and alias lanes must not conflict. A historical mapping grants neither governing authority nor current implementation status.
+
+- **Acceptance-time scope amendments.** An explicitly declared clause amendment takes effect only after validation of the amending ADR's new-policy acceptance evidence. The existing handle stays live, names its amending handle, and presents the effective rule and scope in summaries, resolver, doctrine, shipped rules and current council context. Raw source wording and content digests stay unchanged for historical proof and signed receipts. Current reconciliation digests bind the effective wording; an earlier signature becomes stale when that wording changes, without rewriting the signed ledger. A proposal, an ADR-level `amends` relation, or a citation alone changes no scope.
+- **Migration provenance in projections.** The public summaries and doctrine builders obtain fresh migration authority from the source history. A proved publication binds the exact batch, close identity, selected source clauses and dependency fingerprints. Their metadata adds `implementation-migration` to `input_domain` and records the migration frame and `migration_inputs_sha256`. Historical references preserve prior reasoning and retirement edges; filtering a historical host must not resurrect its predecessors. A proposal, receipt or mapping alone establishes neither publication nor current state. An applied flag, receipt or generated projection does not establish publication proof. Missing, malformed or unsupported proof refuses before output. Typed Implementation Decisions, results and annotations contribute no governing rows. Mutable governing citations resolve surviving architectural rules; dated or frozen evidence retains historical retrieval semantics. Shipped citations retain shipped-catalog precedence and Accepted-ADR-only publication eligibility. A tree without a published migration retains the same governing content and authority; its current metadata schema still applies. Historical-format migration writes are retired (`historical-migration-writes-retired`): `implementation-migration.py apply` and `dry-run` and the `--migration-batch` selectors refuse, while every reader here still verifies a publication already recorded. Propose new clause migrations in the prospective format.
+
+- **Doctrine layer (derived from summaries + invariants).** Its `_meta.json` declares `schema: "6"`. `docs/adrs/doctrine/` is a third, deterministic, model-free projection: one entry per governs domain, carrying its live rule, disposition, and mechanical basis, sourced from the summaries projection above and reconciled against the ratified invariants ledger (§15). Reconciliation runs through a single human-signed ledger, `docs/adrs/doctrine/reconciliations.yml`, written only by `scripts/signoff-reconciliation.py` and bound to each pairing's space-folded `content_digest`. A domain renders its belief only when every seeded (invariant, rule) pairing is digest-current and adjudicated compatible or reconciled. An un-adjudicated, digest-stale, or colliding pairing marks that domain (never the whole tree) BROKEN. The ledger key is an ordered pair of member identities: slot A (the on-disk `invariant:` field) holds an `INV-NNNN` id or an observation handle `OBS-NNNN/<slug>`; slot B (the on-disk `handle:` field) holds the rule handle. The field names stay `invariant:` and `handle:` because renaming them would rewrite every signed record. When any provenance record exists, the input domain adds it (`provenance_sha256`) and each doctrine domain that holds a rule with a provenance record renders a standing sub-table. A domain holding at least one observation-sourced rule (§17) renders an `authority: descriptive | mixed` suffix on its heading and an `_Observed evidence:_` table, and derives that rule's `basis` value from whether its evidence paths resolve — never from run bindings. Each rule row also carries a `source_status` column holding the source record's lifecycle status verbatim: the ADR state-machine value for an ADR-sourced rule, `ratified` for an observation-sourced one, and `unknown` where the source carried none. It is copied, never derived, so the value set is the union of those vocabularies and comparison is case-sensitive. It identifies the source lifecycle. A Proposed ADR contributes no governing domain row or live resolver slug. Its source text appears in a separate Proposed, not-governing section and in the resolver's `proposed` map with `authority: none`. The `basis` column takes one of four values: `run-bound` or `not-run-bound` for an ADR-sourced rule, `evidence-resolves` or `evidence-missing` for an observation-sourced rule; no value is evidence the rule holds. Zero ratified observations add no governing rules; provenance and metadata record the inputs read. The index is regenerated wholesale by `scripts/compile-doctrine.py`, drift-gated by `compile-doctrine.py --dry-run` and CI `check-doctrine.yml` (whose paths list covers `observations/**`); hand-edits are blown away, the same model as `docs/code/`. It carries zero decision authority of its own and is a standalone doctrine output, not a fifth arch spine file. Historical implementation mappings contribute no governing rule text. Historical signed pairings remain bound to their original member identities and content digests; they are not signatures for replacement handles. A displacement that would orphan a signed pairing refuses. Migration does not rewrite the signed ledger.
+
+- **Current-belief read routing.** A question about what is currently believed true routes **doctrine → summaries → ADR body**: check the doctrine index first (compiled, reconciled, and carrying a `basis` value per rule), fall back to the summaries rule table when a domain has no doctrine entry, and consult the ADR body last for full rationale. For a live architectural clause, its source body decides a disagreement with a projection only within its validated lifecycle and migration disposition. Consult the shared authority readers before treating a mixed historical body as governing. A frozen body preserves the reasoning for a demoted clause and cannot restore its authority. An Implementation Decision preserves reviewed reasoning and creates no governing constraint. Query it through `implementation-decisions.py query --decision <path> --repo-root <root> --revision <revision>` to separate `reviewed_intent`, `historical_delivery`, `current_eligibility` and `current_state`. The result declares `authority: none`; unavailable source evidence remains `UNOBSERVED`. Implementation Results preserve delivery evidence separately; annotations preserve later interpretation without rewriting the reviewed revision. A later conforming implementation requires no revocation of earlier reasoning; a genuine architectural conflict follows the architectural decision process. Approved intent or a run binding alone never establishes current state, and an obsolete constraint can refuse present eligibility without erasing prior review or delivery evidence.
+
+These projection schemas change neither the tree-layout schema `"5"`, plugin schema `"4"`, nor book/run `format_version`.
+
+### ADR state machine
+```
+Proposed ──accept──▶ Accepted ──deprecate──▶ Deprecated
+                       │
+                       └──supersede(new ADR)──▶ Superseded
+```
+- `Proposed` is the only entry state.
+- `Accepted` → `Deprecated` and `Accepted` → `Superseded` are the only valid forward transitions from `Accepted`.
+- `Proposed` → `Deprecated` is allowed (abandoned proposal); logs a `lint` op entry alongside the `adr` entry.
+- `Proposed` → `Superseded` is **NOT** valid. Supersession replaces an `Accepted` decision; abandon an unreviewed proposal with `Deprecated`.
+- Once an ADR leaves `Proposed`, the body is frozen. Only status-frontmatter fields update.
+- `Superseded` requires a target ADR id, and the target's `supersedes:` must contain this ADR. `transition-adr` writes both ends.
+
+## 11.A. Canonical ADR frontmatter schema (single source of truth)
+
+This table is the **single source of truth** for ADR frontmatter. The plugin's `templates/ADR-template.md`, `propose-adr`, and `audit-docs` (CHK-ADR-1) MUST reference this table by name rather than restating the field list. `audit-docs` CHK-ADR-1a compares the template's frontmatter keyset against this table and WARNs on divergence.
+
+The field-name column uses backtick markup so the comparison is mechanical (extract the backticked tokens from the first table column = the canonical keyset).
+
+| field | type | required? | semantics |
+|---|---|---|---|
+| `id` | string | required | `ADR-NNNN`, 4-digit zero-padded, optionally carrying the repo's configured artifact prefix per §14.3 (e.g. `CRX-ADR-NNNN`). Matches filename. |
+| `title` | string | required | Declarative present-tense decision title. |
+| `status` | enum | required | `Proposed \| Accepted \| Deprecated \| Superseded`. |
+| `date` | ISO date | required | Date of the current status entry. Moves on every transition. |
+| `proposed_date` | ISO date | required | Immutable; date first Proposed. |
+| `acceptance_format` | string | required for new-policy ADRs; absent historically | `crux.adr-acceptance.v1` requires validated acceptance evidence before its rules govern. Missing evidence never falls back to historical acceptance. |
+| `accepted_date` | ISO date \| null | required | Set on accept; `null` until then. |
+| `deprecated_date` | ISO date \| null | required | Set on deprecate; `null` until then. |
+| `superseded_date` | ISO date \| null | required | Set on supersede; `null` until then. |
+| `supersedes` | list | required | ADR ids this ADR replaces (insertion-ordered; `[]` if none). |
+| `superseded_by` | string \| null | required | The single ADR id that replaced this one, or `null`. |
+| `deciders` | list | required | ≥1 handle. |
+| `tags` | list | required | Topic tags. |
+| `related_briefs` | list | required | `BRIEF-<slug>` filenames; `[]` if none. |
+| `related_research` | list | required | research page references; `[]` if none. Each entry is a path relative to `docs/research/`: a bare `<slug>` means `sources/<slug>.md`; a `<category>/<slug>` means a `docs/research/<category>/<slug>.md` synthesis page. Resolved (with a fail-closed containment grammar) by `audit-docs` CHK-ADR-9. |
+| `amends` | list | optional | ADR ids this ADR narrowly refines (one-way; predecessors not mutated). Omit or `[]` if none. |
+| `governs` | list | optional | Structured rule records this ADR authors; each entry is a mapping (sub-fields below). A MAY, authored at Proposed time. Cohort-bounded by the tree's governs cohort boundary. |
+
+Each `governs` entry is a mapping with seven sub-fields — `domain`, `rule`, `scope`, `handle`, `anchor`, `provenance`, `retires` — never top-level frontmatter keys in their own right:
+
+```yaml
+governs:
+  - domain: decision-doctrine
+    rule: "each ADR's governing rule is authored once in a governs block and projected deterministically"
+    scope: the ADR frontmatter schema + the summaries projection
+    handle: ADR-NNNN/governs-block
+    anchor: "each ADR's governing rule is authored once"
+    provenance: authored
+```
+
+The `handle` value above is illustrative shape only — a live handle is `ADR-NNNN/<rule-slug>`, anchored to the ADR that authors it. The `anchor` value is equally illustrative: a live anchor must quote the ADR's own body.
+
+`anchor` is a verbatim span — a string, or a list of strings — quoted from the ADR body and verified by **space-folded containment**: collapse each whitespace run to a single space and strip the ends, on both the anchor and the body, before comparison; a list anchor requires every element to contain independently (AND, never OR), and a repeated span contains by membership. `anchor` is **required** on entries whose ADR number is below the tree's governs cohort boundary (the backfill cohort — the extraction binds a span of a body frozen before the contract existed) and **expected absent** on prospective entries, whose mutable body offers no verification target. An empty anchor is a validation error in every shape: an empty or whitespace-only string, an empty list, or an empty or whitespace-only list element.
+
+`retires` is an OPTIONAL list of rule handles this entry displaces. A retired handle leaves the rule table's live rows, leaves the resolver, and leaves the doctrine index, and appears instead in the rule table's `## Retired handles` roster with its rule text intact — the record survives the retirement. Retirement is one-way and clause-scoped: it never mutates the retired entry's own ADR, whose frontmatter and body stay untouched. It is a state rather than an event, so two ADRs retiring one handle, and one ADR naming a handle twice, are both idempotent. Five refusals are fail-closed, because a silent one would make the retirement unauditable. An entry may not retire a handle from its own ADR's `governs` block. It may not retire a handle that any signed record in `docs/adrs/doctrine/reconciliations.yml` names, so a retirement cannot orphan a human signature. A `retires` target that has never been a live handle fails the projection as a typo. That resolution checks the live handles, the retired roster, the archived ADR tier, and the removed roster. The archived tier is in that history so a settled retirement survives its target's ADR being archived. A handle appearing in both the removed lane and the retired lane fails. A sub-field outside the seven named above fails, so a mistyped `retires` is refused rather than dropped. The lane boundary: `removed` is a human withdrawing an admission through the receipts manifest and presupposes the handle has left its ADR's frontmatter, while `retired` is a later decision displacing a rule that stays on the record. `retires` sits deliberately OUTSIDE the six-field `content_digest` — a retirement is a relation between handles, not the content of the rule beside it — so every signed receipt and every signed reconciliation stays valid across one. A retirement persists after its host ADR is deprecated or superseded: `deprecate` and `supersede` change lifecycle fields only, and the archived host's `retires` list keeps the retirement in force.[^retirement-persists] A host that was never Accepted gives its `retires` list no effect. Two repairs apply when the projection refuses an archived host. A lost acceptance record (`adrs/acceptances/ADR-NNNN.json`) is restored at its path from the commit that wrote it. A `retires` list or `accepted_date` in the file that disagrees with the record's `accepted_text` is settled by the owning writer, which restores the accepted content from `accepted_text`. That is a restoration, not a rewrite. A published historical replacement that a later retirement displaced keeps its recorded text, and every reader resolves it to the live Accepted rules that displaced it, directly or through later retirements.[^replacement-read-through]
+
+`provenance` reuses the invariants concern's enum unchanged (§15.2: `authored | recovered | reconstructed`) — this table mints no second enum. The decided-vs-observed authority a `governs` entry carries is derived from `provenance` (`authored` → decided; `recovered` or `reconstructed` → observed), never a separate stored field.
+
+Adding a frontmatter field is a one-row edit here plus a matching edit to the plugin's `templates/ADR-template.md`; CHK-ADR-1a catches the two falling out of sync.
+
+## 11.D. ADR body content rule (single source of truth)
+
+**This section is the single statement of the rule.** `${CRUX_PLUGIN_ROOT}/templates/ADR-template.md`, `propose-adr`, and `audit-docs` (`CHK-ADR-SPEC`) carry a pointer to it and never a copy — §11.A's name-it-once discipline applied to the rule about naming things once. §11.A governs an ADR's frontmatter; this section governs what its body may contain. The writing rules the `prose-review` skill carries govern how a sentence in it is written.
+
+The seven numbered rules below are **§11.D's own numbering**. Cite this section by rule number; if your tree records the deciding ADR separately, do not read its clause numbers as these rule numbers.
+
+**1. A body states requirements and postconditions, never implementation recipe.** An ADR says what must be true when the work is done. It may bind a mechanism when the mechanism **is** the decision — a protocol, a storage engine, a wire format, a published interface — because that choice is disputable on architectural grounds. It may not say how a chosen thing is driven: call signatures, serializer options, exact file contents, command recipes, code. Those are disputable only on syntax, and they belong to the dev module, where a type checker and a test suite review them. Where one of them **is** the contract being decided, the carve-out governs and the prohibition does not.
+
+**2. Executed measurements are informative, not normative.** A body may record evidence it measured rather than reasoned — settings tried, values produced — in a footnote marked **informative**. Such a footnote binds no implementation: any implementation meeting the stated requirements conforms.
+
+**3. The four narrative sections carry a 120-line budget.** The budget spans `## Context` through the last line before `## References` — Context, Decision, Alternatives Considered and Consequences together. `## References` and any footnote block sit outside it.
+
+It is a **tripwire for rule 1, not a quality bar.** An over-budget body is a signal to re-read for embedded recipe; it is never a defect on its own, and there is no cap. A body that is over budget on purpose declares why, in one blockquote line immediately under its `## Context` heading:
+
+```markdown
+## Context
+
+> **Body budget:** 164 lines — three coordinate migrations whose ordering constraint is the decision.
+```
+
+A body over budget **with** that line is not a finding. A body over budget **without** one is a `CHK-ADR-SPEC` WARNING. An ADR that is itself a source of truth for a shape (rule 4) is exempt from the budget.
+
+**4. Name the source of truth; do not restate it.** A body may name a schema file, a contract section, or an index as the source of truth for a shape, and must not restate that shape inline — the same discipline §11.A applies to ADR frontmatter and §11.B to the run-snapshot shape. **Postcondition:** the pointer stays resolvable to the intended artifact after the body freezes. Inside this tree that means naming an artifact that carries a drift gate; outside it, naming a stable identifier such as a versioned standard rather than a location.
+
+**5. A path inside a frozen ADR body is history, not drift.** A body past `Proposed` is frozen, so a path it cites records what was true when the decision was made. Cleanup does not report that class; a rule that did was retired outright, and any standing dismissals stay in `docs/whats_next.md` as history. Rule 4's postcondition keeps new bodies safe going forward and is not retroactive.
+
+**6. Route a convention a check can carry to the invariants concern.** A decision whose whole content is a convention an executable check can carry belongs in the invariants concern (§15) rather than in an ADR. Guidance for the drafting architect; it adds no gate.
+
+**7. Write the shortest ADR that fully states the decision, its scope, and its consequences.** Use simple, precise prose. Keep each `governs` rule to one obligation and its necessary conditions; put rationale and examples in the body. Brevity must not change the meaning.
+
+### The prospective cohort
+
+`CHK-ADR-SPEC` is **prospective only**. Every body written before the rule existed is exempt, permanently — a frozen body cannot be brought into compliance, and reporting one would be noise that never clears.
+
+The boundary is a per-tree number, `adr.spec_rule_from` in `docs/manifest.yml` (§7). Absent or `null` means this tree never adopted the rule and `CHK-ADR-SPEC` reports nothing at all. Set to `NNNN` means the rule governs every ADR numbered **≥ `NNNN`**. ADR numbers are monotonic and never reused, so a number is a clean cohort boundary in a way a date is not.
+
+The boundary is configurable while the 120-line budget is not, for two reasons. The cohort is inherently per-tree: an ADR number means nothing across trees, and a tree adopting the rule today needs its own boundary. The budget is a convention crux ships, so it has one value — and `audit-docs/SKILL.md` is a distributed surface that may carry no ADR identifier at all, which is a second reason the boundary cannot be a literal in the rule's own text.
+
+**Adopting the rule in an existing tree:** set `adr.spec_rule_from` to the next number `propose-adr` will allocate, so the cohort starts empty and the rule reports nothing until the first body written under it. Measure the in-cohort bodies before fixing the value if you set it lower.
+
+[^promote]: rule:acceptance-makes-rules-binding, rule:historical-records-keep-their-interpretation
+[^historical-reviews]: rule:historical-review-reports-stay-readable
+[^retirement-persists]: rule:retirement-persists-after-its-host-leaves-accepted
+[^replacement-read-through]: rule:retired-historical-replacement-resolves-to-displacers
+[^migration-assessment]: rule:migration-recommendations-are-grounded

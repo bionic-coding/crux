@@ -1,13 +1,13 @@
 ---
 name: fix-directly
-description: "Compatibility alias: route fix-directly requests to the unified cycle workflow with type quick-fix."
+description: "Compatibility alias: route fix-directly requests to the ordinary cycle workflow."
 metadata:
   tags: "promptbooks, workflow, fix, small-change, direct"
   bundles: "crux-docs"
   risk_level: "low"
   requires_access: "write-tree"
   triggers: "just fix it | fix it directly | fix this directly | no book for this | this is small, skip the cycle | direct fix"
-  routing_note: "New work uses cycle with type quick-fix; no promptbook is allocated."
+  routing_note: "New work starts an ordinary cycle; no promptbook is allocated."
 ---
 
 # fix-directly compatibility alias
@@ -24,7 +24,8 @@ This skill is portable across Claude Code, Codex, OpenCode, and OMP (Oh My Pi). 
 - Argument placeholders such as `$adr` and `$book` bind only in Claude Code. On a host without argument binding they are unset — take the value from the user's phrase. The "Fields OpenCode ignores" section of `OPENCODE_GUIDE.md` names the invocation-control fields OpenCode ignores.
 <!-- END GENERATED: runtime-compat -->
 
-For new work, read `../cycle/SKILL.md` and use type `quick-fix`.
+For new work, read `../cycle/SKILL.md`. The request starts an ordinary cycle. No type
+is selected: the lead sizes the plan, checks and review to the change.
 There is no prompt minimum and no new promptbook or numbered run.
 
 For an explicitly named existing promptbook, use `run-promptbook` only to inspect

@@ -26,7 +26,7 @@ PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 CATALOG = PLUGIN_ROOT / "catalog" / "rules.json"
 
 CITATION_RE = re.compile(r"rule:([a-z][a-z0-9-]*)")
-SCAN_ROOTS = ("skills", "agents", "templates", "scripts")
+SCAN_ROOTS = ("skills", "agents", "templates", "scripts", "references")
 EXCLUDED_PARTS = ("tests", "catalog", "__pycache__")
 TEXT_SUFFIXES = {".md", ".tmpl", ".py", ".yaml", ".yml", ".json", ".toml", ".sh", ".txt"}
 

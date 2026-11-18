@@ -16,7 +16,7 @@ import re
 
 import yaml
 from council_records import _validator, git
-from cycle_workflow import CycleError, atomic, contained, digest, encoded, now, tree
+from cycle_store import CycleError, atomic, contained, digest, encoded, now, tree
 
 FORMATS = {kind: f'crux.adr-migration-{kind}.v1' for kind in
            ('queue', 'package', 'approval', 'policy', 'publication')}
@@ -31,7 +31,7 @@ INSTALLED_INVENTORY = READINESS_INVENTORY + tuple('crux/scripts/'+name for name 
     'summaries_projection.py','doctrine_projection.py'))
 INSTALLED_SUPPORT_V1 = 'crux.adr-migration-installed-support.v1'
 # Reviewed installed-support v1 bases that keep standing after the installed bytes
-# change, keyed by sha256 of the canonical encoding (cycle_workflow.encoded) of the
+# change, keyed by sha256 of the canonical encoding (cycle_store.encoded) of the
 # readiness object. One entry: the basis of the approval
 # bionic/adrs/migrations/approvals/authority-reset-2026-11.json, whose 15 sha256
 # values equal the installed files of the v5.3.0 release (release-prep commit
@@ -88,7 +88,7 @@ APPROVAL_PROFILES = {'1': {
 }}
 CURRENT_APPROVAL_PROFILE = '1'
 # sha256 of encoded(declaration) for each profile. Computed digests depend on
-# cycle_workflow.encoded; a change to that encoding changes every pin.
+# cycle_store.encoded; a change to that encoding changes every pin.
 APPROVAL_PROFILE_DIGESTS = {
     '1': '8143c7f20a1428d52911afaf8a7f2429b4ab1fe1713dfb5b722f1c6b388fc4a2',
 }

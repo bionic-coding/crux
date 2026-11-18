@@ -4,6 +4,7 @@ These are programmatic controls. They do not claim that a fresh agent used the g
 """
 from copy import deepcopy
 import importlib.util
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -24,12 +25,16 @@ class ConsumerProbeControls(unittest.TestCase):
         probe.write(self.root, "knowledge/inbox/result.md", text)
 
     def maintain(self, baseline):
-        import cycle_workflow as cycle
-        plan = deepcopy(baseline["original_cycle"]["plan"])
-        plan["tasks"].append({"id": "document-search", "phase": "build", "description": "Document matching order",
-                              "depends_on": [], "status": "pending", "expected_evidence": ["Source documentation"]})
-        cycle.mutate(self.root, baseline["cycle"], "plan", plan=plan, reason="Add documentation work")
-        cycle.mutate(self.root, baseline["cycle"], "task", task_id="build", state="active", assignee="oracle-control")
+        """What the template describes: revise the plan, then assign the build task, through the writer commands."""
+        doc = baseline["original_cycle"]
+        plan = probe.definition(doc)
+        plan["tasks"].append({"id": "document-search", "description": "Document matching order", "owner": "fixture-builder"})
+        plan_path = Path(self.tmp.name) / "plan.json"
+        plan_path.write_text(json.dumps(plan))
+        revised = probe.writer(self.root, "plan", doc["id"], "--actor", probe.LEAD, "--expect-revision", str(doc["revision"]),
+                               "--file", str(plan_path), "--reason", "Add documentation work")["cycle"]
+        probe.writer(self.root, "task", doc["id"], "--actor", probe.LEAD, "--expect-revision", str(revised["revision"]),
+                     "--task", "build", "--owner", "oracle-control", "--run", "1", "--status", "working")
 
     def test_records_accept_canonical_writer_output_and_reject_missing_sidecar(self):
         from decision_policy import propose
@@ -45,17 +50,14 @@ class ConsumerProbeControls(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             probe.evaluate(self.root, baseline)
 
-    def test_version_one_retains_extra_fields_and_rejects_silent_migration(self):
-        import cycle_workflow as cycle
+    def test_historical_record_retains_extra_fields_and_rejects_silent_migration(self):
         baseline = probe.seed(self.root, "legacy")
-        self.maintain(baseline)
-        self.note("Retained supported version one and owner fields.")
+        self.note("Historical version one record left unchanged; the writer never edits it.")
         self.assertTrue(probe.evaluate(self.root, baseline)["passed"])
-        doc = cycle.load(self.root, baseline["cycle"])
+        target = self.root / f"knowledge/cycles/{baseline['cycle']}/cycle.json"
+        doc = json.loads(target.read_text())
         doc["schema_version"] = 2
-        doc["coverage"] = None
-        doc["completion"] = None
-        cycle.save(cycle.tree(self.root), doc)
+        target.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n")
         with self.assertRaisesRegex(AssertionError, "migration"):
             probe.evaluate(self.root, baseline)
 
@@ -70,7 +72,7 @@ class ConsumerProbeControls(unittest.TestCase):
 
     def test_approval_and_unsupported_controls_name_exact_prerequisite(self):
         for scenario, text in (("approval", "Council approval is missing; the ADR remains Proposed."),
-                               ("unsupported", "Cycle schema version 99 is unsupported; no rewrite occurred.")):
+                               ("unsupported", "Cycle format crux.cycle.v99 is unsupported; no rewrite occurred.")):
             with self.subTest(scenario=scenario), tempfile.TemporaryDirectory() as tmp:
                 self.root = Path(tmp) / "consumer"
                 baseline = probe.seed(self.root, scenario)

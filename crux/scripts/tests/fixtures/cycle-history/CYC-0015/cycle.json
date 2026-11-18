@@ -1,0 +1,583 @@
+{
+  "blocker": null,
+  "completion": {
+    "commits": [
+      "0d749ea58acece3e46e7326fd0b09606a261f380"
+    ],
+    "exception": null,
+    "input_sha256": "1247acaad01f06744be0cb81720af758fa22463ca9d8cca938ed929be180d686",
+    "remaining": "Official release to bionic-coding/crux awaits owner authorization and the live OpenCode 2 check; follow-ups listed in the reflection"
+  },
+  "coordinator": "main-session",
+  "coverage": {
+    "affected": [
+      "Release artifact for crux 4.1.0: version surfaces, changelog, public renditions, and every shipped file under the staging allowlist"
+    ],
+    "checks": [
+      {
+        "check_id": "checkout:unittest:crux/scripts/tests:test*.py",
+        "rationale": "Plugin suite on the checkout covers every shipped crux script changed since 4.0.2"
+      },
+      {
+        "check_id": "checkout:unittest:tools/tests:test*.py",
+        "rationale": "Development-tool suite covers release.py, sync staging, preflight and public-doc tooling"
+      }
+    ],
+    "not_selected": "The staged 3.13 and 3.14 suites (TE-cf1cd5f4ea704691a166e900d3b36aea, TE-307f01e257b8455b8e59dabacab04319) prove the frozen artifact and are bound through the release ledger's evidence list at release-ready, which validates them against the dev root; mods, opencode and content gates ran inside verify."
+  },
+  "created_at": "2026-10-18T20:15:14.497338+00:00",
+  "decisions": [],
+  "evidence": [
+    {
+      "check_id": "checkout:unittest:crux/scripts/tests:test*.py",
+      "evidence_id": "TE-cf4a952a867f4cfa9bab07e3f92a553b",
+      "pass": 1,
+      "use": "executed"
+    },
+    {
+      "check_id": "checkout:unittest:tools/tests:test*.py",
+      "evidence_id": "TE-ed63ce61b0bb499dbe82e27327498af2",
+      "pass": 1,
+      "use": "executed"
+    }
+  ],
+  "extensions": [],
+  "goal": "Publish crux 4.1.0 (CYC-0012 release command and evidence reuse, CYC-0013 council blocker test and diagnostics, CYC-0014 commander bookkeeping and ADR-0162) to the private beta idyll/crux so cycles can run with the fixes",
+  "history": [
+    {
+      "action": "created",
+      "at": "2026-10-18T20:15:14.497469+00:00",
+      "pass": 1,
+      "phase": "plan",
+      "status": "active"
+    },
+    {
+      "action": "plan-revised",
+      "at": "2026-10-18T22:30:14.594715+00:00",
+      "pass": 1,
+      "phase": "plan",
+      "previous": {
+        "acceptance": [
+          "Five version surfaces and two version records read 4.1.0; changelog promoted",
+          "Public docs regenerated and reviewed; no section dropped",
+          "release.py verify passes with every suite reused or executed and the artifact frozen",
+          "Independent review of the verified artifact; release-ready records the owner's authorization for idyll/crux",
+          "Beta published to idyll/crux, remote tree equals the artifact, smoke passes"
+        ],
+        "constraints": [],
+        "revision": 1,
+        "scope": [
+          "crux/plugin.json",
+          "crux/.claude-plugin/plugin.json",
+          "crux/.codex-plugin/plugin.json",
+          "crux-mods/.claude-plugin/plugin.json",
+          "pyproject.toml",
+          "uv.lock",
+          "CHANGELOG.md",
+          "README.md",
+          "public/",
+          "tools/bionic-catalog/crux-learning-catalog-guide.json"
+        ],
+        "tasks": [],
+        "verification": []
+      },
+      "reason": "Add the release tasks and verification the record omitted; coordinator catch-up after verify",
+      "status": "active"
+    },
+    {
+      "action": "plan",
+      "at": "2026-10-18T22:30:14.594867+00:00",
+      "pass": 1,
+      "phase": "plan",
+      "reason": "Add the release tasks and verification the record omitted; coordinator catch-up after verify",
+      "status": "active"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-18T22:30:19.156978+00:00",
+      "commits": [
+        "0d749ea58acece3e46e7326fd0b09606a261f380"
+      ],
+      "note": "release prep committed; release.py prepare passed 2026-10-18T20:24:26Z",
+      "pass": 1,
+      "phase": "plan",
+      "state": "done",
+      "status": "active",
+      "task": "release-prep"
+    },
+    {
+      "action": "advance",
+      "at": "2026-10-18T22:30:19.209645+00:00",
+      "pass": 1,
+      "phase": "release",
+      "status": "active"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-18T22:30:26.869330+00:00",
+      "note": "release.py verify passed 2026-10-18T22:27:30Z in 7379 s at 0d749ea5; artifact tree c125300d4d2329fad11fe68c98633306569c8fb7, 1681 files; executed TE-cf4a952a867f4cfa9bab07e3f92a553b, TE-ed63ce61b0bb499dbe82e27327498af2, TE-cf1cd5f4ea704691a166e900d3b36aea, TE-307f01e257b8455b8e59dabacab04319; ledger .git/crux/releases/4.1.0/ledger.json",
+      "pass": 1,
+      "phase": "release",
+      "state": "done",
+      "status": "active",
+      "task": "release-verify"
+    },
+    {
+      "action": "task-updated",
+      "assignee": "reviewer",
+      "at": "2026-10-18T22:30:26.918976+00:00",
+      "pass": 1,
+      "phase": "release",
+      "result_path": "bionic/cycles/CYC-0015/evidence/review/artifact-review.md",
+      "state": "active",
+      "status": "active",
+      "task": "release-review"
+    },
+    {
+      "action": "task-updated",
+      "assignee": "reviewer",
+      "at": "2026-10-18T22:36:20.270112+00:00",
+      "evidence": [
+        "cycles/CYC-0015/evidence/review/artifact-review.md"
+      ],
+      "note": "approve; 0 blocking, 3 advisory",
+      "pass": 1,
+      "phase": "release",
+      "result_path": "bionic/cycles/CYC-0015/evidence/review/artifact-review.md",
+      "state": "done",
+      "status": "active",
+      "task": "release-review"
+    },
+    {
+      "action": "checks",
+      "at": "2026-10-18T22:36:52.768250+00:00",
+      "pass": 1,
+      "phase": "release",
+      "status": "active"
+    },
+    {
+      "action": "evidence",
+      "at": "2026-10-18T22:36:53.565564+00:00",
+      "pass": 1,
+      "phase": "release",
+      "status": "active"
+    },
+    {
+      "action": "evidence",
+      "at": "2026-10-18T22:36:54.389635+00:00",
+      "pass": 1,
+      "phase": "release",
+      "status": "active"
+    },
+    {
+      "action": "coverage",
+      "at": "2026-10-18T22:36:55.223136+00:00",
+      "pass": 1,
+      "phase": "release",
+      "status": "active"
+    },
+    {
+      "action": "checks",
+      "at": "2026-10-18T22:37:06.389880+00:00",
+      "pass": 1,
+      "phase": "release",
+      "status": "active"
+    },
+    {
+      "action": "coverage",
+      "at": "2026-10-18T22:37:06.466170+00:00",
+      "pass": 1,
+      "phase": "release",
+      "status": "active"
+    },
+    {
+      "action": "review",
+      "at": "2026-10-18T22:37:08.004134+00:00",
+      "pass": 1,
+      "phase": "release",
+      "status": "active"
+    },
+    {
+      "action": "task-updated",
+      "assignee": "main-session",
+      "at": "2026-10-18T22:37:17.696042+00:00",
+      "pass": 1,
+      "phase": "release",
+      "state": "active",
+      "status": "active",
+      "task": "release-ready"
+    },
+    {
+      "action": "review",
+      "at": "2026-10-18T22:37:52.133274+00:00",
+      "pass": 1,
+      "phase": "release",
+      "status": "active"
+    },
+    {
+      "action": "release-ready",
+      "at": "2026-10-18T22:37:52.421296+00:00",
+      "ledger_artifact": {
+        "git_tree": "c125300d4d2329fad11fe68c98633306569c8fb7",
+        "source_revision": "0d749ea58acece3e46e7326fd0b09606a261f380",
+        "stage_sha256": "21422aef7699be0fdba6144f3568d17f22d943dbb2d528c19ac78ae7f08f23d9"
+      },
+      "ledger_evidence": [
+        {
+          "check_id": "checkout:unittest:crux/scripts/tests:test*.py",
+          "evidence_id": "TE-cf4a952a867f4cfa9bab07e3f92a553b",
+          "inputs_fingerprint": "a3374af6007aaaf4c8a678e63c0fc8b3a3f7a632178253d9925cc50309acbb5b"
+        },
+        {
+          "check_id": "checkout:unittest:tools/tests:test*.py",
+          "evidence_id": "TE-ed63ce61b0bb499dbe82e27327498af2",
+          "inputs_fingerprint": "159c5f095abc9ef27b02fd0cb96a931becf6802b1a18c3f336d17bd45703a968"
+        },
+        {
+          "check_id": "staged:py3.13:unittest:crux/scripts/tests:test*.py",
+          "evidence_id": "TE-cf1cd5f4ea704691a166e900d3b36aea",
+          "inputs_fingerprint": "992adf94dbc6e2cfe44720240227dce0e2fe0a593e26be815ece434757e8da89"
+        },
+        {
+          "check_id": "staged:py3.14:unittest:crux/scripts/tests:test*.py",
+          "evidence_id": "TE-307f01e257b8455b8e59dabacab04319",
+          "inputs_fingerprint": "998b624d00f396c6524dd634425584a29634195b25468b1ff7d8da125408d8ce"
+        }
+      ],
+      "pass": 1,
+      "phase": "release",
+      "status": "active"
+    },
+    {
+      "action": "task-updated",
+      "assignee": "main-session",
+      "at": "2026-10-18T22:37:59.002056+00:00",
+      "pass": 1,
+      "phase": "release",
+      "state": "done",
+      "status": "active",
+      "task": "release-ready"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-18T22:37:59.051782+00:00",
+      "pass": 1,
+      "phase": "release",
+      "state": "active",
+      "status": "active",
+      "task": "release-beta"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-18T22:42:28.186027+00:00",
+      "pass": 1,
+      "phase": "release",
+      "state": "done",
+      "status": "active",
+      "task": "release-beta"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-18T22:42:28.237060+00:00",
+      "pass": 1,
+      "phase": "release",
+      "state": "active",
+      "status": "active",
+      "task": "release-smoke"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-18T22:42:40.813055+00:00",
+      "pass": 1,
+      "phase": "release",
+      "state": "done",
+      "status": "active",
+      "task": "release-smoke"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-18T22:42:40.863191+00:00",
+      "pass": 1,
+      "phase": "release",
+      "state": "active",
+      "status": "active",
+      "task": "release-record"
+    },
+    {
+      "action": "release-verified",
+      "at": "2026-10-18T22:43:17.030451+00:00",
+      "pass": 1,
+      "phase": "release",
+      "status": "active"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-18T22:43:28.510646+00:00",
+      "pass": 1,
+      "phase": "release",
+      "state": "done",
+      "status": "active",
+      "task": "release-record"
+    },
+    {
+      "action": "advance",
+      "at": "2026-10-18T22:43:28.574884+00:00",
+      "pass": 1,
+      "phase": "reflect",
+      "status": "active"
+    },
+    {
+      "action": "reflect",
+      "at": "2026-10-18T22:43:28.627048+00:00",
+      "pass": 1,
+      "phase": "reflect",
+      "status": "active"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-18T22:43:28.676269+00:00",
+      "pass": 1,
+      "phase": "reflect",
+      "state": "done",
+      "status": "active",
+      "task": "reflect"
+    },
+    {
+      "action": "completion",
+      "at": "2026-10-18T22:43:34.472914+00:00",
+      "pass": 1,
+      "phase": "reflect",
+      "status": "active"
+    },
+    {
+      "action": "advance",
+      "at": "2026-10-18T22:43:34.610456+00:00",
+      "pass": 1,
+      "phase": "reflect",
+      "status": "completed"
+    }
+  ],
+  "id": "CYC-0015",
+  "implementers": [
+    "main-session"
+  ],
+  "pass": 1,
+  "pass_limit": 2,
+  "phase": "reflect",
+  "plan": {
+    "acceptance": [
+      "Five version surfaces and two version records read 4.1.0; changelog promoted",
+      "Public docs regenerated and reviewed; no section dropped",
+      "release.py verify passes with every suite reused or executed and the artifact frozen",
+      "Independent review of the verified artifact; release-ready records the owner's authorization for idyll/crux",
+      "Beta published to idyll/crux, remote tree equals the artifact, smoke passes"
+    ],
+    "constraints": [],
+    "revision": 2,
+    "scope": [
+      "crux/plugin.json",
+      "crux/.claude-plugin/plugin.json",
+      "crux/.codex-plugin/plugin.json",
+      "crux-mods/.claude-plugin/plugin.json",
+      "pyproject.toml",
+      "uv.lock",
+      "CHANGELOG.md",
+      "README.md",
+      "public/",
+      "tools/bionic-catalog/crux-learning-catalog-guide.json"
+    ],
+    "tasks": [
+      {
+        "commits": [
+          "0d749ea58acece3e46e7326fd0b09606a261f380"
+        ],
+        "depends_on": [],
+        "description": "Bump five version surfaces, promote changelog, regenerate footer and public docs, run prepare",
+        "expected_evidence": [
+          "Commit 0d749ea5; ledger prepare step passed"
+        ],
+        "id": "release-prep",
+        "note": "release prep committed; release.py prepare passed 2026-10-18T20:24:26Z",
+        "phase": "plan",
+        "status": "done"
+      },
+      {
+        "depends_on": [
+          "release-prep"
+        ],
+        "description": "Run release.py verify: preflight, four suites, sync.sh dry run, freeze artifact",
+        "expected_evidence": [
+          "Ledger verify step passed with receipt ids"
+        ],
+        "id": "release-verify",
+        "note": "release.py verify passed 2026-10-18T22:27:30Z in 7379 s at 0d749ea5; artifact tree c125300d4d2329fad11fe68c98633306569c8fb7, 1681 files; executed TE-cf4a952a867f4cfa9bab07e3f92a553b, TE-ed63ce61b0bb499dbe82e27327498af2, TE-cf1cd5f4ea704691a166e900d3b36aea, TE-307f01e257b8455b8e59dabacab04319; ledger .git/crux/releases/4.1.0/ledger.json",
+        "phase": "release",
+        "status": "done"
+      },
+      {
+        "assignee": "reviewer",
+        "depends_on": [
+          "release-verify"
+        ],
+        "description": "Independent review of the verified artifact and ledger",
+        "evidence": [
+          "cycles/CYC-0015/evidence/review/artifact-review.md"
+        ],
+        "expected_evidence": [
+          "Review report under evidence/review/"
+        ],
+        "id": "release-review",
+        "note": "approve; 0 blocking, 3 advisory",
+        "phase": "release",
+        "result_path": "bionic/cycles/CYC-0015/evidence/review/artifact-review.md",
+        "status": "done"
+      },
+      {
+        "assignee": "main-session",
+        "depends_on": [
+          "release-review"
+        ],
+        "description": "Record release-ready binding the ledger with the owner's authorization for idyll/crux",
+        "expected_evidence": [
+          "cycle release block names the ledger artifact"
+        ],
+        "id": "release-ready",
+        "phase": "release",
+        "status": "done"
+      },
+      {
+        "depends_on": [
+          "release-ready"
+        ],
+        "description": "Publish to idyll/crux with release.py beta",
+        "expected_evidence": [
+          "Ledger beta step passed; remote tree equals artifact"
+        ],
+        "id": "release-beta",
+        "phase": "release",
+        "status": "done"
+      },
+      {
+        "depends_on": [
+          "release-beta"
+        ],
+        "description": "Run release.py smoke against the beta install",
+        "expected_evidence": [
+          "Ledger smoke step passed"
+        ],
+        "id": "release-smoke",
+        "phase": "release",
+        "status": "done"
+      },
+      {
+        "depends_on": [
+          "release-smoke"
+        ],
+        "description": "release.py record; log.md release op; journal entry; retained evidence committed; release-verified",
+        "expected_evidence": [
+          "evidence/release/ copy committed"
+        ],
+        "id": "release-record",
+        "phase": "release",
+        "status": "done"
+      },
+      {
+        "depends_on": [
+          "release-record"
+        ],
+        "description": "Reflect on the release",
+        "expected_evidence": [
+          "Reflection recorded"
+        ],
+        "id": "reflect",
+        "phase": "reflect",
+        "status": "done"
+      }
+    ],
+    "verification": [
+      "release.py verify ledger step passed with four suite receipts",
+      "Independent review report of the verified artifact",
+      "release.py beta and smoke ledger steps passed"
+    ]
+  },
+  "reflection": {
+    "lessons": [
+      "The coordinator must record each release step as it lands; the record sat in Plan through verify until the owner asked.",
+      "Release-cycle review requires required checks, attached evidence and coverage first; staged suite receipts bind only through the ledger at release-ready.",
+      "Task assignee, note, commit and evidence writes are part of the review basis, so bookkeeping after review invalidated it; only status writes are safe."
+    ],
+    "outcome": "crux 4.1.0 published to the private beta idyll/crux (tag v4.1.0, tree c125300d equal to the verified artifact); verify, independent artifact review, release-ready, beta, smoke and record all passed. Official is not authorized and was not run.",
+    "remaining": [
+      "Fix cycle writer: exclude task bookkeeping fields from the review basis.",
+      "Allow attaching staged receipts with a source root, or document that the ledger carries them.",
+      "Normalize docs/ vs bionic/ paths in README.md or add Keep lines to the readme prompt.",
+      "Add the parallel_suite exit-3 change to the next changelog.",
+      "Run the live OpenCode 2 check from the beta install (smoke --live-check) before official.",
+      "Owner authorization needed for the official release to bionic-coding/crux.",
+      "Prose-review dispositions for the 4.1.0 changelog (preflight advisory A)."
+    ]
+  },
+  "release": {
+    "artifacts": [],
+    "authorization": "Owner, 2026-10-18, main Claude Code session: \"continue running through to cycle completion and then cut thr release.\" and \"I would like to cut a new beta release as soon as this is done so that we can start running cycles with the fixes.\" and \"yes! release! thanks!\" (beta to idyll/crux only; official not authorized)",
+    "destinations": [
+      "idyll/crux"
+    ],
+    "input_sha256": null,
+    "ledger": {
+      "artifact": {
+        "git_tree": "c125300d4d2329fad11fe68c98633306569c8fb7",
+        "source_revision": "0d749ea58acece3e46e7326fd0b09606a261f380",
+        "stage_sha256": "21422aef7699be0fdba6144f3568d17f22d943dbb2d528c19ac78ae7f08f23d9"
+      },
+      "evidence": [
+        {
+          "check_id": "checkout:unittest:crux/scripts/tests:test*.py",
+          "evidence_id": "TE-cf4a952a867f4cfa9bab07e3f92a553b",
+          "inputs_fingerprint": "a3374af6007aaaf4c8a678e63c0fc8b3a3f7a632178253d9925cc50309acbb5b"
+        },
+        {
+          "check_id": "checkout:unittest:tools/tests:test*.py",
+          "evidence_id": "TE-ed63ce61b0bb499dbe82e27327498af2",
+          "inputs_fingerprint": "159c5f095abc9ef27b02fd0cb96a931becf6802b1a18c3f336d17bd45703a968"
+        },
+        {
+          "check_id": "staged:py3.13:unittest:crux/scripts/tests:test*.py",
+          "evidence_id": "TE-cf1cd5f4ea704691a166e900d3b36aea",
+          "inputs_fingerprint": "992adf94dbc6e2cfe44720240227dce0e2fe0a593e26be815ece434757e8da89"
+        },
+        {
+          "check_id": "staged:py3.14:unittest:crux/scripts/tests:test*.py",
+          "evidence_id": "TE-307f01e257b8455b8e59dabacab04319",
+          "inputs_fingerprint": "998b624d00f396c6524dd634425584a29634195b25468b1ff7d8da125408d8ce"
+        }
+      ],
+      "retained": "cycles/CYC-0015/evidence/release"
+    },
+    "verification": "gh api on 2026-10-18: idyll/crux tag v4.1.0 object b80a6090eeb4d82332227cc3b23dbe065cd96b40, commit 200611d14fb7dde973c44dd82a6f83bcc0e9b36b, tree c125300d4d2329fad11fe68c98633306569c8fb7 equal to the verified artifact; release https://github.com/idyll/crux/releases/tag/v4.1.0 present; release.py smoke passed (53 skills, 10 agents, 4.1.0)"
+  },
+  "required_checks": [
+    "checkout:unittest:crux/scripts/tests:test*.py",
+    "checkout:unittest:tools/tests:test*.py"
+  ],
+  "review_policy": {
+    "rationale": "repository default",
+    "risks": [],
+    "scrutiny": "standard"
+  },
+  "reviews": [
+    {
+      "path": "cycles/CYC-0015/reviews/70f1e8dc8d234bb99131ac6fad73c85c.json",
+      "sha256": "8b73226e3be7eebc58535cec57283460288d13a211953d952178626fc563a4d2"
+    },
+    {
+      "path": "cycles/CYC-0015/reviews/41601f28dd4e4d15b7fa55418bb73bf3.json",
+      "sha256": "a6b27881ddce3dab963e20cfb47106120d2f2129bc233eedb6f760655eb94aa9"
+    }
+  ],
+  "schema_version": 2,
+  "status": "completed",
+  "title": "Release crux 4.1.0 to beta",
+  "type": "release",
+  "updated_at": "2026-10-18T22:43:34.610582+00:00"
+}

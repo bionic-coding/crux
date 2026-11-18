@@ -42,13 +42,14 @@ if HAVE_COUNCIL:
 
 DUMMY_KEY = "sk-or-test-dummy"
 REAL_REGISTRY = SCRIPTS / "crux" / "_config" / "llm_router_config.json"
-PINNED_TEXT = ("gpt-6-astra", "gpt-6.1-sol", "gpt-6.1-terra", "claude-fable-5.1",
+PINNED_TEXT = ("gpt-6.2-astra", "gpt-6.2-sol", "gpt-6.1-terra", "claude-fable-5.1",
                "claude-opus-5.5", "claude-opus-5.5-xhigh", "gemini-4-argon")
 #: The served-provider seeds, each the label observed for the entry's serving_providers
-#: pin. gpt-6-astra and claude-opus-5.5-xhigh carry the labels the PB-0136 round-1
-#: council record observed; gemini-4-argon carries the label PB-0153's live single-seat
-#: call observed (run notes R3), because that record never seated it.
-PROVIDER_SEEDS = {"gpt-6-astra": ["OpenAI"], "claude-opus-5.5-xhigh": ["Anthropic"],
+#: pin. claude-opus-5.5-xhigh carries the label the PB-0136 round-1 council record
+#: observed; gemini-4-argon carries the label PB-0153's live single-seat call observed
+#: (run notes R3), because that record never seated it. gpt-6.2-astra carries the label
+#: CYC-0180's live single-seat call observed (evidence/astra-live-call.md in that cycle).
+PROVIDER_SEEDS = {"gpt-6.2-astra": ["OpenAI"], "claude-opus-5.5-xhigh": ["Anthropic"],
                   "gemini-4-argon": ["Google AI Studio"]}
 #: What the gateway reports as `provider` for each vendor namespace.
 DISPLAY = {"openai": "OpenAI", "anthropic": "Anthropic", "google": "Google AI Studio"}
@@ -65,8 +66,9 @@ class ShippedRegistryTests(unittest.TestCase):
 
     def test_the_version_names_this_schema_change(self):
         # 5.0.0 removed gemini-3.1-pro-preview, a major bump; 5.0.1 moves gemini-4-argon's
-        # prices; 5.1.0 adds gpt-6.1-terra.
-        self.assertEqual(self.config["version"], "5.1.0")
+        # prices; 5.1.0 adds gpt-6.1-terra; 6.0.0 removes gpt-6-astra, gpt-6.1-sol and
+        # gpt-6.1-sol-low for their GPT-6.2 successors, a major bump.
+        self.assertEqual(self.config["version"], "6.0.0")
 
     def test_the_provider_sets_are_exactly_the_observed_seeds(self):
         declared = {k: v["accepted_served_providers"] for k, v in self.config["models"].items()
@@ -90,13 +92,34 @@ class ShippedRegistryTests(unittest.TestCase):
         self.assertIn("bionic/promptbooks/runs/PB-0136-separate-council-deliberation-from-independent/"
                       "council/RUN-001-p2-r1.json", entry)
 
-    def test_the_latest_changelog_entry_records_the_terra_registration(self):
-        latest = self.config["_changelog"].split(" | ")[0]
-        self.assertTrue(latest.startswith("2026-10-26: 5.1.0."), latest[:40])
+    def test_the_changelog_records_the_terra_registration(self):
+        # The 5.1.0 entry, found by its version: later entries are prepended.
+        entry = next((e for e in self.config["_changelog"].split(" | ")
+                      if e.startswith("2026-10-26: 5.1.0.")), None)
+        self.assertIsNotNone(entry, "the 5.1.0 changelog entry is missing")
         for phrase in ("gpt-6.1-terra", "openai/gpt-6.1-terra", "Codex standard level",
                        "No model_roles entry", "no council seat moves"):
             with self.subTest(phrase=phrase):
+                self.assertIn(phrase, entry)
+
+    def test_the_latest_changelog_entry_records_the_gpt_6_2_move(self):
+        latest = self.config["_changelog"].split(" | ")[0]
+        self.assertTrue(latest.startswith("2026-11-17: 6.0.0."), latest[:40])
+        for phrase in ("openai/gpt-6.2-astra", "openai/gpt-6.2-sol", "gpt-6.2-sol-low",
+                       "$8 input and $40 output", "$2 input and $10 output",
+                       "low, medium, high, xhigh and max",
+                       "bionic/cycles/CYC-0180/evidence/astra-live-call.md",
+                       "REMOVED and tombstoned"):
+            with self.subTest(phrase=phrase):
                 self.assertIn(phrase, latest)
+
+    def test_the_gpt_6_2_entries_carry_the_supplied_prices(self):
+        expected = {"gpt-6.2-astra": (8.0, 40.0), "gpt-6.2-sol": (2.0, 10.0),
+                    "gpt-6.2-sol-low": (2.0, 10.0)}
+        for key, (inp, out) in expected.items():
+            with self.subTest(key=key):
+                cost = self.config["models"][key]["cost"]
+                self.assertEqual((cost["input_per_1m"], cost["output_per_1m"]), (inp, out))
 
     def test_the_5_0_1_changelog_entry_records_the_argon_price_move(self):
         # Found by its version: later entries are prepended.
@@ -137,7 +160,7 @@ class ShippedRegistryTests(unittest.TestCase):
         # The provider set governs council eligibility only: the request a non-gate
         # caller builds for an unseeded entry is the one it built before.
         with mock.patch.dict("os.environ", {"OPENROUTER_API_KEY": DUMMY_KEY}):
-            for key in ("gpt-6.1-sol", "claude-fable-5.1", "claude-opus-5.5"):
+            for key in ("gpt-6.2-sol", "claude-fable-5.1", "claude-opus-5.5"):
                 with self.subTest(key=key):
                     cfg = llm_caller.get_model_config(key)
                     _, _, payload = llm_caller.build_gateway_request(cfg, "q")
@@ -150,7 +173,8 @@ class ShippedRegistryTests(unittest.TestCase):
         retired = self.config["retired_models"]
         self.assertTrue(retired)
         self.assertEqual(len(retired), len(set(retired)))
-        for key in ("gpt-6-sol", "gpt-6-sol-low", "claude-opus-5", "claude-sonnet-5",
+        for key in ("gpt-6-astra", "gpt-6.1-sol", "gpt-6.1-sol-low",
+                    "gpt-6-sol", "gpt-6-sol-low", "claude-opus-5", "claude-sonnet-5",
                     "gpt-5.6-sol", "gpt-5.6-sol-low", "gpt-5.6-terra", "gpt-5.6-luna"):
             self.assertIn(key, retired)
         for key in retired:
@@ -186,7 +210,7 @@ class ShippedRegistryTests(unittest.TestCase):
 
     def test_the_three_gate_roles_are_eligible_today(self):
         self.assertEqual(validate_gate_assignment(), {
-            "openai_top": "gpt-6-astra", "anthropic_top": "claude-opus-5.5-xhigh",
+            "openai_top": "gpt-6.2-astra", "anthropic_top": "claude-opus-5.5-xhigh",
             "google_top": "gemini-4-argon"})
 
     #: Every role as the 5.0.0 registry holds it, copied from the file. A role that
@@ -196,8 +220,8 @@ class ShippedRegistryTests(unittest.TestCase):
         "google_fast": "gemini-3.5-flash",
         "anthropic_top": "claude-opus-5.5-xhigh",
         "anthropic_balanced": "claude-opus-5.5",
-        "openai_top": "gpt-6-astra",
-        "council_default": ["gpt-6.1-sol", "gemini-4-argon", "claude-opus-5.5-xhigh"],
+        "openai_top": "gpt-6.2-astra",
+        "council_default": ["gpt-6.2-sol", "gemini-4-argon", "claude-opus-5.5-xhigh"],
         "council_arbiter": "claude-opus-5.5-xhigh",
         "release_docs": "claude-sonnet-5.5",
         "cycle_classifier": "gpt-6-luna-decisions",
@@ -324,27 +348,27 @@ class TempRegistry(unittest.TestCase):
 class EligibilityTests(TempRegistry):
     def registry(self):
         config = real_registry()
-        config["models"]["no-pin"] = {**config["models"]["gpt-6-astra"],
+        config["models"]["no-pin"] = {**config["models"]["gpt-6.2-astra"],
                                       "serving_providers": []}
         config["models"]["no-pin"].pop("serving_providers")
-        config["models"]["no-set"] = {**config["models"]["gpt-6-astra"]}
+        config["models"]["no-set"] = {**config["models"]["gpt-6.2-astra"]}
         config["models"]["no-set"].pop("accepted_served_models")
-        config["models"]["an-image"] = {**config["models"]["gpt-6-astra"],
+        config["models"]["an-image"] = {**config["models"]["gpt-6.2-astra"],
                                         "type": "image_generation"}
-        config["models"]["empty-set"] = {**config["models"]["gpt-6-astra"],
+        config["models"]["empty-set"] = {**config["models"]["gpt-6.2-astra"],
                                          "accepted_served_models": []}
-        config["models"]["no-provider-set"] = {**config["models"]["gpt-6-astra"]}
+        config["models"]["no-provider-set"] = {**config["models"]["gpt-6.2-astra"]}
         config["models"]["no-provider-set"].pop("accepted_served_providers")
-        config["models"]["empty-provider-set"] = {**config["models"]["gpt-6-astra"],
+        config["models"]["empty-provider-set"] = {**config["models"]["gpt-6.2-astra"],
                                                   "accepted_served_providers": []}
         config["retired_models"] = config["retired_models"] + ["gone-key", "both-key"]
-        config["models"]["both-key"] = {**config["models"]["gpt-6-astra"]}
+        config["models"]["both-key"] = {**config["models"]["gpt-6.2-astra"]}
         return config
 
     def test_each_reason(self):
         self.write(self.registry())
         cases = {
-            "gpt-6-astra": (True, "ok"),
+            "gpt-6.2-astra": (True, "ok"),
             # An empty set declares nothing: the entry is unverified (ADR-0144, ADR-0145 F7).
             "empty-set": (False, "no-accepted-set"),
             "no-provider-set": (False, "no-accepted-provider-set"),
@@ -365,9 +389,9 @@ class EligibilityTests(TempRegistry):
 
     def malformed_registry(self):
         config = real_registry()
-        base = config["models"]["gpt-6-astra"]
+        base = config["models"]["gpt-6.2-astra"]
         bad = {
-            "str-set": ("accepted_served_models", "openai/gpt-6-astra"),
+            "str-set": ("accepted_served_models", "openai/gpt-6.2-astra"),
             "int-in-set": ("accepted_served_models", [1]),
             "dict-set": ("accepted_served_models", {"a": 1}),
             "str-provider-set": ("accepted_served_providers", "OpenAI"),
@@ -380,14 +404,14 @@ class EligibilityTests(TempRegistry):
         }
         for key, (field, value) in bad.items():
             config["models"][key] = {**base, field: value}
-        config["models"]["not-an-object"] = "gpt-6-astra"
+        config["models"]["not-an-object"] = "gpt-6.2-astra"
         config["models"]["list-type"] = {**base, "type": ["text"]}
         return config
 
     def test_a_malformed_entry_is_not_eligible_and_never_raises(self):
         self.write(self.malformed_registry())
         cases = {
-            "gpt-6-astra": (True, "ok"),  # positive control on the same registry
+            "gpt-6.2-astra": (True, "ok"),  # positive control on the same registry
             "str-set": (False, "malformed-accepted-set"),
             "int-in-set": (False, "malformed-accepted-set"),
             "dict-set": (False, "malformed-accepted-set"),
@@ -410,9 +434,9 @@ class EligibilityTests(TempRegistry):
         config = real_registry()
         for key, value in {"int-api": 7, "list-api": ["openai/x"], "none-api": None,
                            "no-slash-api": "noslash"}.items():
-            config["models"][key] = {**config["models"]["gpt-6-astra"], "api_string": value}
+            config["models"][key] = {**config["models"]["gpt-6.2-astra"], "api_string": value}
         self.write(config)
-        self.assertEqual(llm_caller.council_eligibility("gpt-6-astra").reason, "ok")
+        self.assertEqual(llm_caller.council_eligibility("gpt-6.2-astra").reason, "ok")
         for key in ("int-api", "list-api", "none-api", "no-slash-api"):
             with self.subTest(key=key):
                 result = llm_caller.council_eligibility(key)
@@ -430,7 +454,7 @@ class EligibilityTests(TempRegistry):
     def test_a_retired_key_is_never_aliased(self):
         self.write(self.registry())
         self.assertEqual(llm_caller.council_eligibility("gpt-6-sol").reason, "retired")
-        self.assertNotEqual(llm_caller.council_eligibility("gpt-6.1-sol").reason, "retired")
+        self.assertNotEqual(llm_caller.council_eligibility("gpt-6.2-sol").reason, "retired")
 
     def test_a_missing_retired_list_is_the_empty_set(self):
         config = real_registry()
@@ -449,23 +473,23 @@ class EligibilityTests(TempRegistry):
 
     def test_a_malformed_accepted_set_raises_on_load(self):
         for field in ("accepted_served_models", "accepted_served_providers"):
-            for bad in ("openai/gpt-6-astra", [1], [None], {"a": 1}, 5):
+            for bad in ("openai/gpt-6.2-astra", [1], [None], {"a": 1}, 5):
                 config = real_registry()
-                config["models"]["gpt-6-astra"][field] = bad
+                config["models"]["gpt-6.2-astra"][field] = bad
                 self.write(config)
                 with self.subTest(field=field, bad=bad), self.assertRaises(ValueError):
-                    llm_caller.get_model_config("gpt-6-astra")
+                    llm_caller.get_model_config("gpt-6.2-astra")
         # Positive control: a list of strings loads as a tuple. An empty list loads,
         # and declares no set.
         self.write(real_registry())
-        cfg = llm_caller.get_model_config("gpt-6-astra")
+        cfg = llm_caller.get_model_config("gpt-6.2-astra")
         self.assertEqual((cfg.accepted_served_models, cfg.accepted_served_providers),
-                         (("openai/gpt-6-astra",), ("OpenAI",)))
+                         (("openai/gpt-6.2-astra",), ("OpenAI",)))
         config = real_registry()
-        config["models"]["gpt-6-astra"]["accepted_served_models"] = []
-        config["models"]["gpt-6-astra"]["accepted_served_providers"] = []
+        config["models"]["gpt-6.2-astra"]["accepted_served_models"] = []
+        config["models"]["gpt-6.2-astra"]["accepted_served_providers"] = []
         self.write(config)
-        cfg = llm_caller.get_model_config("gpt-6-astra")
+        cfg = llm_caller.get_model_config("gpt-6.2-astra")
         self.assertIsNone(cfg.accepted_served_models)
         self.assertIsNone(cfg.accepted_served_providers)
 
@@ -477,7 +501,7 @@ class EligibilityTests(TempRegistry):
         self.assertEqual(llm_caller.retired_models(), frozenset())
 
     def test_provider_namespace(self):
-        self.assertEqual(llm_caller.provider_namespace("openai/gpt-6-astra"), "openai")
+        self.assertEqual(llm_caller.provider_namespace("openai/gpt-6.2-astra"), "openai")
         self.assertEqual(llm_caller.provider_namespace("a/b/c"), "a")
         for bad in ("no-slash", "/x", "", "/"):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
@@ -519,10 +543,10 @@ class GateRefusalTests(TempRegistry):
 
     def cases(self):
         def no_set(config):
-            del config["models"]["gpt-6-astra"]["accepted_served_models"]
+            del config["models"]["gpt-6.2-astra"]["accepted_served_models"]
 
         def empty_set(config):
-            config["models"]["gpt-6-astra"]["accepted_served_models"] = []
+            config["models"]["gpt-6.2-astra"]["accepted_served_models"] = []
 
         def no_provider_set(config):
             del config["models"]["claude-opus-5.5-xhigh"]["accepted_served_providers"]
@@ -531,13 +555,13 @@ class GateRefusalTests(TempRegistry):
             config["models"]["gemini-4-argon"]["accepted_served_providers"] = []
 
         def two_roles_one_namespace(config):
-            # gpt-6.1-sol declares no provider set; give it one so the namespace
+            # gpt-6.2-sol declares no provider set; give it one so the namespace
             # rule, not eligibility, is what refuses.
-            config["models"]["gpt-6.1-sol"]["accepted_served_providers"] = ["OpenAI"]
-            config["model_roles"]["anthropic_top"] = "gpt-6.1-sol"
+            config["models"]["gpt-6.2-sol"]["accepted_served_providers"] = ["OpenAI"]
+            config["model_roles"]["anthropic_top"] = "gpt-6.2-sol"
 
         def unseeded_seat(config):
-            config["model_roles"]["openai_top"] = "gpt-6.1-sol"
+            config["model_roles"]["openai_top"] = "gpt-6.2-sol"
 
         def missing_role(config):
             del config["model_roles"]["google_top"]
@@ -546,7 +570,7 @@ class GateRefusalTests(TempRegistry):
             config["model_roles"]["google_top"] = ["gemini-4-argon"]
 
         def tombstone_present_in_models(config):
-            config["retired_models"].append("gpt-6-astra")
+            config["retired_models"].append("gpt-6.2-astra")
 
         def image_seat(config):
             config["model_roles"]["openai_top"] = "gpt-image-2.5-sunburst"
@@ -555,33 +579,33 @@ class GateRefusalTests(TempRegistry):
             config["model_roles"]["anthropic_top"] = "claude-sonnet-5.5"
 
         def int_api_string(config):
-            config["models"]["gpt-6-astra"]["api_string"] = 7
+            config["models"]["gpt-6.2-astra"]["api_string"] = 7
 
         def list_api_string(config):
-            config["models"]["gpt-6-astra"]["api_string"] = ["openai/gpt-6-astra"]
+            config["models"]["gpt-6.2-astra"]["api_string"] = ["openai/gpt-6.2-astra"]
 
         return {
             "tombstoned-key": (self.point("anthropic_top", "claude-opus-5"),
                                "refused-assignment", ["anthropic_top", "claude-opus-5"]),
             "tombstoned-key-still-in-models": (tombstone_present_in_models,
-                                               "refused-assignment", ["gpt-6-astra"]),
-            "no-declared-set": (no_set, "refused-assignment", ["gpt-6-astra"]),
-            "empty-declared-set": (empty_set, "refused-assignment", ["gpt-6-astra"]),
+                                               "refused-assignment", ["gpt-6.2-astra"]),
+            "no-declared-set": (no_set, "refused-assignment", ["gpt-6.2-astra"]),
+            "empty-declared-set": (empty_set, "refused-assignment", ["gpt-6.2-astra"]),
             "model-set-but-no-provider-set": (no_provider_set, "refused-assignment",
                                               ["anthropic_top", "claude-opus-5.5-xhigh"]),
             "model-set-but-empty-provider-set": (empty_provider_set, "refused-assignment",
                                                  ["google_top", "gemini-4-argon"]),
-            "unseeded-seat": (unseeded_seat, "refused-assignment", ["openai_top", "gpt-6.1-sol"]),
+            "unseeded-seat": (unseeded_seat, "refused-assignment", ["openai_top", "gpt-6.2-sol"]),
             "unknown-key": (self.point("openai_top", "no-such-model"),
                             "refused-assignment", ["no-such-model"]),
             "two-roles-one-namespace": (two_roles_one_namespace,
-                                        "fewer-than-three-providers", ["gpt-6.1-sol"]),
+                                        "fewer-than-three-providers", ["gpt-6.2-sol"]),
             "missing-role": (missing_role, "refused-assignment", ["google_top"]),
             "non-string-role": (non_string_role, "refused-assignment", ["google_top"]),
             "image-seat": (image_seat, "refused-assignment", ["gpt-image-2.5-sunburst"]),
             "no-serving-pin": (no_pin, "refused-assignment", ["claude-sonnet-5.5"]),
-            "int-api-string": (int_api_string, "refused-assignment", ["gpt-6-astra"]),
-            "list-api-string": (list_api_string, "refused-assignment", ["gpt-6-astra"]),
+            "int-api-string": (int_api_string, "refused-assignment", ["gpt-6.2-astra"]),
+            "list-api-string": (list_api_string, "refused-assignment", ["gpt-6.2-astra"]),
         }
 
     def one_request_when_valid(self):
@@ -636,14 +660,14 @@ class GateRefusalTests(TempRegistry):
                 # The override itself names a valid, eligible key: it is refused
                 # because gate seats come only from the roles.
                 with self.assertRaises(CouncilAssignmentRefused) as caught:
-                    gate_config(counter, **{field: "gpt-6-astra"})
+                    gate_config(counter, **{field: "gpt-6.2-astra"})
                 self.assertEqual(caught.exception.code, "refused-assignment")
                 self.assertEqual(caught.exception.names, [field])
                 self.assertEqual(counter.requests, 0)
         # Positive control: the same override outside gate mode is accepted.
         counter = Counter()
-        config = AsyncCouncilConfig(openai_model="gpt-6-astra", transport=counter.transport)
-        self.assertEqual(config.openai_model, "gpt-6-astra")
+        config = AsyncCouncilConfig(openai_model="gpt-6.2-astra", transport=counter.transport)
+        self.assertEqual(config.openai_model, "gpt-6.2-astra")
 
     def test_a_non_gate_council_still_seats_a_retired_or_unpinned_role_it_was_given(self):
         # Gate mode is the only mode that refuses; the plain council is unchanged.
@@ -675,7 +699,7 @@ class GateRefusalTests(TempRegistry):
     def test_a_malformed_registry_entry_refuses_the_council_before_any_request(self):
         # S2: a string accepted set or serving pin used to pass eligibility, then
         # error the seat after the other two had spent.
-        for field, value in (("accepted_served_models", "openai/gpt-6-astra"),
+        for field, value in (("accepted_served_models", "openai/gpt-6.2-astra"),
                              ("accepted_served_providers", "OpenAI"),
                              ("accepted_served_providers", [1]),
                              ("serving_providers", "openai"),
@@ -685,13 +709,13 @@ class GateRefusalTests(TempRegistry):
                 self.write(real_registry())
                 self.assertEqual(self.one_request_when_valid(), 1)  # positive control
                 config = real_registry()
-                config["models"]["gpt-6-astra"][field] = value
+                config["models"]["gpt-6.2-astra"][field] = value
                 self.write(config)
                 counter = Counter()
                 with self.assertRaises(CouncilAssignmentRefused) as caught:
                     asyncio.run(create_async_council(gate_config(counter)).deliberate("q"))
                 self.assertEqual(caught.exception.code, "refused-assignment")
-                self.assertIn("gpt-6-astra", caught.exception.names)
+                self.assertIn("gpt-6.2-astra", caught.exception.names)
                 self.assertEqual(counter.requests, 0)
 
     def test_the_gate_flag_must_be_a_bool(self):
@@ -731,7 +755,7 @@ class GateRefusalTests(TempRegistry):
         # S1: validation ran only in __post_init__, and the config is mutable.
         counter = Counter()
         config = gate_config(counter)
-        config.openai_model = "gpt-6.1-sol"  # a second OpenAI seat
+        config.openai_model = "gpt-6.2-sol"  # a second OpenAI seat
         with self.assertRaises(CouncilAssignmentRefused) as caught:
             asyncio.run(create_async_council(config).deliberate("q"))
         self.assertEqual(caught.exception.code, "refused-assignment")
@@ -807,21 +831,21 @@ class GateRefusalTests(TempRegistry):
         # N2: outside gate mode a caller may seat any key, so the slot's role would
         # name a model the seat did not run. The role is None there.
         counter = Counter()
-        plain = AsyncCouncilConfig(openai_model="gpt-6.1-sol", transport=counter.transport,
+        plain = AsyncCouncilConfig(openai_model="gpt-6.2-sol", transport=counter.transport,
                                    timeout_seconds=5.0)
         vote = asyncio.run(create_async_council(plain)._call_seat_async("openai", "q"))
         self.assertIsNone(vote.role)
-        self.assertEqual(vote.registry_key, "gpt-6.1-sol")
+        self.assertEqual(vote.registry_key, "gpt-6.2-sol")
         # Positive control: the gate seat on the same slot records its role.
         gate_vote = asyncio.run(create_async_council(gate_config(Counter()))
                                 ._call_seat_async("openai", "q"))
         self.assertEqual((gate_vote.role, gate_vote.registry_key),
-                         ("openai_top", "gpt-6-astra"))
+                         ("openai_top", "gpt-6.2-astra"))
 
     def test_the_visual_entry_refuses_a_seat_edited_after_construction(self):
         counter = Counter()
         config = gate_config(counter)
-        config.openai_model = "gpt-6.1-sol"
+        config.openai_model = "gpt-6.2-sol"
         with self.assertRaises(CouncilAssignmentRefused):
             asyncio.run(AsyncVisualCouncil(config).analyze_image("aGk=", "probe"))
         self.assertEqual(counter.requests, 0)
@@ -833,7 +857,7 @@ class GateRefusalTests(TempRegistry):
         counter = Counter()
         config = gate_config(counter)
         self.assertEqual((config.openai_model, config.anthropic_model, config.gemini_model),
-                         ("gpt-6-astra", "claude-opus-5.5-xhigh", "gemini-4-argon"))
+                         ("gpt-6.2-astra", "claude-opus-5.5-xhigh", "gemini-4-argon"))
 
 
 

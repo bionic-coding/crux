@@ -24,7 +24,7 @@ import sys
 import adr_migration as m
 import migration_receipts as receipts
 from council_records import git
-from cycle_workflow import CycleError, atomic_bytes, contained, encoded
+from cycle_store import CycleError, atomic_bytes, contained, encoded
 
 
 class UsageError(Exception):

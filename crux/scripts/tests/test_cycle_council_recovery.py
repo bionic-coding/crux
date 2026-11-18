@@ -13,11 +13,9 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import cycle_council as council
-import cycle_commit
 import council_policy as policy
-from cycle_workflow import CycleError, atomic, tree
+from cycle_store import CycleError, atomic
 import test_cycle_council as fixtures
-from test_cycle_commit import CommitBase
 
 
 class AttemptRecoveryTests(unittest.TestCase):
@@ -114,11 +112,13 @@ class AttemptRecoveryTests(unittest.TestCase):
         self.assertEqual(path.read_bytes(),before)
 
     def test_recovery_and_late_finish_preserve_a_completed_cycles_bytes(self):
-        from cycle_workflow import create
-        cycle=create(self.root,'iterate','Fixture','Bounded',['src'],['Correct'],'builder','tester')
+        import cycle_writer
+        cycle=cycle_writer.create(self.root,'Fixture','lead',{'goal':'Bounded','scope':['src'],'acceptance':['Correct']})
         cfg,path,attempt,_=council.begin_mode(self.root,'consultation','adrs/subject.txt','Judge.',
                                              identity='closed',cycle_id=cycle['id'])
-        cycle['status']='completed';atomic(self.docs/'cycles'/cycle['id']/'cycle.json',cycle)
+        # The cycle later closes as a historical record: a completed typed record, read through the read-only reader.
+        atomic(self.docs/'cycles'/cycle['id']/'cycle.json',{'schema_version':3,'id':cycle['id'],'type':'iterate','phase':'reflect',
+                                                         'pass':1,'pass_limit':3,'status':'completed'})
         before=path.read_bytes()
         with self.assertRaisesRegex(CycleError,'active cycle'):
             council.recover(self.root,self.relative(path))
@@ -183,7 +183,7 @@ class AttemptRecoveryTests(unittest.TestCase):
 
     def test_two_recoverers_preserve_one_interrupted_claim(self):
         _,path,attempt,_=self.claim();relative=self.relative(path)
-        code='import sys;sys.path.insert(0,sys.argv[1]);from cycle_council import recover;from cycle_workflow import CycleError\ntry:print(recover(sys.argv[2],sys.argv[3])["status"])\nexcept CycleError as exc:\n if "flock is held" not in str(exc):raise\n print("held")'
+        code='import sys;sys.path.insert(0,sys.argv[1]);from cycle_council import recover;from cycle_store import CycleError\ntry:print(recover(sys.argv[2],sys.argv[3])["status"])\nexcept CycleError as exc:\n if "flock is held" not in str(exc):raise\n print("held")'
         processes=[subprocess.Popen([sys.executable,'-c',code,str(Path(council.__file__).parent),str(self.root),relative],
                                     stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True) for _ in range(2)]
         outcomes=[]
@@ -408,24 +408,6 @@ with patch('crux_env.get',return_value='test-gateway-credential'),patch('crux.co
         self.assertEqual(len(claims),1)
         relative=claims[0].relative_to(self.docs).as_posix()
         self.assertEqual(council.await_attempt(self.root,relative,10)['outcome'],'awaiting-architect')
-
-
-class LockObservationTests(CommitBase):
-    def test_read_only_probe_reports_stale_holder_and_preserves_it(self):
-        lock = self.common_lock(); holder = {'pid': 1, 'head': self.head(), 'started_at': 'historical'}
-        lock.write_text(json.dumps(holder))
-        state = cycle_commit.suite_lock_state(tree(self.repo))
-        self.assertEqual((state['flock'], state['holder']), ('not-held', holder))
-        self.assertEqual(json.loads(lock.read_text()), holder)
-        with lock.open('a') as held:
-            fcntl.flock(held, fcntl.LOCK_EX)
-            self.assertEqual(cycle_commit.suite_lock_state(tree(self.repo))['flock'], 'held')
-
-    def test_index_lock_has_no_removal_route_and_is_retained(self):
-        lock = self.repo / '.git/index.lock'; lock.write_text('unknown owner')
-        state = cycle_commit.pending_record(self.repo, self.cid)['locks']['index']
-        self.assertEqual(state['state'], 'present-owner-unknown')
-        self.assertEqual(lock.read_text(), 'unknown owner')
 
 
 if __name__ == '__main__':

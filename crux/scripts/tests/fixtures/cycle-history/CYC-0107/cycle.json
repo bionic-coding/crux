@@ -1,0 +1,198 @@
+{
+  "blocker": null,
+  "completion": {
+    "commits": [
+      "97aa1593f3e163da644162b9a1c98e75cce59f9c"
+    ],
+    "exception": null,
+    "input_sha256": "06bbfd3c98fd7081408e74ff04382fe0195e17d5b6e55e16a621423bff13a043",
+    "remaining": "none",
+    "test_runs": {
+      "executed": [],
+      "executions": 0,
+      "minutes": 0.0,
+      "reused": [],
+      "unreadable": 0,
+      "with_retry_reason": 0
+    }
+  },
+  "coordinator": "dev-lead",
+  "coverage": null,
+  "created_at": "2026-11-05T20:39:24.398978+00:00",
+  "decisions": [],
+  "evidence": [],
+  "extensions": [],
+  "goal": "crux 5.1.0 published to bionic-coding/crux from the tested beta artifact",
+  "history": [
+    {
+      "action": "created",
+      "at": "2026-11-05T20:39:24.399001+00:00",
+      "pass": 1,
+      "phase": "release",
+      "queue": {
+        "item": "Q-0056",
+        "token": "281fab0459f3423d91810ea376d9e821"
+      },
+      "revision": 1,
+      "status": "active"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-11-05T20:40:44.873629+00:00",
+      "note": "closed by release.py record: the ledger shows the target published",
+      "pass": 1,
+      "phase": "release",
+      "revision": 2,
+      "state": "done",
+      "status": "active",
+      "task": "live-check-and-go-ahead"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-11-05T20:40:44.886467+00:00",
+      "note": "closed by release.py record: the ledger shows the target published",
+      "pass": 1,
+      "phase": "release",
+      "revision": 3,
+      "state": "done",
+      "status": "active",
+      "task": "official"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-11-05T20:40:44.911147+00:00",
+      "commits": [
+        "97aa1593f3e163da644162b9a1c98e75cce59f9c"
+      ],
+      "evidence": [
+        "cycles/CYC-0107/evidence/release/release-op.md"
+      ],
+      "note": "closed by release.py record: the ledger shows the target published",
+      "pass": 1,
+      "phase": "release",
+      "revision": 4,
+      "state": "done",
+      "status": "active",
+      "task": "record"
+    },
+    {
+      "action": "finish",
+      "at": "2026-11-05T20:40:45.075504+00:00",
+      "op_id": "record-finish-r4",
+      "pass": 1,
+      "phase": "release",
+      "revision": 5,
+      "status": "completed",
+      "tip": "97aa1593f3e163da644162b9a1c98e75cce59f9c"
+    }
+  ],
+  "id": "CYC-0107",
+  "implementers": [
+    "dev-lead"
+  ],
+  "operations": [
+    {
+      "at": "2026-11-05T20:40:45.075561+00:00",
+      "op": "finish",
+      "op_id": "record-finish-r4",
+      "request_sha256": "ca071641cbe6cef8051c3a595b5a79d59f8e0d905cc89b1358aefbf42d2e7984",
+      "result": {
+        "completion": {
+          "classifications": [],
+          "commits": [
+            "97aa1593f3e163da644162b9a1c98e75cce59f9c"
+          ],
+          "test_runs": {
+            "executed": [],
+            "executions": 0,
+            "minutes": 0.0,
+            "reused": [],
+            "unreadable": 0,
+            "with_retry_reason": 0
+          },
+          "tip": "97aa1593f3e163da644162b9a1c98e75cce59f9c"
+        },
+        "revision": 5,
+        "status": "completed"
+      },
+      "revision": 5
+    }
+  ],
+  "pass": 1,
+  "pass_limit": 1,
+  "phase": "release",
+  "phase_names": "verify",
+  "plan": {
+    "acceptance": [
+      "release.py official publishes 5.1.0 to bionic-coding/crux and record retains the ledger in the cycle"
+    ],
+    "constraints": [],
+    "revision": 1,
+    "scope": [
+      "the frozen 5.1.0 artifact verified and tagged on idyll/crux"
+    ],
+    "tasks": [
+      {
+        "depends_on": [],
+        "description": "Collect the owner's quoted go-ahead and any owed live-check result for the tagged artifact",
+        "expected_evidence": [
+          "the owner's quote and release.py smoke --live-check when owed"
+        ],
+        "id": "live-check-and-go-ahead",
+        "note": "closed by release.py record: the ledger shows the target published",
+        "phase": "release",
+        "status": "done"
+      },
+      {
+        "depends_on": [
+          "live-check-and-go-ahead"
+        ],
+        "description": "Publish and tag the official release with the same go-ahead",
+        "expected_evidence": [
+          "release.py official published"
+        ],
+        "id": "official",
+        "note": "closed by release.py record: the ledger shows the target published",
+        "phase": "release",
+        "status": "done"
+      },
+      {
+        "commits": [
+          "97aa1593f3e163da644162b9a1c98e75cce59f9c"
+        ],
+        "depends_on": [
+          "official"
+        ],
+        "description": "Copy the ledger into this cycle, with the reason when the target did not publish, and prepend its release op to the log",
+        "evidence": [
+          "cycles/CYC-0107/evidence/release/release-op.md"
+        ],
+        "expected_evidence": [
+          "release.py record and the commit that holds the log op"
+        ],
+        "id": "record",
+        "note": "closed by release.py record: the ledger shows the target published",
+        "phase": "release",
+        "status": "done"
+      }
+    ],
+    "verification": []
+  },
+  "reflection": null,
+  "release": null,
+  "release_list": "official",
+  "required_checks": [],
+  "results_dir": null,
+  "review_policy": {
+    "rationale": "repository default",
+    "risks": [],
+    "scrutiny": "standard"
+  },
+  "reviews": [],
+  "revision": 5,
+  "schema_version": 3,
+  "status": "completed",
+  "title": "Official release 5.1.0",
+  "type": "release",
+  "updated_at": "2026-11-05T20:40:45.075517+00:00"
+}

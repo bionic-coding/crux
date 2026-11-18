@@ -1,13 +1,13 @@
 ---
 name: patch-cycle
-description: "Compatibility alias: route patch-cycle requests to the unified cycle workflow with type quick-fix."
+description: "Compatibility alias: route patch-cycle requests to the ordinary cycle workflow."
 metadata:
   tags: "promptbooks, workflow, cycle, patch, small-change"
   bundles: "crux-docs"
   risk_level: "low"
   requires_access: "write-tree"
-  triggers: "patch this | patch cycle | run a patch tier on X | small fix with the gates | this is too small for a cycle but it still needs a council and a review"
-  routing_note: "New work uses cycle with type quick-fix; no promptbook is allocated."
+  triggers: "patch this | patch cycle | small fix with the gates | this is too small for a cycle but it still needs a council and a review"
+  routing_note: "New work starts an ordinary cycle; no promptbook is allocated."
 ---
 
 # patch-cycle compatibility alias
@@ -24,7 +24,8 @@ This skill is portable across Claude Code, Codex, OpenCode, and OMP (Oh My Pi). 
 - Argument placeholders such as `$adr` and `$book` bind only in Claude Code. On a host without argument binding they are unset — take the value from the user's phrase. The "Fields OpenCode ignores" section of `OPENCODE_GUIDE.md` names the invocation-control fields OpenCode ignores.
 <!-- END GENERATED: runtime-compat -->
 
-For new work, read `../cycle/SKILL.md` and use type `quick-fix`.
+For new work, read `../cycle/SKILL.md`. The request starts an ordinary cycle. No type
+is selected: the lead sizes the plan, checks and review to the change.
 There is no prompt minimum and no new promptbook or numbered run.
 
 For an explicitly named existing promptbook, use `run-promptbook` only to inspect

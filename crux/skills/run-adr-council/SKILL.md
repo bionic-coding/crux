@@ -27,9 +27,11 @@ This skill is portable across Claude Code, Codex, OpenCode, and OMP (Oh My Pi). 
 - Argument placeholders such as `$adr` and `$book` bind only in Claude Code. On a host without argument binding they are unset — take the value from the user's phrase. The "Fields OpenCode ignores" section of `OPENCODE_GUIDE.md` names the invocation-control fields OpenCode ignores.
 <!-- END GENERATED: runtime-compat -->
 
-## New-cycle and new-policy approval
+## Exact-draft approval
 
-Use `cycle-council.py --purpose adr` for the exact revision. Read the `council`
+Use `cycle-council.py --purpose adr` for the exact revision, whether the ADR came from
+a cycle or a direct request. A cycle-origin ADR needs no council before drafting; this
+council approves the finished draft.[^cycle-adr] Read the `council`
 skill's configured-mode section before dispatch. Lite uses verified native Apex
 and separate contexts without OpenRouter. Standard and Strict use gateway seats
 and require its credential. Standard also needs the architect's reasoned
@@ -45,14 +47,14 @@ sends no request, refuses a held flock, recovers the original result or marks an
 unowned attempt interrupted. It keeps that attempt's count. Use `--foreground`
 only for synchronous diagnostics. Never delete a claim or substitute owner design
 approval for recovery. A missing launcher acknowledgement alone proves nothing.
-Full cycle inspect exposes exact subject/attempt/result references, digests,
-supported recovery argv and prerequisites. It sends no request and writes nothing.
+`cycle-council.py --probe` and `--await` report the exact attempt, result reference,
+digest and recovery argv. They send no request and write nothing.
 New gateway attempts require durable request/outcome checkpoints under the existing
 ownership. Persistence failure prevents further calls and positive approval. Recovery
 preserves known negative findings and unknown in-flight outcomes without resetting
 the counted attempt. Partial events never approve. New architect approval/application
 checks current bound evidence; applied historical acceptance keeps its standing.
-See the cycle commands reference. Native Lite and historical protocols stay unchanged.
+Native Lite and historical protocols stay unchanged.
 
 Before round 1, run the `propose-adr` pre-council self-check. In Standard and
 Strict, then dispatch one unrecorded advisory challenge to a fresh reviewer
@@ -75,9 +77,9 @@ run-adr-council docs/adrs/ADR-<NNNN>-<slug>.md
 If `--question` is omitted, the default council question is:
 > "Does this ADR meet the acceptance bar? Is the decision sound, the consequences complete, the scope appropriate, and the acceptance criteria clear?"
 
-## Gate path: inside a cycle run
+## Historical gate path: inside a promptbook run
 
-Inside a promptbook run, the ADR approval gate is a council gate. Follow this path; the pipeline below serves an informational council outside a run.
+Inside a historical promptbook run, the ADR approval gate is a council gate. Follow this path; the pipeline below serves an informational council outside a run.
 
 Finish any open Git merge or other sequence before council. Live execution of
 both book formats uses the current attempt-aware gate. This skill reviews an
@@ -238,7 +240,7 @@ Inside a run, the council record is the verdict, and the conductor attaches its 
 
 ## Multi-round composition
 
-This section describes the informational driver outside a cycle run. Inside a run, the gate path above applies and the gate check derives convergence per seat. This skill is a **single-convene primitive**: one invocation runs exactly one `deliberate_sync` against the ADR **as it exists on disk right now**, and returns one verdict. It does **not** loop internally, edit the ADR, or count rounds. A multi-round convergence loop composes across repeated invocations, with **loop ownership held by the caller**:
+This section describes the informational driver outside a historical promptbook run. Inside a run, the gate path above applies and the gate check derives convergence per seat. This skill is a **single-convene primitive**: one invocation runs exactly one `deliberate_sync` against the ADR **as it exists on disk right now**, and returns one verdict. It does **not** loop internally, edit the ADR, or count rounds. A multi-round convergence loop composes across repeated invocations, with **loop ownership held by the caller**:
 
 - **One invocation = one round.** Re-invoke `run-adr-council <ADR-id>` for each new round.
 - **Findings carry over** in the ADR body (`status` stays `Proposed`). Append the prior round's still-unresolved findings to `--question` as a fenced "prior-round findings addressed:" block. Follow the `council` skill's fix-round discipline before each re-invocation.
@@ -291,3 +293,4 @@ Closure criterion: the skill ran end-to-end against a real ADR without any sed-a
 [^attempt]: rule:an-open-council-attempt-stops-the-gate
 [^match]: rule:council-evidence-matches-its-attempt
 [^recover]: rule:recovery-never-deliberates-again
+[^cycle-adr]: rule:cycle-adrs-need-no-creation-council

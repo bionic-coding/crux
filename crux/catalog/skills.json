@@ -216,7 +216,7 @@
   {
     "id": "cycle",
     "name": "cycle",
-    "description": "Plan, execute, resume, inspect, or update one development cycle. Use for major changes, minor changes, quick fixes, refactoring, simplification, releases, and reconciling the cycle record.",
+    "description": "Plan, run, resume, inspect, finish or reopen one development cycle, or start a release or the next queued item. One lead, native delegation, independent review.",
     "tags": [
       "cycles",
       "workflow",
@@ -228,28 +228,21 @@
     ],
     "risk_level": "high",
     "requires_access": "write-tree",
-    "routing_note": "One undertaking with type-specific phases, bounded passes, independent review, and shared test evidence; no prompt minimum or repeated runs.",
+    "routing_note": "One undertaking with one lead, native delegation, selected checks and independent review; completion is separate from PR, CI, merge and publication.",
     "triggers": [
       "start a cycle",
       "run the cycle",
       "resume the cycle",
       "cycle status",
-      "new dev cycle",
-      "iterate on this",
-      "quick fix",
-      "refactor this",
-      "simplify cycle",
-      "run a simplify cycle",
-      "simplify <area>",
+      "inspect the cycle",
+      "finish the cycle",
+      "reopen the cycle",
       "release cycle",
-      "update the cycle",
-      "reconcile the cycle record",
       "add to the queue",
       "show the queue",
       "run the next item",
       "run the next N items",
       "run the queue",
-      "refresh cycle advice",
       "show queue history",
       "show the full queue",
       "archive completed queue items",
@@ -312,7 +305,7 @@
   {
     "id": "dev-cycle",
     "name": "dev-cycle",
-    "description": "Compatibility alias: route dev-cycle requests to the unified cycle workflow with type dev.",
+    "description": "Compatibility alias: route dev-cycle requests to the ordinary cycle workflow.",
     "tags": [
       "promptbooks",
       "workflow",
@@ -324,7 +317,7 @@
     ],
     "risk_level": "low",
     "requires_access": "write-tree",
-    "routing_note": "New work uses cycle with type dev; no promptbook is allocated.",
+    "routing_note": "New work starts an ordinary cycle; no promptbook is allocated.",
     "triggers": [
       "begin development cycle",
       "cycle this feature",
@@ -384,7 +377,7 @@
   {
     "id": "fix-directly",
     "name": "fix-directly",
-    "description": "Compatibility alias: route fix-directly requests to the unified cycle workflow with type quick-fix.",
+    "description": "Compatibility alias: route fix-directly requests to the ordinary cycle workflow.",
     "tags": [
       "promptbooks",
       "workflow",
@@ -397,7 +390,7 @@
     ],
     "risk_level": "low",
     "requires_access": "write-tree",
-    "routing_note": "New work uses cycle with type quick-fix; no promptbook is allocated.",
+    "routing_note": "New work starts an ordinary cycle; no promptbook is allocated.",
     "triggers": [
       "just fix it",
       "fix it directly",
@@ -618,7 +611,7 @@
   {
     "id": "iterate",
     "name": "iterate",
-    "description": "Compatibility alias: route iterate requests to the unified cycle workflow with type iterate.",
+    "description": "Compatibility alias: route iterate requests to the ordinary cycle workflow.",
     "tags": [
       "promptbooks",
       "workflow",
@@ -631,7 +624,7 @@
     ],
     "risk_level": "low",
     "requires_access": "write-tree",
-    "routing_note": "New work uses cycle with type iterate; no promptbook is allocated.",
+    "routing_note": "New work starts an ordinary cycle; no promptbook is allocated.",
     "triggers": [
       "iterate on X",
       "start an iterate cycle",
@@ -713,7 +706,7 @@
   {
     "id": "patch-cycle",
     "name": "patch-cycle",
-    "description": "Compatibility alias: route patch-cycle requests to the unified cycle workflow with type quick-fix.",
+    "description": "Compatibility alias: route patch-cycle requests to the ordinary cycle workflow.",
     "tags": [
       "promptbooks",
       "workflow",
@@ -726,11 +719,10 @@
     ],
     "risk_level": "low",
     "requires_access": "write-tree",
-    "routing_note": "New work uses cycle with type quick-fix; no promptbook is allocated.",
+    "routing_note": "New work starts an ordinary cycle; no promptbook is allocated.",
     "triggers": [
       "patch this",
       "patch cycle",
-      "run a patch tier on X",
       "small fix with the gates",
       "this is too small for a cycle but it still needs a council and a review"
     ]

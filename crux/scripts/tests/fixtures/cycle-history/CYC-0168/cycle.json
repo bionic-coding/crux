@@ -1,0 +1,332 @@
+{
+  "base_commit": "0335b76cb3c0ad81c8ba456a86b60331353c8f8a",
+  "blockers": [],
+  "checks": [
+    {
+      "at": "2026-11-16T21:55:36.829162+00:00",
+      "check_id": "reader-tests",
+      "command": "cd crux/scripts/tests && uv run python3 -m unittest test_cycle_pilot test_cycle_queue test_cycle_queue_commit test_cycle_progress_pilot test_cycle_progress test_cycle_progress_format3 test_cycle_progress_order test_cycle_progress_task_changes test_micro_crux_contracts test_visualize_run_progress_json",
+      "id": "LC-32276d76bf7b486db9382b658f15dad4",
+      "plan_revision": 1,
+      "reason": "The reader and every pilot state",
+      "result": "passed",
+      "summary": "439 tests pass, including the unreadable-record row and the committed CYC-0165 to CYC-0167 shapes rendering as completed",
+      "tested_revision": "600380064",
+      "use": "executed"
+    },
+    {
+      "at": "2026-11-16T21:55:36.829172+00:00",
+      "check_id": "mods-tests",
+      "command": "claude plugin test crux-mods; uv run python3 tools/mods_gate.py --plugin-dir crux-mods --phase dev; tools/opencode_gate.py --plugin-dir crux-opencode --phase dev; tools/omp_gate.py --plugin-dir crux-omp --phase dev; uv run python3 -m unittest discover -s tools/tests -p test_crux_mods_parity.py, test_crux_mods_phrase_parity.py, test_queue_dashboard_seam.py, test_schema_invariants.py",
+      "id": "LC-fc2a1ae726f6498fae489a0180af2adb",
+      "plan_revision": 1,
+      "reason": "The shared validator the three hosts import",
+      "result": "passed",
+      "summary": "791 mod tests pass; the three gates exit 0 with ok true; parity (37 tests, with the vocabulary parity and its positive control) and the others pass",
+      "tested_revision": "600380064",
+      "use": "executed"
+    },
+    {
+      "at": "2026-11-16T21:55:36.829178+00:00",
+      "check_id": "claim-recovery-tests",
+      "command": "cd crux/scripts/tests && uv run python3 -m unittest test_cycle_pilot (same 439-test run)",
+      "id": "LC-e6ac7dd875064c9180654a871c4b6917",
+      "plan_revision": 1,
+      "reason": "Recovery from process termination, not exception rollback",
+      "result": "passed",
+      "summary": "Six tests terminate a real subprocess with os._exit at the before-record and after-record boundaries: stranded claim observed, recovered by pilot recover or by retrying the write, replay changes nothing, another owner's claim kept, a handover batch never leaves a working task without a claim; the earlier atomic-batch and four-way concurrency tests still pass",
+      "tested_revision": "600380064",
+      "use": "executed"
+    },
+    {
+      "at": "2026-11-16T21:55:36.829183+00:00",
+      "check_id": "real-tree-pipeline",
+      "command": "uv run crux/scripts/visualize-run-progress.py --json --project-root . | node --experimental-strip-types pipe.mjs crux-mods/hooks/lib/view.ts (also with the installed 5.7.0 reader and validator)",
+      "id": "LC-8b414ef0ff264070a83ba1c38d4752b1",
+      "plan_revision": 1,
+      "reason": "The real records through the real validator; the host pane itself is not observed",
+      "result": "passed",
+      "summary": "Installed reader with installed validator: reader-failed:run-invalid. Checkout reader with installed validator: reader-output-invalid. Checkout reader with corrected validator: status ok, 60 cycles, CYC-0165 to CYC-0167 completed; after a batch write to CYC-0168 the answer moved from planning 0/4 to working 2/4",
+      "tested_revision": "600380064",
+      "use": "executed"
+    },
+    {
+      "at": "2026-11-16T21:55:36.829187+00:00",
+      "check_id": "gates-and-drift",
+      "command": "uv run crux/scripts/test-tiers.py check; generate-micro-crux.py --dry-run; check-public-release-content.py; derive-arch.py --dry-run",
+      "id": "LC-6634fd1cdee54b6abe7702ddbc9ecf3b",
+      "plan_revision": 1,
+      "reason": "Tier labels and projections",
+      "result": "passed",
+      "summary": "All exit 0; arch drift lists only the ignored .DS_Store",
+      "tested_revision": "600380064",
+      "use": "executed"
+    }
+  ],
+  "completion": {
+    "at": "2026-11-16T22:01:08.525691+00:00",
+    "completed_at": "2026-11-16T22:01:46.345536+00:00",
+    "lessons": [
+      "A reader vocabulary change needs the validator change and a parity test in the same cycle; CYC-0166/0167 changed one side only."
+    ],
+    "remaining": [
+      "Observe the dashboard pane in a running host after the corrected crux and crux-mods artifact is installed and the host restarted.",
+      "Live OpenCode 2 check owed before an official release because crux-mods/hooks/lib/view.ts changed.",
+      "Commit the CYC-0168 record (currently untracked) with the final bookkeeping after finish."
+    ],
+    "review_head": "4075794f637410b4353da99185d5651a4739b15c",
+    "reviewer": "crux-reviewer-3",
+    "summary": "The dashboards' validator accepts completed pilots and reviewed queue items, an unreadable pilot record no longer blanks the listing, and an interrupted claim write is reconciled by the next claiming write or pilot recover"
+  },
+  "councils": [],
+  "created_at": "2026-11-16T21:48:02.767988+00:00",
+  "delivery": {
+    "ci": "unknown",
+    "commit": null,
+    "merge": "unmerged",
+    "pr": null
+  },
+  "follows": "CYC-0167",
+  "format": "crux.cycle.vNext",
+  "history": [],
+  "id": "CYC-0168",
+  "lead": "main-session",
+  "plan": {
+    "acceptance": [
+      "The demonstrated dashboard failure is fixed at both ends: the reader's document for this tree, with completed, reviewed, paused, active and reopened pilot records and historical cycles, is accepted by the dashboard's validator, and queue items with a reviewed or completed pilot are accepted, with completion and delivery still reported as separate facts",
+      "One unreadable cycle record no longer fails the whole dashboard: the other cycles are shown and the unreadable record is named with its reason",
+      "A process killed between the claim write and the record write, in either order, leaves a state that the next write to that pilot or an explicit recovery command reconciles: a claim the record does not back is removed, only when it carries this pilot's identity; another owner's claim is never removed; a replay is harmless; atomic batch rejection and concurrency protection are unchanged",
+      "The crash cases are demonstrated by terminating a real process at the persistence boundaries, not by an exception rollback",
+      "Regression tests cover the dashboard failure with the completed CYC-0165 to CYC-0167 record shapes and the interrupted claims; the shared dashboard tests and the affected host tests pass; projections are regenerated by their generators",
+      "The corrected reader and validator are exercised together against this repository's real records, and what remains to be observed on the installed host is stated exactly",
+      "The independent reviewer approves and records its own verdict"
+    ],
+    "council": {
+      "needed": false,
+      "reason": "Two bounded defect repairs within the behavior the owner already decided; no completion semantics change."
+    },
+    "goal": "Repair two defects left by CYC-0167: the dashboard fails to load once a pilot record is completed, and a process killed during a pilot write can strand a checkout claim",
+    "revision": 1,
+    "scope": [
+      "crux/scripts/cycle_progress.py",
+      "crux/scripts/cycle_pilot.py",
+      "crux/scripts/cycle_runtime.py",
+      "crux/scripts/tests",
+      "crux-mods/hooks/lib/view.ts",
+      "crux-mods/tests",
+      "crux-opencode/tests",
+      "crux-omp/tests",
+      "tools/tests",
+      "crux/skills/cycle/references/lightweight.md",
+      "crux/box/micro-crux.md",
+      "micro-crux.md",
+      "USER_GUIDE.md",
+      "bionic/arch",
+      "bionic/journal",
+      "bionic/log",
+      "bionic/cycles"
+    ],
+    "verification": {
+      "checks": [
+        {
+          "id": "reader-tests",
+          "rationale": "test_cycle_progress*.py cover the reader, the unreadable-record path and every pilot state"
+        },
+        {
+          "id": "mods-tests",
+          "rationale": "The crux-mods, crux-opencode and crux-omp suites and the parity tests exercise the shared validator the three hosts import"
+        },
+        {
+          "id": "claim-recovery-tests",
+          "rationale": "test_cycle_pilot.py kills a real subprocess at each persistence boundary and checks recovery, replay and other owners' claims"
+        },
+        {
+          "id": "real-tree-pipeline",
+          "rationale": "The checkout reader's output for this repository is parsed by the corrected validator, before and after a cycle record update"
+        },
+        {
+          "id": "gates-and-drift",
+          "rationale": "The mods, opencode and omp gates, the tier check and the affected drift gates must stay clean"
+        }
+      ],
+      "gaps": "No full suite by the lead beyond the suites named; release verification runs them for the beta. The dashboard pane itself cannot be observed from this session: the installed host loads plugin version 5.7.0 from its cache, so live loading is confirmed only after the corrected artifact is installed and the host restarted. A change to crux-mods/hooks/lib owes a live OpenCode 2 check before an official release."
+    }
+  },
+  "review": {
+    "acceptance": [
+      {
+        "criterion": 0,
+        "evidence": "Reproduced the failure: installed 5.7.0 reader on this tree returns ok false run-invalid (its PILOT_PHASES lacks completed and its state check refuses the record); the checkout reader's JSON through the installed 5.7.0 view.ts gives reader-output-invalid. The same JSON through the corrected crux-mods/hooks/lib/view.ts parses: dashboard status ok cycles 60, CYC-0167 type pilot status completed phase completed. view.ts adds completed to the pilot phases and statuses, binds status completed to phase completed, keeps the older four-phase list, and adds reviewed to the queue cycle_status set. Completion and delivery stay separate: cycle_pilot.py finish/STATES/queue_status are unchanged in the diff; the dashboard test asserts the drawn reflection keeps 'merge: unmerged'. Queue items with reviewed/completed pilots parse (queue.test.ts).",
+        "met": true
+      },
+      {
+        "criterion": 1,
+        "evidence": "cycle_progress._view wraps only the pilot-format branch in a per-record try; a failing pilot record becomes unreadable_pilot (title 'Unreadable cycle record', blocker 'This record cannot be read: <reason>'), an identity-scoped request still raises. test_one_unreadable_pilot_record_does_not_blank_the_listing covers it and the pane test draws the blocker. Typed cycles keep their existing path. Stated limit: a non-JSON file or unreadable typed-format record still fails the listing. Advisory: the text answer shows this row only as 'status paused phase planning' with a derived elapsed time.",
+        "met": true
+      },
+      {
+        "criterion": 2,
+        "evidence": "Traced every kill point in claims_transaction/locked_record: before the first flush nothing changes; between the first flush and the record the claims are snapshot plus additions/replacements and the record is old, so reconcile_claims removes the unbacked same-pilot claims and restores the replaced working task's claim; between the record and the final flush the released same-pilot claims are left and are removed; the runtime lock's exit write repeats the final flush's bytes. reconcile_claims skips any claim whose cycle differs, keeps a claim matching a working implementation task by checkout, task, owner and run, and uses no time. Batch rejection still restores the snapshot (existing tests pass); all claim changes still happen under the runtime lock taken before the record lock. Recovery runs on task, batch, resume, finish, abandon and recover, and recover works on completed and abandoned pilots because it returns before the state refusals.",
+        "met": true
+      },
+      {
+        "criterion": 3,
+        "evidence": "KILLED_WRITER in test_cycle_pilot.py runs mutate in a separate interpreter and calls os._exit(77) inside the patched runtime.atomic immediately before or after the record replace; the parent asserts return code 77 and then observes the stranded on-disk state (record bytes unchanged, claim present, third pilot refused) before recovery. That is process termination with no finally or rollback, not an exception path.",
+        "met": true
+      },
+      {
+        "criterion": 4,
+        "evidence": "test_the_committed_completed_pilot_records_render copies the committed CYC-0165..0167 records and asserts completed/completed rows; five new kill/recover tests (six kills with subtests) cover the interrupted claims with positive controls before each absence assertion. PilotVocabularyParityTests is a real guard: I applied its three regexes to git show 0335b76cb:crux-mods/hooks/lib/view.ts and all three sets differ from the reader constants, so it fails on the pre-fix validator. Focused runs here: 100 Python tests OK, parity 37 OK, claude plugin test crux-mods 791 pass. micro-crux digests regenerated (digest-only diff); test-tiers check exits 0 (file-level labels cover the new methods). I did not rerun the opencode/omp gates; the lead's recorded run at 600380064 is reused.",
+        "met": true
+      },
+      {
+        "criterion": 5,
+        "evidence": "I ran the checkout reader's JSON through the corrected validator against this repository's real records (60 cycles, status ok). The record's gaps text and the real-tree-pipeline check state plainly that the host pane was not observed, that the host loads 5.7.0 from its cache, that live loading is confirmed only after the corrected artifact is installed and the host restarted, and that an OpenCode 2 live check is owed. The journal says the same under 'Not observed'. Nothing is claimed as live that was only tested.",
+        "met": true
+      },
+      {
+        "criterion": 6,
+        "evidence": "This review is recorded by crux-reviewer-3 through pilot review; verified by re-reading the record afterwards with pilot show and confirming review.reviewer is crux-reviewer-3, verdict approve and state reviewed.",
+        "met": true
+      }
+    ],
+    "advisory": [
+      "lightweight.md and the claims_transaction docstring say 'the next write to the same pilot' removes a leftover; only claiming writes (task, batch, resume, finish, abandon, recover) reconcile, while check, plan, review-start, review, delivery, pause and reopen do not. Name the claiming writes or say 'retrying the interrupted write or pilot recover'.",
+      "Another pilot blocked by a leftover gets 'checkout is owned by {claim}' with no pointer to the holder's 'pilot recover'; naming that command in the _claim refusal would shorten diagnosis.",
+      "The text answer (view.ts answer) carries no title or blocker, so the unreadable row reads 'type pilot status paused phase planning' with an elapsed time derived from the file mtime, indistinguishable from an empty paused pilot. The pane and the reader's text render name it correctly.",
+      "reconcile_claims restores a missing claim for a working task without _claim's legacy_holders and common-directory checks; reachable only from an older crux's crash ordering or a hand edit.",
+      "Pre-existing, outside this cycle: crux-omp/lib/live.ts partitions cycles into active, paused and completed/abandoned/shortcut, so a pilot in status reviewed (awaiting finish) is drawn in none of them, and a queue item whose pilot is reviewed gets the pending glyph.",
+      "A killed atomic write leaves a runtime.json.*.tmp or cycle.json.*.tmp file behind; harmless but never cleaned."
+    ],
+    "at": "2026-11-16T22:01:08.525535+00:00",
+    "base_commit": "0335b76cb3c0ad81c8ba456a86b60331353c8f8a",
+    "blocking": [],
+    "check_definitions": {
+      "claim-recovery-tests": "cd crux/scripts/tests && uv run python3 -m unittest test_cycle_pilot (same 439-test run)",
+      "gates-and-drift": "uv run crux/scripts/test-tiers.py check; generate-micro-crux.py --dry-run; check-public-release-content.py; derive-arch.py --dry-run",
+      "mods-tests": "claude plugin test crux-mods; uv run python3 tools/mods_gate.py --plugin-dir crux-mods --phase dev; tools/opencode_gate.py --plugin-dir crux-opencode --phase dev; tools/omp_gate.py --plugin-dir crux-omp --phase dev; uv run python3 -m unittest discover -s tools/tests -p test_crux_mods_parity.py, test_crux_mods_phrase_parity.py, test_queue_dashboard_seam.py, test_schema_invariants.py",
+      "reader-tests": "cd crux/scripts/tests && uv run python3 -m unittest test_cycle_pilot test_cycle_queue test_cycle_queue_commit test_cycle_progress_pilot test_cycle_progress test_cycle_progress_format3 test_cycle_progress_order test_cycle_progress_task_changes test_micro_crux_contracts test_visualize_run_progress_json",
+      "real-tree-pipeline": "uv run crux/scripts/visualize-run-progress.py --json --project-root . | node --experimental-strip-types pipe.mjs crux-mods/hooks/lib/view.ts (also with the installed 5.7.0 reader and validator)"
+    },
+    "head_commit": "4075794f637410b4353da99185d5651a4739b15c",
+    "lessons": [
+      "A reader vocabulary change needs the validator change and a parity test in the same cycle; CYC-0166/0167 changed one side only."
+    ],
+    "plan_revision": 1,
+    "remaining": [
+      "Observe the dashboard pane in a running host after the corrected crux and crux-mods artifact is installed and the host restarted.",
+      "Live OpenCode 2 check owed before an official release because crux-mods/hooks/lib/view.ts changed.",
+      "Commit the CYC-0168 record (currently untracked) with the final bookkeeping after finish."
+    ],
+    "requested_at": "2026-11-16T21:55:37.092474+00:00",
+    "reviewer": "crux-reviewer-3",
+    "submitted_by": "crux-reviewer-3",
+    "summary": "Both defects are diagnosed correctly and fixed within scope. The installed 5.7.0 reader refuses a completed pilot and the corrected validator now accepts the checkout reader's vocabulary, held to it by a parity test that fails on the real pre-fix view.ts. The claim writer now treats the record as the commit point; every kill point leaves at most an unbacked claim carrying this pilot's id, which the next claiming write or pilot recover removes without touching another owner's claim or inferring liveness. Kill tests terminate a real process. Completion semantics are unchanged. The record states the unobserved host pane honestly.",
+    "task_runs": {
+      "claim-recovery": 1,
+      "dashboard": 1,
+      "projections": 1,
+      "record": 1
+    },
+    "test_selection": "Selection is adequate for the change: the reader and pilot writer suites, the shared validator through the crux-mods suite, the vocabulary parity test, and the three host gates (lead-run) cover every changed file and every host that imports view.ts. I reran test_cycle_pilot, test_cycle_progress_pilot, test_cycle_progress, test_cycle_progress_format3 (100 OK), test_crux_mods_parity (37 OK), claude plugin test crux-mods (791 pass) and test-tiers check (exit 0) at HEAD 4075794f6, whose delta over 600380064 is journal/log only. No source changed after the lead's checks.",
+    "verdict": "approve"
+  },
+  "revision": 6,
+  "state": "completed",
+  "tasks": [
+    {
+      "attempts": [
+        {
+          "checkout": null,
+          "ended_at": "2026-11-16T21:55:09.529109+00:00",
+          "outcome": "done",
+          "owner": "main-session",
+          "run": 1,
+          "started_at": "2026-11-16T21:55:09.529109+00:00",
+          "summary": "view.ts accepts the completed pilot status and phase and the reviewed queue status; the reader turns an unreadable pilot record into a named row; parity and regression tests added; commit 600380064"
+        }
+      ],
+      "checkout": null,
+      "council": false,
+      "depends_on": [],
+      "description": "Accept completed pilots and reviewed queue items in the shared validator; keep the reader alive past one unreadable record",
+      "id": "dashboard",
+      "kind": "implementation",
+      "owner": "main-session",
+      "run": 1,
+      "status": "done",
+      "summary": "view.ts accepts the completed pilot status and phase and the reviewed queue status; the reader turns an unreadable pilot record into a named row; parity and regression tests added; commit 600380064"
+    },
+    {
+      "attempts": [
+        {
+          "checkout": null,
+          "ended_at": "2026-11-16T21:55:09.529276+00:00",
+          "outcome": "done",
+          "owner": "main-session",
+          "run": 1,
+          "started_at": "2026-11-16T21:55:09.529276+00:00",
+          "summary": "Claims are written around the record as the commit point; reconcile_claims runs on every claim-affecting write and in pilot recover; six tests kill a real process at the boundaries; commit 600380064"
+        }
+      ],
+      "checkout": null,
+      "council": false,
+      "depends_on": [],
+      "description": "Order claim writes so a kill leaves only reconcilable claims, reconcile on the next write, and add an explicit recovery command",
+      "id": "claim-recovery",
+      "kind": "implementation",
+      "owner": "main-session",
+      "run": 1,
+      "status": "done",
+      "summary": "Claims are written around the record as the commit point; reconcile_claims runs on every claim-affecting write and in pilot recover; six tests kill a real process at the boundaries; commit 600380064"
+    },
+    {
+      "attempts": [
+        {
+          "checkout": null,
+          "ended_at": "2026-11-16T21:55:36.828957+00:00",
+          "outcome": "done",
+          "owner": "main-session",
+          "run": 1,
+          "started_at": "2026-11-16T21:55:36.828957+00:00",
+          "summary": "micro-crux regenerated; its dry run, the release-content scan, the tier check and the arch dry run are clean; no instruction file changed"
+        }
+      ],
+      "checkout": null,
+      "council": false,
+      "depends_on": [],
+      "description": "Regenerate affected projections and run the host gates",
+      "id": "projections",
+      "kind": "implementation",
+      "owner": "main-session",
+      "run": 1,
+      "status": "done",
+      "summary": "micro-crux regenerated; its dry run, the release-content scan, the tier check and the arch dry run are clean; no instruction file changed"
+    },
+    {
+      "attempts": [
+        {
+          "checkout": null,
+          "ended_at": "2026-11-16T21:55:36.829119+00:00",
+          "outcome": "done",
+          "owner": "main-session",
+          "run": 1,
+          "started_at": "2026-11-16T21:55:36.829119+00:00",
+          "summary": "Journal and log written, journal index regenerated; commit 4075794f6"
+        }
+      ],
+      "checkout": null,
+      "council": false,
+      "depends_on": [],
+      "description": "Journal and log the work",
+      "id": "record",
+      "kind": "implementation",
+      "owner": "main-session",
+      "run": 1,
+      "status": "done",
+      "summary": "Journal and log written, journal index regenerated; commit 4075794f6"
+    }
+  ],
+  "title": "Repair the dashboard after completed pilots and close the claim crash window",
+  "updated_at": "2026-11-16T22:01:46.345824+00:00"
+}

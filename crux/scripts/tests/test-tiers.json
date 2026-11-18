@@ -19,11 +19,12 @@
     "test-evidence": "Test evidence: receipts, reuse, the registry, the parallel suite driver, the flagged list and test tiers"
   },
   "files": {
-    "test_cycle_pilot.py": {"tier": "dev"},
+    "test_cycle_writer.py": {"tier": "dev"},
+    "test_cycle_cli.py": {"tier": "dev"},
     "test_cycle_progress_pilot.py": {"tier": "dev"},
-    "test_cycle_local_checks.py": {
-      "tier": "dev"
-    },
+    "test_cycle_history.py": {"tier": "dev"},
+    "test_cycle_store_consumers.py": {"tier": "dev"},
+    "test_cycle_store_commit.py": {"tier": "dev"},
     "test_admission_source_io.py": {
       "tier": "release",
       "area": "cycle-engine"
@@ -55,6 +56,10 @@
     },
     "test_adr_footnote_check.py": {
       "tier": "dev"
+    },
+    "test_adr_handle_collisions.py": {
+      "tier": "release",
+      "area": "adr-lifecycle"
     },
     "test_adr_migration.py": {
       "tier": "dev"
@@ -565,94 +570,7 @@
     "test_crux_llm_router.py": {
       "tier": "dev"
     },
-    "test_cycle_activity.py": {
-      "tier": "dev"
-    },
-    "test_cycle_adr_dependencies.py": {
-      "tier": "dev"
-    },
     "test_cycle_adr_prefix.py": {
-      "tier": "dev"
-    },
-    "test_cycle_advisory_deadline.py": {
-      "tier": "dev"
-    },
-    "test_cycle_arrangement_facts.py": {
-      "tier": "dev"
-    },
-    "test_cycle_assignment_builder.py": {
-      "tier": "dev"
-    },
-    "test_cycle_assignments.py": {
-      "tier": "dev"
-    },
-    "test_cycle_await.py": {
-      "tier": "dev"
-    },
-    "test_cycle_bookkeeping.py": {
-      "tier": "dev"
-    },
-    "test_cycle_build_checks.py": {
-      "tier": "dev",
-      "overrides": {
-        "BuildChecksTests": {
-          "tier": "release",
-          "area": "cycle-engine"
-        }
-      }
-    },
-    "test_cycle_child_link.py": {
-      "tier": "dev"
-    },
-    "test_cycle_classify.py": {
-      "tier": "dev",
-      "overrides": {
-        "FallbackTests": {
-          "tier": "release",
-          "area": "decisions-classifier"
-        }
-      }
-    },
-    "test_cycle_classify_batching.py": {
-      "tier": "dev"
-    },
-    "test_cycle_classify_currentness.py": {
-      "tier": "dev"
-    },
-    "test_cycle_classify_focused.py": {
-      "tier": "dev"
-    },
-    "test_cycle_classify_hook_fixtures.py": {
-      "tier": "dev"
-    },
-    "test_cycle_classify_new_kinds.py": {
-      "tier": "dev"
-    },
-    "test_cycle_classify_records.py": {
-      "tier": "dev"
-    },
-    "test_cycle_classify_reuse.py": {
-      "tier": "dev"
-    },
-    "test_cycle_classify_visibility.py": {
-      "tier": "dev"
-    },
-    "test_cycle_cli_forms.py": {
-      "tier": "dev"
-    },
-    "test_cycle_commit.py": {
-      "tier": "dev"
-    },
-    "test_cycle_commit_replacement.py": {
-      "tier": "dev"
-    },
-    "test_cycle_compat_upgrade.py": {
-      "tier": "dev"
-    },
-    "test_cycle_compat_v2.py": {
-      "tier": "dev"
-    },
-    "test_cycle_context_read.py": {
       "tier": "dev"
     },
     "test_cycle_council.py": {
@@ -674,147 +592,18 @@
     "test_cycle_council_recovery.py": {
       "tier": "dev"
     },
-    "test_cycle_council_settlement.py": {
-      "tier": "dev"
-    },
-    "test_cycle_council_simplify.py": {
-      "tier": "dev"
-    },
     "test_cycle_decision_policy.py": {
       "tier": "release",
       "area": "adr-lifecycle"
     },
-    "test_cycle_delivery.py": {
-      "tier": "release",
-      "area": "cycle-engine"
-    },
-    "test_cycle_dirty_resume.py": {
-      "tier": "dev"
-    },
-    "test_cycle_dispatch_recovery.py": {
-      "tier": "dev"
-    },
-    "test_cycle_doc_classify.py": {
-      "tier": "dev"
-    },
-    "test_cycle_evidence_integration.py": {
-      "tier": "release",
-      "area": "cycle-engine"
-    },
-    "test_cycle_execution.py": {
-      "tier": "release",
-      "area": "cycle-engine"
-    },
-    "test_cycle_execution_large_owned_path.py": {
-      "tier": "dev"
-    },
-    "test_cycle_fast_operations.py": {
-      "tier": "release",
-      "area": "decisions-classifier"
-    },
-    "test_cycle_fix_attribution.py": {
-      "tier": "dev"
-    },
-    "test_cycle_fix_metrics.py": {
-      "tier": "dev"
-    },
-    "test_cycle_fix_step.py": {
-      "tier": "dev"
-    },
-    "test_cycle_friction.py": {
-      "tier": "dev"
-    },
-    "test_cycle_hosts.py": {
-      "tier": "dev"
-    },
-    "test_cycle_inspect_speed.py": {
-      "tier": "dev"
-    },
     "test_cycle_instruction_contracts.py": {
-      "tier": "dev"
-    },
-    "test_cycle_integrated_merge.py": {
-      "tier": "release",
-      "area": "cycle-engine"
-    },
-    "test_cycle_invalidation.py": {
-      "tier": "dev"
-    },
-    "test_cycle_invocation_snapshot.py": {
       "tier": "dev"
     },
     "test_cycle_legacy_cutover.py": {
       "tier": "dev"
     },
-    "test_cycle_local_skills.py": {
+    "test_cycle_outside_adr_dependency.py": {
       "tier": "dev"
-    },
-    "test_cycle_ops_activity.py": {
-      "tier": "dev"
-    },
-    "test_cycle_ops_advance.py": {
-      "tier": "dev",
-      "overrides": {
-        "AdvancePhaseTests": {
-          "tier": "release",
-          "area": "cycle-engine"
-        },
-        "ConcurrencyTests": {
-          "tier": "release",
-          "area": "cycle-engine"
-        }
-      }
-    },
-    "test_cycle_ops_chain.py": {
-      "tier": "release",
-      "area": "cycle-engine"
-    },
-    "test_cycle_ops_delivery.py": {
-      "tier": "dev",
-      "overrides": {
-        "DeliveryTests": {
-          "tier": "release",
-          "area": "cycle-engine"
-        }
-      }
-    },
-    "test_cycle_ops_finish.py": {
-      "tier": "dev",
-      "overrides": {
-        "ReleaseFinishTests": {
-          "tier": "release",
-          "area": "cycle-engine"
-        },
-        "CompletionOrderTests": {
-          "tier": "release",
-          "area": "cycle-engine"
-        }
-      }
-    },
-    "test_cycle_ops_foundation.py": {
-      "tier": "dev"
-    },
-    "test_cycle_ops_hooks.py": {
-      "tier": "dev"
-    },
-    "test_cycle_ops_lifecycle.py": {
-      "tier": "dev"
-    },
-    "test_cycle_ops_records.py": {
-      "tier": "dev",
-      "overrides": {
-        "RecordTests.test_inline_quote_with_apostrophe_and_newline_through_a_real_shell": {
-          "tier": "release",
-          "area": "cycle-engine"
-        }
-      }
-    },
-    "test_cycle_plan_writer.py": {
-      "tier": "dev"
-    },
-    "test_cycle_prereqs.py": {
-      "tier": "release",
-      "area": "cycle-engine"
     },
     "test_cycle_progress.py": {
       "tier": "dev"
@@ -826,12 +615,6 @@
       "tier": "dev"
     },
     "test_cycle_progress_task_changes.py": {
-      "tier": "dev"
-    },
-    "test_cycle_proof_admissions.py": {
-      "tier": "dev"
-    },
-    "test_cycle_questions.py": {
       "tier": "dev"
     },
     "test_cycle_queue.py": {
@@ -850,22 +633,6 @@
     "test_cycle_queue_commit.py": {
       "tier": "dev"
     },
-    "test_cycle_record_persistence.py": {
-      "tier": "dev"
-    },
-    "test_cycle_record_routes.py": {
-      "tier": "dev"
-    },
-    "test_cycle_recovery.py": {
-      "tier": "dev"
-    },
-    "test_cycle_reflection_lists.py": {
-      "tier": "dev"
-    },
-    "test_cycle_release_continuation.py": {
-      "tier": "release",
-      "area": "cycle-engine"
-    },
     "test_cycle_release_ledger.py": {
       "tier": "dev",
       "overrides": {
@@ -879,56 +646,13 @@
         }
       }
     },
-    "test_cycle_review_basis.py": {
+    "test_cycle_scope_extension.py": {
       "tier": "dev"
-    },
-    "test_cycle_review_scope_message.py": {
-      "tier": "dev"
-    },
-    "test_cycle_shortcut.py": {
-      "tier": "dev"
-    },
-    "test_cycle_simplify.py": {
-      "tier": "dev"
-    },
-    "test_cycle_slice.py": {
-      "tier": "dev",
-      "overrides": {
-        "EndToEndTests": {
-          "tier": "release",
-          "area": "cycle-engine"
-        }
-      }
     },
     "test_cycle_status.py": {
       "tier": "dev"
     },
     "test_cycle_status_main.py": {
-      "tier": "dev"
-    },
-    "test_cycle_summary.py": {
-      "tier": "dev"
-    },
-    "test_cycle_test_runs.py": {
-      "tier": "dev"
-    },
-    "test_cycle_timing.py": {
-      "tier": "dev"
-    },
-    "test_cycle_verify_engine.py": {
-      "tier": "dev"
-    },
-    "test_cycle_verify_phase.py": {
-      "tier": "dev"
-    },
-    "test_cycle_withdraw_decision.py": {
-      "tier": "dev"
-    },
-    "test_cycle_workflow.py": {
-      "tier": "release",
-      "area": "cycle-engine"
-    },
-    "test_cycle_worktrees.py": {
       "tier": "dev"
     },
     "test_decision_record_inputs.py": {
@@ -1056,6 +780,9 @@
       }
     },
     "test_evidence_projections.py": {
+      "tier": "dev"
+    },
+    "test_changelog_token_reads.py": {
       "tier": "dev"
     },
     "test_evidence_registry.py": {
@@ -1713,10 +1440,6 @@
         }
       }
     },
-    "test_owner_approval_command.py": {
-      "tier": "release",
-      "area": "adr-lifecycle"
-    },
     "test_owner_decision.py": {
       "tier": "dev",
       "overrides": {
@@ -1928,9 +1651,6 @@
     "test_read_news.py": {
       "tier": "dev"
     },
-    "test_receipt_interpretation.py": {
-      "tier": "dev"
-    },
     "test_record_numbers.py": {
       "tier": "dev",
       "overrides": {
@@ -2140,6 +1860,9 @@
       }
     },
     "test_run_work_witness.py": {
+      "tier": "dev"
+    },
+    "test_script_isolated_imports.py": {
       "tier": "dev"
     },
     "test_secret_scan.py": {

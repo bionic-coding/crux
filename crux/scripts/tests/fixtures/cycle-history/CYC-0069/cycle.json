@@ -1,0 +1,316 @@
+{
+  "blocker": null,
+  "completion": {
+    "commits": [
+      "b6da61194308189fa48100fe27931581aecc6070",
+      "a9b6182ff23e520f3daaa9dd6c35b0a87e19fee5"
+    ],
+    "exception": null,
+    "input_sha256": "ee0437a24f3be8893c37818f15581573516091e6d2e473868fa15a3b8f74fa2e",
+    "remaining": "Only final cycle bookkeeping awaits commit"
+  },
+  "coordinator": "dev-lead",
+  "coverage": null,
+  "created_at": "2026-10-28T05:33:39.492276+00:00",
+  "decisions": [],
+  "evidence": [],
+  "extensions": [],
+  "goal": "Publish v4.6.3 to the beta target idyll/crux",
+  "history": [
+    {
+      "action": "created",
+      "at": "2026-10-28T05:33:39.492415+00:00",
+      "pass": 1,
+      "phase": "release",
+      "status": "active"
+    },
+    {
+      "action": "task-updated",
+      "assignee": "dev-lead",
+      "at": "2026-10-28T05:33:49.920840+00:00",
+      "pass": 1,
+      "phase": "release",
+      "result_path": "/private/tmp/claude-501/-Users-madsen-Developer-Idyll-crux-internal/2381b251-76d6-4d24-aba2-d9f3ccd0465a/scratchpad/CYC-0069-dev-lead-release-attempt-1.md",
+      "state": "active",
+      "status": "active",
+      "task": "prep"
+    },
+    {
+      "action": "task-updated",
+      "assignee": "dev-lead",
+      "at": "2026-10-28T05:36:06.440418+00:00",
+      "pass": 1,
+      "phase": "release",
+      "state": "active",
+      "status": "active",
+      "task": "prepare"
+    },
+    {
+      "action": "task-updated",
+      "assignee": "dev-lead",
+      "at": "2026-10-28T05:36:11.131710+00:00",
+      "commits": [
+        "b6da61194308189fa48100fe27931581aecc6070"
+      ],
+      "note": "release prep v4.6.3; release-preflight --metadata READY; public CHANGELOG 106->107 headings (no truncation); rendition-diff README clean, CHANGELOG findings only carried-forward comma-formatted numerals",
+      "pass": 1,
+      "phase": "release",
+      "result_path": "/private/tmp/claude-501/-Users-madsen-Developer-Idyll-crux-internal/2381b251-76d6-4d24-aba2-d9f3ccd0465a/scratchpad/CYC-0069-dev-lead-release-attempt-1.md",
+      "state": "done",
+      "status": "active",
+      "task": "prep"
+    },
+    {
+      "action": "task-updated",
+      "assignee": "dev-lead",
+      "at": "2026-10-28T05:36:49.722622+00:00",
+      "note": "release.py prepare --version 4.6.3 --cycle CYC-0069 exit 0 (prepared, 22.1s); advisory: verify would reuse all 4 registered suites",
+      "pass": 1,
+      "phase": "release",
+      "state": "done",
+      "status": "active",
+      "task": "prepare"
+    },
+    {
+      "action": "task-updated",
+      "assignee": "dev-lead",
+      "at": "2026-10-28T05:36:49.768532+00:00",
+      "pass": 1,
+      "phase": "release",
+      "state": "active",
+      "status": "active",
+      "task": "verify"
+    },
+    {
+      "action": "task-updated",
+      "assignee": "dev-lead",
+      "at": "2026-10-28T05:37:55.885450+00:00",
+      "note": "release.py verify exit 0 in 31.0s: 4 suites, 4 reused (core TE-e00141fdf6df4ee2b9bf7ef65a9f7474, tools TE-c28267409e98405fad379d9b448a5c3f, staged py3.13 TE-f66d639da9504097bff811361eba914e, staged py3.14 TE-b8a5c71e4ed0478daa66f5eab2a9e250); preflight READY; artifact stage_sha256 1e47c8ce96d7407487bd5e955f133fe6ac4ea482a0afa2e3daa454a1ec5aefe3 git_tree b93a0cbedc642a952490ccac25ccf68903939696",
+      "pass": 1,
+      "phase": "release",
+      "state": "done",
+      "status": "active",
+      "task": "verify"
+    },
+    {
+      "action": "task-updated",
+      "assignee": "dev-lead",
+      "at": "2026-10-28T05:37:55.933843+00:00",
+      "pass": 1,
+      "phase": "release",
+      "state": "active",
+      "status": "active",
+      "task": "beta-and-smoke"
+    },
+    {
+      "action": "task-updated",
+      "assignee": "dev-lead",
+      "at": "2026-10-28T05:39:13.481625+00:00",
+      "note": "release.py beta exit 0 (37.6s): idyll/crux head ee43d7f6465ffd267ad00fd6127e5dae73767ec4 published untagged, tree b93a0cbedc64; release.py smoke exit 0 (7.6s): 56 skills, 10 agents, version 4.6.3; live check not required",
+      "pass": 1,
+      "phase": "release",
+      "state": "done",
+      "status": "active",
+      "task": "beta-and-smoke"
+    },
+    {
+      "action": "task-updated",
+      "assignee": "dev-lead",
+      "at": "2026-10-28T05:39:13.527005+00:00",
+      "pass": 1,
+      "phase": "release",
+      "state": "active",
+      "status": "active",
+      "task": "tag"
+    },
+    {
+      "action": "task-updated",
+      "assignee": "dev-lead",
+      "at": "2026-10-28T05:40:02.557885+00:00",
+      "note": "release.py tag exit 0 (36.8s): annotated tag v4.6.3 on idyll/crux tree b93a0cbedc64, release https://github.com/idyll/crux/releases/tag/v4.6.3",
+      "pass": 1,
+      "phase": "release",
+      "state": "done",
+      "status": "active",
+      "task": "tag"
+    },
+    {
+      "action": "task-updated",
+      "assignee": "dev-lead",
+      "at": "2026-10-28T05:40:02.602552+00:00",
+      "pass": 1,
+      "phase": "release",
+      "state": "active",
+      "status": "active",
+      "task": "record"
+    },
+    {
+      "action": "task-updated",
+      "assignee": "dev-lead",
+      "at": "2026-10-28T05:40:28.552466+00:00",
+      "commits": [
+        "a9b6182ff23e520f3daaa9dd6c35b0a87e19fee5"
+      ],
+      "evidence": [
+        "cycles/CYC-0069/evidence/release/ledger.json"
+      ],
+      "note": "release.py record exit 0 (1.0s): retained 4 receipts and the ledger; beta release op prepended to bionic/log.md",
+      "pass": 1,
+      "phase": "release",
+      "state": "done",
+      "status": "active",
+      "task": "record"
+    },
+    {
+      "action": "completion",
+      "at": "2026-10-28T05:41:20.058398+00:00",
+      "pass": 1,
+      "phase": "release",
+      "status": "active"
+    },
+    {
+      "action": "advance",
+      "at": "2026-10-28T05:41:22.562240+00:00",
+      "pass": 1,
+      "phase": "release",
+      "status": "completed"
+    }
+  ],
+  "id": "CYC-0069",
+  "implementers": [
+    "dev-lead"
+  ],
+  "pass": 1,
+  "pass_limit": 1,
+  "phase": "release",
+  "plan": {
+    "acceptance": [
+      "once the cycle completes run a private beta release cycle."
+    ],
+    "constraints": [],
+    "revision": 1,
+    "scope": [
+      "crux/plugin.json",
+      "crux/.claude-plugin/plugin.json",
+      "crux/.codex-plugin/plugin.json",
+      "crux-mods/.claude-plugin/plugin.json",
+      "pyproject.toml",
+      "uv.lock",
+      "tools/bionic-catalog/crux-learning-catalog-guide.json",
+      "CHANGELOG.md",
+      "README.md",
+      "public/",
+      "bionic/log.md"
+    ],
+    "tasks": [
+      {
+        "assignee": "dev-lead",
+        "commits": [
+          "b6da61194308189fa48100fe27931581aecc6070"
+        ],
+        "depends_on": [],
+        "description": "Prepare the release: bump the versions, promote the changelog, regenerate the public docs, and commit them",
+        "expected_evidence": [
+          "the commit that carries the prepared release"
+        ],
+        "id": "prep",
+        "note": "release prep v4.6.3; release-preflight --metadata READY; public CHANGELOG 106->107 headings (no truncation); rendition-diff README clean, CHANGELOG findings only carried-forward comma-formatted numerals",
+        "phase": "release",
+        "result_path": "/private/tmp/claude-501/-Users-madsen-Developer-Idyll-crux-internal/2381b251-76d6-4d24-aba2-d9f3ccd0465a/scratchpad/CYC-0069-dev-lead-release-attempt-1.md",
+        "status": "done"
+      },
+      {
+        "assignee": "dev-lead",
+        "depends_on": [
+          "prep"
+        ],
+        "description": "Bind this cycle to the beta target and freeze the artifact",
+        "expected_evidence": [
+          "release.py prepare recorded in the ledger"
+        ],
+        "id": "prepare",
+        "note": "release.py prepare --version 4.6.3 --cycle CYC-0069 exit 0 (prepared, 22.1s); advisory: verify would reuse all 4 registered suites",
+        "phase": "release",
+        "status": "done"
+      },
+      {
+        "assignee": "dev-lead",
+        "depends_on": [
+          "prepare"
+        ],
+        "description": "Verify the artifact with the release gates",
+        "expected_evidence": [
+          "release.py verify passed"
+        ],
+        "id": "verify",
+        "note": "release.py verify exit 0 in 31.0s: 4 suites, 4 reused (core TE-e00141fdf6df4ee2b9bf7ef65a9f7474, tools TE-c28267409e98405fad379d9b448a5c3f, staged py3.13 TE-f66d639da9504097bff811361eba914e, staged py3.14 TE-b8a5c71e4ed0478daa66f5eab2a9e250); preflight READY; artifact stage_sha256 1e47c8ce96d7407487bd5e955f133fe6ac4ea482a0afa2e3daa454a1ec5aefe3 git_tree b93a0cbedc642a952490ccac25ccf68903939696",
+        "phase": "release",
+        "status": "done"
+      },
+      {
+        "assignee": "dev-lead",
+        "depends_on": [
+          "verify"
+        ],
+        "description": "Publish the untagged beta under the owner's quoted authorization, then install it in isolation",
+        "expected_evidence": [
+          "release.py beta published and release.py smoke passed"
+        ],
+        "id": "beta-and-smoke",
+        "note": "release.py beta exit 0 (37.6s): idyll/crux head ee43d7f6465ffd267ad00fd6127e5dae73767ec4 published untagged, tree b93a0cbedc64; release.py smoke exit 0 (7.6s): 56 skills, 10 agents, version 4.6.3; live check not required",
+        "phase": "release",
+        "status": "done"
+      },
+      {
+        "assignee": "dev-lead",
+        "depends_on": [
+          "beta-and-smoke"
+        ],
+        "description": "Tag the beta and create its release once verify and smoke passed on the authorized artifact",
+        "expected_evidence": [
+          "release.py tag recorded the tag"
+        ],
+        "id": "tag",
+        "note": "release.py tag exit 0 (36.8s): annotated tag v4.6.3 on idyll/crux tree b93a0cbedc64, release https://github.com/idyll/crux/releases/tag/v4.6.3",
+        "phase": "release",
+        "status": "done"
+      },
+      {
+        "assignee": "dev-lead",
+        "commits": [
+          "a9b6182ff23e520f3daaa9dd6c35b0a87e19fee5"
+        ],
+        "depends_on": [
+          "tag"
+        ],
+        "description": "Copy the ledger into this cycle and prepend its release op to the log",
+        "evidence": [
+          "cycles/CYC-0069/evidence/release/ledger.json"
+        ],
+        "expected_evidence": [
+          "release.py record and the commit that holds the log op"
+        ],
+        "id": "record",
+        "note": "release.py record exit 0 (1.0s): retained 4 receipts and the ledger; beta release op prepended to bionic/log.md",
+        "phase": "release",
+        "status": "done"
+      }
+    ],
+    "verification": []
+  },
+  "reflection": null,
+  "release": null,
+  "release_list": "beta",
+  "required_checks": [],
+  "review_policy": {
+    "rationale": "repository default",
+    "risks": [],
+    "scrutiny": "standard"
+  },
+  "reviews": [],
+  "schema_version": 2,
+  "status": "completed",
+  "title": "Release v4.6.3 to beta",
+  "type": "release",
+  "updated_at": "2026-10-28T05:41:22.562368+00:00"
+}

@@ -344,11 +344,19 @@ def direct_readers(source: str) -> list[int]:
     record_type = next((n.value.value for n in tree.body if isinstance(n, ast.Assign)
                         and any(isinstance(t, ast.Name) and t.id == "RECORD_TYPE" for t in n.targets)
                         and isinstance(n.value, ast.Constant)), None)
+    # `cycle_history.load_record` reads a legacy cycle record, not a reviewer report: a call to it,
+    # through the module or through a name imported from it, is outside this inventory.
+    history_names = {alias.asname or alias.name for node in ast.walk(tree)
+                     if isinstance(node, ast.ImportFrom) and node.module == "cycle_history"
+                     for alias in node.names if alias.name == "load_record"}
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
         func = node.func
         name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
+        if (isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name)
+                and func.value.id == "cycle_history") or (isinstance(func, ast.Name) and func.id in history_names):
+            continue
         if name == "load_record":
             lines.append(node.lineno)
         elif name == "schema_errors" and any(
@@ -401,6 +409,12 @@ class ReaderInventory(unittest.TestCase):
                     else 'cr.schema_errors("reviewer-report", ')
                 self.assertNotEqual(reverted, source)
                 self.assertTrue(direct_readers(reverted), rel)
+
+    def test_c5_the_cycle_history_reader_is_exempt_and_a_report_reader_is_not(self):
+        exempt = ("import cycle_history\nfrom cycle_history import load_record as lr\n"
+                  "def f(r):\n    cycle_history.load_record(r, 'x')\n    return lr(r, 'x')\n")
+        self.assertEqual(direct_readers(exempt), [])
+        self.assertEqual(direct_readers(exempt + "def g(x):\n    return cr.load_record(x)\n"), [7])
 
 
 if __name__ == "__main__":

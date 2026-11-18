@@ -250,7 +250,7 @@ class EvidenceTests(unittest.TestCase):
         with self.assertRaises(EvidenceError) as caught:
             _lock_file(self.root, None, {"source": "dev-root", "path": "uv.lock"})
         self.assertIn("source_root", str(caught.exception))
-        self.assertIsInstance(caught.exception, ValueError)  # cycle_workflow catches ValueError
+        self.assertIsInstance(caught.exception, ValueError)  # the callers catch ValueError
         declaration = dict(self.check, requirement={"interpreter": None, "packages": {"lock": {
             "path": "uv.lock", "source": "dev-root", "project": True, "dev": False, "groups": [], "extras": []}}})
         with self.assertRaises(ValueError):
@@ -291,37 +291,40 @@ class EvidenceTests(unittest.TestCase):
         extra.write_text("two")
         self.assertNotEqual(indexed["fingerprint"], snapshot(self.root, self.check)["fingerprint"])
 
-    def test_broad_suite_evidence_survives_real_cycle_attachment(self):
+    def test_broad_suite_evidence_survives_cycle_writer_records(self):
         import subprocess
+        from types import SimpleNamespace
+        import cycle_writer
         from suite_evidence import INPUTS, runtime_exclusions
-        from cycle_workflow import create, mutate, check_tests, tree, save
-        subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
+
+        def vcs(*args):
+            return subprocess.run(["git", "-c", "user.name=Test", "-c", "user.email=test@example.invalid", *args],
+                                  cwd=self.root, capture_output=True, check=True)
+        vcs("init", "-q")
         docs = self.root / "bionic"
         docs.mkdir()
         (docs / "manifest.yml").write_text('schema_version: "5"\nconcerns_enabled: [adrs]\nadr:\n  next_number: 1\n')
         (docs / "objectives.md").write_text("Preserve useful evidence")
-        cycle = create(self.root, "quick-fix", "Fix", "Correct behavior", ["input.txt"], ["Works"], "builder", "tester")
-        # Preserve the historical snapshot attachment contract, rather than the new local-check policy.
-        cycle.pop("testing_policy")
-        cycle.pop("local_checks")
-        save(tree(self.root), cycle)
-        cycle = mutate(self.root, cycle["id"], "checks", checks=["unit"])
-        cycle = mutate(self.root, cycle["id"], "coverage", coverage={
-            "affected": ["Broad suite evidence survives cycle bookkeeping attachment"],
-            "checks": [{"check_id": "unit", "rationale": "Tiny command supplies evidence whose declared broad inputs are checked before and after cycle mutation"}],
-            "not_selected": "No full suite needed for this isolated evidence fixture; cycle bookkeeping is excluded because the check does not read it.",
-        })
+        vcs("add", "input.txt", "bionic")
+        vcs("commit", "-qm", "base")
+        doc = cycle_writer.create(self.root, "Fix", "builder", {
+            "goal": "Correct behavior", "scope": ["input.txt"], "acceptance": ["Works"],
+            "verification": {"checks": [{"id": "unit", "rationale": "Tiny command supplies evidence whose declared broad inputs are checked before and after record writes"}],
+                             "gaps": "No full suite needed for this isolated evidence fixture"},
+            "council": {"needed": False, "reason": "Bounded fixture"},
+            "tasks": [{"id": "fix", "description": "Correct the behavior"}]})
         self.check.update(inputs=INPUTS, git_tracked=True, exclude_inputs=runtime_exclusions(self.root))
         evidence = execute(self.root, self.check)["evidence"]
-        cycle = mutate(self.root, cycle["id"], "evidence", check_id="unit", evidence_id=evidence["id"], use="executed")
-        check_tests(tree(self.root), cycle)
-        subprocess.run(["git", "add", "bionic/cycles"], cwd=self.root, check=True)
-        check_tests(tree(self.root), cycle)
+        self.assertEqual(lookup(self.root, self.check)["state"], "passed")
+        doc = cycle_writer.mutate(self.root, doc["id"], "builder", doc["revision"], "pause", SimpleNamespace(reason="waiting"))
+        self.assertEqual(lookup(self.root, self.check)["state"], "passed")
+        vcs("add", "bionic/cycles")
         self.assertEqual(lookup(self.root, self.check)["state"], "passed")
         explicit = dict(self.check, check_id="live-cycle", inputs=["bionic/cycles"], exclude_inputs=[], git_tracked=False)
         before = snapshot(self.root, explicit)
-        cycle = mutate(self.root, cycle["id"], "checks", checks=["unit", "other"])
+        cycle_writer.mutate(self.root, doc["id"], "builder", doc["revision"], "abandon", SimpleNamespace(reason="stopped"))
         self.assertNotEqual(before["fingerprint"], snapshot(self.root, explicit)["fingerprint"])
+        self.assertEqual(lookup(self.root, self.check)["state"], "passed")
         (docs / "objectives.md").write_text("Changed static requirement")
         self.assertEqual(lookup(self.root, self.check)["state"], "inputs-changed")
 

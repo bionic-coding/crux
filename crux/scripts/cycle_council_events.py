@@ -6,8 +6,8 @@ import os
 from pathlib import Path
 
 import council_policy as policy
-import cycle_context_read as reader
-from cycle_workflow import CycleError, atomic_bytes, contained, digest, encoded, tree
+from cycle_store import (MAX_OBJECT_BYTES, CycleError, ReadRefused, Reference, atomic_bytes, bounded_bytes, contained, digest,
+                         encoded, scan, tree)
 
 FORMAT = 'crux.council-call-events.v1'
 EVENT = 'crux.council-call-event.v1'
@@ -44,7 +44,7 @@ def _safe(value, key):
     if isinstance(value, str):
         if secret_scan.scan_text(value, exact=[key] if key else []):
             return '[redacted unsafe council evidence]'
-        return redact(value, quoted=False, limit=reader.MAX_OBJECT_BYTES)
+        return redact(value, quoted=False, limit=MAX_OBJECT_BYTES)
     if isinstance(value, dict):
         return {_safe(k, key): _safe(v, key) for k, v in value.items()}
     if isinstance(value, list):
@@ -56,7 +56,7 @@ def _available(payload):
     if payload is None:
         return None
     raw = encoded(payload)
-    if len(raw) <= reader.MAX_OBJECT_BYTES // 2:
+    if len(raw) <= MAX_OBJECT_BYTES // 2:
         return payload
     vote = payload.get('vote') or {}
     decision = vote.get('decision')
@@ -95,7 +95,7 @@ class Sink:
             sealed = policy.seal(payload)
             _validate(sealed)
             raw = encoded(sealed)
-            if len(raw) > reader.MAX_OBJECT_BYTES or reader._scan(raw.decode()):
+            if len(raw) > MAX_OBJECT_BYTES or scan(raw.decode()):
                 raise CycleError('call checkpoint exceeds safe evidence bounds')
             path = _path(self.path, seat, number, phase)
             if path.parent.is_symlink():
@@ -128,13 +128,13 @@ def read(repo, relative, *, attempt=None):
                 if not event_path.exists() and not event_path.is_symlink():
                     continue
                 try:
-                    raw = reader._bounded_bytes(reader.Reference(event_path, cfg.repo_root))
-                    if reader._scan(raw.decode()):
+                    raw = bounded_bytes(Reference(event_path, cfg.repo_root))
+                    if scan(raw.decode()):
                         raise CycleError('unsafe council checkpoint')
                     value = json.loads(raw)
                     policy.verify_seal(value)
                     _validate(value)
-                except (reader.ReadRefused, ValueError, OSError):
+                except (ReadRefused, ValueError, OSError):
                     raise CycleError('unavailable council checkpoint') from None
                 if (value.get('format') != EVENT or any(value.get(k) != v for k, v in _binding(attempt, relative).items())
                         or value.get('phase') != phase or value.get('seat') != seat or value.get('call_number') != number

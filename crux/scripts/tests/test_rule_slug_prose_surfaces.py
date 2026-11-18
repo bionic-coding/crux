@@ -61,6 +61,15 @@ class TwinSectionReferencesTests(unittest.TestCase):
     def test_every_section_reference_in_the_twin_resolves(self) -> None:
         text = TWIN.read_text(encoding="utf-8")
         refs, heads = _section_refs(text), _headings(text)
+        # Moved sections resolve through the task references the twin routes to.
+        region = re.search(
+            r"<!-- BEGIN GENERATED: reference-routing -->(.*?)<!-- END GENERATED: reference-routing -->",
+            text, re.DOTALL)
+        self.assertIsNotNone(region, "the twin carries no reference-routing region")
+        routed = re.findall(r"`\$\{CRUX_PLUGIN_ROOT\}/([^`]+)`", region.group(1))
+        self.assertTrue(routed, "the reference-routing region routes to no reference")
+        for rel in routed:
+            heads |= _headings((REPO_ROOT / "crux" / rel).read_text(encoding="utf-8"))
         self.assertTrue(refs, "the twin carries no § cross-references at all")
         self.assertEqual(sorted(set(refs) - heads), [])
 

@@ -1,5 +1,5 @@
 """A documentation tree that git ignores: the shared predicate, the council evidence writer, the cycle
-and queue writers, log-work, ADR acceptance and adopt, and criterion observations.
+writer and the record commit, the queue writer, log-work, and ADR acceptance and adopt.
 
 The fixture follows the reproduction's: a temporary git repository whose docs tree (bionic/) git
 ignores, with a Standard council initialized before the first .bionic.yml commit. The order matters:
@@ -26,7 +26,8 @@ sys.path.insert(0, str(SCRIPTS))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import cycle_council as council
 import council_policy as policy
-from cycle_workflow import CycleError, create, digest, mutate, tree
+import cycle_writer
+from cycle_store import CycleError, commit_paths, digest, tree
 from ignored_paths import ignored
 try:
     from crux.core.data_classes import CouncilVote, CouncilDeliberation
@@ -35,8 +36,10 @@ try:
 except ImportError:
     HAVE_GATEWAY = False
 
-IDR = {'alternatives': ['leave it'], 'approach': 'set answer to 2', 'assumptions': ['one file'],
-       'constraints': ['no API change'], 'intended_evidence': ['unit check']}
+PLAN = {'goal': 'Return 2', 'scope': ['src', 'bionic'], 'acceptance': ['answer is 2'],
+        'verification': {'checks': [{'id': 'unit', 'rationale': 'reads src/a.py'}], 'gaps': 'no other behavior'},
+        'council': {'needed': False, 'reason': 'the consultation council reviews the plan on request'},
+        'tasks': [{'id': 'build-it', 'description': 'set the answer', 'owner': 'worker'}]}
 
 
 def git(root, *args, check=True, env=None):
@@ -127,10 +130,11 @@ class FixtureBase(unittest.TestCase):
         build_repo(self.root, hide=self.hide, initialize=self.initialize)
         self.cfg = tree(self.root)
         self.docs = self.cfg.docs_root
-        self.cid = create(self.root, 'dev', 'Answer', 'Return 2', ['src', 'bionic'], ['answer is 2'],
-                          'dev-lead', 'dev-lead')['id']
-        doc = mutate(self.root, self.cid, 'decision', kind='idr', name='answer', contents=dict(IDR))
-        self.subject = doc['decisions'][-1]['path']
+        self.doc = cycle_writer.create(self.root, 'Answer', 'lead', PLAN)
+        self.cid = self.doc['id']
+        # The frozen plan is the subject a cycle consultation council reviews.
+        self.subject = cycle_writer.council_subject(self.root, self.doc)
+        self.identity = f'pilot:{self.cid}:plan'
 
     def prepare_environment(self):
         """Hook for a variant that changes the ambient git environment before the fixture is built."""
@@ -142,8 +146,8 @@ class FixtureBase(unittest.TestCase):
         return git(self.root, 'ls-files', '--', 'bionic').stdout.split()
 
     def convene(self, **options):
-        return stubbed(lambda: council.convene(self.root, 'idr', self.subject, 'Review the decision.',
-                                               cycle_id=self.cid, **options))[0]
+        return stubbed(lambda: council.convene(self.root, 'consultation', self.subject, 'Review the decision.',
+                                               cycle_id=self.cid, identity=self.identity, **options))[0]
 
     def record(self, relative):
         return json.loads((self.docs / relative).read_text())
@@ -153,12 +157,10 @@ class FixtureBase(unittest.TestCase):
                 'nits': [], 'rationale': 'fixture agreement', 'dissent': []}
 
     def settle(self, output):
-        """The architect disposition and approve-decision, as the cycle runs them."""
+        """The architect disposition, then the approval the accepting validator reads."""
         settled = policy.disposition(self.root, output['record'], self.agreement())
         self.assertEqual(settled['outcome'], 'approved')
-        council.validate_approval(self.root, output['record'], purpose='idr', subject=self.subject)
-        doc = mutate(self.root, self.cid, 'approve-decision', subject=self.subject, approval=output['record'])
-        self.assertTrue(any(d['path'] == self.subject and d.get('approval') for d in doc['decisions']))
+        council.validate_approval(self.root, output['record'], purpose='consultation', subject=self.subject)
         return settled
 
     def detached(self):
@@ -168,22 +170,22 @@ class FixtureBase(unittest.TestCase):
                                         cli=str(SCRIPTS / 'cycle-council.py')))
         question = Path(self.temp.name) / 'question.txt'
         question.write_text('Review the decision.')
-        arguments = ['--repo-root', str(self.root), '--purpose', 'idr', '--subject', self.subject,
-                     '--question', str(question), '--cycle', self.cid]
-        launched = council.launch_detached(self.root, arguments, purpose='idr', subject=self.subject,
-                                           cycle_id=self.cid, runner=[sys.executable, str(script)])
+        arguments = ['--repo-root', str(self.root), '--purpose', 'consultation', '--subject', self.subject,
+                     '--question', str(question), '--cycle', self.cid, '--identity', self.identity]
+        launched = council.launch_detached(self.root, arguments, purpose='consultation', subject=self.subject,
+                                           cycle_id=self.cid, identity=self.identity, runner=[sys.executable, str(script)])
         self.assertIn(launched['outcome'], {'running', 'awaiting-architect'}, launched)
         return launched, council.await_attempt(self.root, launched['attempt'], 60)
 
 
 @unittest.skipUnless(HAVE_GATEWAY, 'gateway dependencies unavailable')
 class IgnoredTreeCouncilTests(FixtureBase):
-    """An IDR gateway council in a tree .gitignore hides reaches its seats and records a result."""
+    """A cycle consultation council in a tree .gitignore hides reaches its seats and records a result."""
 
-    def test_foreground_council_disposition_and_approve_decision(self):
+    def test_foreground_council_and_disposition(self):
         before = self.commits()
-        output, seats = stubbed(lambda: council.convene(self.root, 'idr', self.subject, 'Review the decision.',
-                                                        cycle_id=self.cid))
+        output, seats = stubbed(lambda: council.convene(self.root, 'consultation', self.subject, 'Review the decision.',
+                                                        cycle_id=self.cid, identity=self.identity))
         seats.return_value.deliberate.assert_called_once()
         self.assertEqual(output['outcome'], 'awaiting-architect')
         self.assertEqual(output['evidence_uncommitted'], 'tree-ignored')
@@ -201,8 +203,8 @@ class IgnoredTreeCouncilTests(FixtureBase):
         self.assertEqual(self.tracked_docs(), [])
 
     def test_stranded_running_claim_recovers(self):
-        _, attempt_path, attempt, _ = council.begin_mode(self.root, 'idr', self.subject, 'Review the decision.',
-                                                         cycle_id=self.cid)
+        _, attempt_path, attempt, _ = council.begin_mode(self.root, 'consultation', self.subject, 'Review the decision.',
+                                                         cycle_id=self.cid, identity=self.identity)
         relative = attempt_path.relative_to(self.docs).as_posix()
         with self.assertRaisesRegex(CycleError, 'unresolved council attempt'):
             self.convene(progress='retry after the stranded claim')
@@ -228,7 +230,7 @@ class ExcludeFileCouncilTests(FixtureBase):
     """.git/info/exclude hides the tree: the same council completes and commits nothing under it."""
     hide = 'exclude'
 
-    def test_council_completes_through_approve_decision(self):
+    def test_council_completes_through_its_disposition(self):
         output = self.convene()
         self.assertEqual(output['outcome'], 'awaiting-architect')
         self.assertEqual(output['evidence_uncommitted'], 'tree-ignored')
@@ -266,13 +268,13 @@ class LegacyBase(FixtureBase):
 
     def legacy(self):
         claims = []
-        output = stubbed(lambda: council.convene(self.root, 'idr', self.subject, 'Review the decision.',
+        output = stubbed(lambda: council.convene(self.root, 'consultation', self.subject, 'Review the decision.',
                                                  cycle_id=self.cid, on_claim=lambda *a: claims.append(a)))[0]
         self.assertEqual(len(claims), 1)
         record = self.record(output['record'])
         self.assertEqual(record['format'], 'crux.cycle-council')
         self.assertEqual(output['outcome'], 'approved')
-        council.validate_approval(self.root, output['record'], purpose='idr', subject=self.subject)
+        council.validate_approval(self.root, output['record'], purpose='consultation', subject=self.subject)
         return output, record
 
 
@@ -466,127 +468,57 @@ def assert_skipped(case, result, *paths):
         case.assertIn(path, result['skipped_paths'], result)
 
 
-class CycleOpsMixin:
-    """Run `cycle.py op` in process, as test_cycle_slice does."""
-
-    def isolate(self):
-        from _classifier_isolation import isolate_classifier
-        isolate_classifier(self)
-        store = patch.dict(os.environ, {'CRUX_TEST_EVIDENCE_STORE': str(Path(self.temp.name).resolve() / 'evidence')})
-        store.start()
-        self.addCleanup(store.stop)
-
-    def op(self, request, cid=None):
-        import contextlib
-        import io
-        import cycle
-        out = io.StringIO()
-        with contextlib.redirect_stdout(out):
-            code = cycle.main(['--repo-root', str(self.root), 'op', cid or self.cid, '--json', json.dumps(request)])
-        return code, json.loads(out.getvalue())
-
-    def ok(self, request, cid=None):
-        code, response = self.op(request, cid)
-        self.assertEqual(code, 0, response)
-        self.assertTrue(response['ok'], response)
-        return response
-
-    def revision(self):
-        from cycle_workflow import load
-        return load(self.root, self.cid)['revision']
-
-    def advance(self, op_id):
-        return self.ok({'op': 'advance', 'op_id': op_id, 'expect_revision': self.revision()})
-
-
 @unittest.skipUnless(HAVE_GATEWAY, 'gateway dependencies unavailable')
-class IgnoredTreeDevCycleTests(CycleOpsMixin, FixtureBase):
-    """A full dev cycle in the ignored tree: every record commit is skipped and says so."""
+class IgnoredTreeDevCycleTests(FixtureBase):
+    """A full cycle in the ignored tree: the writer commits nothing, so only the source commit lands."""
 
-    def setUp(self):
-        super().setUp()
-        self.isolate()
+    def write(self, action, actor='lead', **arguments):
+        self.doc = cycle_writer.mutate(self.root, self.cid, actor, self.doc['revision'], action, SimpleNamespace(**arguments))
+        return self.doc
 
-    def record_dir(self):
-        return f'bionic/cycles/{self.cid}'
-
-    def test_full_dev_cycle_completes_and_reports_each_skipped_commit(self):
-        from cycle_workflow import load
-        import cycle_hosts
+    def test_full_cycle_completes_and_the_writer_commits_nothing(self):
         before = self.commits()
-        # Plan: the IDR council approves the exact revision, then the plan names it.
-        self.settle(self.convene())
-        doc = load(self.root, self.cid)
-        plan = dict(doc['plan'], verification=['the unit check passes'], tasks=[
-            {'id': 'plan', 'phase': 'plan', 'description': 'plan the change', 'depends_on': [], 'status': 'pending',
-             'expected_evidence': ['plan']},
-            {'id': 'build-it', 'phase': 'build', 'description': 'set the answer', 'depends_on': ['plan'],
-             'status': 'pending', 'expected_evidence': ['commit']},
-            *({'id': phase, 'phase': phase, 'description': phase, 'depends_on': ['build-it'], 'status': 'pending',
-               'expected_evidence': [phase]} for phase in ('verify', 'review', 'reflect'))])
-        mutate(self.root, self.cid, 'plan', plan=plan, reason='plan with the approved IDR')
-        mutate(self.root, self.cid, 'task', task_id='plan', state='done')
-        record = self.record_dir()
-        assert_skipped(self, self.advance('adv-plan')['record_commit'], record)
-        # Build: dispatch, execution-check, a source commit and delivery.
-        prepared = self.ok({'op': 'prepare-dispatch', 'op_id': 'prep-0001', 'task_id': 'build-it', 'role': 'dev-lead',
-                            'host': 'claude-code', 'assignment_text': 'Set the answer to 2.'})
-        assert_skipped(self, prepared['record_commit'], record)
-        self.addCleanup(lambda: Path(prepared['result_path']).unlink(missing_ok=True))
-        check = {'op': 'execution-check', 'assignment': 'build-it', 'attempt': 1, 'checkout': str(self.root)}
-        assert_skipped(self, self.ok({**check, 'op_id': 'check-start'})['record_commit'], record)
         (self.root / 'src/a.py').write_text('answer = 2\n')
         git(self.root, 'add', 'src/a.py')
-        assert_skipped(self, self.ok({**check, 'op_id': 'check-stage', 'edited_paths': ['src/a.py']})['record_commit'], record)
         git(self.root, 'commit', '-qm', 'set the answer\n\nCycle-Task: build-it')
         sha = git(self.root, 'rev-parse', 'HEAD').stdout.strip()
-        marker = cycle_hosts.marker('build-it', 1, prepared.get('delivery_token'))
-        Path(prepared['result_path']).write_text(f'Assignment: build-it\nAttempt: 1\n\nOutcome: DONE.\n{marker}\n')
-        delivered = self.ok({'op': 'deliver', 'op_id': 'deliver-01', 'assignment': 'build-it', 'attempt': 1,
-                             'outcome': 'done', 'commits': [sha]})
-        assert_skipped(self, delivered['record_commit'], record)
-        assert_skipped(self, self.advance('adv-build')['record_commit'], record)
-        # Verify and Review.
-        mutate(self.root, self.cid, 'checks', checks=['unit'])
-        mutate(self.root, self.cid, 'coverage', coverage={'affected': ['the answer'], 'checks': [
-            {'check_id': 'unit', 'rationale': 'reads src/a.py'}], 'not_selected': 'no other behavior'})
+        self.write('task', task='build-it', owner='worker', run=1, status='done', summary='set the answer to 2')
         command = [sys.executable, '-c',
                    "from pathlib import Path; assert Path('src/a.py').read_text() == 'answer = 2\\n'"]
         observed = subprocess.run(command, cwd=self.root, capture_output=True, text=True)
         self.assertEqual(observed.returncode, 0, observed.stderr)
-        checked = mutate(self.root, self.cid, 'local-check', check_id='unit', executed_command=shlex.join(command),
-                         tested_revision=sha, result='passed', summary='The answer source assertion passes',
-                         reason='Checks the changed source behavior before independent review')
-        observation = checked['local_checks'][-1]['id']
-        mutate(self.root, self.cid, 'task', task_id='verify', state='done')
-        assert_skipped(self, self.advance('adv-verify')['record_commit'], record)
-        mutate(self.root, self.cid, 'review', report={'reviewer': 'independent', 'scope': ['src', 'bionic'], 'evidence': [observation],
-                                                      'blocking': [], 'advisory': [], 'cosmetic': [], 'verdict': 'approve',
-                                                      'rationale': 'reviewed the change'})
-        mutate(self.root, self.cid, 'task', task_id='review', state='done')
-        assert_skipped(self, self.advance('adv-review')['record_commit'], record)
-        # Reflect and finish.
-        mutate(self.root, self.cid, 'reflect', reflection={'outcome': 'answer is 2', 'lessons': ['l'], 'remaining': ['none'],
-                                                           'follow_ups': []})
-        mutate(self.root, self.cid, 'task', task_id='reflect', state='done')
-        finished = self.ok({'op': 'finish', 'op_id': 'finish-001', 'expect_revision': self.revision(),
-                            'lessons': ['l'], 'remaining': ['none']})
-        assert_skipped(self, finished['record_commit'], record)
-        self.assertEqual(load(self.root, self.cid)['status'], 'completed')
+        self.write('check', value={'check_id': 'unit', 'executed_command': shlex.join(command), 'tested_revision': sha,
+                                   'result': 'passed', 'summary': 'The answer source assertion passes',
+                                   'reason': 'Checks the changed source behavior before independent review'})
+        self.write('review-start', reviewer='independent')
+        self.write('review', actor='independent', value={
+            'reviewer': 'independent', 'plan_revision': self.doc['plan']['revision'], 'base_commit': self.doc['base_commit'],
+            'head_commit': sha, 'verdict': 'approve', 'blocking': [],
+            'acceptance': [{'criterion': 0, 'met': True, 'evidence': 'the answer source assertion'}],
+            'test_selection': 'The unit check reads the one changed file', 'summary': 'The answer is 2', 'remaining': []})
+        self.write('finish', summary='The answer is 2')
+        self.assertEqual(self.doc['state'], 'completed')
+        self.assertTrue((self.docs / 'cycles' / self.cid / 'cycle.json').is_file())
         # Only the source commit landed; nothing under the tree is tracked.
         self.assertEqual(self.commits(), before + 1)
         self.assertEqual(self.tracked_docs(), [])
 
 
 class TrackedTreeCycleWriterTests(FixtureBase):
-    """The paired controls for the cycle writer: a tracked tree commits, defers and refuses as before."""
+    """The paired controls for the record commit: a tracked tree commits, defers and refuses as before."""
     hide = None
     KEYS = {'changed', 'commit', 'paths', 'message', 'deferred'}
 
-    def test_tracked_record_commit_keeps_its_exact_result_keys(self):
-        from cycle_commit import commit_record
+    def test_the_writer_leaves_the_record_for_the_lead_to_commit(self):
         before = self.commits()
-        result = commit_record(self.root, self.cid, 'fixture')
+        cycle_writer.mutate(self.root, self.cid, 'lead', self.doc['revision'], 'pause', SimpleNamespace(reason='waiting'))
+        self.assertEqual(self.commits(), before)
+        self.assertIn('bionic/cycles', git(self.root, 'status', '--porcelain', '--', 'bionic').stdout)
+        self.assertNotIn(f'bionic/cycles/{self.cid}/cycle.json', self.tracked_docs())
+
+    def test_tracked_record_commit_keeps_its_exact_result_keys(self):
+        before = self.commits()
+        result = commit_paths(self.cfg, [f'bionic/cycles/{self.cid}/cycle.json'], 'fixture')
         self.assertEqual(set(result), self.KEYS)
         self.assertTrue(result['changed'])
         self.assertIsNone(result['deferred'])
@@ -594,14 +526,13 @@ class TrackedTreeCycleWriterTests(FixtureBase):
         self.assertIn(f'bionic/cycles/{self.cid}/cycle.json', self.tracked_docs())
 
     def test_failing_hook_still_defers_commit_failed_without_a_skip(self):
-        from cycle_commit import commit_record
         # The record commit passes --no-verify; prepare-commit-msg still runs and fails the commit.
         hook = self.root / '.git/hooks/prepare-commit-msg'
         hook.parent.mkdir(exist_ok=True)
         hook.write_text('#!/bin/sh\nexit 1\n')
         hook.chmod(0o755)
         before = self.commits()
-        result = commit_record(self.root, self.cid, 'fixture')
+        result = commit_paths(self.cfg, [f'bionic/cycles/{self.cid}/cycle.json'], 'fixture')
         self.assertEqual(result['deferred'], 'commit-failed', result)
         self.assertNotIn('commit_skipped', result)
         self.assertNotIn('skipped_paths', result)
@@ -609,18 +540,16 @@ class TrackedTreeCycleWriterTests(FixtureBase):
 
 
 class IgnoredTreeCycleWriterTests(FixtureBase):
-    """The ignored-tree counterpart: the same writer commits nothing and reports the skip."""
+    """The ignored-tree counterpart: the same commit writer commits nothing and reports the skip."""
 
     def test_record_commit_reports_the_skip(self):
-        from cycle_commit import commit_record
         before = self.commits()
-        result = commit_record(self.root, self.cid, 'fixture')
+        result = commit_paths(self.cfg, [f'bionic/cycles/{self.cid}'], 'fixture')
         assert_skipped(self, result, f'bionic/cycles/{self.cid}')
         self.assertEqual(result['paths'], [])
         self.assertEqual(self.commits(), before)
 
     def test_mixed_paths_commit_the_tracked_rest(self):
-        from cycle_commit import commit_paths
         (self.root / 'src/b.py').write_text('b = 1\n')
         result = commit_paths(self.cfg, [f'bionic/cycles/{self.cid}', 'src/b.py'], 'fixture')
         self.assertTrue(result['changed'], result)
@@ -629,12 +558,8 @@ class IgnoredTreeCycleWriterTests(FixtureBase):
         self.assertEqual(git(self.root, 'show', '--name-only', '--format=', 'HEAD').stdout.split(), ['src/b.py'])
 
 
-class IgnoredTreeQueueTests(CycleOpsMixin, FixtureBase):
+class IgnoredTreeQueueTests(FixtureBase):
     """queue add, authorize and start-next in the ignored tree: each queue and record commit is skipped."""
-
-    def setUp(self):
-        super().setUp()
-        self.isolate()
 
     def test_queue_add_authorize_and_start_next(self):
         import cycle_queue
@@ -646,7 +571,7 @@ class IgnoredTreeQueueTests(CycleOpsMixin, FixtureBase):
         assert_skipped(self, authorized['queue_commit'], queue)
         started = cycle_queue.start_next(self.root)
         self.assertEqual(started['outcome'], 'started', started)
-        assert_skipped(self, started['record_commit'], f"bionic/cycles/{started['cycle']}", queue)
+        assert_skipped(self, started['record_commit'], f"bionic/cycles/{started['cycle']}/cycle.json", queue)
         self.assertEqual(self.commits(), before)
         self.assertEqual(self.tracked_docs(), [])
 
@@ -706,7 +631,8 @@ governs:
 - domain: evidence
   rule: Keep the evidence.
   scope: src/
-  handle: keep-the-evidence
+  handle: ADR-0009/keep-the-evidence
+  provenance: authored
 ---
 
 # Decision
@@ -779,43 +705,6 @@ class TrackedTreeAdoptTests(AdrMixin, FixtureBase):
         # Positive control: the committed bytes adopt.
         path.write_text(HAND_WRITTEN)
         self.assertEqual(dp.adopt(self.root, subject)['adr'], 'ADR-0009')
-
-
-class CriterionObservationBase(FixtureBase):
-    def observation(self, name='evidence/observation.json'):
-        from cycle_workflow import load
-        head = git(self.root, 'rev-parse', 'HEAD').stdout.strip()
-        path = self.docs / 'cycles' / self.cid / name
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({'criterion': 0, 'value': 'answer is 1', 'met': False, 'commit': head}))
-        relative = path.relative_to(self.docs).as_posix()
-        return relative, path, load(self.root, self.cid)
-
-
-class IgnoredTreeCriterionObservationTests(CriterionObservationBase):
-    def test_an_uncommitted_observation_in_the_ignored_tree_is_accepted(self):
-        from cycle_workflow import criterion_observation
-        relative, path, doc = self.observation()
-        retained, record = criterion_observation(self.cfg, doc, 0, relative, before=True)
-        self.assertEqual(retained, {'path': relative, 'sha256': digest(path.read_bytes())})
-        self.assertFalse(record['met'])
-        self.assertEqual(self.tracked_docs(), [])
-
-
-class TrackedTreeCriterionObservationTests(CriterionObservationBase):
-    hide = None
-
-    def test_uncommitted_and_modified_observations_refuse_and_the_committed_one_reads(self):
-        from cycle_workflow import criterion_observation
-        relative, path, doc = self.observation()
-        with self.assertRaisesRegex(CycleError, 'must match a committed file on HEAD'):
-            criterion_observation(self.cfg, doc, 0, relative)
-        git(self.root, 'add', 'bionic')
-        git(self.root, 'commit', '-qm', 'record the observation')
-        criterion_observation(self.cfg, doc, 0, relative)  # positive control
-        path.write_text(path.read_text().replace('answer is 1', 'answer is one'))
-        with self.assertRaisesRegex(CycleError, 'must match a committed file on HEAD'):
-            criterion_observation(self.cfg, doc, 0, relative)
 
 
 if __name__ == '__main__':

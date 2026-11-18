@@ -70,10 +70,10 @@ class ParsedFrontmatterContracts(unittest.TestCase):
                 self.assertIn("Monitor", grants(relative))
         self.assertIn("SendMessage", grants("agents/dev-lead.md"))
 
-    def test_the_cycle_skill_routes_the_simplify_and_queue_phrases(self):
+    def test_the_cycle_skill_routes_the_start_and_queue_phrases(self):
         triggers = [phrase.strip() for phrase in
                     frontmatter("skills/cycle/SKILL.md")["metadata"]["triggers"].split("|")]
-        for phrase in ("simplify cycle", "run a simplify cycle", "simplify <area>",
+        for phrase in ("start a cycle", "run the cycle", "resume the cycle", "cycle status",
                        "add to the queue", "show the queue", "run the next item",
                        "run the next N items", "run the queue"):
             with self.subTest(phrase=phrase):

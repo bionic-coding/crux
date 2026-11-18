@@ -929,7 +929,7 @@ class ModelsCatalogNegativeTests(unittest.TestCase):
         "    claude: sonnet\n"
         "    opencode: haiku-latest\n"
         "    codex:\n"
-        "      model: gpt-6.1-sol\n"
+        "      model: gpt-6.2-sol\n"
         "      reasoning_effort: low\n"
         '      verified: "2026-08-21"\n'
         '      source: "fixture"\n'
@@ -1046,9 +1046,9 @@ class ModelsCatalogNegativeTests(unittest.TestCase):
     # anchor would mutate whichever cell comes first. These tests anchor on the
     # apex cell's whole indented row, so each mutates one known cell.
     APEX_VERIFIED = (
-        "      model: gpt-6-astra\n"
+        "      model: gpt-6.2-astra\n"
         "      reasoning_effort: high\n"
-        '      verified: "2026-09-22"'
+        '      verified: "2026-11-17"'
     )
 
     def _apex_verified(self, text: str, date: str) -> str:
@@ -1056,7 +1056,7 @@ class ModelsCatalogNegativeTests(unittest.TestCase):
                       "apex Codex cell fixture is inert: the anchored row is absent")
         return text.replace(
             self.APEX_VERIFIED,
-            self.APEX_VERIFIED.replace('"2026-09-22"', f'"{date}"'), 1)
+            self.APEX_VERIFIED.replace('"2026-11-17"', f'"{date}"'), 1)
 
     def test_v4_impossible_date(self):
         # Anchored on the INDENTED data row. An unanchored replace matched the
@@ -1092,11 +1092,11 @@ class ModelsCatalogNegativeTests(unittest.TestCase):
     # the Codex catalog listing it. Named once so the provenance tests below
     # mutate one known cell and fail loudly when the anchor goes stale.
     FLAGSHIP_CODEX = (
-        "      model: gpt-6.1-sol\n"
+        "      model: gpt-6.2-sol\n"
         "      reasoning_effort: high\n"
-        '      verified: "2026-09-29"\n'
-        '      source: "OpenAI GPT-6.1 Sol model documentation + Codex 0.159.0 '
-        'models_cache.json fetched 2026-09-29, which lists `gpt-6.1-sol`"'
+        '      verified: "2026-11-17"\n'
+        '      source: "OpenAI GPT-6.2 Sol model documentation + Codex 0.169.1 '
+        'models_cache.json fetched 2026-11-17, which lists `gpt-6.2-sol`"'
     )
 
     def _flagship_codex(self, text: str, replacement: str) -> str:
@@ -1118,7 +1118,7 @@ class ModelsCatalogNegativeTests(unittest.TestCase):
         # V5 when its source records the Codex catalog listing it.
         self.assertEqual(
             self._v5_errors(lambda t: self._flagship_codex(
-                t, self.FLAGSHIP_CODEX.replace("gpt-6.1-sol", "gpt-7-nova"))),
+                t, self.FLAGSHIP_CODEX.replace("gpt-6.2-sol", "gpt-7-nova"))),
             [],
         )
 
@@ -1128,33 +1128,33 @@ class ModelsCatalogNegativeTests(unittest.TestCase):
         for model in ("gpt-7-nova", "gpt-6.1-sool"):
             with self.subTest(model=model):
                 errors = self._v5_errors(lambda t: self._flagship_codex(
-                    t, self.FLAGSHIP_CODEX.replace("model: gpt-6.1-sol", f"model: {model}")))
+                    t, self.FLAGSHIP_CODEX.replace("model: gpt-6.2-sol", f"model: {model}")))
                 self.assertEqual(len(errors), 1, errors)
                 self.assertIn(f"levels.flagship.codex.source does not name the slug `{model}`", errors[0])
 
     def test_v5_codex_source_omitting_the_slug_fails(self):
         errors = self._v5_errors(lambda t: self._flagship_codex(
-            t, self.FLAGSHIP_CODEX.replace(", which lists `gpt-6.1-sol`", "")))
+            t, self.FLAGSHIP_CODEX.replace(", which lists `gpt-6.2-sol`", "")))
         self.assertEqual(len(errors), 1, errors)
-        self.assertIn("does not name the slug `gpt-6.1-sol`", errors[0])
+        self.assertIn("does not name the slug `gpt-6.2-sol`", errors[0])
 
     def test_v5_codex_source_with_unquoted_slug_fails(self):
         errors = self._v5_errors(lambda t: self._flagship_codex(
-            t, self.FLAGSHIP_CODEX.replace("`gpt-6.1-sol`", "gpt-6.1-sol")))
+            t, self.FLAGSHIP_CODEX.replace("`gpt-6.2-sol`", "gpt-6.2-sol")))
         self.assertEqual(len(errors), 1, errors)
-        self.assertIn("does not name the slug `gpt-6.1-sol`", errors[0])
+        self.assertIn("does not name the slug `gpt-6.2-sol`", errors[0])
 
     def test_v5_codex_source_without_a_codex_catalog_citation_fails(self):
         errors = self._v5_errors(lambda t: self._flagship_codex(
-            t, self.FLAGSHIP_CODEX.replace("Codex 0.159.0 models_cache.json", "the Codex catalog")))
+            t, self.FLAGSHIP_CODEX.replace("Codex 0.169.1 models_cache.json", "the Codex catalog")))
         self.assertEqual(len(errors), 1, errors)
         self.assertIn("cites no Codex catalog read", errors[0])
 
     def test_v5_malformed_codex_slug_fails(self):
-        for model in ("GPT-6.1-sol", "-gpt", "gpt_6", "openai/gpt-6.1-sol"):
+        for model in ("GPT-6.1-sol", "-gpt", "gpt_6", "openai/gpt-6.2-sol"):
             with self.subTest(model=model):
                 errors = self._v5_errors(lambda t: self._flagship_codex(
-                    t, self.FLAGSHIP_CODEX.replace("gpt-6.1-sol", model)))
+                    t, self.FLAGSHIP_CODEX.replace("gpt-6.2-sol", model)))
                 self.assertTrue(any("is not a Codex slug" in e for e in errors), errors)
 
     def test_v5_shipped_codex_cells_carry_their_provenance(self):
@@ -1253,8 +1253,8 @@ class ModelsCatalogNegativeTests(unittest.TestCase):
             before, rest = t.split("  apex:\n", 1)
             _, flagship = rest.split("  flagship:\n", 1)
             body, _ = flagship.split("  standard:\n", 1)
-            duplicate = body.replace('verified: "2026-09-29"',
-                                     'verified: "2026-09-28"')
+            duplicate = body.replace('verified: "2026-11-17"',
+                                     'verified: "2026-11-16"')
             return before + "  apex:\n" + duplicate + "  flagship:\n" + flagship
         self._assert_rule("V8", transform)
 
@@ -1314,10 +1314,10 @@ class AgentCodexOverrideValidationTests(unittest.TestCase):
         "    level: apex\n"
         "    opencode: kimi-latest\n"
         "    codex:\n"
-        "      model: gpt-6.1-sol\n"
-        "      reasoning_effort: xhigh\n"
-        '      verified: "2026-09-29"\n'
-        '      source: "OpenAI GPT-6.1 Sol model documentation and Codex 0.159.0 models_cache.json checked 2026-09-29, which lists `gpt-6.1-sol`"'
+        "      model: gpt-6.2-astra\n"
+        "      reasoning_effort: medium\n"
+        '      verified: "2026-11-17"\n'
+        '      source: "OpenAI GPT-6.2 Astra model documentation and Codex 0.169.1 models_cache.json checked 2026-11-17, which lists `gpt-6.2-astra`"'
     )
 
     def _findings(self, transform) -> list[dict]:
@@ -1343,7 +1343,7 @@ class AgentCodexOverrideValidationTests(unittest.TestCase):
     def test_v4_rejects_agent_override_effort_outside_the_enum(self):
         findings = self._findings(
             lambda t: self._replace_override(
-                t, self.REVIEWER_CODEX.replace("reasoning_effort: xhigh", "reasoning_effort: extreme")
+                t, self.REVIEWER_CODEX.replace("reasoning_effort: medium", "reasoning_effort: extreme")
             )
         )
         self.assertIn("V4", _fields(findings), findings)
@@ -1353,7 +1353,7 @@ class AgentCodexOverrideValidationTests(unittest.TestCase):
             lambda t: self._replace_override(
                 t,
                 self.REVIEWER_CODEX.replace(
-                    'source: "OpenAI GPT-6.1 Sol model documentation and Codex 0.159.0 models_cache.json checked 2026-09-29, which lists `gpt-6.1-sol`"',
+                    'source: "OpenAI GPT-6.2 Astra model documentation and Codex 0.169.1 models_cache.json checked 2026-11-17, which lists `gpt-6.2-astra`"',
                     'source: ""',
                 ),
             )
@@ -1363,7 +1363,7 @@ class AgentCodexOverrideValidationTests(unittest.TestCase):
     def test_v4_rejects_agent_override_impossible_verified_date(self):
         findings = self._findings(
             lambda t: self._replace_override(
-                t, self.REVIEWER_CODEX.replace('verified: "2026-09-29"', 'verified: "2026-99-99"')
+                t, self.REVIEWER_CODEX.replace('verified: "2026-11-17"', 'verified: "2026-99-99"')
             )
         )
         self.assertIn("V4", _fields(findings), findings)
@@ -1371,7 +1371,7 @@ class AgentCodexOverrideValidationTests(unittest.TestCase):
     def test_v4_rejects_agent_override_future_verified_date(self):
         findings = self._findings(
             lambda t: self._replace_override(
-                t, self.REVIEWER_CODEX.replace('verified: "2026-09-29"', 'verified: "2999-01-01"')
+                t, self.REVIEWER_CODEX.replace('verified: "2026-11-17"', 'verified: "2999-01-01"')
             )
         )
         self.assertIn("V4", _fields(findings), findings)
@@ -1379,7 +1379,7 @@ class AgentCodexOverrideValidationTests(unittest.TestCase):
     def test_v4_warns_for_agent_override_stale_verified_date(self):
         findings = self._findings(
             lambda t: self._replace_override(
-                t, self.REVIEWER_CODEX.replace('verified: "2026-09-29"', 'verified: "2020-01-01"')
+                t, self.REVIEWER_CODEX.replace('verified: "2026-11-17"', 'verified: "2020-01-01"')
             )
         )
         warnings = [f for f in findings if f.get("severity") == "warning"]
@@ -1393,14 +1393,14 @@ class AgentCodexOverrideValidationTests(unittest.TestCase):
         # the old slug fails V5; the same slug transcribed into the source passes.
         stale = self._findings(
             lambda t: self._replace_override(
-                t, self.REVIEWER_CODEX.replace("model: gpt-6.1-sol", "model: gpt-5.6")
+                t, self.REVIEWER_CODEX.replace("model: gpt-6.2-astra", "model: gpt-5.6")
             )
         )
         v5 = [f["error"] for f in stale if f["field"] == "V5"]
         self.assertEqual(len(v5), 1, stale)
         self.assertIn("agents.reviewer.codex.source does not name the slug `gpt-5.6`", v5[0])
         recorded = self._findings(
-            lambda t: self._replace_override(t, self.REVIEWER_CODEX.replace("gpt-6.1-sol", "gpt-5.6"))
+            lambda t: self._replace_override(t, self.REVIEWER_CODEX.replace("gpt-6.2-astra", "gpt-5.6"))
         )
         self.assertNotIn("V5", _fields(recorded), recorded)
 
@@ -1408,14 +1408,14 @@ class AgentCodexOverrideValidationTests(unittest.TestCase):
         # A partial override is validated alone and refused, never merged with
         # the level's cell, which stays valid.
         partials = {
-            "missing reasoning_effort": self.REVIEWER_CODEX.replace("      reasoning_effort: xhigh\n", ""),
+            "missing reasoning_effort": self.REVIEWER_CODEX.replace("      reasoning_effort: medium\n", ""),
             "model and reasoning_effort only": (
                 "  reviewer:\n"
                 "    level: apex\n"
                 "    opencode: kimi-latest\n"
                 "    codex:\n"
-                "      model: gpt-6.1-sol\n"
-                "      reasoning_effort: xhigh"
+                "      model: gpt-6.2-astra\n"
+                "      reasoning_effort: medium"
             ),
         }
         for label, replacement in partials.items():
@@ -1988,12 +1988,12 @@ class OverrideAuthorityTierTests(unittest.TestCase):
 
     def test_future_date_fails_v10_and_still_loads(self):
         from unittest import mock
-        text = _brainstormer_override(self._shipped(), "claude-opus-5-5", date='"2026-11-07"')
-        with mock.patch.object(validator, "_utc_today", return_value=__import__("datetime").date(2026, 11, 6)):
+        text = _brainstormer_override(self._shipped(), "claude-opus-5-5", date='"2026-11-18"')
+        with mock.patch.object(validator, "_utc_today", return_value=__import__("datetime").date(2026, 11, 17)):
             errors = _v10(self._run(text))
         self.assertEqual(len(errors), 1, errors)
-        self.assertIn("later than the run's UTC date 2026-11-06", errors[0])
-        with mock.patch.object(validator, "_utc_today", return_value=__import__("datetime").date(2026, 11, 7)):
+        self.assertIn("later than the run's UTC date 2026-11-17", errors[0])
+        with mock.patch.object(validator, "_utc_today", return_value=__import__("datetime").date(2026, 11, 18)):
             self.assertEqual(_v10(self._run(text)), [])
         with tempfile.TemporaryDirectory() as td:
             far = _brainstormer_override(self._shipped(), "claude-opus-5-5", date='"2999-01-01"')
@@ -2003,9 +2003,10 @@ class OverrideAuthorityTierTests(unittest.TestCase):
 
     def test_shipped_catalog_warns_once_per_exempt_tuple(self):
         warnings = _v10(self._run(self._shipped()), warnings=True)
-        self.assertEqual(len(warnings), 6, warnings)
+        self.assertEqual(len(warnings), 5, warnings)
+        self.assertFalse([w for w in warnings if w.startswith("agents.reviewer.codex ")], warnings)
         for agent, column in (("architect", "opencode"), ("dev-lead", "opencode"),
-                              ("reviewer", "codex"), ("commander", "opencode"),
+                              ("commander", "opencode"),
                               ("reviewer", "opencode"), ("developer", "opencode")):
             with self.subTest(agent=agent, column=column):
                 hits = [w for w in warnings if w.startswith(f"agents.{agent}.{column} is ")]
@@ -2019,9 +2020,12 @@ class OverrideAuthorityTierTests(unittest.TestCase):
             "architect opencode to another tier's alias": lambda t: re.sub(
                 r"^(  architect:\n    level: flagship\n    opencode: )opus-latest$",
                 r"\1glm-latest", t, flags=re.M),
-            "reviewer codex effort lowered": lambda t: t.replace(
-                "      model: gpt-6.1-sol\n      reasoning_effort: xhigh\n",
-                "      model: gpt-6.1-sol\n      reasoning_effort: high\n", 1),
+            # The reviewer's Codex override names the apex level's own model, so
+            # it is in-tier and never exempt. Moving its model to the flagship
+            # level's model is a cross-tier move with no exemption.
+            "reviewer codex model moved to the flagship model": lambda t: t.replace(
+                "      model: gpt-6.2-astra\n      reasoning_effort: medium\n",
+                "      model: gpt-6.2-sol\n      reasoning_effort: medium\n", 1),
             "dev-lead level changed": lambda t: re.sub(
                 r"^(  dev-lead:\n    level: )flagship$", r"\1apex", t, flags=re.M),
         }
@@ -2033,16 +2037,24 @@ class OverrideAuthorityTierTests(unittest.TestCase):
                 self.assertEqual(len(errors), 1, errors)
                 self.assertIn("needs authority.", errors[0])
 
-    def test_exemption_constant_is_pinned_to_the_six_tuples_and_the_shipped_catalog(self):
-        six = {
+    def test_in_tier_reviewer_codex_override_needs_no_exemption(self):
+        # An effort-only change keeps the apex model, so it stays in-tier.
+        self.assertEqual(_v10(self._run(self._shipped())), [])
+        mutated = self._shipped().replace(
+            "      model: gpt-6.2-astra\n      reasoning_effort: medium\n",
+            "      model: gpt-6.2-astra\n      reasoning_effort: xhigh\n", 1)
+        self.assertNotEqual(mutated, self._shipped(), "fixture inert")
+        self.assertEqual(_v10(self._run(mutated)), [])
+
+    def test_exemption_constant_is_pinned_to_the_five_tuples_and_the_shipped_catalog(self):
+        five = {
             ("architect", "flagship", "opencode", "opus-latest"),
             ("dev-lead", "flagship", "opencode", "glm-latest"),
-            ("reviewer", "apex", "codex", ("gpt-6.1-sol", "xhigh")),
             ("commander", "apex", "opencode", "kimi-latest"),
             ("reviewer", "apex", "opencode", "kimi-latest"),
             ("developer", "standard", "opencode", "deepseek-flash"),
         }
-        self.assertEqual(set(validator.PRE_RULE_OVERRIDE_EXEMPTIONS), six)
+        self.assertEqual(set(validator.PRE_RULE_OVERRIDE_EXEMPTIONS), five)
         raw = validator.models_catalog.load_raw(SHIPPED_MODELS)
         shipped = {key for key, _tiers in validator.unsettled_override_tuples(raw["agents"], raw["levels"])}
         self.assertEqual(set(validator.PRE_RULE_OVERRIDE_EXEMPTIONS), shipped)
@@ -2066,7 +2078,7 @@ class OverrideAuthorityTierTests(unittest.TestCase):
         levels = raw["levels"]
         self.assertEqual(validator._tier_set(levels, "opencode", "opus-latest"), {"apex"})
         self.assertEqual(validator._tier_set(levels, "claude", "claude-opus-5-5"), {"apex", "flagship"})
-        self.assertEqual(validator._tier_set(levels, "codex", "gpt-6.1-sol"), {"flagship"})
+        self.assertEqual(validator._tier_set(levels, "codex", "gpt-6.2-sol"), {"flagship"})
         self.assertEqual(validator._tier_set(levels, "opencode", "claude-opus-5-5"), set())
 
 

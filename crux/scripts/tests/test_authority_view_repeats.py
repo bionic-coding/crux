@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from test_adr_migration import MigrationFixture
 import adr_migration as m
 import implementation_migration as historical
-from cycle_workflow import CycleError
+from cycle_store import CycleError
 
 
 _REAL_RUN = subprocess.run

@@ -1,8 +1,8 @@
 # Proportionate independent review
 
 Read `.bionic.yml` `review.scrutiny`; absent means `standard`. Allowed values are
-`focused`, `standard`, `intensive`. Record the effective level and the reason for
-an adjustment. Cycle type and scrutiny are separate.
+`focused`, `standard`, `intensive`. A plan may record its own `scrutiny` level with
+its reason. Record the effective level and the reason for an adjustment.
 
 - Focused: one independent reviewer checks correctness, relevant tests, clarity,
   and security on the changed surface.
@@ -36,59 +36,60 @@ coordinator. Crux runs locally with a trusted caller, environment and interprete
 denial of service from hostile input never blocks.[^trust] An accidental malformed or
 oversized input that hangs or crashes Crux is a plausible mistake and can block.[^blocker]
 
-Check the implementation against the approved plan and its Implementation Decisions.
-A design objection is a finding only when the implementation diverges from the
-approved record or shows a plausible failure the record did not consider. Nits that
-the architect agreement of the approved revision marks `apply-in-build` are not
-findings; the reviewer reads that record. Design is settled in Plan, and a council
-dispute is never raised to the owner from Review.
+Check the implementation against the approved plan and any council verdict on it. A
+design objection is a finding only when the implementation diverges from the plan or
+shows a plausible failure the plan did not consider. Design is settled in the plan, and
+a council dispute is never raised to the owner from review.
 
 Review the diff, criteria, and relevant integration points. The reviewer reads the
-diff, history and receipts itself unless the host denies it that shell. Expand only
-for a concrete dependency or failure path. Record unrelated existing issues separately
-unless they prevent the change working safely. For proportionate cycles, assess
-selected local checks, coverage rationale, tested revisions and applicability after
-edits. Request a specific gap; broad shared changes can justify a full suite, but
-review alone does not. The reviewer runs focused probes; the coordinator owns broad
-checks. Explicit reuse stays within the current cycle and pass. Historical TE
-results retain fingerprint and freshness validation. After fixes, revisit changed
-portions and their consequences;
-repeat full review only when earlier conclusions were invalidated. Blocking findings
-use the cycle's return path and pass limit, never a hidden loop.
+diff, history and check observations itself unless the host denies it that shell.
+Expand only for a concrete dependency or failure path. Record unrelated existing issues
+separately unless they prevent the change working safely. Assess the selected checks,
+their coverage rationale, tested revisions and applicability after edits. Request a
+specific gap; broad shared changes can justify a full suite, but review alone does not.
+The reviewer runs focused probes; the test coordinator owns broad checks. Explicit
+reuse of an observation stays within the current cycle.
 
-A fix-diff review follows the Review findings the commander answered with a fix task.
-The reviewer checks only the fix diff against the finding or findings, once. A
-blocking fix-diff review returns to Build. After a Verify finding, the normal Review
-covers the fix.
+The lead commits the final code, records the selected checks and requests review with
+`review-start ID --reviewer NAME`. The reviewer reads the cycle with `show`, assesses the
+change from the cycle's base commit to the head it names, and submits its own verdict
+with `review ID --actor NAME --expect-revision N --file FILE`.[^verdict] The writer refuses the
+lead, an unrequested reviewer and anyone who led or implemented the cycle. A reviewer
+differs from every implementer and does not modify the work under review. Council
+approval of a plan does not replace independent review of the implementation.
 
-The delegator commissions the reviewer with an assignment that carries the outcome,
-evidence and constraint. The reviewer writes its own report to the result file the
-dispatch names; the commander records it with `review --json`, and a report without
-`scope` records the plan scope; typed `advance` then attaches the receipts the review
-rests on. Each report scope entry claims a full review of every plan path it covers,
-a directory entry included.[^scope] The writer checks coverage, and the reviewer's
-evidence carries the claim: it names what the reviewer read and ran for each scope
-entry. A reviewer differs from every implementer of the range under review.
+The report names the reviewer, the plan revision, the base and head commits, the
+verdict (`approve` or `changes-required`), the unresolved `blocking` findings, one
+`acceptance` entry per criterion (zero-based `criterion`, `met`, `evidence`), a
+`test_selection` assessment and a `summary`. Optional keys are `advisory`, `lessons` and
+`remaining`. Name what the reviewer read and ran, and its limits.
 
-A return from Build retains `execution_refusal` in its `return-requested` event: one range
-per task whose base the return abandoned, with every commit the new pass placed below every
-new task base. The reviewer reads each retained `execution_refusal` and reviews the commit
-of every non-bookkeeping row of every range with the range under review. A refused row whose
-commit carries a `Cycle-Task` trailer naming a task of this cycle, and which a finished
-delivery of that task lists, is reviewed as that task's work, such as a sibling's committed
-work in progress. Only such a trailered commit that no finished delivery of its task lists
-is a scope finding.
+A blocking finding, or an acceptance failure the review observes, becomes a task in the
+same cycle. The lead fixes it within the authorized scope and requests a review of the
+changed work. A change to scope takes effect only with the owner's recorded words, except
+that the lead may add each path that a blocking finding, recorded by the cycle's
+requested independent reviewer, names as the place to fix an unmet acceptance criterion
+of the current plan.[^scope] A finding that needs a path outside the scope names that
+path and the criterion. The lead adds it with `plan --finding TASK --criterion N`, and
+the writer checks that the finding is blocking, recorded by the requested reviewer
+for this cycle and names every added path. The next review judges whether the finding
+named each added path as the place to fix and whether the named criterion requires the
+fix. A failing check qualifies nothing on its own: the lead may request review while a
+check fails, and the reviewer can name the path in a blocking finding. The reviewer revisits the changed portions and their consequences, and
+repeats a full review only when the change invalidated earlier conclusions. No counted
+return applies. A review counts for the plan revision and the code
+range it names:[^binds] a later plan revision, new implementation work, or a change to a
+reviewed path after the reviewed head makes it obsolete. A commit confined to cycle
+records, council records, the journal, the operations log or the queue leaves it valid.
+The reviewed paths are the code paths that differ between the cycle base and the
+reviewed head. One rule applies when the writer records the report and again at
+`finish`: the report stands while every reviewed path holds its content at the reviewed
+head. A later commit that changes only other paths, such as the next cycle's work on
+the same branch, refuses no report. Name a head that holds the code committed when the
+lead requested review; the writer refuses an earlier one.
 
-Return a consolidated report with reviewer identity, scrutiny and rationale,
-scope, evidence and limitations, blocking/advisory/cosmetic findings, and verdict.
-Council approval does not replace independent implementation review. The reviewer
-must differ from the implementer and must not modify the work under review.
-
-In a simplify cycle, check the diff against the selected proposals. Check the
-reduction record against the dimensions the cycle skill defines for each area: every
-dimension the diff changes must appear in that area's `before` and `after`, and its
-`change` must follow the no-netting rule. Work for an unselected proposal is blocking.
-
+[^binds]: rule:review-binds-plan-revision-and-code-range
 [^blocker]: rule:blocking-finding-names-a-plausible-failure
-[^scope]: rule:review-covers-the-declared-scope
+[^scope]: rule:scope-changes-with-the-owner-or-a-review-finding
 [^trust]: rule:crux-trusts-its-local-environment
+[^verdict]: rule:reviewer-records-its-own-verdict

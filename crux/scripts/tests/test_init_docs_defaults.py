@@ -87,9 +87,9 @@ class ManifestTemplateTests(unittest.TestCase):
         # in the template, or a fresh repo reads a schema doc describing a
         # manifest it does not have.
         m = yaml.safe_load((TEMPLATES / "manifest.yml.tmpl").read_text())
-        c = (TEMPLATES / "AGENTS.md.tmpl").read_text()
+        c = (REPO_ROOT / "crux" / "references" / "manifest.md").read_text()
         block = re.search(r"\nobservation:.*?\n\n", c, re.DOTALL)
-        self.assertIsNotNone(block, "no `observation:` block in AGENTS.md.tmpl §7")
+        self.assertIsNotNone(block, "no `observation:` block in crux/references/manifest.md §7")
         documented = set(re.findall(r"^  ([a-z_]+):", block.group(0), re.MULTILINE))
         # Positive control: §7 must actually document keys, so an empty match
         # cannot make the subset assertion below vacuously true.
@@ -594,8 +594,7 @@ class ObservationsConcernTests(unittest.TestCase):
     SKILL_MD = REPO_ROOT / "crux" / "skills" / "init-docs" / "SKILL.md"
 
     def test_obs_template_keyset_matches_section_17_1_in_order(self):
-        require_dev_surface(self, TREE_AGENTS_MD, f"{TREE}/AGENTS.md")
-        canonical = _section_17_1_keyset(TREE_AGENTS_MD.read_text())
+        canonical = _section_17_1_keyset((REPO_ROOT / "crux" / "references" / "observations.md").read_text())
         self.assertTrue(self.OBS_TEMPLATE.exists(), "crux/templates/OBS-template.md missing")
         self.assertEqual(_frontmatter_keys(self.OBS_TEMPLATE.read_text()), canonical)
 

@@ -198,7 +198,7 @@ Upgrading does not touch the existing tree. Recover schemas 2–4 on a copy
 with verified crux v3.23.2 before using a confirmed current-version copy. For an existing
 schema-5 tree, `audit-docs --migrate` remains available for instruction files.
 
-An upgrade applies the gate check to every cycle run in flight at its next gate
+An upgrade applies the gate check to every historical promptbook run in flight at its next gate
 prompt. A module whose council ran before council records existed closes only on a
 council-runner round convened at module close. No book's bytes change. A template change fixes no existing
 book. The gate check binds hashes, not content. See `run-promptbook`'s

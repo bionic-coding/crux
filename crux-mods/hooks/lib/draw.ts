@@ -12,7 +12,7 @@
 import type { Agents, AssignmentView, Council, CycleView, Escalation, Gate, Parsed, Prompt, QueueItemView, QueueView, ReaderView, RunView, Time } from './view.ts'
 import {
   COUNCIL_KINDS, ESCALATION_NOTE, MAX_SHOWN_RUNS, QUIET, ROUTE_ACTIONS, RUN_STATUS, STATES, bandRun, counted, currentEscalation,
-  currentPrompt, cycleTimeText, escalationText, laneCells, lastRunAge, openElapsed, promptBounds, promptSpan, runAxis, runTimes, safeText, stallIdle,
+  currentPrompt, cycleTimeText, escalationText, isOpenCycle, isUnreadableCycle, laneCells, lastRunAge, openElapsed, promptBounds, promptSpan, runAxis, runTimes, safeText, stallIdle,
 } from './view.ts'
 import { ELLIPSIS, MAX_WIDTH, cells, drawingWidth, fit, head, wrap } from './width.ts'
 import { QUEUE_COLLAPSED_ROWS, queueControl } from './queue.ts'
@@ -732,7 +732,19 @@ const TASK_STYLES: Readonly<Record<string, Omit<Span, 'text'>>> = {
 }
 const taskCell = (status: string): Span => span(stateGlyph(status === 'active' ? 'running' : status), own(TASK_STYLES, status) ?? { color: 'warning' })
 
-// One phase of the track. A phase before the current one is done, the current phase takes the
+// A current record (the reader's type `pilot`) draws its steps, planning to completed, on one line
+// with a glyph per step, and its task count. It draws no type word, no loop and no progress bar: a
+// current record has no type and no passes. A historical record keeps its type, phases and loop.
+const isCurrent = (c: CycleView): boolean => c.type === 'pilot'
+// A readable current record. The reader's row for an unreadable record claims no step, so it keeps
+// its single step cell and its status mark.
+const hasSteps = (c: CycleView): boolean => isCurrent(c) && !isUnreadableCycle(c)
+// The status word a current record names beside its steps. The current step's glyph and word already
+// say active, reviewed and completed; they do not say paused or abandoned, so those two are named.
+export const stepStatusWord = (c: CycleView): Line =>
+  hasSteps(c) && (c.status === 'paused' || c.status === 'abandoned') ? [span(c.status, { color: statusOf(c.status).color, bold: true })] : []
+
+// One phase of the track. For a current record a phase is a step. A phase before the current one is done, the current phase takes the
 // cycle's status, a later phase is pending. A completed cycle has finished every phase.
 function trackCell(c: CycleView, i: number): Line {
   const cur = c.phases.indexOf(c.phase)
@@ -747,11 +759,14 @@ function trackCell(c: CycleView, i: number): Line {
 const currentPhase = (c: CycleView): number => Math.max(0, c.phases.indexOf(c.phase))
 
 // The compact track: a glyph per phase, and the current phase's glyph and word. The band draws it too.
-const compactTrack = (c: CycleView): Line => joined(c.phases.map((_, i) => (i === currentPhase(c) ? trackCell(c, i) : trackCell(c, i).slice(0, 1))), ' ')
+// An unreadable current record draws its one step cell.
+export const compactTrack = (c: CycleView): Line => isCurrent(c) && !hasSteps(c) ? trackCell(c, currentPhase(c)) : joined(c.phases.map((_, i) => (i === currentPhase(c) ? trackCell(c, i) : trackCell(c, i).slice(0, 1))), ' ')
 
 // The phase track: a glyph and word per phase when that fits n cells; else the compact track; else
-// the current phase alone. The current phase never drops out.
-function cycleTrack(c: CycleView, n: number): Line {
+// the current phase alone. The current phase never drops out. The crux-omp card draws a current
+// record's steps with it.
+export function cycleTrack(c: CycleView, n: number): Line {
+  if (isCurrent(c) && !hasSteps(c)) return fitLine(trackCell(c, currentPhase(c)), n)
   const full = joined(c.phases.map((_, i) => trackCell(c, i)), ` ${TRACK_SEP} `)
   if (lineCells(full) <= n) return full
   const compact = compactTrack(c)
@@ -761,13 +776,13 @@ function cycleTrack(c: CycleView, n: number): Line {
 
 // The pieces of the meta line the band shares: the loop icon and number, the status glyph and word
 // in the status key, and the type word.
-const loopMark = (c: CycleView): Line => c.type === 'pilot' ? [] : [span(LOOP_GLYPH), span(` loop ${c.pass}`)]
+const loopMark = (c: CycleView): Line => isCurrent(c) ? [] : [span(LOOP_GLYPH), span(` loop ${c.pass}`)]
 const statusGlyph = (c: CycleView): Span => {
   const st = statusOf(c.status)
   return span(st.glyph, { color: st.color, bold: true })
 }
 const statusMark = (c: CycleView): Line => [statusGlyph(c), span(' '), span(c.status, { color: statusOf(c.status).color, bold: true })]
-const typeWord = (c: CycleView): Line => [span(c.type, { color: 'permission' })]
+const typeWord = (c: CycleView): Line => isCurrent(c) ? [] : [span(c.type, { color: 'permission' })]
 // The task count, as the pane's bar and the band draw it.
 const taskCount = (c: CycleView): string => `${c.tasks.filter(t => t.status === 'done').length}/${c.tasks.length} tasks`
 
@@ -814,17 +829,21 @@ function cycleLines(c: CycleView, n: number, now: Time): Line[] {
   const count = taskCount(c)
   // The slot also names the loop limit, except for a listed release cycle, which has one phase and
   // draws no limit. When the line does not fit n cells the limit gives way first, then the type word.
-  const loop = [...loopMark(c), span(' '), ...statusMark(c)]
-  const limited = c.type !== 'pilot' && !(c.type === 'release' && c.phases.length === 1) ? [...loopMark(c), span(` of ${c.pass_limit}`), span(' '), ...statusMark(c)] : loop
-  const typed = [...typeWord(c), span(' '), ...limited]
-  const meta = lineCells(typed) <= n ? typed : lineCells([...typeWord(c), span(' '), ...loop]) <= n ? [...typeWord(c), span(' '), ...loop] : loop
+  const loop = isCurrent(c) ? statusMark(c) : [...loopMark(c), span(' '), ...statusMark(c)]
+  const limited = !isCurrent(c) && !(c.type === 'release' && c.phases.length === 1) ? [...loopMark(c), span(` of ${c.pass_limit}`), span(' '), ...statusMark(c)] : loop
+  const lead: Line = isCurrent(c) ? [] : [...typeWord(c), span(' ')]
+  const typed = [...lead, ...limited]
+  const meta = lineCells(typed) <= n ? typed : lineCells([...lead, ...loop]) <= n ? [...lead, ...loop] : loop
+  // A current record's steps say active, reviewed and completed, so its status line is drawn only
+  // for the statuses its step glyph alone does not say: paused and abandoned.
+  const metaShown = !hasSteps(c) || stepStatusWord(c).length > 0
   const lines: Line[] = [
     [span(`${c.id} ${drawn(c.title)}`, { bold: true })],
-    meta,
+    ...(metaShown ? [meta] : []),
     cycleTrack(c, n),
   ]
   if (c.tasks.length > 0) {
-    lines.push(c.type === 'pilot' ? [span(count, { dim: true })] : joined([bar(Math.round((100 * done) / c.tasks.length), Math.min(BAR_WIDTH, Math.max(0, n - cells(count) - 1))), [span(count, { dim: true })]], ' '))
+    lines.push(isCurrent(c) ? [span(count, { dim: true })] : joined([bar(Math.round((100 * done) / c.tasks.length), Math.min(BAR_WIDTH, Math.max(0, n - cells(count) - 1))), [span(count, { dim: true })]], ' '))
   }
   // The elapsed line follows title, meta, the single phase track and task progress.
   const time = cycleTimeText(c, now)
@@ -838,7 +857,9 @@ function cycleLines(c: CycleView, n: number, now: Time): Line[] {
   // One line for the current wait. A reader that lists a name once per superseded revision still draws it once.
   const waiting = [...new Set(c.waits)]
   if (waiting.length > 0) lines.push([span(STATE_GLYPHS.skipped!, { color: 'warning' }), span(` Awaiting approval: ${waiting.map(w => drawn(w)).join(', ')}`, { color: 'warning' })])
-  if (c.blocker) lines.push([span(STATE_GLYPHS.skipped!, { color: 'warning' }), span(` Paused: ${drawn(c.blocker)}`, { color: 'warning' })])
+  // A current record's blockers are not always a pause (a required council blocks too), so they read
+  // `Blocked`, as the reader's own text does.
+  if (c.blocker) lines.push([span(STATE_GLYPHS.skipped!, { color: 'warning' }), span(` ${hasSteps(c) ? 'Blocked' : 'Paused'}: ${drawn(c.blocker)}`, { color: 'warning' })])
   lines.push(...recordLines(c))
   if (c.reflection) lines.push([span(`Outcome: ${drawn(c.reflection)}`)])
   return lines
@@ -854,10 +875,10 @@ export const OPEN_SLOT_MAX = 2
 export const QUEUE_UPCOMING_MAX = QUEUE_COLLAPSED_ROWS
 export const QUEUE_FINISHED_MAX = 2
 
-// An open cycle is active or paused. The slot draws the first OPEN_SLOT_MAX of them, in the reader's
-// order. An open cycle past the slot is counted in `+N open` only. The closed cycles are the rest: the
-// first draws as a panel and the others as rows under `cycles:`.
-const isOpen = (c: CycleView): boolean => c.status === 'active' || c.status === 'paused'
+// An open cycle is active, paused or reviewed (view.ts isOpenCycle). The slot draws the first
+// OPEN_SLOT_MAX of them, in the reader's order. An open cycle past the slot is counted in `+N open`
+// only. The closed cycles are the rest: the first draws as a panel and the others as rows under `cycles:`.
+const isOpen = isOpenCycle
 const slotOf = (cycles: CycleView[]): CycleView[] => cycles.filter(isOpen).slice(0, OPEN_SLOT_MAX)
 const closedOf = (cycles: CycleView[]): CycleView[] => cycles.filter(c => !isOpen(c))
 
@@ -871,12 +892,12 @@ export function olderPages(p: Parsed): number {
 // A page index as a valid one: whole, and within [0, pages - 1].
 export const clampPage = (page: number, pages: number): number => Math.min(Math.max(0, Number.isFinite(page) ? Math.floor(page) : 0), Math.max(0, pages - 1))
 
-// One closed cycle in one line: status glyph and word, id, type, done/total tasks and the title last,
+// One closed cycle in one line: status glyph and word, id, type (a historical cycle only), done/total tasks and the title last,
 // which the fit cuts first.
 export function olderRow(c: CycleView): Line {
   const done = c.tasks.filter(t => t.status === 'done').length
   return [
-    statusGlyph(c), span(' '), span(c.id, { bold: true }), span(' '), ...typeWord(c), span(' '),
+    statusGlyph(c), span(' '), span(c.id, { bold: true }), span(' '), ...(isCurrent(c) ? [] : [...typeWord(c), span(' ')]),
     span(c.status, { color: statusOf(c.status).color }), span(` ${done}/${c.tasks.length} `, { dim: true }), span(drawn(c.title)),
   ]
 }
@@ -1162,16 +1183,22 @@ function fitSegments(items: BandItem[], w: number): Segment[] {
 // cycle is. Then the status word goes and leaves its glyph. Then the status glyph goes, because the
 // current phase draws the same glyph in the same key. Then the id goes. The current phase is the
 // last segment left.
+// A current record's band is its id, its steps and its task count: the current step's glyph and word
+// state its status, and a paused or abandoned cycle adds that one word, which outlasts the id.
 function cycleBandItems(c: CycleView): BandItem[] {
+  const status: BandItem[] = !hasSteps(c)
+    ? [{ name: 'status', order: 4, rank: 3, line: statusMark(c), short: [statusGlyph(c)], shortRank: 4 }]
+    : stepStatusWord(c).length > 0 ? [{ name: 'status', order: 4, rank: 1.5, line: stepStatusWord(c) }] : []
   const items: BandItem[] = [
     { name: 'id', order: 0, rank: 2, line: [span(c.id, { bold: true })] },
     { name: 'type', order: 1, rank: 8, line: typeWord(c) },
     { name: 'loop', order: 2, rank: 6, line: loopMark(c) },
     { name: 'track', order: 3, rank: 1, line: compactTrack(c), short: trackCell(c, currentPhase(c)), shortRank: 5 },
-    { name: 'status', order: 4, rank: 3, line: statusMark(c), short: [statusGlyph(c)], shortRank: 4 },
+    ...status,
   ]
   if (c.tasks.length > 0) items.push({ name: 'tasks', order: 5, rank: 7, line: [span(taskCount(c), { dim: true })] })
-  return items
+  // A current record has no type word and no loop; an empty segment would still take a gap's width.
+  return items.filter(i => i.line.length > 0)
 }
 
 // The band's segments at width w, or null when the band draws nothing. A status takes the band's

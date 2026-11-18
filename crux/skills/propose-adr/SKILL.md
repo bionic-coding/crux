@@ -26,10 +26,12 @@ This skill is portable across Claude Code, Codex, OpenCode, and OMP (Oh My Pi). 
 
 ## New-policy proposal entry points
 
-A direct request, whiteboarding outcome, or processed brief/inbox item may initiate
-a proposal. An origin inside a new cycle first requires council justification
-for creating an ADR. Record that approval before writing the proposal; it does
-not approve the draft's contents. Follow `cycle/SKILL.md` for this boundary.
+A direct request, whiteboarding outcome, processed brief/inbox item or cycle may
+initiate a proposal. A cycle drafts a necessary ADR in any active state, planning,
+working or reviewing, with `--origin cycle --cycle CYC-NNNN`; no council approves its
+creation and the owner need not request it.[^cycle-adr] The proposal metadata records the
+cycle and its record format. Council approval of the exact draft and the acceptance
+policy still apply. Follow `cycle/SKILL.md` for this boundary.
 For new proposals, use `decision-policy.py propose` with the actual origin and the
 proposal JSON described in `cycle/references/commands.md`. The allocation steps
 below describe historical authoring; do not allocate a second record manually.
@@ -214,6 +216,7 @@ the advisory is inert; that is a tree-configuration matter, not a finding about 
   - a `path:line` citation for every factual claim about code or the corpus;
   - a reconciliation table in Consequences (retain, narrow or retire; `retires:` for each retire) covering every amended ADR's live rules and every live rule in the draft's domains, started from `uv run "${CRUX_PLUGIN_ROOT}/scripts/adr-precouncil.py" rules --repo-root <repo-root> --adr <path>`;
   - the recurring threats, each answered: crash mid-write, concurrent writer, stale projection, partial fix (applied at one site of a concept, not every site), historical record reinterpreted;
+  - no rule-handle collision: the same `rules` report lists each handle whose slug equals a live slug, a retired slug or the slug of a handle the draft retires. Rename every such handle before council; `decision-policy.py propose` and `accept` refuse a collision and write nothing;
   - governs-body parity: each `governs` entry names the body sentence it summarises, and an entry that says more than its body is a defect;
   - one obligation per `governs` rule (§11.D), then `check-governs-coverage.py`, `lint-governs-references.py` and `summarize-adrs.py --dry-run` clean;
   - a draft that amends or supersedes more than three ADRs is split or narrowed, or declares in one line why not.
@@ -282,3 +285,4 @@ the advisory is inert; that is a tree-configuration matter, not a finding about 
 When allocating the next `ADR-NNNN` and running the `${ID}-*.md` collision check, scan **both** `<docs_dir>/adrs/` **and** `<docs_dir>/adrs/archive/`, so an archived id is never reissued. Numbers remain monotonic and never reused across either tier.
 
 [^log-writer]: rule:log-entries-go-through-the-log-writer, rule:no-writer-writes-the-legacy-log-file
+[^cycle-adr]: rule:cycle-adrs-need-no-creation-council

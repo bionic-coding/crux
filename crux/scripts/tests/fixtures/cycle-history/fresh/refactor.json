@@ -1,0 +1,71 @@
+{
+  "blocker": null,
+  "completion": null,
+  "coordinator": "tester",
+  "coverage": null,
+  "created_at": "2026-11-17T06:40:54.547832+00:00",
+  "decisions": [],
+  "evidence": [],
+  "extensions": [],
+  "goal": "Goal",
+  "history": [
+    {
+      "action": "created",
+      "at": "2026-11-17T06:40:54.547848+00:00",
+      "pass": 1,
+      "phase": "plan",
+      "revision": 1,
+      "status": "active"
+    }
+  ],
+  "id": "CYC-0003",
+  "implementers": [
+    "builder"
+  ],
+  "local_checks": [],
+  "operations": [],
+  "pass": 1,
+  "pass_limit": 7,
+  "phase": "plan",
+  "phase_names": "verify",
+  "plan": {
+    "acceptance": [
+      "passes"
+    ],
+    "constraints": [],
+    "revision": 1,
+    "scope": [
+      "src"
+    ],
+    "tasks": [
+      {
+        "depends_on": [],
+        "description": "Write the plan, and the IDR where the work needs one, and record them in this cycle",
+        "expected_evidence": [
+          "the recorded plan, and the IDR when one is required"
+        ],
+        "id": "plan",
+        "phase": "plan",
+        "status": "pending"
+      }
+    ],
+    "verification": []
+  },
+  "reflection": null,
+  "release": null,
+  "required_checks": [],
+  "results_dir": null,
+  "review_policy": {
+    "rationale": "repository default",
+    "risks": [],
+    "scrutiny": "standard"
+  },
+  "reviews": [],
+  "revision": 1,
+  "schema_version": 3,
+  "status": "active",
+  "testing_policy": "proportionate",
+  "title": "T refactor",
+  "type": "refactor",
+  "updated_at": "2026-11-17T06:40:54.547850+00:00"
+}

@@ -25,6 +25,17 @@ Three columns, sorted by skill name:
 Skills with `user-invocable: false` are listed in a second, smaller table headed
 "Claude-only (no user phrase)" — they are still routed, so they belong here.
 
+A second region, §2.A "Task references", routes the specialist contracts that
+moved out of the operational schema. Its source of truth is the frontmatter of
+each task reference (`crux/references/*.md`, and a skill's `references/*.md`
+that declares routing): `title`, `read_when` and the `sections` it holds. It
+sits between:
+
+    <!-- BEGIN GENERATED: reference-routing -->
+    <!-- END GENERATED: reference-routing -->
+
+Where any task reference exists, both surfaces must carry that region.
+
 Fail-closed marker handling mirrors generate-writing-rules.py: a missing,
 duplicated, or misordered marker aborts with a message rather than guessing an
 insertion point. Reads/writes with `newline=""` so a CRLF file stays CRLF.
@@ -117,22 +128,22 @@ def _marker_line(marker: str) -> re.Pattern[str]:
     return re.compile(r"^[ \t]*" + re.escape(marker) + r"[ \t\r]*$", re.MULTILINE)
 
 
-def find_region(text: str, label: str) -> tuple[int, int]:
-    b = _marker_line(BEGIN).findall(text)
-    e = _marker_line(END).findall(text)
+def find_region(text: str, label: str, begin: str = BEGIN, end: str = END) -> tuple[int, int]:
+    b = _marker_line(begin).findall(text)
+    e = _marker_line(end).findall(text)
     if len(b) == 0 or len(e) == 0:
         missing = "BEGIN" if len(b) == 0 else "END"
         raise RegenError(
             f"{label}: missing marker ({missing} not found as its own line). "
-            f"Expected exactly one line {BEGIN!r} and one line {END!r}."
+            f"Expected exactly one line {begin!r} and one line {end!r}."
         )
     if len(b) > 1 or len(e) > 1:
         raise RegenError(
             f"{label}: duplicate marker (BEGIN x{len(b)}, END x{len(e)}). "
             "Exactly one of each is required; refusing to guess which pair is real."
         )
-    mb = _marker_line(BEGIN).search(text)
-    me = _marker_line(END).search(text)
+    mb = _marker_line(begin).search(text)
+    me = _marker_line(end).search(text)
     assert mb is not None and me is not None
     if me.start() < mb.end():
         raise RegenError(f"{label}: END marker precedes BEGIN marker.")
@@ -236,6 +247,94 @@ def build_region(skills: list[dict]) -> tuple[str, list[str]]:
     return "\n" + "\n".join(lines) + "\n", no_triggers
 
 
+REF_BEGIN = "<!-- BEGIN GENERATED: reference-routing -->"
+REF_END = "<!-- END GENERATED: reference-routing -->"
+
+# Task references: plugin-level `crux/references/*.md` and skill-owned
+# `crux/skills/<skill>/references/*.md`. A skill reference joins the routing only
+# when its frontmatter declares `read_when` and `sections`; the ordinary skill
+# references carry no frontmatter and stay out.
+_REFERENCE_GLOBS = ("crux/references/*.md", "crux/skills/*/references/*.md")
+_SCALAR_KEYS = ("title", "read_when")
+
+
+def parse_reference_frontmatter(text: str, label: str) -> dict | None:
+    """The routing frontmatter of one reference, or None when it declares none.
+
+    The shape is closed: `title` and `read_when` scalars and a `sections` list of
+    double-quoted strings. Anything else in a frontmatter that declares routing is
+    refused, so a malformed reference fails the regeneration instead of dropping
+    out of the table.
+    """
+    if not text.startswith("---\n"):
+        return None
+    close = text.find("\n---\n", 4)
+    if close < 0:
+        raise RegenError(f"{label}: frontmatter has no closing '---' line")
+    meta: dict = {}
+    current = None
+    for line in text[4:close].split("\n"):
+        if line.startswith("  - "):
+            if current != "sections":
+                raise RegenError(f"{label}: a list item outside `sections`")
+            item = line[4:].strip()
+            if not (len(item) >= 2 and item[0] == item[-1] == '"'):
+                raise RegenError(f"{label}: a `sections` item must be double-quoted: {item!r}")
+            meta["sections"].append(item[1:-1])
+            continue
+        key, sep, value = line.partition(":")
+        if not sep or key not in (*_SCALAR_KEYS, "sections") or key in meta:
+            raise RegenError(f"{label}: unexpected frontmatter line {line!r}")
+        value = value.strip()
+        if key == "sections":
+            if value:
+                raise RegenError(f"{label}: `sections` must be a block list")
+            meta["sections"] = []
+        elif not value:
+            raise RegenError(f"{label}: `{key}` is empty")
+        else:
+            meta[key] = value
+        current = key
+    if "read_when" not in meta and "sections" not in meta:
+        return None
+    missing = [k for k in (*_SCALAR_KEYS, "sections") if not meta.get(k)]
+    if missing:
+        raise RegenError(f"{label}: routing frontmatter lacks {', '.join(missing)}")
+    return meta
+
+
+def discover_references(root: Path) -> list[tuple[str, dict]]:
+    """(plugin-relative path, frontmatter) of each routed reference, sorted by path."""
+    found = []
+    for pattern in _REFERENCE_GLOBS:
+        for path in sorted(root.glob(pattern)):
+            rel = path.relative_to(root).as_posix()
+            if path.is_symlink() or not path.is_file():
+                raise RegenError(f"{rel}: a task reference must be a regular file")
+            meta = parse_reference_frontmatter(read_text_verbatim(path), rel)
+            if meta is not None:
+                found.append((rel.removeprefix("crux/"), meta))
+    return sorted(found)
+
+
+def build_reference_region(references: list[tuple[str, dict]]) -> str:
+    """The marker-delimited body of the reference-routing table."""
+    lines = ["| Reference | Read it when | Sections it holds |", "|---|---|---|"]
+    for rel, meta in references:
+        sections = "; ".join(meta["sections"])
+        lines.append(f"| `${{CRUX_PLUGIN_ROOT}}/{rel}` | {_cell(meta['read_when'])} | {_cell(sections)} |")
+    return "\n" + "\n".join(lines) + "\n"
+
+
+def _replace_region(text: str, rel: str, region: str, begin: str, end: str) -> str:
+    i, j = find_region(text, rel, begin, end)
+    newline = "\r\n" if "\r\n" in text else "\n"
+    # The marker matcher includes its trailing CR, so the first LF completes
+    # that existing CRLF; subsequent line endings belong to the body.
+    body = "\n" + region[1:].replace("\n", newline)
+    return text[:i] + body + text[j:]
+
+
 def run(root: Path, dry_run: bool) -> tuple[int, dict]:
     # SURFACE-ABSENT LANE, second trigger. rule:out-of-scope-is-surface-absent names
     # two: a plugin-authoring gate outside the authoring checkout, AND a projection
@@ -256,6 +355,8 @@ def run(root: Path, dry_run: bool) -> tuple[int, dict]:
         raise RegenError(f"{skills_json}: expected a JSON array")
 
     region, no_triggers = build_region(skills)
+    references = discover_references(root)
+    reference_region = build_reference_region(references) if references else None
 
     targets = [f"{_tree_name(root)}/AGENTS.md", "crux/templates/AGENTS.md.tmpl"]
     present = [rel for rel in targets if (root / rel).is_file()]
@@ -265,18 +366,22 @@ def run(root: Path, dry_run: bool) -> tuple[int, dict]:
                    "this tree owns no region to project into")
     # Validate every present surface before writing any. A missing region in an
     # owned template is a defect, even when the operational table is already clean.
+    # Where task references exist, every surface must carry their routing region;
+    # a surface carrying that region with no reference to route is refused too.
     changes: list[tuple[str, str]] = []
     for rel in present:
         text = read_text_verbatim(root / rel)
-        i, j = find_region(text, rel)
-        newline = "\r\n" if "\r\n" in text else "\n"
-        # The marker matcher includes its trailing CR, so the first LF completes
-        # that existing CRLF; subsequent line endings belong to the body.
-        body = "\n" + region[1:].replace("\n", newline)
-        if text[i:j] != body:
-            changes.append((rel, text[:i] + body + text[j:]))
+        new = _replace_region(text, rel, region, BEGIN, END)
+        if reference_region is not None:
+            new = _replace_region(new, rel, reference_region, REF_BEGIN, REF_END)
+        elif _marker_line(REF_BEGIN).search(text) or _marker_line(REF_END).search(text):
+            raise RegenError(f"{rel}: carries the reference-routing region, but no task "
+                             "reference with routing frontmatter exists")
+        if new != text:
+            changes.append((rel, new))
 
-    payload: dict = {"targets": present, "no_trigger_skills": no_triggers}
+    payload: dict = {"targets": present, "no_trigger_skills": no_triggers,
+                     "references": [rel for rel, _ in references]}
     if dry_run:
         return int(bool(changes)), {"drift": bool(changes), "paths": [rel for rel, _ in changes], **payload}
 

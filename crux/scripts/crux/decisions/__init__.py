@@ -1,8 +1,9 @@
-"""The shipped Decisions transport for cycle classification.
+"""The shipped Decisions transport.
 
-This package is the contract between the transport and the cycle engine. The cycle
-engine (``cycle_classify``) imports only the names in ``__all__``. It never builds a
-request, reads the credential or touches the wire itself.
+This package is the contract between the transport and its callers. A caller imports
+only the names in ``__all__``; it never builds a request, reads the credential or
+touches the wire itself. ``validate-catalog.py`` loads this module to check that the
+``cycle_classifier`` model entry keeps the denials below.
 
 Contract (CYC-0090, IDR decision-transport-and-routing revision 5):
 

@@ -7,8 +7,55 @@ import os
 import tempfile
 import yaml
 from bionic_config import load_workflow_policy
-from cycle_workflow import CycleError, contained, digest, now, locked, load, save, event, atomic
+from cycle_store import CycleError, contained, digest, encoded, now, locked, atomic
 from cycle_council import validate_approval
+
+ORIGINS = ('direct', 'whiteboard', 'inbox', 'cycle')
+CREATION_RETIRED = ('the ADR-creation council is retired: a cycle-origin ADR needs no creation approval or creation subject. '
+                    'Propose it with --origin cycle --cycle CYC-NNNN; council approval of its exact text and the '
+                    'acceptance policy still apply')
+
+
+def cycle_record(repo, identity):
+    """The lightweight record a cycle-origin ADR names, or a refusal for a legacy typed record.
+
+    The candidate writes no legacy record; a legacy cycle drafts and accepts through its own engine."""
+    from cycle_writer import load_pilot, LegacyRecord
+    try:
+        return load_pilot(repo, identity)
+    except LegacyRecord:
+        raise CycleError(f'{identity} is a legacy typed record; a cycle-origin ADR names a lightweight cycle record') from None
+
+
+def _resumed(cfg, cycle_id, proposal_sha256):
+    """The metadata of an earlier interrupted propose of this exact proposal on this cycle, or None."""
+    directory = contained(cfg.docs_root, 'adrs/proposals')
+    if not directory.is_dir():
+        return None
+    for path in sorted(directory.glob('*.json')):
+        try:
+            metadata = json.loads(path.read_text())
+        except (OSError, ValueError):
+            continue
+        if (isinstance(metadata, dict) and metadata.get('origin') == 'cycle' and metadata.get('cycle_id') == cycle_id
+                and metadata.get('proposal_sha256') == proposal_sha256):
+            return metadata
+    return None
+
+
+def refuse_handle_collisions(repo, governs, *, own_adr=None, stage):
+    """Refuse a governs block whose slugs collide with the corpus, before `stage` writes anything.
+
+    A slug equal to a live slug, a retired slug or a slug the same ADR retires refuses; so does a corpus
+    that cannot be read, because an unread corpus proves no absence of a collision."""
+    import summaries_projection as sp
+    try:
+        found = sp.corpus_handle_collisions(Path(repo), governs, own_adr=own_adr)
+    except (ValueError, OSError) as exc:
+        raise CycleError(f'{stage} refused: the rule-handle collision check could not read the decision corpus: {exc}') from None
+    if found:
+        raise CycleError(f'{stage} refused: rule-handle collision: {sp.describe_handle_collisions(found)}. '
+                         'Choose a slug no live or retired rule uses; nothing was written')
 
 
 def write_text_atomic(path, text):
@@ -142,22 +189,39 @@ def _recover_receipt(cfg, receipt, owner_decision, captured):
 
 
 def propose(repo, proposal, *, origin, cycle_id=None, creation_approval=None, creation_subject=None):
-    """Allocate an ADR only after cycle creation justification, when applicable."""
-    if origin not in {'direct','whiteboard','inbox','cycle'}:
+    """Allocate a Proposed ADR and its proposal metadata.
+
+    A cycle-origin proposal names a lightweight cycle record that is planning, working or reviewing; it needs no
+    creation approval, because the ADR-creation council is retired. Its metadata records the true provenance:
+    origin cycle, the cycle id and record format, and a null creation approval. Write order: the manifest counter,
+    the metadata, the ADR file, then the cycle's adrs entry. A repeat of the same proposal on the same cycle after
+    an interruption finds the allocated identity through its metadata, writes the missing later steps and adds no
+    second entry. Council approval of the exact text and the acceptance policy still govern acceptance."""
+    if origin not in ORIGINS:
         raise CycleError('unknown ADR origin')
-    if not proposal.get('title') or not proposal.get('body') or not proposal.get('governs'):
+    if creation_approval is not None or creation_subject is not None:
+        raise CycleError(CREATION_RETIRED)
+    if not isinstance(proposal, dict) or not proposal.get('title') or not proposal.get('body') or not proposal.get('governs'):
         raise CycleError('proposal requires title, body and governs')
+    if origin == 'cycle' and not cycle_id:
+        raise CycleError('a cycle-origin proposal names its cycle record with --cycle')
+    if origin != 'cycle' and cycle_id:
+        raise CycleError('a proposal that names a cycle uses --origin cycle')
+    proposal_sha256 = digest(encoded(proposal))
     with locked(repo) as (cfg,directory):
+        cycle=None
         if origin=='cycle':
-            if not cycle_id or not creation_approval or not creation_subject:
-                raise CycleError('cycle ADR creation requires a council justification record')
-            cycle=load(repo,cycle_id)
-            if cycle['status']!='active' or cycle['phase']!='plan':
-                raise CycleError('cycle ADR creation requires active planning')
-            receipt=validate_approval(repo,creation_approval,purpose='adr-creation',subject=creation_subject)
-            if receipt['cycle_id']!=cycle_id: raise CycleError('creation approval belongs to another cycle')
-        elif cycle_id:
-            raise CycleError('cycle-originated proposals cannot use another creation entry point')
+            from cycle_writer import DECISION_STATES, decision_state_route
+            cycle=cycle_record(repo,cycle_id)
+            if cycle.get('kind')=='release':
+                raise CycleError(f'{cycle_id} is a release record; a release cycle proposes no ADR')
+            if cycle['state'] not in DECISION_STATES:
+                raise CycleError(f"a cycle-origin ADR is drafted while its cycle is planning, working or reviewing; {cycle_id} is {cycle['state']}"+decision_state_route(cycle['state']))
+            resumed=_resumed(cfg,cycle_id,proposal_sha256)
+            if resumed is not None:
+                refuse_handle_collisions(repo,proposal['governs'],own_adr=resumed['adr'],stage='propose')
+                return _complete_cycle_proposal(repo,cfg,proposal,resumed)
+        refuse_handle_collisions(repo,proposal['governs'],stage='propose')
         manifest=contained(cfg.docs_root,'manifest.yml')
         text=manifest.read_text(); data=yaml.safe_load(text)
         allocation=data.get('adr',{}).get('next_number',1)
@@ -165,34 +229,9 @@ def propose(repo, proposal, *, origin, cycle_id=None, creation_approval=None, cr
         used=[int(m.group(1)) for path in adrs.rglob('*.md') if (m:=re.search(r'(?:^|-)ADR-(\d+)-',path.name))]
         number=max(allocation,max(used,default=0)+1)
         identity=f"{cfg.artifact_prefix + '-' if cfg.artifact_prefix else ''}ADR-{number:04d}"
-        slug=re.sub(r'[^a-z0-9]+','-',proposal['title'].lower()).strip('-')[:60] or 'decision'
-        path=contained(adrs,f'{identity}-{slug}.md')
-        rules = proposal['governs']
-        if not isinstance(rules, list) or not rules:
-            raise CycleError('governs must be a nonempty list')
-        normalized = []
-        for item in rules:
-            rule = dict(item)
-            if not all(isinstance(rule.get(k), str) and rule[k].strip() for k in ('domain', 'rule', 'scope', 'handle')):
-                raise CycleError('each rule requires domain, rule, scope and handle')
-            slug = rule['handle'].split('/')[-1]
-            if not re.fullmatch(r'[a-z][a-z0-9]*(?:-[a-z0-9]+)*', slug):
-                raise CycleError('rule handle requires a letter-led kebab-case slug')
-            rule['handle'] = identity + '/' + slug
-            rule['provenance'] = 'authored'
-            if set(rule) - {'domain', 'rule', 'scope', 'handle', 'provenance', 'anchor', 'retires'}:
-                raise CycleError('unknown governs fields')
-            normalized.append(rule)
-        if len({r['handle'] for r in normalized}) != len(normalized):
-            raise CycleError('duplicate rule handles')
-        front={'id':identity,'title':proposal['title'],'status':'Proposed','acceptance_format':'crux.adr-acceptance.v1',
-               'date':now()[:10], 'proposed_date':now()[:10], 'accepted_date':None,
-               'deprecated_date':None, 'superseded_date':None, 'supersedes':[],
-               'superseded_by':None, 'amends':proposal.get('amends', []),
-               'deciders':proposal.get('deciders', ['owner']), 'tags':proposal.get('tags', []),
-               'related_briefs':proposal.get('related_briefs', []),
-               'related_research':proposal.get('related_research', []), 'governs':normalized}
-        content='---\n'+yaml.safe_dump(front,sort_keys=False)+'---\n\n'+proposal['body'].rstrip()+'\n'
+        date=now()[:10]
+        name,content=_render(identity,proposal,date)
+        path=contained(adrs,name)
         # Counter first: a crash leaves a gap, never a reused number.
         match=re.search(r'(?m)^adr:\s*\n(?:^[ \t]+.*\n)*',text)
         if not match: raise CycleError('manifest requires an adr allocation mapping')
@@ -201,17 +240,68 @@ def propose(repo, proposal, *, origin, cycle_id=None, creation_approval=None, cr
             new=re.sub(r'(?m)^  next_number:.*$',f'  next_number: {number+1}',block)
         else: new=block+f'  next_number: {number+1}\n'
         write_text_atomic(manifest, text[:match.start()]+new+text[match.end():])
-        metadata=contained(cfg.docs_root, f'adrs/proposals/{identity}.json')
-        atomic(metadata, {'format':'crux.adr-proposal', 'adr':identity,
-                          'subject':path.relative_to(cfg.docs_root).as_posix(),
-                          'origin':origin, 'cycle_id':cycle_id,
-                          'creation_approval':creation_approval, 'creation_subject':creation_subject})
+        metadata={'format':'crux.adr-proposal', 'adr':identity, 'subject':path.relative_to(cfg.docs_root).as_posix(),
+                  'origin':origin, 'cycle_id':cycle_id, 'creation_approval':None, 'creation_subject':None}
+        if cycle is not None:
+            metadata.update(cycle_format=cycle['format'], proposal_sha256=proposal_sha256, proposed_date=date)
+        atomic(contained(cfg.docs_root, f'adrs/proposals/{identity}.json'), metadata)
+        if cycle is not None:
+            return _complete_cycle_proposal(repo,cfg,proposal,metadata)
         with path.open('x') as stream:
             stream.write(content)
-        if cycle_id:
-            cycle['decisions'].append({'path':path.relative_to(cfg.docs_root).as_posix(),'sha256':digest(path.read_bytes()),'kind':'adr','name':identity,'approval':None,'accepted':False})
-            event(cycle,'adr-proposed',adr=identity);save(cfg,cycle)
         return {'adr':identity,'path':path.relative_to(cfg.docs_root).as_posix()}
+
+
+def _render(identity, proposal, date):
+    """The ADR file name and bytes for `proposal` under `identity`; refuses invalid rules before any write."""
+    slug=re.sub(r'[^a-z0-9]+','-',proposal['title'].lower()).strip('-')[:60] or 'decision'
+    rules = proposal['governs']
+    if not isinstance(rules, list) or not rules:
+        raise CycleError('governs must be a nonempty list')
+    normalized = []
+    for item in rules:
+        rule = dict(item)
+        if not all(isinstance(rule.get(k), str) and rule[k].strip() for k in ('domain', 'rule', 'scope', 'handle')):
+            raise CycleError('each rule requires domain, rule, scope and handle')
+        handle = rule['handle'].split('/')[-1]
+        if not re.fullmatch(r'[a-z][a-z0-9]*(?:-[a-z0-9]+)*', handle):
+            raise CycleError('rule handle requires a letter-led kebab-case slug')
+        rule['handle'] = identity + '/' + handle
+        rule['provenance'] = 'authored'
+        if set(rule) - {'domain', 'rule', 'scope', 'handle', 'provenance', 'anchor', 'retires'}:
+            raise CycleError('unknown governs fields')
+        normalized.append(rule)
+    if len({r['handle'] for r in normalized}) != len(normalized):
+        raise CycleError('duplicate rule handles')
+    front={'id':identity,'title':proposal['title'],'status':'Proposed','acceptance_format':'crux.adr-acceptance.v1',
+           'date':date, 'proposed_date':date, 'accepted_date':None,
+           'deprecated_date':None, 'superseded_date':None, 'supersedes':[],
+           'superseded_by':None, 'amends':proposal.get('amends', []),
+           'deciders':proposal.get('deciders', ['owner']), 'tags':proposal.get('tags', []),
+           'related_briefs':proposal.get('related_briefs', []),
+           'related_research':proposal.get('related_research', []), 'governs':normalized}
+    return f'{identity}-{slug}.md', '---\n'+yaml.safe_dump(front,sort_keys=False)+'---\n\n'+proposal['body'].rstrip()+'\n'
+
+
+def _complete_cycle_proposal(repo, cfg, proposal, metadata):
+    """Write the ADR file when it is missing, then the cycle's adrs entry; both keyed by the ADR identity.
+
+    The cycle entry is written only after the ADR file exists. An ADR file that differs from the rendered
+    proposal refuses: it is another proposal's text, or an edit made after the interruption."""
+    from cycle_writer import record_adr
+    identity, subject = metadata['adr'], metadata['subject']
+    name, content = _render(identity, proposal, metadata['proposed_date'])
+    path = contained(cfg.docs_root, subject)
+    if path.name != name or path.parent != contained(cfg.docs_root, 'adrs'):
+        raise CycleError(f'proposal metadata for {identity} names another subject')
+    if not path.exists():
+        with path.open('x') as stream:
+            stream.write(content)
+    elif path.read_text() != content:
+        raise CycleError(f'{subject} differs from the proposal its metadata records; resolve it before retrying')
+    record_adr(repo, metadata['cycle_id'], {'adr': identity, 'path': subject, 'sha256': digest(path.read_bytes())})
+    return {'adr': identity, 'path': subject, 'origin': 'cycle', 'cycle_id': metadata['cycle_id'],
+            'cycle_format': metadata['cycle_format'], 'creation_approval': None}
 
 
 class AdoptRefused(CycleError):
@@ -297,12 +387,14 @@ def accept(repo, subject, approval, *, human_approval=None, policy_basis=None, m
             raise CycleError('proposal identity mismatch')
         if contained(cfg.docs_root, f"adrs/provenance/{front['id']}.yaml").exists():
             raise CycleError('historical provenance cannot be changed by new acceptance')
-        cycle=None
-        target=None
+        if front.get('status') == 'Proposed':
+            # Before any receipt or lifecycle byte: a refused acceptance leaves the decision unchanged.
+            refuse_handle_collisions(repo, front.get('governs'), own_adr=front['id'], stage='acceptance')
         if metadata.get('cycle_id'):
-            cycle=load(repo, metadata['cycle_id'])
-            target=next((d for d in cycle['decisions'] if d['path']==subject), None)
-            if target is None or cycle['status'] != 'active':
+            # The adrs entry is proposal-time provenance; acceptance changes the ADR file, never the cycle record.
+            cycle=cycle_record(repo, metadata['cycle_id'])
+            recorded=any(e['adr']==front['id'] and e['path']==subject for e in cycle.get('adrs', []))
+            if not recorded or cycle['state'] in ('completed', 'abandoned', 'paused'):
                 raise CycleError('an active cycle ADR dependency is required')
         receipts=contained(cfg.docs_root, 'adrs/acceptances')
         receipts.mkdir(exist_ok=True)
@@ -328,11 +420,6 @@ def accept(repo, subject, approval, *, human_approval=None, policy_basis=None, m
                 if digest(text.encode()) == receipt['accepted_sha256']:
                     if receipt.get('owner_decision') != owner_decision.get('capture'):
                         raise CycleError('acceptance already binds another owner evidence record')
-                    if cycle is not None and (not target['accepted'] or target['approval'] != approval
-                                              or target['sha256'] != receipt['accepted_sha256']):
-                        target.update(approval=approval, accepted=True, sha256=receipt['accepted_sha256'])
-                        event(cycle, 'adr-accepted', adr=front['id'], standing='binding')
-                        save(cfg, cycle)
                     return adr_result(cfg, receipt, owner_decision, already_applied=True)
                 captured=authorize_adr(cfg, owner_decision, subject, metadata.get('cycle_id'), receipt['proposed_sha256'])
                 if receipt.get('owner_decision') != owner_decision.get('capture'):
@@ -374,10 +461,6 @@ def accept(repo, subject, approval, *, human_approval=None, policy_basis=None, m
             _validate_receipt(cfg, receipt, subject)
             atomic(receipt_path, receipt)
         write_text_atomic(path, updated)
-        if cycle is not None:
-            target.update(approval=approval, accepted=True, sha256=digest(path.read_bytes()))
-            event(cycle, 'adr-accepted', adr=front['id'], standing='binding')
-            save(cfg, cycle)
         if receipt.get('owner_decision') is not None:
             from owner_decision import adr_result
             return adr_result(cfg, receipt, owner_decision, already_applied=False)

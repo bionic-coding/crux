@@ -27,7 +27,7 @@ import adr_migration_publication as p
 import decision_policy as dp
 import implementation_migration as historical
 import migration_receipts as mr
-from cycle_workflow import CycleError, digest, encoded
+from cycle_store import CycleError, digest, encoded
 
 SCRIPTS = Path(__file__).resolve().parents[1]
 _REAL_RUN = subprocess.run

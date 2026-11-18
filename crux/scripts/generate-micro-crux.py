@@ -28,28 +28,34 @@ import authoring_scope
 
 FORMAT_VERSION = 1
 SCHEMAS = (
-    "cycle.schema.json", "cycle-pilot.schema.json", "cycle-queue.schema.json", "test-evidence.schema.json",
+    "cycle.schema.json", "cycle-record.schema.json", "cycle-queue.schema.json", "test-evidence.schema.json",
     "adr-provenance.schema.json", "cycle-council-attempt.schema.json", "cycle-council.schema.json",
 )
 # Prefixes identify canonical sections without depending on historical citation suffixes.
-CONTRACTS = {
-    "## 5.B.": ("### Objectives contract", "objectives-contract"),
-    "## 6.": ("### Operation log contract", "operation-log-contract"),
-    "### journal (": ("### Journal contract", "journal-contract"),
-    "### briefs (": ("### Brief lifecycle and authorship", "brief-contract"),
-    "## 7.": ("### Complete manifest contract", "manifest-contract"),
-    "## 11.A.": ("### ADR frontmatter and governs", "adr-contract"),
-    "## 11.D.": ("### ADR body contract", "adr-body-contract"),
-    "### 15.2": ("### Invariant frontmatter", "invariant-contract"),
-    "### 15.4": ("### Invariant reconciliation", "reconciliation-contract"),
-    "### 17.1": ("### Observation frontmatter", "observation-contract"),
-    "### 17.2": ("### Observation lifecycle", "observation-lifecycle"),
-}
+# Each contract names the plugin-relative file holding its sections: the operational
+# schema template keeps the always-read contracts, and the task references hold the
+# specialist ones. A contract with two sources renders both extracts, in order.
+TEMPLATE = "templates/AGENTS.md.tmpl"
+CONTRACTS = (
+    ("### Objectives contract", "objectives-contract", ((TEMPLATE, "## 5.B."),)),
+    ("### Operation log contract", "operation-log-contract",
+     ((TEMPLATE, "## 6."), ("references/operation-log.md", "## 6."))),
+    ("### Journal contract", "journal-contract", ((TEMPLATE, "### journal ("),)),
+    ("### Brief lifecycle and authorship", "brief-contract", ((TEMPLATE, "### briefs ("),)),
+    ("### Complete manifest contract", "manifest-contract", (("references/manifest.md", "## 7."),)),
+    ("### ADR frontmatter and governs", "adr-contract", (("references/adrs.md", "## 11.A."),)),
+    ("### ADR body contract", "adr-body-contract", (("references/adrs.md", "## 11.D."),)),
+    ("### Invariant frontmatter", "invariant-contract", (("references/invariants.md", "### 15.2"),)),
+    ("### Invariant reconciliation", "reconciliation-contract", (("references/invariants.md", "### 15.4"),)),
+    ("### Observation frontmatter", "observation-contract", (("references/observations.md", "### 17.1"),)),
+    ("### Observation lifecycle", "observation-lifecycle", (("references/observations.md", "### 17.2"),)),
+)
+CONTRACT_SOURCES = tuple(sorted({path for _, _, sources in CONTRACTS for path, _ in sources}))
 SEMANTIC_SOURCES = (
-    "scripts/bionic_config.py", "scripts/cycle_workflow.py", "scripts/decision_policy.py",
+    "scripts/bionic_config.py", "scripts/decision_policy.py",
     "scripts/adr_provenance.py", "scripts/cycle_queue.py", "scripts/test_evidence.py",
     "scripts/cycle_council.py", "scripts/council_policy.py",
-    "scripts/cycle_pilot.py", "scripts/cycle_runtime.py", "skills/cycle/references/lightweight.md",
+    "scripts/cycle_writer.py", "scripts/cycle_runtime.py", "scripts/cycle_store.py", "skills/cycle/references/lightweight.md",
     "skills/ingest-research/SKILL.md", "skills/refresh-research-sources/SKILL.md",
     "skills/transition-brief/SKILL.md", "skills/cycle/references/testing.md",
     "skills/cycle/references/review.md", "templates/BRIEF-template.md",
@@ -112,7 +118,7 @@ def validate_refs(schema: dict) -> None:
 def input_paths(plugin_root: Path) -> tuple[Path, ...]:
     """Exact generation input domain, relative to the selected plugin root."""
     names = (
-        "templates/micro-crux.md.tmpl", "templates/AGENTS.md.tmpl",
+        "templates/micro-crux.md.tmpl", *CONTRACT_SOURCES,
         "scripts/generate-micro-crux.py", "scripts/authoring_scope.py", *SEMANTIC_SOURCES,
         *(f"schemas/{name}" for name in SCHEMAS),
     )
@@ -137,18 +143,21 @@ def fenced_example(name: str, language: str, text: str) -> str:
 
 
 def operational_contracts(plugin_root: Path) -> str:
-    source = (plugin_root / "templates/AGENTS.md.tmpl").read_text(encoding="utf-8")
+    texts = {path: (plugin_root / path).read_text(encoding="utf-8") for path in CONTRACT_SOURCES}
     parts = []
-    for prefix, (heading, name) in CONTRACTS.items():
-        excerpt = section(source, prefix).split("\n", 1)[1].strip()
-        # Mark the complete manifest block so examples can be evaluated independently.
-        if name == "manifest-contract":
-            pattern = r"```yaml\n(.*?)\n```"
-            match = re.search(pattern, excerpt, re.S)
-            if not match:
-                raise GuideError("manifest contract has no YAML field definition")
-            excerpt = excerpt[:match.start()] + fenced_example(name, "yaml", match[1]) + excerpt[match.end():]
-        parts.append(f"{heading}\n\nSource extract: `crux/templates/AGENTS.md.tmpl`, section `{prefix.lstrip('# ').rstrip('.')}`.\n\n{excerpt}")
+    for heading, name, sources in CONTRACTS:
+        extracts = []
+        for path, prefix in sources:
+            excerpt = section(texts[path], prefix).split("\n", 1)[1].strip()
+            # Mark the complete manifest block so examples can be evaluated independently.
+            if name == "manifest-contract":
+                pattern = r"```yaml\n(.*?)\n```"
+                match = re.search(pattern, excerpt, re.S)
+                if not match:
+                    raise GuideError("manifest contract has no YAML field definition")
+                excerpt = excerpt[:match.start()] + fenced_example(name, "yaml", match[1]) + excerpt[match.end():]
+            extracts.append(f"Source extract: `crux/{path}`, section `{prefix.lstrip('# ').rstrip('.')}`.\n\n{excerpt}")
+        parts.append(f"{heading}\n\n" + "\n\n".join(extracts))
     research = (plugin_root / "skills/ingest-research/SKILL.md").read_text(encoding="utf-8")
     registry = section(research, "### 6c.").split("\n", 1)[1].strip()
     parts.append("### Research source registry\n\nSource extract: `crux/skills/ingest-research/SKILL.md`, section 6c.\n\n" + registry)

@@ -41,23 +41,23 @@ INSTALLER = REPO_ROOT / "crux" / "skills" / "install-codex-agents" / "scripts" /
 # fallback. This table independently states the required values, so a catalog
 # edit fails here rather than passing silently. Provenance
 # (ADR-0046 clause 6a): these slugs are an OpenAI-owned external contract,
-# GPT-6.1 Sol, and its high and xhigh efforts, were verified 2026-09-29
-# against the local Codex 0.159.0 model catalog. GPT-6 Astra and its high
-# effort were verified 2026-09-22 against the local Codex 0.155.1 catalog. GPT-6.1 Terra
+# GPT-6.2 Sol, and its high and xhigh efforts, were verified 2026-11-17
+# against the local Codex 0.169.1 model catalog. GPT-6.2 Astra and its high
+# effort were verified 2026-11-17 against the same catalog. GPT-6.1 Terra
 # and its high effort were verified 2026-10-26 against the local Codex 0.164.0
 # catalog. The flagship fallback selects Sol, the standard fallback selects
-# Terra, and the apex fallback selects Astra. The reviewer override selects Sol at xhigh effort.
+# Terra, and the apex fallback selects Astra. The reviewer override selects Astra at medium effort.
 # Exact expectations catch a wrong slug or a model leaking into another tier.
 EXPECTED_RUNTIME = {
-    "architect": ("gpt-6.1-sol", "high"),
-    "brainstormer": ("gpt-6.1-sol", "high"),
-    "commander": ("gpt-6-astra", "high"),
-    "dev-lead": ("gpt-6.1-sol", "high"),
+    "architect": ("gpt-6.2-sol", "high"),
+    "brainstormer": ("gpt-6.2-sol", "high"),
+    "commander": ("gpt-6.2-astra", "high"),
+    "dev-lead": ("gpt-6.2-sol", "high"),
     "developer": ("gpt-6.1-terra", "high"),
     "historian": ("gpt-6.1-terra", "high"),
     "librarian": ("gpt-6.1-terra", "high"),
-    "night-gardener": ("gpt-6-astra", "high"),
-    "reviewer": ("gpt-6.1-sol", "xhigh"),
+    "night-gardener": ("gpt-6.2-astra", "high"),
+    "reviewer": ("gpt-6.2-astra", "medium"),
     "wayfinder": ("gpt-6.1-terra", "high"),
 }
 
@@ -160,7 +160,7 @@ class RenderTests(unittest.TestCase):
         self.assertNotIn("Write", source.tools)
         body = (agents.SOURCE_DIR / "reviewer.md").read_text(encoding="utf-8")
         self.assertIn("result file", body)
-        self.assertIn("Result-End", body)
+        self.assertIn("review ID --actor NAME", body)
         self.assertNotIn("new cycle reports return to the caller", body)
 
     @unittest.skipUnless(HAVE_TOMLLIB, "tomllib not available — Python 3.11+ (or uv) required")
@@ -173,8 +173,8 @@ class RenderTests(unittest.TestCase):
         self.assertIn("Agent(reviewer)", source.tools)
         parsed = tomllib.loads(agents.generate()[agents.codex_agent_filename("commander")])
         instructions = parsed["developer_instructions"]
-        self.assertIn("dispatches a dev-lead for every Build task and every fix task, and never a developer", " ".join(instructions.split()))
-        self.assertIn("return the invocation and its attach request to your caller", instructions)
+        self.assertIn("Dispatch a dev-lead for implementation", " ".join(instructions.split()))
+        self.assertIn("return the dispatch request to your caller", " ".join(instructions.split()))
 
     @unittest.skipUnless(HAVE_TOMLLIB, "tomllib not available — Python 3.11+ (or uv) required")
     def test_operations_roles_can_write_the_cycle_record(self):

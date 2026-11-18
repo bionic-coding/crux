@@ -13,6 +13,9 @@
     "cycle-dashboard.test.ts": {
       "tier": "dev"
     },
+    "cycle-steps.test.ts": {
+      "tier": "dev"
+    },
     "cycle-v3.test.ts": {
       "tier": "dev"
     },

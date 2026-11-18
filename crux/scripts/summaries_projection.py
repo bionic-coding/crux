@@ -2328,6 +2328,83 @@ def live_and_retired_slugs(
     return slugs, {slug: sorted(handles) for slug, handles in retired.items()}
 
 
+def handle_slug_collisions(records: list[dict], governs: list, *,
+                           own_adr: str | None = None) -> list[dict]:
+    """The slug collisions of one ADR's proposed `governs` block with the corpus.
+
+    The same slug contract `live_and_retired_slugs` enforces, checked before a
+    decision reaches council or acceptance instead of after its rules go live.
+    A proposed handle collides when its slug equals:
+
+    - `live`: the slug of a live rule of another ADR;
+    - `retired`: the slug of a retired rule, or of the target of a persisted
+      retirement edge, because a retired slug is never reused;
+    - `retired-by-same-adr`: the slug of a handle this same block retires,
+      which becomes a retired slug the moment the block's host is Accepted.
+
+    `governs` holds the proposed entries, each with a `handle` (bare slug or
+    `ID/slug`) and an optional `retires` list. Records of `own_adr` are skipped,
+    so a replay over the ADR's own Proposed rules finds nothing of its own.
+    Each finding is `{handle, slug, collision, with}`, sorted. Pure: reads no file.
+    """
+    live: dict[str, set[str]] = {}
+    for r in live_records(records):
+        if own_adr is not None and r["source_adr"] == own_adr:
+            continue
+        live.setdefault(slug_of(r["handle"]), set()).add(r["handle"])
+    retired: dict[str, set[str]] = {}
+    for r in retired_records(records):
+        retired.setdefault(slug_of(r["handle"]), set()).add(r["handle"])
+    edges = records[0].get("persisted_edges") if records else None
+    for edge in edges or ():
+        retired.setdefault(slug_of(edge.target), set()).add(edge.target)
+    findings: list[dict] = []
+    for entry in governs or []:
+        if not isinstance(entry, dict) or not isinstance(entry.get("handle"), str):
+            continue
+        handle = entry["handle"]
+        slug = slug_of(handle)
+        targets = entry.get("retires") or []
+        own_retired = sorted(str(t) for t in (targets if isinstance(targets, list) else [targets])
+                             if slug_of(str(t)) == slug)
+        if own_retired:
+            findings.append({"handle": handle, "slug": slug, "collision": "retired-by-same-adr",
+                             "with": own_retired})
+        others = sorted(live.get(slug, set()) - set(own_retired))
+        if others:
+            findings.append({"handle": handle, "slug": slug, "collision": "live", "with": others})
+        earlier = sorted(retired.get(slug, set()) - set(own_retired))
+        if earlier:
+            findings.append({"handle": handle, "slug": slug, "collision": "retired", "with": earlier})
+    return sorted(findings, key=lambda f: (f["handle"], f["collision"]))
+
+
+def corpus_handle_collisions(root: Path, governs: list, *,
+                             own_adr: str | None = None) -> list[dict]:
+    """`handle_slug_collisions` against the decision corpus of repository `root`.
+
+    Reads the active ADRs and, when that concern is enabled, the ratified
+    observations, exactly as the summaries regenerator collects them. A corpus
+    that cannot be collected raises, so no caller mistakes an unreadable corpus
+    for one with no collision."""
+    adrs = adrs_dir(root)
+    if not adrs.is_dir():
+        return handle_slug_collisions([], governs, own_adr=own_adr)
+    manifest = read_manifest(root)
+    observations = observations_source(root, manifest)
+    records = collect_records(adrs, governs_from=None, observations=observations)
+    return handle_slug_collisions(records, governs, own_adr=own_adr)
+
+
+def describe_handle_collisions(findings: list[dict]) -> str:
+    """One line per finding, for refusals and reports."""
+    reason = {"live": "is the slug of live rule",
+              "retired": "is the slug of retired rule",
+              "retired-by-same-adr": "is the slug of the rule this ADR retires,"}
+    return "; ".join(f"{f['handle']}: slug {f['slug']} {reason[f['collision']]} {', '.join(f['with'])}"
+                     for f in findings)
+
+
 def _removal_records(adrs: Path, hosts: dict[str, tuple[int, object]], records: list[dict],
                      *, _source_io=None) -> list[dict]:
     """One record per rule an active ADR's provenance record lists as deleted in-run, while the

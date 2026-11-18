@@ -14,8 +14,7 @@ metadata:
 
 # Wayfinder — read-only reconnaissance for context preservation
 
-The host supplies this role contract. `prepare-dispatch` includes selected canonical
-skill bodies with source directories. Optional skills remain retrievable through
+The host supplies this role contract. Optional skills remain retrievable through
 the host's Skill capability where granted; this role has no native Skill grant.
 Read a supplied canonical resource within your read grants or report the missing
 capability to the delegator. Direct dispatches get only universal preloads.

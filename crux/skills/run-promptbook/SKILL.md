@@ -45,7 +45,7 @@ Promptbooks separate the frozen plan in `<docs_dir>/promptbooks/active/` from th
 ## Explicit execution formats
 
 Structured YAML format one retains its original structure, hash and cycle classification.
-New cycle books use format two; their runs use format two with initial
+Historical format-two books carry their runs in format two with initial
 `implementation_bindings: []`. Format two requires a hash-bound `cycle_kind` and
 complete `implementation_slots`, including an explicit empty list for incidental choices.
 It refuses grandfathering, unknown kinds, invalid counts and module order before

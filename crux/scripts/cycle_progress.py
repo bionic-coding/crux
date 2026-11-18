@@ -1,82 +1,31 @@
-"""Read-only, bounded cycle progress projection for terminal and dashboard."""
+"""Read-only, bounded cycle progress projection for terminal and dashboard.
+
+Lightweight records render through cycle_writer and legacy records through cycle_history; no typed-engine
+module loads. A legacy record shows what its own bytes and its council files hold: its open attempts with
+unknown liveness, its classification count, its council rounds and, once closed, its recorded test runs.
+No activity or live test tally is derived for a legacy record. One unreadable record in a listing is shown
+as unreadable and the other cycles render."""
 from __future__ import annotations
 import json
 from pathlib import Path
 import time
 from bionic_config import load_config, require_schema_version
-from cycle_workflow import PHASES, ID, contained, CycleError, phases_of, withdrawn_names
-from cycle_timing import cycle_timing
-import cycle_questions
-from cycle_summary import recorded_or_live_runs, test_run_lines
-import cycle_activity
+from cycle_store import contained, CycleError
+import cycle_history
+from cycle_history import ID, clean, current_waits, exception_of, test_run_lines, times  # noqa: F401  (current_waits, exception_of, times: re-exported)
+from cycle_history import ASSIGNMENT_STATES, LIVENESS, MAX_ASSIGNMENTS, OBSERVATIONS, classification_count, open_assignments  # noqa: F401  (re-exported)
 from datetime import datetime, timezone
 
 # Reader format 5 (format 4 with each cycle's classifications reduced to classification_count, an uncapped integer).
 # The dashboards compare these literals against their own copies.
 FORMAT_VERSION = 5
-ASSIGNMENT_STATES = ['reserved', 'running']
-OBSERVATIONS = ['reserved-unbound', 'running-bound']
-# The reader has no host status call and reads no result file, so liveness is never more than unknown.
-LIVENESS = ['unknown']
-MAX_ASSIGNMENTS = 50
-MAX_EXCEPTION = 300
 # Retained context can grow cycle records beyond the other inputs' 2 MB bound.
 MAX_CYCLE_RECORD_BYTES = 4 * 1024 * 1024
-
-
-def clean(value, limit=200):
-    return ''.join(c for c in str(value) if ord(c)>=32 and ord(c)!=127)[:limit]
 
 
 def cycle_number(identity):
     """The numeric part of a cycle id, whatever artifact prefix precedes CYC."""
     return int(identity.rsplit('CYC-',1)[1])
-
-
-def current_waits(decisions, withdrawn=()):
-    """Names whose latest decision revision still lacks approval, in first-seen order.
-
-    Earlier revisions stay in the record; only the current wait is reported. A withdrawn name
-    (`cycle_workflow.withdrawn_names`) waits for nothing, so it is left out."""
-    latest={}
-    for d in decisions:latest[d['name']]=d
-    return [clean(name) for name,d in latest.items() if name not in withdrawn and (not d.get('approval') or (d['kind']=='adr' and not d.get('accepted')))]
-
-
-def _returns_handle(host, mode=None):
-    """Whether a dispatch to this host in the attempt's recorded mode returns a handle.
-
-    A null or unknown host, or a mode the adapter does not list, counts as returning one."""
-    import cycle_hosts
-    if host is None or cycle_hosts.adapter(host) is None:
-        return True
-    if mode is not None and mode not in cycle_hosts.ADAPTERS[host].modes:
-        return True
-    return cycle_hosts.returns_handle(host, mode)
-
-
-def _text_or_none(value, limit=200):
-    return clean(value, limit) if isinstance(value, str) else None
-
-
-def open_assignments(doc):
-    """The record's open attempts (reserved or running) in record order. Liveness stays unknown."""
-    rows=[]
-    for a in doc.get('assignments',[]):
-        if a['state'] not in ASSIGNMENT_STATES:continue
-        host=a.get('host')
-        rows.append({'id':clean(a['id']),'task':_text_or_none(a.get('task')),'role':clean(a['role']),'host':_text_or_none(host),'attempt':a['attempt'],
-                     'state':a['state'],'observation':OBSERVATIONS[ASSIGNMENT_STATES.index(a['state'])],'liveness':LIVENESS[0],
-                     'unresolved':a['state']=='reserved' and _returns_handle(host,a.get('mode'))})
-    return rows[:MAX_ASSIGNMENTS]
-
-
-def classification_count(doc):
-    """How many route classifications the record holds: the rows inspect lists, uncapped.
-
-    The view shows only this count. The question, answer, route, model, provider and cost of each
-    classification stay in the record, in inspect and in the finish response."""
-    return len(cycle_questions.rows(doc))
 
 
 MAX_COUNCIL_NAMES=20
@@ -87,7 +36,6 @@ def councils_of(sio, cfg, doc):
     """The council rounds of each decision, derived from the attempt and record files: attempt id, outcome, reason convened.
 
     Returns {} when the cycle has no council directory or a file cannot be read; the view survives either."""
-    import cycle_council
     base=cfg.docs_root/'cycles'/doc['id']/'councils'/'decisions'
     prefix=f"idr:{doc['id']}:"
     try:
@@ -101,7 +49,7 @@ def councils_of(sio, cfg, doc):
                 if isinstance(logical,str) and logical.startswith(prefix):by.setdefault(logical[len(prefix):],[]).append(row)
         def read(rel):return json.loads(sio.read_text(contained(cfg.docs_root,rel)))
         return {clean(name):[{k:(clean(v,300) if isinstance(v,str) else v) for k,v in r.items()}
-                             for r in cycle_council.council_rounds(rows,read)[-MAX_COUNCIL_ROUNDS:]]
+                             for r in cycle_history.council_rounds(rows,read)[-MAX_COUNCIL_ROUNDS:]]
                 for name,rows in list(by.items())[:MAX_COUNCIL_NAMES]}
     except (OSError,ValueError,KeyError,CycleError):
         return {}
@@ -112,22 +60,15 @@ def council_lines(name, rounds):
     return [f"  Council {name} round {r['round']} · {str(r['attempt'])[:8]} · {r['outcome']} · {r['reason']}" for r in rounds]
 
 
-def exception_of(doc):
-    done=doc.get('completion')
-    text=done.get('exception') if isinstance(done,dict) else None
-    return clean(text,MAX_EXCEPTION) if isinstance(text,str) and text else None
-
-
 class Document(dict):
-    """The cycle-progress document. It serializes as a plain dict; `queue_lines`, `run_lines`, `council_rounds` and `activity_of` ride along for `render` only.
+    """The cycle-progress document. It serializes as a plain dict; `queue_lines`, `run_lines`, `council_rounds` and `superseded_tasks` ride along for `render` only.
 
-    `run_lines` maps a cycle id to a function returning its test-run lines, and `activity_of` to a function
-    returning its derived activity. The reader format has neither key, so the JSON stays as it was."""
+    `run_lines` maps a cycle id to a function returning its test-run lines. The reader format has no such
+    key, so the JSON stays as it was."""
     queue_lines=None
     run_lines=None
     council_rounds={}
     superseded_tasks={}
-    activity_of={}
 
 
 def read_queue_doc(sio, cfg):
@@ -199,7 +140,7 @@ def queue_lines(sio, cfg, statuses):
     return lines
 
 
-PILOT_FORMAT = 'crux.cycle.vNext'
+WRITER_FORMATS = ('crux.cycle.vNext', 'crux.cycle.v1')
 PILOT_PHASES = ['planning', 'working', 'reviewing', 'reviewed', 'completed']
 # The closed sets the dashboards' validator accepts for a pilot row and for a started queue item.
 # tools/tests/test_crux_mods_parity.py holds them equal to crux-mods/hooks/lib/view.ts.
@@ -207,18 +148,38 @@ PILOT_STATUSES = ['active', 'paused', 'reviewed', 'completed', 'abandoned']
 QUEUE_CYCLE_STATUSES = ['active', 'paused', 'reviewed', 'completed', 'abandoned', 'shortcut', 'missing']
 
 
-def unreadable_pilot(identity, exc, modified_s):
-    """A row for a pilot record the reader cannot interpret, in the dashboards' closed vocabulary.
+def unreadable_pilot(identity, exc, modified_s, fmt=None):
+    """A row for a record of either format the reader cannot interpret, in the dashboards' closed vocabulary.
 
     The title and the blocker say that the record is unreadable and why. `paused` is the status
-    that asks for attention; nothing else about the cycle is claimed."""
+    that asks for attention; nothing else about the cycle is claimed. The row carries the pilot
+    vocabulary because the dashboards accept it for any record whose format is unknown."""
     reason = clean(str(exc) or type(exc).__name__, 300)
     return {'id': identity, 'title': 'Unreadable cycle record', 'type': 'pilot', 'status': 'paused',
             'phase': 'planning', 'pass': 1, 'pass_limit': 1, 'phases': PILOT_PHASES[:], 'tasks': [], 'returns': [], 'waits': [],
             'blocker': clean(f'This record cannot be read: {reason}. The other cycles are shown.', 1000), 'reflection': None,
-            'modified_s': modified_s, 'schema_version': PILOT_FORMAT, 'revision': None, 'assignments': [],
+            'modified_s': modified_s, 'schema_version': fmt if fmt in WRITER_FORMATS else WRITER_FORMATS[0], 'revision': None, 'assignments': [],
             'classification_count': 0, 'exception': None, 'started_s': modified_s, 'ended_s': None, 'paused_s': 0,
             'open_started_s': modified_s, 'basis': 'derived', 'phase_times': []}
+
+
+def stopped_state(doc):
+    """The state an abandoned record stopped in, so the dashboards mark that step.
+
+    The writer records no state on abandonment, so the record's own facts decide, in the order the
+    writer leaves them: the state a paused cycle paused from; an open review request (reviewing); an
+    approving review no later plan revision or reopening followed (reviewed); any started task
+    (working); else planning. A plan revision after tasks started reads working, although the writer
+    had returned the cycle to planning."""
+    if doc.get('resume_state') in PILOT_PHASES:
+        return doc['resume_state']
+    if doc.get('review_request'):
+        return 'reviewing'
+    review = doc.get('review') or {}
+    later = [entry.get('at', '') for entry in doc.get('history') or [] if entry.get('kind') in ('plan', 'reopen')]
+    if review.get('verdict') == 'approve' and all(at < review.get('at', '') for at in later):
+        return 'reviewed'
+    return 'working' if any(task.get('run', 0) > 0 for task in doc['tasks']) else 'planning'
 
 
 def pilot_view(doc, repo, modified_s):
@@ -232,13 +193,13 @@ def pilot_view(doc, repo, modified_s):
     if type(doc.get('revision')) is not int or doc['revision'] < 1:
         raise CycleError('invalid pilot revision')
     state = doc['state']
-    phase = doc.get('resume_state', 'working') if state in {'paused', 'abandoned'} else state
+    phase = doc.get('resume_state', 'working') if state == 'paused' else stopped_state(doc) if state == 'abandoned' else state
     if phase not in PILOT_PHASES:
         raise CycleError('invalid pilot phase')
-    from cycle_pilot import blockers
+    from cycle_writer import blockers
     blocker = '; '.join(clean(b) for b in blockers(doc))
     # One source for the review, applicability and delivery facts: the writer's own status function.
-    from cycle_pilot import status_facts
+    from cycle_writer import status_facts
     facts = status_facts(repo, doc)
     status = state if state in {'paused', 'abandoned', 'reviewed', 'completed'} else 'active'
     assert status in PILOT_STATUSES
@@ -269,27 +230,26 @@ def pilot_view(doc, repo, modified_s):
             'phase': phase, 'pass': 1, 'pass_limit': 1, 'phases': PILOT_PHASES[:],
             'tasks': tasks, 'returns': [], 'waits': [], 'blocker': clean(blocker, 1000) or None,
             'reflection': clean(delivery_text, 1000), 'modified_s': modified_s,
-            'schema_version': PILOT_FORMAT, 'revision': doc['revision'], 'assignments': [],
+            'schema_version': doc['format'], 'revision': doc['revision'], 'assignments': [],
             'classification_count': 0, 'exception': None, 'started_s': created, 'ended_s': ended,
             'paused_s': 0, 'open_started_s': None if ended is not None else created,
             'basis': 'derived', 'phase_times': []}
 
 
-def view(repo, identity=None, now=None, activity=False):
+def view(repo, identity=None, now=None):
     """The cycle-progress document.
 
-    The JSON is the dashboards' document, whose objects they accept by exact key set, so it is unchanged
-    by default. `activity=True` adds each cycle's derived `activity` (cycle_activity.activity), for a
-    caller that asks for it. `render` draws an open cycle's activity either way, deriving it on demand."""
+    The JSON is the dashboards' document, whose objects they accept by exact key set. The reader derives
+    no activity for a legacy cycle, because that needs the typed engine's attempt and worktree inspection."""
     from admission_source_io import SourceIO
     sio=SourceIO(Path(repo),max_bytes=2_000_000)
     try:
-        return _view(sio,identity,now,activity)
+        return _view(sio,identity,now)
     finally:
         sio.close()
 
 
-def _view(sio, identity=None, now=None, activity=False):
+def _view(sio, identity=None, now=None):
     cfg=load_config(sio.root,require_tree=True,_source_io=sio)
     import yaml
     manifest=yaml.safe_load(sio.read_text(cfg.docs_root/'manifest.yml'))
@@ -305,9 +265,16 @@ def _view(sio, identity=None, now=None, activity=False):
     docs=[]
     for path in paths:
         contained(cfg.docs_root,path.relative_to(cfg.docs_root))
-        doc=json.loads(sio.read_text(path,max_bytes=MAX_CYCLE_RECORD_BYTES))
-        if isinstance(doc,dict) and doc.get('format') == PILOT_FORMAT:
-            modified=int(sio.metadata(path)['st_mtime_ns']//1_000_000_000)
+        text=sio.read_text(path,max_bytes=MAX_CYCLE_RECORD_BYTES)
+        modified=int(sio.metadata(path)['st_mtime_ns']//1_000_000_000)
+        try:
+            doc=json.loads(text)
+        except ValueError as exc:
+            # Truncated or invalid JSON: an explicit request fails; a listing shows the record as unreadable.
+            if identity or not ID.fullmatch(path.parent.name):raise
+            cycles.append(unreadable_pilot(path.parent.name, exc, modified))
+            continue
+        if isinstance(doc,dict) and doc.get('format') in WRITER_FORMATS:
             try:
                 if doc.get('id') != path.parent.name:
                     raise CycleError('invalid pilot cycle identity')
@@ -316,26 +283,23 @@ def _view(sio, identity=None, now=None, activity=False):
                 # One unreadable pilot record must not blank the dashboard. An explicit request for
                 # that record still fails; a listing shows the others and names this one.
                 if identity or not ID.fullmatch(path.parent.name):raise
-                cycles.append(unreadable_pilot(path.parent.name, exc, modified))
+                cycles.append(unreadable_pilot(path.parent.name, exc, modified, doc.get('format') if isinstance(doc, dict) else None))
+            continue
+        # A legacy record renders through the read-only historical reader.
+        try:
+            if not cycle_history.is_legacy(doc):raise CycleError('not a cycle record of a known format')
+            row,stale=cycle_history.row(doc,path.parent.name,modified,moment)
+        except (CycleError,KeyError,TypeError,ValueError,AttributeError,IndexError) as exc:
+            # An unknown schema_version or an uninterpretable record: as for a pilot record, a listing names it and continues.
+            if identity or not ID.fullmatch(path.parent.name):raise
+            cycles.append(unreadable_pilot(path.parent.name, exc, modified))
             continue
         docs.append(doc)
-        if not ID.fullmatch(doc['id']) or doc['id']!=path.parent.name or doc['type'] not in PHASES or doc['phase'] not in phases_of(doc):raise CycleError('invalid cycle')
-        if type(doc['pass']) is not int or type(doc['pass_limit']) is not int or not 1<=doc['pass']<=doc['pass_limit']<=1_000_000:raise CycleError('invalid cycle pass')
-        if doc['status'] not in {'active','paused','completed','abandoned','shortcut'}:raise CycleError('invalid cycle status')
-        tasks=[]
-        for task in doc['plan']['tasks'][:500]:
-            if task['status'] not in {'pending','active','done','blocked','superseded'} or task['phase'] not in phases_of(doc):raise CycleError('invalid task')
-            if task['status']=='superseded':
-                # The dashboards accept a closed status set, so a superseded task rides beside the cycle object for `render`.
-                superseded.setdefault(doc['id'],[]).append({'id':clean(task['id']),'phase':task['phase'],'description':clean(task['description']),'superseded_by':clean(str(task.get('superseded_by')))})
-                continue
-            tasks.append({'id':clean(task['id']),'phase':task['phase'],'description':clean(task['description']),'status':task['status']})
-        history=[{'pass':e['pass'],'phase':e['phase'],'reason':clean(e['assessment']['unresolved'])} for e in doc['history'] if e['action']=='return-requested'][-20:]
-        waits=current_waits(doc['decisions'],withdrawn_names(doc))
-        cycles.append({'id':doc['id'],'title':clean(doc['title']),'type':doc['type'],'status':doc['status'],'phase':doc['phase'],'pass':doc['pass'],'pass_limit':doc['pass_limit'],'phases':phases_of(doc),'tasks':tasks,'returns':history,'waits':waits[:20],'blocker':clean(doc['blocker']['reason']) if doc['blocker'] else None,'reflection':clean(doc['reflection']['outcome']) if doc['reflection'] else None,'modified_s':int(sio.metadata(path)['st_mtime_ns']//1_000_000_000),'schema_version':doc.get('schema_version'),'revision':doc.get('revision') if doc.get('schema_version')==3 else None,'assignments':open_assignments(doc),'classification_count':classification_count(doc),'exception':exception_of(doc),**times(doc,moment)})
+        cycles.append(row)
+        # The dashboards accept a closed status set, so a superseded task rides beside the cycle object for `render`.
+        if stale:superseded[doc['id']]=stale
         # Council rounds ride beside the cycle objects for `render`, not inside them: the dashboards accept a closed key set.
         rounds[doc['id']]=councils_of(sio,cfg,doc)
-        if activity:cycles[-1]['activity']=cycle_activity.activity(sio.root,doc,now_s)
     # Active cycles first, then every other cycle; each group by cycle number, highest first.
     cycles.sort(key=lambda c:(c['status']!='active',-cycle_number(c['id'])))
     document=Document({'format':'crux.cycle-progress','format_version':FORMAT_VERSION,'ok':True,'docs_dir':cfg.docs_dir,'now_s':now_s,'cycles':cycles[:60]})
@@ -346,31 +310,23 @@ def _view(sio, identity=None, now=None, activity=False):
     document.queue_lines=None if identity else queue_lines(sio,cfg,statuses)
     root=sio.root
     def runs_of(d):
-        try:return test_run_lines(recorded_or_live_runs(root,d,now_s))
+        try:return test_run_lines(_runs(root,d,now_s))
         except (ValueError,KeyError,TypeError,OSError):return []
     document.run_lines={d['id']:(lambda d=d:runs_of(d)) for d in docs}
     document.council_rounds=rounds
     document.superseded_tasks=superseded
-    # Text status derives activity on demand, only for the open cycles it draws.
-    document.activity_of={d['id']:(lambda d=d:cycle_activity.activity(root,d,now_s)) for d in docs}
     return document
 
 
-def _epoch(stamp):
-    return None if stamp is None else int(datetime.fromisoformat(stamp).timestamp())
+def _runs(root, doc, now_s):
+    """A closed record's recorded tally from its own bytes. An open legacy record shows none: its live
+    tally needs the typed engine's receipt scan."""
+    if doc.get('status') in cycle_history.CLOSED:
+        return cycle_history.recorded_runs(doc)
+    return None
 
 
-def times(doc, moment):
-    """Elapsed-time fields, computed from history alone at the reader's now."""
-    t=cycle_timing(doc,moment)
-    started,ended=_epoch(t['started_at']),_epoch(t['ended_at'])
-    open_segment=t['segments'][-1] if ended is None and t['segments'] else None
-    per={}
-    for s in t['segments']:
-        row=per.setdefault(s['phase'],[0.0,0.0]);row[0]+=s['active_seconds'];row[1]+=s['paused_seconds']
-    order=phases_of(doc)
-    phase_times=[{'phase':p,'active_s':int(per[p][0]),'paused_s':int(per[p][1])} for p in order if p in per]
-    return {'started_s':started,'ended_s':ended,'paused_s':min(int(t['paused_seconds']),int(t['elapsed_seconds'])),'open_started_s':_epoch(open_segment['started_at']) if open_segment else None,'basis':t['basis'],'phase_times':phase_times}
+_epoch = cycle_history.epoch
 
 
 def duration(seconds):
@@ -378,17 +334,15 @@ def duration(seconds):
     return f'{minutes}m' if minutes<60 else f'{minutes//60}h{minutes%60:02d}m'
 
 
-def _assignment_line(a, last=None, indent='    '):
+def _assignment_line(a, indent='    '):
     head=f"{indent}Attempt {a['attempt']} · {a['id']}"+(f" · task {a['task']}" if a['task'] else '')+f" · {a['role']} · {a['state']}"
-    line=head+(', unresolved dispatch' if a['unresolved'] else '')+' · liveness '+a['liveness']
-    return line+(' · last activity '+clean(cycle_activity.describe(last)) if last else '')
+    return head+(', unresolved dispatch' if a['unresolved'] else '')+' · liveness '+a['liveness']
 
 
 def _task_lines(c, show_attempts):
     """The labelled Tasks section, each open attempt nested under its task; attempts with no listed task follow under Attempts."""
     attempts=c.get('assignments',[]) if show_attempts else []
-    lasts={(r['id'],r['attempt']):r['last'] for r in (c.get('activity') or {}).get('attempts',[])}
-    def line(a):return _assignment_line(a,lasts.get((a['id'],a['attempt'])),'      ')
+    def line(a):return _assignment_line(a,'      ')
     ids={t['id'] for t in c['tasks']}
     lines=['  Tasks'] if c['tasks'] else []
     for t in c['tasks']:
@@ -396,7 +350,7 @@ def _task_lines(c, show_attempts):
         lines.extend(line(a) for a in attempts if a['task']==t['id'])
     orphans=[a for a in attempts if a['task'] not in ids]
     if orphans:lines.append('  Attempts')
-    lines.extend(_assignment_line(a,lasts.get((a['id'],a['attempt']))) for a in orphans)
+    lines.extend(_assignment_line(a) for a in orphans)
     return lines
 
 
@@ -406,14 +360,14 @@ def render(document):
         # A listed release cycle has one phase and no pass limit to show.
         position=f"{c['phase'].title()} · {c['status']}" if c['type']=='pilot' or (c['type']=='release' and c['phases']==['release']) else f"Pass {c['pass']} of {c['pass_limit']} · {c['phase'].title()} · {c['status']}"
         if c.get('revision') is not None:position+=f" · revision {c['revision']}"
-        lines.extend([f"{c['id']} {c['title']} [{c['type']}]",position, ' → '.join(p.title() for p in c['phases'])])
+        if c['type']=='pilot':
+            # A current record has no type and no phase chain; `pilot` is only the dashboards' row vocabulary.
+            lines.extend([f"{c['id']} {c['title']}",position])
+        else:
+            lines.extend([f"{c['id']} {c['title']} [{c['type']}]",position, ' → '.join(p.title() for p in c['phases'])])
         end=c['ended_s'] if c['ended_s'] is not None else document['now_s']
         lines.append(f"  Elapsed {duration(end-c['started_s'])}"+(f" · paused {duration(c['paused_s'])}" if c['paused_s'] else '')+(' (derived)' if c['basis']=='derived' else ''))
         live=c['status'] in ('active','paused')
-        if live and 'activity' not in c:
-            derive=(getattr(document,'activity_of',None) or {}).get(c['id'])
-            if derive:c={**c,'activity':derive()}
-        if live and c.get('activity'):lines.append('  Activity: '+clean(cycle_activity.summary_line(c['activity'])))
         runs=(getattr(document,'run_lines',None) or {}).get(c['id'])
         if runs:lines.extend(runs())
         if c['type'] == 'pilot':

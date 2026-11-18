@@ -10,7 +10,7 @@ SCRIPTS=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(SCRIPTS))
 import decision_policy as dp
 import summaries_projection as sp
-from cycle_workflow import digest,encoded
+from cycle_store import digest,encoded
 
 
 def script(name):

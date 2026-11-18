@@ -17,7 +17,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from _evidence_fixtures import (CONDITIONAL, MINOR, conditional_dists, lock_requirement, make_venv, raw_receipt,
                                 reseal_in_place, variant, write_lock_project)
 import test_evidence as te
-from _classifier_isolation import isolate_classifier
 from test_evidence import EvidenceError, execute, lookup, validate_evidence
 
 SCRIPTS = Path(__file__).resolve().parents[1]
@@ -35,8 +34,6 @@ class EnvironmentBase(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        # A `cycle.py advance` subprocess enters Review, which asks the classifier; keep it off the gateway.
-        isolate_classifier(self)
         self.root = Path(self.temp.name).resolve()
         self.store = self.root / "evidence"
         patcher = patch.dict(os.environ, {"CRUX_TEST_EVIDENCE_STORE": str(self.store)})
@@ -78,25 +75,12 @@ class CrossEnvironmentTests(EnvironmentBase):
         shutil.rmtree(tools_python.parent.parent)
         self.assertNotEqual(core["environment"]["sys_prefix"], tools["environment"]["sys_prefix"])
         self.assertNotEqual(core["environment"]["distributions"], tools["environment"]["distributions"])
-        (self.root / "bionic").mkdir()
-        (self.root / "bionic/manifest.yml").write_text('schema_version: "5"\nconcerns_enabled: [adrs]\n')
-        from cycle_workflow import create, mutate, save, tree
-        doc = create(self.root, "quick-fix", "Fix", "Outcome", ["input.txt"], ["works"], "builder", "tester")
-        # This test validates legacy reusable receipts, not new local observations.
-        doc.pop("testing_policy"); doc.pop("local_checks")
-        save(tree(self.root), doc)
-        doc = mutate(self.root, doc["id"], "advance")
-        doc = mutate(self.root, doc["id"], "checks", checks=["core", "tools"])
-        mutate(self.root, doc["id"], "coverage", coverage={
-            "affected": ["interpreters differ"], "checks": [{"check_id": c, "rationale": "executed in its own environment"} for c in ("core", "tools")],
-            "not_selected": "none"})
-        def cli(*args):
-            run = subprocess.run([sys.executable, str(SCRIPTS / "cycle.py"), "--repo-root", str(self.root), *args],
-                                 capture_output=True, text=True)
-            self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
-        cli("evidence", doc["id"], "--check-id", "core", "--evidence-id", core["id"], "--use", "executed")
-        cli("evidence", doc["id"], "--check-id", "tools", "--evidence-id", tools["id"], "--use", "executed")
-        cli("advance", doc["id"])  # check_tests validates both receipts in this third process
+        script = ("import json, sys; from test_evidence import validate_evidence; "
+                  "print(json.dumps([validate_evidence(sys.argv[1], i)['id'] for i in sys.argv[2:]]))")
+        run = subprocess.run([sys.executable, "-c", script, str(self.root), core["id"], tools["id"]],
+                             cwd=SCRIPTS, capture_output=True, text=True)  # a third process, outside the executing ones
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertEqual(json.loads(run.stdout), [core["id"], tools["id"]])
 
     def test_a_new_throwaway_environment_that_satisfies_the_requirement_reuses(self):
         first = self.run_core()

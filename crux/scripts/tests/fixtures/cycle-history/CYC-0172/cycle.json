@@ -1,0 +1,851 @@
+{
+  "assignments": [
+    {
+      "agent": "a4fb8973f1eae1b47",
+      "attempt": 1,
+      "base": "29c4384fdf010b113bab87c65505599807ad91a5",
+      "delivery": {
+        "commits": [
+          "9cdb566a834d5c8a582970d889adad46f1cbd398"
+        ],
+        "evidence": [],
+        "note": "Regenerated both micro-crux files; only provenance digests of the three CYC-0170 sources changed. Dry run clean; contracts pass on 3.13 and 3.14.",
+        "outcome": "done",
+        "path": "cycles/CYC-0172/results/regen-attempt-1.md",
+        "sha256": "d8e9b0ac74599a624a85d902187089547a8b40b37f7cf4bb6f06ca89e39cf155",
+        "stage": null
+      },
+      "delivery_token": "1e710669dcb3433ba91d6095a1b9e4ed",
+      "ended_at": "2026-11-16T23:42:57.879012+00:00",
+      "execution": {
+        "checkout": "/Users/madsen/Developer/Idyll/crux-internal",
+        "execution_head": "34d2f00b0c5569541b5b3b22a284ba9c29175e8e",
+        "proof": {
+          "path": "cycles/CYC-0172/execution/0335220685b32158de816917da3a2741dd538560882ead47516d54b0f2902ecd.json",
+          "sha256": "0335220685b32158de816917da3a2741dd538560882ead47516d54b0f2902ecd"
+        },
+        "review_base": "29c4384fdf010b113bab87c65505599807ad91a5"
+      },
+      "execution_history": [
+        {
+          "checkout": "/Users/madsen/Developer/Idyll/crux-internal",
+          "execution_head": "29c4384fdf010b113bab87c65505599807ad91a5",
+          "proof": {
+            "path": "cycles/CYC-0172/execution/db9b6c4c313004419daf019a37905f6e9f6765e2cdc8d586699b8392f7c4fbf1.json",
+            "sha256": "db9b6c4c313004419daf019a37905f6e9f6765e2cdc8d586699b8392f7c4fbf1"
+          },
+          "review_base": "29c4384fdf010b113bab87c65505599807ad91a5"
+        },
+        {
+          "checkout": "/Users/madsen/Developer/Idyll/crux-internal",
+          "execution_head": "559145489a7fe8c204cf1be9c79cdf2e34c4f025",
+          "proof": {
+            "path": "cycles/CYC-0172/execution/ace1e05589c9fb55dab789de2f326916592e716489cb625e2f87403e6ccf9b70.json",
+            "sha256": "ace1e05589c9fb55dab789de2f326916592e716489cb625e2f87403e6ccf9b70"
+          },
+          "review_base": "29c4384fdf010b113bab87c65505599807ad91a5"
+        },
+        {
+          "checkout": "/Users/madsen/Developer/Idyll/crux-internal",
+          "execution_head": "6a2f15079107d610c11d6682560027ffd2a73662",
+          "proof": {
+            "path": "cycles/CYC-0172/execution/bbe5c0954481c64a2ceb928634f00ecd2d525956230e9c68f31dac681e2d5bbb.json",
+            "sha256": "bbe5c0954481c64a2ceb928634f00ecd2d525956230e9c68f31dac681e2d5bbb"
+          },
+          "review_base": "29c4384fdf010b113bab87c65505599807ad91a5"
+        },
+        {
+          "checkout": "/Users/madsen/Developer/Idyll/crux-internal",
+          "execution_head": "da7769af1759bcae0ffee03b27976c7a819fa0da",
+          "proof": {
+            "path": "cycles/CYC-0172/execution/e5066d4ba3e9a5521d672965293b0781cc5c94d09df097efcf1933c8f25c4fa7.json",
+            "sha256": "e5066d4ba3e9a5521d672965293b0781cc5c94d09df097efcf1933c8f25c4fa7"
+          },
+          "review_base": "29c4384fdf010b113bab87c65505599807ad91a5"
+        }
+      ],
+      "execution_started": {
+        "checkout": "/Users/madsen/Developer/Idyll/crux-internal",
+        "delivery_token": "1e710669dcb3433ba91d6095a1b9e4ed"
+      },
+      "host": "claude-code",
+      "id": "regen",
+      "invocation_snapshot": {
+        "path": "cycles/CYC-0172/invocations/89bf07d46f97c2a3e99c6622abbf56f70c36a0d113d1dc9cfe8def0c547950f3.json",
+        "sha256": "27dd0192fb231589cec6decb243783d8d2b9798e46a09c46ed759db8bec13e86"
+      },
+      "last_seen": "2026-11-16T23:42:57.879012+00:00",
+      "mode": "blocking",
+      "note": null,
+      "result_path": "/private/var/folders/y0/lljk5spx0lndscy5_dtjcb880000gn/T/crux-results-CYC-0172-9k4r59qn/regen-attempt-1.md",
+      "role": "dev-lead",
+      "started_at": "2026-11-16T23:41:23.481405+00:00",
+      "state": "finished",
+      "task": "regen"
+    },
+    {
+      "agent": "a36c2a5bcd1ba3e54",
+      "attempt": 1,
+      "base": "02cc8b9012b0bcc1f46725206eebe357e1c5380c",
+      "delivery": {
+        "commits": [],
+        "evidence": [],
+        "note": "Independent Focused review approves 9cdb566a8; no blocking findings.",
+        "outcome": "done",
+        "path": "cycles/CYC-0172/results/review-attempt-1.md",
+        "sha256": "f4aa645297064035af00c7082feba652951db3c69617cee70d1732bd812e7200",
+        "stage": null
+      },
+      "delivery_token": "fea0ae839f624494a4d8fce2b2a47f0e",
+      "ended_at": "2026-11-16T23:44:55.191707+00:00",
+      "execution": {
+        "checkout": "/Users/madsen/Developer/Idyll/crux-internal",
+        "execution_head": "d67d6b0b12741232d204e85ea67603acdab0eb12",
+        "proof": {
+          "path": "cycles/CYC-0172/execution/c4f028912350aa667258c1ab578a6f2c8a3850faff54227fe1c3cc6b0a4aa9cb.json",
+          "sha256": "c4f028912350aa667258c1ab578a6f2c8a3850faff54227fe1c3cc6b0a4aa9cb"
+        },
+        "review_base": "02cc8b9012b0bcc1f46725206eebe357e1c5380c"
+      },
+      "execution_history": [
+        {
+          "checkout": "/Users/madsen/Developer/Idyll/crux-internal",
+          "execution_head": "02cc8b9012b0bcc1f46725206eebe357e1c5380c",
+          "proof": {
+            "path": "cycles/CYC-0172/execution/f86476386b091faed54429d5780d110c2b3b23a395f04af2aa9bfb26b95a428e.json",
+            "sha256": "f86476386b091faed54429d5780d110c2b3b23a395f04af2aa9bfb26b95a428e"
+          },
+          "review_base": "02cc8b9012b0bcc1f46725206eebe357e1c5380c"
+        },
+        {
+          "checkout": "/Users/madsen/Developer/Idyll/crux-internal",
+          "execution_head": "d32937e3591b57b94d4eab237ee2a029b35dbe7a",
+          "proof": {
+            "path": "cycles/CYC-0172/execution/a712fd0061cc94556d3e6f67efd8a36314bd675bd49f6900ffd27dfa7f54106c.json",
+            "sha256": "a712fd0061cc94556d3e6f67efd8a36314bd675bd49f6900ffd27dfa7f54106c"
+          },
+          "review_base": "02cc8b9012b0bcc1f46725206eebe357e1c5380c"
+        }
+      ],
+      "host": "claude-code",
+      "id": "review",
+      "invocation_snapshot": {
+        "path": "cycles/CYC-0172/invocations/4616cd27e40bc873f58a8547fa4e12f47314f7fed998dcabd54e5df925d2ad0c.json",
+        "sha256": "c42184fdf30c43b22540549d94a4e3803b61c35054bb418d41da7cc6382b56db"
+      },
+      "last_seen": "2026-11-16T23:44:55.191707+00:00",
+      "mode": "blocking",
+      "note": null,
+      "result_path": "/private/var/folders/y0/lljk5spx0lndscy5_dtjcb880000gn/T/crux-results-CYC-0172-9k4r59qn/review-attempt-1.md",
+      "role": "reviewer",
+      "started_at": "2026-11-16T23:43:54.493350+00:00",
+      "state": "finished",
+      "task": "review"
+    }
+  ],
+  "blocker": null,
+  "build_checks": [
+    "micro-crux-dry-run",
+    "micro-crux-contracts-3.13",
+    "micro-crux-contracts-3.14"
+  ],
+  "completion": {
+    "commits": [
+      "9cdb566a834d5c8a582970d889adad46f1cbd398"
+    ],
+    "exception": null,
+    "input_sha256": "c25ec8ee1868d8d817580572c6db0f140e2cfaebd61fce2d3488fcb21380bcfe",
+    "remaining": "none"
+  },
+  "coordinator": "dev-lead",
+  "coverage": {
+    "affected": [
+      "The generated micro-crux guide (crux/box/micro-crux.md) and its root preview (micro-crux.md): provenance digests of cycle_pilot.py, cycle_queue.py and cycle_runtime.py only"
+    ],
+    "checks": [
+      {
+        "check_id": "micro-crux-dry-run",
+        "rationale": "LC-fb7fa43c: generate-micro-crux.py --dry-run exits 0 with changed [] and drift false at 9cdb566a8; the regenerator drift gate for these two files."
+      },
+      {
+        "check_id": "micro-crux-contracts-3.13",
+        "rationale": "LC-704dfb97: test_micro_crux_contracts, the release-tier class that failed in the CYC-0171 full 3.13 run, 12 tests OK."
+      },
+      {
+        "check_id": "micro-crux-contracts-3.14",
+        "rationale": "LC-66a22972: the same class on 3.14.9, which failed in the CYC-0171 3.14 plugin run, 12 tests OK."
+      }
+    ],
+    "not_selected": "No full suite: the only change is two generated files whose one reader in the suites is test_micro_crux_contracts; the CYC-0171 release verify step reruns both checkout suites and the staged checks. No other drift gate: no other regenerated output or its source changed. Bookkeeping under bionic/cycles is excluded."
+  },
+  "created_at": "2026-11-16T23:41:12.008980+00:00",
+  "decisions": [],
+  "evidence": [],
+  "extensions": [],
+  "goal": "The CYC-0171 pre-verify run found two release-tier micro-crux contract tests failing on 3.13 and 3.14: crux/box/micro-crux.md and the root micro-crux.md are stale because CYC-0170 (452acef58) changed cycle_pilot.py, cycle_queue.py and cycle_runtime.py, which feed the generator, without regenerating. Regenerate with crux/scripts/generate-micro-crux.py and commit, before the release prepare step is reserved.",
+  "history": [
+    {
+      "action": "created",
+      "at": "2026-11-16T23:41:12.009125+00:00",
+      "pass": 1,
+      "phase": "build",
+      "revision": 1,
+      "status": "active"
+    },
+    {
+      "action": "task-add",
+      "at": "2026-11-16T23:41:16.242532+00:00",
+      "pass": 1,
+      "phase": "build",
+      "revision": 2,
+      "status": "active"
+    },
+    {
+      "action": "prepare-dispatch",
+      "assignment": "regen",
+      "at": "2026-11-16T23:41:23.925592+00:00",
+      "attempt": 1,
+      "base": "29c4384fdf010b113bab87c65505599807ad91a5",
+      "host": "claude-code",
+      "invocation_snapshot": {
+        "path": "cycles/CYC-0172/invocations/89bf07d46f97c2a3e99c6622abbf56f70c36a0d113d1dc9cfe8def0c547950f3.json",
+        "sha256": "27dd0192fb231589cec6decb243783d8d2b9798e46a09c46ed759db8bec13e86"
+      },
+      "mode": "blocking",
+      "op_id": "pd-0172-regen-1",
+      "pass": 1,
+      "phase": "build",
+      "revision": 3,
+      "role": "dev-lead",
+      "status": "active",
+      "task": "regen"
+    },
+    {
+      "action": "attach-execution",
+      "assignment": "regen",
+      "at": "2026-11-16T23:41:47.121678+00:00",
+      "attempt": 1,
+      "handle": "a4fb8973f1eae1b47",
+      "op_id": "att-0172-regen-1",
+      "pass": 1,
+      "phase": "build",
+      "revision": 4,
+      "status": "active",
+      "task": "regen"
+    },
+    {
+      "action": "execution-check",
+      "assignment": "regen",
+      "at": "2026-11-16T23:41:48.939773+00:00",
+      "attempt": 1,
+      "execution_head": "6a2f15079107d610c11d6682560027ffd2a73662",
+      "op_id": "regen-a1-start",
+      "pass": 1,
+      "phase": "build",
+      "proof": {
+        "path": "cycles/CYC-0172/execution/bbe5c0954481c64a2ceb928634f00ecd2d525956230e9c68f31dac681e2d5bbb.json",
+        "sha256": "bbe5c0954481c64a2ceb928634f00ecd2d525956230e9c68f31dac681e2d5bbb"
+      },
+      "review_base": "29c4384fdf010b113bab87c65505599807ad91a5",
+      "revision": 5,
+      "status": "active",
+      "task": "regen"
+    },
+    {
+      "action": "execution-check",
+      "assignment": "regen",
+      "at": "2026-11-16T23:42:02.714458+00:00",
+      "attempt": 1,
+      "execution_head": "da7769af1759bcae0ffee03b27976c7a819fa0da",
+      "op_id": "regen-a1-commit",
+      "pass": 1,
+      "phase": "build",
+      "proof": {
+        "path": "cycles/CYC-0172/execution/e5066d4ba3e9a5521d672965293b0781cc5c94d09df097efcf1933c8f25c4fa7.json",
+        "sha256": "e5066d4ba3e9a5521d672965293b0781cc5c94d09df097efcf1933c8f25c4fa7"
+      },
+      "review_base": "29c4384fdf010b113bab87c65505599807ad91a5",
+      "revision": 6,
+      "status": "active",
+      "task": "regen"
+    },
+    {
+      "action": "checks",
+      "at": "2026-11-16T23:42:28.470733+00:00",
+      "pass": 1,
+      "phase": "build",
+      "revision": 7,
+      "status": "active"
+    },
+    {
+      "action": "local-check",
+      "at": "2026-11-16T23:42:34.962095+00:00",
+      "pass": 1,
+      "phase": "build",
+      "reason": "drift gate for the two regenerated outputs",
+      "revision": 8,
+      "status": "active"
+    },
+    {
+      "action": "local-check",
+      "at": "2026-11-16T23:42:35.119827+00:00",
+      "pass": 1,
+      "phase": "build",
+      "reason": "the release-tier failures CYC-0171 found on 3.13 live in this module",
+      "revision": 9,
+      "status": "active"
+    },
+    {
+      "action": "local-check",
+      "at": "2026-11-16T23:42:35.275778+00:00",
+      "pass": 1,
+      "phase": "build",
+      "reason": "the release-tier failures CYC-0171 found on 3.14 live in this module",
+      "revision": 10,
+      "status": "active"
+    },
+    {
+      "action": "deliver",
+      "assignment": "regen",
+      "at": "2026-11-16T23:42:57.889274+00:00",
+      "attempt": 1,
+      "op_id": "d-0172-regen-1",
+      "outcome": "done",
+      "pass": 1,
+      "phase": "build",
+      "revision": 11,
+      "sha256": "d8e9b0ac74599a624a85d902187089547a8b40b37f7cf4bb6f06ca89e39cf155",
+      "status": "active",
+      "task": "regen"
+    },
+    {
+      "action": "advance",
+      "at": "2026-11-16T23:43:02.116932+00:00",
+      "from_phase": "build",
+      "op_id": "adv-0172-build",
+      "pass": 1,
+      "phase": "verify",
+      "reused": [],
+      "revision": 12,
+      "status": "active",
+      "to_phase": "verify"
+    },
+    {
+      "action": "checks",
+      "at": "2026-11-16T23:43:36.098883+00:00",
+      "pass": 1,
+      "phase": "verify",
+      "revision": 13,
+      "status": "active"
+    },
+    {
+      "action": "coverage",
+      "at": "2026-11-16T23:43:43.297496+00:00",
+      "pass": 1,
+      "phase": "verify",
+      "revision": 14,
+      "status": "active"
+    },
+    {
+      "action": "advance",
+      "at": "2026-11-16T23:43:48.917126+00:00",
+      "from_phase": "verify",
+      "op_id": "adv-0172-verify",
+      "pass": 1,
+      "phase": "review",
+      "reused": [],
+      "revision": 15,
+      "status": "active",
+      "to_phase": "review"
+    },
+    {
+      "action": "task-add",
+      "at": "2026-11-16T23:43:49.220498+00:00",
+      "pass": 1,
+      "phase": "review",
+      "revision": 16,
+      "status": "active"
+    },
+    {
+      "action": "prepare-dispatch",
+      "assignment": "review",
+      "at": "2026-11-16T23:43:54.824264+00:00",
+      "attempt": 1,
+      "base": "02cc8b9012b0bcc1f46725206eebe357e1c5380c",
+      "host": "claude-code",
+      "invocation_snapshot": {
+        "path": "cycles/CYC-0172/invocations/4616cd27e40bc873f58a8547fa4e12f47314f7fed998dcabd54e5df925d2ad0c.json",
+        "sha256": "c42184fdf30c43b22540549d94a4e3803b61c35054bb418d41da7cc6382b56db"
+      },
+      "mode": "blocking",
+      "op_id": "pd-0172-review-1",
+      "pass": 1,
+      "phase": "review",
+      "revision": 17,
+      "role": "reviewer",
+      "status": "active",
+      "task": "review"
+    },
+    {
+      "action": "attach-execution",
+      "assignment": "review",
+      "at": "2026-11-16T23:44:19.568527+00:00",
+      "attempt": 1,
+      "handle": "a36c2a5bcd1ba3e54",
+      "op_id": "att-0172-review-1",
+      "pass": 1,
+      "phase": "review",
+      "revision": 18,
+      "status": "active",
+      "task": "review"
+    },
+    {
+      "action": "deliver",
+      "assignment": "review",
+      "at": "2026-11-16T23:44:55.191894+00:00",
+      "attempt": 1,
+      "op_id": "d-0172-review-1",
+      "outcome": "done",
+      "pass": 1,
+      "phase": "review",
+      "revision": 19,
+      "sha256": "f4aa645297064035af00c7082feba652951db3c69617cee70d1732bd812e7200",
+      "status": "active",
+      "task": "review"
+    },
+    {
+      "action": "review",
+      "at": "2026-11-16T23:44:55.523998+00:00",
+      "pass": 1,
+      "phase": "review",
+      "revision": 20,
+      "status": "active"
+    },
+    {
+      "action": "advance",
+      "at": "2026-11-16T23:45:00.878697+00:00",
+      "from_phase": "review",
+      "op_id": "adv-0172-review",
+      "pass": 1,
+      "phase": "reflect",
+      "reused": [],
+      "revision": 21,
+      "status": "active",
+      "to_phase": "reflect"
+    },
+    {
+      "action": "finish",
+      "at": "2026-11-16T23:45:05.453595+00:00",
+      "op_id": "finish-0172",
+      "pass": 1,
+      "phase": "reflect",
+      "revision": 22,
+      "status": "completed",
+      "tip": "9cdb566a834d5c8a582970d889adad46f1cbd398"
+    }
+  ],
+  "id": "CYC-0172",
+  "implementers": [
+    "dev-lead"
+  ],
+  "local_checks": [
+    {
+      "at": "2026-11-16T23:42:34.961940+00:00",
+      "check_id": "micro-crux-dry-run",
+      "command": "uv run crux/scripts/generate-micro-crux.py --dry-run",
+      "id": "LC-fb7fa43c9a5446acb4cbfa0cc9a714f3",
+      "pass": 1,
+      "reason": "drift gate for the two regenerated outputs",
+      "result": "passed",
+      "summary": "exit 0; changed [], drift false, guide_sha256 0da63aef...",
+      "tested_revision": "9cdb566a8",
+      "use": "executed"
+    },
+    {
+      "at": "2026-11-16T23:42:35.119679+00:00",
+      "check_id": "micro-crux-contracts-3.13",
+      "command": "uv run python3 crux/scripts/tests/parallel_suite.py crux/scripts/tests --select test_micro_crux_contracts",
+      "id": "LC-704dfb97faef4f48a38f51a164dcd574",
+      "pass": 1,
+      "reason": "the release-tier failures CYC-0171 found on 3.13 live in this module",
+      "result": "passed",
+      "summary": "python 3.13.14: Ran 12 tests, OK",
+      "tested_revision": "9cdb566a8",
+      "use": "executed"
+    },
+    {
+      "at": "2026-11-16T23:42:35.275634+00:00",
+      "check_id": "micro-crux-contracts-3.14",
+      "command": "UV_PYTHON=3.14 UV_PROJECT_ENVIRONMENT=~/.venvs/crux-3.14 uv run --python 3.14 python3 crux/scripts/tests/parallel_suite.py crux/scripts/tests --select test_micro_crux_contracts",
+      "id": "LC-66a22972b0e8438fa8911cdd4be55038",
+      "pass": 1,
+      "reason": "the release-tier failures CYC-0171 found on 3.14 live in this module",
+      "result": "passed",
+      "summary": "python 3.14.9: Ran 12 tests, OK",
+      "tested_revision": "9cdb566a8",
+      "use": "executed"
+    }
+  ],
+  "operations": [
+    {
+      "at": "2026-11-16T23:41:23.925617+00:00",
+      "op": "prepare-dispatch",
+      "op_id": "pd-0172-regen-1",
+      "request_sha256": "119124b8e04540a653541513270b06ae2564d5a87f195eadf7b7158abd683f09",
+      "result": {
+        "assignment": "regen",
+        "attempt": 1,
+        "base": "29c4384fdf010b113bab87c65505599807ad91a5",
+        "delivery_token": "1e710669dcb3433ba91d6095a1b9e4ed",
+        "execution": {
+          "checkout": "/Users/madsen/Developer/Idyll/crux-internal",
+          "execution_head": "29c4384fdf010b113bab87c65505599807ad91a5",
+          "proof": {
+            "path": "cycles/CYC-0172/execution/db9b6c4c313004419daf019a37905f6e9f6765e2cdc8d586699b8392f7c4fbf1.json",
+            "sha256": "db9b6c4c313004419daf019a37905f6e9f6765e2cdc8d586699b8392f7c4fbf1"
+          },
+          "review_base": "29c4384fdf010b113bab87c65505599807ad91a5"
+        },
+        "invocation_snapshot": {
+          "path": "cycles/CYC-0172/invocations/89bf07d46f97c2a3e99c6622abbf56f70c36a0d113d1dc9cfe8def0c547950f3.json",
+          "sha256": "27dd0192fb231589cec6decb243783d8d2b9798e46a09c46ed759db8bec13e86"
+        },
+        "result_path": "/private/var/folders/y0/lljk5spx0lndscy5_dtjcb880000gn/T/crux-results-CYC-0172-9k4r59qn/regen-attempt-1.md",
+        "revision": 3,
+        "task": "regen"
+      },
+      "revision": 3
+    },
+    {
+      "at": "2026-11-16T23:41:47.121704+00:00",
+      "op": "attach-execution",
+      "op_id": "att-0172-regen-1",
+      "request_sha256": "7acaf8d36304cefde915c26b973dba4d5bd5602247c5956ecac4711c0421439e",
+      "result": {
+        "assignment": "regen",
+        "attempt": 1,
+        "execution": {
+          "checkout": "/Users/madsen/Developer/Idyll/crux-internal",
+          "execution_head": "559145489a7fe8c204cf1be9c79cdf2e34c4f025",
+          "proof": {
+            "path": "cycles/CYC-0172/execution/ace1e05589c9fb55dab789de2f326916592e716489cb625e2f87403e6ccf9b70.json",
+            "sha256": "ace1e05589c9fb55dab789de2f326916592e716489cb625e2f87403e6ccf9b70"
+          },
+          "review_base": "29c4384fdf010b113bab87c65505599807ad91a5"
+        },
+        "handle": "a4fb8973f1eae1b47",
+        "revision": 4,
+        "task": "regen"
+      },
+      "revision": 4
+    },
+    {
+      "at": "2026-11-16T23:41:48.939935+00:00",
+      "op": "execution-check",
+      "op_id": "regen-a1-start",
+      "request_sha256": "54f82582da7d22529437ca3c425ce2e14793435e307c2efd35d65c44e15eca7a",
+      "result": {
+        "assignment": "regen",
+        "attempt": 1,
+        "execution": {
+          "checkout": "/Users/madsen/Developer/Idyll/crux-internal",
+          "execution_head": "6a2f15079107d610c11d6682560027ffd2a73662",
+          "proof": {
+            "path": "cycles/CYC-0172/execution/bbe5c0954481c64a2ceb928634f00ecd2d525956230e9c68f31dac681e2d5bbb.json",
+            "sha256": "bbe5c0954481c64a2ceb928634f00ecd2d525956230e9c68f31dac681e2d5bbb"
+          },
+          "review_base": "29c4384fdf010b113bab87c65505599807ad91a5"
+        },
+        "execution_observation": {
+          "current_head": "6a2f15079107d610c11d6682560027ffd2a73662",
+          "retained_proof_reused": false
+        },
+        "revision": 5,
+        "task": "regen"
+      },
+      "revision": 5
+    },
+    {
+      "at": "2026-11-16T23:42:02.714617+00:00",
+      "op": "execution-check",
+      "op_id": "regen-a1-commit",
+      "request_sha256": "9dca7e25aceb330be6dff80d78c7dfe480ccfb9c6d104888906cbc9e98839f8f",
+      "result": {
+        "assignment": "regen",
+        "attempt": 1,
+        "execution": {
+          "checkout": "/Users/madsen/Developer/Idyll/crux-internal",
+          "execution_head": "da7769af1759bcae0ffee03b27976c7a819fa0da",
+          "proof": {
+            "path": "cycles/CYC-0172/execution/e5066d4ba3e9a5521d672965293b0781cc5c94d09df097efcf1933c8f25c4fa7.json",
+            "sha256": "e5066d4ba3e9a5521d672965293b0781cc5c94d09df097efcf1933c8f25c4fa7"
+          },
+          "review_base": "29c4384fdf010b113bab87c65505599807ad91a5"
+        },
+        "execution_observation": {
+          "current_head": "da7769af1759bcae0ffee03b27976c7a819fa0da",
+          "retained_proof_reused": false
+        },
+        "revision": 6,
+        "task": "regen"
+      },
+      "revision": 6
+    },
+    {
+      "at": "2026-11-16T23:42:57.889322+00:00",
+      "op": "deliver",
+      "op_id": "d-0172-regen-1",
+      "request_sha256": "db217756675fb92d52d30c94e946ec5cdd793d0932d7615577d6719b368b6c18",
+      "result": {
+        "assignment": "regen",
+        "attempt": 1,
+        "execution": {
+          "checkout": "/Users/madsen/Developer/Idyll/crux-internal",
+          "execution_head": "34d2f00b0c5569541b5b3b22a284ba9c29175e8e",
+          "proof": {
+            "path": "cycles/CYC-0172/execution/0335220685b32158de816917da3a2741dd538560882ead47516d54b0f2902ecd.json",
+            "sha256": "0335220685b32158de816917da3a2741dd538560882ead47516d54b0f2902ecd"
+          },
+          "review_base": "29c4384fdf010b113bab87c65505599807ad91a5"
+        },
+        "outcome": "done",
+        "result_path": "/private/var/folders/y0/lljk5spx0lndscy5_dtjcb880000gn/T/crux-results-CYC-0172-9k4r59qn/regen-attempt-1.md",
+        "retained": "cycles/CYC-0172/results/regen-attempt-1.md",
+        "revision": 11,
+        "sha256": "d8e9b0ac74599a624a85d902187089547a8b40b37f7cf4bb6f06ca89e39cf155",
+        "status": "done",
+        "task": "regen"
+      },
+      "revision": 11
+    },
+    {
+      "at": "2026-11-16T23:43:02.117137+00:00",
+      "op": "advance",
+      "op_id": "adv-0172-build",
+      "request_sha256": "9b8713949f03f603187e18da54c1211a3f19161857cab02199e4a475d82debed",
+      "result": {
+        "phase": "verify",
+        "reused": [],
+        "revision": 12,
+        "status": "active"
+      },
+      "revision": 12
+    },
+    {
+      "at": "2026-11-16T23:43:48.917325+00:00",
+      "op": "advance",
+      "op_id": "adv-0172-verify",
+      "request_sha256": "9f6d40cd733c2bf4b2e07cfe3ce2838dc2bf38bb76180f604ff6baf9aeb3eae0",
+      "result": {
+        "phase": "review",
+        "reused": [],
+        "revision": 15,
+        "status": "active"
+      },
+      "revision": 15
+    },
+    {
+      "at": "2026-11-16T23:43:54.824290+00:00",
+      "op": "prepare-dispatch",
+      "op_id": "pd-0172-review-1",
+      "request_sha256": "e516861a69c23da3de6cac096b4f458a5a8387e972d6fa9cb72e202205e8a309",
+      "result": {
+        "assignment": "review",
+        "attempt": 1,
+        "base": "02cc8b9012b0bcc1f46725206eebe357e1c5380c",
+        "delivery_token": "fea0ae839f624494a4d8fce2b2a47f0e",
+        "execution": {
+          "checkout": "/Users/madsen/Developer/Idyll/crux-internal",
+          "execution_head": "02cc8b9012b0bcc1f46725206eebe357e1c5380c",
+          "proof": {
+            "path": "cycles/CYC-0172/execution/f86476386b091faed54429d5780d110c2b3b23a395f04af2aa9bfb26b95a428e.json",
+            "sha256": "f86476386b091faed54429d5780d110c2b3b23a395f04af2aa9bfb26b95a428e"
+          },
+          "review_base": "02cc8b9012b0bcc1f46725206eebe357e1c5380c"
+        },
+        "invocation_snapshot": {
+          "path": "cycles/CYC-0172/invocations/4616cd27e40bc873f58a8547fa4e12f47314f7fed998dcabd54e5df925d2ad0c.json",
+          "sha256": "c42184fdf30c43b22540549d94a4e3803b61c35054bb418d41da7cc6382b56db"
+        },
+        "result_path": "/private/var/folders/y0/lljk5spx0lndscy5_dtjcb880000gn/T/crux-results-CYC-0172-9k4r59qn/review-attempt-1.md",
+        "revision": 17,
+        "task": "review"
+      },
+      "revision": 17
+    },
+    {
+      "at": "2026-11-16T23:44:19.568557+00:00",
+      "op": "attach-execution",
+      "op_id": "att-0172-review-1",
+      "request_sha256": "731d276f28403fe0188bd446c2bd79539299694764f6e6fb2a66618e7bd53e0c",
+      "result": {
+        "assignment": "review",
+        "attempt": 1,
+        "execution": {
+          "checkout": "/Users/madsen/Developer/Idyll/crux-internal",
+          "execution_head": "d32937e3591b57b94d4eab237ee2a029b35dbe7a",
+          "proof": {
+            "path": "cycles/CYC-0172/execution/a712fd0061cc94556d3e6f67efd8a36314bd675bd49f6900ffd27dfa7f54106c.json",
+            "sha256": "a712fd0061cc94556d3e6f67efd8a36314bd675bd49f6900ffd27dfa7f54106c"
+          },
+          "review_base": "02cc8b9012b0bcc1f46725206eebe357e1c5380c"
+        },
+        "handle": "a36c2a5bcd1ba3e54",
+        "revision": 18,
+        "task": "review"
+      },
+      "revision": 18
+    },
+    {
+      "at": "2026-11-16T23:44:55.191922+00:00",
+      "op": "deliver",
+      "op_id": "d-0172-review-1",
+      "request_sha256": "92bd4faeb01386acb5e38c6032d04238c911c59139732f0cc3b3b6dbaa1f18ae",
+      "result": {
+        "assignment": "review",
+        "attempt": 1,
+        "execution": {
+          "checkout": "/Users/madsen/Developer/Idyll/crux-internal",
+          "execution_head": "d67d6b0b12741232d204e85ea67603acdab0eb12",
+          "proof": {
+            "path": "cycles/CYC-0172/execution/c4f028912350aa667258c1ab578a6f2c8a3850faff54227fe1c3cc6b0a4aa9cb.json",
+            "sha256": "c4f028912350aa667258c1ab578a6f2c8a3850faff54227fe1c3cc6b0a4aa9cb"
+          },
+          "review_base": "02cc8b9012b0bcc1f46725206eebe357e1c5380c"
+        },
+        "outcome": "done",
+        "result_path": "/private/var/folders/y0/lljk5spx0lndscy5_dtjcb880000gn/T/crux-results-CYC-0172-9k4r59qn/review-attempt-1.md",
+        "retained": "cycles/CYC-0172/results/review-attempt-1.md",
+        "revision": 19,
+        "sha256": "f4aa645297064035af00c7082feba652951db3c69617cee70d1732bd812e7200",
+        "status": "done",
+        "task": "review"
+      },
+      "revision": 19
+    },
+    {
+      "at": "2026-11-16T23:45:00.878886+00:00",
+      "op": "advance",
+      "op_id": "adv-0172-review",
+      "request_sha256": "6cf96dd7402b21536b4c51232001bd9b6d26293a05c95b2cf879b6b6af294e5d",
+      "result": {
+        "phase": "reflect",
+        "reused": [],
+        "revision": 21,
+        "status": "active"
+      },
+      "revision": 21
+    },
+    {
+      "at": "2026-11-16T23:45:05.453791+00:00",
+      "op": "finish",
+      "op_id": "finish-0172",
+      "request_sha256": "04a86475b065f904c195fbac7f9131eea9617ec9811ccb430370f603380f39d9",
+      "result": {
+        "completion": {
+          "classifications": [],
+          "commits": [
+            "9cdb566a834d5c8a582970d889adad46f1cbd398"
+          ],
+          "test_runs": null,
+          "tip": "9cdb566a834d5c8a582970d889adad46f1cbd398"
+        },
+        "evidence_size": {
+          "bytes": 222906,
+          "files": 14,
+          "measure": "sum of blob sizes from git ls-tree -r -l at the completion HEAD over bionic/cycles/CYC-0172/"
+        },
+        "revision": 22,
+        "status": "completed"
+      },
+      "revision": 22
+    }
+  ],
+  "pass": 1,
+  "pass_limit": 1,
+  "phase": "reflect",
+  "phase_names": "verify",
+  "plan": {
+    "acceptance": [
+      "uv run crux/scripts/generate-micro-crux.py --dry-run exits 0 and test_micro_crux_contracts passes on 3.13 and 3.14.",
+      "Only the two generated files change."
+    ],
+    "constraints": [],
+    "revision": 1,
+    "scope": [
+      "crux/box/micro-crux.md",
+      "micro-crux.md",
+      "bionic/journal",
+      "bionic/log"
+    ],
+    "tasks": [
+      {
+        "assignee": "regen",
+        "commits": [
+          "9cdb566a834d5c8a582970d889adad46f1cbd398"
+        ],
+        "depends_on": [],
+        "description": "Regenerate crux/box/micro-crux.md and micro-crux.md with uv run crux/scripts/generate-micro-crux.py, commit, and rerun the drift check and test_micro_crux_contracts on both minors.",
+        "expected_evidence": [
+          "the regeneration commit with the Cycle-Task regen trailer",
+          "generate-micro-crux.py --dry-run exit 0 and test_micro_crux_contracts passing on 3.13 and 3.14, recorded with local-check"
+        ],
+        "id": "regen",
+        "note": "Regenerated both micro-crux files; only provenance digests of the three CYC-0170 sources changed. Dry run clean; contracts pass on 3.13 and 3.14.",
+        "phase": "build",
+        "result_path": "/private/var/folders/y0/lljk5spx0lndscy5_dtjcb880000gn/T/crux-results-CYC-0172-9k4r59qn/regen-attempt-1.md",
+        "status": "done"
+      },
+      {
+        "assignee": "review",
+        "depends_on": [
+          "regen"
+        ],
+        "description": "Independently review the regeneration commit 9cdb566a8 (range 29c4384fd..HEAD): only the two generated files change, the change is the provenance digests of the three CYC-0170 sources, and the recorded checks apply.",
+        "expected_evidence": [
+          "an independent Focused review report of 9cdb566a8 in the cycle review record shape"
+        ],
+        "id": "review",
+        "note": "Independent Focused review approves 9cdb566a8; no blocking findings.",
+        "phase": "review",
+        "result_path": "/private/var/folders/y0/lljk5spx0lndscy5_dtjcb880000gn/T/crux-results-CYC-0172-9k4r59qn/review-attempt-1.md",
+        "status": "done"
+      }
+    ],
+    "verification": []
+  },
+  "reflection": {
+    "lessons": [
+      "CYC-0170 changed three micro-crux generator inputs without regenerating the guide; its focused checks did not select test_micro_crux_contracts. A change to a regenerator input should run that regenerator drift gate in its own cycle."
+    ],
+    "outcome": "Delivered tasks: regen, review. Acceptance criteria: uv run crux/scripts/generate-micro-crux.py --dry-run exits 0 and test_micro_crux_contracts passes on 3.13 and 3.14.; Only the two generated files change.. Latest review: approve by reviewer (claude-code, Claude Opus 5.5), CYC-0172 review attempt 1 (pass 1).",
+    "remaining": [
+      "none"
+    ]
+  },
+  "release": null,
+  "required_checks": [
+    "micro-crux-dry-run",
+    "micro-crux-contracts-3.13",
+    "micro-crux-contracts-3.14"
+  ],
+  "results_dir": "/private/var/folders/y0/lljk5spx0lndscy5_dtjcb880000gn/T/crux-results-CYC-0172-9k4r59qn",
+  "review_policy": {
+    "rationale": "repository default",
+    "risks": [],
+    "scrutiny": "standard"
+  },
+  "reviews": [
+    {
+      "path": "cycles/CYC-0172/reviews/804088187f8140e4aaa5b22637a7dc76.json",
+      "sha256": "d8c4b968122f587c5a074145123633835cc7ab7e700cb8ef2517344544cc5de4"
+    }
+  ],
+  "revision": 22,
+  "schema_version": 3,
+  "status": "completed",
+  "testing_policy": "proportionate",
+  "title": "Regenerate the stale micro-crux guide before the 5.8.1 release",
+  "type": "quick-fix",
+  "updated_at": "2026-11-16T23:45:05.453744+00:00"
+}

@@ -231,7 +231,7 @@ with patch('crux_env.get',return_value='fixture-gateway-key'),patch('crux.counci
     def test_sealed_but_stale_call_identity_cannot_be_reused(self):
         import cycle_council_events as events
         import council_policy as policy
-        from cycle_workflow import CycleError, encoded
+        from cycle_store import CycleError, encoded
         transport, _ = self.transport()
         output = self.convene(transport)
         ref = events.read(self.root, output['attempt'])['events'][0]
@@ -305,11 +305,11 @@ with patch('crux_env.get',return_value='fixture-gateway-key'),patch('crux.counci
                 patch('crux.council.async_council.get', return_value='fixture-gateway-key'), \
                 patch.dict('os.environ', {'OPENROUTER_API_KEY': 'fixture-gateway-key'}):
             with patch.object(events, 'atomic_bytes', side_effect=fail):
-                first = council.convene(case.root, 'idr', case.subject, 'Judge fixture.', cycle_id=case.doc['id'],
+                first = council.convene(case.root, 'consultation', case.subject, 'Judge fixture.', cycle_id=case.doc['id'],
                                         transport=httpx.MockTransport(reply))
             self.assertEqual(first['outcome'], 'could-not-run')
             phase[0] = 2; seen.clear()
-            second = council.convene(case.root, 'idr', case.subject, 'Judge the fixture again.', cycle_id=case.doc['id'],
+            second = council.convene(case.root, 'consultation', case.subject, 'Judge the fixture again.', cycle_id=case.doc['id'],
                                      progress='Recovered the fixture and retained its negative.', transport=httpx.MockTransport(reply))
         prompt = next(message['content'] for message in seen[0]['messages'] if message['role'] == 'user')
         payload, _ = json.JSONDecoder().raw_decode(prompt[prompt.index('{'):])
@@ -334,7 +334,7 @@ with patch('crux_env.get',return_value='fixture-gateway-key'),patch('crux.counci
 
     def test_review_regression_missing_event_prevents_new_architect_approval(self):
         import council_policy as policy
-        from cycle_workflow import CycleError
+        from cycle_store import CycleError
         output, record, agreement = self.approved()
         self.remove_outcome(record)
         path = self.docs / output['record']; before = path.read_bytes()
@@ -344,7 +344,7 @@ with patch('crux_env.get',return_value='fixture-gateway-key'),patch('crux.counci
 
     def test_review_regression_new_application_checks_refs_but_sealed_history_stays_valid(self):
         import council_policy as policy
-        from cycle_workflow import CycleError
+        from cycle_store import CycleError
         output, _, agreement = self.approved()
         policy.disposition(self.root, output['record'], agreement)
         approved = council.validate_approval(self.root, output['record'], purpose='consultation', subject='adrs/subject.txt')
@@ -357,7 +357,7 @@ with patch('crux_env.get',return_value='fixture-gateway-key'),patch('crux.counci
     def test_review_regression_applied_adr_standing_survives_later_event_loss(self):
         import decision_policy as dp
         import council_policy as policy
-        from cycle_workflow import digest, tree
+        from cycle_store import digest, tree
         (self.docs / 'manifest.yml').write_text('schema_version: "5"\nconcerns_enabled: [adrs]\nadr:\n  next_number: 1\n')
         proposal = dp.propose(self.root, {'title': 'Fixture evidence', 'body': '# Decision\nKeep fixture evidence.\n',
             'governs': [{'domain': 'evidence', 'scope': 'tree', 'rule': 'Keep fixture evidence.', 'handle': 'keep-fixture-evidence'}]}, origin='direct')['path']

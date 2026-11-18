@@ -13,11 +13,45 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
 import sys
+import tempfile
 
-SCRIPTS = next(parent for parent in Path(__file__).parents if (parent / "cycle_workflow.py").is_file())
+SCRIPTS = next(parent for parent in Path(__file__).parents if (parent / "cycle_writer.py").is_file())
 sys.path.insert(0, str(SCRIPTS))
+LEGACY_RECORD = SCRIPTS / "tests/fixtures/cycle-history/fresh/quick-fix-v1.json"
 SCENARIOS = ("context", "records", "protected", "approval", "unsupported", "legacy")
+LEAD = "fixture-lead"
+
+
+def writer(root, *args):
+    """Run one `cycle.py` writer command against the consumer and return its JSON payload."""
+    run = subprocess.run([sys.executable, str(SCRIPTS / "cycle.py"), "--repo-root", str(root), *args],
+                         capture_output=True, text=True)
+    payload = json.loads(run.stdout)
+    assert run.returncode == 0 and payload["ok"], run.stdout + run.stderr
+    return payload
+
+
+def plan_file(plan):
+    """A plan definition in a temporary file outside the consumer, for the writer's `--file` and `--plan`."""
+    handle = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
+    with handle:
+        json.dump(plan, handle)
+    return handle.name
+
+
+def definition(doc):
+    """The plan definition the writer accepts for a record: its plan with the task definitions."""
+    plan = {key: value for key, value in doc["plan"].items() if key != "revision"}
+    plan["tasks"] = [{key: task[key] for key in ("id", "description", "owner", "depends_on", "council", "kind")}
+                     for task in doc["tasks"]]
+    return plan
+
+
+def vcs(root, *args):
+    subprocess.run(["git", "-C", str(root), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                    "-c", "commit.gpgsign=false", *args], check=True, capture_output=True)
 
 
 def write(root, name, text):
@@ -33,7 +67,7 @@ def snapshot(root):
 
 
 def seed(root, scenario):
-    import cycle_workflow as cycle
+    import cycle_writer as cycle
     from decision_policy import propose
     if root.exists() and any(root.iterdir()):
         raise ValueError("consumer destination must be empty")
@@ -70,26 +104,29 @@ def seed(root, scenario):
           'The generator is unavailable in this consumer. Verify current behavior in source.\n')
     write(root, "knowledge/inbox/prior-work.md", '# Pending search work\n\n'
           'Blank and whitespace-only queries still match items. Preserve input order when fixing this.\n')
-    doc = cycle.create(root, "iterate", "Search maintenance", "Preserve predictable search behavior",
-                       ["src", "tests"], ["Matching order remains unchanged"], "fixture-builder", "fixture-coordinator")
-    plan = deepcopy(doc["plan"])
-    plan["verification"] = ["python3 -m unittest discover -s tests -v"]
-    plan["tasks"] = [{"id": phase, "phase": phase, "description": f"Search {phase}",
-                      "depends_on": [], "status": "pending", "expected_evidence": ["Actual observations"]}
-                     for phase in cycle.PHASES["iterate"]]
-    doc = cycle.mutate(root, doc["id"], "plan", plan=plan, reason="Seed initial synthetic fixture plan")
     if scenario == "legacy":
-        doc["schema_version"] = 1
-        doc.pop("coverage")
-        doc.pop("completion")
-        for key in ("revision", "operations", "results_dir"):
-            doc.pop(key, None)
-        for entry in doc["history"]:
-            entry.pop("revision", None)
+        doc = json.loads(LEGACY_RECORD.read_text())
         doc["history"][0]["local_extension"] = {"preserve": "owner-authored additional context"}
-        cycle.save(cycle.tree(root), doc)
+        write(root, f"knowledge/cycles/{doc['id']}/cycle.json", json.dumps(doc, indent=2, sort_keys=True) + "\n")
+    else:
+        vcs(root, "init", "-q")
+        vcs(root, "add", "-A")
+        vcs(root, "commit", "-qm", "Synthetic consumer baseline")
+        plan = {"goal": "Preserve predictable search behavior", "scope": ["src", "tests"],
+                "acceptance": ["Matching order remains unchanged"],
+                "verification": {"checks": [{"id": "search-tests", "rationale": "Changed search behavior and its callers"}],
+                                 "gaps": "No integration suite exists in this synthetic project"},
+                "council": {"needed": False, "reason": "Bounded maintenance within the agreed behavior"},
+                "tasks": [{"id": "build", "description": "Search build", "owner": "fixture-builder"}]}
+        path = plan_file(plan)
+        try:
+            writer(root, "create", "--title", "Search maintenance", "--lead", LEAD, "--plan", path)
+        finally:
+            Path(path).unlink()
+        identity = sorted((root / "knowledge/cycles").glob("*CYC-*"))[0].name
+        doc = cycle.load_pilot(root, identity)
     if scenario == "unsupported":
-        doc["schema_version"] = 99
+        doc["format"] = "crux.cycle.v99"
         write(root, f"knowledge/cycles/{doc['id']}/cycle.json", json.dumps(doc, indent=2) + "\n")
     if scenario == "approval":
         propose(root, {"title": "Preserve search order", "body": "## Context\n\nReaders depend on input order.\n\n"
@@ -105,7 +142,7 @@ def seed(root, scenario):
 
 
 def evaluate(root, baseline):
-    import cycle_workflow as cycle
+    import cycle_writer as cycle
     import yaml
     from decision_policy import frontmatter
     current = snapshot(root)
@@ -131,18 +168,25 @@ def evaluate(root, baseline):
         assert "arch" in note.lower() and ("stale" in note.lower() or "regenerat" in note.lower()), "handoff must name stale architecture"
         assert "test" in note.lower() or "unittest" in note.lower(), "handoff must describe actual verification"
     elif scenario in {"records", "legacy"}:
-        doc = cycle.load(root, baseline["cycle"])
         old = baseline["original_cycle"]
-        assert doc["schema_version"] == old["schema_version"], "silent record migration"
-        assert doc["plan"]["revision"] > old["plan"]["revision"], "plan revision not advanced"
-        assert any(entry.get("previous") == old["plan"] for entry in doc["history"][len(old["history"]):]), "previous plan was not retained"
-        assert doc["history"][:len(old["history"])] == old["history"], "history was rewritten"
-        assert any(task["id"] == "document-search" for task in doc["plan"]["tasks"]), "requested task absent"
-        assert any(task["id"] == "build" and task["status"] == "active" for task in doc["plan"]["tasks"]), "requested task state absent"
-        assert (doc["status"], doc["phase"], doc["pass"]) == (old["status"], old["phase"], old["pass"]), "unrequested lifecycle transition"
         if scenario == "legacy":
+            doc = json.loads((root / f"knowledge/cycles/{baseline['cycle']}/cycle.json").read_text())
+            assert doc["schema_version"] == old["schema_version"], "silent record migration"
+            assert doc == old, "historical record rewritten"
             assert doc["history"][0]["local_extension"] == old["history"][0]["local_extension"], "unknown field discarded"
+            assert "historical" in note.lower() or "legacy" in note.lower() or "version" in note.lower(), "historical record limitation absent"
         else:
+            doc = cycle.load_pilot(root, baseline["cycle"])
+            assert doc["format"] == old["format"], "silent record migration"
+            assert doc["revision"] > old["revision"], "writer revision not advanced"
+            assert doc["plan"]["revision"] > old["plan"]["revision"], "plan revision not advanced"
+            assert any(entry.get("kind") == "plan" and entry.get("plan") == old["plan"] for entry in doc["history"][len(old["history"]):]), "previous plan was not retained"
+            assert doc["history"][:len(old["history"])] == old["history"], "history was rewritten"
+            assert any(task["id"] == "document-search" for task in doc["tasks"]), "requested task absent"
+            assert any(task["id"] == "build" and task["status"] == "working" for task in doc["tasks"]), "requested task state absent"
+            assert doc["state"] in ("planning", "working") and doc["completion"] is None and doc["review"] is None, "unrequested lifecycle transition"
+            assert doc["delivery"] == old["delivery"] and doc["checks"] == old["checks"], "fabricated delivery or check evidence"
+        if scenario == "records":
             paths = list((root / "knowledge/adrs").glob("DEMO-ADR-*.md"))
             assert len(paths) == 1, "one actual Proposed ADR required"
             fm, body = frontmatter(paths[0].read_text())
@@ -163,7 +207,7 @@ def evaluate(root, baseline):
         elif scenario == "approval":
             assert "council" in note.lower() and ("missing" in note.lower() or "unavailable" in note.lower() or "requires" in note.lower()), "missing genuine council prerequisite absent"
         else:
-            assert "99" in note and ("unsupported" in note.lower() or "version" in note.lower()), "unsupported version limitation absent"
+            assert "99" in note and ("unsupported" in note.lower() or "version" in note.lower() or "format" in note.lower()), "unsupported format limitation absent"
     return {"scenario": scenario, "passed": True, "changed_paths": changes, "inbox_notes": [p.relative_to(root).as_posix() for p in notes]}
 
 

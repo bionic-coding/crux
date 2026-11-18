@@ -16,7 +16,7 @@ import sys
 
 import adr_migration as m
 import migration_receipts as receipts
-from cycle_workflow import CycleError, atomic, contained, digest, encoded, tree
+from cycle_store import CycleError, atomic, contained, digest, encoded, tree
 
 
 PRIOR_READER_TIMEOUT_SECONDS=900

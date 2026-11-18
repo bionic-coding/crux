@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import summaries_projection as sp  # noqa: E402
-from cycle_workflow import digest  # noqa: E402
+from cycle_store import digest  # noqa: E402
 
 FILE = "ADR-0002-retire-old.md"
 HOST = "ADR-0002"

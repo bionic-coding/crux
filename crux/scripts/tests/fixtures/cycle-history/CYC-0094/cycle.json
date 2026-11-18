@@ -1,0 +1,622 @@
+{
+  "assignments": [
+    {
+      "agent": null,
+      "attempt": 1,
+      "base": "be4c3e9de836f49494612263ab2bbd80ce59f308",
+      "delivery": {
+        "commits": [
+          "0d696cda0423676fc628b8c285e2699ad1126557"
+        ],
+        "evidence": [],
+        "note": "Prep committed on worktree branch worktree-agent-ac2fc3c0e6395a790; metadata preflight READY; public CHANGELOG headings 115 to 116, no truncation.",
+        "outcome": "done",
+        "path": "cycles/CYC-0094/results/prep-attempt-1.md",
+        "sha256": "b74b9817fae61010fb0a9a4ff116779daf71ed82df28f5ff1c3cb6d52c545715",
+        "stage": null
+      },
+      "ended_at": "2026-10-31T09:09:34.951976+00:00",
+      "host": "claude-code",
+      "id": "prep",
+      "last_seen": "2026-10-31T09:09:34.951976+00:00",
+      "mode": "blocking",
+      "note": null,
+      "result_path": "/var/folders/y0/lljk5spx0lndscy5_dtjcb880000gn/T/crux-results-CYC-0094-keoi7ezz/prep-attempt-1.md",
+      "role": "developer",
+      "started_at": "2026-10-31T09:04:07.271052+00:00",
+      "state": "finished",
+      "task": "prep"
+    },
+    {
+      "agent": null,
+      "attempt": 1,
+      "base": "be4c3e9de836f49494612263ab2bbd80ce59f308",
+      "delivery": null,
+      "ended_at": "2026-10-31T09:11:21.317568+00:00",
+      "host": "claude-code",
+      "id": "prepare",
+      "last_seen": "2026-10-31T09:11:21.317568+00:00",
+      "mode": "blocking",
+      "note": "Commander made the blocking Agent call and saw it return with the final report: a worktree-isolated agent git operations must target its own worktree. No edits, merge or release commands ran.",
+      "result_path": "/var/folders/y0/lljk5spx0lndscy5_dtjcb880000gn/T/crux-results-CYC-0094-keoi7ezz/prepare-attempt-1.md",
+      "role": "developer",
+      "started_at": "2026-10-31T09:10:32.501930+00:00",
+      "state": "lost",
+      "task": "prepare"
+    },
+    {
+      "agent": null,
+      "attempt": 1,
+      "base": "be4c3e9de836f49494612263ab2bbd80ce59f308",
+      "delivery": {
+        "commits": [
+          "e42b9c5da98c4b7a9f6fddb594c95336758093a8"
+        ],
+        "evidence": [],
+        "note": "Merged prep 0d696cda into main as e42b9c5d. release.py prepare passed (46.7s). release.py verify passed first run in 49.8s: 6 suites, main run core and tools reused (TE-3398bdbf170d46eba7051c4a369a17b3, TE-a1d763f926a548d6973efcb9bfe85f25); flagged and health on 3.13 and 3.14 executed on changed staged USER_GUIDE.md (TE-6cfacd6b994b4c99879bd00a8d7b3287, TE-6e0c9248ab334406952e904e62ebaad0, TE-649bfcc645874bf391934b81deab2009, TE-ee6d28d4d8d846af9ae85a29b82859a9). No staged full suite. Artifact git_tree ea0f651d7cf97d3aaa7e9a3ecfa965f1e4d74893, stage_sha256 a7b374cbd8843e99f7698ed85b630a1804cce9e1cefaf7770513f98b92660936.",
+        "outcome": "done",
+        "path": "cycles/CYC-0094/results/prepare-2-attempt-1.md",
+        "sha256": "8664d27a7e77af2212b2ef0a1ee1f8dea1c010fb3905fae18cdad2a62903efd8",
+        "stage": null
+      },
+      "ended_at": "2026-10-31T09:14:49.224994+00:00",
+      "host": "claude-code",
+      "id": "prepare-2",
+      "last_seen": "2026-10-31T09:14:49.224994+00:00",
+      "mode": "blocking",
+      "note": null,
+      "result_path": "/var/folders/y0/lljk5spx0lndscy5_dtjcb880000gn/T/crux-results-CYC-0094-keoi7ezz/prepare-2-attempt-1.md",
+      "role": "dev-lead",
+      "started_at": "2026-10-31T09:11:35.857140+00:00",
+      "state": "finished",
+      "task": "prepare"
+    }
+  ],
+  "blocker": null,
+  "completion": {
+    "commits": [
+      "0d696cda0423676fc628b8c285e2699ad1126557",
+      "e42b9c5da98c4b7a9f6fddb594c95336758093a8",
+      "55723fe96396632357fc3e3a8d59b46b19aba3de"
+    ],
+    "exception": null,
+    "input_sha256": "a0b74b8f88ddaf835e1a77e7992c588b4a7fb54ec3b704a04d136185d1498c7e",
+    "remaining": "none",
+    "test_runs": {
+      "executed": [
+        {
+          "check_id": "staged:py3.13:flagged",
+          "minutes": 0.2,
+          "receipts": [
+            "TE-6cfacd6b994b4c99879bd00a8d7b3287"
+          ],
+          "runs": 1,
+          "with_retry_reason": 0
+        },
+        {
+          "check_id": "staged:py3.13:health",
+          "minutes": 0.1,
+          "receipts": [
+            "TE-649bfcc645874bf391934b81deab2009"
+          ],
+          "runs": 1,
+          "with_retry_reason": 0
+        },
+        {
+          "check_id": "staged:py3.14:flagged",
+          "minutes": 0.2,
+          "receipts": [
+            "TE-6e0c9248ab334406952e904e62ebaad0"
+          ],
+          "runs": 1,
+          "with_retry_reason": 0
+        },
+        {
+          "check_id": "staged:py3.14:health",
+          "minutes": 0.1,
+          "receipts": [
+            "TE-ee6d28d4d8d846af9ae85a29b82859a9"
+          ],
+          "runs": 1,
+          "with_retry_reason": 0
+        }
+      ],
+      "executions": 4,
+      "minutes": 0.5,
+      "reused": [],
+      "unreadable": 0,
+      "with_retry_reason": 0
+    }
+  },
+  "coordinator": "dev-lead",
+  "coverage": null,
+  "created_at": "2026-10-31T09:02:59.002607+00:00",
+  "decisions": [],
+  "evidence": [],
+  "extensions": [],
+  "goal": "Cut the 5.0.1 private beta to idyll/crux shipping the CYC-0092 fixes (Q-0044). Agents run prep, prepare and verify; the owner runs beta, smoke, tag and record from one command block handed over as soon as verify passes.",
+  "history": [
+    {
+      "action": "created",
+      "at": "2026-10-31T09:02:59.002763+00:00",
+      "pass": 1,
+      "phase": "release",
+      "queue": {
+        "item": "Q-0045",
+        "token": "c61accbbe26647feb30d1dbeab4d8340"
+      },
+      "revision": 1,
+      "status": "active"
+    },
+    {
+      "action": "prepare-dispatch",
+      "assignment": "prep",
+      "at": "2026-10-31T09:04:07.284216+00:00",
+      "attempt": 1,
+      "base": "be4c3e9de836f49494612263ab2bbd80ce59f308",
+      "host": "claude-code",
+      "mode": "blocking",
+      "op_id": "pd-prep-1",
+      "pass": 1,
+      "phase": "release",
+      "revision": 2,
+      "role": "developer",
+      "status": "active",
+      "task": "prep"
+    },
+    {
+      "action": "deliver",
+      "assignment": "prep",
+      "at": "2026-10-31T09:09:34.962616+00:00",
+      "attempt": 1,
+      "op_id": "d-prep-1",
+      "outcome": "done",
+      "pass": 1,
+      "phase": "release",
+      "revision": 3,
+      "sha256": "b74b9817fae61010fb0a9a4ff116779daf71ed82df28f5ff1c3cb6d52c545715",
+      "status": "active",
+      "task": "prep"
+    },
+    {
+      "action": "prepare-dispatch",
+      "assignment": "prepare",
+      "at": "2026-10-31T09:10:32.511408+00:00",
+      "attempt": 1,
+      "base": "be4c3e9de836f49494612263ab2bbd80ce59f308",
+      "host": "claude-code",
+      "mode": "blocking",
+      "op_id": "pd-prepare-1",
+      "pass": 1,
+      "phase": "release",
+      "revision": 4,
+      "role": "developer",
+      "status": "active",
+      "task": "prepare"
+    },
+    {
+      "action": "mark-lost",
+      "assignment": "prepare",
+      "at": "2026-10-31T09:11:21.317740+00:00",
+      "attempt": 1,
+      "evidence_detail": "Agent call returned with the child final-report (SubagentHandback from aa254c982fe20833f) and no result file: BLOCKED, host refused main-checkout git from the worktree-isolated developer.",
+      "evidence_kind": "blocking-returned",
+      "op_id": "ml-prepare-1",
+      "pass": 1,
+      "phase": "release",
+      "revision": 5,
+      "status": "active",
+      "task": "prepare"
+    },
+    {
+      "action": "prepare-dispatch",
+      "assignment": "prepare-2",
+      "at": "2026-10-31T09:11:35.868549+00:00",
+      "attempt": 1,
+      "base": "be4c3e9de836f49494612263ab2bbd80ce59f308",
+      "host": "claude-code",
+      "mode": "blocking",
+      "op_id": "pd-prepare-2",
+      "pass": 1,
+      "phase": "release",
+      "revision": 6,
+      "role": "dev-lead",
+      "status": "active",
+      "task": "prepare"
+    },
+    {
+      "action": "deliver",
+      "assignment": "prepare-2",
+      "at": "2026-10-31T09:14:49.235989+00:00",
+      "attempt": 1,
+      "op_id": "d-prepare-2",
+      "outcome": "done",
+      "pass": 1,
+      "phase": "release",
+      "revision": 7,
+      "sha256": "8664d27a7e77af2212b2ef0a1ee1f8dea1c010fb3905fae18cdad2a62903efd8",
+      "status": "active",
+      "task": "prepare"
+    },
+    {
+      "action": "task-updated",
+      "assignee": "dev-lead",
+      "at": "2026-10-31T09:15:04.109630+00:00",
+      "evidence": [
+        "cycles/CYC-0094/results/prepare-2-attempt-1.md"
+      ],
+      "note": "release.py verify --version 5.0.1 passed on its first run in 49.8s (wall 09:12:57Z-09:13:47Z), run by dev-lead under assignment prepare-2/1 at e42b9c5d. Main run reused: TE-3398bdbf170d46eba7051c4a369a17b3 (core), TE-a1d763f926a548d6973efcb9bfe85f25 (tools). Executed (staged USER_GUIDE.md changed): flagged 3.13 TE-6cfacd6b994b4c99879bd00a8d7b3287, flagged 3.14 TE-6e0c9248ab334406952e904e62ebaad0, health 3.13 TE-649bfcc645874bf391934b81deab2009, health 3.14 TE-ee6d28d4d8d846af9ae85a29b82859a9. No staged full suite. Artifact git_tree ea0f651d7cf97d3aaa7e9a3ecfa965f1e4d74893, stage_sha256 a7b374cbd8843e99f7698ed85b630a1804cce9e1cefaf7770513f98b92660936.",
+      "pass": 1,
+      "phase": "release",
+      "result_path": "bionic/cycles/CYC-0094/results/prepare-2-attempt-1.md",
+      "revision": 8,
+      "state": "done",
+      "status": "active",
+      "task": "verify"
+    },
+    {
+      "action": "task-updated",
+      "assignee": "owner",
+      "at": "2026-10-31T14:18:34.134563+00:00",
+      "evidence": [
+        "cycles/CYC-0094/evidence/release/ledger.json"
+      ],
+      "note": "Owner ran release.py beta (idyll/crux 90b5517) and smoke; ledger steps passed",
+      "pass": 1,
+      "phase": "release",
+      "revision": 9,
+      "state": "done",
+      "status": "active",
+      "task": "beta-and-smoke"
+    },
+    {
+      "action": "task-updated",
+      "assignee": "owner",
+      "at": "2026-10-31T14:18:34.255935+00:00",
+      "evidence": [
+        "cycles/CYC-0094/evidence/release/release-op.md"
+      ],
+      "note": "Owner ran release.py tag; v5.0.1 tag 705ed4f on idyll/crux",
+      "pass": 1,
+      "phase": "release",
+      "revision": 10,
+      "state": "done",
+      "status": "active",
+      "task": "tag"
+    },
+    {
+      "action": "task-updated",
+      "assignee": "owner",
+      "at": "2026-10-31T14:18:34.392831+00:00",
+      "commits": [
+        "55723fe96396632357fc3e3a8d59b46b19aba3de"
+      ],
+      "evidence": [
+        "cycles/CYC-0094/evidence/release/ledger.json"
+      ],
+      "note": "Owner ran release.py record; main prepended the log op and committed the retained copy",
+      "pass": 1,
+      "phase": "release",
+      "revision": 11,
+      "state": "done",
+      "status": "active",
+      "task": "record"
+    },
+    {
+      "action": "finish",
+      "at": "2026-10-31T14:19:02.740164+00:00",
+      "op_id": "finish-cyc-0094",
+      "pass": 1,
+      "phase": "release",
+      "revision": 12,
+      "status": "completed",
+      "tip": "55723fe96396632357fc3e3a8d59b46b19aba3de"
+    }
+  ],
+  "id": "CYC-0094",
+  "implementers": [
+    "dev-lead"
+  ],
+  "operations": [
+    {
+      "at": "2026-10-31T09:04:07.284362+00:00",
+      "op": "prepare-dispatch",
+      "op_id": "pd-prep-1",
+      "request_sha256": "9fd4ec6ad176403a9045b914f6140e823a96e82576e1b30e9324176193e47a0a",
+      "result": {
+        "assignment": "prep",
+        "attempt": 1,
+        "base": "be4c3e9de836f49494612263ab2bbd80ce59f308",
+        "result_path": "/var/folders/y0/lljk5spx0lndscy5_dtjcb880000gn/T/crux-results-CYC-0094-keoi7ezz/prep-attempt-1.md",
+        "revision": 2,
+        "task": "prep"
+      },
+      "revision": 2
+    },
+    {
+      "at": "2026-10-31T09:09:34.962736+00:00",
+      "op": "deliver",
+      "op_id": "d-prep-1",
+      "request_sha256": "6beb9600e99fa585744fa3f206d6e6b8e8becb5571c25bfa0bbdb78ec62224f8",
+      "result": {
+        "assignment": "prep",
+        "attempt": 1,
+        "outcome": "done",
+        "result_path": "/var/folders/y0/lljk5spx0lndscy5_dtjcb880000gn/T/crux-results-CYC-0094-keoi7ezz/prep-attempt-1.md",
+        "retained": "cycles/CYC-0094/results/prep-attempt-1.md",
+        "revision": 3,
+        "sha256": "b74b9817fae61010fb0a9a4ff116779daf71ed82df28f5ff1c3cb6d52c545715",
+        "status": "done",
+        "task": "prep"
+      },
+      "revision": 3
+    },
+    {
+      "at": "2026-10-31T09:10:32.511483+00:00",
+      "op": "prepare-dispatch",
+      "op_id": "pd-prepare-1",
+      "request_sha256": "55e93142c8a1959f6b228126db0de3f0ed7a7b6f3ac5c5ffffabe77efe754f48",
+      "result": {
+        "assignment": "prepare",
+        "attempt": 1,
+        "base": "be4c3e9de836f49494612263ab2bbd80ce59f308",
+        "result_path": "/var/folders/y0/lljk5spx0lndscy5_dtjcb880000gn/T/crux-results-CYC-0094-keoi7ezz/prepare-attempt-1.md",
+        "revision": 4,
+        "task": "prepare"
+      },
+      "revision": 4
+    },
+    {
+      "at": "2026-10-31T09:11:21.317822+00:00",
+      "op": "mark-lost",
+      "op_id": "ml-prepare-1",
+      "request_sha256": "6f1911728323edf3f8ecd8059f23ad4eee06167d9b50404f7fd96a3e5dc13da7",
+      "result": {
+        "assignment": "prepare",
+        "attempt": 1,
+        "revision": 5,
+        "status": "pending",
+        "task": "prepare"
+      },
+      "revision": 5
+    },
+    {
+      "at": "2026-10-31T09:11:35.868685+00:00",
+      "op": "prepare-dispatch",
+      "op_id": "pd-prepare-2",
+      "request_sha256": "bb03f342ea9c3c86e71df47b601793fc7394323b05b44067175b4349710086c8",
+      "result": {
+        "assignment": "prepare-2",
+        "attempt": 1,
+        "base": "be4c3e9de836f49494612263ab2bbd80ce59f308",
+        "result_path": "/var/folders/y0/lljk5spx0lndscy5_dtjcb880000gn/T/crux-results-CYC-0094-keoi7ezz/prepare-2-attempt-1.md",
+        "revision": 6,
+        "task": "prepare"
+      },
+      "revision": 6
+    },
+    {
+      "at": "2026-10-31T09:14:49.236105+00:00",
+      "op": "deliver",
+      "op_id": "d-prepare-2",
+      "request_sha256": "955e6e7988cc6337265ea91f8c032e02a96a7666a7fcc77f2b9cdd8df144c9d3",
+      "result": {
+        "assignment": "prepare-2",
+        "attempt": 1,
+        "outcome": "done",
+        "result_path": "/var/folders/y0/lljk5spx0lndscy5_dtjcb880000gn/T/crux-results-CYC-0094-keoi7ezz/prepare-2-attempt-1.md",
+        "retained": "cycles/CYC-0094/results/prepare-2-attempt-1.md",
+        "revision": 7,
+        "sha256": "8664d27a7e77af2212b2ef0a1ee1f8dea1c010fb3905fae18cdad2a62903efd8",
+        "status": "done",
+        "task": "prepare"
+      },
+      "revision": 7
+    },
+    {
+      "at": "2026-10-31T14:19:02.740206+00:00",
+      "op": "finish",
+      "op_id": "finish-cyc-0094",
+      "request_sha256": "1bcc1677ab534ab35c6a331294b48172a6ea72ec618b7dce0ca3da75c1a38e15",
+      "result": {
+        "completion": {
+          "classifications": [],
+          "commits": [
+            "0d696cda0423676fc628b8c285e2699ad1126557",
+            "e42b9c5da98c4b7a9f6fddb594c95336758093a8",
+            "55723fe96396632357fc3e3a8d59b46b19aba3de"
+          ],
+          "test_runs": {
+            "executed": [
+              {
+                "check_id": "staged:py3.13:flagged",
+                "minutes": 0.2,
+                "receipts": [
+                  "TE-6cfacd6b994b4c99879bd00a8d7b3287"
+                ],
+                "runs": 1,
+                "with_retry_reason": 0
+              },
+              {
+                "check_id": "staged:py3.13:health",
+                "minutes": 0.1,
+                "receipts": [
+                  "TE-649bfcc645874bf391934b81deab2009"
+                ],
+                "runs": 1,
+                "with_retry_reason": 0
+              },
+              {
+                "check_id": "staged:py3.14:flagged",
+                "minutes": 0.2,
+                "receipts": [
+                  "TE-6e0c9248ab334406952e904e62ebaad0"
+                ],
+                "runs": 1,
+                "with_retry_reason": 0
+              },
+              {
+                "check_id": "staged:py3.14:health",
+                "minutes": 0.1,
+                "receipts": [
+                  "TE-ee6d28d4d8d846af9ae85a29b82859a9"
+                ],
+                "runs": 1,
+                "with_retry_reason": 0
+              }
+            ],
+            "executions": 4,
+            "minutes": 0.5,
+            "reused": [],
+            "unreadable": 0,
+            "with_retry_reason": 0
+          },
+          "tip": "55723fe96396632357fc3e3a8d59b46b19aba3de"
+        },
+        "revision": 12,
+        "status": "completed"
+      },
+      "revision": 12
+    }
+  ],
+  "pass": 1,
+  "pass_limit": 1,
+  "phase": "release",
+  "plan": {
+    "acceptance": [
+      "verify passes on the first run, or each failure is fixed without an owner stop unless it changes product code",
+      "5.0.1 is tagged on idyll/crux; nothing goes to bionic-coding/crux"
+    ],
+    "constraints": [],
+    "revision": 1,
+    "scope": [
+      "version surfaces, CHANGELOG.md, public/, README.md footer, release ledger, bionic/cycles/"
+    ],
+    "tasks": [
+      {
+        "assignee": "prep",
+        "commits": [
+          "0d696cda0423676fc628b8c285e2699ad1126557"
+        ],
+        "depends_on": [],
+        "description": "Prepare the release: bump the versions, promote the changelog, regenerate the public docs, and commit them",
+        "expected_evidence": [
+          "the commit that carries the prepared release"
+        ],
+        "id": "prep",
+        "note": "Prep committed on worktree branch worktree-agent-ac2fc3c0e6395a790; metadata preflight READY; public CHANGELOG headings 115 to 116, no truncation.",
+        "phase": "release",
+        "result_path": "/var/folders/y0/lljk5spx0lndscy5_dtjcb880000gn/T/crux-results-CYC-0094-keoi7ezz/prep-attempt-1.md",
+        "status": "done"
+      },
+      {
+        "assignee": "prepare-2",
+        "commits": [
+          "e42b9c5da98c4b7a9f6fddb594c95336758093a8"
+        ],
+        "depends_on": [
+          "prep"
+        ],
+        "description": "Bind this cycle to the beta target and freeze the artifact",
+        "expected_evidence": [
+          "release.py prepare recorded in the ledger"
+        ],
+        "id": "prepare",
+        "note": "Merged prep 0d696cda into main as e42b9c5d. release.py prepare passed (46.7s). release.py verify passed first run in 49.8s: 6 suites, main run core and tools reused (TE-3398bdbf170d46eba7051c4a369a17b3, TE-a1d763f926a548d6973efcb9bfe85f25); flagged and health on 3.13 and 3.14 executed on changed staged USER_GUIDE.md (TE-6cfacd6b994b4c99879bd00a8d7b3287, TE-6e0c9248ab334406952e904e62ebaad0, TE-649bfcc645874bf391934b81deab2009, TE-ee6d28d4d8d846af9ae85a29b82859a9). No staged full suite. Artifact git_tree ea0f651d7cf97d3aaa7e9a3ecfa965f1e4d74893, stage_sha256 a7b374cbd8843e99f7698ed85b630a1804cce9e1cefaf7770513f98b92660936.",
+        "phase": "release",
+        "result_path": "/var/folders/y0/lljk5spx0lndscy5_dtjcb880000gn/T/crux-results-CYC-0094-keoi7ezz/prepare-2-attempt-1.md",
+        "status": "done"
+      },
+      {
+        "assignee": "dev-lead",
+        "depends_on": [
+          "prepare"
+        ],
+        "description": "Verify the artifact with the release gates",
+        "evidence": [
+          "cycles/CYC-0094/results/prepare-2-attempt-1.md"
+        ],
+        "expected_evidence": [
+          "release.py verify passed"
+        ],
+        "id": "verify",
+        "note": "release.py verify --version 5.0.1 passed on its first run in 49.8s (wall 09:12:57Z-09:13:47Z), run by dev-lead under assignment prepare-2/1 at e42b9c5d. Main run reused: TE-3398bdbf170d46eba7051c4a369a17b3 (core), TE-a1d763f926a548d6973efcb9bfe85f25 (tools). Executed (staged USER_GUIDE.md changed): flagged 3.13 TE-6cfacd6b994b4c99879bd00a8d7b3287, flagged 3.14 TE-6e0c9248ab334406952e904e62ebaad0, health 3.13 TE-649bfcc645874bf391934b81deab2009, health 3.14 TE-ee6d28d4d8d846af9ae85a29b82859a9. No staged full suite. Artifact git_tree ea0f651d7cf97d3aaa7e9a3ecfa965f1e4d74893, stage_sha256 a7b374cbd8843e99f7698ed85b630a1804cce9e1cefaf7770513f98b92660936.",
+        "phase": "release",
+        "result_path": "bionic/cycles/CYC-0094/results/prepare-2-attempt-1.md",
+        "status": "done"
+      },
+      {
+        "assignee": "owner",
+        "depends_on": [
+          "verify"
+        ],
+        "description": "Publish the untagged beta under the owner's quoted authorization, then install it in isolation",
+        "evidence": [
+          "cycles/CYC-0094/evidence/release/ledger.json"
+        ],
+        "expected_evidence": [
+          "release.py beta published and release.py smoke passed"
+        ],
+        "id": "beta-and-smoke",
+        "note": "Owner ran release.py beta (idyll/crux 90b5517) and smoke; ledger steps passed",
+        "phase": "release",
+        "status": "done"
+      },
+      {
+        "assignee": "owner",
+        "depends_on": [
+          "beta-and-smoke"
+        ],
+        "description": "Tag the beta and create its release once verify and smoke passed on the authorized artifact",
+        "evidence": [
+          "cycles/CYC-0094/evidence/release/release-op.md"
+        ],
+        "expected_evidence": [
+          "release.py tag recorded the tag"
+        ],
+        "id": "tag",
+        "note": "Owner ran release.py tag; v5.0.1 tag 705ed4f on idyll/crux",
+        "phase": "release",
+        "status": "done"
+      },
+      {
+        "assignee": "owner",
+        "commits": [
+          "55723fe96396632357fc3e3a8d59b46b19aba3de"
+        ],
+        "depends_on": [
+          "tag"
+        ],
+        "description": "Copy the ledger into this cycle and prepend its release op to the log",
+        "evidence": [
+          "cycles/CYC-0094/evidence/release/ledger.json"
+        ],
+        "expected_evidence": [
+          "release.py record and the commit that holds the log op"
+        ],
+        "id": "record",
+        "note": "Owner ran release.py record; main prepended the log op and committed the retained copy",
+        "phase": "release",
+        "status": "done"
+      }
+    ],
+    "verification": []
+  },
+  "reflection": null,
+  "release": null,
+  "release_list": "beta",
+  "required_checks": [],
+  "results_dir": "/var/folders/y0/lljk5spx0lndscy5_dtjcb880000gn/T/crux-results-CYC-0094-keoi7ezz",
+  "review_policy": {
+    "rationale": "repository default",
+    "risks": [],
+    "scrutiny": "standard"
+  },
+  "reviews": [],
+  "revision": 12,
+  "schema_version": 3,
+  "status": "completed",
+  "title": "Release 5.0.1 to beta",
+  "type": "release",
+  "updated_at": "2026-10-31T14:19:02.740167+00:00"
+}

@@ -1,0 +1,130 @@
+{
+  "blocker": null,
+  "completion": null,
+  "coordinator": "tester",
+  "coverage": null,
+  "created_at": "2026-11-17T06:40:54.590454+00:00",
+  "decisions": [],
+  "evidence": [],
+  "extensions": [],
+  "goal": "Goal",
+  "history": [
+    {
+      "action": "created",
+      "at": "2026-11-17T06:40:54.590471+00:00",
+      "pass": 1,
+      "phase": "release",
+      "revision": 1,
+      "status": "active"
+    }
+  ],
+  "id": "CYC-0005",
+  "implementers": [
+    "builder"
+  ],
+  "operations": [],
+  "pass": 1,
+  "pass_limit": 1,
+  "phase": "release",
+  "phase_names": "verify",
+  "plan": {
+    "acceptance": [
+      "passes"
+    ],
+    "constraints": [],
+    "revision": 1,
+    "scope": [
+      "src"
+    ],
+    "tasks": [
+      {
+        "depends_on": [],
+        "description": "Prepare the release: bump the versions, promote the changelog, regenerate the public docs, and commit them",
+        "expected_evidence": [
+          "the commit that carries the prepared release"
+        ],
+        "id": "prep",
+        "phase": "release",
+        "status": "pending"
+      },
+      {
+        "depends_on": [
+          "prep"
+        ],
+        "description": "Bind this cycle to the beta target and check the prep",
+        "expected_evidence": [
+          "release.py prepare recorded in the ledger"
+        ],
+        "id": "prepare",
+        "phase": "release",
+        "status": "pending"
+      },
+      {
+        "depends_on": [
+          "prepare"
+        ],
+        "description": "Run release.py verify: freeze the artifact and run the release gates",
+        "expected_evidence": [
+          "release.py verify passed"
+        ],
+        "id": "verify",
+        "phase": "release",
+        "status": "pending"
+      },
+      {
+        "depends_on": [
+          "verify"
+        ],
+        "description": "Publish the untagged beta under the owner's quoted authorization, then install it in isolation",
+        "expected_evidence": [
+          "release.py beta published and release.py smoke passed"
+        ],
+        "id": "beta-and-smoke",
+        "phase": "release",
+        "status": "pending"
+      },
+      {
+        "depends_on": [
+          "beta-and-smoke"
+        ],
+        "description": "Tag the beta and create its release once verify and smoke passed on the authorized artifact",
+        "expected_evidence": [
+          "release.py tag recorded the tag"
+        ],
+        "id": "tag",
+        "phase": "release",
+        "status": "pending"
+      },
+      {
+        "depends_on": [
+          "tag"
+        ],
+        "description": "Copy the ledger into this cycle and prepend its release op to the log",
+        "expected_evidence": [
+          "release.py record and the commit that holds the log op"
+        ],
+        "id": "record",
+        "phase": "release",
+        "status": "pending"
+      }
+    ],
+    "verification": []
+  },
+  "reflection": null,
+  "release": null,
+  "release_list": "beta",
+  "required_checks": [],
+  "results_dir": null,
+  "review_policy": {
+    "rationale": "repository default",
+    "risks": [],
+    "scrutiny": "standard"
+  },
+  "reviews": [],
+  "revision": 1,
+  "schema_version": 3,
+  "status": "active",
+  "title": "T release",
+  "type": "release",
+  "updated_at": "2026-11-17T06:40:54.590472+00:00"
+}

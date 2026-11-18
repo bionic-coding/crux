@@ -1683,3 +1683,296 @@ def append_log(log_path: Path, receipt: Receipt, date: str) -> None:
     else:
         text = entry + text
     _write_own_file(log_path, text.encode("utf-8"))
+
+
+# ------------------------------------------------------- operational-schema upgrade
+#
+# The tree's own `<docs_dir>/AGENTS.md` is copied from the plugin template once, at
+# init. Specialist contracts later moved out of that template into task references
+# that ship with the plugin, and the template gained generated routing regions. An
+# upgrade brings an older tree's copy to the same routing a fresh init writes,
+# without losing a byte its owner wrote:
+#
+#   * A section whose text equals a shipped template version is unmodified. It is
+#     replaced by the current template's section of the same key, or removed when
+#     the current template no longer carries that key (its contract moved to a task
+#     reference, which the report names).
+#   * A section whose text matches no shipped version is the owner's. It stays
+#     verbatim and in place, and the report names it when the template moved or
+#     changed that section.
+#   * A section the current template has and the tree lacks is inserted after the
+#     nearest preceding current-template section the tree keeps.
+#   * Generated regions are always the template's bytes; footnote definitions are
+#     re-emitted for the references the result keeps, the template's first.
+#
+# A section is a fence-aware ATX heading through the next heading of any level.
+# Its identity digest blanks generated-region bodies, drops footnote definition
+# lines, normalizes CRLF and restores the two init placeholders, so it equals the
+# digest of the template text the tree was copied from.
+
+SCHEMA_REGIONS = ("routing-table", "reference-routing")
+SHIPPED_SECTIONS_NAME = "shipped-sections.json"
+_SCHEMA_FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
+_SCHEMA_HEADING = re.compile(r"^(#{1,6}) (.+)$")
+_SCHEMA_NUMBERED = re.compile(r"^(\d+(?:\.\d+)*(?:\.[A-Z])?)\.?(?:\s|$)")
+_SCHEMA_FOOTDEF = re.compile(r"^\[\^([^\]\s]+)\]: .*$")
+_SCHEMA_FOOTREF = re.compile(r"\[\^([^\]\s]+)\](?!:)")
+_SCHEMA_INIT_DATE = re.compile(r"_Last updated: (\d{4}-\d{2}-\d{2})_")
+
+
+@dataclass
+class SchemaSection:
+    key: str        # "" for text before the first heading
+    heading: str
+    text: str       # heading line through the line before the next heading
+
+
+def _region_pattern(name: str) -> re.Pattern[str]:
+    return re.compile(r"(^[ \t]*<!-- BEGIN GENERATED: " + re.escape(name) + r" -->[ \t]*\n)"
+                      r"(.*?)"
+                      r"(^[ \t]*<!-- END GENERATED: " + re.escape(name) + r" -->[ \t]*$)",
+                      re.M | re.S)
+
+
+def _blank_regions(text: str) -> tuple[str, dict[str, str]]:
+    """Empty each generated region's body; return the bodies by region name."""
+    bodies: dict[str, str] = {}
+    for name in SCHEMA_REGIONS:
+        pattern = _region_pattern(name)
+        found = pattern.findall(text)
+        if len(found) > 1:
+            raise ValueError(f"duplicate generated region {name!r}")
+        if found:
+            bodies[name] = found[0][1]
+            text = pattern.sub(lambda m: m.group(1) + m.group(3), text)
+    return text, bodies
+
+
+def _split_footnotes(text: str) -> tuple[str, dict[str, str]]:
+    """Remove footnote definition lines outside fences; return them by name."""
+    kept, defs, fence = [], {}, None
+    for line in text.split("\n"):
+        m = _SCHEMA_FENCE.match(line)
+        if m:
+            marker, tail = m.groups()
+            if fence is None:
+                fence = (marker[0], len(marker))
+            elif marker[0] == fence[0] and len(marker) >= fence[1] and not tail.strip():
+                fence = None
+        elif fence is None and (d := _SCHEMA_FOOTDEF.match(line)):
+            defs.setdefault(d.group(1), line)
+            continue
+        kept.append(line)
+    return "\n".join(kept), defs
+
+
+def schema_key(heading: str) -> str:
+    """A section's identity across template versions: its level and its number,
+    or its name before any parenthetical or dash qualifier."""
+    m = _SCHEMA_HEADING.match(heading)
+    if not m:
+        return ""
+    level, title = len(m.group(1)), m.group(2).strip()
+    num = _SCHEMA_NUMBERED.match(title)
+    if num:
+        return f"{level}:{num.group(1)}"
+    name = re.split(r" \(| — ", title, maxsplit=1)[0].strip()
+    return f"{level}:{name}"
+
+
+def schema_sections(text: str) -> list[SchemaSection]:
+    """Split normalized text into sections; fenced example headings stay inside."""
+    lines = text.split("\n")
+    starts, fence = [], None
+    for i, line in enumerate(lines):
+        m = _SCHEMA_FENCE.match(line)
+        if m:
+            marker, tail = m.groups()
+            if fence is None:
+                fence = (marker[0], len(marker))
+            elif marker[0] == fence[0] and len(marker) >= fence[1] and not tail.strip():
+                fence = None
+        elif fence is None and _SCHEMA_HEADING.match(line):
+            starts.append(i)
+    out = []
+    if not starts or starts[0] > 0:
+        head = "\n".join(lines[:starts[0] if starts else len(lines)])
+        if head.strip():
+            out.append(SchemaSection("", "", head))
+    for n, i in enumerate(starts):
+        j = starts[n + 1] if n + 1 < len(starts) else len(lines)
+        out.append(SchemaSection(schema_key(lines[i]), lines[i], "\n".join(lines[i:j])))
+    return out
+
+
+def _normalize_schema(text: str) -> tuple[str, dict[str, str], dict[str, str]]:
+    text = text.replace("\r\n", "\n")
+    text, regions = _blank_regions(text)
+    text, defs = _split_footnotes(text)
+    return text, regions, defs
+
+
+def schema_section_digest(section_text: str) -> str:
+    """The identity digest of one normalized section."""
+    return hashlib.sha256(section_text.rstrip().encode("utf-8")).hexdigest()[:32]
+
+
+def _section_candidates(section_text: str, repo_name: str, init_date: str) -> set[str]:
+    """Digests of a tree section as written, and with the init placeholders restored.
+
+    Init substituted `{{repo_name}}` and `{{today}}`. Restoring them at their
+    template sites, or everywhere, can only reproduce a template text; a section
+    whose name or date also appears elsewhere simply matches no shipped version
+    and is kept as the owner's.
+    """
+    texts = {section_text}
+    if repo_name or init_date:
+        sited = section_text
+        if repo_name:
+            sited = (sited.replace(f"**{repo_name}**", "**{{repo_name}}**")
+                     .replace(f"# docs/{repo_name}", "# docs/{{repo_name}}"))
+        if init_date:
+            sited = (sited.replace(f"_Last updated: {init_date}_", "_Last updated: {{today}}_")
+                     .replace(f"| {init_date} |", "| {{today}} |"))
+        texts.add(sited)
+        everywhere = section_text
+        if repo_name:
+            everywhere = everywhere.replace(repo_name, "{{repo_name}}")
+        if init_date:
+            everywhere = everywhere.replace(init_date, "{{today}}")
+        texts.add(everywhere)
+    return {schema_section_digest(t) for t in texts}
+
+
+def template_section_digests(template_text: str) -> set[str]:
+    """Digests of every section of one (unsubstituted) template version."""
+    normalized, _, _ = _normalize_schema(template_text)
+    return {schema_section_digest(s.text) for s in schema_sections(normalized) if s.key}
+
+
+def _render_template(template_text: str, repo_name: str, today: str) -> str:
+    return template_text.replace("{{repo_name}}", repo_name).replace("{{today}}", today)
+
+
+def plan_schema_upgrade(old_text: str, template_text: str, *, repo_name: str, today: str,
+                        shipped: set[str], moved: dict[str, str] | None = None) -> tuple[str, dict]:
+    """Return (upgraded text, report) for one tree's operational schema.
+
+    `shipped` holds the section digests of earlier template versions; the current
+    template's own sections are added here. `moved` maps a section key to the task
+    reference that now holds it, for the report only.
+    """
+    moved = moved or {}
+    crlf = "\r\n" in old_text
+    init_date = (m.group(1) if (m := _SCHEMA_INIT_DATE.search(old_text)) else today)
+    known = set(shipped) | template_section_digests(template_text)
+    fresh = _render_template(template_text, repo_name, init_date)
+    new_norm, new_regions, new_defs = _normalize_schema(fresh)
+    old_norm, _, old_defs = _normalize_schema(old_text)
+    new_sections = schema_sections(new_norm)
+    new_by_key: dict[str, SchemaSection] = {}
+    for s in new_sections:
+        if s.key in new_by_key:
+            raise ValueError(f"template repeats section key {s.key!r}")
+        new_by_key[s.key] = s
+
+    report: dict = {"refreshed": [], "removed": [], "inserted": [], "preserved": []}
+    out: list[SchemaSection] = []
+    for s in schema_sections(old_norm):
+        if not s.key:
+            out.append(s)
+            continue
+        unmodified = bool(_section_candidates(s.text, repo_name, init_date) & known)
+        current = new_by_key.get(s.key)
+        if unmodified and current is not None:
+            if current.text.rstrip() != s.text.rstrip():
+                report["refreshed"].append(current.heading)
+            out.append(current)
+        elif unmodified:
+            report["removed"].append({"heading": s.heading, "reference": moved.get(s.key)})
+        else:
+            out.append(s)
+            if s.key in moved and current is None:
+                report["preserved"].append({
+                    "heading": s.heading, "reference": moved[s.key],
+                    "reason": "edited section whose contract moved to a task reference; "
+                              "reconcile it with the reference, then delete it"})
+            elif current is not None and current.text.rstrip() != s.text.rstrip():
+                report["preserved"].append({
+                    "heading": s.heading, "reference": None,
+                    "reason": "edited section; the current template's version was not applied"})
+
+    present = {s.key for s in out}
+    cursor = 0 if out and not out[0].key else -1
+    for s in new_sections:
+        if s.key in present:
+            cursor = next(i for i, o in enumerate(out) if o.key == s.key)
+        else:
+            out.insert(cursor + 1, s)
+            cursor += 1
+            present.add(s.key)
+            report["inserted"].append(s.heading)
+
+    text = "\n".join(o.text.rstrip("\n") + "\n" for o in out).rstrip("\n") + "\n"
+    for name, body in new_regions.items():
+        pattern = _region_pattern(name)
+        if len(pattern.findall(text)) > 1:
+            raise ValueError(f"upgraded schema repeats generated region {name!r}")
+        text = pattern.sub(lambda m: m.group(1) + body + m.group(3), text)
+    used = list(dict.fromkeys(_SCHEMA_FOOTREF.findall(text)))
+    lines = [new_defs.get(n) or old_defs.get(n) for n in used]
+    lines = [line for line in lines if line]
+    if lines:
+        text = text + "\n" + "\n".join(lines) + "\n"
+    if crlf:
+        text = text.replace("\n", "\r\n")
+    report["regions"] = sorted(new_regions)
+    report["changed"] = text != old_text
+    return text, report
+
+
+def load_shipped_sections(path: Path) -> set[str]:
+    """The frozen digests of earlier template versions' sections."""
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    if data.get("format") != "crux.shipped-sections" or not isinstance(data.get("digests"), list):
+        raise CapabilityError(f"{path}: not a crux.shipped-sections record")
+    return {str(d) for d in data["digests"]}
+
+
+def reference_section_keys(plugin_root: Path) -> dict[str, str]:
+    """Map each section key held by a task reference to that reference's path."""
+    keys: dict[str, str] = {}
+    for pattern in ("references/*.md", "skills/*/references/*.md"):
+        for path in sorted(Path(plugin_root).glob(pattern)):
+            text = path.read_text(encoding="utf-8")
+            if not text.startswith("---\n") or "\nread_when:" not in text.split("\n---\n", 1)[0]:
+                continue
+            normalized, _, _ = _normalize_schema(text.split("\n---\n", 1)[1])
+            rel = "${CRUX_PLUGIN_ROOT}/" + path.relative_to(plugin_root).as_posix()
+            for s in schema_sections(normalized):
+                if s.key and not s.key.startswith("1:"):
+                    keys.setdefault(s.key, rel)
+    return keys
+
+
+def write_schema(target: Path, expected: bytes, data: bytes) -> None:
+    """Replace one regular file through a fresh temporary entry, keeping its mode,
+    and refuse when its bytes changed since they were read."""
+    st = os.lstat(target)
+    if not stat.S_ISREG(st.st_mode):
+        raise CapabilityError(f"{target}: not a regular file; refusing to write through it")
+    tmp = target.with_name(f".{target.name}.{secrets.token_hex(6)}.tmp")
+    fd = os.open(tmp, os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0),
+                 stat.S_IMODE(st.st_mode))
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+        if target.read_bytes() != expected:
+            raise CapabilityError(f"{target}: changed during the upgrade; nothing was written")
+        os.replace(tmp, target)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise

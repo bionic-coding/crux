@@ -28,8 +28,8 @@ This skill is portable across Claude Code, Codex, OpenCode, and OMP (Oh My Pi). 
 ## Current cycle plans and evidence
 
 For current work, inspect `<docs_dir>/cycles/` and use `cycle.py show` or the cycle
-progress reader. Cite the cycle record, plan revision, decision, review, and test
-evidence relevant to the answer. Promptbooks and run snapshots below are historical
+progress reader. Cite the cycle record, plan revision, plan council, review, and check
+observations relevant to the answer. Promptbooks and run snapshots below are historical
 sources. An old approval is not evidence of current implementation or test validity.
 
 

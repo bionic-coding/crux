@@ -107,7 +107,7 @@ class GoogleSeatRequestTests(unittest.TestCase):
 
     def test_the_other_two_seats_record_their_own_roles(self):
         for seat, role, key, model in (
-                ("openai", "openai_top", "gpt-6-astra", "openai/gpt-6-astra"),
+                ("openai", "openai_top", "gpt-6.2-astra", "openai/gpt-6.2-astra"),
                 ("anthropic", "anthropic_top", "claude-opus-5.5-xhigh",
                  "anthropic/claude-opus-5.5")):
             with self.subTest(seat=seat):

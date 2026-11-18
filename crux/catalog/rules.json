@@ -4,6 +4,10 @@
       "domain": "council-gates",
       "rule": "A responding seat in a counted round that returns any decision other than APPROVE or APPROVE_WITH_NITS and records no blocking finding holds the gate: its round buys no further round, no refutation record covers it, and the gate stops at the escalation-loop stop; an errored seat never holds."
     },
+    "abandoned-cycles-never-restart": {
+      "domain": "cycle-workflow",
+      "rule": "An abandoned cycle, a cycle closed with the historical shortcut status, and a completed release cycle never restart; follow-up work is a new cycle, which may name the cycle it follows."
+    },
     "absence-is-confirmed-by-enoent-or-enotdir": {
       "domain": "regenerator-input",
       "rule": "An enrolled regenerator treats an input directory, a declared catalogue member or a file the declared criteria name by path as absent only when a stat or open of its path fails with ENOENT or ENOTDIR, or when its name is missing from a successful listing of the directory that holds it, never because a language predicate returned false."
@@ -11,6 +15,10 @@
     "absent-member-outside-a-descriptive-map-is-a-document-finding": {
       "domain": "regenerator-input",
       "rule": "Outside a descriptive map, each run reports every declared catalogue member whose absence is confirmed, the absent-member case, as a document-lane finding naming the member and its absence, with the same exit code in every mode that reads the declared input set; a member whose existence cannot be determined is in the unreadable-file case or is a process-level read failure, by the cause of the failed stat or open."
+    },
+    "acceptance-changes-only-with-the-owner": {
+      "domain": "cycle-workflow",
+      "rule": "A change to a development cycle's acceptance criteria takes effect only with the owner's recorded words."
     },
     "acceptance-makes-rules-binding": {
       "domain": "decision-authority",
@@ -80,6 +88,14 @@
       "domain": "operations-log",
       "rule": "The log summary catch-up writes a section for every month that is settled on its host's local date, has a detail file and has no section."
     },
+    "check-claims-cite-recorded-observations": {
+      "domain": "test-evidence",
+      "rule": "In a development cycle, a claim that a check passed cites a recorded observation of its command, result, tested revision and reason."
+    },
+    "checks-follow-scope-and-risk": {
+      "domain": "test-evidence",
+      "rule": "During development a development cycle runs focused checks for changed and related behaviour, and before completion the lead selects final checks by the change's scope and risk."
+    },
     "citation-resolves-by-its-citing-surface": {
       "domain": "rule-citation",
       "rule": "A rule citation resolves by the surface it sits on. A citation on a shipped surface is a binding reference to a rule the plugin ships and resolves against the shipped catalog, whatever the reader's own projection holds, so a project cannot redefine a rule inside the plugin's own instructions by minting the same slug. A citation on a reader-owned surface resolves against the reader's projection first and the shipped catalog second, so the reader's own rules keep their meaning and the plugin's stay reachable. A slug both sides hold is reported wherever the citation lint runs, because a silent substitution and a deliberate override are not the same act. A citation that resolves against neither source is a finding. A surface is shipped when it is part of the artifact the release stages and reader-owned otherwise; the citing file's location decides which rule applies, and the rule being cited never does."
@@ -99,6 +115,10 @@
     "cleanup-campsite-runs-the-log-summary-catch-up": {
       "domain": "cleanup-hygiene",
       "rule": "cleanup-campsite runs the log summary catch-up when a month is pending."
+    },
+    "closure-records-a-summary": {
+      "domain": "cycle-workflow",
+      "rule": "A completed development cycle records a summary of its delivered outcome and an abandoned one records its reason; no separate reflection step is required."
     },
     "code-doc-callers-invoke-through-uv": {
       "domain": "code-docs-dispatcher",
@@ -140,9 +160,13 @@
       "domain": "harness-portability",
       "rule": "A compatibility verdict reports the effective instruction files a host loads, never a version number alone."
     },
-    "completion-requires-every-tier": {
-      "domain": "test-tiers",
-      "rule": "Completing a cycle of any type other than release requires current passing evidence for every test unit of every tier."
+    "completed-cycle-reopens-only-on-owner-instruction": {
+      "domain": "cycle-workflow",
+      "rule": "A completed development cycle reopens only on the owner's recorded instruction and keeps its earlier completion, checks and review."
+    },
+    "completion-needs-work-checks-and-review": {
+      "domain": "cycle-workflow",
+      "rule": "A development cycle completes only when its agreed tasks are done, its selected checks pass, and an approving independent review of the current plan revision still covers the final change with every acceptance criterion met."
     },
     "completion-separates-verified-from-unobserved": {
       "domain": "agent-assignment",
@@ -176,13 +200,17 @@
       "domain": "council-gates",
       "rule": "Under the current council policy, a council gate orders its in-scope council and refutation records by the commits that introduced them into the run's reachable history, never by a wall-clock stamp. Records that history cannot order are a tie and stop the gate; a stamp order that contradicts the committed order stops it at the contradicted-premise stop. The gate check, round counting and recovery read that one order."
     },
+    "council-reviews-consequential-plan-choices": {
+      "domain": "review-and-council",
+      "rule": "Council reviews the exact plan revision when the owner requests it, a consequential trade-off needs resolution, uncertainty prevents a defensible plan or a durable constraint changes, and tasks that depend on that choice wait for its approval."
+    },
     "crux-trusts-its-local-environment": {
       "domain": "review-and-council",
       "rule": "Where Crux runs locally with a trusted caller, environment and interpreter, denial of service from hostile input is never a blocking finding."
     },
-    "cycle-record-keeps-evidence-small": {
-      "domain": "test-evidence",
-      "rule": "The record of a cycle other than a listed release cycle refers to a full check log only by its digest."
+    "cycle-adrs-need-no-creation-council": {
+      "domain": "decision-authority",
+      "rule": "An ADR raised inside a development cycle names that cycle as its origin and needs no council approval before drafting; council approval of its exact draft and the configured acceptance policy still apply."
     },
     "de-wire-srde-from-adr-path": {
       "domain": "council-srde",
@@ -196,6 +224,10 @@
       "domain": "agent-assignment",
       "rule": "An assignment travels beside the objectives context, and the objectives contract is the one statement of what that context is and when it is carried. This rule adds no second statement of it: the assignment contract names the objectives contract and restates none of its text, so one rule about objectives context exists and one section owns it."
     },
+    "delivery-facts-never-complete-a-cycle": {
+      "domain": "cycle-workflow",
+      "rule": "PR, CI, merge and publication are recorded as delivery facts, and none of them is required for, completes or reopens a development cycle."
+    },
     "description-is-prose-not-a-trigger-list": {
       "domain": "skill-trigger-declaration",
       "rule": "A description is prose for a human reader and for model-driven selection, and is not a trigger list. It states what the skill does and what distinguishes it from its neighbours, and its length is bounded by what a discovery surface renders without truncating. Restoring triggers by lengthening a description past that bound is forbidden."
@@ -207,6 +239,10 @@
     "developer-reports-gaps-outside-its-unit": {
       "domain": "capability-forging",
       "rule": "A developer reports a capability gap to its lead instead of invoking forge-skill, unless the unit it was assigned is to build that capability."
+    },
+    "development-cycles-have-no-phases-or-passes": {
+      "domain": "cycle-workflow",
+      "rule": "A development cycle has no phase sequence, pass count or pass limit; its states are planning, working, reviewing, reviewed, completed, paused and abandoned."
     },
     "discovery-reads-entries-in-tracked-scopes": {
       "domain": "repository-instructions",
@@ -260,6 +296,14 @@
       "domain": "code-docs-dispatcher",
       "rule": "A --lang write or a --dry-run --lang against ownerless metadata refuses before any mutation, naming each unconfigured owner key with its affected row count and one full run as the remedy, and never escalates itself into a full run; metadata is ownerless when any row's owner is absent, empty, or names a language key not present in the manifest the invocation reads."
     },
+    "final-checks-include-relevant-gates": {
+      "domain": "test-evidence",
+      "rule": "A development cycle's final selected checks include the drift gates relevant to its change, selected by its scope and risk and at least each gate any of whose checked inputs the change adds, removes or edits, with no fixed roster required in every cycle, and, in a project that adopts test tiers, the tier check whenever the change adds, removes or edits a test or a tier manifest."
+    },
+    "findings-become-cycle-tasks": {
+      "domain": "cycle-workflow",
+      "rule": "In a development cycle, a blocking review finding or a known acceptance failure becomes a task in the same cycle, and the reviewer reassesses the changed work; no phase return or pass is counted."
+    },
     "first-split-records-completion-last": {
       "domain": "operations-log",
       "rule": "The first split records completion only after every legacy entry is placed."
@@ -299,6 +343,10 @@
     "guidance-rules-keep-resolving": {
       "domain": "decision-authority",
       "rule": "A guidance rule is never deleted and stays live, resolving as a rule citation wherever a binding rule resolves, with its guidance standing shown in the summaries and the doctrine."
+    },
+    "historical-cycles-are-read-only": {
+      "domain": "cycle-workflow",
+      "rule": "Historical cycle records stay readable through read-only adapters that import no execution module, and nothing resumes, executes or rewrites them."
     },
     "historical-records-keep-their-interpretation": {
       "domain": "decision-authority",
@@ -396,9 +444,17 @@
       "domain": "agent-embedded-disciplines",
       "rule": "A test offered as evidence of a behaviour change that has no observed failure is completed by obtaining one against the code with the change absent or disabled, then a pass against the restored change; a missing observation is never a reason to delete the work, the test's Evidence item is unobserved until both observations exist, and a failure for the addressed reason against the restored change is contradicted."
     },
+    "named-stops-pause-any-cycle": {
+      "domain": "cycle-workflow",
+      "rule": "Any cycle, a release cycle included, pauses when progress stalls, including repeated failure without new evidence, its scope changes materially, it needs an owner decision, or new evidence contradicts its premise."
+    },
     "new-tests-are-labelled-in-the-same-change": {
       "domain": "test-tiers",
       "rule": "A change that adds a test labels it in the same change."
+    },
+    "no-execution-ceremony": {
+      "domain": "cycle-workflow",
+      "rule": "A development cycle requires no frozen dispatch bundle, delivery token, execution proof, ancestry classification or per-operation record commit; the lead commits the record at ordinary checkpoints."
     },
     "no-section-before-its-month-settles": {
       "domain": "operations-log",
@@ -428,6 +484,10 @@
       "domain": "rule-citation",
       "rule": "A rule sourced from an observation record is refused at the publication boundary, as an interim denial this decision adopts rather than as a policy it settles. The denial is this decision's own choice, made because an observation describes what the code does and decides nothing, so its ratification affirms the description and is not by itself a warrant to publish it as a rule the plugin follows; what the eventual policy should be stays open for an owner to decide, and a successor may reverse this denial without disturbing anything else here. The denial changes no observation's disposition, authority or lifecycle, removes no observation from any projection's input, and leaves every citation of an observation-backed rule on a reader-owned surface resolving exactly as before."
     },
+    "observations-are-reused-only-within-their-cycle": {
+      "domain": "test-evidence",
+      "rule": "A development cycle's passing check observation is reused only explicitly within its own cycle, never across cycles, never after a later failure of the same check, and only while the final change leaves the inputs it checked as they were at its tested revision."
+    },
     "observed-failure-is-the-proof": {
       "domain": "agent-embedded-disciplines",
       "rule": "A test counts as evidence that a change alters behaviour only after it has been observed failing, for the reason the change addresses, against the code without that change; writing the test first remains the default way to observe that failure."
@@ -436,9 +496,17 @@
       "domain": "repository-instructions",
       "rule": "Each managed instruction scope carries one canonical AGENTS.md and no committed CLAUDE.md sibling, where a managed scope is a tracked scope no exclusion class claims."
     },
+    "one-coordinator-runs-selected-full-suites": {
+      "domain": "test-evidence",
+      "rule": "Within a development cycle, one test coordinator runs any full suite the selected checks include, and other roles run focused checks."
+    },
     "one-guard-called-from-every-enforcement-point": {
       "domain": "rule-citation",
       "rule": "One implementation answers the eligibility question, and every enforcement point calls it. Catalog generation calls it before it writes, the automatic checks call it, the release preflight calls it, and the publication path calls it where the source records are still present, which is the authoring tree rather than the staged artifact that excludes them. The postcondition is falsifiable and is the test of coverage: a change editing only a source record's lifecycle status, with no shipped file touched, reds an automatic check. An enforcement point selecting work by changed shipped files therefore does not satisfy this rule on its own. No manual release step is added, and no enforcement point is satisfied by a check that reports a pass without executing."
+    },
+    "one-lead-maintains-each-cycle": {
+      "domain": "cycle-workflow",
+      "rule": "One lead records each development cycle's plan and meaningful progress through the cycle writer and delegates work through the host's native tools."
     },
     "one-sided-anchor-is-drift-absent-file-is-stale": {
       "domain": "template-parity",
@@ -500,6 +568,10 @@
       "domain": "implementation-decisions",
       "rule": "A read-only audit reads each retained context naming profile 3 through profile 4's order function and reports its council history as agreeing, contradicting, or uncomparable with a reason. It never refuses, and it changes no approval's replay or eligibility."
     },
+    "progress-view-shows-cycle-record-state": {
+      "domain": "cycle-workflow",
+      "rule": "The progress view shows each cycle's state, completed and total tasks, named blockers, whether its review still covers the final change, its completion and its delivery facts, read from the cycle record."
+    },
     "provenance-manifest-selects-no-recognizable-input": {
       "domain": "regenerator-input",
       "rule": "derive-arch's provenance manifest selects no recognizable input: its derivation takes the spine hash, the tool and parser pins, the declared globs and the hashes the extractors returned, and parses no input, so an input a descriptive map names as an omission is no input the manifest's derivation is missing."
@@ -540,10 +612,6 @@
       "domain": "code-docs-python",
       "rule": "Every target-derived string on a Python page or in a Python page's index entry renders in a fence sized for it or escaped for its context, with line breaks and control characters outside a fence rendered as visible escapes and link destinations percent-encoded, so no target byte opens or closes page structure."
     },
-    "question-text-comes-only-from-the-question-set": {
-      "domain": "classification-data",
-      "rule": "Classification question text comes only from the versioned question set and the policy's route ids, so all cycle-derived text sits in the state."
-    },
     "read-only-shell-is-bounded-by-contract": {
       "domain": "agent-separation-of-duties",
       "rule": "A read-only role holding Bash or a shell_scope permit carries a role-contract sentence that forbids secret-store reads, any script beyond those it names, any write above its shell_scope, and any outbound relay of local content except the egress of a crux script it names; a role without that sentence does not ship."
@@ -551,10 +619,6 @@
     "recovery-never-deliberates-again": {
       "domain": "council-gates",
       "rule": "Recovery from a persistence failure makes no council request and widens no authorization: it commits or recognises only the original council record, proven identical to the bytes the council runner computed, and leaves any attempt it cannot so resolve open for the owner at the contradicted-premise stop; a persistence failure is never a reason to convene another round."
-    },
-    "reflection-reports-evidence-size": {
-      "domain": "test-evidence",
-      "rule": "The reflection of a cycle other than a listed release cycle reports the committed size of its evidence."
     },
     "refused-log-repair-is-a-cleanup-finding": {
       "domain": "cleanup-hygiene",
@@ -604,9 +668,9 @@
       "domain": "agent-skill-pairing",
       "rule": "A returns-to-caller lane passes in every harness on its route instruction alone, and the gate checks no envelope for it."
     },
-    "review-covers-the-declared-scope": {
+    "review-binds-plan-revision-and-code-range": {
       "domain": "review-and-council",
-      "rule": "A review report's scope is complete when it covers every path in the plan scope, whatever further paths it names."
+      "rule": "A development cycle's review counts only for the plan revision and the committed code range it names; a change confined to the cycle records, council records, journal, operations log and queue after its reviewed head keeps it, and a plan revision, new implementation work or a later change to a reviewed path makes it obsolete."
     },
     "review-gate-needs-a-reviewer-report": {
       "domain": "council-gates",
@@ -615,6 +679,10 @@
     "review-report-cites-inline": {
       "domain": "writing-rules",
       "rule": "A review report cites an ADR id and a rule slug inline; that position is sanctioned for this one surface by this rule, and not by the footnote rule's scope, whose canonical prose reaches docs prose and carves out only ADR bodies and the journal."
+    },
+    "reviewer-records-its-own-verdict": {
+      "domain": "review-and-council",
+      "rule": "Only the requested independent reviewer records a development cycle's review verdict; neither the lead nor anyone who implemented the work records it."
     },
     "reviews-surface-excluded-from-adr-walks": {
       "domain": "decision-review",
@@ -627,6 +695,10 @@
     "rule-slug-citation-token": {
       "domain": "rule-citation",
       "rule": "A rule is cited as rule:<slug> on every surface — the slug half of its governs handle — and that one token is distinct from the bare ADR-NNNN document reference the lint ignores and from the ADR-NNNN/slug ledger handle the projections keep to themselves."
+    },
+    "scope-changes-with-the-owner-or-a-review-finding": {
+      "domain": "cycle-workflow",
+      "rule": "A change to a development cycle's scope takes effect only with the owner's recorded words, except that the lead may add each path that a blocking finding, recorded by the cycle's requested independent reviewer, names as the place to fix an unmet acceptance criterion of the current plan; the plan revision that adds it records the finding and the criterion."
     },
     "seat-records-requested-and-served-model": {
       "domain": "council-seat-provenance",
@@ -676,6 +748,10 @@
       "domain": "repository-instructions",
       "rule": "Migration stages nothing in a scope whose result carries bytes read from an untracked or ignored entry, where the exact path AGENTS.md is untracked and git ignores it, or where an instruction-family index entry holds a blob that neither HEAD nor any working-tree entry holds."
     },
+    "stale-writes-and-late-results-are-refused": {
+      "domain": "cycle-workflow",
+      "rule": "Every write to a cycle record names the record revision it read, and the cycle writer refuses one that names a superseded revision and a result from a superseded or reassigned task run."
+    },
     "standing-reads-status-and-acceptance-record": {
       "domain": "decision-authority",
       "rule": "For an ADR accepted under the configured policy, projections read a rule's standing from its ADR's status and acceptance record, never from git history. Other ADRs keep their historical readers."
@@ -704,10 +780,6 @@
       "domain": "test-tiers",
       "rule": "The tier check fails on an unlabelled test unit, a label that names no existing test unit, a doubly-labelled test unit, a release tier that is not a non-empty proper subset, a declared area with no release-tier test unit, a project with no declared area, an ephemeral label without a reason, and an ephemeral label with neither an expiry date nor a retirement condition."
     },
-    "tier-check-is-required-at-verify": {
-      "domain": "test-tiers",
-      "rule": "In a project that adopts test tiers, the tier check is a required check at the Verify phase, or Test on older records, of every cycle type that has one."
-    },
     "tiers-never-narrow-a-cycle-gate": {
       "domain": "test-tiers",
       "rule": "No gate's test selection is narrowed by tier."
@@ -719,6 +791,10 @@
     "triggers-separator-fits-the-value-type": {
       "domain": "skill-trigger-declaration",
       "rule": "The trigger field is pipe-separated rather than comma-separated, because a trigger is a natural-language phrase and a comma occurs inside one. A value whose token carries the separator is refused at validation rather than split, because the encoding cannot represent it. The separator is chosen by what the value type admits, never by what a neighbouring field happens to use."
+    },
+    "uncertain-external-effects-are-reconciled-first": {
+      "domain": "cycle-workflow",
+      "rule": "An external action whose outcome is uncertain, such as a council request or a publication, is reconciled before any retry, and a resumed session never repeats it on resumption alone."
     },
     "unlistable-input-directory-is-an-environment-failure": {
       "domain": "regenerator-input",

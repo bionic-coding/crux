@@ -1,7 +1,9 @@
 """The persistent cycle queue: ordering, authorization, sequential start and recovery.
 
-Every test runs in a temporary repository whose docs_dir is `notes`, never `bionic`.
+Every test runs in a temporary git repository whose docs_dir is `notes`, never `bionic`.
 Acceptance criteria 1-9 of the queue plan are named in the test names (ac1 ... ac9).
+Every start, a release item's included, writes a crux.cycle.v1 record through the cycle writer. A
+shortcut closure exists only on legacy records, so those tests write a legacy record by hand.
 """
 import io
 import json
@@ -18,7 +20,10 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import cycle
 import cycle_queue
-from cycle_workflow import create, load, now, PHASES
+from types import SimpleNamespace
+import cycle_history
+import cycle_writer
+from cycle_store import CycleError, now
 from cycle_progress import view, render
 
 DATE = '2026-10-19'
@@ -46,7 +51,11 @@ class Base(unittest.TestCase):
         (self.repo / 'notes/objectives.md').write_text('Mission: useful changes.')
         (self.repo / 'src').mkdir()
         (self.repo / 'src/a.py').write_text('x = 1\n')
+        (self.repo / '.gitignore').write_text('notes/cycles/.lock\nnotes/queue/.lock\n')
         self.assertFalse((self.repo / 'bionic').exists())
+        # The cycle writer records the base commit, so the fixture is a git repository.
+        for argv in (['init', '-q', '-b', 'main'], ['add', '-A'], ['commit', '-qm', 'baseline']):
+            subprocess.run(['git', '-C', str(self.repo), *argv], check=True, capture_output=True)
 
     # -- helpers -----------------------------------------------------------
     def cli(self, *argv):
@@ -92,11 +101,50 @@ class Base(unittest.TestCase):
         return sorted(p.name for p in (self.repo / 'notes/cycles').glob('*CYC-*'))
 
     def end_cycle(self, identity, status):
+        """Put a cycle in `status` by hand and commit its record. A writer record takes the matching state
+        with a complete plan; `shortcut`, a legacy-only closure, replaces it with a legacy record of the same id."""
         path = self.repo / 'notes/cycles' / identity / 'cycle.json'
         doc = json.loads(path.read_text())
-        doc['status'] = status
-        doc['history'].append({'at': now(), 'action': 'reflect', 'pass': doc['pass'], 'phase': doc['phase'], 'status': status})
+        if status == 'shortcut':
+            doc = self.legacy_record(identity, status, cycle_queue._origin(doc))
+        else:
+            doc['plan'].setdefault('verification', {'checks': [{'id': 'focused', 'rationale': 'r'}], 'gaps': 'none'})
+            doc['plan'].setdefault('council', {'needed': False, 'reason': 'bounded'})
+            if not doc['tasks']:
+                doc['tasks'] = [{'id': 'build', 'description': 'Build', 'owner': doc['lead'], 'depends_on': [], 'council': False,
+                                 'kind': 'implementation', 'run': 0, 'status': 'pending', 'checkout': None, 'summary': '', 'attempts': []}]
+            state = {'active': 'working'}.get(status, status)
+            if state == 'paused':
+                doc['resume_state'] = 'working'
+            doc['state'] = state
+            if state in ('completed', 'abandoned'):
+                doc['completion'] = {'summary': status, 'at': now()}
+            cycle_writer.validate(doc)
         path.write_text(json.dumps(doc))
+        # The lead commits its record; archival takes only a committed terminal record.
+        self.commit_record(identity)
+
+    def legacy_record(self, identity, status, origin=None):
+        """A minimal legacy typed record, as the read-only historical reader accepts it, keeping the queue origin."""
+        created = {'at': now(), 'action': 'created', **({'queue': origin} if origin else {})}
+        return {'schema_version': 3, 'id': identity, 'revision': 1, 'type': 'quick-fix', 'title': 'legacy', 'goal': 'g',
+                'phase': 'reflect', 'pass': 1, 'pass_limit': 1, 'status': status, 'history': [created], 'plan': {'tasks': []},
+                'blocker': None, 'reflection': None}
+
+    def load(self, identity):
+        return cycle_writer.load_pilot(self.repo, identity)
+
+    def make_cycle(self, title='Other', queue=None):
+        """A writer record created outside the queue, optionally carrying a queue binding."""
+        return cycle_writer.create(self.repo, title, 'dev-lead', {'goal': 'Goal', 'scope': ['src'], 'acceptance': ['ok']}, queue=queue)
+
+    def git(self, *args):
+        return subprocess.run(['git', '-C', str(self.repo), *args], check=True, capture_output=True, text=True).stdout.strip()
+
+    def commit_record(self, identity):
+        """The lead's own commit of a cycle record: exactly that record, never the queue file."""
+        self.git('add', '--', f'notes/cycles/{identity}/cycle.json')
+        self.git('commit', '-q', '--allow-empty', '--only', '-m', f'{identity} record', '--', f'notes/cycles/{identity}/cycle.json')
 
     def item(self, qid):
         return next(i for i in self.ok('list', '--full')['items'] if i['id'] == qid)
@@ -130,7 +178,8 @@ class ArchiveTests(Base):
                 case.ok('archive', '--migrate')
                 full = case.ok('list', '--full')['items']
                 self.assertEqual([item['id'] for item in full], [earlier, later, pending, held])
-                self.assertEqual([item['position'] for item in full], [1, 2, 3, 4])
+                # Started items carry no position; unstarted ones count among themselves.
+                self.assertEqual([item['position'] for item in full], [None, None, 1, 2])
                 self.assertEqual(case.queue_doc()['authorization'], authorization)
                 self.assertEqual(case.stop_reason(), 'cycle-missing')
 
@@ -244,6 +293,17 @@ class ArchiveTests(Base):
         original['item']['title'] = 'conflicting'
         record.write_text(json.dumps(original))
         self.refused('show', first)
+
+    def test_an_archived_release_item_keeps_its_authorization_and_revocation(self):
+        first = self.add('Release v8.9.1', (), 'release')
+        self.authorize('next', instruction='I approve the 8.9.1 beta')
+        _, started = self.start()
+        self.end_cycle(started['cycle'], 'completed')
+        self.ok('archive', '--migrate')
+        archived = self.ok('show', first)['item']
+        self.assertEqual((archived['state'], archived['cycle']), ('started', started['cycle']))
+        self.ok('revoke', '--reason', 'withdrawn')
+        self.assertEqual(self.queue_doc()['authorization_history'][-1]['ended'], 'revoked')
 
     def test_archived_release_authorization_and_revocation(self):
         sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'tools'))
@@ -398,23 +458,16 @@ class ArchiveTests(Base):
         first = self.add('first')
         self.authorize('next')
         _, started = self.start()
-        def git(*args):
-            return subprocess.run(['git', '-C', str(self.repo), *args], check=True,
-                                  text=True, capture_output=True).stdout.strip()
-        git('init')
-        git('config', 'user.name', 'Queue Test')
-        git('config', 'user.email', 'queue@example.invalid')
-        git('add', '.')
-        git('commit', '-m', 'baseline')
+        git = self.git
         self.end_cycle(started['cycle'], 'completed')
-        import cycle_commit
-        cycle_commit.commit_record(self.repo, started['cycle'])
+        self.commit_record(started['cycle'])
         with patch('cycle_queue.write_queue', side_effect=Crash):
             with self.assertRaises(Crash):
                 cycle_queue.archive(self.repo, migrate=True)
         note = self.repo / 'notes/cycles' / started['cycle'] / 'note.md'
         note.write_text('unrelated cycle checkpoint\n')
-        cycle_commit.commit_record(self.repo, started['cycle'])
+        git('add', str(note))
+        git('commit', '-q', '--only', '-m', 'unrelated cycle checkpoint', '--', str(note))
         self.assertNotIn('notes/queue/', git('show', '--pretty=', '--name-only', 'HEAD'))
         self.ok('archive', '--migrate')
         changed = git('show', '--pretty=', '--name-only', 'HEAD').splitlines()
@@ -422,44 +475,15 @@ class ArchiveTests(Base):
         self.assertIn(f'notes/queue/history/items/{first}.json', changed)
         self.assertEqual(self.ok('show', first)['item']['id'], first)
 
-    def test_terminal_cycle_without_queue_item_does_not_commit_pending_queue(self):
-        self.add('waiting')
-        self.ok('archive', '--migrate')
-        unrelated = create(self.repo, 'quick-fix', 'Other', 'Goal', ['src'], ['ok'], 'builder', 'tester')
-        def git(*args):
-            return subprocess.run(['git', '-C', str(self.repo), *args], check=True,
-                                  text=True, capture_output=True).stdout.strip()
-        git('init')
-        git('config', 'user.name', 'Queue Test')
-        git('config', 'user.email', 'queue@example.invalid')
-        git('add', '.')
-        git('commit', '-m', 'baseline')
-        self.end_cycle(unrelated['id'], 'completed')
-        queue = self.repo / 'notes/queue/cycles.yaml'
-        queue.write_text(queue.read_text().replace('title: waiting', 'title: still waiting'))
-        import cycle_commit
-        result = cycle_commit.after_write(self.repo, unrelated['id'])
-        self.assertEqual(result['queue_sweep']['items'], [])
-        self.assertNotIn('notes/queue/', git('show', '--pretty=', '--name-only', 'HEAD'))
-        self.assertIn('notes/queue/cycles.yaml', git('status', '--porcelain'))
-
     def test_deferred_archive_is_committed_with_history_by_next_queue_writer(self):
         first = self.add('first')
         second = self.add('second', (first,))
         self.authorize('queue')
         _, started = self.start()
-        def git(*args):
-            return subprocess.run(['git', '-C', str(self.repo), *args], check=True,
-                                  text=True, capture_output=True).stdout.strip()
-        git('init')
-        git('config', 'user.name', 'Queue Test')
-        git('config', 'user.email', 'queue@example.invalid')
-        git('add', '.')
-        git('commit', '-m', 'baseline')
+        git = self.git
         self.end_cycle(started['cycle'], 'completed')
-        import cycle_commit
-        cycle_commit.commit_record(self.repo, started['cycle'])
-        with patch('cycle_commit.deferral', return_value=('full-suite-running', 'held')):
+        self.commit_record(started['cycle'])
+        with patch('cycle_store.deferral', return_value=('full-suite-running', 'held')):
             result = self.ok('archive', '--migrate')
         self.assertEqual(result['queue_commit']['deferred'], 'full-suite-running')
         self.ok('hold', second, '--reason', 'test recovery')
@@ -574,15 +598,29 @@ class AuthorizationTests(Base):
 
 
 class StartNextTests(Base):
-    def test_a_started_cycle_is_a_version_three_record(self):
-        self.add('A')
+    def test_an_ordinary_start_writes_a_writer_record_and_never_a_schema_version_record(self):
+        for kind in ('quick-fix', 'dev', 'auto'):
+            self.add(f'A {kind}', (), kind)
         self.authorize('queue')
         code, got = self.start()
         self.assertEqual(code, 0, got)
-        doc = load(self.repo, got['cycle'])
-        self.assertEqual((doc['schema_version'], doc['revision'], doc['history'][0]['revision']), (3, 1, 1))
+        self.assertEqual((got['outcome'], got['format'], got['status']), ('started', cycle_writer.FORMAT, 'active'))
+        raw = json.loads((self.repo / 'notes/cycles' / got['cycle'] / 'cycle.json').read_text())
+        self.assertEqual(raw['format'], 'crux.cycle.v1')
+        self.assertNotIn('schema_version', raw)
+        # Without a start plan the cycle waits in planning with the item's goal, scope and acceptance and no tasks.
+        self.assertEqual((raw['state'], raw['tasks'], sorted(raw['plan'])), ('planning', [], ['acceptance', 'goal', 'revision', 'scope', 'scrutiny']))
         self.assertEqual(self.item(got['item'])['state'], 'started')
-        # The queue readers accept the version-3 record: a second start reports the open cycle.
+        # The start committed the queue file and the record together and left the tree clean.
+        self.assertEqual(sorted(got['record_commit']['paths']), [f"notes/cycles/{got['cycle']}/cycle.json", 'notes/queue/cycles.yaml'])
+        self.assertEqual([line for line in self.git('status', '--porcelain').splitlines() if not line.endswith('.lock')], [])
+        for _ in range(2):  # each later item, of any suggested type label, starts the same record format
+            self.end_cycle(got['cycle'], 'completed')
+            self.commit_record(got['cycle'])
+            code, got = self.start()
+            self.assertEqual((code, got['format']), (0, cycle_writer.FORMAT), got)
+            self.assertNotIn('schema_version', json.loads((self.repo / 'notes/cycles' / got['cycle'] / 'cycle.json').read_text()))
+        # The queue readers accept the writer record: a second start reports the open cycle.
         code, again = self.start()
         self.assertEqual((code, again['outcome']), (0, 'in-progress'))
 
@@ -779,23 +817,22 @@ class StartNextTests(Base):
         a = self.add('A', (), 'dev')
         self.authorize('next')
         _, got = self.start()
-        doc = load(self.repo, got['cycle'])
-        self.assertEqual((doc['type'], doc['title'], doc['goal'], doc['plan']['scope'], doc['plan']['acceptance']), ('dev', 'A', 'Deliver A', ['src'], ['it works']))
-        self.assertEqual(doc['implementers'], ['dev-lead'])
-        self.assertEqual(doc['coordinator'], 'dev-lead')
-        created = doc['history'][0]
-        self.assertEqual(created['action'], 'created')
+        doc = self.load(got['cycle'])
+        self.assertEqual((doc['title'], doc['plan']['goal'], doc['plan']['scope'], doc['plan']['acceptance']), (f'{a}: A', 'Deliver A', ['src'], ['it works']))
+        self.assertEqual(doc['lead'], 'dev-lead')
         token = self.queue_doc()['items'][0]['start_token']
-        self.assertEqual(created['queue'], {'item': a, 'token': token})
+        self.assertEqual({k: doc['queue'][k] for k in ('item', 'token', 'origin')}, {'item': a, 'token': token, 'origin': 'start'})
         code, other = self.cli('start-next', '--implementer', 'x', '--coordinator', 'y')
         self.assertEqual(other['outcome'], 'in-progress')
 
-    def test_implementer_and_coordinator_flags_reach_the_cycle(self):
-        self.add('A')
-        self.authorize('next')
+    def test_the_lead_flag_or_else_the_implementer_names_the_cycle_lead(self):
+        a, b = self.add('A'), self.add('B')
+        self.authorize('queue')
         _, got = self.cli('start-next', '--implementer', 'impl', '--coordinator', 'coord')
-        doc = load(self.repo, got['cycle'])
-        self.assertEqual((doc['implementers'], doc['coordinator']), (['impl'], 'coord'))
+        self.assertEqual(self.load(got['cycle'])['lead'], 'impl')
+        self.end_cycle(got['cycle'], 'completed')
+        _, got = self.cli('start-next', '--lead', 'chosen', '--implementer', 'impl')
+        self.assertEqual((got['item'], self.load(got['cycle'])['lead']), (b, 'chosen'))
 
     def test_ac8_repeated_start_requests_allocate_no_duplicate_cycle(self):
         self.add('A')
@@ -851,11 +888,12 @@ class StartNextTests(Base):
         self.assertEqual(done[0]['outcome'], 'started')
         # Cycle mutations never take the queue lock: one works while the queue lock is held elsewhere.
         import fcntl
-        from cycle_workflow import mutate
+        identity = done[0]['cycle']
         with open(self.repo / 'notes/queue/.lock', 'a') as holder:
             fcntl.flock(holder, fcntl.LOCK_EX)
             finished = []
-            t = threading.Thread(target=lambda: finished.append(mutate(self.repo, done[0]['cycle'], 'pause', reason='r')))
+            t = threading.Thread(target=lambda: finished.append(cycle_writer.mutate(
+                self.repo, identity, 'dev-lead', self.load(identity)['revision'], 'pause', SimpleNamespace(reason='r'))))
             t.start()
             t.join(30)
             self.assertFalse(t.is_alive(), 'a cycle mutation waited for the queue lock')
@@ -971,8 +1009,8 @@ class RecoveryTests(Base):
 
     def test_adoption_matches_the_token_not_the_title(self):
         # An unrelated cycle with the same title and an unrelated queue token must not be adopted.
-        create(self.repo, 'quick-fix', 'A', 'Deliver A', ['src'], ['it works'], 'dev-lead', 'dev-lead', origin={'item': self.a, 'token': 'f' * 32})
-        create(self.repo, 'quick-fix', 'A', 'Deliver A', ['src'], ['it works'], 'dev-lead', 'dev-lead')
+        self.make_cycle(f'{self.a}: A', queue={'item': self.a, 'token': 'f' * 32})
+        self.make_cycle(f'{self.a}: A')
         with patch.object(cycle_queue, 'create', side_effect=Crash()):
             with self.assertRaises(Crash):
                 cycle_queue.start_next(self.repo)
@@ -990,7 +1028,7 @@ class RecoveryTests(Base):
                 cycle_queue.start_next(self.repo)
         token = self.queue_doc()['items'][0]['start_token']
         for _ in range(2):
-            create(self.repo, 'quick-fix', 'A', 'Deliver A', ['src'], ['it works'], 'dev-lead', 'dev-lead', origin={'item': self.a, 'token': token})
+            self.make_cycle(f'{self.a}: A', queue={'item': self.a, 'token': token})
         code, got = self.start()
         self.assertEqual(code, 1)
         self.assertIn('CYC-0001', got['error'])
@@ -1048,6 +1086,33 @@ class ReadTests(Base):
         self.assertEqual((row['position'], row['id'], row['state'], row['cycle'], row['in_scope']), (2, b, 'pending', None, True))
         self.assertEqual(row['dependencies'], [{'id': a, 'state': 'pending', 'cycle_status': None, 'satisfied': False}])
 
+    def test_position_counts_unstarted_items_and_is_null_once_started(self):
+        a, b, c = self.add('A'), self.add('B'), self.add('C')
+        self.ok('hold', c, '--reason', 'later')
+        self.authorize('queue')
+        first = self.start()[1]
+        self.end_cycle(first['cycle'], 'completed')
+        self.ok('archive', '--migrate')  # the started item moves to history, ahead of the unstarted ones in the full view
+        full = {row['id']: row['position'] for row in self.ok('list', '--full')['items']}
+        shown = {qid: self.ok('show', qid)['item']['position'] for qid in (a, b, c)}
+        self.assertEqual(full, {a: None, b: 1, c: 2})
+        self.assertEqual(shown, full)
+
+    def test_full_list_leaves_archived_item_text_to_show(self):
+        a, b = self.add('A'), self.add('B')
+        self.authorize('queue')
+        first = self.start()[1]
+        self.end_cycle(first['cycle'], 'completed')
+        self.ok('archive', '--migrate')
+        rows = {row['id']: row for row in self.ok('list', '--full')['items']}
+        self.assertEqual((rows[a]['archived'], rows[b]['archived']), (True, False))
+        for key in ('outcome', 'acceptance', 'scope', 'references'):
+            self.assertNotIn(key, rows[a])
+            self.assertIn(key, rows[b])
+        self.assertEqual((rows[a]['title'], rows[a]['cycle'], rows[a]['cycle_status']), ('A', first['cycle'], 'completed'))
+        shown = self.ok('show', a)['item']
+        self.assertEqual((shown['outcome'], shown['acceptance'], shown['scope']), ('Deliver A', ['it works'], ['src']))
+
     def test_ac9_queue_and_cycle_views_report_consistent_state(self):
         a, b = self.add('A'), self.add('B')
         self.authorize('queue')
@@ -1058,7 +1123,7 @@ class ReadTests(Base):
             row = self.item(a)
             self.assertEqual((row['state'], row['cycle'], row['cycle_status']), ('started', got['cycle'], status))
             cycle_json = json.loads((self.repo / 'notes/cycles' / got['cycle'] / 'cycle.json').read_text())
-            self.assertEqual(row['cycle_status'], cycle_json['status'])
+            self.assertEqual(row['cycle_status'], cycle_writer.queue_status(cycle_json))
             document = view(self.repo)
             self.assertEqual(document['cycles'][0]['status'], status)
             text = render(document)
@@ -1068,7 +1133,7 @@ class ReadTests(Base):
             self.assertIn(f'{b} pending', text)
 
     def test_visualizer_shows_nothing_for_an_absent_queue_and_one_line_for_an_invalid_one(self):
-        create(self.repo, 'quick-fix', 'Fix', 'Goal', ['src'], ['ok'], 'builder', 'tester')
+        self.make_cycle('Fix')
         self.assertNotIn('Queued', render(view(self.repo)))
         (self.repo / 'notes/queue').mkdir()
         (self.repo / 'notes/queue/cycles.yaml').write_text('format: wrong\n')
@@ -1081,7 +1146,7 @@ class ReadTests(Base):
 
     def test_visualizer_reports_missing_pyyaml_without_crashing_the_cycle_view(self):
         self.add('A')
-        create(self.repo, 'quick-fix', 'Fix', 'Goal', ['src'], ['ok'], 'builder', 'tester')
+        self.make_cycle('Fix')
         real_yaml = sys.modules['yaml']
         import cycle_progress
         original = cycle_progress.queue_lines
@@ -1101,7 +1166,7 @@ class ReadTests(Base):
         self.authorize('next')
         _, got = self.start()
         queue_cycle = view(self.repo, got['cycle'])
-        plain = create(self.repo, 'quick-fix', 'Plain', 'Goal', ['src'], ['ok'], 'builder', 'tester')
+        plain = self.make_cycle('Plain')
         plain_cycle = view(self.repo, plain['id'])
         self.assertEqual(set(queue_cycle), set(plain_cycle))
         self.assertEqual(set(queue_cycle['cycles'][0]), set(plain_cycle['cycles'][0]))
@@ -1316,30 +1381,29 @@ class ReferenceTests(Base):
         self.authorize('queue')
         code, started = self.start()
         self.assertEqual(code, 0, started)
-        doc = load(self.repo, started['cycle'])
+        doc = self.load(started['cycle'])
         outcome = 'Deliver R'
-        self.assertEqual(doc['goal'], outcome + '\n\nReferences (read before planning; read-only, not scope):\n- notes/brief.md\n- notes/extra.md')
+        self.assertEqual(doc['plan']['goal'], outcome + '\n\nReferences (read before planning; read-only, not scope):\n- notes/brief.md\n- notes/extra.md')
         self.assertEqual(doc['plan']['scope'], ['src'])
-        self.assertEqual(doc['plan']['constraints'], [])
-        self.assertNotIn('notes/brief.md', json.dumps(doc['plan']))
-        self.assertEqual(doc['history'][0]['queue']['item'], qid)
-        self.assertEqual(set(doc['history'][0]['queue']), {'item', 'token'})
+        self.assertNotIn('notes/brief.md', json.dumps(doc['plan']['scope']))
+        self.assertEqual(doc['queue']['item'], qid)
+        self.assertEqual(set(doc['queue']), {'item', 'token', 'origin', 'started_at'})
 
     def test_start_next_without_references_leaves_the_goal_equal_to_the_outcome(self):
         self.add('Plain')
         self.authorize('queue')
         code, started = self.start()
         self.assertEqual(code, 0, started)
-        self.assertEqual(load(self.repo, started['cycle'])['goal'], 'Deliver Plain')
+        self.assertEqual(self.load(started['cycle'])['plan']['goal'], 'Deliver Plain')
 
     def test_start_next_starts_a_release_item_as_a_beta_list_cycle(self):
-        self.add('Ship', kind='release')
+        self.add('Ship 1.2.3', kind='release')
         self.authorize('queue')
         code, started = self.start()
         self.assertEqual(code, 0, started)
-        doc = load(self.repo, started['cycle'])
-        self.assertEqual((doc['type'], doc['release_list'], doc['phase']), ('release', 'beta', 'release'))
-        self.assertEqual([t['id'] for t in doc['plan']['tasks']], ['prep', 'prepare', 'verify', 'beta-and-smoke', 'tag', 'record'])
+        doc = self.load(started['cycle'])
+        self.assertEqual((doc['format'], doc['kind'], doc['release']), ('crux.cycle.v1', 'release', {'list': 'beta', 'version': '1.2.3'}))
+        self.assertEqual([t['id'] for t in doc['tasks']], ['prep', 'prepare', 'verify', 'beta-and-smoke', 'tag', 'record'])
         self.assertEqual((doc['plan']['scope'], doc['plan']['acceptance']), (['src'], ['it works']))
         self.assertNotIn('release_list', self.queue_items()[0], 'an item without the key stores none')
         self.assertEqual(self.item_view(started['item'])['release_list'], 'beta')
@@ -1351,25 +1415,25 @@ class ReferenceTests(Base):
         return self.ok('show', qid)['item']
 
     def test_queue_add_release_list_official_stores_the_list_and_start_next_creates_an_official_list_cycle(self):
-        qid = self.ok('add', '--title', 'Promote', '--outcome', 'Deliver Promote', '--type', 'release', '--scope', 'src',
+        qid = self.ok('add', '--title', 'Promote 1.2.3', '--outcome', 'Deliver Promote', '--type', 'release', '--scope', 'src',
                     '--acceptance', 'it works', '--release-list', 'official')['item']['id']
         self.assertEqual(self.queue_items()[0]['release_list'], 'official')
         self.assertEqual(self.item_view(qid)['release_list'], 'official')
         self.authorize('queue')
         code, started = self.start()
         self.assertEqual(code, 0, started)
-        doc = load(self.repo, started['cycle'])
-        self.assertEqual((doc['type'], doc['release_list'], doc['phase']), ('release', 'official', 'release'))
-        self.assertEqual([t['id'] for t in doc['plan']['tasks']], ['live-check-and-go-ahead', 'official', 'record'])
+        doc = self.load(started['cycle'])
+        self.assertEqual((doc['kind'], doc['release']), ('release', {'list': 'official', 'version': '1.2.3'}))
+        self.assertEqual([t['id'] for t in doc['tasks']], ['live-check-and-go-ahead', 'official', 'record'])
 
     def test_queue_add_release_list_beta_is_stored_and_starts_a_beta_list_cycle(self):
-        self.ok('add', '--title', 'Ship', '--outcome', 'Deliver Ship', '--type', 'release', '--scope', 'src',
+        self.ok('add', '--title', 'Ship 1.2.3', '--outcome', 'Deliver Ship', '--type', 'release', '--scope', 'src',
                 '--acceptance', 'it works', '--release-list', 'beta')
         self.assertEqual(self.queue_items()[0]['release_list'], 'beta')
         self.authorize('queue')
         code, started = self.start()
         self.assertEqual(code, 0, started)
-        self.assertEqual(load(self.repo, started['cycle'])['release_list'], 'beta')
+        self.assertEqual(self.load(started['cycle'])['release']['list'], 'beta')
 
     def test_a_release_list_belongs_to_release_items_and_names_a_known_list(self):
         refused = self.refused('add', '--title', 'Fix', '--outcome', 'Deliver Fix', '--type', 'quick-fix', '--scope', 'src',
@@ -1394,13 +1458,193 @@ class ReferenceTests(Base):
             cycle_queue.read_queue(cycle_queue.tree(self.repo))
 
 
+class ReleaseStartTests(Base):
+    """A release item starts a crux.cycle.v1 release record through the cycle writer."""
+
+    DESCRIPTOR = {'format': 1, 'prep_scope': ['src', 'notes/log'], 'official_scope': ['notes/log'],
+                  'targets': {'beta': 'private/project', 'official': 'public/project'}, 'commands': {}}
+
+    def add_release(self, title='Ship 1.2.3', *scope, release_list=None):
+        argv = ['add', '--title', title, '--outcome', 'Publish', '--type', 'release', '--acceptance', 'published']
+        for name in scope or ('src',):
+            argv += ['--scope', name]
+        if release_list:
+            argv += ['--release-list', release_list]
+        return self.ok(*argv)['item']['id']
+
+    def write_descriptor(self):
+        (self.repo / 'tools').mkdir(exist_ok=True)
+        (self.repo / 'tools/crux-release.json').write_text(json.dumps(self.DESCRIPTOR))
+
+    def test_a_beta_item_starts_a_release_record_and_commits_it_with_the_queue(self):
+        qid = self.add_release()
+        self.authorize('queue')
+        code, started = self.start()
+        self.assertEqual(code, 0, started)
+        self.assertEqual((started['outcome'], started['format'], started['status']), ('started', 'crux.cycle.v1', 'active'))
+        doc = self.load(started['cycle'])
+        self.assertEqual((doc['kind'], doc['state'], doc['release']), ('release', 'working', {'list': 'beta', 'version': '1.2.3'}))
+        self.assertEqual([t['id'] for t in doc['tasks']], ['prep', 'prepare', 'verify', 'beta-and-smoke', 'tag', 'record'])
+        self.assertEqual([t['depends_on'] for t in doc['tasks']], [[], ['prep'], ['prepare'], ['verify'], ['beta-and-smoke'], ['tag']])
+        self.assertEqual(doc['queue']['item'], qid)
+        self.assertEqual(doc['title'], f'{qid}: Ship 1.2.3')
+        self.assertNotIn('schema_version', doc)
+        self.assertEqual(started['record_commit']['commit'], self.git('rev-parse', 'HEAD'))
+        self.assertEqual(self.git('status', '--porcelain'), '')
+
+    def test_an_official_item_starts_the_official_list(self):
+        self.add_release('Promote 1.2.3', release_list='official')
+        self.authorize('queue')
+        code, started = self.start()
+        self.assertEqual(code, 0, started)
+        doc = self.load(started['cycle'])
+        self.assertEqual(doc['release'], {'list': 'official', 'version': '1.2.3'})
+        self.assertEqual([t['id'] for t in doc['tasks']], ['live-check-and-go-ahead', 'official', 'record'])
+
+    def test_the_version_comes_from_the_authorization_when_the_title_has_none(self):
+        self.add_release('Ship it')
+        self.authorize('queue', instruction='I authorize the 2.0.1 beta')
+        code, started = self.start()
+        self.assertEqual(code, 0, started)
+        self.assertEqual(self.load(started['cycle'])['release']['version'], '2.0.1')
+
+    def test_the_title_version_wins_over_the_authorization_version(self):
+        self.add_release('Ship v3.4.5')
+        self.authorize('queue', instruction='I authorize the 2.0.1 beta')
+        self.assertEqual(self.load(self.start()[1]['cycle'])['release']['version'], '3.4.5')
+
+    def test_a_release_item_with_no_version_is_refused_before_any_intent_and_stays_pending(self):
+        qid = self.add_release('Ship it')
+        self.authorize('queue', instruction='I authorize this release')
+        before = (self.repo / 'notes/queue/cycles.yaml').read_bytes()
+        code, got = self.start()
+        self.assertEqual(code, 1, got)
+        self.assertIn('names no version', got['error'])
+        self.assertIn('item title', got['error'])
+        self.assertEqual(self.item(qid)['state'], 'pending')
+        self.assertIsNone(self.queue_doc()['items'][0]['start_token'])
+        self.assertEqual((self.repo / 'notes/queue/cycles.yaml').read_bytes(), before)
+        self.assertEqual(self.cycle_dirs(), [])
+        # Positive control: naming the version in the title lets the same item start.
+        self.ok('edit', qid, '--title', 'Ship 1.2.3')
+        self.assertEqual(self.start()[0], 0)
+
+    def test_a_scope_that_omits_a_mandatory_path_is_refused_before_the_intent(self):
+        self.write_descriptor()
+        self.git('add', '-A')
+        self.git('commit', '-qm', 'descriptor')
+        qid = self.add_release('Ship 1.2.3', 'src', 'notes/log')
+        self.authorize('queue')
+        self.ok('edit', qid, '--scope', 'src')  # the owner narrows the scope after capture
+        code, got = self.start()
+        self.assertEqual(code, 1, got)
+        self.assertIn('omits mandatory paths: notes/log', got['error'])
+        self.assertEqual(self.item(qid)['state'], 'pending')
+        self.assertEqual(self.cycle_dirs(), [])
+        self.ok('edit', qid, '--scope', 'src', '--scope', 'notes/log')
+        self.assertEqual(self.start()[0], 0)
+
+    def test_a_release_item_takes_no_start_plan(self):
+        self.add_release()
+        self.authorize('queue')
+        with self.assertRaisesRegex(cycle_queue.QueueError, 'takes no start plan'):
+            cycle_queue.start_next(self.repo, plan={'council': {'needed': False, 'reason': 'x'}})
+        self.assertEqual(self.cycle_dirs(), [])
+
+    def test_a_crash_after_the_record_write_is_adopted_and_retried_once(self):
+        qid = self.add_release()
+        self.authorize('queue')
+        real = cycle_queue.create_release
+
+        def write_then_die(*args, **kwargs):
+            real(*args, **kwargs)
+            raise Crash()
+
+        with patch.object(cycle_queue, 'create_release', write_then_die):
+            with self.assertRaises(Crash):
+                cycle_queue.start_next(self.repo)
+        self.assertEqual(len(self.cycle_dirs()), 1)
+        self.assertEqual(self.item(qid)['state'], 'starting')
+        code, got = self.start()
+        self.assertEqual((code, got['outcome'], got['item'], got['cycle']), (0, 'adopted', qid, self.cycle_dirs()[0]))
+        self.assertEqual(got['format'], 'crux.cycle.v1')
+        self.assertEqual(len(self.cycle_dirs()), 1)
+        self.assertEqual(self.item(qid)['state'], 'started')
+        self.assertEqual(self.load(got['cycle'])['kind'], 'release')
+        self.assertEqual(self.start()[1]['outcome'], 'in-progress')
+
+    def test_a_raise_after_the_record_write_adopts_it(self):
+        qid = self.add_release()
+        self.authorize('queue')
+        real = cycle_queue.create_release
+
+        def write_then_fail(*args, **kwargs):
+            real(*args, **kwargs)
+            raise OSError('disk went away after the record landed')
+
+        with patch.object(cycle_queue, 'create_release', write_then_fail):
+            code, got = self.start()
+        self.assertEqual((code, got['outcome']), (0, 'adopted'))
+        self.assertEqual(len(self.cycle_dirs()), 1)
+        self.assertEqual(self.item(qid)['state'], 'started')
+
+    def test_a_refused_create_cancels_the_intent_and_burns_no_record(self):
+        qid = self.add_release()
+        self.authorize('queue')
+        with patch.object(cycle_queue, 'create_release', side_effect=CycleError('refused')):
+            code, got = self.start()
+        self.assertEqual(code, 1, got)
+        self.assertEqual(self.item(qid)['state'], 'pending')
+        self.assertEqual(self.cycle_dirs(), [])
+        self.assertEqual(self.start()[0], 0)
+
+    def test_queue_add_completes_a_captured_release_scope_and_start_accepts_it(self):
+        self.write_descriptor()
+        self.git('add', '-A')
+        self.git('commit', '-qm', 'descriptor')
+        beta = self.add_release('Ship 1.2.3', 'src')
+        official = self.add_release('Promote 1.2.3', 'src', release_list='official')
+        self.assertEqual(self.item(beta)['scope'], ['src', 'notes/log'])
+        self.assertEqual(self.item(official)['scope'], ['src', 'notes/log'])
+        self.authorize('queue')
+        self.assertEqual(self.load(self.start()[1]['cycle'])['plan']['scope'], ['src', 'notes/log'])
+
+    def test_a_started_release_record_renders_through_status_and_show(self):
+        self.add_release()
+        self.authorize('queue')
+        started = self.start()[1]
+        document = view(self.repo, started['cycle'])
+        self.assertTrue(document['ok'], document)
+        text = render(document)
+        self.assertIn(started['cycle'], text)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = cycle.main(['--repo-root', str(self.repo), 'status', started['cycle']])
+        self.assertEqual(code, 0, out.getvalue())
+        self.assertIn(started['cycle'], out.getvalue())
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.assertEqual(cycle.main(['--repo-root', str(self.repo), 'show', started['cycle']]), 0)
+        self.assertEqual(json.loads(out.getvalue())['cycle']['id'], started['cycle'])
+
+    def test_a_completed_release_record_makes_its_item_archivable(self):
+        qid = self.add_release()
+        self.authorize('next')
+        started = self.start()[1]
+        cycle_writer.record_release(self.repo, started['cycle'], 'a' * 40, 'notes/cycles/ledger.json')
+        self.commit_record(started['cycle'])
+        self.ok('archive', '--migrate')
+        self.assertEqual(self.queue_doc()['items'], [])
+        self.assertEqual(self.ok('show', qid)['item']['id'], qid)
+
+
 class OriginTests(Base):
-    def test_create_records_origin_on_the_created_event_only_when_given(self):
-        plain = create(self.repo, 'quick-fix', 'P', 'g', ['src'], ['a'], 'i', 'c')
-        queued = create(self.repo, 'quick-fix', 'Q', 'g', ['src'], ['a'], 'i', 'c', origin={'item': 'Q-0001', 'token': 'a' * 32})
-        self.assertNotIn('queue', plain['history'][0])
-        self.assertEqual(queued['history'][0]['queue'], {'item': 'Q-0001', 'token': 'a' * 32})
-        self.assertEqual(load(self.repo, queued['id'])['history'][0]['queue']['item'], 'Q-0001')
+    def test_create_records_the_queue_binding_only_when_given(self):
+        plain = self.make_cycle('P')
+        queued = self.make_cycle('Q', queue={'item': 'Q-0001', 'token': 'a' * 32})
+        self.assertNotIn('queue', plain)
+        self.assertEqual({k: queued['queue'][k] for k in ('item', 'token', 'origin')}, {'item': 'Q-0001', 'token': 'a' * 32, 'origin': 'start'})
+        self.assertEqual(cycle_queue._origin(self.load(queued['id'])), {'item': 'Q-0001', 'token': 'a' * 32})
 
 
 
@@ -1409,9 +1653,6 @@ class PilotReconcileTests(Base):
 
     def setUp(self):
         super().setUp()
-        self.git('init', '-q')
-        self.git('add', '.')
-        self.git('commit', '-qm', 'baseline')
         self.first = self.add('First')
         self.second = self.add('Second')
         self.authorize('queue')
@@ -1420,26 +1661,23 @@ class PilotReconcileTests(Base):
         self.addCleanup(lambda: self.assessment.unlink(missing_ok=True))
         self.assess({'outcome': 'src/a.py holds the delivered value', 'acceptance': [{'criterion': 0, 'evidence': 'focused check passed'}]})
 
-    def git(self, *args):
-        return subprocess.run(['git', '-C', str(self.repo), *args], check=True, capture_output=True, text=True).stdout.strip()
-
     def assess(self, value):
         self.assessment.write_text(json.dumps(value))
 
     def reviewed_pilot(self, title, review=True):
-        import cycle_pilot
+        import cycle_writer
         from types import SimpleNamespace
         spec = {'goal': 'Deliver the value', 'scope': ['src'], 'acceptance': ['value is two'],
                 'verification': {'checks': [{'id': 'focused', 'rationale': 'the value'}], 'gaps': 'none beyond PR CI'},
                 'council': {'needed': False, 'reason': 'bounded'}, 'tasks': [{'id': 'build', 'description': 'Set the value', 'owner': 'worker'}]}
-        doc = cycle_pilot.create(self.repo, title, 'lead', spec)
+        doc = cycle_writer.create(self.repo, title, 'lead', spec)
         (self.repo / 'src/a.py').write_text(f"x = '{doc['id']}'\n")
         self.git('add', 'src/a.py'); self.git('commit', '-qm', 'set the value')
         head = self.git('rev-parse', 'HEAD')
 
         def write(actor, action, **kwargs):
-            current = cycle_pilot.load_pilot(self.repo, doc['id'])
-            return cycle_pilot.mutate(self.repo, doc['id'], actor, current['revision'], action, SimpleNamespace(**kwargs))
+            current = cycle_writer.load_pilot(self.repo, doc['id'])
+            return cycle_writer.mutate(self.repo, doc['id'], actor, current['revision'], action, SimpleNamespace(**kwargs))
         write('lead', 'batch', value={'tasks': [{'task': 'build', 'owner': 'worker', 'run': 1, 'status': 'done', 'summary': 'value set'}],
                                       'checks': [{'check_id': 'focused', 'executed_command': 'python -m unittest', 'tested_revision': head,
                                                   'result': 'passed', 'summary': 'passed', 'reason': 'the value'}]})
@@ -1491,10 +1729,10 @@ class PilotReconcileTests(Base):
         self.assertEqual(self.ok('show', self.first)['item']['cycle_status'], 'reviewed')
         self.assertEqual(self.ok('archive', '--dry-run')['items'], [])
         # A queue binding makes no review read as current: a later change to the reviewed path shows as such.
-        import cycle_pilot
+        import cycle_writer
         (self.repo / 'src/a.py').write_text('x = 0\n')
         self.git('add', '.'); self.git('commit', '-qm', 'later change to the reviewed path')
-        self.assertFalse(cycle_pilot.review_current(self.repo, cycle_pilot.load_pilot(self.repo, self.pilot)))
+        self.assertFalse(cycle_writer.review_current(self.repo, cycle_writer.load_pilot(self.repo, self.pilot)))
         # The queue views report the same separate facts as pilot show, so a reader sees that finish would refuse.
         for shown in (self.ok('show', self.first)['item'], self.ok('list', '--full')['items'][0]):
             facts = shown['pilot']
@@ -1557,10 +1795,10 @@ class PilotReconcileTests(Base):
         self.assertIn(f'names no {self.second}', result['error'])
 
     def pilot_write(self, action, pilot=None, actor='lead', **kwargs):
-        import cycle_pilot
+        import cycle_writer
         from types import SimpleNamespace
-        record = cycle_pilot.load_pilot(self.repo, pilot or self.pilot)
-        return cycle_pilot.mutate(self.repo, record['id'], actor, record['revision'], action, SimpleNamespace(**kwargs))
+        record = cycle_writer.load_pilot(self.repo, pilot or self.pilot)
+        return cycle_writer.mutate(self.repo, record['id'], actor, record['revision'], action, SimpleNamespace(**kwargs))
 
     def commit_records(self):
         self.git('add', 'notes'); self.git('commit', '-qm', 'records', '--allow-empty')
@@ -1586,6 +1824,28 @@ class PilotReconcileTests(Base):
         after = self.ok('list')['next']
         self.assertEqual((after['item'], after['startable']), (dependent, True), after)
         self.assertEqual(self.reconcile()[1]['completed'], True)
+
+    def test_a_v1_record_reads_exactly_as_a_vNext_record(self):
+        import cycle_writer
+        original = cycle_writer.validate
+        self.assertEqual(self.reconcile()[0], 0)
+        self.pilot_write('finish', summary='done')
+        self.commit_records()
+        path = self.repo / f'notes/cycles/{self.pilot}/cycle.json'
+        record = json.loads(path.read_text())
+        seen = {}
+        for fmt in ('crux.cycle.vNext', 'crux.cycle.v1'):
+            path.write_text(json.dumps(dict(record, format=fmt)))
+            self.commit_records()
+            with patch('cycle_writer.validate', side_effect=lambda doc: original(dict(doc, format=cycle_writer.FORMAT))) as validate:
+                parsed = json.loads(path.read_text())
+                self.assertEqual(cycle_queue._origin(parsed), {'item': self.first, 'token': record['queue']['token']}, fmt)
+                self.assertEqual((cycle_queue._record_status(parsed), cycle_queue._record_terminal(parsed)), ('completed', True), fmt)
+                self.assertTrue(validate.called, f'{fmt} was not routed to the writer validator')
+                shown = self.ok('show', self.first)['item']
+                seen[fmt] = (shown['cycle'], shown['cycle_status'], self.ok('archive', '--dry-run')['items'], self.ok('list')['next'])
+        self.assertEqual(seen['crux.cycle.v1'], seen['crux.cycle.vNext'])
+        self.assertEqual(seen['crux.cycle.v1'][:3], (self.pilot, 'completed', [self.first]))
 
     def test_completed_pilot_item_archives_and_archival_replays(self):
         self.assertEqual(self.reconcile()[0], 0)
@@ -1635,17 +1895,14 @@ class PilotReconcileTests(Base):
         self.assertEqual(self.ok('archive')['items'], [])
 
 
-class PilotStartTests(Base):
-    """`queue start-next --pilot` starts the head item as a pilot only when explicitly selected."""
+class PlannedStartTests(Base):
+    """`queue start-next --plan FILE` adds the lead's verification, council and tasks; `--pilot` is a no-op."""
 
     PLAN = {'verification': {'checks': [{'id': 'focused', 'rationale': 'the value'}], 'gaps': 'none beyond PR CI'},
             'council': {'needed': False, 'reason': 'bounded'}, 'tasks': [{'id': 'build', 'description': 'Set the value'}]}
 
     def setUp(self):
         super().setUp()
-        subprocess.run(['git', '-C', str(self.repo), 'init', '-q'], check=True)
-        subprocess.run(['git', '-C', str(self.repo), 'add', '.'], check=True)
-        subprocess.run(['git', '-C', str(self.repo), 'commit', '-qm', 'baseline'], check=True, capture_output=True)
         self.plan = self.repo.parent / f'{self.repo.name}-plan.json'
         self.addCleanup(lambda: self.plan.unlink(missing_ok=True))
         self.plan.write_text(json.dumps(self.PLAN))
@@ -1653,39 +1910,74 @@ class PilotStartTests(Base):
         self.second = self.add('Second')
         self.authorize('queue')
 
-    def pilot_start(self, *extra):
-        return self.cli('start-next', '--pilot', '--lead', 'lead', '--plan', str(self.plan), *extra)
+    def planned_start(self, *extra):
+        return self.cli('start-next', '--lead', 'lead', '--plan', str(self.plan), *extra)
 
     def record(self, identity):
         return json.loads((self.repo / 'notes/cycles' / identity / 'cycle.json').read_text())
 
-    def test_explicit_pilot_start_binds_the_item_and_keeps_the_queue_rules(self):
-        code, result = self.pilot_start()
+    def test_a_planned_start_binds_the_item_and_keeps_the_queue_rules(self):
+        code, result = self.planned_start()
         self.assertEqual(code, 0, result)
-        self.assertEqual((result['outcome'], result['item'], result['format'], result['status']), ('started', self.first, 'pilot', 'active'))
+        self.assertEqual((result['outcome'], result['item'], result['format'], result['status']), ('started', self.first, cycle_writer.FORMAT, 'active'))
         self.assertTrue(result['record_commit']['changed'], result['record_commit'])
         record = self.record(result['cycle'])
         item = self.queue_doc()['items'][0]
-        self.assertEqual(record['format'], 'crux.cycle.vNext')
+        self.assertEqual(record['format'], cycle_writer.FORMAT)
         self.assertEqual((record['queue']['item'], record['queue']['token'], record['queue']['origin']), (self.first, item['start_token'], 'start'))
         self.assertEqual((record['title'], record['lead'], record['plan']['scope'], record['plan']['acceptance']),
                          (f'{self.first}: First', 'lead', ['src'], ['it works']))
+        self.assertEqual([t['id'] for t in record['tasks']], ['build'])
         self.assertEqual((item['state'], item['cycle']), ('started', result['cycle']))
         self.assertEqual(self.queue_doc()['authorization']['started'], [self.first])
-        dirty = subprocess.run(['git', '-C', str(self.repo), 'status', '--porcelain'], capture_output=True, text=True).stdout.split('\n')
+        dirty = self.git('status', '--porcelain').split('\n')
         self.assertEqual([line for line in dirty if line and not line.endswith('.lock')], [], 'the start left the queue or the record uncommitted')
-        # The running pilot holds the queue exactly as a running typed cycle does.
-        code, again = self.pilot_start()
+        # The running cycle holds the queue.
+        code, again = self.planned_start()
         self.assertEqual((code, again['outcome'], again['cycle']), (0, 'in-progress', result['cycle']), again)
         self.assertEqual(self.cycle_dirs(), [result['cycle']])
 
-    def test_an_ordinary_start_still_creates_a_typed_cycle(self):
-        code, result = self.start()
-        self.assertEqual((code, result['outcome']), (0, 'started'), result)
-        self.assertNotIn('format', self.record(result['cycle']))
-        self.assertIn('schema_version', self.record(result['cycle']))
+    def test_pilot_is_an_accepted_no_op_flag(self):
+        code, result = self.cli('start-next', '--pilot')
+        self.assertEqual((code, result['outcome'], result['format']), (0, 'started', cycle_writer.FORMAT), result)
+        record = self.record(result['cycle'])
+        self.assertEqual((record['lead'], record['state'], record['tasks']), ('dev-lead', 'planning', []))
+        self.assertNotIn('schema_version', record)
 
-    def test_a_crash_after_the_pilot_is_created_is_adopted_and_allocates_nothing(self):
+    def test_a_planless_start_is_planned_later_through_the_writer(self):
+        code, result = self.start()
+        self.assertEqual(code, 0, result)
+        identity = result['cycle']
+        doc = self.load(identity)
+        self.assertEqual((doc['state'], doc['tasks']), ('planning', []))
+        # A task cannot start before the plan names it, and review needs a complete plan.
+        with self.assertRaisesRegex(cycle_writer.CycleError, 'unknown task'):
+            cycle_writer.mutate(self.repo, identity, 'dev-lead', doc['revision'], 'task',
+                                SimpleNamespace(task='build', owner='dev-lead', run=1, status='working', checkout=None, summary=None))
+        with self.assertRaisesRegex(cycle_writer.CycleError, 'complete plan'):
+            cycle_writer.mutate(self.repo, identity, 'dev-lead', doc['revision'], 'review-start', SimpleNamespace(reviewer='independent'))
+        # The plan revision names only verification, council and tasks; goal, scope and acceptance stay as queued.
+        planned = cycle_writer.mutate(self.repo, identity, 'dev-lead', doc['revision'], 'plan',
+                                      SimpleNamespace(value=dict(self.PLAN), reason='plan the queued item', owner_approval=None))
+        self.assertEqual((planned['plan']['revision'], planned['plan']['goal'], planned['plan']['scope'], planned['plan']['acceptance']),
+                         (2, 'Deliver First', ['src'], ['it works']))
+        self.assertEqual([t['id'] for t in planned['tasks']], ['build'])
+        worked = cycle_writer.mutate(self.repo, identity, 'dev-lead', planned['revision'], 'task',
+                                     SimpleNamespace(task='build', owner='dev-lead', run=1, status='working', checkout=None, summary=None))
+        self.assertEqual(worked['state'], 'working')
+
+    def test_an_unplanned_record_cannot_leave_planning(self):
+        code, result = self.start()
+        path = self.repo / 'notes/cycles' / result['cycle'] / 'cycle.json'
+        doc = json.loads(path.read_text())
+        for state in ('working', 'reviewing', 'reviewed', 'completed'):
+            with self.subTest(state=state):
+                with self.assertRaisesRegex(cycle_writer.CycleError, 'leaves planning only with verification'):
+                    cycle_writer.validate(dict(doc, state=state))
+        for state in cycle_writer.UNPLANNED_STATES:  # positive control
+            cycle_writer.validate(dict(doc, state=state))
+
+    def test_a_crash_after_the_cycle_is_created_is_adopted_and_allocates_nothing(self):
         real, calls = cycle_queue.write_queue, []
 
         def crash_on_second(cfg, doc):
@@ -1695,50 +1987,47 @@ class PilotStartTests(Base):
             return real(cfg, doc)
         with patch.object(cycle_queue, 'write_queue', side_effect=crash_on_second):
             with self.assertRaises(Crash):
-                self.pilot_start()
+                self.planned_start()
         created = self.cycle_dirs()
         self.assertEqual(len(created), 1)
         self.assertEqual(self.queue_doc()['items'][0]['state'], 'starting')
-        for attempt in (self.start, self.pilot_start):  # a plain retry adopts it too: the record carries the token
+        for attempt in (self.start, self.planned_start):  # a plain retry adopts it too: the record carries the token
             code, result = attempt()
             self.assertEqual(code, 0, result)
             self.assertIn(result['outcome'], ('adopted', 'in-progress'))
             self.assertEqual((result['cycle'], self.cycle_dirs()), (created[0], created))
         self.assertEqual(self.queue_doc()['authorization']['started'], [self.first])
+        self.assertEqual([t['id'] for t in self.load(created[0])['tasks']], ['build'])
 
-    def test_a_crash_before_the_pilot_is_created_retries_to_exactly_one_cycle(self):
-        import cycle_pilot
-        with patch.object(cycle_pilot, 'create', side_effect=Crash()):
+    def test_a_crash_before_the_cycle_is_created_retries_to_exactly_one_cycle(self):
+        with patch.object(cycle_writer, 'create', side_effect=Crash()):
             with self.assertRaises(Crash):
-                self.pilot_start()
+                self.planned_start()
         self.assertEqual((self.cycle_dirs(), self.queue_doc()['items'][0]['state']), ([], 'starting'))
-        code, result = self.pilot_start()
+        code, result = self.planned_start()
         self.assertEqual((code, result['outcome'], result['item']), (0, 'started', self.first), result)
         self.assertEqual(self.cycle_dirs(), [result['cycle']])
-        self.assertEqual(self.pilot_start()[1]['outcome'], 'in-progress')
+        self.assertEqual(self.planned_start()[1]['outcome'], 'in-progress')
         self.assertEqual(len(self.cycle_dirs()), 1)
 
-    def test_refused_pilot_starts_leave_the_item_pending_and_burn_no_id(self):
+    def test_refused_planned_starts_leave_the_item_pending_and_burn_no_id(self):
         before = (self.repo / 'notes/queue/cycles.yaml').read_bytes()
-        cases = [('unknown plan key', {**self.PLAN, 'goal': 'mine'}, [], 'holds exactly verification, council and tasks'),
-                 ('invalid plan', {**self.PLAN, 'tasks': [{'id': 'Bad Id', 'description': 'x'}]}, [], 'task ids use lowercase'),
-                 ('no lead', self.PLAN, None, '--pilot requires --lead and --plan')]
-        for label, plan, argv, message in cases:
+        cases = [('item-owned plan key', {**self.PLAN, 'goal': 'mine'}, 'holds only verification, council, tasks, scrutiny'),
+                 ('invalid plan', {**self.PLAN, 'tasks': [{'id': 'Bad Id', 'description': 'x'}]}, 'task ids use lowercase')]
+        for label, plan, message in cases:
             with self.subTest(case=label):
                 self.plan.write_text(json.dumps(plan))
-                code, result = self.cli('start-next', '--pilot') if argv is None else self.pilot_start()
+                code, result = self.planned_start()
                 self.assertEqual(code, 1, result)
                 self.assertIn(message, result['error'])
                 self.assertEqual(((self.repo / 'notes/queue/cycles.yaml').read_bytes(), self.cycle_dirs()), (before, []))
-        code, result = self.cli('start-next', '--lead', 'lead')
-        self.assertIn('apply only with --pilot', result['error'])
         self.plan.write_text(json.dumps(self.PLAN))
-        code, result = self.pilot_start()
+        code, result = self.planned_start()
         self.assertEqual((code, result['cycle']), (0, 'CYC-0001'), 'a refused start burned a cycle id')
 
-    def test_pilot_start_keeps_authorization_and_dependency_stops(self):
+    def test_planned_start_keeps_authorization_and_dependency_stops(self):
         self.ok('revoke', '--reason', 'pause')
-        code, result = self.pilot_start()
+        code, result = self.planned_start()
         self.assertEqual((code, result['stop']['reason']), (1, 'not-authorized'), result)
         self.assertEqual(self.cycle_dirs(), [])
 

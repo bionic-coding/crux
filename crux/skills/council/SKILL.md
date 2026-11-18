@@ -42,13 +42,13 @@ Strict. New setup explicitly selects Standard or an owner-selected Lite mode.
   Single-seat dissent rule: when two seats approve and one dissents, revise
   only if the finding is a binding failure or missing authorization, or states
   a plausible failure, consequence and smallest fix that the architect cannot
-  refute and no later phase would catch. For an unresolved required safety
+  refute and no later step would catch. For an unresolved required safety
   fact, obtain a targeted check; if it stays unresolved, withdraw the dependent
   choice. A required safety fact about data policy or publishing is not a council
   dispute: it is the outward-facing stop, and the one question put to the owner.
   Otherwise answer on the same revision with reasoned agreement. Record `refuted` with a named check
   when the finding fails the blocking standard. Record `accepted-tradeoff` with
-  the reason when a later phase would catch it or its risk is lower than the
+  the reason when a later step would catch it or its risk is lower than the
   cost of another round. When all three seats approve with nits only, record
   agreement; do not revise for nits.
 - Strict: all three gateway seats approve with no recorded blocking findings.
@@ -59,14 +59,20 @@ provider, model or seat count as a fallback. Demonstrated binding failures,
 missing authorization and unresolved required safety facts prevent approval.
 A minority label alone is not a Standard veto.
 
-Use `cycle-council.py` for ADR, IDR, ADR-creation, consultation and disposition
-purposes. Consultation approves no decision. Its `--identity` stays stable across
-renamed files. IDRs retain their cycle name across revisions. The configured
-attempt limit defaults to seven for new mode-aware decisions. Stop on stalled
-progress. A council dispute never goes to the owner. At the limit, or when the
+Use `cycle-council.py` for ADR, consultation and disposition purposes. The IDR and
+ADR-creation purposes are retired: a new attempt refuses with a retirement message, and
+their historical records still validate. A plan council in a cycle is a consultation:
+the lead freezes the exact plan with `cycle.py council-subject ID`, convenes
+`--purpose consultation`, and records the result with `cycle.py council ID --record
+PATH --response TEXT`. Tasks that depend on the council wait for it. A cycle convenes
+a plan council when the owner asks, a consequential trade-off needs resolving,
+uncertainty blocks a defensible plan or a durable constraint changes. Consultation
+approves no decision. Its `--identity` stays stable across renamed files. The
+configured attempt limit defaults to seven for new mode-aware decisions. Stop on
+stalled progress. A council dispute never goes to the owner. At the limit, or when the
 same blocking finding recurs on two consecutive attempts after a revision that
-answered it, the architect withdraws the decision with `withdraw-decision`;
-no agent requests an extension. A Standard-mode single-seat dissent that the
+answered it, the architect withdraws the choice and the lead replaces the plan with
+`cycle.py plan --file`; no agent requests an extension. A Standard-mode single-seat dissent that the
 architect disposes as `accepted-tradeoff` on an approved attempt is answered,
 not unanswered; it does not count toward the recurrence trigger, and neither
 does its repetition on a later attempt over the same subject bytes. A finding
@@ -82,15 +88,15 @@ is the synchronous diagnostic form. `--probe ATTEMPT` reads the attempt flock.
 `--recover ATTEMPT` sends no request: it refuses while the flock is held, recovers
 the original persisted result, or marks an unowned execution interrupted. An
 interrupted claim still counts, and a later convening is a separate counted attempt.
-Full cycle inspect exposes exact subject/attempt/result references, recovery argv
-and prerequisites without requests or writes. New gateway attempts always persist
+`--probe` and `--await` report the exact attempt, result reference and recovery argv
+without requests or writes. New gateway attempts always persist
 request/outcome checkpoints under existing ownership. A persistence failure stops
 further calls and positive approval. Durable negatives survive; missing outcomes
 stay unknown. Recovery sends no request and resets no budget. Partial events never
 approve; later convening uses prior findings as historical context beside fresh votes.
 New approval/application checks current bound evidence. Pure sealed historical
-validation and applied acceptance retain their standing. The cycle commands reference
-gives the interfaces; historical/native-Lite callers keep their original protocols.
+validation and applied acceptance retain their standing. Historical and native-Lite
+callers keep their original protocols.
 The runner holds ownership through result persistence; never hand-edit or delete
 a claim. A missing launcher acknowledgement proves nothing: after the exact child
 terminates, check its exact preallocated claim identity before reporting no claim.
@@ -102,10 +108,10 @@ when every seat approves: it names the approved sha256 and each nit id with a
 disposition, `apply-in-build` (a note on a Build task) or `declined` with its
 reason, in the `nits` list of the `--architect` JSON. A nit never starts another
 attempt, and the approved revision stays as approved. `srde` output may be kept as
-evidence for a `refuted` disposition of an IDR dissent; `srde` never runs on the
-ADR path.
+evidence for a `refuted` disposition of a consultation dissent; `srde` never runs on
+the ADR path.
 
-A new revision of an IDR whose earlier revision was approved is reviewed as a
+A new revision of a historical IDR whose earlier revision was approved is reviewed as a
 delta. The writer computes each top-level contents key added, removed or changed
 against the latest approved revision, stores it in the attempt, and checks it
 again against both revisions' bytes at convening and at approval. The seats
@@ -405,11 +411,11 @@ API keys are read via `crux_env.require(...)` from `~/.crux/env` (managed by `cr
 - ALWAYS prefer async for an ad-hoc council and for agent teams (parallel teammates = concurrent calls)
 - ALWAYS check `dissent_count` (and each vote's `dissenting_points`) — never just read `consensus`
 - ALWAYS read `final_recommendation["conditioned"]` and `["nits"]`: a conditioned approval can read `UNANIMOUS_APPROVE` or `MAJORITY_APPROVE` but never routes to `AUTO_EXECUTE`
-- ALWAYS run an ad-hoc council driver in the background (inside a cycle run, the council gate uses `run-council.py`): the worst case per seat is about 40 minutes
+- ALWAYS run an ad-hoc council driver in the background (inside a historical promptbook run, the council gate uses `run-council.py`): the worst case per seat is about 40 minutes
 - ALWAYS provide rich context — models deliberate better with specifics
 - Every seat prompt states the operating assumptions: a trusted owner, cooperating agents, a trusted local checkout and one release coordinator. Plausible mistakes and crashes are in scope; deliberate local tampering and identity authentication are outside. Crux runs locally with a trusted caller, environment and interpreter, so denial of service from hostile input is never a blocker,[^trust] while an accidental malformed or oversized input that hangs or crashes Crux is a plausible mistake. A blocker states a plausible failure within those assumptions, its consequence and the smallest necessary fix. Everything else is an advisory or a documented limit, and "safety-related" alone does not justify a block. Every builder appends the shared text from `council_assumptions.py`. Cycle councils' vote instruction applies the same blocker test; historical promptbook gate councils keep their original instruction. Approval thresholds are unchanged[^blocker]
 - A recommendation that adds complexity (code, tests, instructions, execution, configuration or concepts) names the concrete failure it prevents, why a simpler fix is insufficient, and its maintenance and testing cost; otherwise it is an advisory
-- On a simplify cycle, every configured mode evaluates only the proposals within the agreed scope: no new features, speculative hardening or unrelated requirements. An addition the council believes necessary is reported as different work, not made a condition of approval. The council may still block or drop a proposal whose retained behavior or verification is inadequate; only remedies that add complexity are out of scope. Voting modes, thresholds, seats and attempt limits are unchanged
+- On a simplification, every configured mode evaluates only the proposals within the agreed scope: no new features, speculative hardening or unrelated requirements. An addition the council believes necessary is reported as different work, not made a condition of approval. The council may still block or drop a proposal whose retained behavior or verification is inadequate; only remedies that add complexity are out of scope. Voting modes, thresholds, seats and attempt limits are unchanged
 - Treat srde output as evidence: it never settles a gate and never runs on the ADR path (see srde skill)[^srde]
 - Register results on Semantic Bridge for cross-teammate visibility
 

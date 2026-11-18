@@ -7,7 +7,7 @@ import sys
 import tempfile
 import unittest
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from cycle_workflow import CycleError,digest,encoded
+from cycle_store import CycleError,digest,encoded
 import bionic_config
 
 
@@ -152,3 +152,50 @@ class AdditionalEvaluatorControls(unittest.TestCase):
         row=self.row();row['seats'][2].update(decision=None,errored=True)
         row['architect']['dissent']=[{'provider':'c','kind':'accepted-tradeoff','explanation':'Provider unavailable'}]
         self.assertEqual(evaluate(row),'changes-required')
+
+
+def nit(fid,kind='nit'):return {'id':fid,'kind':kind,'text':'text '+fid}
+
+
+class NitDispositionTests(unittest.TestCase):
+    """Architect nit dispositions on a sealed consultation record, through the retained `disposition` interface."""
+    def setUp(self):
+        from unittest.mock import patch
+        self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup);self.root=Path(self.temp.name).resolve()
+        (self.root/'.bionic.yml').write_text('config_version: "1"\ndocs_dir: bionic\n');(self.root/'bionic/adrs').mkdir(parents=True)
+        (self.root/'bionic/manifest.yml').write_text('schema_version: "5"\nconcerns_enabled: [adrs]\n')
+        (self.root/'bionic/adrs/subject.txt').write_text('A bounded proposal.');self.sha=digest(b'A bounded proposal.')
+        stub=patch('cycle_council.commit_evidence');stub.start();self.addCleanup(stub.stop)
+    def settle(self,nits,dispositions,decisions=('APPROVE',)*3,dissent=()):
+        import council_policy as policy
+        seats=[{'provider':p,'decision':d,'errored':False,'findings':[nit(p+':'+n) for n in nits.get(p,())]} for p,d in zip(('openai','anthropic','google'),decisions)]
+        row={'format':policy.RECORD,'id':'a1','purpose':'consultation','subject':'adrs/subject.txt','subject_sha256':self.sha,
+             'policy':{'mode':'standard'},'outcome':'changes-required','seats':seats,'passes':[],'architect':None,'binding_failures':[],'reason':None}
+        (self.root/'bionic/council.json').write_text(json.dumps(policy.seal(row)))
+        agreement={'agrees':True,'subject_sha256':self.sha,'rationale':'Checked.','dissent':list(dissent),'nits':dispositions}
+        return policy.disposition(self.root,'council.json',agreement),json.loads((self.root/'bionic/council.json').read_text())
+    def test_each_nit_needs_a_known_disposition_and_a_declined_nit_its_reason(self):
+        out,record=self.settle({'anthropic':['F1','F2']},[{'id':'anthropic:F1','disposition':'apply-in-build','note':'n'},
+            {'id':'anthropic:F2','disposition':'declined','note':'out of scope'}])
+        self.assertEqual(out['outcome'],'approved');self.assertEqual([n['id'] for n in record['architect']['nits']],['anthropic:F1','anthropic:F2'])
+        self.assertEqual(self.settle({},[])[0]['outcome'],'approved')
+        for pattern,dispositions in (('nit.*anthropic:F2',[{'id':'anthropic:F1','disposition':'apply-in-build','note':'n'}]),
+                ('declined.*reason',[{'id':'anthropic:F1','disposition':'declined'},{'id':'anthropic:F2','disposition':'declined','note':'n'}]),
+                ('unknown nit',[{'id':'anthropic:F9','disposition':'apply-in-build','note':'n'}]),
+                ('disposition',[{'id':'anthropic:F1','disposition':'later','note':'n'},{'id':'anthropic:F2','disposition':'declined','note':'n'}])):
+            with self.subTest(pattern=pattern),self.assertRaisesRegex(CycleError,pattern):self.settle({'anthropic':['F1','F2']},dispositions)
+    def test_strict_and_lite_name_nits_alike_and_standard_dissent_settles(self):
+        from council_policy import nit_ids
+        strict={'policy':{'mode':'strict'},'seats':[{'provider':'openai','findings':[nit('openai:F1')]}],'passes':[]}
+        lite={'policy':{'mode':'lite'},'seats':[],'passes':[{'pass':'challenge','vote':{'findings':[]}},
+            {'pass':'final','vote':{'findings':[nit('final:F1'),nit('final:F2','blocking')]}}]}
+        self.assertEqual((nit_ids(strict),nit_ids(lite)),(['openai:F1'],['final:F1']))
+        out,record=self.settle({},[],('APPROVE','REQUEST_CHANGES','APPROVE'),[{'provider':'anthropic','kind':'accepted-tradeoff','explanation':'Accepted.'}])
+        self.assertEqual((out['outcome'],record['architect']['dissent'][0]['kind']),('approved','accepted-tradeoff'))
+    def test_architect_command_quotes_a_path_with_a_space_or_metacharacter(self):
+        import shlex
+        from cycle_council import architect_command
+        repo,record='/tmp/a repo; $(x)',"adrs/councils/it's here/attempt-1.json"
+        argv=shlex.split(architect_command(repo,record))
+        self.assertTrue(argv[2].endswith('/scripts/cycle-council.py'))
+        self.assertEqual(argv[:2]+argv[3:],['uv','run','--repo-root',repo,'--architect','PATH','--record',record])

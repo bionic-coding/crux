@@ -10,16 +10,19 @@ import unittest
 from unittest import mock
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-import cycle_ops
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import cycle_history
 import cycle_progress
 from cycle_progress import view, render
-from cycle_workflow import create, validate
 from _dev_surface import REPO_ROOT, TREE, require_dev_surface
+from _cycle_fixtures import fresh, put
 
 HERE = Path(__file__).resolve().parent
 FROZEN = HERE / 'fixtures/cycle_progress_format2.py'
 RECORDS = HERE / 'fixtures/cycle-records'
 NOW = 1_900_000_000
+# The assignment fields a version-3 record added, frozen from the typed engine; a version-2 attempt lacks them.
+ASSIGNMENT_V3_FIELDS = ('host', 'base', 'delivery')
 
 
 def frozen_module():
@@ -50,40 +53,29 @@ class Format3Tests(unittest.TestCase):
         (self.root / 'src').mkdir()
 
     def record(self, version=3, assignments=(), **extra):
-        doc = create(self.root, 'quick-fix', 'Fix', 'Goal', ['src'], ['passes'], 'builder', 'tester')
-        path = self.root / 'bionic/cycles' / doc['id'] / 'cycle.json'
-        raw = json.loads(path.read_text())
+        """A frozen fresh quick-fix record of `version`, with these attempts and fields, as the next cycle id."""
+        raw = fresh({3: 'quick-fix', 2: 'quick-fix-v2', 1: 'quick-fix-v1'}[version])
         if version == 3:
-            raw.update(schema_version=3, **cycle_ops.v3_fields())
-            raw['revision'] = 1  # a saved version-3 record has revision >= 1 (the schema's minimum)
             raw['assignments'] = [dict(a) for a in assignments]
         else:
-            # create writes version 3; step back to the older shape.
-            for key in cycle_ops.v3_fields():
-                raw.pop(key, None)
-            raw['schema_version'] = 2
-            raw['assignments'] = [{k: v for k, v in dict(a).items() if k not in cycle_ops.ASSIGNMENT_V3_FIELDS} for a in assignments]
-            if version == 1:
-                raw.pop('coverage', None)
-                raw.pop('completion', None)
-                raw['schema_version'] = 1
-        classifications = extra.pop('classifications', None)
+            raw['assignments'] = [{k: v for k, v in dict(a).items() if k not in ASSIGNMENT_V3_FIELDS} for a in assignments]
         raw.update(extra)
-        validate(raw)
-        if classifications is not None:
-            raw['classifications'] = classifications  # stream B has not put this key in the schema yet
-        path.write_text(json.dumps(raw))
-        return doc['id']
+        self.count = getattr(self, 'count', 0) + 1
+        return put(self.root, raw, f'CYC-{self.count:04d}')
 
     def cycle(self, cid):
         return view(self.root, cid, now=NOW)['cycles'][0]
 
     def test_document_carries_format_3_and_the_module_constants(self):
         self.assertEqual(view(self.root, now=NOW)['format_version'], 5)
-        parsed = ast.parse(Path(cycle_progress.__file__).read_text())
-        names = {t.targets[0].id: ast.literal_eval(t.value) for t in parsed.body
-                 if isinstance(t, ast.Assign) and isinstance(t.targets[0], ast.Name) and isinstance(t.value, (ast.Constant, ast.List))}
-        self.assertEqual(names['FORMAT_VERSION'], 5)
+        def constants(module):
+            parsed = ast.parse(Path(module.__file__).read_text())
+            return {t.targets[0].id: ast.literal_eval(t.value) for t in parsed.body
+                    if isinstance(t, ast.Assign) and isinstance(t.targets[0], ast.Name) and isinstance(t.value, (ast.Constant, ast.List))}
+        self.assertEqual(constants(cycle_progress)['FORMAT_VERSION'], 5)
+        # The attempt vocabulary lives in the historical reader; cycle_progress re-exports it.
+        names = constants(cycle_history)
+        self.assertIs(cycle_progress.OBSERVATIONS, cycle_history.OBSERVATIONS)
         self.assertNotIn('MAX_CLASSIFICATIONS', names)  # the count is never capped
         self.assertEqual(names['OBSERVATIONS'], ['reserved-unbound', 'running-bound'])
         self.assertEqual(names['LIVENESS'], ['unknown'])
@@ -109,10 +101,7 @@ class Format3Tests(unittest.TestCase):
         self.assertEqual({a['liveness'] for a in c['assignments']}, {'unknown'})
 
     def test_a_handle_less_host_reservation_is_not_unresolved(self):
-        import cycle_hosts
-        from unittest import mock
-        quiet = cycle_hosts.Adapter(name='quiet', modes={'m': cycle_hosts.Mode(name='m', tool='x', background=False, handle_source=None)}, default_mode='m')
-        with mock.patch.dict(cycle_hosts.ADAPTERS, {'quiet': quiet}):
+        with mock.patch.dict(cycle_history.HOST_MODES, {'quiet': ('m', ('m',), frozenset())}):
             c = self.cycle(self.record(3, [assignment('r', 'reserved', 'quiet')]))
         self.assertFalse(c['assignments'][0]['unresolved'])
 
@@ -177,9 +166,11 @@ class Format3Tests(unittest.TestCase):
         self.assertIn('Pass 1 of 1 · Build · active · revision 1', text)
         # Neither attempt names a listed task, so both sit under the Attempts label.
         self.assertIn('  Attempts', text)
-        for head in ('    Attempt 1 · r · task t-9 · developer · reserved, unresolved dispatch · liveness unknown · last activity ',
-                     '    Attempt 2 · u · developer · running · liveness unknown · last activity '):
-            self.assertTrue(any(l.startswith(head) for l in text), (head, text))
+        # The reader derives no activity for a legacy record, so an attempt line ends at its liveness.
+        for line in ('    Attempt 1 · r · task t-9 · developer · reserved, unresolved dispatch · liveness unknown',
+                     '    Attempt 2 · u · developer · running · liveness unknown'):
+            self.assertIn(line, text)
+        self.assertFalse([l for l in text if 'Activity' in l or 'last activity' in l], text)
         self.assertIn('  Classifications: 2', text)
         for detail in ('Classification work-sizing', 'dev-lead', 'no reviewer', 'Choose the cycle type'):
             self.assertFalse([l for l in text if detail in l], (detail, text))
@@ -206,10 +197,18 @@ class StatusErrorDocumentTests(unittest.TestCase):
         self.assertEqual((document['ok'], document['format_version']), (False, cycle_progress.FORMAT_VERSION))
 
 
-# Lines the current reader adds to a format-2 rendering: the section labels (one line each, exact), the
-# activity line of an open cycle, and the attempt lines (nested under a task or under the Attempts label).
+# Lines the current reader adds to a format-2 rendering: the section labels (one line each, exact) and
+# the attempt lines (nested under a task or under the Attempts label). It draws no activity line.
 LABELS = ('  Tasks', '  Attempts', '  Councils')
 ADDED_PREFIXES = ('  Attempt ', '    Attempt ', '      Attempt ', '  Activity: ', '  Classifications: ')
+
+
+def frozen_format(record):
+    """Whether the frozen format-2 reader renders `record`: a typed-engine record of schema_version 1 or 2.
+
+    A version-3 record and a record with a `format` value (`crux.cycle.vNext`, `crux.cycle.v1`) are newer
+    formats and have no frozen rendering to equal."""
+    return 'format' not in record and record.get('schema_version') in (1, 2)
 
 
 def strip_added(lines, live):
@@ -258,7 +257,7 @@ class RenderUnchangedTests(unittest.TestCase):
             open_attempts = sum(len(c['assignments']) for c in open_cycles)
             labels = sum(bool(c['tasks']) + bool(c['classification_count']) for c in after['cycles'])
             labels += sum(any(a['task'] not in {t['id'] for t in c['tasks']} for a in c['assignments']) for c in open_cycles)
-            added = open_attempts + labels + len(open_cycles)
+            added = open_attempts + labels
             if live:
                 added += sum(c['exception'] is not None for c in after['cycles'])
             self.assertEqual(len(new_text) - len(stripped), added)
@@ -272,15 +271,31 @@ class RenderUnchangedTests(unittest.TestCase):
     def test_every_committed_cycle_record_renders_unchanged(self):
         directory = REPO_ROOT / TREE / 'cycles'
         require_dev_surface(self, directory, 'the committed cycle records')
-        # Version-3 records and pilot records are newer formats and have no frozen rendering to equal.
-        def frozen_format(path):
-            record = json.loads(path.read_text(encoding='utf-8'))
-            return record.get('schema_version') != 3 and record.get('format') != 'crux.cycle.vNext'
-        sources = sorted(p.parent for p in directory.glob('CYC-*/cycle.json') if frozen_format(p))
+        records = {p.parent: json.loads(p.read_text(encoding='utf-8')) for p in directory.glob('CYC-*/cycle.json')}
+        sources = sorted(folder for folder, record in records.items() if frozen_format(record))
+        # Every skipped record is a known newer format; a record of an unknown shape fails here.
+        for folder, record in records.items():
+            if not frozen_format(record):
+                self.assertTrue(record.get('schema_version') == 3 or str(record.get('format', '')).startswith('crux.cycle.'), folder.name)
         # The reader lists at most 60 cycles, so compare in batches of 60.
         results = [self.compare(sources[n:n + 60], live=True) for n in range(0, len(sources), 60)]
         self.assertEqual(sum(r[0] for r in results), len(sources))
         self.assertGreaterEqual(len(sources), 80)
+
+    def test_the_live_comparison_selects_only_version_1_and_2_records(self):
+        self.assertTrue(frozen_format({'schema_version': 1, 'type': 'dev'}))
+        self.assertTrue(frozen_format({'schema_version': 2, 'type': 'dev'}))
+        for newer in ({'schema_version': 3, 'type': 'dev'}, {'format': 'crux.cycle.vNext'}, {'format': 'crux.cycle.v1'},
+                      {'format': 'crux.cycle.v1', 'schema_version': 2}, {}):
+            self.assertFalse(frozen_format(newer), newer)
+        # The frozen reader cannot read a current-format record, so selecting one would error, not pass.
+        with tempfile.TemporaryDirectory() as temp:
+            root = tree(Path(temp))
+            (root / 'bionic/cycles/CYC-0001').mkdir(parents=True)
+            (root / 'bionic/cycles/CYC-0001/cycle.json').write_text(json.dumps({'format': 'crux.cycle.v1', 'id': 'CYC-0001'}))
+            with self.assertRaises(KeyError) as missing:
+                frozen_module().view(root, now=NOW)
+            self.assertEqual(missing.exception.args, ('type',))
 
     def test_positive_control_the_live_comparison_catches_a_reworded_line(self):
         sources = sorted(p.parent for p in RECORDS.glob('*/cycle.json'))[:1]

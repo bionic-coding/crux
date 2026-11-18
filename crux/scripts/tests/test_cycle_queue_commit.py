@@ -83,6 +83,8 @@ class QueueCommitTests(GitBase):
         case = base('setUp')
         case.setUp()
         self.addCleanup(case.temp.cleanup)
+        import shutil
+        shutil.rmtree(case.repo / '.git')  # the shared fixture is a repository; this case needs none
         done = subprocess.run(['git', '-C', str(case.repo), 'rev-parse'], capture_output=True)
         if done.returncode == 0:
             self.skipTest('the temporary directory lies inside a repository')
@@ -109,7 +111,7 @@ class QueueCommitTests(GitBase):
         self.assertIn('notes/queue/cycles.yaml', files)
         self.assertTrue(any(f.startswith('notes/cycles/') and f.endswith(f"{payload['cycle']}/cycle.json") for f in files), files)
         self.assertTrue(all(f == 'notes/queue/cycles.yaml' or f.startswith('notes/cycles/') for f in files), files)
-        self.assertIn(f"{payload['cycle']} record: start Q-0001", self.git('log', '-1', '--format=%s'))
+        self.assertEqual(f"queue: start Q-0001 as {payload['cycle']}", self.git('log', '-1', '--format=%s'))
         self.assertEqual(self.git('status', '--porcelain'), 'A  src/staged.py', 'staged work stays staged and nothing else is pending')
 
     def test_start_next_under_an_index_lock_defers_and_reports(self):
@@ -154,23 +156,23 @@ class ChangedPathsTests(GitBase):
         self.assert_only_changed(payload['record_commit'])
         self.assertIn('notes/queue/cycles.yaml', payload['record_commit']['paths'])
 
-    def test_the_record_and_queue_commits_finish_uses_report_only_changed_paths(self):
-        """finish commits through commit_record and, for its terminal queue sweep, commit_queue."""
-        import cycle_commit
-        from cycle_workflow import tree
+    def test_the_record_and_queue_commits_report_only_changed_paths(self):
+        """A record commit through commit_paths and a queue commit through commit_queue list only what changed."""
+        import cycle_queue
+        from cycle_store import commit_paths, tree
         self.ok(*NEW)
         self.authorize('next')
         code, payload = self.start()
         self.assertEqual(code, 0, payload)
         cycle_json = next((self.repo / 'notes/cycles').glob(f"{payload['cycle']}/cycle.json"))
         cycle_json.write_text(cycle_json.read_text() + '\n')
-        result = cycle_commit.commit_record(self.repo, payload['cycle'], 'fixture', include_queue=True)
+        result = commit_paths(tree(self.repo), [cycle_json.relative_to(self.repo).as_posix()] + cycle_queue.queue_paths(tree(self.repo)), 'fixture')
         self.assert_only_changed(result)
         self.assertEqual(result['paths'], [cycle_json.relative_to(self.repo).as_posix()])
-        nothing = cycle_commit.commit_queue(tree(self.repo), 'fixture')
+        nothing = cycle_queue.commit_queue(tree(self.repo), 'fixture')
         self.assertEqual((nothing['changed'], nothing['paths']), (False, []))
         (self.repo / 'notes/queue/cycles.yaml').write_text((self.repo / 'notes/queue/cycles.yaml').read_text() + '\n')
-        self.assert_only_changed(cycle_commit.commit_queue(tree(self.repo), 'fixture'))
+        self.assert_only_changed(cycle_queue.commit_queue(tree(self.repo), 'fixture'))
 
 
 def _cli(case, *argv):

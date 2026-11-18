@@ -44,7 +44,7 @@ request into relevant material:
 | What exists now? | `arch/overview.md` and relevant architecture pages | Actual source and tests |
 | Why is it this way? | `adrs/doctrine/` and `adrs/summaries/` | Source decisions, current dispositions, and supporting evidence |
 | What do we know? | Relevant research source and synthesis pages | Original sources when verification is needed |
-| What is underway? | Relevant `cycles/<id>/cycle.json` | Plan, decisions, task evidence, blockers, and reflection |
+| What is underway? | Relevant `cycles/<id>/cycle.json` | Plan, tasks, checks, review, blockers, and completion summary |
 | What happened recently? | Journal and relevant cycle records | Commits and recorded verification |
 | What might happen next? | Queue, briefs, and inbox | Owner intent and authorization |
 
@@ -425,17 +425,16 @@ to make a missing approval look like historical acceptance.
 Use this procedure when the owner requests the proposal and local instructions
 permit manual writing. An explicit exclusive-writer rule still applies. If
 that rule blocks this operation, retain the draft, intended counter update,
-origin, and exact restriction in the inbox. Do not relabel a cycle-originated
-proposal as a direct request to escape the creation gate.
+origin, and exact restriction in the inbox. Record the actual origin: a proposal
+raised inside a cycle names that cycle, never a direct request.
 
 1. Read the objectives, current rules, relevant source, and related records.
    Identify an architectural commitment with alternatives worth preserving.
-   An implementation recipe belongs in a cycle IDR.
+   An implementation recipe belongs in the cycle plan.
 2. Establish the actual origin: `direct`, `whiteboard`, `inbox`, or `cycle`.
-   Cycle origin requires an active cycle in Plan plus a genuine council
-   approval with purpose `adr-creation` for its exact justification subject.
-   That approval must belong to this cycle. Missing approval blocks creation;
-   it does not block leaving a proposed justification in the inbox.
+   Cycle origin names a cycle that is planning, working or reviewing. No
+   council approves the creation; council approval of the exact draft and the
+   acceptance policy still apply.
 3. Exclude concurrent allocation. Inspect `adr.next_number`, active and
    archived ADR filenames, existing proposal sidecars, and any interrupted
    allocation. Reserve a number at least the counter and above all existing
@@ -448,10 +447,9 @@ proposal as a direct request to escape the creation gate.
    Reserve `adr.next_number = allocated_number + 1` first. Write the metadata
    next, then create the ADR without overwriting an existing file. Atomic
    individual replacements do not make this multi-file operation atomic.
-6. For cycle origin, append the actual ADR reference to `cycle.decisions`:
-   `path` relative to D, SHA-256 of the ADR's exact bytes, `kind: "adr"`,
-   `name: <ID>`, `approval: null`, `accepted: false`. Append an `adr-proposed`
-   history event with `adr: <ID>` and refresh `updated_at`. Preserve prior data.
+6. For cycle origin, the cycle writer appends the actual ADR reference to the
+   cycle's `adrs` list: `adr: <ID>`, `path` relative to D, and the SHA-256 of
+   the ADR's exact bytes. Preserve prior data.
 7. Check bidirectional brief references and hand-maintained catalog entries.
    Record the real operation. Regenerate ADR index, lineage, rollup, summaries,
    and doctrine when their tools apply. Otherwise name each stale output in
@@ -465,8 +463,10 @@ again blindly. Note incomplete relationships and pending regeneration.
 
 Every new-policy proposal has `D/adrs/proposals/<ID>.json`. This factual metadata
 has exactly the fields below; it is not approval evidence. Paths are relative
-to D. Outside cycles, `cycle_id`, `creation_approval`, and `creation_subject`
-are null. For cycle origin all three name genuine existing prerequisite records.
+to D. `creation_approval` and `creation_subject` are always null: no council
+approves the creation of an ADR. Outside cycles, `cycle_id` is null too. A
+cycle-origin proposal names its cycle in `cycle_id` and adds `cycle_format`,
+`proposal_sha256`, and `proposed_date`.
 
 <!-- BEGIN EXAMPLE: adr-proposal-metadata -->
 ```json
@@ -596,338 +596,201 @@ at least one passes, else none.
 
 ## 7. Cycles and their supporting records
 
-A cycle is one undertaking at `D/cycles/<ID>/cycle.json`. Read its plan,
-history, evidence, and reflection together. Do not reopen a completed or
-abandoned cycle; follow-up work gets a new identity and references its predecessor.
+A cycle is one undertaking at `D/cycles/<ID>/cycle.json`. One lead keeps its
+plan and progress. Read the plan, tasks, checks, review, delivery facts, and
+completion summary together. A completed cycle changes only through the
+owner's instruction to reopen it, or through a new cycle that names its
+predecessor in `follows`. An abandoned cycle never restarts.
 
-The complete structural schema is embedded below. Version 2 additionally
-requires `coverage` and `completion`, even when their values are initially null.
-Those requirements come from the writer and are not expressed by the shared
-version-1/version-2 JSON Schema alone.
+Current records use the format `crux.cycle.v1`; records in the earlier
+`crux.cycle.vNext` format stay readable. The complete structural schema is
+`cycle-record.schema.json`, embedded below. Cycle records with `schema_version`
+1 to 3, including typed release cycles, and promptbooks are historical. Read
+them; never convert or rewrite them. `cycle.schema.json`, also embedded below,
+describes the historical cycle records.
 
-### Plan and execution
+### Who writes a record
 
-| Type | Phases in these sources | Default total passes |
-|---|---|---:|
-| dev | plan → build → verify → review → reflect | 7 |
-| iterate | plan → build → verify → review → reflect | 2 |
-| refactor | plan → build → verify → review → reflect | 7 |
-| simplify | plan → build → verify → review → reflect | 3 |
-| quick-fix | build → verify → review → reflect | 1 |
-| release | plan → release → reflect | 2 |
+Only the cycle writer, `cycle.py`, writes a `crux.cycle.v1` record. It locks
+the record, validates it, raises `revision`, and refuses a stale
+`--expect-revision` or a late result from a superseded run. This guide
+supplies a format to read, not a procedure to edit a record by hand: a hand
+edit skips those checks. When the writer is unavailable, leave the proposed
+change and the exact restriction in the inbox and continue independent work.
 
-A new cycle record carries `"phase_names": "verify"` and names the phase after
-build `verify`. A record without that key uses `test` for the same phase; keep
-its stored names and never add the key to an existing record.
+The lead is the agent that runs the cycle. It writes the plan and each
+meaningful milestone. Workers return their results to the lead and write no
+record. The requested reviewer records its own verdict; the lead never submits
+it. The writer commits nothing, so the lead commits the record with ordinary
+work. A task update carrying a checkout claims that checkout for one editor,
+and `recover` reconciles claims after an interrupted write.
 
-Use a later locally adopted release contract if present. Do not treat a
-proposed release change as implemented merely because its draft exists.
+### States and fields
 
-An initial cycle names its goal, implementers, coordinator, scope, acceptance
-criteria, and review policy. Plan tasks name unique IDs, valid phases,
-dependencies, status, and expected evidence. Dependencies must resolve and
-must not form a loop. Preserve the original plan when revising it.
+A cycle is in one of seven states: `planning`, `working`, `reviewing`,
+`reviewed`, `completed`, `paused` or `abandoned`. No type, phase or pass limit
+exists. A blocking finding or a known acceptance failure becomes a task in the
+same cycle, and the reviewer reassesses the changed work.
 
-#### Manually create a cycle
-
-First establish that the requested work and local policy permit the operation.
-The guide supplies a format, not a waiver of a named cycle writer or role.
-If forbidden, leave the proposed plan and exact restriction in the inbox.
-
-1. Read any existing undertaking and the queue before creating another cycle.
-   Resume the same paused undertaking when appropriate. Closed cycles stay closed.
-2. Exclude concurrent allocation. Scan all directories immediately under
-   `D/cycles/` whose names end with `CYC-<digits>`, including incomplete ones
-   and other prefixes. Allocate one above the maximum. The cycle allocator
-   has no manifest counter. Create its directory exclusively before writing;
-   an interrupted empty directory reserves the identity.
-3. Start with the complete initial example below. Use the actual ID, title,
-   nonempty goal, nonempty scope and acceptance lists, implementer, coordinator,
-   timestamps, and local review scrutiny. Version 2 includes `coverage` and
-   `completion`, initially null. Other evidence/review/decision lists start
-   empty. Choose the first phase and total pass limit from the type table.
-4. For a type with Plan, put the initial cross-phase plan in Plan before
-   dependent implementation. Quick-fix begins in Build; tasks cover the current
-   or later phases. Use repository-relative, contained scope paths without
-   git pathspec magic. Keep the actor's real assignment separate from approval.
-5. Append a `created` history event with `at`, `action`, `pass`, `phase`, and
-   `status`. Validate before atomically replacing `cycle.json`. Confirm its
-   ID matches the directory. A separate queue intent must not be invented;
-   queue-starting follows its recoverable writer procedure.
-
-#### Manually revise a plan
-
-The actor must be authorized to maintain this active cycle. A full plan revision
-requires `phase: "plan"`. Do not manually rewind the phase to permit an edit.
-Quick-fix can update only `constraints` and `verification` through plan details
-in Build or Verify; each supplied list is nonempty strings and needs a reason.
-Quick-fix adds tasks for current/later phases. Other cycles add a task in the
-current phase or revise the full plan in Plan.
-
-1. Read and copy the entire current record. Its common `plan` fields are
-   `revision`, `scope`, `constraints`, `acceptance`, `verification`, and `tasks`.
-   Preserve applicable type-specific fields; refactor also needs nonempty
-   `preserved_behavior` and `improvement`. Preserve supported extensions and
-   unknown fields when the local schema permits them. In an authored plan input, tasks
-   start `pending` and contain no delivery fields. Do not smuggle task state
-   changes into a plan revision.
-2. Pair tasks by ID. For an unchanged paired task, preserve its recorded
-   status and all delivery fields. A changed `phase`, `description`,
-   `expected_evidence`, or `depends_on` resets `status` to `pending` and removes
-   `stage`; retain its old commits and evidence as history, never as new proof.
-   New task IDs start pending. Do not delete delivered work merely to hide it;
-   record why any task disappears in the preserved plan and reason.
-3. Revalidate delivery: every recorded evidence path resolves under D;
-   every commit of an `integrated` task remains an ancestor of HEAD. A failed
-   revalidation also resets status and removes stage. A carried build task
-   must satisfy the same rule on a later pass.
-4. Append a history event with the exact key `previous` containing the entire
-   old plan, plus a nonempty `reason`. Its `action` is `plan-revised`; `at`,
-   `pass`, `phase`, and `status` describe the revision boundary. Set new
-   `plan.revision = old_revision + 1` and refresh `updated_at`.
-5. Validate task IDs, phase compatibility, every dependency, and the whole
-   directed graph. Dependencies name existing distinct tasks, never self;
-   the graph has no cycle. Scope remains contained. Implementer and required
-   check lists contain no duplicates. `pass` never exceeds `pass_limit`.
-6. Atomically replace the single record only after validation. Read it back,
-   check references, and record the reason and pending work in the inbox when
-   formal filing or validation tools are unavailable. Approval/evidence tied
-   to a prior basis must be revalidated; a plan edit never rebinds a digest.
-
-History events are ordered, append-only objects. Their five common fields are
-`at`, `action`, `pass`, `phase`, `status`; action-specific fields preserve the
-actual operation. Do not replace `previous` with a prose summary. After an
-interruption, compare the old revision, new revision, and exact history payload
-before continuing. Repeated identical task updates are no-ops, not new events.
-
-Task states are `pending`, `active`, `done`, and `blocked`. Record real
-assignments and delivery; an assignment does not establish agent liveness.
-`implemented` and `integrated` distinguish a delivered unit from one integrated
-into the target tree. References to commits must name actual full commit IDs.
-
-#### Manually update a task
-
-Find the existing task by ID in an active, unpaused cycle. Preserve every
-other task. Update only established assertions:
-
-| Field | Meaning and constraint |
+| Field | Meaning |
 |---|---|
-| `status` | One of the four task states; `done` requires every dependency done |
-| `assignee` | Actual nonempty actor name; assignment does not prove execution |
-| `result_path` | Absolute path or repository-relative path; never a D-relative path masquerading as repository-relative |
-| `commits` | Existing full commit IDs, deduplicated in recorded order; append genuine delivery |
-| `evidence` | Existing contained D-relative files; normalize duplicate spellings |
-| `stage` | `implemented` or `integrated`; requires commits; integrated requires every commit on HEAD ancestry |
-| `note` | Nonempty explanation when supplied; record any limit on the delivery |
-| `replaced_commits` | Append real `{from, to, at, note}` replacements; resolve OLD uniquely, require existing NEW and a nonempty reason |
+| `id`, `title`, `lead`, `state` | Identity, the one lead, and the current state |
+| `base_commit` | The commit the work started from, bound by the review |
+| `revision` | The write counter every writer command checks |
+| `plan` | `goal`, `scope`, `acceptance`, `verification`, `scrutiny`, `council`, and its own `revision` |
+| `tasks` | Each task has `id`, `description`, `owner`, `run`, `status`, `kind`, `depends_on`, `checkout` and `summary` |
+| `checks` | Observed check results: command, result, tested revision, summary, and reason |
+| `councils` | Approved plan councils, each bound to a plan revision |
+| `review_request`, `review` | The requested reviewer and its recorded verdict |
+| `delivery` | Pull request, CI, merge, commit, and publication facts |
+| `adrs` | Cycle-origin ADRs and their digests |
+| `queue`, `follows` | The queue item that started the cycle; the completed cycle it follows |
+| `history`, `blockers`, `completion` | Plan and resume events; named blockers; the closing summary |
 
-A stage cannot move backward to attach new work. A duplicate late report can
-name already recorded work without undoing integration. Reopening happens
-through a changed obligation or failed delivery revalidation, not an invented
-flag. Preserve all replacement history and previous evidence.
+Task states are `pending`, `working`, `blocked` and `done`. `run` counts a
+task's attempts; a result from an earlier run is refused. `kind` is
+`implementation` or `review`. A task can name `adr_dependencies`; the writer
+refuses to start or finish it until each named ADR is Accepted.
 
-Append `action: "task-updated"`, `task: <task-id>`, `state: <current-status>`,
-the common history fields, and the delivery fields recorded on the updated
-task. Refresh `updated_at`. Validate the whole record, then atomically replace
-it. A useful report can exist before this update; it does not prove the cycle
-writer ran. Never attribute manual work to a Crux command that was not executed.
+### Example: a new cycle
 
-Before phase advancement, establish the current phase's requirements and task
-outcomes. Dev needs approved implementation reasoning before dependent work.
-Refactor must state preserved behavior and the improvement sought. Simplify
-needs approved selection reasoning and a reduction record for production,
-tests, instructions, and execution; an increase in one area cannot be netted
-against a decrease elsewhere.
+This is a structurally valid new record in planning, not completed work. Names,
+paths, and dates are illustrative. The writer allocates the actual ID and sets
+`base_commit` from the repository.
 
-Blocking verify or review findings return to build in every type, unless one
-qualifies for a fix task (small, in scope, cause stated, no decision, schema,
-interface or dependency change; one per phase per pass, no pass consumed).
-Record what improved, what remains unresolved, what will change, and why a
-further pass is justified. Increment the pass only on an allowed return.
-Exhausted limits or stalled progress pause the cycle. An extension requires
-actual human approval; changing type cannot erase the pass count or bypass it.
-
-Pause with a reason, evidence, and next step. Resume after resolving the blocker,
-preserving identity. A return blocked by a pass limit or stalled progress has
-special resume accounting; preserve its pending return rather than merely
-clearing the blocker. Keep every earlier failure and assessment.
-
-Before completion, record acceptance results, independent review, reflection,
-and required delivery commits or an actual owner-authorized exception. Completion
-fingerprints and review bindings use specific algorithms; arbitrary hashes do
-not satisfy them. If you cannot reproduce the required binding, preserve the
-pending state and provide the underlying facts in the inbox.
-
-### Example: an initial quick-fix cycle
-
-This is a structurally valid initial record, not completed work. Names, paths,
-and dates are illustrative. Allocate the actual ID and use the project's review
-policy. Declare actual checks and coverage before Test; populate delivery and
-review evidence from real work. Empty evidence lists establish no passing gate.
-
-<!-- BEGIN EXAMPLE: initial-cycle -->
+<!-- BEGIN EXAMPLE: cycle-record -->
 ```json
 {
-  "schema_version": 2,
-  "id": "CYC-0001",
-  "title": "Correct empty-search handling",
-  "type": "quick-fix",
-  "goal": "Return no results for blank input while preserving nonblank searches.",
-  "status": "active",
-  "phase": "build",
-  "pass": 1,
-  "pass_limit": 1,
+  "base_commit": "0123456789abcdef0123456789abcdef01234567",
+  "blockers": [],
+  "checks": [],
+  "completion": null,
+  "councils": [],
   "created_at": "2026-10-21T12:00:00+00:00",
-  "updated_at": "2026-10-21T12:00:00+00:00",
-  "implementers": [
-    "implementer"
-  ],
-  "coordinator": "implementer",
+  "delivery": {
+    "ci": "unknown",
+    "commit": null,
+    "merge": "unmerged",
+    "pr": null
+  },
+  "format": "crux.cycle.v1",
+  "history": [],
+  "id": "CYC-0001",
+  "lead": "lead",
   "plan": {
+    "acceptance": [
+      "Blank input returns an empty result."
+    ],
+    "council": {
+      "needed": false,
+      "reason": "Bounded correction within the agreed behavior"
+    },
+    "goal": "Return no results for blank search input while preserving nonblank searches.",
     "revision": 1,
     "scope": [
       "src/search.py",
       "tests/test_search.py"
     ],
-    "constraints": [
-      "Preserve nonblank search behavior."
-    ],
-    "acceptance": [
-      "Blank input returns an empty result."
-    ],
-    "verification": [
-      "Run the search tests, including blank and nonblank queries."
-    ],
-    "tasks": [
-      {
-        "id": "fix",
-        "phase": "build",
-        "description": "Correct blank-input handling and add relevant coverage.",
-        "depends_on": [],
-        "status": "pending",
-        "expected_evidence": [
-          "Implementation diff and test changes."
-        ]
-      },
-      {
-        "id": "check",
-        "phase": "verify",
-        "description": "Verify blank and nonblank behavior.",
-        "depends_on": [
-          "fix"
-        ],
-        "status": "pending",
-        "expected_evidence": [
-          "Actual test command and result."
-        ]
-      },
-      {
-        "id": "inspect",
-        "phase": "review",
-        "description": "Obtain independent review of the change.",
-        "depends_on": [
-          "check"
-        ],
-        "status": "pending",
-        "expected_evidence": [
-          "Review from someone other than the implementer."
-        ]
-      },
-      {
-        "id": "record",
-        "phase": "reflect",
-        "description": "Record outcome and remaining work.",
-        "depends_on": [
-          "inspect"
-        ],
-        "status": "pending",
-        "expected_evidence": [
-          "Reflection and delivery evidence."
-        ]
-      }
-    ]
+    "scrutiny": {
+      "level": "standard",
+      "reason": "project default"
+    },
+    "verification": {
+      "checks": [
+        {
+          "id": "search",
+          "rationale": "Changed blank-input handling and its callers"
+        }
+      ],
+      "gaps": "Packaging is unchanged; broader integration stays with pull-request CI"
+    }
   },
-  "review_policy": {
-    "scrutiny": "standard",
-    "rationale": "Repository default for this illustrative example.",
-    "risks": []
-  },
-  "required_checks": [],
-  "evidence": [],
-  "decisions": [],
-  "reviews": [],
-  "history": [
+  "review": null,
+  "revision": 1,
+  "state": "planning",
+  "tasks": [
     {
-      "at": "2026-10-21T12:00:00+00:00",
-      "action": "created",
-      "pass": 1,
-      "phase": "build",
-      "status": "active"
+      "attempts": [],
+      "checkout": null,
+      "council": false,
+      "depends_on": [],
+      "description": "Correct blank-input handling and add coverage",
+      "id": "fix",
+      "kind": "implementation",
+      "owner": "lead",
+      "run": 0,
+      "status": "pending",
+      "summary": ""
     }
   ],
-  "reflection": null,
-  "blocker": null,
-  "extensions": [],
-  "release": null,
-  "coverage": null,
-  "completion": null,
-  "phase_names": "verify"
+  "title": "Correct empty-search handling",
+  "updated_at": "2026-10-21T12:00:00+00:00"
 }
 ```
-<!-- END EXAMPLE: initial-cycle -->
+<!-- END EXAMPLE: cycle-record -->
 
-### Implementation decisions
+A cycle leaves `planning` at its first task write, and only with verification,
+a council decision, and at least one task. A plan revision keeps the earlier
+plan in `history` with its reason and returns the cycle to `planning` until the
+next task write. A change to `acceptance` needs the owner's recorded words. A
+change to `scope` does too, except that the lead may add each path that a
+blocking finding, recorded by the cycle's requested independent reviewer, names
+as the place to fix an unmet acceptance criterion of the current plan; the plan
+revision that adds it records the finding and the criterion.
 
-A current cycle IDR is a retained JSON object with `cycle_id`, `kind: "idr"`,
-`name`, positive `revision`, `contents`, and `at`. `contents` requires nonempty
-`alternatives`, `approach`, `assumptions`, `constraints`, and `intended_evidence`.
-A simplify selection adds `assessed`, `proposals`, and `selected` under its
-local contract. Each proposal contains exactly `id`, `removes`,
-`retained_behavior`, `objectives`, `decision_clauses`, `expected_savings`,
-`verification`, and `paths`. `id`, `removes`, `retained_behavior`,
-`expected_savings`, and `verification` are nonempty strings. `objectives`,
-`decision_clauses`, and `paths` are nonempty lists of nonempty strings.
-An absent decision clause is expressed as the sole `none: <reason>` entry.
-`assessed` is nonempty text. `selected` is a nonempty list of distinct proposal
-IDs drawn from the proposals. Earlier revisions remain preserved.
+### Plan, checks, and council
 
-The cycle's decision reference contains `path`, `sha256`, `kind`, `name`,
-`approval`, and `accepted`. A changed subject needs approval of that revision.
-Do not reuse a prior approval for modified content. Historical book/run IDRs
-have a different schema; do not apply it to cycle IDRs.
+The plan names the outcome, scope, acceptance criteria, the selected checks
+with a rationale for each, and any gaps. Choose checks by scope and risk. Run
+focused checks while developing. Before completion, select the final checks,
+including each relevant drift gate and, when a test or tier manifest changed,
+the tier check.
 
-Current retained IDRs live under `cycles/<ID>/decisions/`; the writer uses
-an immutable randomly named `.json` file. It hashes the exact retained bytes
-with SHA-256. `revision` is one above the count of earlier references with the
-same name. Creating reasoning is permitted only in Plan or Build, before
-dependent implementation; quick-fix must change type for a material decision.
-Do not add an approval reference before genuine approval of those bytes.
-Replacing an approach preserves earlier revisions and creates no architectural
-authority. A pending IDR can be useful without claiming its approach was approved.
+A check observation records the command that ran, its result (`passed` or
+`failed`), the tested revision, a summary, and the reason. The writer records
+the observation; it does not run the command. A later failed result blocks reuse
+of an earlier pass. Reuse a passing observation only inside the same cycle,
+after reassessing it. An observation counts only for the plan revision it was
+recorded under, so after a plan revision every selected check reads `missing`
+until it is recorded again or reused.
 
-### Reviews
+Plan council is for an owner request, a consequential tradeoff, uncertainty that
+blocks a defensible plan, or a changed durable constraint. It reviews the exact
+frozen plan, and dependent tasks wait for its approval. Council never replaces
+independent review.
 
-The authored cycle review has exactly `reviewer`, `scope`, `evidence`,
-`blocking`, `advisory`, `cosmetic`, `verdict`, and `rationale`. The five fields
-`scope`, `evidence`, `blocking`, `advisory`, and `cosmetic` are lists. Verdict
-is `approve | changes-required`. Each blocker identifies `path`, `consequence`,
-and `evidence`. The current writer requires the scope set to equal the plan's
-scope and the reviewer to differ from every implementer.
+### Reviews and completion
 
-Retention adds `pass`, `scrutiny`, `input_sha256`, `basis_version`,
-`basis_sha256`, and `at`. These bind the actual reviewed work and evidence.
-A prose review can be useful before retention, but must not pretend to have
-those bindings. A blocking review requires the recorded return path before
-another approval. Council review of a decision is not implementation review.
+The lead requests a named reviewer after committing the final code and
+recording the selected checks. The reviewer is neither the lead nor an
+implementer. Its report holds `reviewer`, `plan_revision`, `base_commit`,
+`head_commit`, `verdict` (`approve` or `changes-required`), `blocking`,
+`acceptance`, `test_selection`, and `summary`. Each acceptance entry names a
+criterion, whether it is met, and its evidence. A report is stale when it names a
+superseded plan revision, or when a later commit or uncommitted edit changes a
+reviewed path: a code path that differs between the cycle base and the reviewed
+head. Commits to other paths and bookkeeping keep it valid. The reviewed head
+holds the code committed when review was requested.
 
-`basis_version` is 4 for current retention. Its basis includes the plan content
-through the review-bearing phase, required checks, review policy, current-pass
-check declaration digests, coverage for version 2, and simplify reduction when
-applicable. It excludes task delivery bookkeeping and the plan revision counter.
-`input_sha256` separately binds scoped working-tree inputs. Earlier basis
-versions retain their algorithms. Missing algorithms or inputs prevent formal
-retention; preserve the actual independent report in the inbox rather than
-guessing a checksum. A claimed reviewer name cannot establish independence.
+A cycle completes when its agreed tasks are done, its selected checks pass, and
+an approving review of the current plan revision covers the final change with
+every acceptance criterion met. The completion summary names the delivered
+outcome, lessons, and remaining work. A pull request, CI result, merge, commit,
+or publication is a delivery fact; none of them completes or reopens a cycle.
+After a later failure, the owner can reopen the cycle or start a linked cycle.
+
+A cycle pauses when progress stalls, its scope changes materially, it needs an
+owner decision, or evidence contradicts its premise. Pause records the blocker;
+resume records what was reconciled against Git status and the actual work.
+
+### Decisions in a cycle
+
+A cycle records its approach in its plan and needs no implementation decision
+record. Implementation decision records under `cycles/<ID>/decisions/` belong
+to historical cycles; preserve them. A cycle that raises an ADR proposes it
+with its origin set to `cycle` and the cycle named; the cycle's `adrs` list
+holds the ADR path and SHA-256. Council approves the exact ADR draft, and the
+configured acceptance policy still applies.
 
 ### Tests, council, and queue
 
@@ -956,9 +819,9 @@ Use the owning attestation writer for council outcomes. If unavailable, retain
 the request and evidence in the inbox, leaving approval pending.
 
 The queue is at `D/queue/cycles.yaml`. Owner authorization to start queued work
-does not authorize publication, extend cycle limits, or approve decisions.
-Preserve started-item relationships and authorization bounds. Use its writer
-when required, or stage the requested queue change in the inbox.
+does not authorize publication or approve decisions. Preserve started-item
+relationships and authorization bounds. Use its writer when required, or stage
+the requested queue change in the inbox.
 
 Queue schema version 1 is YAML containing the embedded JSON-schema shape.
 List order is execution order. IDs are unique `Q-NNNN` values below
@@ -973,8 +836,8 @@ held items have a nonempty `hold_reason`. Starting/started items need a genuine
 are unique contained repository paths when added. Authorization `started` is
 a unique subset of its frozen `scope`; `next` has count 1, `next-n` a positive
 integer, and `queue` null. The actual owner instruction must be preserved.
-Starting first records an intent, creates a cycle with that token in its
-created-history queue origin, then records the cycle identity. After a crash,
+Starting first records an intent, creates a `crux.cycle.v1` record whose `queue`
+field holds that token, then records the cycle identity. After a crash,
 reconcile the token against existing cycles before another start. Do not
 create authorization or a successful start from inferred owner intent.
 
@@ -1091,6 +954,32 @@ Apply the populate gate above when objectives are unavailable. The gardener's tu
 
 Source extract: `crux/templates/AGENTS.md.tmpl`, section `6`.
 
+The log format, the writer command, the commit step and each op's meaning are in the operations-log reference (§2.A). The op enum and its two regex blocks stay here, because the log writer reads them from this file.
+
+Op enum (exhaustive): `init | extract | arch | ingest | refresh | audit | cleanup-campsite | lint | adr | brief | journal | promptbook | invariant | observation | recover | query | schema | skill | origin | garden | adr-review | backfill | release`. (Long-lived trees may carry the legacy `cleanup` op spelling — what `cleanup-campsite` was formerly called — in historical log entries; `audit-docs` CHK-LOG-1 accepts both forms for backward compatibility on append-only history.)
+
+#### Op-enum regex (canonical — single source of truth)
+
+This block is the **single source of truth** for the operations-log op-enum regex. `audit-docs` (CHK-LOG-1, both the inline and Explore-agent paths) MUST reference this block by name rather than restating the pattern.
+
+**A log op and a journal category are two enums.** The operations log records a skill *operation*, enumerated above. `docs/journal/YYYY-MM.md` records a work *category*, enumerated in §4. The two lists are independent, and one name can sit in both — `release` does. Adding a name to one enum leaves the other unchanged.
+
+- **Current-writer regex** — what every skill MUST emit going forward. `cleanup-campsite` only; the legacy `cleanup` form is NOT permitted in new entries:
+
+  ```
+  ^## \[\d{4}-\d{2}-\d{2}\] (init|extract|arch|ingest|refresh|audit|cleanup-campsite|lint|adr|brief|journal|promptbook|invariant|observation|recover|query|schema|skill|origin|garden|adr-review|backfill|release) \| 
+  ```
+
+- **Historical-reader regex** — what `audit-docs` accepts when validating append-only history. Identical to the current-writer regex except the legacy `cleanup` form is also tolerated (pre-rename entries are frozen history and must not be flagged):
+
+  ```
+  ^## \[\d{4}-\d{2}-\d{2}\] (init|extract|arch|ingest|refresh|audit|cleanup-campsite|cleanup|lint|adr|brief|journal|promptbook|invariant|observation|recover|query|schema|skill|origin|garden|adr-review|backfill|release) \| 
+  ```
+
+Source extract: `crux/references/operation-log.md`, section `6`.
+
+The op enum and its two regex blocks stay in `<docs_dir>/AGENTS.md` §6, because the log writer reads them from that file.
+
 The operations log is the set of monthly detail files `docs/log/YYYY-MM.md`, one file per month.[^oplog-files] Each detail file starts with this header and then holds its entries, the latest write at the top:[^oplog-latest-first]
 
 ```
@@ -1114,7 +1003,7 @@ uv run "${CRUX_PLUGIN_ROOT}/scripts/operation-log.py" append --repo-root <repo-r
   --op <op> --subject '<subject>' --date <YYYY-MM-DD> --body-file <path>
 ```
 
-`--body-stdin` reads the body from standard input instead. The command validates the entry against the current-writer regex below. It completes the first split and merges any stray before it adds the entry, and it adds no entry that a detail file already holds.[^oplog-repair-first] It prints one JSON result: `status` (`written`, `recorded` or `refused`), `file`, `changed_paths`, `commit_paths`, `restore_paths` and `left_strays`. It exits 0 on `written` or `recorded`, 1 on `refused`, and 2 on an environment fault.
+`--body-stdin` reads the body from standard input instead. The command validates the entry against the current-writer regex in `<docs_dir>/AGENTS.md` §6. It completes the first split and merges any stray before it adds the entry, and it adds no entry that a detail file already holds.[^oplog-repair-first] It prints one JSON result: `status` (`written`, `recorded` or `refused`), `file`, `changed_paths`, `commit_paths`, `restore_paths` and `left_strays`. It exits 0 on `written` or `recorded`, 1 on `refused`, and 2 on an environment fault.
 
 **A refused append.** An append that refuses leaves the skill's own writes in place and adds no entry. It refuses for one of three causes:
 
@@ -1139,25 +1028,7 @@ Known limit: the commit step commits every log path that `git status` lists. Tha
 
 **Checks.** `uv run "${CRUX_PLUGIN_ROOT}/scripts/operation-log.py" check --repo-root <repo-root>` runs the audit checks CHK-LOG-1 to CHK-LOG-7, which `audit-docs` reports.
 
-Op enum (exhaustive): `init | extract | arch | ingest | refresh | audit | cleanup-campsite | lint | adr | brief | journal | promptbook | invariant | observation | recover | query | schema | skill | origin | garden | adr-review | backfill | release`. (Long-lived trees may carry the legacy `cleanup` op spelling — what `cleanup-campsite` was formerly called — in historical log entries; `audit-docs` CHK-LOG-1 accepts both forms for backward compatibility on append-only history.)
-
-#### Op-enum regex (canonical — single source of truth)
-
-This block is the **single source of truth** for the operations-log op-enum regex. `audit-docs` (CHK-LOG-1, both the inline and Explore-agent paths) MUST reference this block by name rather than restating the pattern.
-
-**A log op and a journal category are two enums.** The operations log records a skill *operation*, enumerated above. `docs/journal/YYYY-MM.md` records a work *category*, enumerated in §4. The two lists are independent, and one name can sit in both — `release` does. Adding a name to one enum leaves the other unchanged.
-
-- **Current-writer regex** — what every skill MUST emit going forward. `cleanup-campsite` only; the legacy `cleanup` form is NOT permitted in new entries:
-
-  ```
-  ^## \[\d{4}-\d{2}-\d{2}\] (init|extract|arch|ingest|refresh|audit|cleanup-campsite|lint|adr|brief|journal|promptbook|invariant|observation|recover|query|schema|skill|origin|garden|adr-review|backfill|release) \| 
-  ```
-
-- **Historical-reader regex** — what `audit-docs` accepts when validating append-only history. Identical to the current-writer regex except the legacy `cleanup` form is also tolerated (pre-rename entries are frozen history and must not be flagged):
-
-  ```
-  ^## \[\d{4}-\d{2}-\d{2}\] (init|extract|arch|ingest|refresh|audit|cleanup-campsite|cleanup|lint|adr|brief|journal|promptbook|invariant|observation|recover|query|schema|skill|origin|garden|adr-review|backfill|release) \| 
-  ```
+#### Op-enum changes and op meanings (§6)
 
 **Changing either enum is not a one-line edit here.** The installed crux skills carry their own copy of both enums, and each does something different with it. `log-work` refuses a log op its copy does not carry, and writes nothing. It does NOT refuse an unknown journal category: it falls back to `misc` and warns, so the entry lands under the wrong name rather than not at all. `audit-docs` reports a heading outside either enum and edits neither — CHK-LOG-1 surfaces a log heading as drift, CHK-JR-1 a journal heading as a warning. `generate-journal-index.py` refuses a month file whose heading carries a category outside its tuple. An op or category added to this file alone therefore reaches none of them. Extending either enum is a change to the crux plugin rather than to this file.
 
@@ -1189,6 +1060,16 @@ Body under the heading: 1–5 lines. List specific paths touched. Keep terse —
 
 `grep -h "^## \[" docs/log/[0-9]*.md` lists every entry heading, each month's entries in write order. `grep -ohE "^## \[[^]]+\] \w+" docs/log/[0-9]*.md | sort | uniq -c` returns per-op counts.
 
+[^historical-reviews]: rule:historical-review-reports-stay-readable
+[^oplog-files]: rule:operations-log-is-monthly-detail-files
+[^oplog-latest-first]: rule:detail-file-puts-the-latest-write-first
+[^oplog-local-month]: rule:log-writer-uses-its-local-month, rule:placement-changes-no-entry-byte
+[^oplog-writer]: rule:log-entries-go-through-the-log-writer, rule:no-writer-writes-the-legacy-log-file
+[^oplog-repair-first]: rule:log-writer-completes-the-split-first, rule:log-writer-merges-a-stray-first, rule:log-write-adds-nothing-already-placed
+[^oplog-split]: rule:first-split-routes-by-heading-month, rule:log-split-keeps-every-byte, rule:first-split-records-completion-last
+[^oplog-stray]: rule:stray-log-merges-into-the-local-month, rule:stray-merge-removes-the-stray
+[^oplog-summary]: rule:no-section-before-its-month-settles, rule:pending-month-is-not-drift, rule:cleanup-campsite-runs-the-log-summary-catch-up, rule:log-summary-narrative-is-optional
+
 ### Journal contract
 
 Source extract: `crux/templates/AGENTS.md.tmpl`, section `journal (`.
@@ -1213,7 +1094,7 @@ Source extract: `crux/templates/AGENTS.md.tmpl`, section `briefs (`.
 
 ### Complete manifest contract
 
-Source extract: `crux/templates/AGENTS.md.tmpl`, section `7`.
+Source extract: `crux/references/manifest.md`, section `7`.
 
 <!-- BEGIN EXAMPLE: manifest-contract -->
 ```yaml
@@ -1325,9 +1206,11 @@ The installed plugin refuses to operate on a `docs/` tree whose `schema_version`
 
 The plugin's SKILL.md frontmatter contract (see §7.A) was revised separately, bumping `plugin.json` `schema_version` from `"1"` to `"2"` — `docs/manifest.yml` `schema_version` did not move because no `docs/` layout changed. Likewise the `cleanup-campsite` additions (the log op, the regenerated `docs/whats_next.md`, the optional `cleanup:` block above) were **additive** — older readers gracefully degrade (the new op shows as a `CHK-LOG-*` warning at worst; absent `whats_next.md` is the v1 default; absent `cleanup:` block falls back to defaults) — and did not bump this `schema_version`. The promptbook/run Markdown→YAML format change is a `format_version` change, NOT a tree-layout bump: the files still live at `promptbooks/active/`, `promptbooks/runs/<id>-<slug>/`, `promptbooks/archive/` — only their extension and intra-file shape changed, and legacy `.md` files coexist with new `.yaml` ones.
 
+[^oplog-schema]: rule:log-split-keeps-tree-schema-5
+
 ### ADR frontmatter and governs
 
-Source extract: `crux/templates/AGENTS.md.tmpl`, section `11.A`.
+Source extract: `crux/references/adrs.md`, section `11.A`.
 
 This table is the **single source of truth** for ADR frontmatter. The plugin's `templates/ADR-template.md`, `propose-adr`, and `audit-docs` (CHK-ADR-1) MUST reference this table by name rather than restating the field list. `audit-docs` CHK-ADR-1a compares the template's frontmatter keyset against this table and WARNs on divergence.
 
@@ -1377,7 +1260,7 @@ Adding a frontmatter field is a one-row edit here plus a matching edit to the pl
 
 ### ADR body contract
 
-Source extract: `crux/templates/AGENTS.md.tmpl`, section `11.D`.
+Source extract: `crux/references/adrs.md`, section `11.D`.
 
 **This section is the single statement of the rule.** `${CRUX_PLUGIN_ROOT}/templates/ADR-template.md`, `propose-adr`, and `audit-docs` (`CHK-ADR-SPEC`) carry a pointer to it and never a copy — §11.A's name-it-once discipline applied to the rule about naming things once. §11.A governs an ADR's frontmatter; this section governs what its body may contain. The writing rules the `prose-review` skill carries govern how a sentence in it is written.
 
@@ -1417,9 +1300,15 @@ The boundary is configurable while the 120-line budget is not, for two reasons. 
 
 **Adopting the rule in an existing tree:** set `adr.spec_rule_from` to the next number `propose-adr` will allocate, so the cohort starts empty and the rule reports nothing until the first body written under it. Measure the in-cohort bodies before fixing the value if you set it lower.
 
+[^promote]: rule:acceptance-makes-rules-binding, rule:historical-records-keep-their-interpretation
+[^historical-reviews]: rule:historical-review-reports-stay-readable
+[^retirement-persists]: rule:retirement-persists-after-its-host-leaves-accepted
+[^replacement-read-through]: rule:retired-historical-replacement-resolves-to-displacers
+[^migration-assessment]: rule:migration-recommendations-are-grounded
+
 ### Invariant frontmatter
 
-Source extract: `crux/templates/AGENTS.md.tmpl`, section `15.2`.
+Source extract: `crux/references/invariants.md`, section `15.2`.
 
 Required keyset on every `<docs_dir>/invariants/<slug>.md` (the canonical contract `audit-docs` enforces):
 
@@ -1438,7 +1327,7 @@ The four ladder names (`observed-unratified`, `recovered-and-ratified`, …) are
 
 ### Invariant reconciliation
 
-Source extract: `crux/templates/AGENTS.md.tmpl`, section `15.4`.
+Source extract: `crux/references/invariants.md`, section `15.4`.
 
 The reconciliation manifest, `reconciliation.yml`, lives at `<docs_dir>/invariants/reconciliation.yml` — beside the ledger, NOT inside `checks/` — and is the single reconciliation surface `audit-docs` reads. One **entry per check**, v1 shape:
 
@@ -1452,7 +1341,7 @@ The check→pin mapping is derived (regenerable); `last_result`/`last_checked` a
 
 ### Observation frontmatter
 
-Source extract: `crux/templates/AGENTS.md.tmpl`, section `17.1`.
+Source extract: `crux/references/observations.md`, section `17.1`.
 
 This table is the **single source of truth** for observation frontmatter, on the §11.A model. Adding a field is a one-row edit here. The field-name column uses backtick markup so the comparison is mechanical: the backticked tokens in the first column are the canonical keyset.
 
@@ -1479,7 +1368,7 @@ The body below the frontmatter is prose for a human: what the code does, where t
 
 ### Observation lifecycle
 
-Source extract: `crux/templates/AGENTS.md.tmpl`, section `17.2`.
+Source extract: `crux/references/observations.md`, section `17.2`.
 
 The state machine is the invariants ratification machine (§15.3) plus one terminal:
 
@@ -1532,7 +1421,7 @@ Its `$ref` values resolve offline within that block. `$schema` identifies the
 dialect; it is not a requirement to fetch a document. Source paths and hashes
 identify the version reproduced here, not runtime dependencies.
 
-The schemas cover current cycles (1/2), queue (1), test evidence (1/2), current
+The schemas cover current cycle records (`crux.cycle.v1`), historical cycle records (1/2), queue (1), test evidence (1/2), current
 council formats declared in their discriminators, and historical ADR provenance
 (1). Read discriminator values from each complete schema. A structurally valid
 object does not establish an executed test, genuine approval, or valid transition.
@@ -3681,16 +3570,16 @@ Source SHA-256: `2df6151e4e99497eee22c2c0e0672048650e1d72172dc3768d0ca15e6a80171
 ```
 <!-- END EXAMPLE: cycle.schema.json -->
 
-### Opt-in smaller-cycle pilot
+### Cycle record
 
-Source: `crux/schemas/cycle-pilot.schema.json`<br>
-Source SHA-256: `9f95651c621c23823022548508086a5feaf79678b367a5b7217344535b655248`
+Source: `crux/schemas/cycle-record.schema.json`<br>
+Source SHA-256: `208e446bcdb8eb80d394e55782eeb0a317cccf6313f47b219790cd8c03fa7d6e`
 
-<!-- BEGIN EXAMPLE: cycle-pilot.schema.json -->
+<!-- BEGIN EXAMPLE: cycle-record.schema.json -->
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Opt-in smaller-cycle pilot",
+  "title": "Cycle record",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -3715,7 +3604,61 @@ Source SHA-256: `9f95651c621c23823022548508086a5feaf79678b367a5b7217344535b65524
   ],
   "properties": {
     "format": {
-      "const": "crux.cycle.vNext"
+      "enum": [
+        "crux.cycle.vNext",
+        "crux.cycle.v1"
+      ]
+    },
+    "kind": {
+      "enum": [
+        "release"
+      ]
+    },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "list",
+        "version"
+      ],
+      "properties": {
+        "list": {
+          "enum": [
+            "beta",
+            "official"
+          ]
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "adrs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "adr",
+          "path",
+          "sha256"
+        ],
+        "properties": {
+          "adr": {
+            "type": "string",
+            "pattern": "^(?:[A-Z][A-Z0-9]{1,9}-)?ADR-[0-9]{4,}$"
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
     },
     "id": {
       "type": "string",
@@ -3771,9 +3714,7 @@ Source SHA-256: `9f95651c621c23823022548508086a5feaf79678b367a5b7217344535b65524
         "revision",
         "goal",
         "scope",
-        "acceptance",
-        "verification",
-        "council"
+        "acceptance"
       ],
       "properties": {
         "revision": {
@@ -3836,6 +3777,27 @@ Source SHA-256: `9f95651c621c23823022548508086a5feaf79678b367a5b7217344535b65524
             }
           }
         },
+        "scrutiny": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "level",
+            "reason"
+          ],
+          "properties": {
+            "level": {
+              "enum": [
+                "focused",
+                "standard",
+                "intensive"
+              ]
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
         "council": {
           "type": "object",
           "additionalProperties": false,
@@ -3868,7 +3830,6 @@ Source SHA-256: `9f95651c621c23823022548508086a5feaf79678b367a5b7217344535b65524
     },
     "tasks": {
       "type": "array",
-      "minItems": 1,
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -3932,6 +3893,14 @@ Source SHA-256: `9f95651c621c23823022548508086a5feaf79678b367a5b7217344535b65524
               "null"
             ]
           },
+          "adr_dependencies": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "pattern": "^ADR-[0-9]{4,}$"
+            }
+          },
           "summary": {
             "type": "string"
           },
@@ -3963,6 +3932,10 @@ Source SHA-256: `9f95651c621c23823022548508086a5feaf79678b367a5b7217344535b65524
                     "string",
                     "null"
                   ]
+                },
+                "commit": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
                 },
                 "started_at": {
                   "type": "string",
@@ -4281,7 +4254,7 @@ Source SHA-256: `9f95651c621c23823022548508086a5feaf79678b367a5b7217344535b65524
   }
 }
 ```
-<!-- END EXAMPLE: cycle-pilot.schema.json -->
+<!-- END EXAMPLE: cycle-record.schema.json -->
 
 ### Crux persistent cycle queue
 
@@ -5636,36 +5609,41 @@ No timestamp, machine path, or uncommitted-history claim enters the guide.
   "format": "crux.micro-crux-guide",
   "format_version": 1,
   "sources": {
+    "crux/references/adrs.md": "987c9a44fae737efcd649a7e43a86c75bc3bf408edd397125c4b221861c194c0",
+    "crux/references/invariants.md": "ccd0aa09b6321be3051bce7c8994e8c01f2aa3807185ab44b7958ddc01f680c3",
+    "crux/references/manifest.md": "fdd87b9fc737a5307017117e14b55383ae2ab76e02650d19605f863881761846",
+    "crux/references/observations.md": "b049fee25454d608d640d0d39b239b7ea807762a67c5d88cd3fa5c110a8ecd63",
+    "crux/references/operation-log.md": "d9e16f078347cbbd9e07887a0ff2774fcd86a60389beffe0059eb99089e62862",
     "crux/schemas/adr-provenance.schema.json": "c1d994bfad185bd675d89ec4d9f664906e2c6ab8cbb8b0ccb027f870db7b474c",
     "crux/schemas/cycle-council-attempt.schema.json": "0975ab5ecd770ddaba56fec39f16ca4a23f134c62d2d837a3ecd60860fed9529",
     "crux/schemas/cycle-council.schema.json": "f68498018c11db3cdd97d3bc042cd3d0aa6ee423fedc808a6c45ee748b8e7d3f",
-    "crux/schemas/cycle-pilot.schema.json": "9f95651c621c23823022548508086a5feaf79678b367a5b7217344535b655248",
     "crux/schemas/cycle-queue.schema.json": "4bf616bedf1cd3b58071cbb8b3ca55f7de2ae774c2a67d6c029fdd8de3cb35eb",
+    "crux/schemas/cycle-record.schema.json": "208e446bcdb8eb80d394e55782eeb0a317cccf6313f47b219790cd8c03fa7d6e",
     "crux/schemas/cycle.schema.json": "2df6151e4e99497eee22c2c0e0672048650e1d72172dc3768d0ca15e6a801711",
     "crux/schemas/test-evidence.schema.json": "0820d002a5ed0676186d3fb534e2c47bdb281b36e798c1446f4d59b243d31e3b",
     "crux/scripts/adr_provenance.py": "5febb88dc5ce1f1c23295a0596acda2a3897bc266e11e64a57b9ef25348e27cb",
     "crux/scripts/authoring_scope.py": "2970ad31854348b156c82c88804fd7055c93a172b4281dd2e5663a24f52261e2",
     "crux/scripts/bionic_config.py": "b73c3268169a0440b1760e46edf84537a80d6dbf35be1bcee036d20015f1e130",
-    "crux/scripts/council_policy.py": "20cbe274d16b4a7b0b5d8c4a199292561dce6c071a962c362c3436f38dec43ba",
-    "crux/scripts/cycle_council.py": "89933f1f864d20cdd039f0296dccf45d6d2fafdbcf8d36e3ba19a3822807d6b9",
-    "crux/scripts/cycle_pilot.py": "21352881048cfe0a21c856aa343e679c3d9408a4d9954e753d18e235b583b2ae",
-    "crux/scripts/cycle_queue.py": "b588edaa40073f5e7a54ed6d96ab9cbc508038fdaadb9ee031a42d5ee19e7c11",
-    "crux/scripts/cycle_runtime.py": "311591751341b901bfaa42520f2a42435692ade651cfbe7608ab0f535a1d5f01",
-    "crux/scripts/cycle_workflow.py": "443e7c44c2d4597338e3d272a9ed2c50b49020fb41f1c40dc89671b9ebc5c1cd",
-    "crux/scripts/decision_policy.py": "9ce4ca08ac8bd6fc45dcaf305d3ef8ef4f09f31b57b79cb9de2c534aed2e0976",
-    "crux/scripts/generate-micro-crux.py": "a4d013b8d8799a85d62adee6e98e3426718cc4ee0cca7fcf3de7f87cfd17a383",
+    "crux/scripts/council_policy.py": "3111c29142191d7c00a2f30b42f0e1e231e76be0037a27e552ce07479a5f44de",
+    "crux/scripts/cycle_council.py": "666f236b27feb4f2afda4696dd7189263757d0ab96350e8c92492051cae067c3",
+    "crux/scripts/cycle_queue.py": "b1601a575e48e5b53eecf882f8286a52b6a5fab466c6521112519ad2f7895ead",
+    "crux/scripts/cycle_runtime.py": "b234b99aacc5a11133326621236a23e57b20ca0edaec5e8b1ab63a9d046c647d",
+    "crux/scripts/cycle_store.py": "b45680629e5710774c806a8b6b71f134ed695764657b1cb88567cd63d70bb96c",
+    "crux/scripts/cycle_writer.py": "827b4b73295a535d0aae10238ad1be855b7faece3a06bf237bf8a9c88af2c826",
+    "crux/scripts/decision_policy.py": "4a1f110b1449c55f22699b1f54f565882be16333d03aae5dc882c74dedcf6346",
+    "crux/scripts/generate-micro-crux.py": "2ed4ebc71663a0cefdcd035e98f94bb31e9240478c884552f4f29769605170ae",
     "crux/scripts/test_evidence.py": "b829238712b44acb45c889414edbc522883ff037ef5bd6924232e4038a88c6ef",
-    "crux/skills/cycle/references/lightweight.md": "057076fba7c643a29999b1b74d754fdcd2911ae6a3443c3ae3b5e9f311cb6f6d",
-    "crux/skills/cycle/references/review.md": "ff75321a3516f306f7c87340084977e7f1a64fce37c30616436148cf092d978e",
-    "crux/skills/cycle/references/testing.md": "f22256ef7628cbe8e5e49fc03fdfa37bd95212738c45fdd74c82113ce509deb6",
+    "crux/skills/cycle/references/lightweight.md": "b96179d345395e54e40c5826072b1254f782a0814337f9a89a14d96c4428c4c7",
+    "crux/skills/cycle/references/review.md": "1c07a266b704a783076705608c492e0636da4f315f7a2defcc5fc9b87ab671ca",
+    "crux/skills/cycle/references/testing.md": "183991330540e4269f5eb821c7a4fb6fb826fe3fa3adaec226437a6228f0bacc",
     "crux/skills/ingest-research/SKILL.md": "44f440403eba4d298f396d1a9523fbac6d420272c22ff44120b141d51949c5ed",
     "crux/skills/refresh-research-sources/SKILL.md": "778f3dc8df5fd5c30a0c67388c8cfabf6c3f33742c4d0306ea7cc00c04529e8c",
     "crux/skills/transition-brief/SKILL.md": "8fb48887ae3118e9226fad3ee61bde00757a7d27460d8f5dea6325311c645594",
     "crux/templates/ADR-template.md": "2ed32d5ec415cdd4e63f7d92f5c041196a712ff310e4eef4a66cc969b95747c5",
-    "crux/templates/AGENTS.md.tmpl": "573e86d65f35dfdad1637f9db4e41ddb65eb7d63e0b8986abdf9111384d0183f",
+    "crux/templates/AGENTS.md.tmpl": "17f591f0497a06a59e5221716ac68963c5e315fbe9ea87547aade5bd1fc042ba",
     "crux/templates/BRIEF-template.md": "25b0ddcfbeeaedac93f6fd7eaeee13a2cd6aa6485b4d76b7c9a689571bd5cbe3",
     "crux/templates/manifest.yml.tmpl": "6144ab96dbec0d319bc4d3608abe909f37ac8139c0211bf7e0cdef7acc98ae4e",
-    "crux/templates/micro-crux.md.tmpl": "268d06781de11073d852dc9dc574ca91788e1e0dd45abcf6a69e12132e6b896b",
+    "crux/templates/micro-crux.md.tmpl": "8a8a34f75ee22c140b67a0f7047c8a2c2db4c43817c8579788d177a25d964a88",
     "crux/templates/objectives.md.tmpl": "68465558af5fdc117ad5b18bed32006f04956d7f33aafabe40b9e9b06cc778b7"
   },
   "tree_schema_version": "5"

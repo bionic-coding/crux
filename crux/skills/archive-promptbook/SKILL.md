@@ -132,7 +132,7 @@ The evidence is the repository's own change record, and not the run's account of
 - **exit 1 = the check FAILED.** A document verdict, not an environment error — **do not wave it through.** The JSON on stdout lists `undeclared` paths, or names the refusal (`blast_radius` missing, `base_commit` absent or diverged from its committed record, the book's plan no longer hashing to the run's `book_content_hash`, a declared entry that is not repo-relative). REFUSE the archive.
 - **exit ≥ 2 = an environment-capability error** (git absent, not a git work tree, the book or run document outside `--repo-root`, the base commit unknown). Surface stderr and REFUSE. Fail-closed: an unproven blast radius is not a passed one.
 
-**The exit when the check fails, per the decision this implements:** the run does not archive as completed work. Abandon it (`run-promptbook abandon`) and re-author the work in whichever non-patch tier fits — `iterate` when the diagnosis still holds, `dev-cycle` when the overshoot revealed a decision. The overshoot then stays legible in the run record, and no overshot book is stranded open.
+**The exit when the check fails, per the decision this implements:** the run does not archive as completed work. Abandon it (`run-promptbook abandon`) and continue the work in a new ordinary cycle (the `cycle` skill) that references the abandoned run. The overshoot then stays legible in the run record, and no overshot book is stranded open.
 
 **The declaration is fixed once the run starts, and no prompt may widen it.** That is enforced by the binding hash, not by this check: `blast_radius` sits inside the frozen-plan subset `book_content_hash` covers, so widening it mid-run moves the hash and `audit-docs` CHK-PB-BIND fires. Never "fix" a failing check by editing the declaration.
 
@@ -302,7 +302,7 @@ Report to the user:
 | Excuse | Reality |
 |--------|---------|
 | "Most prompts are done; the last one is just `running`. Close enough." | "Close enough" is not terminal. Advance it, skip it, or abandon the run — then archive. |
-| "The patch changed one file outside the declared radius. I'll widen the declaration and re-run the check." | The declaration is frozen by `book_content_hash`; widening it trips CHK-PB-BIND and hides the overshoot. Abandon the run and re-author in `iterate` or `dev-cycle`. |
+| "The patch changed one file outside the declared radius. I'll widen the declaration and re-run the check." | The declaration is frozen by `book_content_hash`; widening it trips CHK-PB-BIND and hides the overshoot. Abandon the run and continue in a new ordinary cycle. |
 | "The blast-radius check can't find git, so I'll skip it this once." | An unproven blast radius is not a passed one. Exit 2 is fail-closed by design. |
 | "The book is stale and the user moved on; I'll archive without ceremony." | If the user moved on, every leftover prompt should be explicitly `skipped`. Mark them, then archive. |
 | "I'll re-archive this book to fix the archive note." | Archived books are immutable. If the note is wrong, the audit trail records the wrong-but-real archival event. Don't rewrite history. |

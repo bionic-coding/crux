@@ -42,8 +42,8 @@ INPUTS = ["crux", "crux-mods", "tools", "opencode", "bionic", "public", "*.md",
 # an engine-written `used` entry, which lands after the preamble, leaves the checkout receipts reusable.
 # The live-read audit (bionic/cycles/CYC-0120/evidence/build/forge-log-live-read-audit.md) found one
 # reader past the preamble, tools/tests/test_canonical_instruction_file.py; it now reads only the
-# preamble of every root's forge log (CYC-0127). A second copy of cycle_local_skills.ALL_ROOTS, because
-# this module must not import the cycle engine; a test holds the two equal.
+# preamble of every root's forge log (CYC-0127). The roots are the local skill roots that INPUTS lists;
+# a test holds them inside INPUTS.
 LOCAL_SKILL_ROOTS = (".claude/skills", ".agents/skills", ".opencode/skills", ".opencode/skill", ".omp/skills")
 FORGE_LOGS = tuple(f"{root}/forge-log.md" for root in LOCAL_SKILL_ROOTS)
 FORGE_LOG_PROJECTIONS = {path: ["forge-log-preamble"] for path in FORGE_LOGS}

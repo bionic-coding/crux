@@ -1,0 +1,174 @@
+{
+  "blocker": null,
+  "completion": {
+    "commits": [
+      "1ba0db273c71a3c13184c2cbddedec7ccfd23718"
+    ],
+    "exception": null,
+    "input_sha256": "8b4f1210ffdd9a8884f17a71e5581296a93d38b34a8857b59f13d0f9a926a1d9",
+    "remaining": "Only final cycle bookkeeping awaits commit"
+  },
+  "coordinator": "owner-session",
+  "coverage": null,
+  "created_at": "2026-10-27T19:23:01.094281+00:00",
+  "decisions": [],
+  "evidence": [],
+  "extensions": [],
+  "goal": "Publish the tagged beta 4.6.2 (idyll/crux v4.6.2, tree 00559e6137da2c6ca3ba1dde923dcbee1d1b1123, from CYC-0062) to the public OFFICIAL repo bionic-coding/crux. Owner go-ahead, verbatim (2026-10-27): \"release 4.6.2 to production\". Owner-recorded live OpenCode 2 check in the 4.6.2 ledger: \"p/n work as expected. everything is working well\".",
+  "history": [
+    {
+      "action": "created",
+      "at": "2026-10-27T19:23:01.094423+00:00",
+      "pass": 1,
+      "phase": "release",
+      "status": "active"
+    },
+    {
+      "action": "task-updated",
+      "at": "2026-10-27T19:23:01.156957+00:00",
+      "note": "Owner go-ahead, verbatim (2026-10-27): \"release 4.6.2 to production\". Owner-recorded live OpenCode 2 check in the 4.6.2 ledger: \"p/n work as expected. everything is working well\".",
+      "pass": 1,
+      "phase": "release",
+      "state": "done",
+      "status": "active",
+      "task": "live-check-and-go-ahead"
+    },
+    {
+      "action": "task-updated",
+      "assignee": "owner",
+      "at": "2026-10-27T19:23:01.206948+00:00",
+      "note": "Owner runs release.py official directly; the host permission system blocks agents from publishing to the public repo.",
+      "pass": 1,
+      "phase": "release",
+      "state": "active",
+      "status": "active",
+      "task": "official"
+    },
+    {
+      "action": "task-updated",
+      "assignee": "owner",
+      "at": "2026-10-27T19:23:57.891047+00:00",
+      "note": "Owner ran release.py official --version 4.6.2. Published bionic-coding/crux v4.6.2, tree 00559e6137da, https://github.com/bionic-coding/crux/releases/tag/v4.6.2",
+      "pass": 1,
+      "phase": "release",
+      "state": "done",
+      "status": "active",
+      "task": "official"
+    },
+    {
+      "action": "task-updated",
+      "assignee": "owner-session",
+      "at": "2026-10-27T19:23:57.943432+00:00",
+      "pass": 1,
+      "phase": "release",
+      "state": "active",
+      "status": "active",
+      "task": "record"
+    },
+    {
+      "action": "task-updated",
+      "assignee": "owner-session",
+      "at": "2026-10-27T19:24:06.297044+00:00",
+      "commits": [
+        "1ba0db273c71a3c13184c2cbddedec7ccfd23718"
+      ],
+      "note": "release.py record passed; ledger and 4 receipts retained under evidence/release; official op prepended to log.md.",
+      "pass": 1,
+      "phase": "release",
+      "state": "done",
+      "status": "active",
+      "task": "record"
+    },
+    {
+      "action": "completion",
+      "at": "2026-10-27T19:24:06.448401+00:00",
+      "pass": 1,
+      "phase": "release",
+      "status": "active"
+    },
+    {
+      "action": "advance",
+      "at": "2026-10-27T19:24:06.576280+00:00",
+      "pass": 1,
+      "phase": "release",
+      "status": "completed"
+    }
+  ],
+  "id": "CYC-0063",
+  "implementers": [
+    "owner"
+  ],
+  "pass": 1,
+  "pass_limit": 1,
+  "phase": "release",
+  "plan": {
+    "acceptance": [
+      "release.py official published 4.6.2 to bionic-coding/crux"
+    ],
+    "constraints": [],
+    "revision": 1,
+    "scope": [
+      "release 4.6.2 official"
+    ],
+    "tasks": [
+      {
+        "depends_on": [],
+        "description": "Collect the owner's quoted go-ahead and any owed live-check result for the tagged artifact",
+        "expected_evidence": [
+          "the owner's quote and release.py smoke --live-check when owed"
+        ],
+        "id": "live-check-and-go-ahead",
+        "note": "Owner go-ahead, verbatim (2026-10-27): \"release 4.6.2 to production\". Owner-recorded live OpenCode 2 check in the 4.6.2 ledger: \"p/n work as expected. everything is working well\".",
+        "phase": "release",
+        "status": "done"
+      },
+      {
+        "assignee": "owner",
+        "depends_on": [
+          "live-check-and-go-ahead"
+        ],
+        "description": "Publish and tag the official release with the same go-ahead",
+        "expected_evidence": [
+          "release.py official published"
+        ],
+        "id": "official",
+        "note": "Owner ran release.py official --version 4.6.2. Published bionic-coding/crux v4.6.2, tree 00559e6137da, https://github.com/bionic-coding/crux/releases/tag/v4.6.2",
+        "phase": "release",
+        "status": "done"
+      },
+      {
+        "assignee": "owner-session",
+        "commits": [
+          "1ba0db273c71a3c13184c2cbddedec7ccfd23718"
+        ],
+        "depends_on": [
+          "official"
+        ],
+        "description": "Copy the ledger into this cycle, with the reason when the target did not publish, and prepend its release op to the log",
+        "expected_evidence": [
+          "release.py record and the commit that holds the log op"
+        ],
+        "id": "record",
+        "note": "release.py record passed; ledger and 4 receipts retained under evidence/release; official op prepended to log.md.",
+        "phase": "release",
+        "status": "done"
+      }
+    ],
+    "verification": []
+  },
+  "reflection": null,
+  "release": null,
+  "release_list": "official",
+  "required_checks": [],
+  "review_policy": {
+    "rationale": "repository default",
+    "risks": [],
+    "scrutiny": "standard"
+  },
+  "reviews": [],
+  "schema_version": 2,
+  "status": "completed",
+  "title": "Release 4.6.2 to bionic-coding/crux",
+  "type": "release",
+  "updated_at": "2026-10-27T19:24:06.576426+00:00"
+}

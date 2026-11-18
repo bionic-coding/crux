@@ -14,7 +14,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import adr_migration as m
 import decision_policy as dp
-from cycle_workflow import CycleError, digest, encoded, tree
+from cycle_store import CycleError, digest, encoded, tree
 
 
 class MigrationFixture(unittest.TestCase):

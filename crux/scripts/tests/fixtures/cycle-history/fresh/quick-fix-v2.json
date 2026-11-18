@@ -1,0 +1,58 @@
+{
+  "assignments": [],
+  "blocker": null,
+  "completion": null,
+  "coordinator": "tester",
+  "coverage": null,
+  "created_at": "2026-11-17T06:40:54.564434+00:00",
+  "decisions": [],
+  "evidence": [],
+  "extensions": [],
+  "goal": "Goal",
+  "history": [
+    {
+      "action": "created",
+      "at": "2026-11-17T06:40:54.564447+00:00",
+      "pass": 1,
+      "phase": "build",
+      "revision": 1,
+      "status": "active"
+    }
+  ],
+  "id": "CYC-0004",
+  "implementers": [
+    "builder"
+  ],
+  "local_checks": [],
+  "pass": 1,
+  "pass_limit": 1,
+  "phase": "build",
+  "phase_names": "verify",
+  "plan": {
+    "acceptance": [
+      "passes"
+    ],
+    "constraints": [],
+    "revision": 1,
+    "scope": [
+      "src"
+    ],
+    "tasks": [],
+    "verification": []
+  },
+  "reflection": null,
+  "release": null,
+  "required_checks": [],
+  "review_policy": {
+    "rationale": "repository default",
+    "risks": [],
+    "scrutiny": "standard"
+  },
+  "reviews": [],
+  "schema_version": 2,
+  "status": "active",
+  "testing_policy": "proportionate",
+  "title": "T quick-fix",
+  "type": "quick-fix",
+  "updated_at": "2026-11-17T06:40:54.564449+00:00"
+}

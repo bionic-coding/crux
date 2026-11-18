@@ -1,4 +1,4 @@
-<!-- generated-from: OPENCODE.md@sha256:1c704beba26a102e548796ca77289ff924a4dc9ffdbaaddc1ae3f74c30dfd28b; model: deterministic-copy; date: 2026-10-28 -->
+<!-- generated-from: OPENCODE.md@sha256:5fa19b6271f047fa3b66c3a5bd8f593caf8108d51c54e0deba6ab301445ba79d; model: deterministic-copy; date: 2026-11-17 -->
 # Install Crux for OpenCode
 
 Crux has no native OpenCode marketplace package. OpenCode installation uses a stable clone of the public Crux repository. This guide covers machine-wide and project-only installation for humans and agents.
@@ -137,7 +137,7 @@ Project-only installations do not update through the global symlinks. Invoke `in
 
 ## Run dashboard in the OpenCode TUI (optional)
 
-`crux-opencode` is a separate, optional plugin for OpenCode's terminal interface (the TUI) in OpenCode 2. It lives in the `crux-opencode/` directory of your clone, beside `crux/`. It draws the state of a crux promptbook run inside OpenCode:
+`crux-opencode` is a separate, optional plugin for OpenCode's terminal interface (the TUI) in OpenCode 2. It lives in the `crux-opencode/` directory of your clone, beside `crux/`. It draws the state of a crux cycle inside OpenCode:
 
 - **A band above the composer.** One line for the run in progress, shown on a session screen. The home screen shows nothing.
 - **A panel.** The run dashboard panel, named `crux-dashboard`, opens beside the session.
@@ -231,7 +231,7 @@ python3 crux/scripts/crux-env.py check --project crux
 
 The check command never prints secret values.
 
-Council deliberation runs only through the council runner (`run-council.py`). Without the key, the council runner cannot run. It writes a DEFER_TO_HUMAN record, and the run stops for you. No agent casts a seat's vote in its place. Before a run's next gate prompt, store the key and commit every council subject. The council runner commits its attempt record and its council record itself; do not commit either by hand. When the council runner exits 2 and stderr names `timeout`, or names outside work the commit moved, the owner's remedy comes first. Restore the work a hook set aside (`git stash list`; the pre-commit framework keeps a backup patch under its cache directory). Only then remove a stale `index.lock` in the git directory. After those two steps, and after any other exit 2 or an open attempt, run the process check and probe the lock with `run-council.py --recover <run> --prompt <n> --probe`. Once no live council runner holds it, run `run-council.py --recover <run> --prompt <n>`, never a new round. A hook that rewrites a council file (a JSON formatter with another indent or key order, for example) must exclude `<docs_dir>/promptbooks/runs/`, for example `exclude: ^<docs_dir>/promptbooks/runs/` in the pre-commit framework. Otherwise each council commit whose file the hook rewrites fails closed (`hook-or-commit-failed`, or `mismatch` when the hook re-stages its rewrite) and stops for you. A hook slower than the commit's 120-second bound makes the commit time out and leaves the attempt open, so the owner's remedy above comes before recovery.
+Historical promptbook councils run only through the council runner (`run-council.py`); a cycle council runs through `cycle-council.py`. Without the key, the council runner cannot run. It writes a DEFER_TO_HUMAN record, and the run stops for you. No agent casts a seat's vote in its place. Before a run's next gate prompt, store the key and commit every council subject. The council runner commits its attempt record and its council record itself; do not commit either by hand. When the council runner exits 2 and stderr names `timeout`, or names outside work the commit moved, the owner's remedy comes first. Restore the work a hook set aside (`git stash list`; the pre-commit framework keeps a backup patch under its cache directory). Only then remove a stale `index.lock` in the git directory. After those two steps, and after any other exit 2 or an open attempt, run the process check and probe the lock with `run-council.py --recover <run> --prompt <n> --probe`. Once no live council runner holds it, run `run-council.py --recover <run> --prompt <n>`, never a new round. A hook that rewrites a council file (a JSON formatter with another indent or key order, for example) must exclude `<docs_dir>/promptbooks/runs/`, for example `exclude: ^<docs_dir>/promptbooks/runs/` in the pre-commit framework. Otherwise each council commit whose file the hook rewrites fails closed (`hook-or-commit-failed`, or `mismatch` when the hook re-stages its rewrite) and stops for you. A hook slower than the commit's 120-second bound makes the commit time out and leaves the attempt open, so the owner's remedy above comes before recovery.
 
 ## Troubleshooting
 

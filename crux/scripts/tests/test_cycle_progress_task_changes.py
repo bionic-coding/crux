@@ -11,8 +11,9 @@ import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from cycle_workflow import create, mutate
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from cycle_progress import render, view
+from _cycle_fixtures import fresh, path_of, put, read, tree
 
 
 def task(identity, phase, description, **extra):
@@ -21,43 +22,57 @@ def task(identity, phase, description, **extra):
 
 
 class TaskChangeTests(unittest.TestCase):
+    """Each change is written to a frozen iterate record as the typed engine would have left it."""
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
-        (self.root / 'bionic').mkdir(); (self.root / 'src').mkdir()
-        (self.root / 'bionic/manifest.yml').write_text('schema_version: "5"\nconcerns_enabled: [adrs]\n')
-        self.cid = create(self.root, 'iterate', 'Sync', 'Goal', ['src'], ['Works'], 'builder', 'tester')['id']
-        self.put_phase('build')
+        self.root = tree(self.temp.name)
+        self.cid = put(self.root, fresh('iterate'), 'CYC-0001')
+        self.change(lambda raw: raw.update(phase='build'))
 
-    def path(self):
-        return self.root / 'bionic/cycles' / self.cid / 'cycle.json'
+    def change(self, edit):
+        """Apply one record change, as a write that reached the record would hold it."""
+        raw = read(self.root, self.cid); edit(raw)
+        path_of(self.root, self.cid).write_text(json.dumps(raw, indent=2, sort_keys=True) + '\n')
 
-    def put_phase(self, phase):
-        """Write the phase directly, as a record that reached it would hold it."""
-        raw = json.loads(self.path().read_text()); raw['phase'] = phase
-        self.path().write_text(json.dumps(raw, indent=2, sort_keys=True) + '\n')
+    def add(self, row):
+        self.change(lambda raw: raw['plan']['tasks'].append(row))
+
+    def set_status(self, identity, status):
+        def edit(raw):
+            next(t for t in raw['plan']['tasks'] if t['id'] == identity)['status'] = status
+        self.change(edit)
 
     def assert_reader_matches_record(self):
-        record = [(t['id'], t['phase'], t['description'], t['status']) for t in json.loads(self.path().read_text())['plan']['tasks']]
+        record = [(t['id'], t['phase'], t['description'], t['status']) for t in read(self.root, self.cid)['plan']['tasks']]
         drawn = view(self.root, self.cid)['cycles'][0]
         self.assertEqual([(t['id'], t['phase'], t['description'], t['status']) for t in drawn['tasks']], record)
         return drawn
 
     def test_each_mid_cycle_task_change_reaches_the_next_reader_document(self):
         self.assert_reader_matches_record()
-        mutate(self.root, self.cid, 'task-add', task=task('build-more', 'build', 'Build the added unit'))
+        self.add(task('build-more', 'build', 'Build the added unit'))
         self.assertIn('Build the added unit', render(view(self.root, self.cid)))
         self.assert_reader_matches_record()
-        mutate(self.root, self.cid, 'task-add', task=task('handover-1', 'build', 'Hand-over: tools/x.py, Stream R, format bump'))
+        self.add(task('handover-1', 'build', 'Hand-over: tools/x.py, Stream R, format bump'))
         self.assert_reader_matches_record()
-        mutate(self.root, self.cid, 'task', task_id='build-more', state='active')
+        self.set_status('build-more', 'active')
         self.assertEqual(next(t for t in self.assert_reader_matches_record()['tasks'] if t['id'] == 'build-more')['status'], 'active')
-        self.put_phase('verify')
-        mutate(self.root, self.cid, 'task-add', task=task('fix-1', 'verify', 'Fix finding F-1', fix={'finding': 'F-1: broken', 'eligibility': 'small and in scope'}))
+        self.change(lambda raw: raw.update(phase='verify'))
+        self.add(task('fix-1', 'verify', 'Fix finding F-1', fix={'finding': 'F-1: broken', 'eligibility': 'small and in scope'}))
         self.assert_reader_matches_record()
         before = {t['id']: t['status'] for t in self.assert_reader_matches_record()['tasks']}
-        mutate(self.root, self.cid, 'return', improved='isolated', unresolved='one defect', next_change='fix it',
-               justification='cause found', progress=True)
+
+        def returned(raw):
+            # A return: the next pass starts in Build, the event names what stayed unresolved, open tasks reset.
+            raw['history'].append({'action': 'return-requested', 'at': raw['updated_at'], 'pass': 1, 'phase': 'verify', 'revision': 2,
+                                   'status': 'active', 'assessment': {'improved': 'isolated', 'unresolved': 'one defect',
+                                                                      'next_change': 'fix it', 'justification': 'cause found', 'progress': True}})
+            raw.update(**{'pass': 2, 'phase': 'build'})
+            for t in raw['plan']['tasks']:
+                if t['status'] == 'active':
+                    t['status'] = 'pending'
+        self.change(returned)
         drawn = self.assert_reader_matches_record()
         self.assertEqual((drawn['pass'], drawn['phase'], len(drawn['returns'])), (2, 'build', 1))
         # The case is what it claims: the return reset at least one task the reader showed before it.

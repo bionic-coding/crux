@@ -1,4 +1,4 @@
-<!-- generated-from: CODEX.md@sha256:d68e822bfca5b6dca648d2b406cd7667469acb8e3c62951dab186bb8979d1eb1; model: deterministic-copy; date: 2026-11-01 -->
+<!-- generated-from: CODEX.md@sha256:f62373e41b466d0887dfdeb6cafb9b6454d624033a0869e4557642fed3a5c1fa; model: deterministic-copy; date: 2026-11-17 -->
 # Install Crux for Codex
 
 This guide installs the Crux plugin, its skills, and its ten Codex role agents. It covers human installation and the procedure an agent should follow after the plugin is available.
@@ -120,62 +120,25 @@ The installer refuses unsafe managed files, escaping paths, malformed source dec
 
 The exposed Codex spawn interface uses `task_name`, `agent_type` and `message`.
 The native wait interface accepts only `timeout_ms`, no `ids`; use at most 60000 ms
-per call. A global wake-up proves no child completed. Match the recorded handle,
-attempt, result path and exact current marker before delivering. Overall wait windows
+per call. A global wake-up proves no child completed. Overall wait windows
 remain uncapped and liveness remains unknown without admissible host evidence.
 At default nested depth, return dispatches to the parent that holds the tool.
 
-The commander's existing literal cycle.py lane also supports `context-read` for
-listed canonical context and exact bound reports. It reads assigned uncommitted
-reports without granting arbitrary shell or credential access. Full inspect supplies
-references and ready commands. Follow byte pagination with the original digest.
-`dispatch-invocation` retrieves frozen assignment/addendum/native parameters on
-takeover; read every selected body completely, preserving canonical source directories.
-Current source/grant checks can refuse initial dispatch; recovery never silently
-rebuilds context. Historical missing snapshots remain explicitly unavailable.
+One lead owns each cycle. The lead runs the ordinary writer commands through `uv run <plugin-root>/scripts/cycle.py`: `create`, `show`, `plan`, `task`, `check`, `batch`, `review-start`, `review`, `finish`, `delivery`, `reopen`, `pause`, `resume`, `abandon` and `recover`. Each command writes the cycle record through `cycle_writer`. `queue start-next` starts a queued item through the same writer. The lifecycle is in the `cycle` skill and its `references/lightweight.md`.
 
-Workers use `execution-check` before edits and checkpoint staged `edited_paths`
-before committing source. Separate execution proof permits verified bookkeeping
-descendants while preserving the immutable original review base. Foreign source,
-dirty starts and unrelated ancestry keep the normal integration path.
+Mutations take `--actor ACTOR --expect-revision N`. Read the current revision with `cycle.py show ID` before each write. A stale write is refused until the lead reads and reconciles the record.
 
-Routine cycle operations make no provider requests. They use current cached advice
-or return the question to the responsible agent. Say “refresh cycle advice” for an
-optional bounded batch; explicitly requested automatic work sizing remains available.
-Task-domain filtering keeps unrelated skills out of optional dispatch context.
+Delegation uses the host's native tools. A worker returns its result natively to the lead, which records the task with `cycle.py task`. The former typed subcommands exit 1 with `command-retired` and name their replacement. Marked result files, per-dispatch tokens, execution proofs, phases and passes are no longer part of a cycle.
 
-`execution-check` commits its own proof bookkeeping. Before pausing, seal pending
-owned worktree bytes and index identities. Resume admits those exact bytes only for
-the same bound host handle, checkout, immutable base and validated ancestor proof.
-Changed or foreign bytes and new executions use normal recovery. A completed child's
-sealed commits may integrate through a declared, verified conflict-free merge.
+The independent reviewer submits its own verdict: the lead runs `cycle.py review-start ID --reviewer NAME`, and the named reviewer runs `cycle.py review ID --actor NAME --expect-revision N --file FILE`. The writer refuses the lead as review actor. A host denial of the reviewer's write is reported as denied; the lead never submits the verdict for the reviewer.
 
-Fixed-list release continuation requires the loaded dev-lead's narrow `release-continue`
-grant and actual evidence of every required host capability. Otherwise use normal
-per-task dispatch/attach. Continuation preserves each logical task, attempt, marker,
-report and release gate. It does not grant publication or attest native liveness.
-Fresh installed-host continuation remains unobserved by the source fixtures.
+A cycle completes with `cycle.py finish ID` once its agreed work, selected checks and independent review are done. A pull request, CI run, merge or publication is a separate fact: record it with `cycle.py delivery ID --file FILE`. Such a record never completes or reopens a cycle. A later failure uses `cycle.py reopen` on the owner's instruction, or a linked repair cycle created with `cycle.py create --follows ID`.
 
-Queue format 2 separates active items from immutable per-item history. Say “show the
-full queue” or “show queue history” for `cycle.py queue list --full`; named history
-remains available through `queue show Q-NNNN`. Preview with `queue archive --dry-run`;
-`queue archive --migrate` explicitly migrates format 1. Reads never migrate. Old queue
-and release readers are unsupported after migration. Cycle/evidence paths stay fixed.
+`cycle.py council-subject ID` freezes the plan subject for council, and `cycle.py council ID --record PATH --response TEXT` records an approved result. Missing gateway credentials refuse a gateway council; they never select a different mode.
 
-Actual explicit IDR/ADR owner answers may be transcribed through cycle.py
-owner-decision present/capture/apply with verbatim words, real source reference,
-owner-local date and exact presented digest. Ambiguous continuation is pending.
-Reject/pending cannot approve; a later capture does not revoke an applied acceptance.
-No owner terminal command is required. Other authorization lanes remain separate.
+Queue format 2 separates active items from immutable per-item history. Say “show the full queue” or “show queue history” for `cycle.py queue list --full`; named history remains available through `queue show Q-NNNN`. Preview with `queue archive --dry-run`. `queue authorize` records the owner's quoted instruction, and `queue start-next` starts the head item as a cycle. Reads never migrate a queue.
 
-Full inspect lists exact council subject/attempt/result references and recovery
-prerequisites. Architect runs its returned probe/await/recover/architect commands.
-New gateway checkpoints retain known findings and unknown in-flight outcomes.
-Recovery sends no request, grants no partial approval and resets no attempt budget.
-
-These are source interfaces and projection checks. Regeneration performs no
-installation or reload and proves no fresh native host injection. Record actual
-observations separately from fixtures and unobserved host behavior.
+These are source interfaces and projection checks. Regeneration performs no installation or reload and proves no fresh native host injection. Record actual observations separately from fixtures and unobserved host behavior.
 
 ## Watching a cycle
 

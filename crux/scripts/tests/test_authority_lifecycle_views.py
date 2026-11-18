@@ -10,7 +10,7 @@ from unittest.mock import patch
 import decision_policy as policy
 import doctrine_projection as doctrine
 import summaries_projection as summaries
-from cycle_workflow import digest, encoded
+from cycle_store import digest, encoded
 from test_summaries_migration_projection import record
 
 

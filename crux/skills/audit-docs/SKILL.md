@@ -31,7 +31,7 @@ This skill is portable across Claude Code, Codex, OpenCode, and OMP (Oh My Pi). 
 ## Current cycle records
 
 Validate new cycle records through `cycle.py show` and the cycle schema. Review
-identity, phase/pass state, references, history, and evidence. Legacy CHK-CYCLE and
+identity, state, references, history, and check observations. Legacy CHK-CYCLE and
 promptbook minimum/module checks below apply only to historical promptbooks; never
 apply them to new cycle records or repair a cycle into a promptbook.
 
@@ -84,6 +84,9 @@ Also count per-concern files for the rollup numbers used in `docs/index.md`.
 ### 2. Walk and collect findings
 
 The walk produces a categorized findings list across eleven concern groups (plus the 1.A schema/inbox layer). Each check is named so it can be reported individually.
+
+A `docs/AGENTS.md` section this skill cites and the tree's file no longer holds
+moved to a task reference. The file's §2.A table names the reference to read.
 
 #### Concern 0 — Per-repo configuration (the repo-root `.crux` file, per `docs/AGENTS.md` §14)
 
@@ -559,6 +562,18 @@ directory, never overwritten. Show the user every set-aside, refusal and next st
 the report names. The migration plans every scope before it mutates anything, and a
 rerun reaches the state an uninterrupted run reaches — it claims **no multi-file
 filesystem atomicity**, and the receipt says so in as many words.
+
+Then bring the tree's own `<docs_dir>/AGENTS.md` to the routing a fresh init writes:
+
+```bash
+uv run "${CRUX_PLUGIN_ROOT}/scripts/migrate-instructions.py" --repo-root . --operational-schema --migrate
+```
+
+It refreshes unmodified template sections, removes those whose contract moved to a
+task reference, inserts the §2.A routing table, and keeps every section the owner
+edited, verbatim. Show the user each `preserved` section and the reference it names.
+A plain audit runs the same command with `--dry-run` and reports its plan.
+[`references/migrate-mode.md`](references/migrate-mode.md) states the rules.
 
 ## Red flags — STOP and reconsider
 

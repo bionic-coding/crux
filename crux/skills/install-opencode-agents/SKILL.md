@@ -153,8 +153,8 @@ spawn a role by its bare name, for example `reviewer` or `developer`.
 ### Subagent nesting depth
 
 OpenCode limits subagent nesting to one level by default, through `experimental.subagent_depth`
-in `opencode.json`. Crux's cycle chain runs the main session, then commander, then dev-lead,
-then developer, so it needs a depth of at least 3. This skill does not write the setting.
+in `opencode.json`. Crux's longest cycle chain runs the main session, then commander (as the lead), then
+dev-lead, then developer, so it needs a depth of at least 3. This skill does not write the setting.
 Tell the user to add it to their own OpenCode configuration:
 
 ```jsonc

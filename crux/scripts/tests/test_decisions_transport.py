@@ -239,7 +239,7 @@ class RequestBuildTests(Harness):
                 self.assertEqual(classifier_status().reason, 'registry-entry-invalid')
                 # The shared router still loads, and another model still resolves.
                 self.assertIn('gpt-6-luna-decisions', llm_caller.load_router_config()['models'])
-                self.assertEqual(llm_caller.get_model_config('gpt-6.1-sol').name, 'gpt-6.1-sol')
+                self.assertEqual(llm_caller.get_model_config('gpt-6.2-sol').name, 'gpt-6.2-sol')
 
     def test_the_registry_cannot_change_the_wire_denials(self):
         # Positive control for the two refusals above: the unmodified entry loads and sends both denials.

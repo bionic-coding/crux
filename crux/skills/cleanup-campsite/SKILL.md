@@ -27,7 +27,7 @@ This skill is portable across Claude Code, Codex, OpenCode, and OMP (Oh My Pi). 
 ## Current cycle work
 
 Include paused and active records under `<docs_dir>/cycles/` in unfinished-work
-inspection. Use the cycle reader to report current phase, pass limit, blockers,
+inspection. Use `cycle.py status` to report each record's state, task counts, blockers,
 and next action. Never advance a cycle during a hygiene scan. Promptbook guidance
 below applies only to historical records; do not recommend new promptbooks.
 
@@ -46,7 +46,7 @@ The output is `docs/whats_next.md` — a regenerated, prioritized action backlog
 
 Cleanup does NOT invoke `audit-docs` internally — different cadence (session-start vs. before-release), different exit semantics (audit's BROKEN findings block; cleanup's are suggestions), different write footprint. Cleanup CHECKS whether audit has run recently and emits a P1 "run audit-docs" suggestion if it hasn't.
 
-Cleanup ships **20 implemented scan rules** (CLN-* IDs) plus **one reserved id** for v0.2 (`CLN-XR-1`) and **four retired ids**, for 25 `CLN-*` ids total. The 20 implemented rules: `CLN-LOG-1` (operations-log repair and summary catch-up); `CLN-PJ-1a`, `CLN-PJ-1b`, `CLN-PJ-1c`, `CLN-PJ-2` (one rule, four sub-findings — three version-mismatch checks, against the Claude bare manifest, the Codex plugin manifest and the `crux-mods` plugin manifest, since all three joined the same version lock-step, plus the marketplace owner-placeholder check; still counted as a single rule id); `CLN-ADR-2`, `CLN-ADR-4`, `CLN-ADR-5` (decision-migration suggestion); `CLN-ADR-6` (open promotion requests); `CLN-OBJ-1` (objectives unpopulated); `CLN-PB-1`, `CLN-PB-2`, `CLN-PB-4`; `CLN-JR-2`; `CLN-WN-1`; `CLN-AUD-1` (audit-recency); `CLN-FG-1` (forged-skill staleness); `CLN-FG-2` (used-but-never-evaluated); `CLN-RETRO-1` (retrospective cadence, counting closed cycles); `CLN-TMPL-1` (dogfood↔template clause parity). (`CLN-AUD-1` was formerly the un-prefixed `cleanup-audit-stale` "not-a-CLN-rule" check; it now carries a standard rule id so the count is exact and the verification checklist needs no special-case exemption.) **Retired rule ids (never reused, never reimplemented):** `CLN-ADR-1`, `CLN-ADR-3`, `CLN-JR-1`, `CLN-PB-3`. See their stubs below for why. The count dropped by one for each rather than being backfilled, and `CLN-WN-1`'s stale-dismissal check skips any dismissal keyed to a retired id — those records are history that is being kept on purpose, not dead weight to age out.
+Cleanup ships **21 implemented scan rules** (CLN-* IDs) plus **one reserved id** for v0.2 (`CLN-XR-1`) and **four retired ids**, for 26 `CLN-*` ids total. The 21 implemented rules: `CLN-LOG-1` (operations-log repair and summary catch-up); `CLN-PJ-1a`, `CLN-PJ-1b`, `CLN-PJ-1c`, `CLN-PJ-2` (one rule, four sub-findings — three version-mismatch checks, against the Claude bare manifest, the Codex plugin manifest and the `crux-mods` plugin manifest, since all three joined the same version lock-step, plus the marketplace owner-placeholder check; still counted as a single rule id); `CLN-ADR-2`, `CLN-ADR-4`, `CLN-ADR-5` (decision-migration suggestion); `CLN-ADR-6` (open promotion requests); `CLN-OBJ-1` (objectives unpopulated); `CLN-PB-1`, `CLN-PB-2`, `CLN-PB-4`; `CLN-JR-2`; `CLN-WN-1`; `CLN-AUD-1` (audit-recency); `CLN-DRIFT-1` (weekly drift audit of committed `main`, Crux source checkout only); `CLN-FG-1` (forged-skill staleness); `CLN-FG-2` (used-but-never-evaluated); `CLN-RETRO-1` (retrospective cadence, counting closed cycles); `CLN-TMPL-1` (dogfood↔template clause parity). (`CLN-AUD-1` was formerly the un-prefixed `cleanup-audit-stale` "not-a-CLN-rule" check; it now carries a standard rule id so the count is exact and the verification checklist needs no special-case exemption.) **Retired rule ids (never reused, never reimplemented):** `CLN-ADR-1`, `CLN-ADR-3`, `CLN-JR-1`, `CLN-PB-3`. See their stubs below for why. The count dropped by one for each rather than being backfilled, and `CLN-WN-1`'s stale-dismissal check skips any dismissal keyed to a retired id — those records are history that is being kept on purpose, not dead weight to age out.
 
 ### What cleanup writes vs. what it proposes
 
@@ -381,6 +381,16 @@ These code paths are not exercised by the smoke test and should be exercised in 
 - **Proposed action:** "Run `audit-docs` — last audit was <N> days ago."
 - **Note:** this rule never *invokes* `audit-docs` (different cadence — see the boundary table); it only checks the log for recency and proposes the run.
 
+#### CLN-DRIFT-1 — weekly drift audit of committed main
+
+- **Existence gate:** runs only in a checkout that carries `tools/drift-audit.py`, which is the Crux source checkout. Elsewhere it silently skips.
+- **Reads:** `crux-drift-audit.json` in the directory that `git rev-parse --git-common-dir` names. `tools/drift-audit.py` writes it after each run that produced a verdict; the file is local and untracked.
+- **Looks for:** the file is missing, or its `audited_at` is more than 7 days before `${NOW}`.
+- **Stable id:** `cleanup-CLN-DRIFT-1-due` (singleton).
+- **Category:** `whats-next-stale`. **Severity:** P2.
+- **Proposed action:** "Run `uv run tools/drift-audit.py`, the weekly drift audit of committed `main`; the last run was <N> days ago (or never). File each finding as a queue item."
+- **Actor boundary:** proposes only. Cleanup never runs the audit, and the finding blocks no cycle or release.
+
 ### 4. Sort, cap, build the body
 
 - Collect all findings from step 3 (after dismissal filtering).
@@ -531,7 +541,7 @@ excuse→reality mapping and the recurring-mistake catalog, read
 [`references/pitfalls.md`](references/pitfalls.md).
 ## See also
 
-- `docs/AGENTS.md` §5.A (the whats_next.md schema) and §11 (the audit-docs boundary); the scan-rule roster is in this file's Overview (20 implemented + 4 retired + 1 reserved, for 25 ids).
+- `docs/AGENTS.md` §5.A (the whats_next.md schema) and §11 (the audit-docs boundary); the scan-rule roster is in this file's Overview (21 implemented + 4 retired + 1 reserved, for 26 ids).
 - `audit-docs/SKILL.md` — the boundary partner. Cleanup CHECKS whether audit ran recently; it does NOT invoke it.
 - `log-work/SKILL.md` (v0.2.0) — establishes the journal-as-reflection contract that cleanup honors (`CLN-JR-2` surfaces thin months as suggestions; never auto-drafts the entry itself).
 - `transition-adr/SKILL.md` — what users invoke after a CLN-ADR-2 finding (accept / deprecate / supersede).

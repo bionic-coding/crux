@@ -155,7 +155,7 @@ An owner-facing **evidence report** over `${CRUX_LOCAL_SKILLS_DIR}/forge-log.md`
 
 For each in-scope forged skill, list its **raw accumulated `evaluated` evidence front and centre**: the `verdict: effective` entries with their dates, any `fell-short`/`mixed` entries and whether a later `revised` resolved them, and the `authored` date. Present it as evidence, not a verdict.
 
-**Evidence authentication:** each quoted `evaluated` line passes the existing citation re-grep gate — re-grep it at its source in `${CRUX_LOCAL_SKILLS_DIR}/forge-log.md` (the gate authenticates the entry exists verbatim; it cannot corroborate the underlying success — the dev-cycle council remains the final gate).
+**Evidence authentication:** each quoted `evaluated` line passes the existing citation re-grep gate — re-grep it at its source in `${CRUX_LOCAL_SKILLS_DIR}/forge-log.md` (the gate authenticates the entry exists verbatim; it cannot corroborate the underlying success — the graduation cycle's review remains the final gate).
 
 **No threshold, no badge.** The old floor's shape (the ≥2-`effective`-on-≥2-distinct-dates-with-one-strictly-after count) MAY appear only as a **strictly informational** annotation of what the evidence shows — it MUST NOT be rendered as a threshold, a pass/fail badge, an "eligible now" flag, or a "nominated | floor-not-met" verdict. If neutral framing cannot be guaranteed, **drop the annotation** rather than let it re-anchor the owner's judgment on a quantity that measures the wrong thing. The report informs; the owner decides whether to start a graduation dev-cycle.
 
@@ -258,7 +258,7 @@ No new operations-log op is written by the retrospective itself. The `log-work -
 
 **`retro_due_runs` manifest key:** optional key under `docs/manifest.yml`'s `cleanup:` block. Default 5. Governs both CLN-RETRO-1's threshold and the first-run window default in Phase 1.
 
-**Cycle template follow-on:** the cycle promptbook template's summary prompt names "run a retrospective" as the natural follow-on after several archived books. That suggestion is advisory — the retro is user-invoked, not automatic.
+**Cycle template follow-on:** the historical cycle promptbook template's summary prompt names "run a retrospective" as the natural follow-on after several archived books. That suggestion is advisory — the retro is user-invoked, not automatic.
 
 **Mechanical round-trip invariant:** the heading form Phase 6 instructs `log-work` to emit (`## [YYYY-MM-DD HH:MM] learning | Retrospective: <window summary>`) must match the detection regex in Phase 1 (`^## \[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\] learning \| Retrospective: `). Format drift between these two surfaces fails a test, not the cadence.
 

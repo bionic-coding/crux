@@ -45,7 +45,7 @@ if HAVE_COUNCIL:
 
 DUMMY_KEY = "sk-or-test-dummy"
 SERVED = {  # the registry's api_strings, as the gateway reports them
-    "openai/gpt-6-astra": "OpenAI",
+    "openai/gpt-6.2-astra": "OpenAI",
     "anthropic/claude-opus-5.5": "Anthropic",
     "google/gemini-4-argon": "Google AI Studio",
 }
@@ -217,22 +217,22 @@ class GateSeatServedModelTests(unittest.TestCase):
             vote = asyncio.run(council._call_seat_async("openai", "q"))
         self.assertFalse(vote.errored)
         self.assertEqual(len(transport.requests), 1)
-        self.assertEqual(vote.served_model, "openai/gpt-6-astra")
+        self.assertEqual(vote.served_model, "openai/gpt-6.2-astra")
         self.assertEqual(vote.served_provider, "OpenAI")
         self.assertEqual(vote.generation_id, "gen-123")
 
     def test_a_mismatched_served_model_errors_the_seat_once_and_substitutes_nothing(self):
         def answer(payload, n):
-            return 200, reply_body(GOOD_VOTE, model="openai/gpt-6-astra-20260903")
+            return 200, reply_body(GOOD_VOTE, model="openai/gpt-6.2-astra-20261117")
         transport = CountingTransport(answer)
         with mock.patch.dict("os.environ", {"OPENROUTER_API_KEY": DUMMY_KEY}):
             vote = asyncio.run(gate_council(transport)._call_seat_async("openai", "q"))
         self.assertTrue(vote.errored)
         self.assertEqual(vote.fault_label, "served-model")
         self.assertEqual(len(transport.requests), 1, "a served-model fault is never retried")
-        self.assertEqual(vote.served_model, "openai/gpt-6-astra-20260903")
-        self.assertEqual(vote.requested_model, "openai/gpt-6-astra")
-        self.assertEqual(vote.registry_key, "gpt-6-astra")
+        self.assertEqual(vote.served_model, "openai/gpt-6.2-astra-20261117")
+        self.assertEqual(vote.requested_model, "openai/gpt-6.2-astra")
+        self.assertEqual(vote.registry_key, "gpt-6.2-astra")
         self.assertEqual(vote.decision, "DEFER_TO_HUMAN")
         self.assertEqual(vote.confidence, 0.0)
         self.assertEqual(vote.findings, [])
@@ -320,7 +320,7 @@ class VisualSeatServedModelTests(unittest.TestCase):
 
     def test_a_visual_seat_in_gate_mode_errors_on_a_mismatch(self):
         def answer(payload, n):
-            served = ("openai/gpt-6-astra-other" if payload["model"].startswith("openai/")
+            served = ("openai/gpt-6.2-astra-other" if payload["model"].startswith("openai/")
                       else payload["model"])
             return 200, reply_body(GOOD_VISION, model=served,
                                    provider=SERVED.get(payload["model"], "X"))
@@ -329,7 +329,7 @@ class VisualSeatServedModelTests(unittest.TestCase):
         bad, good = by_name["OpenAI-vision"], by_name["Claude-vision"]
         self.assertTrue(bad.errored)
         self.assertEqual(bad.fault_label, "served-model")
-        self.assertEqual(bad.served_model, "openai/gpt-6-astra-other")
+        self.assertEqual(bad.served_model, "openai/gpt-6.2-astra-other")
         self.assertFalse(good.errored)  # positive control: a matching seat answers
         self.assertEqual(good.served_model, "anthropic/claude-opus-5.5")
         self.assertEqual(len(transport.requests), 2, "one request per seat, no retry")
@@ -383,9 +383,9 @@ class MalformedReplyServedModelTests(unittest.TestCase):
                 self.assertTrue(vote.retried)
                 self.assertTrue(vote.recovered)
                 self.assertEqual(vote.first_fault_label, "malformed-response")
-                self.assertEqual(vote.served_model, "openai/gpt-6-astra")
+                self.assertEqual(vote.served_model, "openai/gpt-6.2-astra")
                 self.assertEqual([a["served_model"] for a in vote.attempts],
-                                 ["evil/other", "openai/gpt-6-astra"])
+                                 ["evil/other", "openai/gpt-6.2-astra"])
                 self.assertEqual([a["fault_label"] for a in vote.attempts],
                                  ["malformed-response", None])
 
@@ -407,13 +407,13 @@ class MalformedReplyServedModelTests(unittest.TestCase):
         # Control: the served model on the malformed reply changes nothing.
         for name, message in self.BAD_MESSAGES.items():
             with self.subTest(case=name):
-                transport = self.sequence(message, "openai/gpt-6-astra")
+                transport = self.sequence(message, "openai/gpt-6.2-astra")
                 with mock.patch.dict("os.environ", {"OPENROUTER_API_KEY": DUMMY_KEY}):
                     vote = asyncio.run(gate_council(transport)._call_seat_async("openai", "q"))
                 self.assertEqual(len(transport.requests), 2)
                 self.assertFalse(vote.errored)
                 self.assertTrue(vote.retried)
-                self.assertEqual(vote.served_model, "openai/gpt-6-astra")
+                self.assertEqual(vote.served_model, "openai/gpt-6.2-astra")
 
     def test_outside_gate_mode_a_malformed_reply_is_still_retried(self):
         transport = self.sequence("notadict", "somewhere/else")
@@ -514,8 +514,8 @@ class BrokenBodyServedModelTests(unittest.TestCase):
         # The served-model label is the served-model check's verdict, not a blanket
         # label for every gate parse fault: an accepted model keeps the parse label.
         cases = {
-            "choices-an-int": ({"choices": 5, "model": "openai/gpt-6-astra"}, "client-config"),
-            "choices-an-object": ({"choices": {"a": 1}, "model": "openai/gpt-6-astra"}, "unknown"),
+            "choices-an-int": ({"choices": 5, "model": "openai/gpt-6.2-astra"}, "client-config"),
+            "choices-an-object": ({"choices": {"a": 1}, "model": "openai/gpt-6.2-astra"}, "unknown"),
         }
         for name, (body, label) in cases.items():
             with self.subTest(case=name):
@@ -523,7 +523,7 @@ class BrokenBodyServedModelTests(unittest.TestCase):
                 self.assertTrue(vote.errored)
                 self.assertEqual(vote.fault_label, label)
                 self.assertEqual(len(transport.requests), 1)
-                self.assertEqual(vote.served_model, "openai/gpt-6-astra")
+                self.assertEqual(vote.served_model, "openai/gpt-6.2-astra")
 
     def test_a_body_that_is_not_json_is_malformed_response_and_retried_once_in_gate_mode(self):
         raw = RawTransport(b"<html>bad gateway page</html>")

@@ -489,7 +489,7 @@ class PublicationTimeRevalidation(migration_fixtures.MigrationFixture):
 
     def test_retired_successor_of_published_package(self):
         import decision_policy as dp
-        from cycle_workflow import digest, encoded
+        from cycle_store import digest, encoded
         import implementation_migration as historical
         subject = dp.propose(self.root, {"title": "Successor", "body": "# Successor\nKeep lasting context.",
             "governs": [{"handle": "lasting-context", "domain": "migration", "rule": "Keep lasting context.",

@@ -11,7 +11,8 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from cycle_workflow import create,tree,retained,CycleError,atomic
+import cycle_writer
+from cycle_store import tree,CycleError,atomic
 from cycle_council import convene,validate_approval,recover
 _cli_spec=importlib.util.spec_from_file_location('cycle_council_cli',Path(__file__).resolve().parents[1]/'cycle-council.py')
 cli=importlib.util.module_from_spec(_cli_spec);_cli_spec.loader.exec_module(cli)
@@ -21,6 +22,18 @@ try:
     HAVE_GATEWAY=True
 except ImportError:
     HAVE_GATEWAY=False
+
+
+def writer_cycle(root):
+    """A lightweight cycle record in a fresh git repository at `root`: planning, so its councils are active."""
+    import subprocess
+    for args in (('init','-q'),('config','user.email','test@example.invalid'),('config','user.name','Test'),('add','.'),('commit','-qm','Fixture')):
+        subprocess.run(['git','-C',str(root),*args],check=True,capture_output=True)
+    spec={'goal':'Fix','scope':['src'],'acceptance':['correct'],
+          'verification':{'checks':[{'id':'focused','rationale':'the change'}],'gaps':'none'},
+          'council':{'needed':False,'reason':'bounded fix'},
+          'tasks':[{'id':'build','description':'Fix','owner':'builder'}]}
+    return cycle_writer.create(root,'Fix','lead',spec)
 
 
 FIRST_BUDGET=64000
@@ -79,15 +92,16 @@ class CouncilTests(unittest.TestCase):
         (self.root/'bionic').mkdir();(self.root/'src').mkdir()
         (self.root/'bionic/manifest.yml').write_text('schema_version: "5"\nconcerns_enabled: [adrs]\n')
         (self.root/'bionic/objectives.md').write_text('Proportional ceremony and durable decisions.')
-        self.doc=create(self.root,'iterate','Fix','Outcome',['src'],['correct'],'builder','tester')
-        self.cfg=tree(self.root);self.subject=retained(self.cfg,self.doc['id'],'decisions',{'approach':'bounded fix'})['path']
+        self.doc=writer_cycle(self.root)
+        self.cfg=tree(self.root);self.subject=f"cycles/{self.doc['id']}/evidence/consultation.json"
+        atomic(self.cfg.docs_root/self.subject,{'approach':'bounded fix'})
     def run_council(self,votes=None,**kwargs):
         votes=votes or [CouncilVote(model=p+'/model',provider=p,decision='APPROVE',reasoning='supported',confidence=.9) for p in ('openai','anthropic','google')]
         result=CouncilDeliberation(votes=votes,consensus='UNANIMOUS_APPROVE',consensus_confidence=.9,key_agreements=[],key_disagreements=[],final_recommendation={})
         limits={'one':128000,'two':128000,'three':65536}
         with patch('crux_env.get',return_value='test-gateway-credential'),patch('crux.council.async_council.validate_gate_assignment',return_value={'openai_top':'one','anthropic_top':'two','google_top':'three'}),patch('crux.core.llm_caller.get_model_config',side_effect=lambda model:SimpleNamespace(max_output_tokens=limits[model])),patch('crux.council.async_council.AsyncCouncil') as council:
             council.return_value.deliberate=AsyncMock(side_effect=lambda *args: checkpointed_result(council.call_args.args[0], result))
-            output=convene(self.root,'idr',self.subject,'Review the material implementation choice.',cycle_id=self.doc['id'],**kwargs)
+            output=convene(self.root,'consultation',self.subject,'Review the material implementation choice.',cycle_id=self.doc['id'],**kwargs)
             config=council.call_args.args[0]
             self.assertIsInstance(config,AsyncCouncilConfig);self.assertTrue(config.gate)
             self.assertEqual(config.council_kind,'implementation');self.assertEqual(config.openai_model,'one')
@@ -100,16 +114,16 @@ class CouncilTests(unittest.TestCase):
             return output
     def test_configured_gate_approval_exact_bytes(self):
         output=self.run_council();self.assertEqual(output['outcome'],'approved')
-        validate_approval(self.root,output['record'],purpose='idr',subject=self.subject)
+        validate_approval(self.root,output['record'],purpose='consultation',subject=self.subject)
         (self.cfg.docs_root/self.subject).write_text('{}')
-        with self.assertRaises(CycleError):validate_approval(self.root,output['record'],purpose='idr',subject=self.subject)
+        with self.assertRaises(CycleError):validate_approval(self.root,output['record'],purpose='consultation',subject=self.subject)
     def test_blocking_finding_prevents_approval(self):
         votes=[CouncilVote(model=p+'/model',provider=p,decision='APPROVE',reasoning='supported',confidence=.9,findings=[{'kind':'blocking'}] if p=='openai' else []) for p in ('openai','anthropic','google')]
         self.assertEqual(self.run_council(votes)['outcome'],'changes-required')
     def test_secret_subject_never_sent(self):
         (self.cfg.docs_root/self.subject).write_text('test-gateway-credential')
         with patch('crux_env.get',return_value='test-gateway-credential'),patch('crux.council.async_council.AsyncCouncil') as council:
-            output=convene(self.root,'idr',self.subject,'review',cycle_id=self.doc['id'])
+            output=convene(self.root,'consultation',self.subject,'review',cycle_id=self.doc['id'])
             self.assertEqual(output['outcome'],'could-not-run');council.assert_not_called()
     def test_recovery_refuses_live_attempt(self):
         path=self.cfg.docs_root/'cycles'/self.doc['id']/'councils/attempt-test.json';path.parent.mkdir()
@@ -121,7 +135,7 @@ class CouncilTests(unittest.TestCase):
     def test_another_round_requires_progress(self):
         self.run_council()
         with self.assertRaisesRegex(CycleError,'meaningful progress'):
-            convene(self.root,'idr',self.subject,'review again',cycle_id=self.doc['id'])
+            convene(self.root,'consultation',self.subject,'review again',cycle_id=self.doc['id'])
 
     def test_explicit_64k_output_budget_reaches_config_and_attempt(self):
         self.assertEqual(self.run_council(max_tokens=64000)['outcome'],'approved')
@@ -140,7 +154,7 @@ class CouncilTests(unittest.TestCase):
             return httpx.Response(200,json={'model':cfg.api_string,'provider':next(iter(cfg.accepted_served_providers)),
                                            'choices':[{'finish_reason':'stop','message':{'content':json.dumps(vote)}}]})
         with patch('crux_env.get',return_value='test-gateway-credential'),patch('crux.council.async_council.get',return_value='test-gateway-credential'),patch.dict('os.environ',{'OPENROUTER_API_KEY':'test-gateway-credential'}):
-            output=convene(self.root,'idr',self.subject,'review',cycle_id=self.doc['id'],
+            output=convene(self.root,'consultation',self.subject,'review',cycle_id=self.doc['id'],
                            max_tokens=64000,transport=httpx.MockTransport(reply))
         self.assertEqual(output['outcome'],'approved');self.assertEqual(len(requests),3)
         self.assertEqual({row['model'] for row in requests},set(models))
@@ -152,7 +166,7 @@ class CouncilTests(unittest.TestCase):
     def test_budget_above_smallest_seat_limit_refuses_before_attempt_or_request(self):
         with patch('crux.council.async_council.validate_gate_assignment',return_value={'openai_top':'one','anthropic_top':'two','google_top':'three'}),patch('crux.core.llm_caller.get_model_config',side_effect=lambda model:SimpleNamespace(max_output_tokens={'one':128000,'two':128000,'three':65536}[model])),patch('crux.council.async_council.AsyncCouncil') as council:
             with self.assertRaisesRegex(CycleError,'max_tokens.*65536'):
-                convene(self.root,'idr',self.subject,'review',cycle_id=self.doc['id'],max_tokens=65537)
+                convene(self.root,'consultation',self.subject,'review',cycle_id=self.doc['id'],max_tokens=65537)
             council.assert_not_called()
         self.assertFalse(list(self.cfg.docs_root.rglob('attempt-*')))
 
@@ -160,13 +174,13 @@ class CouncilTests(unittest.TestCase):
         for value in (0,-1,True,False,1.5,'64000'):
             with self.subTest(value=value),patch('crux.council.async_council.AsyncCouncil') as council:
                 with self.assertRaisesRegex(CycleError,'max_tokens.*positive integer'):
-                    convene(self.root,'idr',self.subject,'review',cycle_id=self.doc['id'],max_tokens=value)
+                    convene(self.root,'consultation',self.subject,'review',cycle_id=self.doc['id'],max_tokens=value)
                 council.assert_not_called()
         self.assertFalse(list(self.cfg.docs_root.rglob('attempt-*')))
 
     def test_missing_key_preserves_no_key_outcome_even_with_invalid_assignment(self):
         with patch('crux_env.get',return_value=None),patch('crux.council.async_council.validate_gate_assignment',side_effect=ValueError('invalid registry')),patch('crux.council.async_council.AsyncCouncil') as council:
-            output=convene(self.root,'idr',self.subject,'review',cycle_id=self.doc['id'],max_tokens=64000)
+            output=convene(self.root,'consultation',self.subject,'review',cycle_id=self.doc['id'],max_tokens=64000)
             council.assert_not_called()
         record=json.loads((self.cfg.docs_root/output['record']).read_text())
         self.assertEqual(output['outcome'],'could-not-run');self.assertEqual(record['reason'],'no-key')
@@ -175,14 +189,14 @@ class CouncilTests(unittest.TestCase):
 
     def test_invalid_assignment_preserves_setup_failure_record(self):
         with patch('crux_env.get',return_value='test-gateway-credential'),patch('crux.council.async_council.validate_gate_assignment',side_effect=ValueError('invalid registry')),patch('crux.council.async_council.AsyncCouncil') as council:
-            output=convene(self.root,'idr',self.subject,'review',cycle_id=self.doc['id'])
+            output=convene(self.root,'consultation',self.subject,'review',cycle_id=self.doc['id'])
             council.assert_not_called()
         record=json.loads((self.cfg.docs_root/output['record']).read_text())
         self.assertEqual(output['outcome'],'could-not-run');self.assertEqual(record['reason'],'ValueError')
 
     def test_invalid_selected_output_limit_preserves_setup_failure_record(self):
         with patch('crux_env.get',return_value='test-gateway-credential'),patch('crux.council.async_council.validate_gate_assignment',return_value={'openai_top':'one','anthropic_top':'two','google_top':'three'}),patch('crux.core.llm_caller.get_model_config',side_effect=lambda model:SimpleNamespace(max_output_tokens={'one':128000,'two':True,'three':65536}[model])),patch('crux.council.async_council.AsyncCouncil') as council:
-            output=convene(self.root,'idr',self.subject,'review',cycle_id=self.doc['id'])
+            output=convene(self.root,'consultation',self.subject,'review',cycle_id=self.doc['id'])
             council.assert_not_called()
         record=json.loads((self.cfg.docs_root/output['record']).read_text())
         self.assertEqual(output['outcome'],'could-not-run');self.assertEqual(record['reason'],'ValueError')
@@ -194,7 +208,7 @@ class CouncilRecordBudgetTests(unittest.TestCase):
     def test_legacy_record_carries_per_attempt_budget_with_escalated_retry(self):
         transport,models,seen,calls=truncating_gateway()
         with patch('crux_env.get',return_value='test-gateway-credential'),patch('crux.council.async_council.get',return_value='test-gateway-credential'),patch.dict('os.environ',{'OPENROUTER_API_KEY':'test-gateway-credential'}):
-            output=convene(self.root,'idr',self.subject,'review',cycle_id=self.doc['id'],max_tokens=FIRST_BUDGET,transport=transport)
+            output=convene(self.root,'consultation',self.subject,'review',cycle_id=self.doc['id'],max_tokens=FIRST_BUDGET,transport=transport)
         record=json.loads((self.cfg.docs_root/output['record']).read_text())
         assert_record_budgets(self,record,models,seen,calls)
 
@@ -228,7 +242,7 @@ class DispositionCouncilTests(MigrationFixture):
         import httpx
         from crux.council.async_council import validate_gate_assignment
         from crux.core.llm_caller import get_model_config
-        from cycle_workflow import digest
+        from cycle_store import digest
         from cycle_council import validate_approval
         models={cfg.api_string:cfg for cfg in (get_model_config(model) for model in validate_gate_assignment().values())}
         requests=[]
@@ -259,7 +273,7 @@ class DispositionCouncilTests(MigrationFixture):
         import adr_migration as migration
         from crux.council.async_council import validate_gate_assignment
         from crux.core.llm_caller import get_model_config
-        from cycle_workflow import digest
+        from cycle_store import digest
         models={cfg.api_string:cfg for cfg in (get_model_config(model) for model in validate_gate_assignment().values())}
         def reply(request):
             cfg=models[json.loads(request.content)['model']]
@@ -333,7 +347,7 @@ class ModeAwareCouncilTests(unittest.TestCase):
         assert_record_budgets(self,record,models,seen,calls)
     def test_standard_writer_and_common_accepting_validator(self):
         from council_policy import disposition
-        from cycle_workflow import digest
+        from cycle_store import digest
         output,_=self.call();self.assertEqual(output['outcome'],'awaiting-architect')
         result=disposition(self.root,output['record'],{'agrees':True,'subject_sha256':digest((self.docs/'adrs/subject.txt').read_bytes()),'rationale':'All constraints checked.','dissent':[]})
         self.assertEqual(result['outcome'],'approved')
@@ -348,7 +362,7 @@ class ModeAwareCouncilTests(unittest.TestCase):
         self.assertFalse(list(self.docs.rglob('attempt-*.json')))
     def test_after_dispatch_error_cannot_pass_with_two_votes(self):
         from council_policy import disposition
-        from cycle_workflow import digest
+        from cycle_store import digest
         votes=[CouncilVote(model=p+'/model',provider=p,decision='APPROVE' if p!='google' else None,reasoning='supported',confidence=.9,errored=p=='google') for p in ('openai','anthropic','google')]
         output,_=self.call(votes)
         result=disposition(self.root,output['record'],{'agrees':True,'subject_sha256':digest((self.docs/'adrs/subject.txt').read_bytes()),'rationale':'Proceed','dissent':[{'provider':'google','kind':'accepted-tradeoff','explanation':'Unavailable provider'}]})
@@ -363,10 +377,22 @@ class ModeAwareCouncilTests(unittest.TestCase):
         with self.assertRaises(CycleError):
             validate_record({'format':'crux.cycle-council.v99'},purpose='adr',subject='adrs/subject.txt',subject_sha256='0'*64)
 
-    def test_adr_acceptance_and_idr_gate_share_mode_evaluator(self):
+    def test_attempt_limit_refusal_names_no_retired_command(self):
+        import cycle_council
+        for number in range(7):
+            _,path,_,_=cycle_council.begin_mode(self.root,'consultation','adrs/subject.txt','Judge.',identity='limit',
+                                               progress=None if number==0 else f'New evidence {number}.')
+            cycle_council.recover(self.root,path.relative_to(self.docs).as_posix())
+        with self.assertRaisesRegex(CycleError,'attempt limit exhausted') as refused:
+            cycle_council.begin_mode(self.root,'consultation','adrs/subject.txt','Judge.',identity='limit',progress='New evidence 8.')
+        message=str(refused.exception).lower()
+        for word in ('withdraw','owner','extension'):self.assertNotIn(word,message)
+
+    def test_adr_acceptance_uses_the_mode_evaluator_and_retired_purposes_refuse(self):
+        import cycle_council
         import decision_policy as dp
         from council_policy import disposition
-        from cycle_workflow import digest,mutate,load
+        from cycle_store import digest
         (self.docs/'manifest.yml').write_text('schema_version: "5"\nconcerns_enabled: [adrs]\nadr:\n  next_number: 1\n')
         proposal=dp.propose(self.root,{'title':'Evidence','body':'# Decision\nKeep evidence.\n',
             'governs':[{'domain':'evidence','scope':'tree','rule':'Keep evidence.','handle':'keep-evidence'}]},origin='direct')['path']
@@ -374,21 +400,19 @@ class ModeAwareCouncilTests(unittest.TestCase):
         disposition(self.root,reviewed['record'],{'agrees':True,'subject_sha256':digest((self.docs/proposal).read_bytes()),'rationale':'Proceed','dissent':[]})
         accepted=dp.accept(self.root,proposal,reviewed['record'],human_approval='Owner accepts this exact ADR')
         self.assertEqual(accepted['standing'],'binding');dp.validate_acceptance(tree(self.root),{'path':proposal})
-        cycle=create(self.root,'iterate','Choice','Outcome',['source'],['Correct'],'developer','coordinator')
-        contents={'approach':'Use shared reader','alternatives':'Separate readers','assumptions':['Accepted constraints'],
-                  'constraints':'Preserve history','intended_evidence':'Related checks'}
-        mutate(self.root,cycle['id'],'decision',kind='idr',name='shared-choice',contents=contents)
-        first=load(self.root,cycle['id'])['decisions'][-1]['path']
-        review,_=self.call(purpose='idr',subject=first,cycle_id=cycle['id'])
-        disposition(self.root,review['record'],{'agrees':True,'subject_sha256':digest((self.docs/first).read_bytes()),'rationale':'Proceed','dissent':[]})
-        mutate(self.root,cycle['id'],'approve-decision',subject=first,approval=review['record'])
-        from cycle_council import logical_identity,history
-        logical=logical_identity(tree(self.root),'idr',first,cycle['id'])
-        mutate(self.root,cycle['id'],'decision',kind='idr',name='shared-choice',contents=dict(contents,approach='Use the same shared reader after evidence'))
-        second=load(self.root,cycle['id'])['decisions'][-1]['path']
-        self.assertNotEqual(first,second)
-        self.assertEqual(logical_identity(tree(self.root),'idr',second,cycle['id']),logical)
-        self.assertEqual(len(history(tree(self.root),'idr',second,logical,cycle['id'])),1)
+        cycle=cycle_writer.create(self.root,'Choice','lead',{'goal':'Choose','scope':['src'],'acceptance':['Correct']})
+        first=f"cycles/{cycle['id']}/decisions/shared-choice.json"
+        atomic(self.docs/first,{'name':'shared-choice','cycle_id':cycle['id'],'contents':{'approach':'Use shared reader'}})
+        attempts=sorted(self.docs.rglob('attempt-*.json'))
+        for purpose,subject in (('idr',first),('adr-creation',first)):
+            with self.subTest(purpose=purpose):
+                with self.assertRaisesRegex(CycleError,'council is retired'):
+                    self.call(purpose=purpose,subject=subject,cycle_id=cycle['id'])
+                with self.assertRaisesRegex(CycleError,'council is retired'):
+                    cycle_council.begin_mode(self.root,purpose,subject,'Review',cycle_id=cycle['id'])
+                with self.assertRaisesRegex(CycleError,'council is retired'):
+                    cycle_council.launch_detached(self.root,['--purpose',purpose],purpose=purpose,subject=subject,cycle_id=cycle['id'])
+        self.assertEqual(sorted(self.docs.rglob('attempt-*.json')),attempts)
 
     def test_section_removal_cannot_reset_started_mode_history(self):
         self.call()
@@ -411,7 +435,7 @@ class ModeAwareCouncilTests(unittest.TestCase):
     def test_normalized_reject_and_architectural_are_dispositionable_dissent(self):
         from crux.council.async_council import _parse_gate_findings
         from council_policy import disposition
-        from cycle_workflow import digest
+        from cycle_store import digest
         for token in ('REJECT','ARCHITECTURAL'):
             votes=[CouncilVote(model=p+'/model',provider=p,decision=token if p=='google' else 'APPROVE',reasoning='supported',confidence=.9,
                 findings=_parse_gate_findings('google_top',[{'id':'F1','dimension':'Security','safety_adjacent':True,'kind':'blocking','text':'Potential constraint conflict; verify artifact.'}]) if p=='google' else []) for p in ('openai','anthropic','google')]
@@ -423,7 +447,7 @@ class ModeAwareCouncilTests(unittest.TestCase):
             self.assertEqual(result['outcome'],'approved')
     def test_architect_cannot_clear_established_binding_failure_by_omission(self):
         from council_policy import disposition
-        from cycle_workflow import digest
+        from cycle_store import digest
         output,_=self.call();base={'agrees':True,'subject_sha256':digest((self.docs/'adrs/subject.txt').read_bytes()),'rationale':'Await required authorization','dissent':[]}
         blocked=disposition(self.root,output['record'],dict(base,binding_failures=['Missing required owner authorization']))
         self.assertEqual(blocked['outcome'],'changes-required')
@@ -436,3 +460,30 @@ class ModeAwareCouncilTests(unittest.TestCase):
                     'evidence':{'path':'authorization-check.txt','sha256':digest(artifact.read_bytes())}}
         cleared=disposition(self.root,output['record'],dict(base,binding_resolutions=[resolution]))
         self.assertEqual(cleared['outcome'],'approved')
+
+
+class HistoricalCouncilRecordTests(unittest.TestCase):
+    """Committed records of the retired IDR and ADR-creation purposes keep validating, read from the tree alone."""
+    CASES = (
+        ('legacy IDR record', 'idr', 'cycles/CYC-0007/councils/council-aaa9c6313fd94d1b8da3a8649926eee0.json'),
+        ('mode-aware IDR record', 'idr', 'cycles/CYC-0019/councils/decisions/aab43297849241414fba7c87/council-197f95fb90414af382c2175526384e55.json'),
+        ('IDR record with a stored delta', 'idr', 'cycles/CYC-0127/councils/decisions/c04a26ed2deed08d29be7ffb/council-2f9d8a1b13c84b948a01b762b4107851.json'),
+        ('ADR-creation record', 'adr-creation', 'cycles/CYC-0090/councils/decisions/1b8755644382a4a21ab5e2d3/council-91c00551b2d743a19bfe8b07798886c8.json'),
+    )
+
+    def setUp(self):
+        from _dev_surface import REPO_ROOT, TREE, require_dev_surface
+        self.repo,self.tree=REPO_ROOT,TREE
+        require_dev_surface(self,REPO_ROOT/TREE/'cycles/CYC-0007',"committed historical cycle records")
+
+    def test_committed_idr_and_adr_creation_records_validate(self):
+        for label,purpose,record in self.CASES:
+            with self.subTest(label):
+                subject=json.loads((self.repo/self.tree/record).read_text())['subject']
+                self.assertEqual(validate_approval(self.repo,record,purpose=purpose,subject=subject)['purpose'],purpose)
+
+    def test_an_owner_capture_of_a_typed_record_validates_through_the_read_only_reader(self):
+        capture='cycles/CYC-0149/owner-decisions/captures/c149-capture-idr-r2.json'
+        record=json.loads((self.repo/self.tree/capture).read_text())
+        validated=validate_approval(self.repo,capture,purpose='idr',subject=record['subject'])
+        self.assertEqual((validated['purpose'],validated['disposition']),('idr','approve'))

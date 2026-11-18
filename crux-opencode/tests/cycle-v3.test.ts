@@ -2,7 +2,7 @@
 // strictly, and draws the open attempts, the classification count, owner exception and revision through the
 // shared core.
 import { test, expect } from 'claude-code/testing'
-import { panelNode, readView } from '../lib/render.ts'
+import { bandNode, panelNode, readView } from '../lib/render.ts'
 import { parseReader } from '../../crux-mods/hooks/lib/view.ts'
 import { cycleRow, doc, plain, rowsOf } from './fixtures/cycles.ts'
 import { jsonText } from './fixtures/plain.ts'
@@ -86,4 +86,43 @@ test('a shortcut cycle reads and draws as closed work, with its queue item as fi
   expect(text).toContain('\u2713 Q-0001 CYC-0007 shortcut')
   // Positive control: the same row as an active cycle draws no closed row.
   expect(linesOf(doc([v3Row('active')])).join('\n').includes('shortcut')).toBe(false)
+})
+
+// The row cycle.py status --json prints for a crux.cycle.v1 record of kind release: a pilot row whose fixed
+// beta step list is its task list.
+const betaSteps = [
+  ['prep', 'Prepare the release: bump the versions'],
+  ['prepare', 'Bind this cycle to the beta target'],
+  ['verify', 'Run release.py verify: freeze the artifact'],
+  ['beta-and-smoke', 'Publish the untagged beta'],
+  ['tag', 'Tag the beta and create its release'],
+  ['record', 'Copy the ledger into this cycle'],
+] as const
+const releaseRow = (status: string, taskStatus: string, reflection: string) => ({
+  ...cycleRow(1, status), schema_version: 'crux.cycle.v1', revision: 7, type: 'pilot', title: 'Release 9.9.9',
+  phase: status === 'completed' ? 'completed' : 'working', pass: 1, pass_limit: 1,
+  phases: ['planning', 'working', 'reviewing', 'reviewed', 'completed'],
+  tasks: betaSteps.map(([id, text]) => ({ id, phase: 'working', description: `${text} [lead-a run 0]`, status: taskStatus })),
+  reflection, phase_times: [], basis: 'derived',
+})
+
+test('a crux.cycle.v1 release record reads and draws its six fixed steps and its delivery facts', () => {
+  const open = linesOf(doc([releaseRow('active', 'pending', 'Delivery, recorded separately: PR: none; CI: unknown; merge: unmerged')])).join('\n')
+  for (const [, text] of betaSteps) expect(open).toContain(text)
+  expect(open).toContain('CYC-0001')
+  expect(open).toContain('0/6')
+  // A current record draws its steps and no type label or pass count.
+  expect(open.includes('pilot')).toBe(false)
+  expect(open).toContain('✓ planning › ▸ working › ◌ reviewing › ◌ reviewed › ◌ completed')
+  expect(/pass \d/.test(open)).toBe(false)
+  // The band states the status once, in the current step, and draws a glyph per step.
+  const opened = readOf(doc([releaseRow('active', 'pending', 'x')]))
+  expect(rowsOf(bandNode(opened, 100)).map(plain)[0]).toContain('CYC-0001  ✓ ▸ working ◌ ◌ ◌  0/6 tasks')
+  const finished = readOf(doc([releaseRow('completed', 'done', 'x')]))
+  expect(rowsOf(bandNode(finished, 100)).map(plain)[0]).toContain('CYC-0001  ✓ ✓ ✓ ✓ ✓ completed  6/6 tasks')
+  const done = linesOf(doc([releaseRow('completed', 'done', 'Completed. Delivery, recorded separately: PR: none; CI: unknown; merge: unmerged')])).join('\n')
+  expect(done).toContain('6/6')
+  expect(done).toContain('Completed. Delivery, recorded separately')
+  // Positive control: a string format the pilot rule does not know refuses the document.
+  expect(readOf(doc([{ ...releaseRow('active', 'pending', 'x'), schema_version: 'crux.cycle.v2' }]))?.ok).toBe(false)
 })

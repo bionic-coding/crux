@@ -113,14 +113,10 @@ class RegisteredTierChecksTests(unittest.TestCase):
         self.assertTrue(full_registered)
         self.assertEqual(full["check_id"], CORE)
 
-    def test_the_new_ids_resolve_as_ordinary_registered_checks_in_the_evidence_and_cycle_readers(self):
-        from types import SimpleNamespace
-        import cycle_ops
-        cfg = SimpleNamespace(repo_root=self.root)
+    def test_the_new_ids_resolve_as_ordinary_registered_checks_in_the_evidence_reader(self):
         for check in (TIERS, CORE_RELEASE, TOOLS_RELEASE):
             with self.subTest(check=check):
                 self.assertEqual(te.registered_declaration(self.root, check), self.declared[check])
-                self.assertEqual(cycle_ops.check_declaration(cfg, check), self.declared[check])
         with te.call_scope():
             self.assertEqual(te.registered_declaration(self.root, TIERS), self.declared[TIERS])
 

@@ -133,7 +133,7 @@ class LockCase(unittest.TestCase):
             time.sleep(0.05)
 
     def lock_is_held(self):
-        """What the cycle writer asks: is the lock held by anyone? A shared non-blocking probe, as cycle_commit does."""
+        """What the cycle writer asks: is the lock held by anyone? A shared non-blocking probe, as cycle_store does."""
         try:
             fd = os.open(self.lock_path, os.O_RDONLY)
         except OSError:
@@ -227,16 +227,16 @@ class HoldTests(LockCase):
     def test_the_cycle_writer_defers_its_record_commit_while_a_direct_run_executes(self):
         sys.path.insert(0, str(SCRIPTS))
         self.addCleanup(sys.path.remove, str(SCRIPTS))
-        import cycle_commit
+        import cycle_store
         cfg = types.SimpleNamespace(repo_root=self.repo)
         ready, hold = self.scratch / "ready", self.scratch / "hold"
         run = self.start_driver(REGISTERED, "--shared-evidence", STUB_READY=str(ready), STUB_HOLD=str(hold))
         self.wait_for(ready)
-        self.assertTrue(cycle_commit.suite_running(cfg), "the writer cannot see the direct run")
-        self.assertEqual(cycle_commit.deferral(cfg)[0], "full-suite-running")
+        self.assertTrue(cycle_store.suite_running(cfg), "the writer cannot see the direct run")
+        self.assertEqual(cycle_store.deferral(cfg)[0], "full-suite-running")
         hold.write_text("go")
         run.communicate(timeout=60)
-        self.assertFalse(cycle_commit.suite_running(cfg))
+        self.assertFalse(cycle_store.suite_running(cfg))
 
     def test_a_killed_run_releases_the_lock(self):
         ready = self.scratch / "ready"

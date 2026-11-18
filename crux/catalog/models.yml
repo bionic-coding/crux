@@ -30,8 +30,8 @@ providers:
 # the endpoint. See ADR-0072 §3 for why the alias table is the only place a
 # model id may appear.
 # `sonnet-latest` was re-read 2026-09-28 from https://openrouter.ai/api/v1/models.
-# `sol-latest` was re-read 2026-09-29 from the same endpoint: `openai/gpt-6.1-sol`,
-# canonical slug `openai/gpt-6.1-sol-20260929`.
+# `sol-latest` was re-read 2026-11-17 from the same endpoint: `openai/gpt-6.2-sol`,
+# canonical slug `openai/gpt-6.2-sol-20261117`. It replaces `openai/gpt-6.1-sol`.
 # `kimi-latest` was read 2026-11-05 from https://openrouter.ai/api/v1/models:
 # `moonshotai/kimi-k3.1-pro`, canonical slug `moonshotai/kimi-k3.1-pro-20261023`.
 # The alias pins that id, never the moving `~moonshotai/kimi-latest` router.
@@ -40,7 +40,7 @@ aliases:
   opus-latest: openrouter/anthropic/claude-opus-5.5
   sonnet-latest: openrouter/anthropic/claude-sonnet-5.5
   haiku-latest: openrouter/anthropic/claude-haiku-5.5
-  sol-latest: openrouter/openai/gpt-6.1-sol
+  sol-latest: openrouter/openai/gpt-6.2-sol
   qwen-max: openrouter/qwen/qwen3.8-2.4t-a95b
   deepseek-flash: openrouter/deepseek/deepseek-v4.1-flash-1017
   kimi-latest: openrouter/moonshotai/kimi-k3.1-pro
@@ -90,7 +90,7 @@ aliases:
 # is same-tier when the agent's level is in its tier set. It is cross-tier
 # when the set is non-empty and lacks that level, and of undeterminable tier
 # when no level names the value. Editing an agent's `level:` re-runs the
-# inference. Six overrides predate the rule: validate-catalog.py lists each
+# inference. Five overrides predate the rule: validate-catalog.py lists each
 # as an exact (agent, level, column, value) tuple and warns on it until the
 # owner settles it with an ADR, a same-tier value or a revert.
 #
@@ -146,17 +146,17 @@ agents:
     level: apex
     opencode: kimi-latest
     codex:
-      model: gpt-6.1-sol
-      reasoning_effort: xhigh
-      verified: "2026-09-29"
-      source: "OpenAI GPT-6.1 Sol model documentation and Codex 0.159.0 models_cache.json checked 2026-09-29, which lists `gpt-6.1-sol`"
+      model: gpt-6.2-astra
+      reasoning_effort: medium
+      verified: "2026-11-17"
+      source: "OpenAI GPT-6.2 Astra model documentation and Codex 0.169.1 models_cache.json checked 2026-11-17, which lists `gpt-6.2-astra`"
     authority:
       opencode:
         instruction: "OpenCode overrides to Kimi K3.1 Pro by owner instruction, 2026-11-05, replacing Gemini 4 Argon, which errored. Owner commit 9339b4081."
         date: "2026-11-05"
       codex:
-        instruction: "Codex override re-pointed from GPT-5.6 Sol to its successor, GPT-6 Sol, by owner instruction, 2026-09-22. Effort stays xhigh. (7dcb4c1a5^:crux/catalog/models.yml:89-90.) Re-pointed to GPT-6.1 Sol by owner commit ca16b8921: 'Move every GPT-6 Sol assignment to GPT-6.1 Sol'"
-        date: "2026-09-29"
+        instruction: "Codex override set to GPT-6.2 Astra at medium effort by owner instruction, 2026-11-17: 'gpt-6.2-astra at medium.' It replaces the override to Sol at xhigh, which predated the tier rule. Astra is the apex level's own Codex model, so the override stays within the reviewer's tier and changes the effort only. Recorded as CYC-0180 plan revision 2."
+        date: "2026-11-17"
   wayfinder: standard
 
 # Table 4 — level -> per-harness resolution. `opencode` is optional; a level
@@ -172,19 +172,32 @@ agents:
 # date the pair was last checked against that source — rule V4 warns past 180
 # days — so the two fields answer different questions and neither is decoration.
 #
-# Astra and its high effort setting were re-verified 2026-09-22 against the
-# local Codex 0.155.1 models_cache.json, fetched that day. The exact slug is
-# `gpt-6-astra`. Codex availability does not establish OpenRouter availability.
-#
-# PROVENANCE for Sol. The slug is an external contract owned by OpenAI. It was
-# verified 2026-09-29 against two sources. (1) The official model page:
-#   https://developers.openai.com/api/docs/models/gpt-6.1-sol
-# which lists the efforts low, medium (the default), high, xhigh and max, and
-# neither none nor minimal. (2) The local codex-cli 0.159.0 catalog, fetched
-# 2026-09-29, which lists `gpt-6.1-sol` with the efforts low, medium, high,
-# xhigh, max, ultra. Bare `gpt-6.1` is not a Codex slug, so the concrete slug is
-# pinned here. The GPT-6 Sol slug `gpt-6-sol` is retired from this file and from
-# the router registry.
+# PROVENANCE for Astra and Sol. Each slug is an external contract owned by
+# OpenAI. Apex and flagship moved to the GPT-6.2 successors by owner
+# instruction, 2026-11-17 (queue item Q-0125). The owner supplied the
+# specifications: `gpt-6.2-astra` supports the efforts low, medium, high, xhigh
+# and max at $8 input and $40 output per 1M tokens; `gpt-6.2-sol` supports the
+# same efforts at $2 input and $10 output per 1M tokens. Both slugs were
+# verified 2026-11-17 against three sources. (1) The local Codex catalog,
+# ~/.codex/models_cache.json, written by client version 0.169.1 and fetched
+# 2026-11-18T00:48Z (2026-11-17 local), which lists `gpt-6.2-astra` and
+# `gpt-6.2-sol`, each with the efforts low, medium, high, xhigh, max, ultra and
+# the default low. The installed codex-cli reported 0.169.0. (2) The official
+# model pages:
+#   https://developers.openai.com/api/docs/models/gpt-6.2-astra
+#   https://developers.openai.com/api/docs/models/gpt-6.2-sol
+# which name the slugs, state the supplied prices and say the API rejects
+# effort none. (3) The OpenRouter models endpoint, which lists
+# `openai/gpt-6.2-astra` and `openai/gpt-6.2-sol` with the efforts max, xhigh,
+# high, medium (the default) and low. The model pages list no efforts. The
+# Codex catalog, the OpenRouter endpoint and the owner specification disagree
+# on the default and on ultra; all three list medium, high and xhigh. Bare
+# `gpt-6.2` is not a Codex slug, so the
+# concrete slugs are pinned here. Codex availability does not establish
+# OpenRouter availability. The slugs `gpt-6-astra` and `gpt-6.1-sol` are
+# retired from this file and from the router registry. The catalog records
+# generated configuration: no installed Codex, OpenCode or OMP host was
+# reloaded or exercised for this move.
 #
 # PROVENANCE for Terra. Verified 2026-10-26 against two sources. (1) The
 # official model page:
@@ -195,27 +208,31 @@ agents:
 # the default low. The sources disagree on both ends and the default; both
 # list high.
 #
-# The reviewer is an approved per-agent exception. Its complete Codex runtime
-# block cites the official GPT-6.1 Sol model documentation and the Codex 0.159.0
-# catalog, both checked 2026-09-29. Both list `xhigh` as a supported reasoning
-# effort for `gpt-6.1-sol`.
+# The reviewer carries the one Codex override. By owner instruction,
+# 2026-11-17, it selects `gpt-6.2-astra`, the apex level's own Codex model, at
+# medium effort where the level uses high. Its complete Codex runtime block
+# cites the official GPT-6.2 Astra model documentation and the Codex 0.169.1
+# catalog, both checked 2026-11-17. The Codex catalog lists `medium` as a
+# supported reasoning effort for `gpt-6.2-astra`, as do the owner-supplied
+# specification and the OpenRouter catalog. The earlier override to Sol at
+# xhigh, which predated the tier rule, is gone.
 levels:
   apex:
     claude: claude-opus-5-5
     opencode: opus-latest
     codex:
-      model: gpt-6-astra
+      model: gpt-6.2-astra
       reasoning_effort: high
-      verified: "2026-09-22"
-      source: "Codex 0.155.1 models_cache.json fetched 2026-09-22, which lists `gpt-6-astra`"
+      verified: "2026-11-17"
+      source: "OpenAI GPT-6.2 Astra model documentation + Codex 0.169.1 models_cache.json fetched 2026-11-17, which lists `gpt-6.2-astra`"
   flagship:
     claude: claude-opus-5-5
     opencode: sol-latest
     codex:
-      model: gpt-6.1-sol
+      model: gpt-6.2-sol
       reasoning_effort: high
-      verified: "2026-09-29"
-      source: "OpenAI GPT-6.1 Sol model documentation + Codex 0.159.0 models_cache.json fetched 2026-09-29, which lists `gpt-6.1-sol`"
+      verified: "2026-11-17"
+      source: "OpenAI GPT-6.2 Sol model documentation + Codex 0.169.1 models_cache.json fetched 2026-11-17, which lists `gpt-6.2-sol`"
   standard:
     claude: claude-sonnet-5-5
     opencode: glm-latest
